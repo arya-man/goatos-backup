@@ -102,6 +102,35 @@ type GrowthTrendPoint struct {
 	PairCount int `json:"pair_count"`
 }
 
+// GrowthWeeklyGainPoint is one calendar week of the farm's daily gain, computed as the
+// IDENTICAL statistic the headline reports (maintainer decision 2026-08-26): the
+// ANIMAL-WEIGHTED MEAN over every kid weighed twice, each kid once at the median of its own
+// pairs in that week, PLUS every whole-shed pen whose average moved, each pen contributing
+// once per animal it holds.
+//
+// It is a SEPARATE type from GrowthTrendPoint beside it, and deliberately so. That one is the
+// MEDIAN over SCANNED PAIRS ONLY and is kept for the surfaces already reading it; this one is
+// the herd number. Most of this farm's kids are weighed by the whole shed, so a weekly chart
+// built on the pair median would sit on the same page as a headline computed from a different
+// population and quietly disagree with it -- the exact defect the 2026-08-26 lock exists to
+// prevent. A weekly trend that contradicts the headline above it has no true number on it.
+//
+// A week with no qualifying gain is simply ABSENT from the array. It is never interpolated,
+// never carried forward, and never fabricated as a zero -- a week nobody weighed in is not a
+// week the herd stopped growing, and the two must not read alike.
+type GrowthWeeklyGainPoint struct {
+	// WeekStart is the Monday (ISO week) of the calendar week, YYYY-MM-DD, in Asia/Kolkata.
+	// A pair spanning weeks is bucketed by its LATER weigh, which is the week the movement was
+	// actually observed in -- the same rule GrowthTrendPoint uses.
+	WeekStart string `json:"week_start"`
+	// AverageADGGPerDay is the animal-weighted mean for the week. Non-null by construction: a
+	// week only appears here when it has at least one animal behind it.
+	AverageADGGPerDay float64 `json:"average_adg_g_per_day"`
+	// Animals is the denominator -- scanned kids with a gain this week PLUS the head counts of
+	// the pens that moved. The same denominator the headline calls HeadlineAnimals.
+	Animals int `json:"animals"`
+}
+
 // GrowthShedLeaderboardRow is one shed's ADG/weight summary for the period.
 type GrowthShedLeaderboardRow struct {
 	LocationID                 string `json:"location_id"`
@@ -214,6 +243,9 @@ type GrowthADG struct {
 	Headline        GrowthADGHeadline          `json:"headline"`
 	Eligibility     GrowthEligibility          `json:"eligibility"`
 	Trend           []GrowthTrendPoint         `json:"trend"`
+	// WeeklyGain is the same statistic as Headline.AverageADGGPerDay, cut by calendar week.
+	// Read it, not Trend, whenever the number must agree with the headline.
+	WeeklyGain      []GrowthWeeklyGainPoint    `json:"weekly_gain"`
 	ShedLeaderboard []GrowthShedLeaderboardRow `json:"shed_leaderboard"`
 	Distribution    []GrowthDistributionBucket `json:"distribution"`
 	SaleReadiness   GrowthSaleReadiness        `json:"sale_readiness"`

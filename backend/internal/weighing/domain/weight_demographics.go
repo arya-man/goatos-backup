@@ -71,6 +71,34 @@ type WeightGainThresholdBucket struct {
 	Above250     int `json:"above_250_g_per_day"`
 }
 
+// WeightGainOriginBucket is one breed's daily gain for ONE origin -- farm born or purchased.
+//
+// The farm both breeds its own kids and buys them in loads, and the two grow differently enough
+// that reading them together answers nothing. Same measure and same population rule as
+// WeightGainBucket: an animal weighed twice at the median of its own pairs, plus every whole-shed
+// pen whose average moved, each pen contributing once per animal it holds.
+//
+// PER ANIMAL where the evidence allows it, AGREE-OR-NEITHER where it does not -- the identical rule
+// the Weights page's Farm born / Purchased filter follows, resolved by the same origin_scope.go. A
+// scanned weigh carries a tag and is claimed through the animal that tag resolves to; a whole-shed
+// weigh carries none and is claimed only when every live resident of its pen agrees.
+//
+// THE TWO SIDES NEED NOT ADD UP to the breed's own WeightGainBucket, and that gap is honest rather
+// than missing data: a kid whose load is not recorded is claimed by NEITHER side, while still being
+// counted in the breed total. Rendering the halves as a partition of the whole would be the lie.
+type WeightGainOriginBucket struct {
+	// Label is the breed as stored ("Anantapur Sheep"). Clients render it; they do not re-map it.
+	Label string `json:"label"`
+	// Origin is exactly "farm_born" or "purchased". A bucket is never emitted for an animal or pen
+	// that is on neither side.
+	Origin string `json:"origin"`
+	// Animals is the count behind MedianGainGPerDay: scanned kids of this breed and origin with a
+	// computable gain, plus the head counts of the pens claimed for this origin.
+	Animals int `json:"animals"`
+	// MedianGainGPerDay is the animal-weighted mean for this breed and origin.
+	MedianGainGPerDay float64 `json:"median_gain_g_per_day"`
+}
+
 // ShedCompositionChip is one real breed+sex cohort visible in a shed row. It is
 // context, not weight attribution: mixed whole-shed averages are not split across
 // these chips.
@@ -107,6 +135,9 @@ type WeightDemographics struct {
 	GainByBreed []WeightGainBucket `json:"gain_by_breed"`
 	GainBySex   []WeightGainBucket `json:"gain_by_sex"`
 	GainByStage []WeightGainBucket `json:"gain_by_stage"`
+	// The same gain, split by where the animals came from, for the Weights analytics page's
+	// Birth-wise tab. Computed in the SAME query so it can never disagree with GainByBreed above.
+	GainByBreedOrigin []WeightGainOriginBucket `json:"gain_by_breed_origin"`
 	// How many animals of each breed fell into each daily-gain band. DISJOINT bands
 	// over the same population GainByBreed uses — same-animal pairs plus
 	// homogeneous lump-sum sheds, each shed's animals landing whole in the ONE band

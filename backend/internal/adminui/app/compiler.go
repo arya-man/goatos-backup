@@ -833,7 +833,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].OptionGroups = mergeOptionGroupReferences(out[i].OptionGroups, "feed_items", families.FeedItems, "")
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_parks", optionsFromReferences(families.Parks, "info"))
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_breeds", optionsFromReferences(families.Breeds, ""))
-		case "weighing-weights":
+		case "weighing-weights", "weighing-analytics":
 			// Live park vocabulary, same injection path Feed uses. The contract declares
 			// the group empty; the parks themselves are tenant rows and must never be
 			// constants in contract code.
@@ -1750,7 +1750,7 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.LocationsRead, permissions.ObligationRead, permissions.VaccinationRead}
 	case "herd-signals":
 		return []string{permissions.HerdSignalsRead}
-	case "weighing-weights":
+	case "weighing-weights", "weighing-analytics":
 		// The MONITOR capability, matching /app/weighing/shed-weights. Weights is an
 		// oversight read-out, not a planning surface, so it must not gate on
 		// WeighingPlan (CEO-only): the Growth Director owns weighing oversight and

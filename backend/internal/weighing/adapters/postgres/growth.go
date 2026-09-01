@@ -178,6 +178,13 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
+	// The weekly cut of the HEADLINE statistic, beside the pair-median trend above. Both are
+	// served: `trend` for the surfaces already reading it, `weeklyGain` for any chart that sits
+	// next to the headline and must agree with it.
+	weeklyGain, err := r.growthWeeklyGain(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
+	if err != nil {
+		return domain.GrowthADG{}, err
+	}
 
 	leaderboard, err := r.growthShedLeaderboard(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
 	if err != nil {
@@ -226,6 +233,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		Headline:        headline,
 		Eligibility:     eligibility,
 		Trend:           trend,
+		WeeklyGain:      weeklyGain,
 		ShedLeaderboard: leaderboard,
 		Distribution:    distribution,
 		SaleReadiness:   saleReadiness,
@@ -444,6 +452,129 @@ ORDER BY week_start`
 			return nil, err
 		}
 		p.WeekStart = weekStart.Format("2006-01-02")
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// growthWeeklyGain is the headline statistic cut by calendar week.
+//
+// IT MUST STAY THE SAME STATISTIC AS growthHeadlineStats (maintainer decision 2026-08-26). The
+// two arms below mirror that function's animal_gain and shed_span exactly -- an animal-weighted
+// mean over scanned kids (each once, at the median of its own pairs) PLUS whole-shed pens (each
+// once per animal it holds). growthTrend beside this one is the MEDIAN over SCANNED PAIRS ONLY;
+// putting that on a page next to this headline is what the lock forbids, which is why this is a
+// separate query rather than a second column on that one.
+//
+// projection-review:
+//
+//	producer grain: one weighing_observations row per scan; one weighing_shed_observations row per pen weigh.
+//	consumer grain: arm (a) one row per (week_start, animal_key) -- GROUP BY those two columns.
+//	                arm (b) one row per (week_start, location_id, partition_label) -- rn = 1 over
+//	                that triple, so a pen weighed three times in one week contributes ONE movement,
+//	                not two, and sum(animals) ranges over disjoint pens within each week.
+//	join_cardinality: both arms pre-aggregate to their own grain before the UNION ALL, so the
+//	                final sum() never fans out; the numerator and denominator range over the
+//	                identical row set (same FROM, same WHERE) in each arm.
+//	ratio key set: numerator sum(total) and denominator sum(animals) both range over `weekly`
+//	                grouped by week_start -- one key set, stated identical.
+//	pagination: multi_row (bounded by the caller's window; 12 weeks on the Weights analytics page).
+//	scope: park_ids, plus the sex/origin scope applied to BOTH arms.
+//
+// growthWeeklyGainQuery is hoisted to package scope rather than built inside the function so a
+// query-plan test can reach it by name, which is what the scale guard is asking for.
+const growthWeeklyGainQuery = `WITH ` + growthPairsCTE + `),
+inperiod AS (
+  SELECT *, (date_trunc('week', accepted_at AT TIME ZONE 'Asia/Kolkata'))::date AS week_start
+  FROM qualifying WHERE accepted_at >= $5::timestamptz
+),
+-- Arm (a): ONE GAIN PER ANIMAL PER WEEK, at the median of that animal's pairs landing in the week.
+-- Grouping by pairs instead would count the most-handled kids twice, which is the defect the
+-- headline's own animal_gain comment records.
+animal_gain AS (
+  SELECT week_start, animal_key,
+         percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) AS g
+  FROM inperiod GROUP BY week_start, animal_key
+),
+-- Arm (b): whole-shed pens. Every live pen weigh in the window, scoped exactly as the headline
+-- scopes it -- a pen is claimed only when the (location, partition) pair is in the resolved list,
+-- so a mixed-sex or mixed-origin pen is claimed by neither cohort rather than split.
+pen_obs AS (
+  SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label,
+         o.average_weight_kg, o.animal_count,
+         (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
+  FROM weighing_shed_observations o
+  JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id AND cs2.tenant_id = o.tenant_id
+  JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id AND c2.tenant_id = o.tenant_id
+  WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+    AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
+    AND o.accepted_at >= $5::timestamptz AND o.accepted_at < $4::timestamptz
+    AND (NOT $6::bool OR EXISTS (
+      SELECT 1 FROM unnest($8::uuid[], $9::text[]) AS b(loc, part)
+      WHERE b.loc = cs2.location_id AND b.part = COALESCE(cs2.partition_label, '')))
+),
+-- CONSECUTIVE pen weighs, not first-vs-latest-in-window. The headline anchors on the window's two
+-- ends because it reports ONE number for the whole window; a weekly series must attribute movement
+-- to the week it was observed in, so each weigh is paired with the one before it and bucketed by
+-- the LATER weigh -- the identical rule arm (a) applies to a scanned pair spanning two weeks.
+pen_pairs AS (
+  SELECT location_id, partition_label, animal_count, d, average_weight_kg,
+         LAG(average_weight_kg) OVER w AS prev_w,
+         LAG(d) OVER w AS prev_d
+  FROM pen_obs
+  WINDOW w AS (PARTITION BY location_id, partition_label ORDER BY d)
+),
+-- ONE MOVEMENT PER PEN PER WEEK, the most recent in that week. A pen weighed three times inside one
+-- week yields two pairs, and counting both would add its head count to that week's denominator
+-- twice -- the same double-count arm (a) avoids by grouping on animal_key.
+pen_ranked AS (
+  SELECT (date_trunc('week', d::timestamp))::date AS week_start,
+         animal_count::float8 AS animals,
+         (average_weight_kg - prev_w) * 1000.0 / NULLIF(d - prev_d, 0) AS g_per_day,
+         row_number() OVER (
+           PARTITION BY location_id, partition_label, (date_trunc('week', d::timestamp))::date
+           ORDER BY d DESC
+         ) AS rn
+  FROM pen_pairs
+  WHERE prev_w IS NOT NULL AND d > prev_d
+),
+shed_span AS (
+  SELECT week_start, animals, g_per_day FROM pen_ranked WHERE rn = 1
+),
+-- Each arm is already at its own grain, so this UNION ALL cannot fan out.
+weekly AS (
+  SELECT week_start, COALESCE(sum(g), 0) AS total, COUNT(*)::float8 AS animals
+  FROM animal_gain GROUP BY week_start
+  UNION ALL
+  SELECT week_start, COALESCE(sum(animals * g_per_day), 0), COALESCE(sum(animals), 0)
+  FROM shed_span GROUP BY week_start
+)
+SELECT week_start, sum(total) / NULLIF(sum(animals), 0), sum(animals)::bigint
+FROM weekly
+GROUP BY week_start
+-- A week with no animals behind it is dropped rather than reported as zero growth: nobody weighed
+-- then, which is not the same statement as "the herd did not grow".
+HAVING sum(animals) > 0
+ORDER BY week_start`
+
+func (r *Repository) growthWeeklyGain(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) ([]domain.GrowthWeeklyGainPoint, error) {
+	rows, err := r.pool.Query(ctx, growthWeeklyGainQuery, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags,
+		scope.LocationIDs, scope.PartitionLabels)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	// Initialised, never nil, so the wire carries [] rather than null for a farm with no weighs.
+	out := []domain.GrowthWeeklyGainPoint{}
+	for rows.Next() {
+		var p domain.GrowthWeeklyGainPoint
+		var weekStart time.Time
+		var animals int64
+		if err := rows.Scan(&weekStart, &p.AverageADGGPerDay, &animals); err != nil {
+			return nil, err
+		}
+		p.WeekStart = weekStart.Format("2006-01-02")
+		p.Animals = int(animals)
 		out = append(out, p)
 	}
 	return out, rows.Err()

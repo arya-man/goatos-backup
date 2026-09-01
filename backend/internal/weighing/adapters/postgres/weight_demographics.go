@@ -31,6 +31,7 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 		BySex:                 []domain.WeightDemographicBucket{},
 		ByStage:               []domain.WeightDemographicBucket{},
 		ShedComposition:       []domain.ShedComposition{},
+		GainByBreedOrigin:     []domain.WeightGainOriginBucket{},
 	}
 	if len(parkIDs) == 0 {
 		return out, nil
@@ -51,6 +52,18 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	originScope, originErr := r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
 	if originErr != nil {
 		return domain.WeightDemographics{}, originErr
+	}
+	// The Birth-wise breakdown needs BOTH cohorts at once, which the single filter scope above
+	// cannot express -- it answers "which animals match the selected origin", and this answers
+	// "which side is each animal on". Resolved through the SAME origin_scope.go the filter uses,
+	// so the breakdown and the filter can never disagree about which animals were bought.
+	farmBornScope, farmBornErr := r.resolveOriginScope(ctx, tenantID, parkIDs, "farm_born", periodStart, periodEnd)
+	if farmBornErr != nil {
+		return domain.WeightDemographics{}, farmBornErr
+	}
+	purchasedScope, purchasedErr := r.resolveOriginScope(ctx, tenantID, parkIDs, "purchased", periodStart, periodEnd)
+	if purchasedErr != nil {
+		return domain.WeightDemographics{}, purchasedErr
 	}
 
 	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
@@ -126,7 +139,10 @@ resolved AS (
   WHERE $5::text = '' OR lower(btrim(g.sex)) = $5::text
 ),
 resolved_gain AS (
-  SELECT ag.g, gt.breed, gt.sex, gt.management_stage
+  -- ag.tag is carried so the breed x origin bucket below can ask which LOAD an animal came off.
+  -- Every other consumer of this CTE names its columns explicitly, so the extra column shifts no
+  -- scan; check that before adding another.
+  SELECT ag.g, ag.tag, gt.breed, gt.sex, gt.management_stage
   FROM animal_gain ag
   LEFT JOIN ident i ON i.tag = ag.tag
   LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
@@ -446,6 +462,55 @@ SELECT
          GROUP BY ss.stage
        ) parts GROUP BY stage
      ) gs),
+  -- BREED x ORIGIN: the same weighted mean as gb above, split by where the animals came from.
+  -- It is computed HERE, in the one query, rather than by asking this read twice under the two
+  -- origins: this whole response is a single round trip of a heavy aggregate, and two of them
+  -- would recompute by_sex, by_stage, the bands and the shed composition only to throw both
+  -- copies away.
+  --
+  -- ORIGIN IS RESOLVED PER ANIMAL for a scanned weigh, and AGREE-OR-NEITHER for a whole-shed pen
+  -- -- exactly the rule origin_scope.go already applies for the page's own Farm born / Purchased
+  -- filter, which is why the two lists are consumed as opaque bind arrays here rather than
+  -- re-derived. An animal or pen in NEITHER list is claimed by NEITHER side (origin IS NULL is
+  -- dropped), so the two halves need not add up to the breed's own total. That gap is honest: a
+  -- kid whose load is not recorded was still weighed, and still counts in gb above.
+  --
+  -- projection-review: producer grain is one resolved_gain row per animal and one lump_span row
+  -- per (location_id, partition_label); consumer grain is (breed, origin), reached by GROUP BY on
+  -- exactly those two columns after each arm is already at its own grain, so the UNION ALL cannot
+  -- fan out. The weighted mean's numerator sum(gsum) and denominator sum(n) range over the
+  -- identical row set (same FROM, same GROUP BY) -- one key set, stated identical.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, origin, n, g) ORDER BY breed, origin), '[]'::jsonb)
+     FROM (
+       SELECT breed, origin, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT breed, origin, count(*)::bigint n, sum(g)::float8 gsum
+         FROM (
+           SELECT rg.breed, rg.g,
+                  CASE WHEN rg.tag = ANY($10::text[]) THEN 'farm_born'
+                       WHEN rg.tag = ANY($11::text[]) THEN 'purchased' END AS origin
+           FROM resolved_gain rg WHERE rg.breed IS NOT NULL
+         ) scanned
+         WHERE origin IS NOT NULL
+         GROUP BY breed, origin
+         UNION ALL
+         SELECT sc.breed, pen.origin, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls
+         JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         JOIN LATERAL (
+           SELECT CASE
+             WHEN EXISTS (SELECT 1 FROM unnest($12::uuid[], $13::text[]) AS fb(loc, part)
+                          WHERE fb.loc = ls.location_id AND fb.part = ls.partition_label) THEN 'farm_born'
+             WHEN EXISTS (SELECT 1 FROM unnest($14::uuid[], $15::text[]) AS pu(loc, part)
+                          WHERE pu.loc = ls.location_id AND pu.part = ls.partition_label) THEN 'purchased'
+           END AS origin
+         ) pen ON pen.origin IS NOT NULL
+         -- Same claim rule as every other whole-shed arm: the pen counts for a reader only when
+         -- its cohort is entirely one breed, and entirely the selected sex.
+         WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+         GROUP BY sc.breed, pen.origin
+       ) parts GROUP BY breed, origin
+     ) gbo),
   -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
   -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
   -- and the four counts partition n exactly — every animal with a gain lands in one band.
@@ -507,14 +572,19 @@ SELECT
 		resolvedCount, unresolvedCount, lumpTotal, lumpUnattributed int
 		breedJSON, sexJSON, stageJSON                               []byte
 		gainBreedJSON, gainSexJSON, gainStageJSON                   []byte
+		gainByBreedOriginJSON                                       []byte
 		gainThresholdBreedJSON                                      []byte
 		compositionJSON                                             []byte
 	)
 	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFilter,
-		originFiltered, originScope.Tags, originScope.LocationIDs, originScope.PartitionLabels).Scan(
+		originFiltered, originScope.Tags, originScope.LocationIDs, originScope.PartitionLabels,
+		farmBornScope.Tags, purchasedScope.Tags,
+		farmBornScope.LocationIDs, farmBornScope.PartitionLabels,
+		purchasedScope.LocationIDs, purchasedScope.PartitionLabels).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,
+		&gainByBreedOriginJSON,
 		&gainThresholdBreedJSON,
 		&compositionJSON,
 	); err != nil {
@@ -542,6 +612,9 @@ SELECT
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainByStage, err = decodeWeightGainBuckets(gainStageJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainByBreedOrigin, err = decodeWeightGainOriginBuckets(gainByBreedOriginJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainThresholdsByBreed, err = decodeWeightGainThresholdBuckets(gainThresholdBreedJSON); err != nil {
@@ -686,6 +759,42 @@ func decodeWeightGainBuckets(raw []byte) ([]domain.WeightGainBucket, error) {
 // these rows already describe the kids the reader asked for. Emitting a second, per-sex grain
 // beside the combined one duplicated a rule the query above already applies, and two
 // implementations of one rule drift.
+// decodeWeightGainOriginBuckets reads the four-element rows gbo emits: breed, origin, animals,
+// gain. A row missing either name is SKIPPED rather than defaulted -- a bucket with a blank origin
+// could not be drawn on either side of the Birth-wise comparison, and inventing a side for it would
+// claim an animal for a cohort the query deliberately declined to claim it for.
+func decodeWeightGainOriginBuckets(raw []byte) ([]domain.WeightGainOriginBucket, error) {
+	out := []domain.WeightGainOriginBucket{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if len(row) != 4 {
+			continue
+		}
+		var label, origin string
+		var animals int
+		var gain float64
+		if json.Unmarshal(row[0], &label) != nil || label == "" {
+			continue
+		}
+		if json.Unmarshal(row[1], &origin) != nil || (origin != "farm_born" && origin != "purchased") {
+			continue
+		}
+		if json.Unmarshal(row[2], &animals) != nil || json.Unmarshal(row[3], &gain) != nil {
+			continue
+		}
+		out = append(out, domain.WeightGainOriginBucket{
+			Label: label, Origin: origin, Animals: animals, MedianGainGPerDay: gain,
+		})
+	}
+	return out, nil
+}
+
 func decodeWeightGainThresholdBuckets(raw []byte) ([]domain.WeightGainThresholdBucket, error) {
 	out := []domain.WeightGainThresholdBucket{}
 	if len(raw) == 0 {

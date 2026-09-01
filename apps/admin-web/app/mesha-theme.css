@@ -2607,6 +2607,23 @@ select:disabled { opacity: .45; }
 .metricseg a.on{background:var(--panel);color:var(--brand-d)}
 .card .h{display:flex;align-items:center;gap:8px}
 .wbars-empty{display:grid;place-items:center;text-align:center;padding:0 14px}
+/* Grouped bars for the Weights analytics page: several named groups, each holding one or more
+   comparable bars. Series colours are theme tokens only -- `s0` is the page's own brand green
+   (daily gain, the number the screen exists to answer), `s1` a muted slate beside it so the
+   second series reads as context rather than competing for the eye. A negative bar keeps the
+   danger token whichever series it belongs to: a losing pen must look like one. */
+.wgrouped{display:flex;flex-direction:column;gap:14px;margin-top:12px}
+.wgrouped-legend{display:flex;gap:14px 18px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.wgrouped-legend span{display:inline-flex;align-items:center;gap:5px}
+.wgrouped-legend .wgl{width:10px;height:10px;border-radius:3px;display:inline-block}
+.wgrouped-legend .wgl.s0{background:var(--brand)}
+.wgrouped-legend .wgl.s1{background:var(--muted)}
+.wgrouped-group{display:flex;flex-direction:column;gap:4px}
+.wgrouped-heading{margin:0;font-size:12px;font-weight:700;color:var(--ink);letter-spacing:.01em}
+.wgrouped .wbars{height:auto;max-height:none;overflow:visible;gap:5px}
+.wgrouped .wbar .wbt i.s0{background:var(--brand)}
+.wgrouped .wbar .wbt i.s1{background:var(--muted)}
+.wgrouped .wbar .wbt i.neg{background:var(--danger)}
 
 /* The Weights metric strip. The default 12px grid gap made six cards read as one
    slab; these are separate figures and want visible air between them. */
@@ -2619,6 +2636,12 @@ select:disabled { opacity: .45; }
    metric rows included — sits flush against the next with a literal 0px between
    them. Scoped to this page so the shared container is untouched. */
 .weights-page{display:flex;flex-direction:column;gap:16px}
+/* The Weights analytics tab strip is CENTRED. Left-flush it sat directly under the filter bar's
+   own controls and read as one more filter, rather than as the control that swaps the whole
+   screen. `.metricseg` carries `margin-left:auto` for the inline toggles it was built for, so
+   that is neutralised here and the flex row does the centring instead. */
+.wt-tabbar{display:flex;justify-content:center}
+.wt-tabbar .metricseg{margin-left:0}
 .weights-page .wt-export-spin{animation:wt-export-spin 900ms linear infinite}
 @keyframes wt-export-spin{to{transform:rotate(360deg)}}
 .weights-page .wt-export-shed-list{max-height:220px;overflow-y:auto;display:grid;gap:4px;margin-top:6px}

@@ -236,6 +236,12 @@ func navigation() domain.NavigationContract {
 				ID: "weighing", Label: "Weighing", Icon: "scale", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("weighing-weights", "Weights", "/weighing/weights", "weighing.weights", nil),
+					// Weights analytics: the same weighing facts cut five ways -- overall, by breed,
+					// by farm-born/purchased, by shed and by week. A SEPARATE leaf from Weights
+					// above rather than more cards on it: that page answers "what does the estate
+					// weigh today", this one answers "what is growing faster than what", and the
+					// second question wants the whole screen.
+					navLeafDomain("weighing-analytics", "Weights analytics", "/weighing/analytics", "weighing.analytics", nil),
 					// Weighing SOP: the scan-and-submit session document (SOP split extension,
 					// maintainer decision 2026-08-22 — same shape as the three 2026-08-18 routes).
 					navLeaf("weighing-sops", "Weighing SOP", "/weighing/sops", nil),
@@ -624,6 +630,24 @@ func pages() []domain.PageContract {
 				// is bounded by the herd catalogue, so it is not paged.
 				weightsGainThresholdTable(),
 			}),
+		// Weights analytics -- five tabs over the SAME reads the Weights page uses, so the two
+		// screens can never disagree about a number. It declares ONE table (the shed-wise tab's
+		// figures); every other tab is a chart, and a chart is not a TableContract.
+		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — Weights analytics", "Growth cut five ways: overall, by breed, by farm-born vs purchased, by shed and by week.", "module-surface",
+			// The shed table on the General tab, which is the Weights page's own table read from
+			// the same endpoint -- so the two screens cannot disagree about a shed's figures.
+			//
+			// ONE COLUMN MORE THAN THE WEIGHTS PAGE'S: daily_gain. This is an analytics screen, and
+			// a shed table without the gain forces a reader to cross-reference the Shed-wise tab to
+			// answer the question they came with. The figures are the same ones that tab draws --
+			// the per-animal median for a scanned shed, the average-weight movement for a
+			// whole-shed pen -- so the table and the chart cannot disagree.
+			//
+			// The four analysis tabs declare NOTHING here on purpose: every one of them is a
+			// CHART, and a TableContract for a chart would be a contract nothing can honour.
+			[]domain.TableContract{
+				tableP("shed-weights", "Sheds", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "daily_gain", "total_weight", "last_weighed", "workflow"}, "location_id", []int{10, 25, 50}),
+			}),
 		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-shed milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
 			[]domain.TableContract{tableP("milk-preparation", "Milk preparation worklist", "/counts/milk-preparation", []string{"park", "shed", "cohort", "head_count", "session_1", "session_2", "session_3", "session_4", "daily_total", "status"}, "milk_preparation_row", []int{10, 25, 50})}),
 		// ---------------------------------------------------------------------------
@@ -974,6 +998,339 @@ func table(id, title, source string, cols []string, rowParam string) domain.Tabl
 		},
 		SummaryFields: []string{"id", "title", "status", "owner", "next_action"},
 		DetailFields:  []string{"contract_object"},
+	}
+}
+
+// weighingWeightsCopy is every visible string on /weighing/weights, and the SHARED base for
+// /weighing/analytics beside it. ONE map rather than two on purpose: the two screens carry the
+// same filter bar, the same KPI strip and the same shed table, and a second copy of those
+// labels would let one screen say "Per animal" while the other said "Individual".
+func weighingWeightsCopy() map[string]string {
+	return map[string]string{
+		"crumb":                      "Weighing",
+		"filter.park.label":          "Park",
+		"filter.park.all":            "All parks",
+		"filter.weighing.label":      "Weighing",
+		"filter.weighing.all":        "All",
+		"filter.weighing.individual": "Per animal",
+		"filter.weighing.lump":       "Lump sum",
+		// The window is picked from a CALENDAR (maintainer, 2026-08-12), landing on the 15 days
+		// before today (30 until 2026-08-24, then briefly 7 the same day). `filter.period.4w` / `.12w` and the `weighing_period` option group went
+		// with the fixed-window select they labelled: two preset spans could only answer the two
+		// questions someone thought of in advance, and a reader comparing one drive week against
+		// another had no way to ask.
+		"filter.period.label":            "Period",
+		"filter.period.today":            "Today",
+		"filter.period.single":           "Single day",
+		"filter.period.range":            "Date range",
+		"filter.period.aria":             "Choose which weighing days the page reports on",
+		"filter.period.previous_month":   "Previous month",
+		"filter.period.next_month":       "Next month",
+		"filter.period.range_start_hint": "Pick the first day of the range.",
+		"filter.period.range_end_hint":   "Now pick the last day of the range.",
+		"filter.period.range_separator":  "to",
+		"filter.period.lump_marker_hint": "lump-sum weighing done",
+		// Download drawer (maintainer request 2026-08-21): whole-window export in the
+		// operations Weight-check sheet's own shape, minus its video-link column. The
+		// drawer's calendar reuses the filter.period.* labels above.
+		"export.button":        "Download",
+		"export.eyebrow":       "Weights",
+		"export.title":         "Download weights",
+		"export.hint":          "Pick the days, park and sheds to include. The file follows the Weight check sheet, without the video column.",
+		"export.period.label":  "Period",
+		"export.park.label":    "Park",
+		"export.park.all":      "All parks",
+		"export.sheds.label":   "Sheds",
+		"export.sheds.all":     "All sheds",
+		"export.download":      "Download CSV",
+		"export.preparing":     "Preparing the file…",
+		"export.error":         "The file could not be prepared. Try again in a moment.",
+		"export.empty":         "Nothing was weighed for this selection. The file has only the header row.",
+		"kpi.kids.label":       "Kids weighed",
+		"kpi.kids.sub":         "in the selected period",
+		"kpi.kids.split.label": "Individual · Lump-sum",
+		// SAY WHICH KIDS. This strip counts only the kids with a SECOND weigh to compare
+		// against — it is the population every gain figure beside it is computed from — while
+		// Road to sale further down counts every kid weighed at all. The two therefore differ
+		// by the kids weighed once, and while this label read "total in the selected period"
+		// the screen showed two nearly identical sentences over two different denominators
+		// with nothing to tell them apart. The maintainer read them side by side and asked why
+		// they disagreed, which is exactly the question a label like that produces.
+		"kpi.kids.split.total_sub":  "weighed twice in the selected period",
+		"kpi.total.label":           "Total weight",
+		"kpi.total.sub":             "of the kids actually weighed",
+		"kpi.average.label":         "Average weight",
+		"kpi.average.sub":           "per kid, across every shed",
+		"kpi.over30.label":          "Over 30 kg",
+		"kpi.over35.label":          "Over 35 kg",
+		"kpi.threshold.basis":       "weighed one by one",
+		"kpi.sheds.label":           "Sheds weighed",
+		"chart.average.title":       "Average weight by shed",
+		"chart.average.caption":     "Heaviest first. Scroll for the rest.",
+		"chart.average.aria":        "Average weight for each shed",
+		"section.sheds.title":       "Sheds",
+		"section.sheds.aria":        "Weight by shed",
+		"composition.unknown_breed": "Unknown breed",
+		"composition.unknown_sex":   "unknown sex",
+		// Column headers come from the table contract's own columns via tableLabels(),
+		// so they are deliberately NOT duplicated here.
+		"filter.all_option":          "All",
+		"filter.bar_aria":            "Filter sheds",
+		"filter.clear_all":           "Clear filters",
+		"pager.noun":                 "shed",
+		"value.weighing.individual":  "Per animal",
+		"value.weighing.lump":        "Lump sum",
+		"value.workflow.completed":   "Done",
+		"value.workflow.closed":      "Closed",
+		"value.workflow.pending":     "Pending",
+		"value.workflow.open":        "Open",
+		"value.workflow.in_progress": "In progress",
+		"value.workflow.rework":      "Needs fix",
+		"value.workflow.rejected":    "Rejected",
+		"value.never_weighed":        "Not weighed yet",
+		"empty.no_data.title":        "No data available",
+		"empty.no_data.body":         "No shed was weighed in this period. Try a longer period or another park.",
+		"empty.filtered.title":       "No data available",
+		"empty.filtered.body":        "No shed matches these filters.",
+		"note.total_weight":          "Total weight covers the kids actually weighed. Weighing is free flow, so it is not the whole shed.",
+		"note.threshold_basis":       "Counted from kids weighed one by one. A shed weighed as one total reports an average, so it cannot say how many of its kids cleared the mark.",
+		"section.losing.title":       "Kids losing weight",
+		"section.losing.aria":        "Kids losing weight",
+		"section.losing.caption":     "Latest weigh lower than the one before it.",
+		"pager.losing_noun":          "kid",
+		// `kpi.gain.label` / `kpi.gain.sub` went with the sixth headline card (maintainer,
+		// 2026-08-12): it restated the "All parks — daily gain" card below it — same number, same
+		// denominator, same sub-line — and cost a sixth of the headline row to say it twice. The
+		// gain row is now unconditional, so the figure is still on the page in every scope.
+		"kpi.gain.none":          "needs a second weigh",
+		"kpi.gain.blended":       "kids weighed",
+		"kpi.park_gain.suffix":   "— daily gain",
+		"kpi.park_gain.all":      "All parks",
+		"section.park_gain.aria": "Daily gain by park",
+		"chart.gain.title":       "Daily gain and shed average change",
+		"chart.gain.caption":     "Kids weighed one by one, and sheds weighed as one total shown by how fast their average is moving.",
+		"chart.gain.aria":        "Daily gain and shed average change",
+		"empty.gain.body":        "A kid has to be weighed twice before a gain can be worked out.",
+		// Distinct from the above: these sheds DO have a second weigh, they are just all
+		// losing. Reusing the "needs a second weigh" line there would be a lie.
+		"empty.gain.all_losing":   "Every shed with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
+		"chart.gain.caption_shed": "Same-animal rows show daily gain. Lump-sum rows show average weight change for that exact shed or partition; shifts, sales, deaths, or new animals can also move it.",
+		// The same card reads as a CHART or as the exact figures (maintainer request
+		// 2026-09-01), the same shape the breed-wise gain card already carries. The choice
+		// lives in the URL like every other toggle on this page, so it survives a reload and
+		// travels in a shared link. Column headers are the card's own copy: this card is a
+		// chart-first surface with no table contract to draw them from.
+		"section.shed_gain.view_aria": "Show the shed figures as a chart or a table",
+		"table.shed_gain.park":        "Park",
+		"table.shed_gain.shed":        "Shed",
+		"table.shed_gain.basis":       "Basis",
+		// Breed, sex and head count were read out of the shed label, where a mixed pen
+		// pushed them past a hundred characters (maintainer request 2026-09-01). They are
+		// their own columns now; the shed cell carries only the pen name. A pen holding
+		// more than one cohort lists each on its own line across the three columns, and
+		// the gain stays on the ROW -- a shed average is never split across breed or sex.
+		// Chips under the pen name were tried instead and turned down: this card is read
+		// column by column, and a chip list cannot be scanned down for one breed.
+		"table.shed_gain.breed":        "Breed",
+		"table.shed_gain.sex":          "Gender",
+		"table.shed_gain.count":        "Count",
+		"table.shed_gain.gain":         "Daily gain",
+		"table.shed_gain.weight":       "Average weight",
+		"section.demographics.title":   "Breed, sex and stage",
+		"section.demographics.aria":    "Weight by breed, sex and stage",
+		"section.demographics.caption": "Daily gain counts kids weighed twice and sheds weighed as one total. Weight uses the latest weighed animals.",
+		"chart.breed.title":            "Average weight by breed",
+		"chart.breed.title_gain":       "Daily gain by breed",
+		"chart.breed.aria":             "Average weight for each breed",
+		"chart.sex.title":              "Average weight by sex",
+		"chart.sex.title_gain":         "Daily gain by sex",
+		"chart.sex.aria":               "Average weight for male and female",
+		"chart.stage.title":            "Average weight by stage",
+		"chart.stage.title_gain":       "Daily gain by stage",
+		"chart.stage.aria":             "Average weight for each management stage",
+		"empty.demographics.body":      "No weighed kid could be matched to the herd register in this period.",
+		"note.demographics.coverage":   "Daily gain by breed, sex and stage counts animals weighed one by one, plus whole-shed weighs: every animal of a shed weighed as one total is counted at that shed's own average change.",
+		// Row 2b -- how many kids of each breed are actually growing well, which a breed
+		// median cannot say. The bands are DISJOINT (maintainer, 2026-08-24): a kid at
+		// 260 g/day is counted in the top band ONLY, so the four columns add up to the
+		// kids weighed twice and the slowest kids finally have a column of their own.
+		"section.gain_thresholds.title": "Breed-wise daily gain",
+		// The card opens as a CHART and can be switched to the exact figures. Both views
+		// are the same numbers; the toggle is a reading preference, so it lives in the URL
+		// like every other toggle on this page and survives a reload or a shared link.
+		"view.chart":                        "Chart",
+		"view.table":                        "Table",
+		"section.gain_thresholds.view_aria": "Show the gain marks as a chart or a table",
+		"chart.gain_thresholds.aria":        "Share of each breed in each daily gain band",
+		// Farm nouns for the head count under a breed and the hover line behind a bar.
+		"value.gain_thresholds.kids":      "kids",
+		"value.gain_thresholds.of":        "of",
+		"section.gain_thresholds.aria":    "Breed-wise daily gain",
+		"section.gain_thresholds.caption": "Counted from kids weighed twice, at each kid's own daily gain, plus sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
+		"empty.gain_thresholds.body":      "No kid matched to a breed has a second weigh in this period yet.",
+		// The page carries a SEX filter in its own filter bar, beside Weighing (maintainer,
+		// 2026-08-26). It auto-selects every kid, and picking a side re-reads the WHOLE page at
+		// that half: every KPI, the shed table, both leaderboards, the load chart and this card.
+		// A page whose cards disagreed about which kids they counted would have no true number
+		// on it, which is why this is a page filter and not a card control.
+		"filter.sex.label": "Sex",
+		"view.sex.male":    "Male",
+		"view.sex.female":  "Female",
+		// And an ORIGIN filter beside it (maintainer, 2026-09-01), on exactly the same terms:
+		// the farm both breeds its own kids and buys them in loads, and the two grow
+		// differently enough that reading them together answers nothing. It is a fact about the
+		// PEN a load was put into, so a pen's whole-shed weighs and its scanned weighs always
+		// land on the same side of this filter.
+		"filter.origin.label":   "Origin",
+		"view.origin.farm_born": "Farm born",
+		"view.origin.purchased": "Purchased",
+		// One caption per grain, because the denominator sentence has to name the kids it
+		// actually counted. Reusing the combined caption under the male view would tell a
+		// reader the bands add up to the kids weighed twice when they add up to the MALE kids
+		// weighed twice.
+		"section.gain_thresholds.caption_male":   "Counted from male kids weighed twice, at each kid's own daily gain, plus all-male sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
+		"section.gain_thresholds.caption_female": "Counted from female kids weighed twice, at each kid's own daily gain, plus all-female sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
+		"value.gain_thresholds.kids_male":        "male kids",
+		"value.gain_thresholds.kids_female":      "female kids",
+		"empty.gain_thresholds.male":             "No male kid matched to a breed has a second weigh in this period yet.",
+		"empty.gain_thresholds.female":           "No female kid matched to a breed has a second weigh in this period yet.",
+		"column.breed":                           "Breed",
+		"column.gain_animals":                    "Kids weighed twice",
+		"column.above_250":                       "Above 250 g/day",
+		"column.band_200_250":                    "200-250 g/day",
+		"column.band_180_200":                    "180-200 g/day",
+		"column.upto_180":                        "180 g/day or less",
+		"chart.load.title":                       "Daily gain by load",
+		"chart.load.title_weight":                "Average weight by load",
+		"chart.load.aria":                        "Growth for each purchase load",
+		"chart.load.caption":                     "Kids are bought in loads from a supplier and put into sheds. This is how each load's sheds are moving, so a supplier's stock can be judged on how it grows.",
+		"empty.load.body":                        "No load has a weighed shed yet. A load shows up here once the sheds it went into have been weighed.",
+		"note.load.unmapped":                     "sheds are not counted here — they have no load recorded, or they hold more than one load and a single shed average cannot be split between two suppliers.",
+		// The load chart says a supplier's stock is growing; this says WHERE. Without
+		// it a reader cannot walk from a load bar to the shed table below it.
+		"section.load_placements.title":   "Where each load sits",
+		"section.load_placements.aria":    "Parks and sheds each purchase load was placed into",
+		"section.load_placements.caption": "The park and shed each load's weighed animals are in, with the head count at that shed's latest weigh. The counts add up to the load's own animal total, so this and the chart above always agree.",
+		"empty.load_placements.body":      "No load has a weighed shed yet, so there is nowhere to point to.",
+		"metric.weight":                   "Weight",
+		"metric.gain":                     "Daily gain",
+		"empty.metric.no_gain":            "No daily gain here yet — a kid has to be weighed twice before a gain exists.",
+		"empty.losing.title":              "No data available",
+		"empty.losing.body":               "A kid has to be weighed twice before a loss can be seen. Only a handful have a second weigh so far.",
+		"note.no_cadence":                 "There is no weighing schedule, so a shed with no recent weigh is not late.",
+		"error.load.title":                "Weights could not be loaded",
+		"error.load.body":                 "Try again in a moment.",
+		// Growth Director section. Same copy firewall as the rest of this
+		// page: farm language, honest denominators (every count is kids or
+		// scans actually seen — there is no expected roster, so nothing here
+		// may read "of expected"), estimates labelled as estimates.
+		"growth_director.section.title":       "Growth Director",
+		"growth_director.section.aria":        "Growth Director widgets",
+		"growth_director.error.title":         "Growth Director could not be loaded",
+		"growth_director.error.body":          "The rest of the page still works. Try again in a moment.",
+		"growth_director.period.note":         "Weighing weeks that overlap the period are counted in full; feed uses the exact days.",
+		"growth_director.road.title":          "Road to sale weight",
+		"growth_director.road.caption":        "Where every kid sits on the way to 30 kg, counted from each kid's latest weigh.",
+		"growth_director.road.identities.sub": "kids weighed in this period",
+		"growth_director.road.matched.sub":    "matched to the herd register",
+		// Whole-shed pens joined this board on 2026-09-01. The tile names the pens as well as
+		// the animals, because "379 weighed as whole pens" and "379 weighed one by one" are
+		// very different evidence and the reader is owed the difference at a glance.
+		"growth_director.road.lump.sub": "of them weighed as whole pens",
+		// THE DENOMINATOR OF THE THREE TILES AFTER IT. Band movement needs a previous weigh to
+		// compare against, so it counts a strictly smaller population than the head count two
+		// tiles left — and without this tile the three movement figures added up to a number the
+		// card never showed, which reads as an error. The maintainer checked the arithmetic and
+		// asked why (2026-09-01). Now moved up + held + slipped back equals this exactly.
+		"growth_director.road.pairs.sub":      "of them weighed twice, so able to move a band",
+		"growth_director.road.moved_up":       "moved up a band since their last weigh",
+		"growth_director.road.held":           "held their band",
+		"growth_director.road.moved_down":     "slipped back",
+		"growth_director.road.sale_marker":    "sale",
+		"growth_director.road.note.pairs":     "A kid has to be weighed twice before it can move a band.",
+		"growth_director.road.note.unmatched": "Tags that match nothing in the herd register still count — a scale reading is a scale reading — and are shown as unmatched.",
+		// The caption has to say what a penned kid's weight actually is, because the bars do not
+		// look any different for one. A pen gives one average for every animal in it, so those
+		// kids all sit in the same band and all move together.
+		"growth_director.road.note.lump":       "A shed weighed as one total gives every kid in it the same weight — the shed average — so those kids share a band and move bands together.",
+		"growth_director.fair_fight.title":     "Fair fight — same breed, same sex",
+		"growth_director.fair_fight.caption":   "Same breed, same sex, different sheds — a fairer comparison that points at shed-level causes.",
+		"growth_director.fair_fight.note":      "A cohort shows once the same kind of kid, weighed twice, lives in two sheds. Sex comes from the herd register, never from the shed name.",
+		"growth_director.fair_fight.empty":     "No cohort yet — it takes two sheds each holding three kids of the same breed and sex with a second weigh.",
+		"growth_director.fair_fight.pair_noun": "kids",
+		// The board reads as a standings table, so it needs the words a standings table
+		// uses. `spread` is the one that carries the decision: a cohort whose sheds are
+		// all within a few grams is not worth a walk, and one with a wide spread is --
+		// which is exactly the judgement the old watchlist tried to make FOR the reader
+		// with a status chip, on a narrower basis.
+		"growth_director.fair_fight.leader":        "Ahead",
+		"growth_director.fair_fight.behind":        "Behind",
+		"growth_director.fair_fight.spread":        "Spread, best to last",
+		"growth_director.fair_fight.shed_noun":     "sheds",
+		"growth_director.fair_fight.rank_label":    "Position in cohort",
+		"growth_director.slow.title":               "Slow-growth watchlist",
+		"growth_director.slow.caption":             "Groups of kids that are not gaining — worth a walk to the shed. Same breed and sex grouped together, so it points at a shed problem, not one sick kid.",
+		"growth_director.slow.note":                "Target ~200 g/day is the ops rule of thumb, not a contract. Changes within 3% of body weight count as gut fill; losses over 0.30 kg/day are treated as bad scans, not slow growth. Small groups stay hidden until 3 kids have a second weigh.",
+		"growth_director.slow.col.shed":            "Shed",
+		"growth_director.slow.col.breed":           "Breed",
+		"growth_director.slow.col.sex":             "Sex",
+		"growth_director.slow.col.pairs":           "Kids weighed twice",
+		"growth_director.slow.col.median":          "Median daily gain",
+		"growth_director.slow.col.wow":             "vs last week",
+		"growth_director.slow.col.status":          "Status",
+		"growth_director.slow.status.on_track":     "On track",
+		"growth_director.slow.status.below_target": "Below target",
+		"growth_director.slow.status.losing":       "Losing",
+		"growth_director.slow.wow.none":            "needs two weeks of weighing",
+		"growth_director.slow.empty":               "No group has three kids with a second weigh yet.",
+		"growth_director.feed_growth.title":        "Feed given vs growth",
+		"growth_director.feed_growth.caption":      "Feed as directed on the sheet, not as eaten — leftovers are not measured yet. Read this as an estimate.",
+		"growth_director.feed_growth.estimate":     "estimate",
+		// Filters for a table that is now ONE ROW PER PEN (105 live) rather than per shed.
+		// "Measured gain" is the one that earns its place: 78 of those pens have no second
+		// weigh yet, so the default view buries the 27 rows a reader can actually act on.
+		"growth_director.feed_growth.filter.all":       "All pens",
+		"growth_director.feed_growth.filter.measured":  "With measured gain",
+		"growth_director.feed_growth.filter.trial":     "Trial pens",
+		"growth_director.feed_growth.filter.aria":      "Filter the feed and growth rows",
+		"growth_director.feed_growth.filter.empty":     "No pens match this filter in the selected window.",
+		"growth_director.feed_growth.showing":          "pens shown",
+		"growth_director.feed_growth.col.shed":         "Shed",
+		"growth_director.feed_growth.col.feed":         "Feed directed",
+		"growth_director.feed_growth.col.gain":         "Daily gain",
+		"growth_director.feed_growth.col.ratio":        "Feed kg / kg gained",
+		"growth_director.feed_growth.feed_unit":        "g per head per day",
+		"growth_director.feed_growth.basis.per_animal": "per kid, own weighs",
+		"growth_director.feed_growth.basis.whole_shed": "shed average movement",
+		"growth_director.feed_growth.experiment":       "trial",
+		"growth_director.feed_growth.experiment.note":  "Runs the experiment sheet (its own hand-entered quantities, not the ration grid), so its ratio is not comparable.",
+		"growth_director.feed_growth.no_gain":          "needs a second weigh",
+		"growth_director.feed_growth.note":             "High feed with low gain is a ration, waste, or health question for that shed this week. Growth is counted by each kid's herd-register shed — the shed the feed sheet was written for — so kids whose tag matches nothing are left out here and counted in the trust panel.",
+		"growth_director.feed_growth.empty":            "No feed sheet covered these sheds in this period.",
+		"growth_director.feed_problems.title":          "Feed sheet problems",
+		"growth_director.feed_problems.caption":        "Lines the feed sheet could not fill in — the shed may have been fed by guesswork.",
+		"growth_director.feed_problems.col.shed":       "Shed",
+		"growth_director.feed_problems.col.item":       "Feed item",
+		"growth_director.feed_problems.col.days":       "Days blocked",
+		"growth_director.feed_problems.col.reason":     "Reason",
+		"growth_director.feed_problems.latest_day":     "on the latest feed day",
+		"growth_director.feed_problems.history":        "in this period",
+		"growth_director.feed_problems.note.zero":      "Blocked is not zero — blocked means nobody authored a ration. Zero-kg lines exist on purpose (milk-fed kids) and are not shown here.",
+		"growth_director.feed_problems.empty":          "Every line on the feed sheet was filled in for this period.",
+		"growth_director.trust.title":                  "Can we trust these numbers?",
+		"growth_director.trust.caption":                "Every gain number on this page stands on these counts. Fixing them is the cheapest way to make the whole page better.",
+		"growth_director.trust.scans_matched":          "Scans matched to a kid",
+		"growth_director.trust.scans_matched.sub":      "a scan that matches nothing needs a re-scan",
+		"growth_director.trust.pairs":                  "Tags weighed twice",
+		"growth_director.trust.pairs.sub":              "growth can only be worked out for these — a tag is only a named kid once it matches the herd register",
+		"growth_director.trust.once_only":              "Tags weighed once only",
+		"growth_director.trust.once_only.sub":          "a second weigh unlocks their gain",
+		"growth_director.trust.whole_shed":             "Whole-shed weighings",
+		"growth_director.trust.whole_shed.sub":         "no per-kid, breed or sex view",
+		"growth_director.trust.pending":                "Awaiting verification",
+		"growth_director.trust.pending.sub":            "still counted — a weigh is a weigh until a verifier bounces it",
+		"growth_director.trust.rework":                 "Bounced by the verifier",
+		"growth_director.trust.rework.sub":             "left out of every gain number on this page",
 	}
 }
 
@@ -3563,332 +3920,88 @@ func pageSpecificCopy(id string) map[string]string {
 		// capture mode, and it is the term the top-level workspace context uses for it
 		// ("lump-sum -> total weight, animal count, video(s) -- per shed"). Do not revert it
 		// to "Whole shed" on the strength of the older comment.
-		return map[string]string{
-			"crumb":                      "Weighing",
-			"filter.park.label":          "Park",
-			"filter.park.all":            "All parks",
-			"filter.weighing.label":      "Weighing",
-			"filter.weighing.all":        "All",
-			"filter.weighing.individual": "Per animal",
-			"filter.weighing.lump":       "Lump sum",
-			// The window is picked from a CALENDAR (maintainer, 2026-08-12), landing on the 15 days
-			// before today (30 until 2026-08-24, then briefly 7 the same day). `filter.period.4w` / `.12w` and the `weighing_period` option group went
-			// with the fixed-window select they labelled: two preset spans could only answer the two
-			// questions someone thought of in advance, and a reader comparing one drive week against
-			// another had no way to ask.
-			"filter.period.label":            "Period",
-			"filter.period.today":            "Today",
-			"filter.period.single":           "Single day",
-			"filter.period.range":            "Date range",
-			"filter.period.aria":             "Choose which weighing days the page reports on",
-			"filter.period.previous_month":   "Previous month",
-			"filter.period.next_month":       "Next month",
-			"filter.period.range_start_hint": "Pick the first day of the range.",
-			"filter.period.range_end_hint":   "Now pick the last day of the range.",
-			"filter.period.range_separator":  "to",
-			"filter.period.lump_marker_hint": "lump-sum weighing done",
-			// Download drawer (maintainer request 2026-08-21): whole-window export in the
-			// operations Weight-check sheet's own shape, minus its video-link column. The
-			// drawer's calendar reuses the filter.period.* labels above.
-			"export.button":        "Download",
-			"export.eyebrow":       "Weights",
-			"export.title":         "Download weights",
-			"export.hint":          "Pick the days, park and sheds to include. The file follows the Weight check sheet, without the video column.",
-			"export.period.label":  "Period",
-			"export.park.label":    "Park",
-			"export.park.all":      "All parks",
-			"export.sheds.label":   "Sheds",
-			"export.sheds.all":     "All sheds",
-			"export.download":      "Download CSV",
-			"export.preparing":     "Preparing the file…",
-			"export.error":         "The file could not be prepared. Try again in a moment.",
-			"export.empty":         "Nothing was weighed for this selection. The file has only the header row.",
-			"kpi.kids.label":       "Kids weighed",
-			"kpi.kids.sub":         "in the selected period",
-			"kpi.kids.split.label": "Individual · Lump-sum",
-			// SAY WHICH KIDS. This strip counts only the kids with a SECOND weigh to compare
-			// against — it is the population every gain figure beside it is computed from — while
-			// Road to sale further down counts every kid weighed at all. The two therefore differ
-			// by the kids weighed once, and while this label read "total in the selected period"
-			// the screen showed two nearly identical sentences over two different denominators
-			// with nothing to tell them apart. The maintainer read them side by side and asked why
-			// they disagreed, which is exactly the question a label like that produces.
-			"kpi.kids.split.total_sub":  "weighed twice in the selected period",
-			"kpi.total.label":           "Total weight",
-			"kpi.total.sub":             "of the kids actually weighed",
-			"kpi.average.label":         "Average weight",
-			"kpi.average.sub":           "per kid, across every shed",
-			"kpi.over30.label":          "Over 30 kg",
-			"kpi.over35.label":          "Over 35 kg",
-			"kpi.threshold.basis":       "weighed one by one",
-			"kpi.sheds.label":           "Sheds weighed",
-			"chart.average.title":       "Average weight by shed",
-			"chart.average.caption":     "Heaviest first. Scroll for the rest.",
-			"chart.average.aria":        "Average weight for each shed",
-			"section.sheds.title":       "Sheds",
-			"section.sheds.aria":        "Weight by shed",
-			"composition.unknown_breed": "Unknown breed",
-			"composition.unknown_sex":   "unknown sex",
-			// Column headers come from the table contract's own columns via tableLabels(),
-			// so they are deliberately NOT duplicated here.
-			"filter.all_option":          "All",
-			"filter.bar_aria":            "Filter sheds",
-			"filter.clear_all":           "Clear filters",
-			"pager.noun":                 "shed",
-			"value.weighing.individual":  "Per animal",
-			"value.weighing.lump":        "Lump sum",
-			"value.workflow.completed":   "Done",
-			"value.workflow.closed":      "Closed",
-			"value.workflow.pending":     "Pending",
-			"value.workflow.open":        "Open",
-			"value.workflow.in_progress": "In progress",
-			"value.workflow.rework":      "Needs fix",
-			"value.workflow.rejected":    "Rejected",
-			"value.never_weighed":        "Not weighed yet",
-			"empty.no_data.title":        "No data available",
-			"empty.no_data.body":         "No shed was weighed in this period. Try a longer period or another park.",
-			"empty.filtered.title":       "No data available",
-			"empty.filtered.body":        "No shed matches these filters.",
-			"note.total_weight":          "Total weight covers the kids actually weighed. Weighing is free flow, so it is not the whole shed.",
-			"note.threshold_basis":       "Counted from kids weighed one by one. A shed weighed as one total reports an average, so it cannot say how many of its kids cleared the mark.",
-			"section.losing.title":       "Kids losing weight",
-			"section.losing.aria":        "Kids losing weight",
-			"section.losing.caption":     "Latest weigh lower than the one before it.",
-			"pager.losing_noun":          "kid",
-			// `kpi.gain.label` / `kpi.gain.sub` went with the sixth headline card (maintainer,
-			// 2026-08-12): it restated the "All parks — daily gain" card below it — same number, same
-			// denominator, same sub-line — and cost a sixth of the headline row to say it twice. The
-			// gain row is now unconditional, so the figure is still on the page in every scope.
-			"kpi.gain.none":          "needs a second weigh",
-			"kpi.gain.blended":       "kids weighed",
-			"kpi.park_gain.suffix":   "— daily gain",
-			"kpi.park_gain.all":      "All parks",
-			"section.park_gain.aria": "Daily gain by park",
-			"chart.gain.title":       "Daily gain and shed average change",
-			"chart.gain.caption":     "Kids weighed one by one, and sheds weighed as one total shown by how fast their average is moving.",
-			"chart.gain.aria":        "Daily gain and shed average change",
-			"empty.gain.body":        "A kid has to be weighed twice before a gain can be worked out.",
-			// Distinct from the above: these sheds DO have a second weigh, they are just all
-			// losing. Reusing the "needs a second weigh" line there would be a lie.
-			"empty.gain.all_losing":   "Every shed with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
-			"chart.gain.caption_shed": "Same-animal rows show daily gain. Lump-sum rows show average weight change for that exact shed or partition; shifts, sales, deaths, or new animals can also move it.",
-			// The same card reads as a CHART or as the exact figures (maintainer request
-			// 2026-09-01), the same shape the breed-wise gain card already carries. The choice
-			// lives in the URL like every other toggle on this page, so it survives a reload and
-			// travels in a shared link. Column headers are the card's own copy: this card is a
-			// chart-first surface with no table contract to draw them from.
-			"section.shed_gain.view_aria": "Show the shed figures as a chart or a table",
-			"table.shed_gain.park":        "Park",
-			"table.shed_gain.shed":        "Shed",
-			"table.shed_gain.basis":       "Basis",
-			// Breed, sex and head count were read out of the shed label, where a mixed pen
-			// pushed them past a hundred characters (maintainer request 2026-09-01). They are
-			// their own columns now; the shed cell carries only the pen name. A pen holding
-			// more than one cohort lists each on its own line across the three columns, and
-			// the gain stays on the ROW -- a shed average is never split across breed or sex.
-			// Chips under the pen name were tried instead and turned down: this card is read
-			// column by column, and a chip list cannot be scanned down for one breed.
-			"table.shed_gain.breed":        "Breed",
-			"table.shed_gain.sex":          "Gender",
-			"table.shed_gain.count":        "Count",
-			"table.shed_gain.gain":         "Daily gain",
-			"table.shed_gain.weight":       "Average weight",
-			"section.demographics.title":   "Breed, sex and stage",
-			"section.demographics.aria":    "Weight by breed, sex and stage",
-			"section.demographics.caption": "Daily gain counts kids weighed twice and sheds weighed as one total. Weight uses the latest weighed animals.",
-			"chart.breed.title":            "Average weight by breed",
-			"chart.breed.title_gain":       "Daily gain by breed",
-			"chart.breed.aria":             "Average weight for each breed",
-			"chart.sex.title":              "Average weight by sex",
-			"chart.sex.title_gain":         "Daily gain by sex",
-			"chart.sex.aria":               "Average weight for male and female",
-			"chart.stage.title":            "Average weight by stage",
-			"chart.stage.title_gain":       "Daily gain by stage",
-			"chart.stage.aria":             "Average weight for each management stage",
-			"empty.demographics.body":      "No weighed kid could be matched to the herd register in this period.",
-			"note.demographics.coverage":   "Daily gain by breed, sex and stage counts animals weighed one by one, plus whole-shed weighs: every animal of a shed weighed as one total is counted at that shed's own average change.",
-			// Row 2b -- how many kids of each breed are actually growing well, which a breed
-			// median cannot say. The bands are DISJOINT (maintainer, 2026-08-24): a kid at
-			// 260 g/day is counted in the top band ONLY, so the four columns add up to the
-			// kids weighed twice and the slowest kids finally have a column of their own.
-			"section.gain_thresholds.title": "Breed-wise daily gain",
-			// The card opens as a CHART and can be switched to the exact figures. Both views
-			// are the same numbers; the toggle is a reading preference, so it lives in the URL
-			// like every other toggle on this page and survives a reload or a shared link.
-			"view.chart":                        "Chart",
-			"view.table":                        "Table",
-			"section.gain_thresholds.view_aria": "Show the gain marks as a chart or a table",
-			"chart.gain_thresholds.aria":        "Share of each breed in each daily gain band",
-			// Farm nouns for the head count under a breed and the hover line behind a bar.
-			"value.gain_thresholds.kids":      "kids",
-			"value.gain_thresholds.of":        "of",
-			"section.gain_thresholds.aria":    "Breed-wise daily gain",
-			"section.gain_thresholds.caption": "Counted from kids weighed twice, at each kid's own daily gain, plus sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
-			"empty.gain_thresholds.body":      "No kid matched to a breed has a second weigh in this period yet.",
-			// The page carries a SEX filter in its own filter bar, beside Weighing (maintainer,
-			// 2026-08-26). It auto-selects every kid, and picking a side re-reads the WHOLE page at
-			// that half: every KPI, the shed table, both leaderboards, the load chart and this card.
-			// A page whose cards disagreed about which kids they counted would have no true number
-			// on it, which is why this is a page filter and not a card control.
-			"filter.sex.label": "Sex",
-			"view.sex.male":    "Male",
-			"view.sex.female":  "Female",
-			// And an ORIGIN filter beside it (maintainer, 2026-09-01), on exactly the same terms:
-			// the farm both breeds its own kids and buys them in loads, and the two grow
-			// differently enough that reading them together answers nothing. It is a fact about the
-			// PEN a load was put into, so a pen's whole-shed weighs and its scanned weighs always
-			// land on the same side of this filter.
-			"filter.origin.label":   "Origin",
-			"view.origin.farm_born": "Farm born",
-			"view.origin.purchased": "Purchased",
-			// One caption per grain, because the denominator sentence has to name the kids it
-			// actually counted. Reusing the combined caption under the male view would tell a
-			// reader the bands add up to the kids weighed twice when they add up to the MALE kids
-			// weighed twice.
-			"section.gain_thresholds.caption_male":   "Counted from male kids weighed twice, at each kid's own daily gain, plus all-male sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
-			"section.gain_thresholds.caption_female": "Counted from female kids weighed twice, at each kid's own daily gain, plus all-female sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
-			"value.gain_thresholds.kids_male":        "male kids",
-			"value.gain_thresholds.kids_female":      "female kids",
-			"empty.gain_thresholds.male":             "No male kid matched to a breed has a second weigh in this period yet.",
-			"empty.gain_thresholds.female":           "No female kid matched to a breed has a second weigh in this period yet.",
-			"column.breed":                           "Breed",
-			"column.gain_animals":                    "Kids weighed twice",
-			"column.above_250":                       "Above 250 g/day",
-			"column.band_200_250":                    "200-250 g/day",
-			"column.band_180_200":                    "180-200 g/day",
-			"column.upto_180":                        "180 g/day or less",
-			"chart.load.title":                       "Daily gain by load",
-			"chart.load.title_weight":                "Average weight by load",
-			"chart.load.aria":                        "Growth for each purchase load",
-			"chart.load.caption":                     "Kids are bought in loads from a supplier and put into sheds. This is how each load's sheds are moving, so a supplier's stock can be judged on how it grows.",
-			"empty.load.body":                        "No load has a weighed shed yet. A load shows up here once the sheds it went into have been weighed.",
-			"note.load.unmapped":                     "sheds are not counted here — they have no load recorded, or they hold more than one load and a single shed average cannot be split between two suppliers.",
-			// The load chart says a supplier's stock is growing; this says WHERE. Without
-			// it a reader cannot walk from a load bar to the shed table below it.
-			"section.load_placements.title":   "Where each load sits",
-			"section.load_placements.aria":    "Parks and sheds each purchase load was placed into",
-			"section.load_placements.caption": "The park and shed each load's weighed animals are in, with the head count at that shed's latest weigh. The counts add up to the load's own animal total, so this and the chart above always agree.",
-			"empty.load_placements.body":      "No load has a weighed shed yet, so there is nowhere to point to.",
-			"metric.weight":                   "Weight",
-			"metric.gain":                     "Daily gain",
-			"empty.metric.no_gain":            "No daily gain here yet — a kid has to be weighed twice before a gain exists.",
-			"empty.losing.title":              "No data available",
-			"empty.losing.body":               "A kid has to be weighed twice before a loss can be seen. Only a handful have a second weigh so far.",
-			"note.no_cadence":                 "There is no weighing schedule, so a shed with no recent weigh is not late.",
-			"error.load.title":                "Weights could not be loaded",
-			"error.load.body":                 "Try again in a moment.",
-			// Growth Director section. Same copy firewall as the rest of this
-			// page: farm language, honest denominators (every count is kids or
-			// scans actually seen — there is no expected roster, so nothing here
-			// may read "of expected"), estimates labelled as estimates.
-			"growth_director.section.title":       "Growth Director",
-			"growth_director.section.aria":        "Growth Director widgets",
-			"growth_director.error.title":         "Growth Director could not be loaded",
-			"growth_director.error.body":          "The rest of the page still works. Try again in a moment.",
-			"growth_director.period.note":         "Weighing weeks that overlap the period are counted in full; feed uses the exact days.",
-			"growth_director.road.title":          "Road to sale weight",
-			"growth_director.road.caption":        "Where every kid sits on the way to 30 kg, counted from each kid's latest weigh.",
-			"growth_director.road.identities.sub": "kids weighed in this period",
-			"growth_director.road.matched.sub":    "matched to the herd register",
-			// Whole-shed pens joined this board on 2026-09-01. The tile names the pens as well as
-			// the animals, because "379 weighed as whole pens" and "379 weighed one by one" are
-			// very different evidence and the reader is owed the difference at a glance.
-			"growth_director.road.lump.sub": "of them weighed as whole pens",
-			// THE DENOMINATOR OF THE THREE TILES AFTER IT. Band movement needs a previous weigh to
-			// compare against, so it counts a strictly smaller population than the head count two
-			// tiles left — and without this tile the three movement figures added up to a number the
-			// card never showed, which reads as an error. The maintainer checked the arithmetic and
-			// asked why (2026-09-01). Now moved up + held + slipped back equals this exactly.
-			"growth_director.road.pairs.sub":      "of them weighed twice, so able to move a band",
-			"growth_director.road.moved_up":       "moved up a band since their last weigh",
-			"growth_director.road.held":           "held their band",
-			"growth_director.road.moved_down":     "slipped back",
-			"growth_director.road.sale_marker":    "sale",
-			"growth_director.road.note.pairs":     "A kid has to be weighed twice before it can move a band.",
-			"growth_director.road.note.unmatched": "Tags that match nothing in the herd register still count — a scale reading is a scale reading — and are shown as unmatched.",
-			// The caption has to say what a penned kid's weight actually is, because the bars do not
-			// look any different for one. A pen gives one average for every animal in it, so those
-			// kids all sit in the same band and all move together.
-			"growth_director.road.note.lump":       "A shed weighed as one total gives every kid in it the same weight — the shed average — so those kids share a band and move bands together.",
-			"growth_director.fair_fight.title":     "Fair fight — same breed, same sex",
-			"growth_director.fair_fight.caption":   "Same breed, same sex, different sheds — a fairer comparison that points at shed-level causes.",
-			"growth_director.fair_fight.note":      "A cohort shows once the same kind of kid, weighed twice, lives in two sheds. Sex comes from the herd register, never from the shed name.",
-			"growth_director.fair_fight.empty":     "No cohort yet — it takes two sheds each holding three kids of the same breed and sex with a second weigh.",
-			"growth_director.fair_fight.pair_noun": "kids",
-			// The board reads as a standings table, so it needs the words a standings table
-			// uses. `spread` is the one that carries the decision: a cohort whose sheds are
-			// all within a few grams is not worth a walk, and one with a wide spread is --
-			// which is exactly the judgement the old watchlist tried to make FOR the reader
-			// with a status chip, on a narrower basis.
-			"growth_director.fair_fight.leader":        "Ahead",
-			"growth_director.fair_fight.behind":        "Behind",
-			"growth_director.fair_fight.spread":        "Spread, best to last",
-			"growth_director.fair_fight.shed_noun":     "sheds",
-			"growth_director.fair_fight.rank_label":    "Position in cohort",
-			"growth_director.slow.title":               "Slow-growth watchlist",
-			"growth_director.slow.caption":             "Groups of kids that are not gaining — worth a walk to the shed. Same breed and sex grouped together, so it points at a shed problem, not one sick kid.",
-			"growth_director.slow.note":                "Target ~200 g/day is the ops rule of thumb, not a contract. Changes within 3% of body weight count as gut fill; losses over 0.30 kg/day are treated as bad scans, not slow growth. Small groups stay hidden until 3 kids have a second weigh.",
-			"growth_director.slow.col.shed":            "Shed",
-			"growth_director.slow.col.breed":           "Breed",
-			"growth_director.slow.col.sex":             "Sex",
-			"growth_director.slow.col.pairs":           "Kids weighed twice",
-			"growth_director.slow.col.median":          "Median daily gain",
-			"growth_director.slow.col.wow":             "vs last week",
-			"growth_director.slow.col.status":          "Status",
-			"growth_director.slow.status.on_track":     "On track",
-			"growth_director.slow.status.below_target": "Below target",
-			"growth_director.slow.status.losing":       "Losing",
-			"growth_director.slow.wow.none":            "needs two weeks of weighing",
-			"growth_director.slow.empty":               "No group has three kids with a second weigh yet.",
-			"growth_director.feed_growth.title":        "Feed given vs growth",
-			"growth_director.feed_growth.caption":      "Feed as directed on the sheet, not as eaten — leftovers are not measured yet. Read this as an estimate.",
-			"growth_director.feed_growth.estimate":     "estimate",
-			// Filters for a table that is now ONE ROW PER PEN (105 live) rather than per shed.
-			// "Measured gain" is the one that earns its place: 78 of those pens have no second
-			// weigh yet, so the default view buries the 27 rows a reader can actually act on.
-			"growth_director.feed_growth.filter.all":       "All pens",
-			"growth_director.feed_growth.filter.measured":  "With measured gain",
-			"growth_director.feed_growth.filter.trial":     "Trial pens",
-			"growth_director.feed_growth.filter.aria":      "Filter the feed and growth rows",
-			"growth_director.feed_growth.filter.empty":     "No pens match this filter in the selected window.",
-			"growth_director.feed_growth.showing":          "pens shown",
-			"growth_director.feed_growth.col.shed":         "Shed",
-			"growth_director.feed_growth.col.feed":         "Feed directed",
-			"growth_director.feed_growth.col.gain":         "Daily gain",
-			"growth_director.feed_growth.col.ratio":        "Feed kg / kg gained",
-			"growth_director.feed_growth.feed_unit":        "g per head per day",
-			"growth_director.feed_growth.basis.per_animal": "per kid, own weighs",
-			"growth_director.feed_growth.basis.whole_shed": "shed average movement",
-			"growth_director.feed_growth.experiment":       "trial",
-			"growth_director.feed_growth.experiment.note":  "Runs the experiment sheet (its own hand-entered quantities, not the ration grid), so its ratio is not comparable.",
-			"growth_director.feed_growth.no_gain":          "needs a second weigh",
-			"growth_director.feed_growth.note":             "High feed with low gain is a ration, waste, or health question for that shed this week. Growth is counted by each kid's herd-register shed — the shed the feed sheet was written for — so kids whose tag matches nothing are left out here and counted in the trust panel.",
-			"growth_director.feed_growth.empty":            "No feed sheet covered these sheds in this period.",
-			"growth_director.feed_problems.title":          "Feed sheet problems",
-			"growth_director.feed_problems.caption":        "Lines the feed sheet could not fill in — the shed may have been fed by guesswork.",
-			"growth_director.feed_problems.col.shed":       "Shed",
-			"growth_director.feed_problems.col.item":       "Feed item",
-			"growth_director.feed_problems.col.days":       "Days blocked",
-			"growth_director.feed_problems.col.reason":     "Reason",
-			"growth_director.feed_problems.latest_day":     "on the latest feed day",
-			"growth_director.feed_problems.history":        "in this period",
-			"growth_director.feed_problems.note.zero":      "Blocked is not zero — blocked means nobody authored a ration. Zero-kg lines exist on purpose (milk-fed kids) and are not shown here.",
-			"growth_director.feed_problems.empty":          "Every line on the feed sheet was filled in for this period.",
-			"growth_director.trust.title":                  "Can we trust these numbers?",
-			"growth_director.trust.caption":                "Every gain number on this page stands on these counts. Fixing them is the cheapest way to make the whole page better.",
-			"growth_director.trust.scans_matched":          "Scans matched to a kid",
-			"growth_director.trust.scans_matched.sub":      "a scan that matches nothing needs a re-scan",
-			"growth_director.trust.pairs":                  "Tags weighed twice",
-			"growth_director.trust.pairs.sub":              "growth can only be worked out for these — a tag is only a named kid once it matches the herd register",
-			"growth_director.trust.once_only":              "Tags weighed once only",
-			"growth_director.trust.once_only.sub":          "a second weigh unlocks their gain",
-			"growth_director.trust.whole_shed":             "Whole-shed weighings",
-			"growth_director.trust.whole_shed.sub":         "no per-kid, breed or sex view",
-			"growth_director.trust.pending":                "Awaiting verification",
-			"growth_director.trust.pending.sub":            "still counted — a weigh is a weigh until a verifier bounces it",
-			"growth_director.trust.rework":                 "Bounced by the verifier",
-			"growth_director.trust.rework.sub":             "left out of every gain number on this page",
+		return weighingWeightsCopy()
+	// -------------------------------------------------------------------------------
+	// WEIGHING -> WEIGHTS ANALYTICS. The same weighing facts as /weighing/weights, cut five
+	// ways. It SHARES that page's copy base so the filter bar, the KPI strip and the shed
+	// table cannot drift into two spellings; only the tab strip and the four analysis
+	// sections are its own.
+	//
+	// COPY FIREWALL: farm language throughout. A reader sees breeds, sheds and weeks -- never
+	// "bucket", "observation", "read model", "ADG" or "lump-sum grain".
+	//
+	// THE ONE WORD THIS PAGE LIVES ON IS *GAIN*, and every gain figure on every tab is the SAME
+	// statistic the headline reports (maintainer decision 2026-08-26): the animal-weighted mean
+	// over kids weighed twice PLUS whole-shed pens. The captions say so wherever a reader could
+	// otherwise assume a tab is measuring something narrower than the card above it.
+	// -------------------------------------------------------------------------------
+	case "weighing-analytics":
+		analytics := weighingWeightsCopy()
+		for key, value := range map[string]string{
+			// The tab strip. Farm nouns, not dimension names: a reader picks "Breed-wise",
+			// never "by_breed".
+			// OVERRIDDEN, not inherited. The shared base labels this figure "weighed twice in the
+			// selected period", but the number under it is summary.animals_weighed -- every kid
+			// weighed AT LEAST once (184 scanned + 478 whole-shed = 662 on the landing window),
+			// not the smaller set weighed twice. The gain cards below are the ones that speak for
+			// kids weighed twice, and they carry their own denominator.
+			//
+			// Corrected HERE ONLY: /weighing/weights carries the same wrong sub-line from this
+			// same base, and repairing that page was explicitly out of scope for this change.
+			// Flagged for the maintainer rather than fixed silently on a screen nobody asked to
+			// touch.
+			"kpi.kids.split.total_sub": "weighed in the selected period",
+
+			"tab.aria":    "Weights analytics view",
+			"tab.general": "General",
+			"tab.breed":   "Breed-wise",
+			"tab.birth":   "Birth-wise",
+			"tab.shed":    "Shed-wise",
+			"tab.time":    "Time-wise",
+
+			// General. The summary this page opens on is the Weights page's own, so a reader
+			// lands on figures they already recognise before the cuts below re-slice them.
+			"section.general.caption": "The whole selected period, before any of the cuts beside it. Every other tab re-slices exactly these kids.",
+
+			// Breed-wise. Two measures on one chart, and they are NOT the same population:
+			// weight covers every kid weighed, gain only those weighed twice. The caption has to
+			// say so, or the two bars read as one fact about one set of animals.
+			"section.breed.title":   "Breed-wise growth",
+			"section.breed.caption": "Daily gain and average weight for each breed. The two bars count different kids: weight covers every kid weighed, gain only those with a second weigh or a whole-shed pen that moved.",
+			"section.breed.aria":    "Daily gain and average weight by breed",
+			"series.gain":           "Daily gain",
+			"series.weight":         "Average weight",
+			"empty.breed.body":      "No breed has a weighed kid in this period.",
+
+			// Birth-wise. The two halves deliberately need not add up to the whole, and saying so
+			// is the difference between an honest gap and apparent missing data.
+			"section.birth.title":   "Farm born vs purchased",
+			"section.birth.caption": "Daily gain for each breed, split by where the kids came from. A breed shows one bar when the farm only has one kind. Kids whose origin is not recorded are counted in neither, so the two sides need not add up to the breed's own total.",
+			"section.birth.aria":    "Daily gain by breed and origin",
+			"empty.birth.body":      "No breed has a farm-born or purchased kid with a second weigh in this period.",
+
+			// Shed-wise. Grouped by breed so a reader compares pens holding the same animals; a
+			// pen holding more than one breed is named as such rather than filed under one of them.
+			"section.shed.title":   "Shed-wise growth",
+			"section.shed.caption": "Daily gain for each shed, grouped by the breed it holds, so a slow pen is read against pens holding the same animals. A shed holding more than one breed is grouped on its own.",
+			"section.shed.aria":    "Daily gain by shed within each breed",
+			"empty.shed.body":      "No shed has a daily gain in this period. A gain needs two weighs.",
+			"value.shed.mixed":     "Mixed breeds",
+			"value.shed.unknown":   "Breed not recorded",
+
+			// Time-wise. The fixed window is stated in the caption because it is the one control
+			// on this page a reader cannot change, and an unexplained fixed window reads as the
+			// period filter being broken.
+			"section.time.title":   "Weekly growth",
+			"section.time.caption": "Daily gain for each of the last 12 weeks — about a quarter, which is the span a fattening cycle is judged over. This tab always shows those 12 weeks and is not moved by the period filter; the park, weighing and sex filters still apply.",
+			"section.time.aria":    "Daily gain by week",
+			"empty.time.body":      "No week in the last 12 has a kid or a shed weighed twice.",
+			"value.time.animals":   "kids",
+			"note.time.gaps":       "A week nobody weighed in has no bar. It is left out rather than drawn as zero, which would read as a week the kids stopped growing.",
+		} {
+			analytics[key] = value
 		}
+		return analytics
 	// -------------------------------------------------------------------------------
 	// COUNTS -> HERD ANALYTICS. Two questions on one screen, and the copy has to keep
 	// them apart because they have different time grains:
@@ -6570,7 +6683,9 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(nil)
 	case "milk-preparation":
 		return withGenericOptionGroups(nil)
-	case "weighing-weights":
+	case "weighing-weights", "weighing-analytics":
+		// One vocabulary for both weighing screens on purpose: they carry the SAME filter bar,
+		// and two copies would let the capture-mode labels drift into two spellings of one thing.
 		return withGenericOptionGroups(weighingWeightsOptionGroups())
 	case "feed-direction", "feed-packing", "feed-config", "feed-analytics":
 		return withGenericOptionGroups(feedOptionGroups())

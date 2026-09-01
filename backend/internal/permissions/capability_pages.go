@@ -101,6 +101,7 @@ var modulePages = []ModulePage{
 	{Key: "herd-signals", Module: "herd_signals", Label: "Live Monitor", Href: "/herd-signals", Permissions: []string{HerdSignalsRead}},
 
 	{Key: "weighing-weights", Module: "weighing", Label: "Weights", Href: "/weighing/weights", Permissions: []string{WeighingMonitor}},
+	{Key: "weighing-analytics", Module: "weighing", Label: "Weights analytics", Href: "/weighing/analytics", Permissions: []string{WeighingMonitor}},
 	{Key: "weighing-sops", Module: "weighing", Label: "Weighing SOP", Href: "/weighing/sops", Permissions: []string{SOPRead}},
 
 	{Key: "feed-config", Module: "feed_direction", Label: "Feed Config", Href: "/feed/config", Permissions: []string{FeedConfigRead}},

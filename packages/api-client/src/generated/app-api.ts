@@ -11820,6 +11820,23 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
+        /** @description One breed's daily gain for ONE origin -- farm born or purchased. Same measure and same population rule as WeighingWeightGainBucket, split by where the animals came from. Resolved PER ANIMAL for a scanned weigh and agree-or-neither for a whole-shed pen, the identical rule the Weights page's Farm born / Purchased filter follows. THE TWO SIDES NEED NOT ADD UP to the breed's own gain_by_breed entry: an animal whose load is not recorded is claimed by neither side while still counting in the breed total. Render the halves as a comparison, never as a partition of the whole. */
+        WeighingWeightGainOriginBucket: {
+            /** @description The breed, as stored. Clients render it; they do not re-map it. */
+            label: string;
+            /**
+             * @description Never emitted for an animal or pen that is on neither side.
+             * @enum {string}
+             */
+            origin: "farm_born" | "purchased";
+            /** @description Scanned kids of this breed and origin with a computable gain, plus the head counts of the pens claimed for this origin. */
+            animals: number;
+            /**
+             * Format: double
+             * @description The animal-weighted mean for this breed and origin.
+             */
+            median_gain_g_per_day: number;
+        };
         /** @description How many animals of one breed fell into each daily-gain band. The four counts are DISJOINT: an animal at 260 g/day is counted in above_250_g_per_day only, every animal lands in exactly one band, and the four add up to animals -- so they may be read as a distribution. A homogeneous-breed whole-shed weigh contributes ALL of its animals to the ONE band its own average-weight change falls into. There is ONE grain: the Weights page's `sex` filter narrows the whole read, so these rows already describe the kids the caller asked for. */
         WeighingWeightGainThresholdBucket: {
             label: string;
@@ -11865,6 +11882,8 @@ export interface components {
             gain_by_breed: components["schemas"]["WeighingWeightGainBucket"][];
             gain_by_sex: components["schemas"]["WeighingWeightGainBucket"][];
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
+            /** @description Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither. */
+            gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
             /** @description How many animals of each breed clear 180 / 200 / 250 g per day. Same same-animal population as gain_by_breed; the marks are cumulative. */
             gain_thresholds_by_breed: components["schemas"]["WeighingWeightGainThresholdBucket"][];
             resolved_animals: number;

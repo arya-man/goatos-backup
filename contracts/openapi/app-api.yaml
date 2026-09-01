@@ -29009,6 +29009,31 @@ components:
           type: number
           format: double
           description: "Median across those animals, so one scale misread cannot swing a breed."
+    WeighingWeightGainOriginBucket:
+      type: object
+      additionalProperties: false
+      required: [label, origin, animals, median_gain_g_per_day]
+      description: >-
+        One breed's daily gain for ONE origin -- farm born or purchased. Same measure and same
+        population rule as WeighingWeightGainBucket, split by where the animals came from.
+        Resolved PER ANIMAL for a scanned weigh and agree-or-neither for a whole-shed pen, the
+        identical rule the Weights page's Farm born / Purchased filter follows.
+        THE TWO SIDES NEED NOT ADD UP to the breed's own gain_by_breed entry: an animal whose load
+        is not recorded is claimed by neither side while still counting in the breed total. Render
+        the halves as a comparison, never as a partition of the whole.
+      properties:
+        label: {type: string, description: "The breed, as stored. Clients render it; they do not re-map it."}
+        origin:
+          type: string
+          enum: [farm_born, purchased]
+          description: "Never emitted for an animal or pen that is on neither side."
+        animals:
+          type: integer
+          description: "Scanned kids of this breed and origin with a computable gain, plus the head counts of the pens claimed for this origin."
+        median_gain_g_per_day:
+          type: number
+          format: double
+          description: "The animal-weighted mean for this breed and origin."
     WeighingWeightGainThresholdBucket:
       type: object
       additionalProperties: false
@@ -29073,7 +29098,7 @@ components:
     WeighingWeightDemographicsResponse:
       type: object
       additionalProperties: false
-      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, gain_thresholds_by_breed, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
+      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, gain_by_breed_origin, gain_thresholds_by_breed, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
       properties:
         by_breed:
           type: array
@@ -29097,6 +29122,10 @@ components:
         gain_by_stage:
           type: array
           items: {$ref: "#/components/schemas/WeighingWeightGainBucket"}
+        gain_by_breed_origin:
+          type: array
+          description: "Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither."
+          items: {$ref: "#/components/schemas/WeighingWeightGainOriginBucket"}
         gain_thresholds_by_breed:
           type: array
           description: "How many animals of each breed clear 180 / 200 / 250 g per day. Same same-animal population as gain_by_breed; the marks are cumulative."
