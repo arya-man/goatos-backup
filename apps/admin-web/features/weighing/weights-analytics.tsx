@@ -420,84 +420,86 @@ function GeneralTab({
     <>
       <p className="muted small">{copy(pageContract, "section.general.caption")}</p>
 
-      <section className="grid g5 kpi-row" aria-label={copy(pageContract, "section.sheds.aria")}>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.kids.split.label")}</div>
-          <div className="val">
-            {summary.individual_animals_weighed.toLocaleString("en-IN")} ·{" "}
-            {summary.lump_sum_animals_weighed.toLocaleString("en-IN")}
-          </div>
-          <div className="dl">
-            {summary.animals_weighed.toLocaleString("en-IN")} {copy(pageContract, "kpi.kids.split.total_sub")}
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.total.label")}</div>
-          <div className="val">{kg(summary.total_weight_kg, 0)} kg</div>
-          <div className="dl">{copy(pageContract, "kpi.total.sub")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.average.label")}</div>
-          {/* Null average means nothing was weighed. Rendering 0.0 kg would read as a herd that
-              weighs nothing — a different, untrue statement. */}
-          <div className="val">
-            {summary.average_weight_kg == null
-              ? copy(pageContract, "empty.no_data.title")
-              : `${kg(summary.average_weight_kg)} kg`}
-          </div>
-          <div className="dl">{copy(pageContract, "kpi.average.sub")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.over30.label")}</div>
-          <div className="val">{summary.at_or_above_30kg.toLocaleString("en-IN")}</div>
-          <div className="dl">
-            {summary.threshold_basis_animals.toLocaleString("en-IN")} {copy(pageContract, "kpi.threshold.basis")}
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.over35.label")}</div>
-          <div className="val">{summary.at_or_above_35kg.toLocaleString("en-IN")}</div>
-          <div className="dl">
-            {summary.threshold_basis_animals.toLocaleString("en-IN")} {copy(pageContract, "kpi.threshold.basis")}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid g3 kpi-row" aria-label={copy(pageContract, "section.park_gain.aria")}>
-        <div className="kpi">
-          <div className="lab">
-            {selectedParkName || copy(pageContract, "kpi.park_gain.all")}{" "}
-            {copy(pageContract, "kpi.park_gain.suffix")}
-          </div>
-          {/* No gain is a real state: a period where nothing was weighed twice HAS no gain, and
-              printing 0 g/day would read as a herd that stopped growing. */}
-          <div className="val">
-            {headlineGain == null ? copy(pageContract, "empty.no_data.title") : `${Math.round(headlineGain)} g`}
-          </div>
-          <div className="dl">
-            {headlineGain == null
-              ? copy(pageContract, "kpi.gain.none")
-              : `${copy(pageContract, "kpi.gain.blended")} · ${headlineAnimals.toLocaleString("en-IN")}`}
-          </div>
-        </div>
-        {perParkGain.map((park) => (
-          <div className="kpi" key={park.name}>
-            <div className="lab">
-              {park.name} {copy(pageContract, "kpi.park_gain.suffix")}
-            </div>
-            {/* A park where nothing was weighed twice HAS no gain. Printing 0 g/day would read as
-                a park whose kids stopped growing, which is a different and untrue statement. */}
+      <div className="wt-general-metrics">
+        <section className="grid g5 kpi-row" aria-label={copy(pageContract, "section.sheds.aria")}>
+          <div className="kpi">
+            <div className="lab">{copy(pageContract, "kpi.kids.split.label")}</div>
             <div className="val">
-              {park.gain == null ? copy(pageContract, "empty.no_data.title") : `${Math.round(park.gain)} g`}
+              {summary.individual_animals_weighed.toLocaleString("en-IN")} ·{" "}
+              {summary.lump_sum_animals_weighed.toLocaleString("en-IN")}
             </div>
             <div className="dl">
-              {park.gain == null
-                ? copy(pageContract, "kpi.gain.none")
-                : `${copy(pageContract, "kpi.gain.blended")} · ${park.animals.toLocaleString("en-IN")}`}
+              {summary.animals_weighed.toLocaleString("en-IN")} {copy(pageContract, "kpi.kids.split.total_sub")}
             </div>
           </div>
-        ))}
-      </section>
+          <div className="kpi">
+            <div className="lab">{copy(pageContract, "kpi.total.label")}</div>
+            <div className="val">{kg(summary.total_weight_kg, 0)} kg</div>
+            <div className="dl">{copy(pageContract, "kpi.total.sub")}</div>
+          </div>
+          <div className="kpi">
+            <div className="lab">{copy(pageContract, "kpi.average.label")}</div>
+            {/* Null average means nothing was weighed. Rendering 0.0 kg would read as a herd that
+                weighs nothing — a different, untrue statement. */}
+            <div className="val">
+              {summary.average_weight_kg == null
+                ? copy(pageContract, "empty.no_data.title")
+                : `${kg(summary.average_weight_kg)} kg`}
+            </div>
+            <div className="dl">{copy(pageContract, "kpi.average.sub")}</div>
+          </div>
+          <div className="kpi">
+            <div className="lab">{copy(pageContract, "kpi.over30.label")}</div>
+            <div className="val">{summary.at_or_above_30kg.toLocaleString("en-IN")}</div>
+            <div className="dl">
+              {summary.threshold_basis_animals.toLocaleString("en-IN")} {copy(pageContract, "kpi.threshold.basis")}
+            </div>
+          </div>
+          <div className="kpi">
+            <div className="lab">{copy(pageContract, "kpi.over35.label")}</div>
+            <div className="val">{summary.at_or_above_35kg.toLocaleString("en-IN")}</div>
+            <div className="dl">
+              {summary.threshold_basis_animals.toLocaleString("en-IN")} {copy(pageContract, "kpi.threshold.basis")}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid g3 kpi-row" aria-label={copy(pageContract, "section.park_gain.aria")}>
+          <div className="kpi">
+            <div className="lab">
+              {selectedParkName || copy(pageContract, "kpi.park_gain.all")}{" "}
+              {copy(pageContract, "kpi.park_gain.suffix")}
+            </div>
+            {/* No gain is a real state: a period where nothing was weighed twice HAS no gain, and
+                printing 0 g/day would read as a herd that stopped growing. */}
+            <div className="val">
+              {headlineGain == null ? copy(pageContract, "empty.no_data.title") : `${Math.round(headlineGain)} g`}
+            </div>
+            <div className="dl">
+              {headlineGain == null
+                ? copy(pageContract, "kpi.gain.none")
+                : `${copy(pageContract, "kpi.gain.blended")} · ${headlineAnimals.toLocaleString("en-IN")}`}
+            </div>
+          </div>
+          {perParkGain.map((park) => (
+            <div className="kpi" key={park.name}>
+              <div className="lab">
+                {park.name} {copy(pageContract, "kpi.park_gain.suffix")}
+              </div>
+              {/* A park where nothing was weighed twice HAS no gain. Printing 0 g/day would read as
+                  a park whose kids stopped growing, which is a different and untrue statement. */}
+              <div className="val">
+                {park.gain == null ? copy(pageContract, "empty.no_data.title") : `${Math.round(park.gain)} g`}
+              </div>
+              <div className="dl">
+                {park.gain == null
+                  ? copy(pageContract, "kpi.gain.none")
+                  : `${copy(pageContract, "kpi.gain.blended")} · ${park.animals.toLocaleString("en-IN")}`}
+              </div>
+            </div>
+          ))}
+        </section>
+      </div>
 
       <section className="card wtable" aria-label={copy(pageContract, "section.sheds.aria")}>
         <h2 className="h">

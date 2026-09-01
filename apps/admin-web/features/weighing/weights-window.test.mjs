@@ -121,6 +121,8 @@ test("the headline row is five cards, and the gain figure is stated once", () =>
   assert.doesNotMatch(contract, /"kpi\.gain\.sub":/);
   // g5 needs its own responsive ladder; without it the row falls back to one column.
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  assert.match(analyticsSource, /className="wt-general-metrics"/);
+  assert.match(css, /\.wt-general-metrics\{display:flex;flex-direction:column;gap:18px\}/);
   assert.match(css, /\.g5\{grid-template-columns:repeat\(5,minmax\(0,1fr\)\)\}/);
   assert.match(css, /@media\(max-width:1400px\)\{\.g5\{/);
   assert.match(css, /@media\(max-width:640px\)\{\.g5\{grid-template-columns:1fr\}\}/);

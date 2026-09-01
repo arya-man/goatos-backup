@@ -2650,6 +2650,7 @@ select:disabled { opacity: .45; }
    metric rows included — sits flush against the next with a literal 0px between
    them. Scoped to this page so the shared container is untouched. */
 .weights-page{display:flex;flex-direction:column;gap:16px}
+.wt-general-metrics{display:flex;flex-direction:column;gap:18px}
 /* The Weights analytics tab strip is CENTRED. Left-flush it sat directly under the filter bar's
    own controls and read as one more filter, rather than as the control that swaps the whole
    screen. `.metricseg` carries `margin-left:auto` for the inline toggles it was built for, so
