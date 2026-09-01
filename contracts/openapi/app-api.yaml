@@ -881,6 +881,24 @@ paths:
           description: >
             Optional repeated shed location ids (the Weights table's location grain). Absent
             means every shed in scope.
+        - in: query
+          name: sex
+          schema:
+            type: string
+            enum: [male, female]
+          description: Optional sex narrowing, with the same attribution rules as the weights screen.
+        - in: query
+          name: origin
+          schema:
+            type: string
+            enum: [farm_born, purchased]
+          description: Optional farm-born/purchased narrowing, with whole-shed rows included only when the pen is attributable.
+        - in: query
+          name: weighing_category
+          schema:
+            type: string
+            enum: [individual_animal, per_shed_partition]
+          description: Optional capture-mode narrowing. Omitted or `all` exports both capture modes.
       responses:
         "200":
           description: CSV export of recent weighing rows.

@@ -281,7 +281,7 @@ INSERT INTO weighing_shed_observations (
 	repo := NewRepository(pool, 5*time.Second)
 
 	buf := bytes.NewBuffer(nil)
-	if err := repo.ExportCSV(ctx, repoTenant, []string{repoPark}, nil, acceptedAt.Add(-time.Hour), acceptedAt.Add(2*time.Hour), buf); err != nil {
+	if err := repo.ExportCSV(ctx, repoTenant, []string{repoPark}, nil, acceptedAt.Add(-time.Hour), acceptedAt.Add(2*time.Hour), "", "", "", buf); err != nil {
 		t.Fatalf("ExportCSV: %v", err)
 	}
 	records, err := csv.NewReader(strings.NewReader(buf.String())).ReadAll()
@@ -341,7 +341,7 @@ INSERT INTO weighing_shed_observations (
 
 	// The shed filter narrows rows to the selected shed locations only.
 	buf.Reset()
-	if err := repo.ExportCSV(ctx, repoTenant, []string{repoPark}, []string{repoExpectedShed}, acceptedAt.Add(-time.Hour), acceptedAt.Add(2*time.Hour), buf); err != nil {
+	if err := repo.ExportCSV(ctx, repoTenant, []string{repoPark}, []string{repoExpectedShed}, acceptedAt.Add(-time.Hour), acceptedAt.Add(2*time.Hour), "", "", "", buf); err != nil {
 		t.Fatalf("ExportCSV with shed filter: %v", err)
 	}
 	filtered, err := csv.NewReader(strings.NewReader(buf.String())).ReadAll()
@@ -388,7 +388,7 @@ INSERT INTO weighing_observations (
 
 	repo := NewRepository(pool, 5*time.Second)
 	buf := bytes.NewBuffer(nil)
-	if err := repo.ExportCSV(ctx, repoTenant, []string{repoPark}, nil, acceptedAt.Add(-time.Hour), acceptedAt.Add(time.Hour), buf); err != nil {
+	if err := repo.ExportCSV(ctx, repoTenant, []string{repoPark}, nil, acceptedAt.Add(-time.Hour), acceptedAt.Add(time.Hour), "", "", "", buf); err != nil {
 		t.Fatalf("ExportCSV: %v", err)
 	}
 	records, err := csv.NewReader(strings.NewReader(buf.String())).ReadAll()
@@ -432,7 +432,7 @@ INSERT INTO weighing_observations (
 
 	repo := NewRepository(pool, 5*time.Second)
 	buf := bytes.NewBuffer(nil)
-	if err := repo.ExportCSV(ctx, repoTenant, []string{repoPark}, nil, base.AddDate(0, 0, -2).Add(-time.Hour), base.Add(time.Hour), buf); err != nil {
+	if err := repo.ExportCSV(ctx, repoTenant, []string{repoPark}, nil, base.AddDate(0, 0, -2).Add(-time.Hour), base.Add(time.Hour), "", "", "", buf); err != nil {
 		t.Fatalf("ExportCSV: %v", err)
 	}
 	records, err := csv.NewReader(strings.NewReader(buf.String())).ReadAll()
@@ -474,14 +474,14 @@ INSERT INTO weighing_observations (
 	repo := NewRepository(pool, 5*time.Second)
 	otherPark := "99999999-9999-4999-8999-999999999999"
 	buf := bytes.NewBuffer(nil)
-	if err := repo.ExportCSV(ctx, repoTenant, []string{otherPark}, nil, acceptedAt.Add(-time.Hour), acceptedAt.Add(time.Hour), buf); err != nil {
+	if err := repo.ExportCSV(ctx, repoTenant, []string{otherPark}, nil, acceptedAt.Add(-time.Hour), acceptedAt.Add(time.Hour), "", "", "", buf); err != nil {
 		t.Fatalf("ExportCSV other park: %v", err)
 	}
 	if records, err := csv.NewReader(strings.NewReader(buf.String())).ReadAll(); err != nil || len(records) != 1 {
 		t.Fatalf("another park's scope must export header only, got %#v (err=%v)", records, err)
 	}
 	buf.Reset()
-	if err := repo.ExportCSV(ctx, repoTenant, nil, nil, acceptedAt.Add(-time.Hour), acceptedAt.Add(time.Hour), buf); err != nil {
+	if err := repo.ExportCSV(ctx, repoTenant, nil, nil, acceptedAt.Add(-time.Hour), acceptedAt.Add(time.Hour), "", "", "", buf); err != nil {
 		t.Fatalf("ExportCSV empty scope: %v", err)
 	}
 	if records, err := csv.NewReader(strings.NewReader(buf.String())).ReadAll(); err != nil || len(records) != 1 {

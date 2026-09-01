@@ -3,6 +3,7 @@ import { CalendarRange, Scale, Sprout, Warehouse } from "lucide-react";
 
 import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { WeightBars } from "./weight-bars";
+import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
@@ -34,6 +35,7 @@ import {
 
 const PAGE_PATH = "/weighing/analytics";
 const SEX_PARAM = "sex";
+const ORIGIN_PARAM = "origin";
 const TAB_PARAM = "tab";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 const DEFAULT_LIMIT = 25;
@@ -135,6 +137,8 @@ export async function WeighingWeightsAnalyticsPage({
   // What the CONTROL shows. The reads take "" for every kid; the control cannot, or its All
   // option would be the blank one and would read back as the male default on the next request.
   const sexChoice = sexFilter === "" ? "all" : sexFilter;
+  const rawOrigin = one(params, ORIGIN_PARAM);
+  const originFilter = rawOrigin === "farm_born" || rawOrigin === "purchased" ? rawOrigin : "";
 
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
@@ -147,6 +151,7 @@ export async function WeighingWeightsAnalyticsPage({
   const scope = {
     park_id: parkFilter || undefined,
     sex: sexFilter || undefined,
+    origin: originFilter || undefined,
     weighing_category: WEIGHING_FILTER_TABS.has(tab) && modeFilter !== "all" ? modeFilter : undefined,
   };
 
@@ -206,6 +211,17 @@ export async function WeighingWeightsAnalyticsPage({
       : [];
 
   const modeOptions = optionGroup(pageContract, "weighing_mode");
+  const parkIdByName = new Map(parks.map((park) => [park.name, park.park_id]));
+  const exportShedsById = new Map<string, WeightsExportShed>();
+  for (const row of rows) {
+    if (exportShedsById.has(row.location_id)) continue;
+    exportShedsById.set(row.location_id, {
+      location_id: row.location_id,
+      label: row.operational_location_display || row.shed_display_name,
+      park_id: parkIdByName.get(row.park_name) ?? "",
+    });
+  }
+  const exportSheds = [...exportShedsById.values()].sort((a, b) => a.label.localeCompare(b.label));
   const filterFields: WorklistFilterField[] = [
     {
       kind: "select",
@@ -240,20 +256,14 @@ export async function WeighingWeightsAnalyticsPage({
       },
       markerFetchPath: `/api/weighing/lump-markers${parkFilter ? `?park_id=${encodeURIComponent(parkFilter)}` : ""}`,
     },
-    // WEIGHING IS OFFERED ONLY WHERE IT ACTUALLY NARROWS SOMETHING (maintainer decision, review of
-    // PR 162). It selects a capture MODE -- kids scanned one at a time, or a whole pen on the scale
-    // once -- and the page filters on that client-side, over shed rows. General and Shed-wise have
-    // those rows; Breed-wise, Birth-wise and Time-wise are served by aggregates that arrive with
-    // both modes already blended, and no client-side filter can take one back out of a mean.
+    // WEIGHING IS OFFERED ONLY WHERE IT ACTUALLY NARROWS SOMETHING at the API boundary
+    // (maintainer decision, review of PR 162). It selects a capture MODE -- kids scanned one at a
+    // time, or a whole pen on the scale once. General and Time-wise still include the growth
+    // endpoint, which does not accept weighing_category, so those tabs hide the control until that
+    // backend read grows the same filter.
     //
-    // It was rendered on all five tabs and did nothing on three of them: a reader could select
-    // "Lump sum" and the breed chart would carry on counting scanned kids, with the control sitting
-    // there claiming otherwise. A filter that silently does nothing is worse than an absent one --
-    // it is a wrong answer the reader has no reason to doubt.
-    //
-    // The PARAMETER is deliberately left alone when the control is hidden, so a choice made on
-    // General survives a trip through Breed-wise and is still set on the way back. Those tabs'
-    // captions say in farm words that both ways of weighing are counted.
+    // The PARAMETER is deliberately left alone when the control is hidden, so a choice made on a
+    // filtered tab survives a trip through General or Time-wise and is still set on the way back.
     ...(WEIGHING_FILTER_TABS.has(tab)
       ? [
           {
@@ -283,11 +293,45 @@ export async function WeighingWeightsAnalyticsPage({
         { value: "female", label: copy(pageContract, "view.sex.female") },
       ],
     },
+    {
+      // Same as /weighing/weights: absent means every origin, while the explicit values narrow
+      // every analytics read to farm-born or purchased kids.
+      kind: "select",
+      param: ORIGIN_PARAM,
+      label: copy(pageContract, "filter.origin.label"),
+      allowAll: true,
+      value: originFilter,
+      options: [
+        { value: "farm_born", label: copy(pageContract, "view.origin.farm_born") },
+        { value: "purchased", label: copy(pageContract, "view.origin.purchased") },
+      ],
+    },
   ];
 
   return (
     <div className="weights-page">
-      <WorklistFilters basePath={PAGE_PATH} pageParam="offset" fields={filterFields} pageContract={pageContract} />
+      <WorklistFilters
+        basePath={PAGE_PATH}
+        pageParam="offset"
+        fields={filterFields}
+        pageContract={pageContract}
+        trailing={
+          <WeightsExportControl
+            pageContract={pageContract}
+            parks={parks.map((park) => ({ park_id: park.park_id, name: park.name }))}
+            sheds={exportSheds}
+            initialParkId={parkFilter}
+            initialFrom={window.from}
+            initialTo={window.to}
+            sex={sexFilter}
+            origin={originFilter}
+            weighingCategory={WEIGHING_FILTER_TABS.has(tab) ? modeFilter : undefined}
+            today={today}
+            openHref={hrefWith(params, { wt_export: "1" })}
+            closeHref={hrefWith(params, { wt_export: null })}
+          />
+        }
+      />
 
       {/* Centred, not left-flush: this strip is the page's primary navigation across five views of
           one dataset, and hard against the left edge it read as another filter belonging to the bar

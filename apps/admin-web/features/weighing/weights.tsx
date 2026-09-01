@@ -785,6 +785,9 @@ export async function WeighingWeightsPage({
             initialParkId={parkFilter}
             initialFrom={window.from}
             initialTo={window.to}
+            sex={sexFilter}
+            origin={originFilter}
+            weighingCategory={modeFilter}
             today={today}
             openHref={hrefWith(params, { wt_export: "1" })}
             closeHref={hrefWith(params, { wt_export: null })}

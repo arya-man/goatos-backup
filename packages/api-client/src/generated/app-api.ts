@@ -15556,6 +15556,12 @@ export interface operations {
                 park_id?: string;
                 /** @description Optional repeated shed location ids (the Weights table's location grain). Absent means every shed in scope. */
                 shed_id?: string[];
+                /** @description Optional sex narrowing, with the same attribution rules as the weights screen. */
+                sex?: "male" | "female";
+                /** @description Optional farm-born/purchased narrowing, with whole-shed rows included only when the pen is attributable. */
+                origin?: "farm_born" | "purchased";
+                /** @description Optional capture-mode narrowing. Omitted or `all` exports both capture modes. */
+                weighing_category?: "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;

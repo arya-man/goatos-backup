@@ -836,6 +836,9 @@ export async function exportWeighingWeightsCsv(params: {
   to?: string;
   park_id?: string;
   shed_id?: readonly string[];
+  sex?: string;
+  origin?: string;
+  weighing_category?: string;
 }): Promise<ApiResult<string>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

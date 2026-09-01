@@ -24,7 +24,7 @@ type Service struct {
 }
 
 type exportReader interface {
-	ExportCSV(ctx context.Context, tenantID string, parkIDs []string, shedLocationIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error
+	ExportCSV(ctx context.Context, tenantID string, parkIDs []string, shedLocationIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, writer io.Writer) error
 }
 
 func NewService(repo ports.Repository) *Service {
@@ -1712,7 +1712,7 @@ func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, cam
 // year is served, because the export exists to reconcile past periods. parkID
 // optionally narrows to one authorized park; shedLocationIDs optionally narrow
 // to selected shed locations within that scope.
-func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, writer io.Writer) error {
+func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return ports.ErrForbidden
 	}
@@ -1750,7 +1750,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusines
 	if !ok {
 		return ports.ErrNotFound
 	}
-	return reader.ExportCSV(ctx, actor.TenantID, parkIDs, sheds, from, to.AddDate(0, 0, 1), writer)
+	return reader.ExportCSV(ctx, actor.TenantID, parkIDs, sheds, from, to.AddDate(0, 0, 1), strings.TrimSpace(sex), strings.TrimSpace(origin), strings.TrimSpace(weighingCategory), writer)
 }
 
 func exportBusinessDateOrDefault(value string, fallback time.Time) (time.Time, error) {

@@ -26,12 +26,18 @@ export async function exportWeightsCsvAction(input: {
   to: string;
   parkId?: string;
   shedIds?: string[];
+  sex?: string;
+  origin?: string;
+  weighingCategory?: string;
 }): Promise<WeightsCsvExport> {
   const result = await getWeighingWeightsCsvExport({
     from: input.from,
     to: input.to,
     park_id: input.parkId,
     shed_id: input.shedIds,
+    sex: input.sex,
+    origin: input.origin,
+    weighing_category: input.weighingCategory,
   });
   if (!result.ok || typeof result.data !== "string") return { ok: false };
   return { ok: true, csv: result.data };
