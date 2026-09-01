@@ -951,6 +951,7 @@ func lookupGainAnimals(t *testing.T, buckets []domain.WeightGainBucket, label st
 // a rejected weigh treated as a measurement. This test drives all four at once on one fixture, so a
 // change that gets three of them right still goes red on the fourth.
 func TestGrowthGainAggregateOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T) {
+	t.Log("OneToMany PageBoundary ParkScope StatusBuckets: growth rejected counts cover individual and whole-shed observations without widening the page scope")
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -1036,6 +1037,10 @@ INSERT INTO weighing_shed_observations (
 	}
 	if got, want := *withWithdrawn.Headline.AverageADGGPerDay, *base.Headline.AverageADGGPerDay; math.Abs(got-want) > 0.01 {
 		t.Fatalf("a withdrawn weigh must not move the gain: %.2f became %.2f", want, got)
+	}
+	if withWithdrawn.Headline.RejectedObservationCount != 1 {
+		t.Fatalf("a verifier-bounced whole-shed weigh must be counted in rejected observations, got %d",
+			withWithdrawn.Headline.RejectedObservationCount)
 	}
 
 	// PARK SCOPE: these pens hang off repoPark. Asking about a park that owns none of them must

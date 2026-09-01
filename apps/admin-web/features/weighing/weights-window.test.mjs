@@ -88,6 +88,8 @@ test("analytics tab changes expose a visible pending state", () => {
 
 test("weights analytics sends the weighing mode through every tab read", () => {
   assert.doesNotMatch(analyticsSource, /WEIGHING_FILTER_TABS/);
+  assert.match(analyticsSource, /function weighingModeFilter\(raw: string \| undefined\): string/);
+  assert.match(analyticsSource, /const modeFilter = weighingModeFilter\(one\(params, "weighing"\)\);/);
   assert.match(analyticsSource, /const weighingCategoryFilter = modeFilter !== "all" \? modeFilter : "";/);
   assert.match(analyticsSource, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
   assert.match(analyticsSource, /weighing_category: weighingCategoryFilter \|\| undefined/);
@@ -98,6 +100,8 @@ test("weights analytics sends the weighing mode through every tab read", () => {
 });
 
 test("weights page sends the weighing mode through every backend read", () => {
+  assert.match(source, /function weighingModeFilter\(raw: string \| undefined\): string/);
+  assert.match(source, /const modeFilter = weighingModeFilter\(one\(params, "weighing"\)\);/);
   assert.match(source, /const weighingCategoryFilter = modeFilter !== "all" \? modeFilter : "";/);
   assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
   assert.match(source, /weighing_category: weighingCategoryFilter \|\| undefined/);

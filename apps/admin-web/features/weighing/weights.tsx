@@ -74,6 +74,10 @@ const SEX_PARAM = "sex";
 // defaulting to one would hide half the herd from a reader who never chose.
 const ORIGIN_PARAM = "origin";
 
+function weighingModeFilter(raw: string | undefined): string {
+  return raw === "individual_animal" || raw === "per_shed_partition" ? raw : "all";
+}
+
 function kg(value: number, fractionDigits = 1): string {
   return value.toLocaleString("en-IN", {
     minimumFractionDigits: fractionDigits,
@@ -230,7 +234,7 @@ export async function WeighingWeightsPage({
 }) {
   const params = searchParams ?? {};
   const parkFilter = one(params, "park") ?? "";
-  const modeFilter = one(params, "weighing") ?? "all";
+  const modeFilter = weighingModeFilter(one(params, "weighing"));
   // MALE is the default (maintainer request 2026-09-01): the farm's growth question is about the
   // males it is fattening, so an unfiltered landing showed a number nobody had asked for. Every
   // kid is still one click away as an EXPLICIT `sex=all`, the same shape the Weighing filter

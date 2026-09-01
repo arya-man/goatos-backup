@@ -381,21 +381,37 @@ SELECT
 
 func (r *Repository) growthRejectedCount(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, weighingCategory string) (int, error) {
 	var count int
-	// projection-review: membership=weighing_observations; group_key=park_aggregate; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
+	// projection-review: membership=weighing_observations + weighing_shed_observations; group_key=park_aggregate; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 	err := r.pool.QueryRow(ctx, `
-	-- projection-review: membership=weighing_observations; group_key=park_aggregate; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
-SELECT COUNT(*)
-FROM weighing_observations wo
-JOIN weighing_campaign_sheds wcs
-  ON wcs.campaign_shed_id = wo.campaign_shed_id AND wcs.tenant_id = wo.tenant_id
-JOIN weighing_campaigns wc
-  ON wc.campaign_id = wcs.campaign_id AND wc.tenant_id = wo.tenant_id
-WHERE wo.tenant_id = $1::uuid
-  AND wc.park_id = ANY($2::uuid[])
-  AND wo.verification_status = 'rejected'
-  AND wo.accepted_at >= $3::timestamptz
-  AND wo.accepted_at < $4::timestamptz
-  AND ($5::text = '' OR wcs.weighing_category = $5::text)`, tenantID, parkIDs, periodStart, periodEnd, weighingCategory).Scan(&count)
+	-- projection-review: membership=weighing_observations + weighing_shed_observations; group_key=park_aggregate; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
+WITH rejected AS (
+  SELECT wo.observation_id::text AS rejected_id
+  FROM weighing_observations wo
+  JOIN weighing_campaign_sheds wcs
+    ON wcs.campaign_shed_id = wo.campaign_shed_id AND wcs.tenant_id = wo.tenant_id
+  JOIN weighing_campaigns wc
+    ON wc.campaign_id = wcs.campaign_id AND wc.tenant_id = wo.tenant_id
+  WHERE wo.tenant_id = $1::uuid
+    AND wc.park_id = ANY($2::uuid[])
+    AND wo.verification_status = 'rework'
+    AND wo.accepted_at >= $3::timestamptz
+    AND wo.accepted_at < $4::timestamptz
+    AND ($5::text = '' OR wcs.weighing_category = $5::text)
+  UNION ALL
+  SELECT wso.shed_observation_id::text AS rejected_id
+  FROM weighing_shed_observations wso
+  JOIN weighing_campaign_sheds wcs
+    ON wcs.campaign_shed_id = wso.campaign_shed_id AND wcs.tenant_id = wso.tenant_id
+  JOIN weighing_campaigns wc
+    ON wc.campaign_id = wcs.campaign_id AND wc.tenant_id = wso.tenant_id
+  WHERE wso.tenant_id = $1::uuid
+    AND wc.park_id = ANY($2::uuid[])
+    AND wso.verification_status = 'rework'
+    AND wso.accepted_at >= $3::timestamptz
+    AND wso.accepted_at < $4::timestamptz
+    AND ($5::text = '' OR wcs.weighing_category = $5::text)
+)
+SELECT COUNT(*) FROM rejected`, tenantID, parkIDs, periodStart, periodEnd, weighingCategory).Scan(&count)
 	return count, err
 }
 

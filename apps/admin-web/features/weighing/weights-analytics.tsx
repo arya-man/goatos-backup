@@ -44,6 +44,10 @@ const DEFAULT_LIMIT = 25;
 const TABS = ["general", "breed", "birth", "shed", "weight", "time"] as const;
 type Tab = (typeof TABS)[number];
 
+function weighingModeFilter(raw: string | undefined): string {
+  return raw === "individual_animal" || raw === "per_shed_partition" ? raw : "all";
+}
+
 function hrefWith(searchParams: RouteSearchParams, updates: Record<string, string | null>): string {
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(searchParams)) {
@@ -106,7 +110,7 @@ export async function WeighingWeightsAnalyticsPage({
   const tab: Tab = (TABS as readonly string[]).includes(rawTab ?? "") ? (rawTab as Tab) : "general";
 
   const parkFilter = one(params, "park") ?? "";
-  const modeFilter = one(params, "weighing") ?? "all";
+  const modeFilter = weighingModeFilter(one(params, "weighing"));
   // MALE is the default, matching /weighing/weights (maintainer request 2026-09-01): the farm's
   // growth question is about the males it is fattening, so an unfiltered landing would show a
   // number nobody asked for. Every kid stays one click away as an explicit `sex=all`; anything
