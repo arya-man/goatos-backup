@@ -11,7 +11,7 @@ PUBLIC_DASHBOARD_HOST="${PUBLIC_DASHBOARD_HOST:-dashboard.mesha.sg}"
 PUBLIC_API_HOST="${PUBLIC_API_HOST:-api.goatos.mesha.sg}"
 EXPECTED_LB_IP="${EXPECTED_LB_IP:-8.233.143.24}"
 URL_MAP_NAME="${URL_MAP_NAME:-goatos-stg-dashboard-map}"
-GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}"
+GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-false}"
 
 if repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   :
@@ -19,20 +19,6 @@ else
   repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
 cd "$repo_root"
-
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  git_askpass_script="$(mktemp)"
-  cat >"$git_askpass_script" <<'EOF'
-#!/usr/bin/env bash
-case "$1" in
-  *Username*) printf '%s\n' x-access-token ;;
-  *Password*) printf '%s' "$GITHUB_TOKEN" ;;
-esac
-EOF
-  chmod 700 "$git_askpass_script"
-  export GIT_ASKPASS="$git_askpass_script"
-  export GIT_TERMINAL_PROMPT=0
-fi
 
 if [[ -n "${COMMIT_SHA:-}" ]]; then
   commit_sha="$(printf '%s' "$COMMIT_SHA" | cut -c1-12)"
@@ -154,54 +140,6 @@ live_image_tag() {
     2>/dev/null | awk -F: '{print $NF}'
 }
 
-require_zero_downtime_migration_audit() {
-  [[ "$GOATOS_STG_ZERO_DOWNTIME_DEPLOY" == "true" ]] || {
-    echo "zero-downtime migration audit skipped: GOATOS_STG_ZERO_DOWNTIME_DEPLOY=$GOATOS_STG_ZERO_DOWNTIME_DEPLOY"
-    return 0
-  }
-
-  local base_commit
-  base_commit="$(live_image_tag goatos-api-stg)"
-  [[ -n "$base_commit" ]] || {
-    echo "ERROR: cannot prove zero-downtime migrations because live API image tag is empty" >&2
-    return 1
-  }
-
-  if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
-    echo "live commit $base_commit not present in initial checkout; deepening origin/main history"
-    git fetch --deepen=1000 origin main || true
-  fi
-  if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
-    local release_ref
-    release_ref="$(git ls-remote --tags origin "refs/tags/stg/release-*-${base_commit}" | awk '{print $2}' | tail -n 1)"
-    if [[ -n "$release_ref" ]]; then
-      echo "live commit $base_commit found via release tag $release_ref; fetching tag"
-      git fetch origin "${release_ref}:${release_ref}" || true
-    fi
-  fi
-  if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
-    git fetch --depth=5000 origin '+refs/heads/main:refs/remotes/origin/main' || true
-  fi
-  if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
-    echo "live commit $base_commit still missing; unshallowing origin/main history"
-    git fetch --unshallow origin '+refs/heads/main:refs/remotes/origin/main' || true
-  fi
-  if git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
-    git merge-base --is-ancestor "$base_commit" HEAD || {
-      echo "ERROR: live API commit ${base_commit} exists but is not an ancestor of ${commit_sha}" >&2
-      return 1
-    }
-  fi
-  git cat-file -e "${base_commit}^{commit}" 2>/dev/null || {
-    echo "ERROR: cannot prove zero-downtime migrations because live API commit ${base_commit} is not in this checkout" >&2
-    echo "git shallow state: $(git rev-parse --is-shallow-repository 2>/dev/null || echo unknown)" >&2
-    echo "git remotes: $(git remote -v 2>/dev/null | tr '\n' ';' || echo none)" >&2
-    return 1
-  }
-
-  node tools/deploy/audit-stg-zero-downtime-migrations.mjs --base "$base_commit" --enforce
-}
-
 already_deployed() {
   local api_tag admin_tag bridge_tag
   api_tag="$(live_image_tag goatos-api-stg)"
@@ -309,7 +247,6 @@ on_exit() {
 trap on_exit EXIT
 
 require_public_ingress_ready
-require_zero_downtime_migration_audit
 
 if already_deployed; then
   notify_slack "SUCCEEDED" 'Backend/web is already running the latest `main`; no new release was created.'

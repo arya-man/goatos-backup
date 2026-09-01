@@ -1,5 +1,8 @@
 -- +goose Up
 
+-- stg-downtime-required: converts legacy rows by setting absolute_kg to NULL; old API/admin
+-- revisions still read absolute_kg, so this migration must run only after public old revisions
+-- are quiesced.
 -- SEED THE PER-ANIMAL RATES FROM WHAT THE FARM IS ALREADY FEEDING (maintainer decision 2026-09-01,
 -- SUPERSEDING the "no previously authored data changes" half of 000237 the same day).
 --

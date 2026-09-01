@@ -9,6 +9,7 @@ substitutions:
   _SLACK_WEBHOOK_SECRET: goatos-stg-deploy-slack-webhook-url
   _DEPLOY_STG: "true"
   _DEPLOY_MOBILE: "false"
+  _GOATOS_STG_ZERO_DOWNTIME_DEPLOY: "false"
   _SLACK_USER_ID: ""
   _TRIGGERED_BY: "unknown Slack user"
 
@@ -154,8 +155,6 @@ steps:
   - id: stg-cloud-deploy-release
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
     entrypoint: bash
-    secretEnv:
-      - GITHUB_TOKEN
     env:
       - PROJECT_ID=goatos-stg
       - PROJECT_NUMBER=514832198871
@@ -168,6 +167,7 @@ steps:
       - TARGET_ID=goatos-stg
       - GOATOS_STG_RELEASE_WAIT=1
       - GOATOS_SKIP_IMAGE_BUILD=1
+      - GOATOS_STG_ZERO_DOWNTIME_DEPLOY=${_GOATOS_STG_ZERO_DOWNTIME_DEPLOY}
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - DEPLOY_STG=${_DEPLOY_STG}
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
@@ -235,10 +235,4 @@ steps:
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl git jq make openjdk-21-jdk openssl unzip
         tools/deploy/stg-mobile-distribution.sh
-
-availableSecrets:
-  secretManager:
-    - versionName: projects/goatos-stg/secrets/goatos-github-pat/versions/latest
-      env: GITHUB_TOKEN
-
 timeout: 7200s

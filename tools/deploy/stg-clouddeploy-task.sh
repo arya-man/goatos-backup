@@ -17,7 +17,7 @@ STG_API_URL="${STG_API_URL:-https://api.goatos.mesha.sg}"
 STG_DASHBOARD_URL="${STG_DASHBOARD_URL:-https://dashboard.mesha.sg}"
 GOATOS_CANONICAL_DASHBOARD_HOST="${GOATOS_CANONICAL_DASHBOARD_HOST:-dashboard.mesha.sg}"
 GOATOS_API_BASE_URL="${GOATOS_API_BASE_URL:-https://api.goatos.mesha.sg/}"
-GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}"
+GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${CLOUD_DEPLOY_customTarget_zeroDowntimeDeploy:-${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}}"
 
 COMMIT_SHA="${CLOUD_DEPLOY_customTarget_commitSha:-}"
 BACKEND_IMAGE="${CLOUD_DEPLOY_customTarget_backendImage:-}"
@@ -40,6 +40,8 @@ require_release_inputs() {
   require_param "customTarget/backendImage" "$BACKEND_IMAGE"
   require_param "customTarget/migrationImage" "$MIGRATION_IMAGE"
   require_param "customTarget/adminWebImage" "$ADMIN_WEB_IMAGE"
+  [[ "$GOATOS_STG_ZERO_DOWNTIME_DEPLOY" == "true" || "$GOATOS_STG_ZERO_DOWNTIME_DEPLOY" == "false" ]] ||
+    die "customTarget/zeroDowntimeDeploy must be true or false, got $GOATOS_STG_ZERO_DOWNTIME_DEPLOY"
 }
 
 assert_target() {
@@ -236,6 +238,10 @@ render() {
 
   local output_path="${CLOUD_DEPLOY_OUTPUT_GCS_PATH:-}"
   [[ -n "$output_path" ]] || die "CLOUD_DEPLOY_OUTPUT_GCS_PATH is required for render"
+  local rollout_order="zero_downtime_migrate,api_and_worker,manual_backend_jobs,admin_web,smoke_and_skew"
+  if [[ "$GOATOS_STG_ZERO_DOWNTIME_DEPLOY" != "true" ]]; then
+    rollout_order="quiesce_api_admin,migrate,api_and_worker,manual_backend_jobs,admin_web,smoke_and_skew"
+  fi
 
   cat > goatos-stg-release.txt <<EOF
 project_id=$PROJECT_ID
@@ -245,7 +251,8 @@ commit_sha=$COMMIT_SHA
 backend_image=$BACKEND_IMAGE
 migration_image=$MIGRATION_IMAGE
 admin_web_image=$ADMIN_WEB_IMAGE
-rollout_order=zero_downtime_migrate,api_and_worker,manual_backend_jobs,admin_web,smoke_and_skew
+zero_downtime_deploy=$GOATOS_STG_ZERO_DOWNTIME_DEPLOY
+rollout_order=$rollout_order
 external_mcp_service=$MCP_SERVICE
 EOF
 

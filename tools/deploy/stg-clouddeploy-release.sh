@@ -174,7 +174,7 @@ gcloud deploy releases create "$release_id" \
   --skaffold-file=deploy/clouddeploy/stg/skaffold.yaml \
   --to-target="$TARGET_ID" \
   --labels="commit_sha=${commit_sha},deployed_by=cloud-deploy" \
-  --deploy-parameters="customTarget/commitSha=${commit_sha},customTarget/backendImage=${backend_image},customTarget/migrationImage=${migration_image},customTarget/adminWebImage=${admin_web_image}"
+  --deploy-parameters="customTarget/commitSha=${commit_sha},customTarget/backendImage=${backend_image},customTarget/migrationImage=${migration_image},customTarget/adminWebImage=${admin_web_image},customTarget/zeroDowntimeDeploy=${GOATOS_STG_ZERO_DOWNTIME_DEPLOY}"
 
 echo "Release submitted: $release_id"
 

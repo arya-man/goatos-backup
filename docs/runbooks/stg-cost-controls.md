@@ -36,22 +36,17 @@ Do not solve downtime by bringing the API down before deployment. Spinning the
 API up and down around STG deploy is planned downtime for both web and Android
 because both clients depend on the public API.
 
-Slack/backend-web deploys now default to `GOATOS_STG_ZERO_DOWNTIME_DEPLOY=true`.
-In that mode the deploy path keeps the currently serving API/admin revisions
-public during migration, then updates API/admin and lets Cloud Run move traffic
-after readiness passes. The kernel worker can still be drained because it is
-background processing, not the public web/Android request path.
+Slack/backend-web deploys currently default to
+`GOATOS_STG_ZERO_DOWNTIME_DEPLOY=false`. Cloud Build creates the release without
+running the zero-downtime migration audit, and passes
+`customTarget/zeroDowntimeDeploy=false` into Cloud Deploy. The deploy task
+quiesces the public old API/admin revisions before running migrations, then
+restores API/admin on the new images after the migration job succeeds.
 
-The Slack/Cloud Build entrypoint enforces
-`tools/deploy/audit-stg-zero-downtime-migrations.mjs` before it creates the Cloud
-Deploy release. The audit compares the new `main` commit against the currently
-live API image tag and checks every changed non-deleted Postgres migration in
-that release delta, not just the local working tree.
-
-That is the normal industry pattern: expand first, run old and new code together,
-then contract later. Use the emergency fallback
-`GOATOS_STG_ZERO_DOWNTIME_DEPLOY=false` only for a known destructive migration
-that cannot safely run while old API/admin revisions are serving.
+This is intentional while migration 000238 is in the release delta: it converts
+legacy feed experiment rows by clearing `absolute_kg`, and old API/admin
+revisions still read that column. Keeping old public revisions serving during
+that migration would be unsafe.
 
 Use this before attempting a no-downtime STG deploy:
 
