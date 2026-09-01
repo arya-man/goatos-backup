@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Scale } from "lucide-react";
 
-import { SegmentedLinks, type SegmentedOption } from "@/components/segmented-links";
 import { Tag } from "@/components/ui-primitives";
 import { WeightBars, type WeightBar } from "./weight-bars";
 
@@ -267,8 +266,6 @@ export function ShedMetricChart({
   title,
   series,
   view,
-  viewOptions,
-  viewAriaLabel,
   tableColumns,
   tablePager,
 }: {
@@ -276,11 +273,12 @@ export function ShedMetricChart({
   labels: MetricLabels;
   title: MetricLabels;
   series: Record<Metric, ShedSeries>;
-  /** URL-driven, like every other toggle on this page, so it survives a reload and a shared link. */
+  /**
+   * Which view to render. The Table/Chart control was RETIRED from this card (maintainer request
+   * 2026-09-01) -- the figures are the card now -- so nothing renders a switch any more. The prop
+   * stays because `?shed_view=chart` is still honoured for links shared before the control went.
+   */
   view: ShedView;
-  viewOptions: readonly SegmentedOption[];
-  /** Already resolved from the page contract by the caller. */
-  viewAriaLabel: string;
   tableColumns: ShedTableColumns;
   tablePager: ShedTablePagerLabels;
 }) {
@@ -291,7 +289,6 @@ export function ShedMetricChart({
       <h2 className="h">
         <Scale className="ic" size={15} aria-hidden /> {title[metric]}
         <MetricToggle current={metric} labels={labels} onChange={setMetric} />
-        <SegmentedLinks ariaLabel={viewAriaLabel} current={view} options={viewOptions} />
       </h2>
       <p className="muted small">{active.caption}</p>
       {view === "table" ? (

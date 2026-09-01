@@ -177,6 +177,20 @@ test("the shed table reads breed, gender and count as columns, not out of the pe
   assert.match(css, /table\.wsgtable \.wsg-line\{/);
 });
 
+test("the shed gain card offers no Table/Chart switch", () => {
+  // Retired in the frontend (maintainer request 2026-09-01): the figures ARE the card, so the
+  // control was one more thing to read past. The backend copy key is left in place and
+  // `?shed_view=chart` is still honoured, so a link shared before this still renders -- nothing
+  // on the page produces one any more. The gain-thresholds card keeps its OWN switch, which is
+  // why this asserts on the shed card's props rather than on SegmentedLinks page-wide.
+  const client = readFileSync(new URL("./metric-chart.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(client, /SegmentedLinks/);
+  assert.doesNotMatch(source, /viewOptions=\{/);
+  assert.doesNotMatch(source, /section\.shed_gain\.view_aria/);
+  // The metric toggle is untouched -- Daily gain / Weight is a different control.
+  assert.match(client, /<MetricToggle current=\{metric\}/);
+});
+
 test("chart metric switches are local state, not route reloads", () => {
   const client = readFileSync(new URL("./metric-chart.tsx", import.meta.url), "utf8");
   assert.match(client, /"use client"/);

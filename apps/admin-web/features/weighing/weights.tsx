@@ -761,6 +761,9 @@ export async function WeighingWeightsPage({
   const gainThresholdView = one(params, GAIN_VIEW_PARAM) === "table" ? "table" : "chart";
   // Table first here, unlike the card above: the reader asked for the exact per-shed numbers,
   // and with ~40 pens the bars answer "which pen" more slowly than a sorted list of figures.
+  // The card is TABLE-ONLY (maintainer request 2026-09-01): the Table/Chart control is no longer
+  // offered. `?shed_view=chart` is still honoured so an already-shared link keeps working, but
+  // nothing on the page produces one any more, and the default is the table.
   const shedGainView = one(params, SHED_VIEW_PARAM) === "chart" ? "chart" : "table";
 
   // The download drawer's shed list: every shed the page knows about, at the same
@@ -983,11 +986,6 @@ export async function WeighingWeightsPage({
         title={{ adg: copy(pageContract, "chart.gain.title"), weight: copy(pageContract, "chart.average.title") }}
         series={shedSeries}
         view={shedGainView}
-        viewAriaLabel={copy(pageContract, "section.shed_gain.view_aria")}
-        viewOptions={[
-          { value: "table", label: copy(pageContract, "view.table"), href: hrefWith(params, { [SHED_VIEW_PARAM]: null }) },
-          { value: "chart", label: copy(pageContract, "view.chart"), href: hrefWith(params, { [SHED_VIEW_PARAM]: "chart" }) },
-        ]}
         tablePager={{
           previous: copy(pageContract, "action.previous"),
           next: copy(pageContract, "action.next"),
