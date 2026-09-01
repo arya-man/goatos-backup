@@ -1999,7 +1999,20 @@ SELECT
   -- produces 'blocked'/'rejected', so an operator filtering the card list to Blocked or Sent Back
   -- got badge counts computed from a definition the list itself does not use.
   BOOL_OR(classified.work_state = 'rejected' OR classified.completion_rejected > 0) AS has_rejected,
-  ARRAY_REMOVE(ARRAY_AGG(DISTINCT classified.protocol_name), NULL) AS vaccine_labels
+  -- projection-review: membership=classified vaccination execution card rows from the shared
+  -- executionClassifiedCTE, whose vaccine_labels are already deduplicated from obligation-grain
+  -- dose_code membership; group_key=classified.shed_uuid + partition_label + sop_task_id +
+  -- batch_id; join_cardinality=no new join here, only flattening the classified card-grain
+  -- text[] labels produced after the obligation/goat/rule joins have already been collapsed;
+  -- pagination=whole-filter aggregate with no LIMIT/cursor, matching cardSummariesSQL contract;
+  -- scope=same tenant/park/shed/operator/partition/date/status predicates as the surrounding
+  -- card summary query.
+  ARRAY(
+    SELECT DISTINCT label
+    FROM UNNEST(STRING_TO_ARRAY(STRING_AGG(ARRAY_TO_STRING(classified.vaccine_labels, E'\x1f'), E'\x1f'), E'\x1f')) AS label
+    WHERE NULLIF(label, '') IS NOT NULL
+    ORDER BY label
+  ) AS vaccine_labels
 FROM classified
 WHERE ($6::text = '' OR classified.work_state = $6::text)
   AND ($9::text = '' OR classified.severity = $9::text)

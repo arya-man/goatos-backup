@@ -168,6 +168,17 @@ func TestVaccinationExecutionGoatProofArtifactsOneToManyPageBoundaryExecutionDat
 			t.Fatalf("vaccination execution SQL lost %s invariant %q", name, fragment)
 		}
 	}
+	t.Log("OneToMany Pagination ExecutionDate ParkScope StatusMatrix: card summaries render every distinct vaccine label from the classified card, not the protocol name")
+	cardSummaryFragments := map[string]string{
+		"summary uses card vaccine labels":   "ARRAY_TO_STRING(classified.vaccine_labels",
+		"summary does not use protocol name": "ARRAY_REMOVE(ARRAY_AGG(DISTINCT classified.protocol_name), NULL)",
+	}
+	if !strings.Contains(cardSummariesSQL, cardSummaryFragments["summary uses card vaccine labels"]) {
+		t.Fatalf("card summary SQL lost multi-vaccine chip invariant %q", cardSummaryFragments["summary uses card vaccine labels"])
+	}
+	if strings.Contains(cardSummariesSQL, cardSummaryFragments["summary does not use protocol name"]) {
+		t.Fatalf("card summary SQL regressed to protocol-name chips instead of vaccine labels")
+	}
 	scanRosterFragments := map[string]string{
 		"roster goat proof lateral": "FROM proof_artifacts proof",
 		"roster goat proof done":    "WHEN sc.capture_id IS NOT NULL OR goat_proof.proofed_at IS NOT NULL THEN 'done'",
