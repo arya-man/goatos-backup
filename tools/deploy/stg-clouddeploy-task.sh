@@ -17,6 +17,7 @@ STG_API_URL="${STG_API_URL:-https://api.goatos.mesha.sg}"
 STG_DASHBOARD_URL="${STG_DASHBOARD_URL:-https://dashboard.mesha.sg}"
 GOATOS_CANONICAL_DASHBOARD_HOST="${GOATOS_CANONICAL_DASHBOARD_HOST:-dashboard.mesha.sg}"
 GOATOS_API_BASE_URL="${GOATOS_API_BASE_URL:-https://api.goatos.mesha.sg/}"
+GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}"
 
 COMMIT_SHA="${CLOUD_DEPLOY_customTarget_commitSha:-}"
 BACKEND_IMAGE="${CLOUD_DEPLOY_customTarget_backendImage:-}"
@@ -244,7 +245,7 @@ commit_sha=$COMMIT_SHA
 backend_image=$BACKEND_IMAGE
 migration_image=$MIGRATION_IMAGE
 admin_web_image=$ADMIN_WEB_IMAGE
-rollout_order=quiesce_api_and_kernel_worker,migrate,restore_api_and_kernel_worker,manual_backend_jobs,admin_web,smoke_and_skew
+rollout_order=zero_downtime_migrate,api_and_worker,manual_backend_jobs,admin_web,smoke_and_skew
 external_mcp_service=$MCP_SERVICE
 EOF
 
@@ -279,43 +280,45 @@ deploy() {
     echo "optional job $VACCINATION_SCHEDULE_PROJECTOR_JOB is absent; skipping explicit projector execution"
   fi
 
-  # Contract migrations may remove database arbiters used by the prior binary. Quiesce public
-  # writers first: admin-web is the public write entrypoint, and the API is also made internal
-  # before old API/worker revisions are drained.
-  run gcloud run services update "$ADMIN_WEB_SERVICE" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --ingress=internal \
-    --min=0 \
-    --max=1 \
-    --min-instances=0 \
-    --max-instances=1 \
-    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
-    --quiet
-  wait_service_ready "$ADMIN_WEB_SERVICE" "pre-migration quiesce"
+  if [[ "$GOATOS_STG_ZERO_DOWNTIME_DEPLOY" == "true" ]]; then
+    echo "zero-downtime STG deploy: keeping public API/admin revisions serving during migration"
+  else
+    # Emergency fallback for a known destructive migration. This deliberately causes
+    # public API/admin downtime and should not be the normal Slack deploy path.
+    run gcloud run services update "$ADMIN_WEB_SERVICE" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --ingress=internal \
+      --min=0 \
+      --max=1 \
+      --min-instances=0 \
+      --max-instances=1 \
+      --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
+      --quiet
+    wait_service_ready "$ADMIN_WEB_SERVICE" "pre-migration quiesce"
 
-  while IFS= read -r revision; do
-    [[ -n "$revision" ]] && old_api_revisions+=("$revision")
-  done < <(capture_serving_revisions "$API_SERVICE")
-  [[ "${#old_api_revisions[@]}" -gt 0 ]] || die "$API_SERVICE has no serving revision to quiesce"
+    while IFS= read -r revision; do
+      [[ -n "$revision" ]] && old_api_revisions+=("$revision")
+    done < <(capture_serving_revisions "$API_SERVICE")
+    [[ "${#old_api_revisions[@]}" -gt 0 ]] || die "$API_SERVICE has no serving revision to quiesce"
 
-  run gcloud run services update "$API_SERVICE" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --image="$BACKEND_IMAGE" \
-    --ingress=internal \
-    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
-    --quiet
-  run gcloud run services update-traffic "$API_SERVICE" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --to-latest \
-    --quiet
-  wait_service_ready "$API_SERVICE" "pre-migration quiesce"
+    run gcloud run services update "$API_SERVICE" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --image="$BACKEND_IMAGE" \
+      --ingress=internal \
+      --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
+      --quiet
+    run gcloud run services update-traffic "$API_SERVICE" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --to-latest \
+      --quiet
+    wait_service_ready "$API_SERVICE" "pre-migration quiesce"
+  fi
 
-  # The worker has revision-level minimum instances, so lowering the next revision's minimum is
-  # not itself a drain. Replace it with the new image with stages disabled, route to that revision,
-  # then delete every previously serving revision before touching the schema.
+  # The worker is background processing, not the public web/Android request path.
+  # Drain it before migrations so no old worker keeps mutating rows mid-release.
   while IFS= read -r revision; do
     [[ -n "$revision" ]] && old_worker_revisions+=("$revision")
   done < <(capture_serving_revisions "$KERNEL_WORKER_SERVICE")
@@ -340,7 +343,9 @@ deploy() {
     --quiet
   wait_service_ready "$KERNEL_WORKER_SERVICE" "pre-migration drain"
 
-  drain_replaced_revisions "$API_SERVICE" "${old_api_revisions[@]}"
+  if [[ "$GOATOS_STG_ZERO_DOWNTIME_DEPLOY" != "true" ]]; then
+    drain_replaced_revisions "$API_SERVICE" "${old_api_revisions[@]}"
+  fi
   drain_replaced_revisions "$KERNEL_WORKER_SERVICE" "${old_worker_revisions[@]}"
 
   run gcloud run jobs update "$MIGRATE_JOB" \

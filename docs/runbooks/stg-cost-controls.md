@@ -33,16 +33,19 @@ part of this admin-web cap. Those need separate approval.
 ## Deploy Spin-Up / Shutdown
 
 Do not solve downtime by bringing the API down before deployment. Spinning the
-API up and down around STG deploy is not a zero-downtime strategy; it is planned
-downtime for both web and Android because both clients depend on the public API.
+API up and down around STG deploy is planned downtime for both web and Android
+because both clients depend on the public API.
 
-For no web/Android downtime, the deploy path must keep the currently serving
-API/admin revisions public while preparing the new revisions, run only
-backward-compatible migrations, then move traffic after readiness passes.
+Slack/backend-web deploys now default to `GOATOS_STG_ZERO_DOWNTIME_DEPLOY=true`.
+In that mode the deploy path keeps the currently serving API/admin revisions
+public during migration, then updates API/admin and lets Cloud Run move traffic
+after readiness passes. The kernel worker can still be drained because it is
+background processing, not the public web/Android request path.
 
 That is the normal industry pattern: expand first, run old and new code together,
-then contract later. Do not remove the current STG quiesce step until the release's
-database migrations pass the zero-downtime audit.
+then contract later. Use the emergency fallback
+`GOATOS_STG_ZERO_DOWNTIME_DEPLOY=false` only for a known destructive migration
+that cannot safely run while old API/admin revisions are serving.
 
 Use this before attempting a no-downtime STG deploy:
 
