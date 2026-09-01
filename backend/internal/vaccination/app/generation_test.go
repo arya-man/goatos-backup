@@ -1425,6 +1425,31 @@ func TestGenerateForVersionAutomaticallySchedulesAdultBlankHistoryCampaignByShed
 	}
 }
 
+func TestGenerateForVersionDoesNotAutoScheduleGenericManualCampaignAliases(t *testing.T) {
+	ctx := context.Background()
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult","species":["goat","sheep"]}}`),
+		rules: []protodomain.Rule{
+			{RuleID: "rule-ppr", DoseCode: "PPR", Sequence: 1, TriggerType: "manual_campaign", DueWindowDays: 7},
+			{RuleID: "rule-fmd", DoseCode: "FMD", Sequence: 1, TriggerType: "manual_campaign", DueWindowDays: 7},
+			{RuleID: "rule-hs", DoseCode: "HS", Sequence: 1, TriggerType: "manual_campaign", DueWindowDays: 7},
+		},
+	}
+	entryDate := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "adult-1", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Stage: "adult", EntryDate: &entryDate, ShedID: "shed-1", ParkID: "cpt", PartitionLabel: "Part 1"},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate generic manual aliases: %v", err)
+	}
+	if result.Generated != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("result=%#v inserted=%#v, want no normal-sweeper rows for generic manual aliases", result, obl.inserted)
+	}
+}
+
 func TestGenerateForVersionClubsAdultBlankHistoryWithSameVaccineRepeatDate(t *testing.T) {
 	ctx := context.Background()
 	asOf := time.Date(2026, time.August, 2, 0, 0, 0, 0, time.UTC)

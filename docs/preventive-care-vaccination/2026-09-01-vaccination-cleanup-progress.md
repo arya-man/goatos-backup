@@ -123,3 +123,18 @@ anchor rows must stay.
   `dose_code IS NULL` as a vaccine-level/all-dose anchor. Keep this covered by
   `TestManualVaccineAnchorsForGoatReadsFutureVaccineLevelAnchorEvent` and
   `TestManualVaccineAnchorsForGoatNormalizesVaccineCode` before push.
+- 2026-09-01 later OCI targeted replay found two remaining code/data hazards:
+  generation was still scanning procurement-excluded animals, and legacy/generic
+  manual campaign aliases (`PPR`, `FMD`, `HS`) could leak into normal sweeper
+  work before the Sep 8 anchor. Local fixes now exclude procurement-blocked
+  animals from generation reads, cancel stale open work for exited or
+  procurement-excluded animals including `in_progress`, and guard normal
+  sweeper generation so generic manual aliases do not materialize as ordinary
+  work.
+- 2026-09-01 OCI cleanup canceled only the polluted active rows from validation:
+  102 Sep 1/pre-anchor rows first, then 18 recreated generic PPR/FMD/HS rows
+  after the targeted replay exposed the leak. Final OCI safety audit after the
+  fix and another 60-animal targeted generation replay: zero active Sep 1 rows,
+  zero pre-Sep8 PPR/FMD/HS rows, zero pre-Oct15 Z1+Z3 rows, zero duplicate
+  active animal/vaccine/date rows, zero wrong-species rows, zero missed/overdue
+  September rows, and zero active procurement-excluded vaccination rows.

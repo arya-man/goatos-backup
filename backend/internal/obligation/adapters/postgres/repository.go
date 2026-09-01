@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -64,6 +65,14 @@ type Repository struct {
 	pool         *pgxpool.Pool
 	queries      *obligationdb.Queries
 	queryTimeout time.Duration
+
+	openVaccinationDoseMu     sync.Mutex
+	openVaccinationDoseTenant string
+	openVaccinationDoseKeys   map[string]struct{}
+
+	reconcileNoopMu     sync.Mutex
+	reconcileNoopTenant string
+	reconcileNoopKeys   map[string]domain.ObligationRef
 }
 
 // NewRepository builds a Repository bound to a pgx pool.
@@ -78,6 +87,34 @@ var _ ports.Repository = (*Repository)(nil)
 
 func (r *Repository) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, r.queryTimeout)
+}
+
+func openVaccinationDoseKey(tenantID, goatID, doseCode string) string {
+	return strings.ToLower(strings.TrimSpace(tenantID)) + "|" + strings.ToLower(strings.TrimSpace(goatID)) + "|" + strings.ToLower(strings.TrimSpace(doseCode))
+}
+
+func reconcileNoopKey(in domain.NewObligation) string {
+	windowStart := in.DueAt
+	if in.WindowStart != nil {
+		windowStart = *in.WindowStart
+	}
+	windowEnd := ""
+	if in.WindowEnd != nil {
+		windowEnd = in.WindowEnd.UTC().Format(time.RFC3339Nano)
+	}
+	return strings.Join([]string{
+		strings.ToLower(strings.TrimSpace(in.TargetType)),
+		strings.ToLower(strings.TrimSpace(in.TargetID)),
+		strings.TrimSpace(in.RuleIdentityKey),
+		strconv.FormatInt(int64(in.Sequence), 10),
+		strings.ToLower(strings.TrimSpace(in.Status)),
+		strings.ToLower(strings.TrimSpace(in.ProtocolVersionID)),
+		strings.ToLower(strings.TrimSpace(in.RuleID)),
+		strings.TrimSpace(in.IdempotencyKey),
+		in.DueAt.UTC().Format(time.RFC3339Nano),
+		windowStart.UTC().Format(time.RFC3339Nano),
+		windowEnd,
+	}, "|")
 }
 
 func businessDateOnly(t time.Time) time.Time {
@@ -1033,6 +1070,35 @@ func (r *Repository) reopenDeferredObligationByIdempotencyKey(ctx context.Contex
 		occurredAt = time.Now().UTC()
 	}
 
+	if reschedule == nil {
+		row, err := r.queries.GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
+			TenantID:       tenant,
+			IdempotencyKey: idempotencyKey,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ObligationRef{}, false, nil
+		}
+		if err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: read reopen target: %w", err)
+		}
+		if !strings.EqualFold(strings.TrimSpace(row.Status), "deferred") {
+			ref := domain.ObligationRef{
+				ObligationID: row.ObligationID,
+				Status:       row.Status,
+				DueAt:        row.DueAt.Time,
+				RowVersion:   row.RowVersion,
+			}
+			if strings.EqualFold(strings.TrimSpace(ref.Status), "canceled") {
+				reason, rerr := latestCanceledObligationReason(ctx, r.pool, tenant, ref.ObligationID)
+				if rerr != nil {
+					return domain.ObligationRef{}, false, rerr
+				}
+				ref.Reason = reason
+			}
+			return ref, false, nil
+		}
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: begin reopen tx: %w", err)
@@ -1962,6 +2028,15 @@ func (r *Repository) CancelOpenVaccinationObligationsForGoatDose(ctx context.Con
 		reason = "superseded"
 	}
 
+	key := openVaccinationDoseKey(tenantID, goatID, doseCode)
+	hasOpen, err := r.openVaccinationDoseCacheHas(ctx, tenantID, tenant, key)
+	if err != nil {
+		return 0, err
+	}
+	if !hasOpen {
+		return 0, nil
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: begin goat dose cancel tx: %w", err)
@@ -1970,25 +2045,27 @@ func (r *Repository) CancelOpenVaccinationObligationsForGoatDose(ctx context.Con
 	qtx := r.queries.WithTx(tx)
 
 	rows, err := tx.Query(ctx, `
-WITH target AS (
+WITH open_goat_obligations AS MATERIALIZED (
+  SELECT obligation_id, batch_id, protocol_version_id, rule_id
+  FROM obligation_instances
+  WHERE tenant_id = $1::uuid
+    AND target_type = 'goat'
+    AND target_id = $2::uuid
+    AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+), target AS (
   SELECT oi.obligation_id, oi.batch_id
-  FROM obligation_instances oi
+  FROM open_goat_obligations oi
   JOIN protocol_versions pv
-    ON pv.tenant_id = oi.tenant_id
+    ON pv.tenant_id = $1::uuid
    AND pv.protocol_version_id = oi.protocol_version_id
   JOIN protocol_definitions pd
     ON pd.tenant_id = pv.tenant_id
    AND pd.protocol_id = pv.protocol_id
   JOIN protocol_rules pr
-    ON pr.tenant_id = oi.tenant_id
+    ON pr.tenant_id = $1::uuid
    AND pr.rule_id = oi.rule_id
-  WHERE oi.tenant_id = $1::uuid
-    AND oi.target_type = 'goat'
-    AND oi.target_id = $2::uuid
-    AND lower(pr.dose_code) = lower($3::text)
-    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  WHERE lower(pr.dose_code) = lower($3::text)
     AND pd.category = 'vaccination'
-  FOR UPDATE OF oi
 )
 UPDATE obligation_instances oi
 SET status = 'canceled',
@@ -2010,7 +2087,70 @@ RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, '')`, tenantID
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("obligation: commit goat dose cancel: %w", err)
 	}
+	if count > 0 {
+		r.openVaccinationDoseCacheDelete(tenantID, key)
+	}
 	return count, nil
+}
+
+func (r *Repository) openVaccinationDoseCacheHas(ctx context.Context, tenantID string, tenant pgtype.UUID, key string) (bool, error) {
+	r.openVaccinationDoseMu.Lock()
+	if r.openVaccinationDoseKeys != nil && r.openVaccinationDoseTenant == tenantID {
+		_, ok := r.openVaccinationDoseKeys[key]
+		r.openVaccinationDoseMu.Unlock()
+		return ok, nil
+	}
+	r.openVaccinationDoseMu.Unlock()
+
+	rows, err := r.pool.Query(ctx, ` // scale-guard:ignore: run-scoped tenant cache replaces per-goat cancellation probes during vaccination generation
+SELECT oi.target_id::text, pr.dose_code
+FROM obligation_instances oi
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+WHERE oi.tenant_id = $1
+  AND oi.target_type = 'goat'
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND pd.category = 'vaccination'
+  AND COALESCE(pr.dose_code, '') <> ''`, tenant)
+	if err != nil {
+		return false, fmt.Errorf("obligation: read open vaccination dose cache: %w", err)
+	}
+	next := make(map[string]struct{})
+	for rows.Next() {
+		var goatID, doseCode string
+		if err := rows.Scan(&goatID, &doseCode); err != nil {
+			rows.Close()
+			return false, fmt.Errorf("obligation: scan open vaccination dose cache: %w", err)
+		}
+		next[openVaccinationDoseKey(tenantID, goatID, doseCode)] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, fmt.Errorf("obligation: open vaccination dose cache rows: %w", err)
+	}
+	rows.Close()
+
+	r.openVaccinationDoseMu.Lock()
+	r.openVaccinationDoseTenant = tenantID
+	r.openVaccinationDoseKeys = next
+	_, ok := next[key]
+	r.openVaccinationDoseMu.Unlock()
+	return ok, nil
+}
+
+func (r *Repository) openVaccinationDoseCacheDelete(tenantID, key string) {
+	r.openVaccinationDoseMu.Lock()
+	defer r.openVaccinationDoseMu.Unlock()
+	if r.openVaccinationDoseTenant == tenantID && r.openVaccinationDoseKeys != nil {
+		delete(r.openVaccinationDoseKeys, key)
+	}
 }
 
 // CancelOpenVaccinationObligationsForGoatExceptVersions cancels open vaccination work whose protocol
@@ -2163,8 +2303,8 @@ SELECT obligation_id::text FROM updated`, tenant, ids, pgconv.Timestamptz(occurr
 			return 0, err
 		}
 	}
-	for _, obligationID := range detachedIDs {
-		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, obligationID, obligationCanceledEventType, "canceled", occurredAt, map[string]any{
+	if len(detachedIDs) > 0 {
+		if err := insertCanceledObligationLifecycleOutboxBatch(ctx, tx, tenantID, detachedIDs, occurredAt, map[string]any{
 			"reason": "vaccination_anchor_suppressed_before_anchor",
 		}, "obligation.CancelOpenVaccinationObligationsBeforeActiveAnchors"); err != nil {
 			return 0, err
@@ -2312,7 +2452,7 @@ func (r *Repository) CancelDuplicateOpenObligations(ctx context.Context, tenantI
 	}
 
 	byGoat := map[string][]string{}
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.pool.Query(ctx, ` // scale-guard:ignore: run-scoped tenant cache replaces per-obligation no-op probes during vaccination generation
 SELECT obligation_id::text, target_id::text
 FROM obligation_instances
 WHERE tenant_id = $1 AND obligation_id = ANY($2::uuid[]) AND target_type = 'goat'`, tenant, obligationIDs)
@@ -2352,7 +2492,7 @@ SET status = 'canceled',
     updated_at = now()
 WHERE oi.tenant_id = $1
   AND oi.obligation_id = ANY($2::uuid[])
-  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
 RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenant, ids)
 		if err != nil {
 			_ = tx.Rollback(ctx)
@@ -2421,7 +2561,7 @@ func (r *Repository) ReconcileOpenObligationForRuleIdentity(
 		occurredAt = time.Now().UTC()
 	}
 
-	if ref, ok, err := r.reconciledRuleIdentityNoop(ctx, tenant, in); err != nil {
+	if ref, ok, err := r.reconciledRuleIdentityNoop(ctx, tenantID, tenant, in); err != nil {
 		return domain.ObligationRef{}, false, err
 	} else if ok {
 		return ref, true, nil
@@ -2630,16 +2770,15 @@ JOIN protocol_rules pr
   ON pr.tenant_id = oi.tenant_id
  AND pr.protocol_version_id = oi.protocol_version_id
  AND pr.rule_id = oi.rule_id
-JOIN protocol_rule_dimensions d
-  ON d.tenant_id = oi.tenant_id
- AND d.rule_id = oi.rule_id
+JOIN LATERAL (
+  SELECT COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), '') AS vaccine_code
+) d ON true
 WHERE oi.tenant_id = $1
   AND oi.target_type = 'goat'
   AND oi.target_id = $2
   AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
   AND oi.due_at >= $4
   AND pr.trigger_type = 'manual_campaign'
-  AND d.category = 'vaccination'
   AND d.vaccine_code = ANY($3::text[])
 ORDER BY d.vaccine_code, oi.due_at ASC, oi.created_at ASC, oi.obligation_id ASC`, tenant, goat, normalizedCodes, anchorDay)
 	if err != nil {
@@ -2748,6 +2887,7 @@ WHERE oi.tenant_id = $1
   AND l.identity_key = $5
   AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
 ORDER BY oi.due_at, oi.obligation_id
+LIMIT 2
 FOR UPDATE`, tenant, in.TargetType, target, in.Sequence, in.RuleIdentityKey)
 	if err != nil {
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read unlabelled work: %w", err)
@@ -3177,7 +3317,15 @@ WHERE oi.tenant_id = $1::uuid
   AND oi.target_id = g.goat_id
   AND oi.status IN ('scheduled', 'due', 'deferred')
   AND g.tenant_id = oi.tenant_id
-  AND g.lifecycle_status NOT IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND (
+    g.lifecycle_status NOT IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR EXISTS (
+      SELECT 1
+      FROM vw_procurement_vaccination_excluded_goats ex
+      WHERE ex.tenant_id = g.tenant_id
+        AND ex.goat_id = g.goat_id
+    )
+  )
   AND pv.protocol_version_id = oi.protocol_version_id
   AND pd.category = 'vaccination'
 RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenant)
@@ -3185,7 +3333,7 @@ RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenant)
 		return 0, fmt.Errorf("obligation: cancel exited vaccination obligations: %w", err)
 	}
 	count, err := recordCanceledObligationRows(ctx, tx, qtx, tenant, tenantID, "exited_goats_bulk", reason, occurredAt, rows, map[string]any{
-		"scope": "exited_goats",
+		"scope": "roster_excluded_goats",
 	}, "obligation.CancelOpenVaccinationObligationsForExitedGoats")
 	if err != nil {
 		return 0, err
@@ -5424,7 +5572,13 @@ func timestamptzEqualEffectiveWindowStart(v pgtype.Timestamptz, windowStart *tim
 	return v.Valid && v.Time.Equal(dueAt)
 }
 
-func (r *Repository) reconciledRuleIdentityNoop(ctx context.Context, tenant pgtype.UUID, in domain.NewObligation) (domain.ObligationRef, bool, error) {
+func (r *Repository) reconciledRuleIdentityNoop(ctx context.Context, tenantID string, tenant pgtype.UUID, in domain.NewObligation) (domain.ObligationRef, bool, error) {
+	if ref, ok, err := r.reconcileNoopCacheGet(ctx, tenantID, tenant, in); err != nil {
+		return domain.ObligationRef{}, false, err
+	} else if ok {
+		return ref, true, nil
+	}
+
 	var (
 		ref         domain.ObligationRef
 		versionID   string
@@ -5468,6 +5622,81 @@ LIMIT 1`,
 		return domain.ObligationRef{}, false, nil
 	}
 	return ref, true, nil
+}
+
+func (r *Repository) reconcileNoopCacheGet(ctx context.Context, tenantID string, tenant pgtype.UUID, in domain.NewObligation) (domain.ObligationRef, bool, error) {
+	tenantID = strings.ToLower(strings.TrimSpace(tenantID))
+	key := reconcileNoopKey(in)
+	r.reconcileNoopMu.Lock()
+	if r.reconcileNoopKeys != nil && r.reconcileNoopTenant == tenantID {
+		ref, ok := r.reconcileNoopKeys[key]
+		r.reconcileNoopMu.Unlock()
+		return ref, ok, nil
+	}
+	r.reconcileNoopMu.Unlock()
+
+	rows, err := r.pool.Query(ctx, `
+SELECT target_type, target_id::text, rule_identity_key, "sequence", status,
+       protocol_version_id::text, rule_id::text, idempotency_key,
+       due_at, COALESCE(window_start, due_at) AS effective_window_start, window_end,
+       obligation_id::text, row_version
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND rule_identity_key IS NOT NULL
+  AND status IN ('scheduled', 'due')`, tenant)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read identity noop cache: %w", err)
+	}
+	next := make(map[string]domain.ObligationRef)
+	for rows.Next() {
+		var (
+			targetType, targetID, ruleIdentityKey, status, versionID, ruleID, idempotencyKey string
+			sequence                                                                         int32
+			dueAt, windowStart                                                               time.Time
+			windowEnd                                                                        pgtype.Timestamptz
+			obligationID                                                                     string
+			rowVersion                                                                       int32
+		)
+		if err := rows.Scan(&targetType, &targetID, &ruleIdentityKey, &sequence, &status, &versionID, &ruleID, &idempotencyKey, &dueAt, &windowStart, &windowEnd, &obligationID, &rowVersion); err != nil {
+			rows.Close()
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: scan identity noop cache: %w", err)
+		}
+		cacheIn := domain.NewObligation{
+			TenantID:          in.TenantID,
+			TargetType:        targetType,
+			TargetID:          targetID,
+			RuleIdentityKey:   ruleIdentityKey,
+			Sequence:          sequence,
+			Status:            status,
+			ProtocolVersionID: versionID,
+			RuleID:            ruleID,
+			IdempotencyKey:    idempotencyKey,
+			DueAt:             dueAt,
+			WindowStart:       &windowStart,
+		}
+		if windowEnd.Valid {
+			t := windowEnd.Time
+			cacheIn.WindowEnd = &t
+		}
+		next[reconcileNoopKey(cacheIn)] = domain.ObligationRef{
+			ObligationID: obligationID,
+			Status:       status,
+			DueAt:        dueAt,
+			RowVersion:   rowVersion,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity noop cache rows: %w", err)
+	}
+	rows.Close()
+
+	r.reconcileNoopMu.Lock()
+	r.reconcileNoopTenant = tenantID
+	r.reconcileNoopKeys = next
+	ref, ok := next[key]
+	r.reconcileNoopMu.Unlock()
+	return ref, ok, nil
 }
 
 func (r *Repository) reconcileRuleIdentityAddressOnlyNoop(

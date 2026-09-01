@@ -416,7 +416,14 @@ LEFT JOIN locations park
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
-WHERE g.tenant_id = $1 AND g.goat_id = $2::uuid
+WHERE g.tenant_id = $1
+  AND g.goat_id = $2::uuid
+  AND NOT EXISTS (
+    SELECT 1
+    FROM vw_procurement_vaccination_excluded_goats ex
+    WHERE ex.tenant_id = g.tenant_id
+      AND ex.goat_id = g.goat_id
+  )
 `
 
 type GetGoatForGenerationParams struct {
@@ -598,6 +605,12 @@ LEFT JOIN goat_shed_partitions gsp
  AND gsp.goat_id = g.goat_id
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM vw_procurement_vaccination_excluded_goats ex
+    WHERE ex.tenant_id = g.tenant_id
+      AND ex.goat_id = g.goat_id
+  )
   AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)
   AND ($3::text = '' OR g.sex = $3::text)
   AND ($4::text = '' OR g.breed = $4::text)

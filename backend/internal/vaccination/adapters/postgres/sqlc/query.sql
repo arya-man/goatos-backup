@@ -327,6 +327,12 @@ LEFT JOIN goat_shed_partitions gsp
  AND gsp.goat_id = g.goat_id
 WHERE g.tenant_id = @tenant_id
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM vw_procurement_vaccination_excluded_goats ex
+    WHERE ex.tenant_id = g.tenant_id
+      AND ex.goat_id = g.goat_id
+  )
   AND (@stage::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
   AND (@breed::text = '' OR g.breed = @breed::text)
@@ -385,7 +391,14 @@ LEFT JOIN locations park
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
-WHERE g.tenant_id = @tenant_id AND g.goat_id = @goat_id::uuid;
+WHERE g.tenant_id = @tenant_id
+  AND g.goat_id = @goat_id::uuid
+  AND NOT EXISTS (
+    SELECT 1
+    FROM vw_procurement_vaccination_excluded_goats ex
+    WHERE ex.tenant_id = g.tenant_id
+      AND ex.goat_id = g.goat_id
+  );
 
 -- name: SumAvailableStockForItem :one
 -- Available (unreserved) doses for the vaccine item + earliest expiry, within an optional location.

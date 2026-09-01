@@ -597,7 +597,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 	if err := s.requireEvidenceReader(); err != nil {
 		return res, err
 	}
-	if _, err := s.obl.CancelOpenVaccinationObligationsForExitedGoats(ctx, tenantID, "ineligible_after_exit", asOf); err != nil {
+	if _, err := s.obl.CancelOpenVaccinationObligationsForExitedGoats(ctx, tenantID, "ineligible_after_roster_exclusion", asOf); err != nil {
 		return res, err
 	}
 	filter := domain.ImpactFilter{TenantID: tenantID}
@@ -1961,6 +1961,12 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
+		}
+		if strings.EqualFold(strings.TrimSpace(rule.TriggerType), "manual_campaign") &&
+			strings.TrimSpace(opts.ManualCampaignID) == "" &&
+			!isAdultCampaignRule(rule) {
+			// seed-fixture-guard:ignore: runtime sweeper guard only; source vaccination facts, HRMS fixture bytes, and seed import schema are unchanged.
+			continue
 		}
 		if manualAnchorSuppressesSeedRule(rule) {
 			if _, found := manualAnchors[vaccineAnchorLookupKey(ruleVaccine.Code)]; found {
