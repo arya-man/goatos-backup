@@ -1,6 +1,7 @@
 export { FeedPurchasesPage } from "./feed-purchases";
 export { ProcurementLoadDetailPage } from "./load-detail";
 export { ProcurementPager } from "./pager";
+export { SalesConfigPage } from "./sales-config";
 export { SalesLoadsPage } from "./sales-loads";
 export { SalesPage } from "./sales";
 export { SourceEntryBoardPage } from "./source-entry-board";

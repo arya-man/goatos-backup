@@ -782,9 +782,14 @@ export async function WeighingWeightsPage({
           any scope. */}
       <section className="grid g5 kpi-row" aria-label={copy(pageContract, "section.sheds.aria")}>
         <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.kids.label")}</div>
-          <div className="val">{summary.animals_weighed.toLocaleString("en-IN")}</div>
-          <div className="dl">{copy(pageContract, "kpi.kids.sub")}</div>
+          <div className="lab">{copy(pageContract, "kpi.kids.split.label")}</div>
+          <div className="val">
+            {summary.individual_animals_weighed.toLocaleString("en-IN")} ·{" "}
+            {summary.lump_sum_animals_weighed.toLocaleString("en-IN")}
+          </div>
+          <div className="dl">
+            {summary.animals_weighed.toLocaleString("en-IN")} {copy(pageContract, "kpi.kids.split.total_sub")}
+          </div>
         </div>
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.total.label")}</div>

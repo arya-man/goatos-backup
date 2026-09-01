@@ -94,8 +94,10 @@ type ShedWeightsSummary struct {
 	ShedsInScope int `json:"sheds_in_scope"`
 	// AnimalsWeighed and TotalWeightKg sum the same per-shed figures Rows carries, so
 	// the cards and the table always reconcile.
-	AnimalsWeighed int     `json:"animals_weighed"`
-	TotalWeightKg  float64 `json:"total_weight_kg"`
+	AnimalsWeighed           int     `json:"animals_weighed"`
+	IndividualAnimalsWeighed int     `json:"individual_animals_weighed"`
+	LumpSumAnimalsWeighed    int     `json:"lump_sum_animals_weighed"`
+	TotalWeightKg            float64 `json:"total_weight_kg"`
 	// AverageWeightKg is TotalWeightKg / AnimalsWeighed — a weighted mean over
 	// ANIMALS, not the mean of the per-shed averages, which would let a 10-animal
 	// shed pull as hard as a 73-animal one. Nil when nothing was weighed, so a client

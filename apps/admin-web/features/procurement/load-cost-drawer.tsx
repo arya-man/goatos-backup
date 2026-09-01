@@ -195,6 +195,48 @@ export function LoadCostDrawer({
                 </div>
               ) : null}
 
+              {/* WHAT THE THREE FIGURES ARE MADE OF (maintainer decision 2026-09-01). The list
+                  stays three columns; the itemisation appears only here, on the opened load.
+                  Every label is backend-owned copy keyed on the line's KIND -- the kind string
+                  itself is never rendered. Absent for a load costed before the itemisation
+                  existed, which is why this block is conditional rather than an empty table:
+                  "no breakdown recorded" is a different fact from "no cost recorded", and the
+                  cost fields below already state the latter. */}
+              {load.cost_lines && load.cost_lines.length > 0 ? (
+                <div style={{ marginTop: 10 }}>
+                  <div className="mt">{copy(pageContract, "loadwise.cost_breakdown.title")}</div>
+                  <div className="twrap">
+                    <table aria-label={copy(pageContract, "loadwise.cost_breakdown.title")}>
+                      <tbody>
+                        {load.cost_lines.map((line, index) => (
+                          <tr key={`${line.kind}-${index}`}>
+                            <td>{copy(pageContract, `cost_kind.${line.kind}`, line.kind)}</td>
+                            <td className="num" style={{ whiteSpace: "nowrap" }}>
+                              {inr(Math.round(line.amount))}
+                            </td>
+                          </tr>
+                        ))}
+                        {/* The total the reader is checking the parts against. Recomputed from the
+                            lines rather than read from purchase_value so a breakdown that does not
+                            add up is VISIBLE instead of hidden behind an authoritative-looking
+                            figure. */}
+                        <tr>
+                          <td>
+                            <b>{copy(pageContract, "loadwise.cost_breakdown.total")}</b>
+                          </td>
+                          <td className="num" style={{ whiteSpace: "nowrap" }}>
+                            <b>{inr(Math.round(load.cost_lines.reduce((sum, line) => sum + line.amount, 0)))}</b>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="muted small" style={{ marginTop: 4 }}>
+                    {copy(pageContract, "loadwise.cost_breakdown.hint")}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="note" style={{ marginTop: 10 }}>
                 {copy(pageContract, "hint.load_cost")}
               </div>

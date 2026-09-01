@@ -85,6 +85,11 @@ var modulePages = []ModulePage{
 	// READ is the same commercial fact the board carries, so it ticks with the sales module; the
 	// load-cost write on it is gated separately on LoadCostWrite.
 	{Key: "sales-loads", Module: "sales", Label: "Purchase & barn", Href: "/sales/loads", Permissions: []string{SalesRead}},
+	// Sales Config: every sales entry form in one place (maintainer decision 2026-09-01). Ticked
+	// with the sales module and reached on SalesRead -- the WRITES on it carry their own keys
+	// (SalesWrite, and LoadCostWrite for a load's cost), so a read-only holder sees the page with
+	// its controls disabled rather than a missing leaf.
+	{Key: "sales-config", Module: "sales", Label: "Sales Config", Href: "/sales/config", Permissions: []string{SalesRead}},
 	{Key: "procurement-feed-purchases", Module: "feed_purchases", Label: "Feed Purchases", Href: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
 
 	{Key: "counts-herd-analytics", Module: "counts", Label: "Herd Analytics", Href: "/counts/analytics", Permissions: []string{CountsRead}},

@@ -170,6 +170,13 @@ func navigation() domain.NavigationContract {
 					// "how did each batch of animals do", which is a different question read at a
 					// different time, and it carries its own tabs and its own write.
 					navLeaf("sales-loads", "Purchase & barn", "/sales/loads", nil),
+					// Sales Config -- the ONE place a sales fact is entered or changed
+					// (maintainer decision 2026-09-01). The two leaves above became
+					// read-only the same day: recording a sale, tagging its animals,
+					// entering leads, quotes, tag lists and weight checks, and costing a
+					// load all happen here. It sits LAST because it is the desk you go to
+					// after reading the board, not the thing you open first.
+					navLeaf("sales-config", "Sales Config", "/sales/config", nil),
 				},
 			},
 			{
@@ -526,7 +533,19 @@ func pages() []domain.PageContract {
 		// procurement read; a row click opens the load-cost drawer, so the row key is the load id.
 		page("sales-loads", "/sales/loads", "/sales/loads", "Purchase & barn", "Every purchased load reconciled — bought, sold, died, still on farm — and the money on each side.", "module-surface",
 			[]domain.TableContract{
-				tableP("sales-loadwise", "Load by load", "/procurement/loadwise-sales", []string{"load", "farm", "purchased", "sold", "mortality", "remaining", "unaccounted", "purchase_value", "sold_value", "profit_loss"}, "load_id", []int{60}),
+				loadwiseTable(),
+			}),
+		// SALES CONFIG (maintainer decision 2026-09-01): every sales WRITE, in one place.
+		// Recording a sale, tagging its animals, the pipeline and evidence entry the retired Sales
+		// DB sheet used to carry, and a load's landed cost all live here; /sales and /sales/loads
+		// became read-only the same day. It publishes BOTH tables it writes against -- the deals
+		// ledger (row click opens the deal, which carries the payment and status edits) and the
+		// load list (row click opens the cost drawer) -- because a row that opens a form must
+		// declare the param that form opens on.
+		page("sales-config", "/sales/config", "/sales/config", "Sales Config", "Record a sale, tag its animals, enter buyer leads, quotes, tag lists and weight checks, and cost a purchased load. Sales and Purchase & barn show these facts; this is where they are entered and changed.", "module-surface",
+			[]domain.TableContract{
+				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
+				loadwiseTable(),
 			}),
 		// FEED PURCHASES: the buying side of the feed chain (maintainer decision 2026-08-24,
 		// retiring the read-only half of migration 000174). One server-paged ledger table whose
@@ -856,6 +875,27 @@ func sortable(t domain.TableContract, keys ...string) domain.TableContract {
 		}
 		if !found {
 			panic(fmt.Sprintf("adminui: table %q has no column %q to mark sortable", t.ID, key))
+		}
+	}
+	return t
+}
+
+// loadwiseTable builds the load-wise reconciliation table, shared by Purchase & barn and Sales
+// Config (both render the same rows for different reasons -- one to read them, one to open the
+// cost form).
+//
+// Column labels come from the page's OWN copy map, the feedPurchaseTable precedent and for the
+// same reason: the farm says "Landing price / live kg", not the humanised "Landed Price Per Kg",
+// and the header must not spell a field differently from the drawer cell showing the same number.
+// A key with no copy entry keeps the humanised default rather than rendering blank.
+func loadwiseTable() domain.TableContract {
+	t := tableP("sales-loadwise", "Load by load", "/procurement/loadwise-sales",
+		[]string{"load", "farm", "purchased", "sold", "mortality", "remaining", "unaccounted", "purchase_value", "landed_price_per_kg", "sold_value", "profit_loss"},
+		"load_id", []int{60})
+	copy := pageCopy("sales-loads")
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
 		}
 	}
 	return t
@@ -2675,10 +2715,35 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.series.purchase_value":      "Purchase value",
 			"chart.series.sold_value":          "Sold value",
 			"chart.series.profit_loss":         "Profit / loss",
-			"column.load":                      "Load",
-			"column.purchased":                 "Purchased",
-			"column.sold":                      "Sold",
-			"column.mortality":                 "Mortality",
+			// THE GROWTH READ (maintainer request 2026-09-01): weight in vs weight out, cost per
+			// kg vs price per kg, and the days between. Three charts under the money one, in the
+			// same load order, so the farm reads one column of loads down the page.
+			"chart.loadwise_weight.title":       "Average weight per animal",
+			"chart.loadwise_weight.empty":       "No load has both a purchase weight and a sale weight yet.",
+			"chart.series.avg_purchase_weight":  "Bought at",
+			"chart.series.avg_sale_weight":      "Sold at",
+			"chart.loadwise_per_kg.title":       "Price per kg",
+			"chart.loadwise_per_kg.empty":       "No load has a recorded cost or a priced sale yet.",
+			"chart.series.landing_price_per_kg": "Landing price",
+			"chart.series.sale_price_per_kg":    "Sale price",
+			"chart.loadwise_fattening.title":    "Fattening days on farm",
+			"chart.loadwise_fattening.empty":    "No load has sold yet, so nothing has a fattening span.",
+			"chart.series.fattening_days":       "Days from arrival to sale",
+			// The load's AGE has no chart and no column -- the maintainer removed both -- but the
+			// 90-day clock still runs: it is what raises the daily CXO alert, from
+			// procurement/domain.LoadAgeAlertDays. Average sale weight likewise stays a CHART
+			// series only; it is not a table column.
+			"value.kg":         "kg",
+			"value.days":       "days",
+			"value.arrived_on": "Reached the farm",
+			// Said on the bar whenever the sale average covers fewer animals than the load sold:
+			// the legacy sales did not all record a weight, and a sample must not read as a total.
+			"value.weighed_out":  "weighed on the way out",
+			"value.not_sold_yet": "Not sold yet",
+			"column.load":        "Load",
+			"column.purchased":   "Purchased",
+			"column.sold":        "Sold",
+			"column.mortality":   "Mortality",
 			// Kept as copy even though the table no longer carries a column for it: culled /
 			// transferred / lost are real exits, and the load-cost drawer still names them so the
 			// fact is never silently dropped from a load that has one.
@@ -2686,8 +2751,16 @@ func pageSpecificCopy(id string) map[string]string {
 			"column.remaining":      "Remaining",
 			"column.unaccounted":    "Unaccounted",
 			"column.purchase_value": "Purchase value",
-			"column.sold_value":     "Sold value",
-			"column.profit_loss":    "Profit / loss",
+			// LANDING PRICE PER LIVE KG (maintainer request 2026-09-01). The farm's own comparison
+			// figure between vendors -- landed cost over the live weight bought. It is only
+			// meaningful now that purchase value is the LANDED cost: per-kg on the ex-farm price
+			// alone understated every deal by the transport nobody had recorded.
+			"column.landed_price_per_kg": "Landing price / live kg",
+			"value.weight_missing":       "Not weighed",
+			"value.live_kg":              "kg live weight",
+			"field.purchase_weight_kg":   "Live weight bought (kg)",
+			"column.sold_value":          "Sold value",
+			"column.profit_loss":         "Profit / loss",
 			// Still published: the drawer names the stock figure the profit is partly made of, and
 			// the table's profit cell explains an unrealised figure with it.
 			"column.remaining_value":  "Remaining stock value (est.)",
@@ -2705,13 +2778,28 @@ func pageSpecificCopy(id string) map[string]string {
 			// The third basis, and the one a fresh tenant hits FIRST: with no sale anywhere there is
 			// no price to value stock at. It must be published like the other two -- the renderer
 			// resolves this key from price_basis, so an unpublished value takes the page down.
-			"value.price_basis.none":         "no sale yet to price them against",
-			"value.sold_unpriced":            "sold without a tagged sale",
-			"loadwise.row_hint":              "click a load to record its cost",
-			"loadwise.prior.title":           "Before these records",
-			"loadwise.prior.sold":            "Sold earlier",
-			"loadwise.prior.died":            "Died earlier",
-			"loadwise.prior.animals":         "animals",
+			"value.price_basis.none": "no sale yet to price them against",
+			"value.sold_unpriced":    "sold without a tagged sale",
+			"loadwise.row_hint":      "click a load to record its cost",
+			"loadwise.prior.title":   "Before these records",
+			"loadwise.prior.sold":    "Sold earlier",
+			"loadwise.prior.died":    "Died earlier",
+			"loadwise.prior.animals": "animals",
+			// THE COST BREAKDOWN (maintainer decision 2026-09-01). Purchase value is the LANDED
+			// cost -- animals plus transport plus everything else it took to bring them in -- and
+			// these name the parts. One key per cost kind, resolved from the line's kind so the
+			// client never renders the raw vocabulary; the farm's own words from the Procurement
+			// DB sheet, except "Purchase" which is called what it buys.
+			"loadwise.cost_breakdown.title":  "What this cost is made of",
+			"loadwise.cost_breakdown.total":  "Landed cost",
+			"loadwise.cost_breakdown.hint":   "Every cost recorded against this load, not just the animals.",
+			"cost_kind.animal":               "Animals",
+			"cost_kind.transport":            "Transport",
+			"cost_kind.booking":              "Booking",
+			"cost_kind.labour":               "Labour",
+			"cost_kind.transit":              "Transit",
+			"cost_kind.transition_feed":      "Transition feed",
+			"cost_kind.other":                "Other",
 			"drawer.load_cost.title":         "Record load cost",
 			"field.animal_cost":              "Animal cost",
 			"field.transport_cost":           "Transport cost",
@@ -2727,6 +2815,49 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.load":   "This page could not be loaded. Try again in a moment.",
 			"action.close": "Close",
 		}
+
+	case "sales-config":
+		// Sales Config carries every sales entry form (maintainer decision 2026-09-01), so its
+		// copy is the UNION of the two read pages' copy plus its own headings. Merged rather than
+		// duplicated on purpose: one source per label means the form that writes a field and the
+		// page that reads it back can never disagree about what it is called.
+		//
+		// Order matters only for the four keys both maps carry (crumb, value.none, action.close,
+		// error.load); the board's wording wins, and error.load is then replaced below because
+		// neither page's sentence names this one.
+		out := map[string]string{}
+		for key, value := range pageSpecificCopy("sales-loads") {
+			out[key] = value
+		}
+		for key, value := range pageSpecificCopy("sales") {
+			out[key] = value
+		}
+		for key, value := range map[string]string{
+			"error.load": "Could not load the sales records. Refresh to try again.",
+
+			// The page's own headings: one card per entry surface, each saying what it is for so
+			// the person picks the right form without opening three.
+			"section.sales_entry.title":       "Sales",
+			"section.sales_entry.subtitle":    "Record a sale, then tag the animals it is made of. Click any sale below to add a payment or change its status.",
+			"section.pipeline_entry.title":    "Pipeline and evidence",
+			"section.pipeline_entry.subtitle": "Buyer and farmer-group leads, market quotes, sold-animal tag lists and weight checks.",
+			"section.load_entry.title":        "Purchase and barn",
+			"section.load_entry.subtitle":     "What each purchased load cost to buy and bring in. Click a load to record or change its cost.",
+			"section.load_entry.row_hint":     "click a load to record its cost",
+			"section.sales_entry.row_hint":    "click a sale to add a payment or change its status",
+			"empty.loads":                     "No purchased loads yet. Loads appear here as source entry accepts them into the herd.",
+			// Where the entered facts are READ back. Named so the person who just recorded
+			// something knows where it shows up, without guessing from the sidebar.
+			"link.sales_board": "See the sales board",
+			"link.sales_loads": "See purchase and barn",
+			// A short lead-in for the two links, NOT a second copy of the subtitle: the header
+			// already says what this page is for, and repeating that sentence four lines later
+			// reads as a mistake.
+			"hint.read_only": "Read these records on",
+		} {
+			out[key] = value
+		}
+		return out
 
 	case "feed-purchases":
 		// Backend-owned copy for the feed purchase ledger. The client renders these verbatim; per
@@ -3462,6 +3593,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"export.empty":              "Nothing was weighed for this selection. The file has only the header row.",
 			"kpi.kids.label":            "Kids weighed",
 			"kpi.kids.sub":              "in the selected period",
+			"kpi.kids.split.label":      "Individual · Lump-sum",
+			"kpi.kids.split.total_sub":  "total in the selected period",
 			"kpi.total.label":           "Total weight",
 			"kpi.total.sub":             "of the kids actually weighed",
 			"kpi.average.label":         "Average weight",
@@ -6087,7 +6220,11 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				},
 			},
 		})
-	case "sales":
+	case "sales", "sales-config":
+		// The config page renders every sales form, so it needs exactly the board's vocabulary:
+		// farms, product types and the per-product breed groups. Shared, never a second copy --
+		// a form offering different breeds from the page that reads them back is the drift this
+		// avoids.
 		return withGenericOptionGroups(salesOptionGroups())
 	case "sales-loads":
 		return withGenericOptionGroups([]domain.OptionGroup{

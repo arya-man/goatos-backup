@@ -62,10 +62,33 @@ type loadwiseLoadPayload struct {
 	Remaining     int `json:"remaining"`
 	Unaccounted   int `json:"unaccounted"`
 
-	AnimalCost    *float64 `json:"animal_cost,omitempty"`
-	TransportCost *float64 `json:"transport_cost,omitempty"`
-	OtherCost     *float64 `json:"other_cost,omitempty"`
-	PurchaseValue *float64 `json:"purchase_value,omitempty"`
+	// CostLines itemise the three buckets below -- rendered when a load is OPENED, never in the
+	// list (maintainer decision 2026-09-01). Always emitted, empty for a load costed before the
+	// itemisation existed; a client must read an absent breakdown as "no detail recorded", never
+	// as "no cost".
+	CostLines     []loadCostLinePayload `json:"cost_lines"`
+	AnimalCost    *float64              `json:"animal_cost,omitempty"`
+	TransportCost *float64              `json:"transport_cost,omitempty"`
+	OtherCost     *float64              `json:"other_cost,omitempty"`
+	PurchaseValue *float64              `json:"purchase_value,omitempty"`
+	// The live weight bought and what one kilogram of it cost to land. Both absent rather than
+	// zero when unknown: a load nobody weighed has no per-kg price, and 0 would read as free.
+	PurchaseWeightKg *float64 `json:"purchase_weight_kg,omitempty"`
+	LandedPricePerKg *float64 `json:"landed_price_per_kg,omitempty"`
+	// The sale side of the comparison and the clock between. Every one absent rather than zero
+	// when unknown -- a load that has sold nothing has no sale weight, not a sale weight of zero.
+	AvgPurchaseWeightKg *float64 `json:"avg_purchase_weight_kg,omitempty"`
+	AvgSaleWeightKg     *float64 `json:"avg_sale_weight_kg,omitempty"`
+	SalePricePerKg      *float64 `json:"sale_price_per_kg,omitempty"`
+	// The animals behind AvgSaleWeightKg: only those actually weighed on the way out, which is
+	// fewer than sold on some legacy loads. Published so the client can say so rather than
+	// present a sample as a total.
+	SoldWeighedAnimals *int   `json:"sold_weighed_animals,omitempty"`
+	ArrivedOn          string `json:"arrived_on,omitempty"`
+	FatteningDays      *int   `json:"fattening_days,omitempty"`
+	// The load's AGE: whole days since it was bought, at today's business date. A different clock
+	// from fattening_days, which starts on arrival and stops at sale.
+	DaysSincePurchase *int `json:"days_since_purchase,omitempty"`
 
 	SoldValue      float64  `json:"sold_value"`
 	SoldPriced     int      `json:"sold_priced"`
@@ -87,6 +110,30 @@ type loadwisePriorPayload struct {
 	Value   *float64 `json:"value,omitempty"`
 	FirstOn string   `json:"first_on,omitempty"`
 	LastOn  string   `json:"last_on,omitempty"`
+}
+
+// loadCostLinePayload is one recorded cost event on a load. The client renders the KIND through
+// backend-owned copy keyed on this string -- it never composes a label from it.
+type loadCostLinePayload struct {
+	Kind   string  `json:"kind"`
+	Amount float64 `json:"amount"`
+	Note   string  `json:"note,omitempty"`
+	Source string  `json:"source"`
+}
+
+// toCostLinePayload always returns a non-nil slice so the field serializes as [] rather than null:
+// a client checking `cost_lines.length` must not have to guard the absent case first.
+func toCostLinePayload(lines []domain.LoadCostLine) []loadCostLinePayload {
+	out := make([]loadCostLinePayload, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, loadCostLinePayload{
+			Kind:   line.Kind,
+			Amount: line.Amount,
+			Note:   line.Note,
+			Source: line.Source,
+		})
+	}
+	return out
 }
 
 func toPriorPayload(p domain.LoadwisePriorOutcome) *loadwisePriorPayload {
@@ -143,10 +190,21 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			Remaining:     l.Remaining,
 			Unaccounted:   l.Unaccounted,
 
-			AnimalCost:    l.AnimalCost,
-			TransportCost: l.TransportCost,
-			OtherCost:     l.OtherCost,
-			PurchaseValue: l.PurchaseValue,
+			CostLines:        toCostLinePayload(l.CostLines),
+			AnimalCost:       l.AnimalCost,
+			TransportCost:    l.TransportCost,
+			OtherCost:        l.OtherCost,
+			PurchaseValue:    l.PurchaseValue,
+			PurchaseWeightKg: l.PurchaseWeightKg,
+			LandedPricePerKg: l.LandedPricePerKg,
+
+			AvgPurchaseWeightKg: l.AvgPurchaseWeightKg,
+			AvgSaleWeightKg:     l.AvgSaleWeightKg,
+			SalePricePerKg:      l.SalePricePerKg,
+			SoldWeighedAnimals:  l.SoldWeighedAnimals,
+			ArrivedOn:           l.ArrivedOn,
+			FatteningDays:       l.FatteningDays,
+			DaysSincePurchase:   l.DaysSincePurchase,
 
 			SoldValue:      l.SoldValue,
 			SoldPriced:     l.SoldPriced,
