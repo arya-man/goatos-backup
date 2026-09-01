@@ -1334,6 +1334,26 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /weighing/weighing-dates:
+    get:
+      operationId: adminGetWeighingDates
+      summary: Whole-shed weighing days and the last day anything was weighed
+      description: >-
+        The narrow landing-window read for the Weights screens. Same permission, park scope and
+        window rules as /weighing/shed-weights - a cheaper cut of that read, never a wider one.
+      tags: [weighing]
+      parameters:
+        - {in: query, name: park_id, required: false, schema: {type: string, format: uuid}}
+        - {in: query, name: from, required: false, schema: {type: string, format: date}}
+        - {in: query, name: to, required: false, schema: {type: string, format: date}}
+        - {in: query, name: sex, required: false, schema: {type: string}}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingDatesResponse"
   /weighing/leadership/growth:
     get:
       tags:
@@ -28819,6 +28839,27 @@ components:
           type: integer
         total_animals_weighed:
           type: integer
+    WeighingDatesResponse:
+      type: object
+      additionalProperties: false
+      required: [lump_weighing_dates]
+      description: >-
+        The NARROW read the Weights screens resolve their landing window from: which days carry a
+        whole-shed weigh, and the last day anything was weighed. Nothing else.
+        It exists because resolving that window through /weighing/shed-weights over a 400-day
+        lookback runs four queries and discards all but these two fields, which against a cloud
+        database dominates every page load and tab switch.
+      properties:
+        lump_weighing_dates:
+          type: array
+          description: Distinct Asia/Kolkata business dates carrying a whole-shed weigh, ascending.
+          items: {type: string, format: date}
+        latest_weighing_date:
+          type: string
+          format: date
+          description: >-
+            Most recent business date carrying a weigh of EITHER grain. Absent when the range holds
+            none - never fabricated, because the screen lands on it.
     WeighingGrowthTrendPoint:
       type: object
       additionalProperties: false

@@ -21,9 +21,14 @@ func TestShedWeightsOneToManyPageBoundaryParkScopeStatusBucketsScopedProjectsPar
 }
 
 func TestShedWeightsResponseCarriesLumpCalendarMarkers(t *testing.T) {
-	source, err := os.ReadFile("shed_weights.go")
+	// The marker query moved to weighing_dates.go, which is the NARROW read the Weights screens
+	// resolve their landing window from; shed_weights.go now calls that same helper rather than
+	// carrying a second copy. The guard follows it, and still asserts that shed weights REACHES it
+	// -- a page that stopped reporting the markers would break the calendar just as surely as a
+	// deleted query.
+	source, err := os.ReadFile("weighing_dates.go")
 	if err != nil {
-		t.Fatalf("read shed_weights.go: %v", err)
+		t.Fatalf("read weighing_dates.go: %v", err)
 	}
 	text := string(source)
 	for _, want := range []string{
@@ -33,7 +38,14 @@ func TestShedWeightsResponseCarriesLumpCalendarMarkers(t *testing.T) {
 		"out.LumpWeighingDates = append(out.LumpWeighingDates, day)",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("shed weights marker query missing %q", want)
+			t.Fatalf("weighing dates marker query missing %q", want)
 		}
+	}
+	shed, err := os.ReadFile("shed_weights.go")
+	if err != nil {
+		t.Fatalf("read shed_weights.go: %v", err)
+	}
+	if !strings.Contains(string(shed), "r.weighingDates(ctx,") {
+		t.Fatal("shed weights must resolve its calendar markers through the shared weighingDates helper")
 	}
 }

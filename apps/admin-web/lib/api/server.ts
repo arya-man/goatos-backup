@@ -30,6 +30,7 @@ export type WeighingGrowthResponse = AppApiComponents["schemas"]["WeighingGrowth
 export type ShedWeightsSummary = AppApiComponents["schemas"]["WeighingShedWeightsSummary"];
 export type ShedWeightsRow = AppApiComponents["schemas"]["WeighingShedWeightsRow"];
 export type ShedWeightsResponse = AppApiComponents["schemas"]["WeighingShedWeightsResponse"];
+export type WeighingDatesResponse = AppApiComponents["schemas"]["WeighingDatesResponse"];
 export type MilkPreparationRow = AppApiComponents["schemas"]["MilkPreparationRow"];
 export type MilkPreparationPage = AppApiComponents["schemas"]["MilkPreparationPage"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
@@ -795,6 +796,31 @@ export async function getShedWeights(params: {
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<ShedWeightsResponse>("/weighing/shed-weights", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * The NARROW landing-window read: whole-shed weighing days plus the last day anything was weighed.
+ *
+ * Use this, never getShedWeights, to resolve which window a Weights screen should open on. That
+ * read runs four queries and returns the whole shed table, per-load growth and the summary; over
+ * the 400-day lookback the window needs, it was ~570ms locally against ~140ms for the real
+ * windowed read, and every one of those queries is its own round trip to a cloud database.
+ */
+export async function getWeighingDates(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+  sex?: string;
+}): Promise<ApiResult<WeighingDatesResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WeighingDatesResponse>("/weighing/weighing-dates", {
       cache: "no-store",
       query: compactQuery(params),
     }),

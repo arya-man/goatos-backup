@@ -432,6 +432,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getWeighingLeadershipGrowthADG", Method: "GET", Pattern: "/app/weighing/leadership/growth", Permissions: []string{WeighingMonitor}},
 	{OperationID: "getWeighingShedWeights", Method: "GET", Pattern: "/app/weighing/shed-weights", Permissions: []string{WeighingMonitor}},
 	{OperationID: "adminGetWeighingShedWeights", Method: "GET", Pattern: "/weighing/shed-weights", Permissions: []string{WeighingMonitor}},
+	{OperationID: "adminGetWeighingDates", Method: "GET", Pattern: "/weighing/weighing-dates", Permissions: []string{WeighingMonitor}},
 	{OperationID: "adminGetWeighingWeightDemographics", Method: "GET", Pattern: "/weighing/weight-demographics", Permissions: []string{WeighingMonitor}},
 	{OperationID: "adminGetWeighingLeadershipGrowth", Method: "GET", Pattern: "/weighing/leadership/growth", Permissions: []string{WeighingMonitor}},
 	{OperationID: "appRecordWeighingAnimalObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/animal-observations", Permissions: []string{WeighingExecute}},

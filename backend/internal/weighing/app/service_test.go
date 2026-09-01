@@ -815,6 +815,11 @@ func (r *fakeRepo) GetShedWeights(_ context.Context, _ string, _ []string, _ str
 	return domain.ShedWeights{}, nil
 }
 
+// GetWeighingDates is a stub: the narrow landing-window read is not exercised by this fake.
+func (r *fakeRepo) GetWeighingDates(context.Context, string, []string, time.Time, time.Time, string) (domain.WeighingDates, error) {
+	return domain.WeighingDates{}, nil
+}
+
 func (r *fakeRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }

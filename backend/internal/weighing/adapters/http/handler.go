@@ -46,6 +46,7 @@ type Service interface {
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
 	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.GrowthADG, error)
 	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.ShedWeights, error)
+	GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.WeighingDates, error)
 	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, writer io.Writer) error
@@ -121,6 +122,9 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// reads (mirroring /counts/milk-preparation and its /app twin): admin-web calls the
 	// bare path, the phone calls /app.
 	mux.HandleFunc("GET /weighing/shed-weights", h.GetShedWeights)
+	// The narrow landing-window read. Admin-web only: the phone has no Weights screen, so it is not
+	// mirrored under /app.
+	mux.HandleFunc("GET /weighing/weighing-dates", h.GetWeighingDates)
 	mux.HandleFunc("GET /weighing/weight-demographics", h.GetWeightDemographics)
 	mux.HandleFunc("GET /weighing/leadership/growth", h.GetLeadershipGrowthADG)
 }
@@ -186,6 +190,20 @@ func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request)
 // with its latest weigh, plus the whole-filter KPI rollup. `park_id` is optional
 // (omit for every park the caller may monitor); `from`/`to` are INCLUSIVE
 // Asia/Kolkata business dates (YYYY-MM-DD).
+// GetWeighingDates serves the narrow read the Weights screens resolve their landing window from.
+// See the service method for why it is not simply a field of the shed-weights response.
+func (h *Handler) GetWeighingDates(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetWeighingDates(
+		r.Context(),
+		actor(r),
+		r.URL.Query().Get("park_id"),
+		r.URL.Query().Get("from"),
+		r.URL.Query().Get("to"),
+		r.URL.Query().Get("sex"),
+	)
+	h.respond(w, r, result, err)
+}
+
 func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetShedWeights(
 		r.Context(),

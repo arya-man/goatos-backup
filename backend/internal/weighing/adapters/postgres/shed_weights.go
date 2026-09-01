@@ -491,90 +491,15 @@ ORDER BY display_order, name, location_id`, tenantID, scopeParkIDs)
 		return domain.ShedWeights{}, err
 	}
 
-	dateRows, err := r.pool.Query(ctx, `
-SELECT DISTINCT to_char((sh.accepted_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS weigh_date
-FROM weighing_shed_observations sh
-JOIN weighing_campaign_sheds cs
-  ON cs.campaign_shed_id = sh.campaign_shed_id
- AND cs.tenant_id = sh.tenant_id
-JOIN weighing_campaigns c
-  ON c.campaign_id = cs.campaign_id
- AND c.tenant_id = cs.tenant_id
-WHERE sh.tenant_id = $1::uuid
-  AND c.park_id = ANY($2::uuid[])
-  AND cs.weighing_category = 'per_shed_partition'
-  AND cs.status <> 'canceled'
-  AND sh.withdrawn_at IS NULL
-  AND sh.verification_status <> 'rejected'
-  AND sh.accepted_at >= $3::timestamptz
-  AND sh.accepted_at <  $4::timestamptz
-  -- The calendar's lump markers follow the filter too: a day whose only whole-shed weigh
-  -- belongs to the other sex is not a day this reader has data for.
-  AND (NOT $5::bool OR EXISTS (
-    SELECT 1 FROM unnest($6::uuid[], $7::text[]) AS b(loc, part)
-    WHERE b.loc = cs.location_id AND b.part = COALESCE(cs.partition_label, '')
-  ))
-ORDER BY weigh_date`, tenantID, parkIDs, periodStart, periodEnd,
-		sexFiltered, scope.LocationIDs, scope.PartitionLabels)
+	// The two date facts come from ONE helper, shared with the narrow /weighing/weighing-dates read
+	// the Weights screens resolve their landing window from. Two copies of these queries would let
+	// the window a page opens on disagree with the dates the same page then reports.
+	dates, err := r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
-	defer dateRows.Close()
-	for dateRows.Next() {
-		var day string
-		if err := dateRows.Scan(&day); err != nil {
-			return domain.ShedWeights{}, err
-		}
-		out.LumpWeighingDates = append(out.LumpWeighingDates, day)
-	}
-	if err := dateRows.Err(); err != nil {
-		return domain.ShedWeights{}, err
-	}
-
-	// The last day the farm weighed ANYTHING in range, individual or whole-shed. The lump dates above
-	// answer "which days can show a shed-average movement"; this answers "when did we last weigh",
-	// and the Weights page needs both -- it opens on the last two lump dates, and closing that window
-	// on the later of them dropped the 199 kids scanned on a day that had no whole-shed weigh of its
-	// own. Scanned through a POINTER: a range with no weighs has no date, and must come back empty
-	// rather than fabricating one for the page to land on.
-	//
-	// projection-review: membership=live weighs of either grain inside tenant+park+range; group_key=
-	// NONE, this is a single scalar max over that set; join_cardinality=campaign_sheds 1 per
-	// observation (PK) and campaigns 1 per shed (PK), and max() is insensitive to duplication in any
-	// case; pagination=NONE; scope=tenant_id + park_id = ANY, plus the same sex predicates the rows
-	// above use, so the date can never advertise a day this reader has no data for.
-	var latestWeighed *string
-	if err := r.pool.QueryRow(ctx, `
-SELECT max(d)::text FROM (
-  SELECT (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
-  FROM weighing_observations o
-  JOIN weighing_campaign_sheds cs ON cs.campaign_shed_id = o.campaign_shed_id AND cs.tenant_id = o.tenant_id
-  JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
-  WHERE o.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
-    AND cs.status <> 'canceled'
-    AND o.verification_status <> 'rejected'
-    AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
-    AND (NOT $5::bool OR lower(btrim(o.scanned_identifier)) = ANY($8::text[]))
-  UNION ALL
-  SELECT (sh.accepted_at AT TIME ZONE 'Asia/Kolkata')::date
-  FROM weighing_shed_observations sh
-  JOIN weighing_campaign_sheds cs ON cs.campaign_shed_id = sh.campaign_shed_id AND cs.tenant_id = sh.tenant_id
-  JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
-  WHERE sh.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
-    AND cs.status <> 'canceled'
-    AND sh.withdrawn_at IS NULL AND sh.verification_status <> 'rejected'
-    AND sh.accepted_at >= $3::timestamptz AND sh.accepted_at < $4::timestamptz
-    AND (NOT $5::bool OR EXISTS (
-      SELECT 1 FROM unnest($6::uuid[], $7::text[]) AS b(loc, part)
-      WHERE b.loc = cs.location_id AND b.part = COALESCE(cs.partition_label, '')
-    ))
-) z`, tenantID, parkIDs, periodStart, periodEnd,
-		sexFiltered, scope.LocationIDs, scope.PartitionLabels, scope.Tags).Scan(&latestWeighed); err != nil {
-		return domain.ShedWeights{}, err
-	}
-	if latestWeighed != nil {
-		out.LatestWeighingDate = *latestWeighed
-	}
+	out.LumpWeighingDates = dates.LumpWeighingDates
+	out.LatestWeighingDate = dates.LatestWeighingDate
 
 	if summary.AnimalsWeighed > 0 {
 		avg := summary.TotalWeightKg / float64(summary.AnimalsWeighed)

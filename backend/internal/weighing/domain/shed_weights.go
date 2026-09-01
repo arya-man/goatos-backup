@@ -230,6 +230,24 @@ type ShedWeights struct {
 	PeriodEnd   string `json:"period_end"`
 }
 
+// WeighingDates is the two date facts the Weights screens open on, and NOTHING else.
+//
+// It exists because the landing window used to be resolved by calling the whole shed-weights read
+// over a 400-DAY lookback -- four queries, the full shed table, per-load growth and the summary --
+// to read exactly these two fields and discard the rest. That cost ~570ms locally against ~140ms
+// for the real windowed read, and it is paid on EVERY page load and every tab switch; against a
+// cloud database, where each of those queries carries its own round trip, it dominates the screen.
+//
+// This is the narrow endpoint for that screen grain, which is the fix the scale rules ask for --
+// not a frontend cache, not a longer timeout. Same two queries, none of the other work.
+type WeighingDates struct {
+	// LumpWeighingDates is the distinct set of business dates carrying a whole-shed weigh, ascending.
+	LumpWeighingDates []string `json:"lump_weighing_dates"`
+	// LatestWeighingDate is the most recent business date carrying a weigh of EITHER grain. Empty
+	// when the range holds none -- never fabricated, because the page lands on it.
+	LatestWeighingDate string `json:"latest_weighing_date,omitempty"`
+}
+
 // Sale-readiness thresholds, shared with GrowthSaleReadiness so the two reads
 // cannot drift into two different definitions of "sale ready".
 const (

@@ -10,7 +10,7 @@
 // Business dates throughout: both ends are inclusive "YYYY-MM-DD" Asia/Kolkata days, which is what
 // the API's from/to expect. A weigh belongs to the IST day it happened on, never a clock offset.
 import { istDayPlus } from "@/lib/format";
-import { getShedWeights } from "@/lib/api/server";
+import { getWeighingDates } from "@/lib/api/server";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
 /** Both pages carry the window in the same two parameters, so a link survives moving between them. */
@@ -67,7 +67,13 @@ export async function landingWindow(
   // Same sex scope as the page reads below. Now that an absent `sex` means Male, the default
   // landing window must be chosen from the male herd too; explicit `sex=all` still reaches this
   // helper as "", which preserves the old all-kid lookup.
-  const result = await getShedWeights({
+  // The NARROW read, not getShedWeights. This lookback spans 400 days, and the full shed read runs
+  // four queries over it -- the shed table, per-load growth, the summary -- of which this function
+  // uses exactly two date fields. Locally that was ~570ms against ~140ms for the real windowed
+  // read, and it is paid before every page load and every tab switch, blocking them: the reads
+  // below cannot start until the window is known. Against a cloud database, where each of those
+  // queries carries its own round trip, it was the dominant cost of the screen.
+  const result = await getWeighingDates({
     park_id: parkID || undefined,
     ...lookback,
     sex: sexFilter || undefined,

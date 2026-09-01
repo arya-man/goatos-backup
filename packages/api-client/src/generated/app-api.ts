@@ -635,6 +635,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/weighing-dates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whole-shed weighing days and the last day anything was weighed
+         * @description The narrow landing-window read for the Weights screens. Same permission, park scope and window rules as /weighing/shed-weights - a cheaper cut of that read, never a wider one.
+         */
+        get: operations["adminGetWeighingDates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/weighing/leadership/growth": {
         parameters: {
             query?: never;
@@ -11734,6 +11754,16 @@ export interface components {
             animals_with_two_plus_weighs: number;
             total_animals_weighed: number;
         };
+        /** @description The NARROW read the Weights screens resolve their landing window from: which days carry a whole-shed weigh, and the last day anything was weighed. Nothing else. It exists because resolving that window through /weighing/shed-weights over a 400-day lookback runs four queries and discards all but these two fields, which against a cloud database dominates every page load and tab switch. */
+        WeighingDatesResponse: {
+            /** @description Distinct Asia/Kolkata business dates carrying a whole-shed weigh, ascending. */
+            lump_weighing_dates: string[];
+            /**
+             * Format: date
+             * @description Most recent business date carrying a weigh of EITHER grain. Absent when the range holds none - never fabricated, because the screen lands on it.
+             */
+            latest_weighing_date?: string;
+        };
         WeighingGrowthTrendPoint: {
             /** Format: date */
             week_start: string;
@@ -15777,6 +15807,31 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetWeighingDates: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+                sex?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingDatesResponse"];
+                };
+            };
         };
     };
     adminGetWeighingLeadershipGrowth: {

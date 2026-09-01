@@ -1538,6 +1538,34 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex, origin)
 }
 
+// GetWeighingDates serves the NARROW read the Weights screens resolve their landing window from:
+// the whole-shed weighing days and the last day anything was weighed, and nothing else.
+//
+// Same permission, same park-scope resolution and same window rules as GetShedWeights -- it is a
+// cheaper cut of that read, never a wider one. It exists because resolving the window through the
+// full read over a 400-day lookback ran four queries and discarded all but these two fields, which
+// against a cloud database is the dominant cost of every page load and tab switch.
+func (s *Service) GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.WeighingDates, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.WeighingDates{}, ports.ErrForbidden
+	}
+	parkID = strings.TrimSpace(parkID)
+	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+		return domain.WeighingDates{}, ports.ErrInvalidArgument
+	}
+	periodStart, periodEndExclusive, windowErr := s.resolveWeighingWindow(fromBusinessDate, toBusinessDate)
+	if windowErr != nil {
+		return domain.WeighingDates{}, windowErr
+	}
+	// The SAME scope helper the shed rows use, so this read can never advertise a park the actor
+	// may not see -- a narrow read is not a thinner authorization check.
+	parkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID)
+	if scopeErr != nil {
+		return domain.WeighingDates{}, scopeErr
+	}
+	return s.repo.GetWeighingDates(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex)
+}
+
 // resolveWeighingWindow turns optional business dates into the half-open
 // [start, end) window every weighing report uses.
 //

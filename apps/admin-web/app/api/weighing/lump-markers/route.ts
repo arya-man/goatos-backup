@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getShedWeights } from "@/lib/api/server";
+import { getWeighingDates } from "@/lib/api/server";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,10 @@ export async function GET(request: Request) {
     );
   }
 
-  const result = await getShedWeights({
+  // The narrow read: this route wants the marker DATES and nothing else, and the date picker fires
+  // it on every calendar open. Going through the full shed read meant four queries and a whole
+  // shed table thrown away each time.
+  const result = await getWeighingDates({
     park_id: parkID || undefined,
     from,
     to,

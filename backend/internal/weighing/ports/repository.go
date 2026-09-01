@@ -475,6 +475,11 @@ type Repository interface {
 	// dropdown to whichever park was already chosen, so a reader who picked CPT could not get back
 	// to CBE without clearing the filter by hand.
 	GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin string) (domain.ShedWeights, error)
+	// GetWeighingDates is the NARROW read behind the Weights screens' landing window: the whole-shed
+	// weighing days and the last day anything was weighed, and nothing else. GetShedWeights answers
+	// the same two questions as a by-product of four queries; resolving a window through that read
+	// over a 400-day lookback made it the dominant cost of every page load and tab switch.
+	GetWeighingDates(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.WeighingDates, error)
 
 	// GetWeightDemographics returns average weight by breed, sex and management stage.
 	// This is the ONE weighing read permitted to resolve a scanned tag to its animal
