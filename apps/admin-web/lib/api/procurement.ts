@@ -14,14 +14,28 @@ export type SalesPriceBand = AppApiComponents["schemas"]["SalesPriceBand"];
 export type SalesBuyer = AppApiComponents["schemas"]["SalesBuyer"];
 export type SalesMarketBenchmark = AppApiComponents["schemas"]["SalesMarketBenchmark"];
 export type SalesDeal = AppApiComponents["schemas"]["SalesDeal"];
+export type SalesDealPayment = AppApiComponents["schemas"]["SalesDealPayment"];
+export type SalesDealPaymentWrite = AppApiComponents["schemas"]["SalesDealPaymentWrite"];
+export type SalesDealStatusWrite = AppApiComponents["schemas"]["SalesDealStatusWrite"];
 export type SalesDealPage = AppApiComponents["schemas"]["SalesDealPage"];
 export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
+
+// Load-wise sales — every purchased load reconciled (/procurement/loadwise-sales).
+export type LoadwiseSales = AppApiComponents["schemas"]["LoadwiseSales"];
+export type LoadwiseLoad = AppApiComponents["schemas"]["LoadwiseLoad"];
+export type LoadwiseSummary = AppApiComponents["schemas"]["LoadwiseSummary"];
+export type LoadwisePriorOutcome = AppApiComponents["schemas"]["LoadwisePriorOutcome"];
+export type LoadCostWrite = AppApiComponents["schemas"]["LoadCostWrite"];
 
 // Feed purchases — the buying side of the feed chain (/procurement/feed-purchases).
 export type FeedPurchase = AppApiComponents["schemas"]["FeedPurchase"];
 export type FeedPurchasePage = AppApiComponents["schemas"]["FeedPurchasePage"];
 export type FeedPurchaseWrite = AppApiComponents["schemas"]["FeedPurchaseWrite"];
 export type FeedPurchaseOptions = AppApiComponents["schemas"]["FeedPurchaseOptions"];
+export type FeedPurchasePayment = AppApiComponents["schemas"]["FeedPurchasePayment"];
+export type FeedPurchasePaymentWrite = AppApiComponents["schemas"]["FeedPurchasePaymentWrite"];
+export type FeedPurchaseStatusWrite = AppApiComponents["schemas"]["FeedPurchaseStatusWrite"];
+export type FeedPurchaseEdit = AppApiComponents["schemas"]["FeedPurchaseEdit"];
 export type SalesBuyerLead = AppApiComponents["schemas"]["SalesBuyerLead"];
 export type SalesBuyerLeadPage = AppApiComponents["schemas"]["SalesBuyerLeadPage"];
 export type SalesBuyerLeadWrite = AppApiComponents["schemas"]["SalesBuyerLeadWrite"];

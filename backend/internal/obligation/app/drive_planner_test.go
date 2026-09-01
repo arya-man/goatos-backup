@@ -232,7 +232,7 @@ func TestNormalizedDrivePlannerSettingsDefaults(t *testing.T) {
 	if got.ComboAlignWindowDays != domain.DefaultDrivePlannerSettings().ComboAlignWindowDays {
 		t.Fatalf("combo window = %d", got.ComboAlignWindowDays)
 	}
-	if got.MaxShotsPerAnimalPerDrive != 2 || got.MaxBatchingHoldCount != 1 || got.MaxBatchingHoldDays != 7 {
+	if got.MaxShotsPerAnimalPerDrive != 3 || got.MaxBatchingHoldCount != 1 || got.MaxBatchingHoldDays != 7 {
 		t.Fatalf("planner defaults = %#v, want shot cap/hold defaults", got)
 	}
 }

@@ -28,6 +28,9 @@ func (*fakeRepo) GetWorkItem(context.Context, string, string) (domain.WorkItemDe
 func (*fakeRepo) CompleteWorkItem(context.Context, domain.CompleteInput) (domain.CompleteResult, error) {
 	return domain.CompleteResult{}, nil
 }
+func (*fakeRepo) CloseCase(context.Context, domain.CloseCaseInput) (domain.CloseCaseResult, error) {
+	return domain.CloseCaseResult{}, nil
+}
 func (*fakeRepo) HoldForDeathReview(context.Context, string, string) error       { return nil }
 func (*fakeRepo) ResumeAfterDeathRejected(context.Context, string, string) error { return nil }
 func (*fakeRepo) CloseForApprovedDeath(context.Context, string, string) error    { return nil }

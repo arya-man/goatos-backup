@@ -13,10 +13,13 @@ import {
   request,
   type ApiResult,
 } from "@/lib/api/server";
-import type {
+import type { LoadCostWrite, LoadwiseSales,
   FeedPurchase,
   FeedPurchaseOptions,
   FeedPurchasePage,
+  FeedPurchasePaymentWrite,
+  FeedPurchaseEdit,
+  FeedPurchaseStatusWrite,
   FeedPurchaseWrite,
   SalesBenchmarkWrite,
   SalesBuyerLead,
@@ -24,6 +27,8 @@ import type {
   SalesBuyerLeadWrite,
   SalesDeal,
   SalesDealPage,
+  SalesDealPaymentWrite,
+  SalesDealStatusWrite,
   SalesDealWrite,
   SalesFpoLead,
   SalesFpoLeadPage,
@@ -240,6 +245,34 @@ export async function getSalesOverview(
   );
 }
 
+// The load-wise reconciliation: every purchased load's counts and money, served whole (the
+// newest window) by the procurement read. ONE bounded request, never a paged walk.
+export async function getLoadwiseSales(): Promise<ApiResult<LoadwiseSales>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LoadwiseSales>("/procurement/loadwise-sales", { cache: "no-store" }),
+  );
+}
+
+// Records (or clears) one load's landed cost. A PUT of the full state — naturally idempotent on
+// the backend, so no Idempotency-Key header is minted here.
+export async function setLoadCost(
+  loadId: string,
+  body: LoadCostWrite,
+): Promise<ApiResult<{ status: string }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<{ status: string }>(
+      `/procurement/loads/${encodeURIComponent(loadId)}/cost` as keyof AppApiPaths & string,
+      { method: "PUT", cache: "no-store", body },
+    ),
+  );
+}
+
 export async function listSalesDeals(
   params: { farm?: string; limit?: number; offset?: number } = {},
 ): Promise<ApiResult<SalesDealPage>> {
@@ -309,6 +342,90 @@ export async function createFeedPurchase(
       method: "POST",
       cache: "no-store",
       headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function recordFeedPurchasePayment(
+  purchaseId: string,
+  body: FeedPurchasePaymentWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<FeedPurchase>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPurchase>(`/procurement/feed-purchases/${encodeURIComponent(purchaseId)}/payments` as keyof AppApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function setFeedPurchasePaymentStatus(
+  purchaseId: string,
+  body: FeedPurchaseStatusWrite,
+): Promise<ApiResult<FeedPurchase>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPurchase>(`/procurement/feed-purchases/${encodeURIComponent(purchaseId)}/payment-status` as keyof AppApiPaths & string, {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function editFeedPurchase(
+  purchaseId: string,
+  body: FeedPurchaseEdit,
+): Promise<ApiResult<FeedPurchase>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPurchase>(`/procurement/feed-purchases/${encodeURIComponent(purchaseId)}` as keyof AppApiPaths & string, {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function recordSalesDealPayment(
+  dealId: string,
+  body: SalesDealPaymentWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>(`/sales/deals/${encodeURIComponent(dealId)}/payments` as keyof AppApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function setSalesDealStatus(
+  dealId: string,
+  body: SalesDealStatusWrite,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>(`/sales/deals/${encodeURIComponent(dealId)}/status` as keyof AppApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
       body,
     }),
   );

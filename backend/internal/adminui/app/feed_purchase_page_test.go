@@ -39,7 +39,7 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 	// reorder there pairs a value with the wrong heading.
 	wantColumns := []string{
 		"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg",
-		"total_cost", "per_kg_cost", "vendor", "payment_status",
+		"total_cost", "per_kg_cost", "vendor", "payment_status", "payment_balance",
 	}
 	if len(ledger.Columns) != len(wantColumns) {
 		t.Fatalf("ledger columns = %+v", ledger.Columns)
@@ -63,7 +63,15 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 		"field.payment_released", "field.payment_status",
 		"hint.batch_no", "hint.total_cost", "required.hint",
 		"value.none", "value.entry_app", "value.entry_sheet",
-		"column.entry_source", "column.payment_status",
+		"column.entry_source", "column.payment_status", "column.payment_balance",
+		"section.payments.title", "payments.paid_so_far", "payments.balance", "payments.empty",
+		"payments.column.paid_on", "payments.column.amount", "payments.column.note",
+		"field.paid_on", "field.amount_rupees", "field.note", "hint.record_payment",
+		"action.record_feed_payment.label", "action.update_payment_status.label",
+		"action.payment_recorded", "action.payment_record_failed",
+		"action.payment_status_updated", "action.payment_status_update_failed",
+		"action.edit_feed_purchase.label", "drawer.edit.title", "hint.edit_identity",
+		"action.purchase_updated", "action.purchase_update_failed",
 		"action.save", "action.cancel", "action.close",
 		"action.purchase_recorded", "action.purchase_record_failed", "action.error_form",
 		"filter.farm", "pager.page", "pager.of", "action.next_page", "action.prev_page",
@@ -154,7 +162,8 @@ func TestRecordFeedPurchaseControlIsCapabilityGated(t *testing.T) {
 					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 				},
 			})
-			control := controlByID(t, pageByRouteID(t, resp.Pages, "feed-purchases").Controls, "record_feed_purchase")
+			pageControls := pageByRouteID(t, resp.Pages, "feed-purchases").Controls
+			control := controlByID(t, pageControls, "record_feed_purchase")
 			if control.Enabled != tc.enabled {
 				t.Fatalf("%s record_feed_purchase.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)
 			}
@@ -163,6 +172,25 @@ func TestRecordFeedPurchaseControlIsCapabilityGated(t *testing.T) {
 			}
 			if control.Action != "POST /procurement/feed-purchases" {
 				t.Fatalf("record_feed_purchase.action = %q want the record-purchase write", control.Action)
+			}
+			// The payment writes ride the SAME permission split: instalments and the status edit
+			// are money writes on the same ledger. The feed_director row is again the mutation
+			// test -- enabling either from any broader feed permission turns this red.
+			for controlID, action := range map[string]string{
+				"record_feed_purchase_payment":        "POST /procurement/feed-purchases/{purchase_id}/payments",
+				"edit_feed_purchase":                  "PUT /procurement/feed-purchases/{purchase_id}",
+				"update_feed_purchase_payment_status": "PUT /procurement/feed-purchases/{purchase_id}/payment-status",
+			} {
+				payment := controlByID(t, pageControls, controlID)
+				if payment.Enabled != tc.enabled {
+					t.Fatalf("%s %s.enabled = %v want %v (%#v)", tc.name, controlID, payment.Enabled, tc.enabled, payment)
+				}
+				if !tc.enabled && payment.DisabledReason == "" {
+					t.Fatalf("%s: disabled %s must carry a backend disabled reason", tc.name, controlID)
+				}
+				if payment.Action != action {
+					t.Fatalf("%s.action = %q want %q", controlID, payment.Action, action)
+				}
 			}
 		})
 	}

@@ -56,7 +56,7 @@ Rules:
   `max_batching_hold_count = 1`.
 - A 3-week booster can be held once to week 4 when it safely overlaps another
   compatible park group. It cannot be moved again to week 5 or week 6.
-- A doctor visit can plan at most 2 shots per animal. If 3+ vaccines are due,
+- A doctor visit can plan at most 3 shots per animal. If 4+ vaccines are due,
   choose the highest-priority compatible pair and schedule the remaining rows on
   the next safe date.
 - Same-day compatibility is still governed by vaccine class: one live + one

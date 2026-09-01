@@ -857,7 +857,7 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // open obligation generation excludes Blue Tongue and PPR by policy until later
 // stock-confirmed scheduling.
 // Coupling review 2026-08-29: accepted dose 1/manual dose-1 anchors now drive
-// Blue Tongue adult W2/booster timing (+28 days). Source validation continues
+// Blue Tongue adult W2/booster timing (+21 days). Source validation continues
 // to check only source date order/minimum gap; no fixture bytes, HRMS rows,
 // parser inputs, SOP proof grain, or source-date semantics change.
 
@@ -881,3 +881,6 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // Coupling review 2026-08-29: later manual anchors suppress generated manual_campaign seed rows for
 // the same vaccine family. This validator remains source-only: no raw fixture date, HRMS row, SOP
 // proof field, or hash validation changes.
+// Coupling review 2026-08-30: same-day vaccination cap moves from 2 to 3 in the scheduler policy
+// and runtime capacity override. Source validation still checks source dates/history only; no raw
+// HRMS row, vaccination cell, parser input, or SOP proof field changes.

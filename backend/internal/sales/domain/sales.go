@@ -113,6 +113,10 @@ type Deal struct {
 
 	AdvanceAmount *float64
 	SalesValue    float64
+	// PaymentReceived is the RUNNING TOTAL of money the buyer has handed over: seeded from the
+	// sheet's advance_amount by migration 000227, advanced by each recorded receipt inside the
+	// same transaction. Nil when nothing was ever received or recorded.
+	PaymentReceived *float64
 
 	Status   string
 	Feedback *string
@@ -120,6 +124,74 @@ type Deal struct {
 
 	CreatedAt string
 	UpdatedAt string
+
+	// Payments are the receipts recorded against this deal, oldest first. Sheet history has
+	// none: its advance_amount predates the receipts ledger.
+	Payments []DealPayment
+}
+
+// DealPayment is one amount the buyer actually handed over for one deal.
+type DealPayment struct {
+	PaymentID    string
+	DealID       string
+	ReceivedOn   string // YYYY-MM-DD business date
+	AmountRupees float64
+	Note         string
+	CreatedAt    string
+}
+
+// PaymentBalance is the money the buyer still owes: sales value minus what has been received.
+//
+// Never negative -- an overpayment reads as a zero balance, not as the farm owing the buyer
+// through this ledger. A sheet deal with no recorded value reads zero owed rather than inventing
+// a receivable.
+func (d Deal) PaymentBalance() float64 {
+	received := 0.0
+	if d.PaymentReceived != nil {
+		received = *d.PaymentReceived
+	}
+	balance := d.SalesValue - received
+	if balance < 0 {
+		balance = 0
+	}
+	return balance
+}
+
+// maxDealPaymentNote bounds the free-text note on one receipt.
+const maxDealPaymentNote = 300
+
+// DealPaymentWrite is the record-receipt form: one amount received against one deal.
+type DealPaymentWrite struct {
+	ReceivedOn   string
+	AmountRupees float64
+	Note         string
+}
+
+// Normalize trims the write before validation, so the rules apply to what will be stored.
+func (w DealPaymentWrite) Normalize() DealPaymentWrite {
+	out := w
+	out.ReceivedOn = strings.TrimSpace(w.ReceivedOn)
+	out.Note = strings.Join(strings.Fields(w.Note), " ")
+	return out
+}
+
+// Validate applies the receipt rules. today is the caller's IST business date: money cannot be
+// recorded as received on a day that has not happened.
+func (w DealPaymentWrite) Validate(today time.Time) error {
+	received, err := time.Parse("2006-01-02", w.ReceivedOn)
+	if err != nil {
+		return ErrDealValidation{Field: "received_on", Reason: "must be a date like 2026-08-17"}
+	}
+	if received.After(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)) {
+		return ErrDealValidation{Field: "received_on", Reason: "cannot be in the future"}
+	}
+	if w.AmountRupees <= 0 {
+		return ErrDealValidation{Field: "amount_rupees", Reason: "must be more than zero"}
+	}
+	if len(w.Note) > maxDealPaymentNote {
+		return ErrDealValidation{Field: "note", Reason: "too long"}
+	}
+	return nil
 }
 
 // Animals resolves how many animals this deal moved: animal_count when recorded, otherwise the
@@ -178,6 +250,10 @@ type DealWrite struct {
 	SalesValue    float64
 	AdvanceAmount *float64
 	Comments      string
+	// Status is OPTIONAL: blank records the sheet's default, Deal Closed. Naming one lets the desk
+	// record an EXPECTED sale -- an advance received today for animals leaving on a future date is
+	// an Advance Paid deal, not a closed one, and only Deal Closed counts toward revenue.
+	Status string
 }
 
 // ErrDealValidation reports a rejected write with a field-specific, operator-readable reason.
@@ -203,6 +279,17 @@ func (w DealWrite) Normalize() DealWrite {
 	out.BuyerPlace = collapse(w.BuyerPlace)
 	out.BuyerVendorID = strings.TrimSpace(w.BuyerVendorID)
 	out.Comments = strings.TrimSpace(w.Comments)
+	out.Status = strings.TrimSpace(w.Status)
+	// Canonicalize the two-word statuses case-insensitively, the same way the feed ledger treats
+	// its payment words: "advance paid" stores as the sheet's "Advance Paid". An unrecognised
+	// value still fails Validate rather than being rewritten -- a silently defaulted status is a
+	// deal state nobody entered.
+	for _, known := range Statuses {
+		if strings.EqualFold(out.Status, known) {
+			out.Status = known
+			break
+		}
+	}
 	return out
 }
 
@@ -254,6 +341,9 @@ func (w DealWrite) Validate() error {
 	}
 	if w.SalesValue <= 0 {
 		return ErrDealValidation{Field: "sales_value", Reason: "must be more than zero"}
+	}
+	if w.Status != "" && !IsStatus(w.Status) {
+		return ErrDealValidation{Field: "status", Reason: "must be Deal Closed, Deal Failed, In Discussion or Advance Paid"}
 	}
 	for field, v := range map[string]*float64{
 		"animal_count":    w.AnimalCount,

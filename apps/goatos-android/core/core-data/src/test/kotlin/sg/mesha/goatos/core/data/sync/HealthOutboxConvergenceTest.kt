@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import sg.mesha.goatos.core.data.HealthFilters
+import sg.mesha.goatos.core.data.HealthPageMetaSnapshot
 import sg.mesha.goatos.core.data.HealthRepository
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
@@ -30,7 +31,11 @@ class HealthOutboxConvergenceTest {
         override fun workItems(filters: HealthFilters): Flow<PagingData<HealthWorkItemDto>> =
             flowOf(PagingData.empty())
 
-        override fun observePageMeta(filters: HealthFilters): Flow<HealthWorkItemPageDto?> = flowOf(null)
+        override fun observePageMeta(filters: HealthFilters): Flow<HealthPageMetaSnapshot?> = flowOf(null)
+        override fun observeDiagnosisRun(diagnosisRunId: String): Flow<sg.mesha.goatos.core.data.CachedDiagnosisRun?> = flowOf(null)
+        override suspend fun refreshDiagnosisRun(diagnosisRunId: String): Result<Unit> = Result.success(Unit)
+        override fun diagnosisQueue(filters: sg.mesha.goatos.core.data.DiagnosisQueueFilters): Flow<PagingData<sg.mesha.goatos.core.network.dto.HealthDiagnosisQueueItemDto>> = flowOf(PagingData.empty())
+        override fun observeDiagnosisQueueMeta(filters: sg.mesha.goatos.core.data.DiagnosisQueueFilters): Flow<sg.mesha.goatos.core.data.DiagnosisQueueMeta?> = flowOf(null)
         override fun observeDetail(healthSessionId: String): Flow<HealthWorkItemDetailDto?> = flowOf(null)
 
         override suspend fun refreshWorkItems(filters: HealthFilters): Result<Unit> {
@@ -177,6 +182,103 @@ class HealthOutboxConvergenceTest {
         restartedEngine.drainOnce()
 
         assertEquals(listOf("health-session-1"), repository.rejectedCompletionReconciles)
+    }
+
+    @Test
+    fun `treatment completion resolves its proof upload reference at drain time`() = runBlocking {
+        val store = FakeOutboxStore()
+        // The mandatory treatment video's PROOF_UPLOAD row, already uploaded (SUCCEEDED with a
+        // proof id) so the completion dispatch can resolve its proof ref — the 2026-08-29 audit's
+        // core defect was a completion that always shipped proof_ref="".
+        val proofResult = sg.mesha.goatos.core.network.dto.ProofUploadResponseDto(
+            proof = sg.mesha.goatos.core.network.dto.ProofReferenceDto(proofId = "proof-id-9"),
+        )
+        store.insert(
+            OutboxEntity(
+                id = "health-proof-1",
+                opType = OutboxOpType.PROOF_UPLOAD.name,
+                groupKey = "health-session-1",
+                idempotencyKey = "health-proof-key",
+                payloadJson = "{}",
+                status = OutboxStatus.SUCCEEDED.name,
+                attemptCount = 1,
+                maxAttempts = 3,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = Long.MAX_VALUE,
+                lastError = null,
+                resultJson = syncJson.encodeToString(proofResult),
+            ),
+        )
+        store.insert(
+            treatmentItem().copy(
+                payloadJson = syncJson.encodeToString(
+                    HealthTreatmentCompletePayload(
+                        healthSessionId = "health-session-1",
+                        proofOutboxItemId = "health-proof-1",
+                    ),
+                ),
+            ),
+        )
+        var sentProofRef: String? = null
+        val api = ScriptedAppApi().apply {
+            completeHealthWorkItemFn = { sessionId, _, request ->
+                sentProofRef = request.proofRef
+                HealthCompleteResponseDto(healthSessionId = sessionId, status = "completed")
+            }
+        }
+        val engine = SyncEngine(store = store, api = api, connectivityGate = { true })
+
+        engine.drainOnce()
+
+        assertEquals("proof-id-9", sentProofRef)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("health-treatment-row")?.status)
+    }
+
+    @Test
+    fun `case close dispatches the clinical outcome`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            OutboxEntity(
+                id = "health-close-row",
+                opType = OutboxOpType.HEALTH_CASE_CLOSE.name,
+                groupKey = "case-1",
+                idempotencyKey = "health-close-key",
+                payloadJson = syncJson.encodeToString(
+                    HealthCaseClosePayload(
+                        healthCaseId = "case-1",
+                        outcome = "recovered",
+                        note = "eating again",
+                        ageBand = "adult",
+                        businessDate = "2026-08-29",
+                        healthSessionId = "health-session-1",
+                    ),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = 3,
+                conflict = false,
+                createdAt = 1L,
+                updatedAt = 1L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        var sent: Pair<String, String>? = null
+        val api = ScriptedAppApi().apply {
+            closeHealthCaseFn = { caseId, _, request ->
+                sent = caseId to request.outcome
+                sg.mesha.goatos.core.network.dto.HealthCloseCaseResponseDto(caseId = caseId, status = request.outcome)
+            }
+        }
+        val engine = SyncEngine(store = store, api = api, connectivityGate = { true })
+
+        engine.drainOnce()
+
+        assertEquals("case-1" to "recovered", sent)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("health-close-row")?.status)
     }
 
     private fun caseOpenItem(

@@ -33,6 +33,12 @@ type dealPayload struct {
 
 	AdvanceAmount *float64 `json:"advance_amount"`
 	SalesValue    float64  `json:"sales_value"`
+	// PaymentReceived is the running total of money the buyer has handed over (seeded from the
+	// sheet's advance); PaymentBalance is BACKEND-derived (value minus received, floored at zero),
+	// so no surface computes its own money figure.
+	PaymentReceived *float64             `json:"payment_received"`
+	PaymentBalance  float64              `json:"payment_balance"`
+	Payments        []dealPaymentPayload `json:"payments"`
 
 	Status   string  `json:"status"`
 	Feedback *string `json:"feedback"`
@@ -40,6 +46,31 @@ type dealPayload struct {
 
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+// dealStatusWritePayload is the deal-status edit body.
+type dealStatusWritePayload struct {
+	Status string `json:"status"`
+}
+
+// dealPaymentPayload is one receipt on the wire.
+type dealPaymentPayload struct {
+	PaymentID    string  `json:"payment_id"`
+	ReceivedOn   string  `json:"received_on"`
+	AmountRupees float64 `json:"amount_rupees"`
+	Note         string  `json:"note"`
+	CreatedAt    string  `json:"created_at"`
+}
+
+// dealPaymentWritePayload is the record-receipt body.
+type dealPaymentWritePayload struct {
+	ReceivedOn   string  `json:"received_on"`
+	AmountRupees float64 `json:"amount_rupees"`
+	Note         string  `json:"note"`
+}
+
+func (p dealPaymentWritePayload) toDomain() domain.DealPaymentWrite {
+	return domain.DealPaymentWrite{ReceivedOn: p.ReceivedOn, AmountRupees: p.AmountRupees, Note: p.Note}
 }
 
 type dealPagePayload struct {
@@ -68,6 +99,9 @@ type dealWritePayload struct {
 	SalesValue    float64  `json:"sales_value"`
 	AdvanceAmount *float64 `json:"advance_amount"`
 	Comments      string   `json:"comments"`
+	// Optional: blank records the default, Deal Closed. Named for an EXPECTED sale ("Advance
+	// Paid", "In Discussion") whose advance is already in hand.
+	Status string `json:"status"`
 }
 
 func (p dealWritePayload) toDomain() domain.DealWrite {
@@ -76,11 +110,21 @@ func (p dealWritePayload) toDomain() domain.DealWrite {
 		BuyerName: p.BuyerName, BuyerPlace: p.BuyerPlace, BuyerVendorID: p.BuyerVendorID,
 		AnimalCount: p.AnimalCount, MaleCount: p.MaleCount, FemaleCount: p.FemaleCount,
 		TotalWeightKg: p.TotalWeightKg, SalesValue: p.SalesValue, AdvanceAmount: p.AdvanceAmount,
+		Status:   p.Status,
 		Comments: p.Comments,
 	}
 }
 
 func toDealPayload(d domain.Deal) dealPayload {
+	// Empty slice, never nil: a JSON null where the client expects a list is a render crash, and
+	// "no receipts yet" is the normal state of sheet history.
+	payments := make([]dealPaymentPayload, 0, len(d.Payments))
+	for _, payment := range d.Payments {
+		payments = append(payments, dealPaymentPayload{
+			PaymentID: payment.PaymentID, ReceivedOn: payment.ReceivedOn,
+			AmountRupees: payment.AmountRupees, Note: payment.Note, CreatedAt: payment.CreatedAt,
+		})
+	}
 	return dealPayload{
 		DealID: d.DealID, SaleDate: d.SaleDate, Farm: d.Farm,
 		SourceSalesID: d.SourceSalesID, SourcePurchaseID: d.SourcePurchaseID,
@@ -89,6 +133,7 @@ func toDealPayload(d domain.Deal) dealPayload {
 		AnimalCount: d.AnimalCount, MaleCount: d.MaleCount, FemaleCount: d.FemaleCount,
 		TotalWeightKg: d.TotalWeightKg,
 		AdvanceAmount: d.AdvanceAmount, SalesValue: d.SalesValue,
+		PaymentReceived: d.PaymentReceived, PaymentBalance: d.PaymentBalance(), Payments: payments,
 		Status: d.Status, Feedback: d.Feedback, Comments: d.Comments,
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}

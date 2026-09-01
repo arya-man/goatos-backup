@@ -470,3 +470,9 @@ func (transportFilterService) StockAnalytics(
 ) (domain.StockAnalytics, error) {
 	return domain.StockAnalytics{}, nil
 }
+
+func (transportFilterService) ShedFeedAnalytics(
+	context.Context, app.DirectedAnalyticsInput,
+) (domain.ShedFeedAnalytics, error) {
+	return domain.ShedFeedAnalytics{}, nil
+}

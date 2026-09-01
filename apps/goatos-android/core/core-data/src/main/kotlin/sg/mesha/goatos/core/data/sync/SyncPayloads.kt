@@ -3,6 +3,8 @@ package sg.mesha.goatos.core.data.sync
 import sg.mesha.goatos.core.network.dto.MilkFeedingAnswersDto
 
 import kotlinx.serialization.SerialName
+import sg.mesha.goatos.core.network.dto.HealthObservationContextDto
+import sg.mesha.goatos.core.network.dto.HealthObservationFindingsDto
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
@@ -353,7 +355,39 @@ data class WorkflowActionCompletePayload(
 @Serializable
 data class HealthTreatmentCompletePayload(
     @SerialName("health_session_id") val healthSessionId: String,
+    /** Legacy resolved-ref field. Kept ONLY so already-queued rows decode; new enqueues carry
+     * [proofOutboxItemId] and the dispatcher resolves the uploaded proof id at drain time. */
     @SerialName("proof_ref") val proofRef: String = "",
+    /** The MANDATORY treatment video, by REFERENCE to its PROOF_UPLOAD outbox row on the SAME
+     * group (the session), so the upload drains strictly before this completion. */
+    @SerialName("proof_outbox_item_id") val proofOutboxItemId: String = "",
+)
+
+@Serializable
+data class HealthCaseClosePayload(
+    @SerialName("health_case_id") val healthCaseId: String,
+    val outcome: String,
+    val note: String = "",
+    /** Local-only context for the post-success refresh hook; not sent to the backend. */
+    @SerialName("age_band") val ageBand: String = "",
+    @SerialName("business_date") val businessDate: String = "",
+    @SerialName("health_session_id") val healthSessionId: String = "",
+)
+
+@Serializable
+data class HealthObservationSubmitPayload(
+    @SerialName("goat_id") val goatId: String,
+    val findings: HealthObservationFindingsDto,
+    val context: HealthObservationContextDto = HealthObservationContextDto(),
+    /** Local-only label shown while this write waits in the outbox. */
+    @SerialName("goat_display_id") val goatDisplayId: String = "",
+)
+
+@Serializable
+data class HealthDiagnosisConfirmPayload(
+    @SerialName("health_diagnosis_run_id") val diagnosisRunId: String,
+    /** Empty is a real decision: the Director declined the whole proposal. */
+    @SerialName("confirmed_problems") val confirmedProblems: List<String> = emptyList(),
 )
 
 @Serializable

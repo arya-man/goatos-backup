@@ -120,12 +120,29 @@ type pgxQuerier interface {
 // explainPlanNode is one node of an EXPLAIN (FORMAT JSON) plan tree. Only the fields the 500k-envelope gate
 // asserts on are decoded.
 type explainPlanNode struct {
-	NodeType     string            `json:"Node Type"`
-	RelationName string            `json:"Relation Name"`
-	TotalCost    float64           `json:"Total Cost"`
-	PlanRows     float64           `json:"Plan Rows"`
-	ActualRows   float64           `json:"Actual Rows"`
-	Plans        []explainPlanNode `json:"Plans"`
+	NodeType     string  `json:"Node Type"`
+	RelationName string  `json:"Relation Name"`
+	TotalCost    float64 `json:"Total Cost"`
+	PlanRows     float64 `json:"Plan Rows"`
+	ActualRows   float64 `json:"Actual Rows"`
+	// ActualLoops is how many times the node was EXECUTED. It is the difference between a small
+	// scan and a small scan repeated ten thousand times, which is the shape a nested-loop inner
+	// scan and a repeated CTE re-scan both take -- neither of which is visible in Actual Rows
+	// alone. commandboard_query_plan_test.go gates on rows x loops for exactly that reason.
+	ActualLoops float64 `json:"Actual Loops"`
+	// CTEName names the CTE a "CTE Scan" node reads. A materialised CTE re-scanned once per outer
+	// row is the exact shape that produced the command board's 500, and naming it is the difference
+	// between a usable failure message and "some CTE was re-scanned".
+	CTEName string `json:"CTE Name"`
+	// RowsRemovedByJoinFilter is how many rows a join evaluated and threw away, PER LOOP. A nested
+	// loop chosen off a bad row estimate shows up here and almost nowhere else: the cohort-exception
+	// probes discarded 13.9 MILLION rows this way while every node's own row count stayed small.
+	RowsRemovedByJoinFilter float64 `json:"Rows Removed by Join Filter"`
+	// RowsRemovedByFilter is how many rows a SCAN evaluated and discarded, per loop. A scan node
+	// reports only the rows that survived its filter, so without this a statement that reads the
+	// whole tenant and returns forty rows looks like a forty-row read.
+	RowsRemovedByFilter float64           `json:"Rows Removed by Filter"`
+	Plans               []explainPlanNode `json:"Plans"`
 }
 
 // explainAnalyzeResult is one top-level EXPLAIN (ANALYZE, FORMAT JSON) result object.

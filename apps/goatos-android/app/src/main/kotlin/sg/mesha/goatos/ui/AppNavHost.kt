@@ -102,6 +102,12 @@ import sg.mesha.goatos.feature.health.AddHealthCaseEvent
 import sg.mesha.goatos.feature.health.AddHealthCaseScreen
 import sg.mesha.goatos.feature.health.HealthListEvent
 import sg.mesha.goatos.feature.health.HealthListScreen
+import sg.mesha.goatos.feature.health.DiagnosisProposalEvent
+import sg.mesha.goatos.feature.health.DiagnosisQueueEvent
+import sg.mesha.goatos.feature.health.DiagnosisQueueScreen
+import sg.mesha.goatos.feature.health.DiagnosisProposalScreen
+import sg.mesha.goatos.feature.health.ObservationFormEvent
+import sg.mesha.goatos.feature.health.ObservationFormScreen
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
@@ -165,6 +171,9 @@ import sg.mesha.goatos.viewmodel.DeathWorkflowListViewModel
 import sg.mesha.goatos.viewmodel.HealthDetailViewModel
 import sg.mesha.goatos.viewmodel.HealthListViewModel
 import sg.mesha.goatos.viewmodel.KidsHealthViewModel
+import sg.mesha.goatos.viewmodel.DiagnosisProposalViewModel
+import sg.mesha.goatos.viewmodel.DiagnosisQueueViewModel
+import sg.mesha.goatos.viewmodel.ObservationFormViewModel
 import sg.mesha.goatos.viewmodel.WorkflowDetailViewModel
 import sg.mesha.goatos.viewmodel.WorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
@@ -301,6 +310,21 @@ object Routes {
     const val HEALTH_ADD = "/health/cases/add/{$HEALTH_AGE_BAND_ARG}"
     const val HEALTH_SUBMISSION_NOTICE = "healthSubmissionNotice"
     fun healthAddRoute(ageBand: String): String = "/health/cases/add/${Uri.encode(ageBand)}"
+    // The observation form. A DRILL destination, not a root: it carries Up/Back and
+    // no bottom bar, like every other L1 screen.
+    const val OBSERVATION_GOAT_ARG = "observationGoatId"
+    const val HEALTH_OBSERVATION_ADD = "/health/observations/add/{$OBSERVATION_GOAT_ARG}"
+    fun healthObservationRoute(goatId: String): String =
+        "/health/observations/add/${Uri.encode(goatId)}"
+    // The Health Director's queue of assessments awaiting a decision. A DRILL
+    // destination reached from Health, not a root: it carries Up/Back, no root chrome.
+    const val HEALTH_DIAGNOSIS_QUEUE = "/health/observations/queue"
+    // The assessment the register produced, and the Director's decision on it.
+    // Also a DRILL destination: Up/Back, no root chrome.
+    const val DIAGNOSIS_RUN_ARG = "diagnosisRunId"
+    const val HEALTH_DIAGNOSIS_PROPOSAL = "/health/observations/{$DIAGNOSIS_RUN_ARG}"
+    fun healthDiagnosisProposalRoute(diagnosisRunId: String): String =
+        "/health/observations/${Uri.encode(diagnosisRunId)}"
     const val HEALTH_SESSION_ARG = "healthSessionId"
     const val HEALTH_DETAIL = "/health/work-items/{$HEALTH_SESSION_ARG}"
     fun healthDetailRoute(healthSessionId: String): String = "/health/work-items/${Uri.encode(healthSessionId)}"
@@ -1340,6 +1364,7 @@ fun AppNavHost(
                 vm = vm,
                 onOpen = { navController.navigate(Routes.healthDetailRoute(it)) { launchSingleTop = true } },
                 onAdd = { navController.navigate(Routes.healthAddRoute("adult")) { launchSingleTop = true } },
+                onQueue = { navController.navigate(Routes.HEALTH_DIAGNOSIS_QUEUE) { launchSingleTop = true } },
                 onBack = {},
                 submissionNotice = notice,
             )
@@ -1354,6 +1379,7 @@ fun AppNavHost(
                 vm = vm,
                 onOpen = { navController.navigate(Routes.healthDetailRoute(it)) { launchSingleTop = true } },
                 onAdd = { navController.navigate(Routes.healthAddRoute("kid")) { launchSingleTop = true } },
+                onQueue = { navController.navigate(Routes.HEALTH_DIAGNOSIS_QUEUE) { launchSingleTop = true } },
                 onBack = {},
                 submissionNotice = notice,
             )
@@ -1380,6 +1406,11 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         AddHealthCaseEvent.Back -> navController.popBackStack()
+                        // Step two is the observation form, not a disease picker.
+                        is AddHealthCaseEvent.CheckAnimal ->
+                            navController.navigate(Routes.healthObservationRoute(event.goatId)) {
+                                launchSingleTop = true
+                            }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -1387,16 +1418,95 @@ fun AppNavHost(
         }
 
         composable(
+            route = Routes.HEALTH_OBSERVATION_ADD,
+            arguments = listOf(navArgument(Routes.OBSERVATION_GOAT_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: ObservationFormViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            // The assessment arrives when the queued observation reaches the server,
+            // which out of a shed may be long after submit. The form is REPLACED
+            // rather than stacked on: going Back from an assessment must not return
+            // to a form that has already been sent.
+            LaunchedEffect(vm) {
+                vm.assessed.collect { runId ->
+                    navController.navigate(Routes.healthDiagnosisProposalRoute(runId)) {
+                        popUpTo(Routes.HEALTH_OBSERVATION_ADD) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+            ObservationFormScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ObservationFormEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(Routes.HEALTH_DIAGNOSIS_QUEUE) {
+            val vm: DiagnosisQueueViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            // The sync affordance reflects Paging's own refresh rather than a second
+            // loading flag the view model would have to keep in step with it.
+            LaunchedEffect(rows.loadState.refresh) {
+                vm.setRefreshing(rows.loadState.refresh is LoadState.Loading)
+            }
+            DiagnosisQueueScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        DiagnosisQueueEvent.Back -> navController.popBackStack()
+                        DiagnosisQueueEvent.Refresh -> rows.refresh()
+                        is DiagnosisQueueEvent.Open ->
+                            navController.navigate(Routes.healthDiagnosisProposalRoute(event.diagnosisRunId)) {
+                                launchSingleTop = true
+                            }
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.HEALTH_DIAGNOSIS_PROPOSAL,
+            arguments = listOf(navArgument(Routes.DIAGNOSIS_RUN_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: DiagnosisProposalViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            DiagnosisProposalScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        DiagnosisProposalEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
             route = Routes.HEALTH_DETAIL,
             arguments = listOf(navArgument(Routes.HEALTH_SESSION_ARG) { type = NavType.StringType }),
         ) {
             val vm: HealthDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            HealthDetailScreen(
-                state = state,
-                onBack = { navController.popBackStack() },
-                onComplete = vm::complete,
-            )
+            // The mandatory treatment video: the permission gate requests camera/audio itself,
+            // and BindVideoCaptureSource is what makes ProofCaptureSource.captureVideo actually
+            // open the in-app recorder — without it the delegate is null and the record button
+            // is a silent no-op (found live on the 2026-08-29 Realme run).
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                HealthDetailScreen(
+                    state = state,
+                    onBack = { navController.popBackStack() },
+                    onComplete = vm::complete,
+                    onRefresh = vm::refresh,
+                    onRecordVideo = { vm.recordVideo() },
+                    onReRecordVideo = { vm.recordVideo(replacing = true) },
+                    onCloseCase = vm::closeCase,
+                )
+            }
         }
 
         // The planner's flat all-tasks list. A SEPARATE destination, not a mode of /weighing:
@@ -3451,6 +3561,7 @@ private fun HealthListDestination(
     vm: HealthListViewModel,
     onOpen: (String) -> Unit,
     onAdd: () -> Unit,
+    onQueue: () -> Unit,
     onBack: () -> Unit,
     submissionNotice: String?,
 ) {
@@ -3472,6 +3583,7 @@ private fun HealthListDestination(
                 HealthListEvent.Refresh -> { vm.onEvent(event); rows.refresh() }
                 HealthListEvent.Back -> onBack()
                 HealthListEvent.AddNew -> onAdd()
+                HealthListEvent.OpenDiagnosisQueue -> onQueue()
                 is HealthListEvent.OpenItem -> onOpen(event.healthSessionId)
                 else -> vm.onEvent(event)
             }

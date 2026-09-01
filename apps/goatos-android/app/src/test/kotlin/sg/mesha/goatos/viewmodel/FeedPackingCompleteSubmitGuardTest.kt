@@ -27,6 +27,8 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
@@ -203,6 +205,72 @@ class FeedPackingCompleteSubmitGuardTest {
         assertFalse("capture must not start on a submitted session", viewModel.state.value.isCapturingVideo)
         assertEquals("camera source must never be invoked", 0, source.captureCount)
     }
+
+    @Test
+    fun `sync now retries the local proof and pending submit before draining`() = runTest(dispatcher) {
+        val sync = CountingFeedPackingCompleteSyncRepository()
+        val proofs = FakeProofCaptureRepository()
+        val drafts = InMemoryCaptureDraftRepository()
+        val proofRowId = "proof-local-1"
+        val proofOutboxId = "proof-outbox-1"
+        val submitOutboxId = "submit-outbox-1"
+        val groupKey = "feed-pack:2026-08-13:shed-1:a:1:feed"
+        proofs.seedProofs(
+            ProofCaptureRow(
+                id = proofRowId,
+                fieldKey = "feed_packing_video",
+                proofSubject = sg.mesha.goatos.core.data.capture.ProofSubject.SHED,
+                subjectId = "shed-1",
+                localUri = "/proof/packing.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                rfidTag = null,
+                capturedAtMs = 1L,
+                capturedStartMs = 1L,
+                capturedEndMs = 2L,
+                capturedByPrincipalId = null,
+                syncStatus = CaptureSyncStatus.PENDING,
+                serverProofId = null,
+                outboxItemId = proofOutboxId,
+                lastError = null,
+                partitionKey = "whole",
+            ),
+        )
+        drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, "video", proofOutboxId)
+        drafts.putSubmit(CaptureFlow.FEED_PACKING, groupKey, "submit-key", submitOutboxId)
+
+        val viewModel = FeedPackingCompleteViewModel(
+            syncRepository = sync,
+            proofCaptureSource = FakeProofCaptureSource(),
+            proofCaptureRepository = proofs,
+            analytics = RecordingAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            drafts = drafts,
+            feedRepository = FakeFeedRepository(),
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    "shed_id" to "shed-1",
+                    "session_no" to "1",
+                    "workflow" to "feed",
+                    "target_date" to "2026-08-13",
+                    "shed_label" to "Shed 1",
+                    "session_label" to "Session 1",
+                    "park_label" to "Farm 1",
+                    "partition_label" to "A",
+                    "lifecycle_status" to "open",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        viewModel.onEvent(FeedPackingCompleteEvent.SyncNow)
+        advanceUntilIdle()
+
+        assertEquals(listOf(proofRowId), proofs.retryUploadIds)
+        assertEquals(listOf(submitOutboxId), sync.retryItemIds)
+        assertEquals(1, sync.triggerDrainCalls)
+    }
 }
 
 /** Counts [SyncRepository.enqueueFeedPackingComplete] calls; everything else is unused/no-op. */
@@ -210,6 +278,9 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
     var markDoneEnqueueCalls: Int = 0
         private set
     var failNext: Boolean = false
+    var triggerDrainCalls: Int = 0
+        private set
+    val retryItemIds = mutableListOf<String>()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     // REACTIVE per-item state, not a one-shot flowOf(): observeItem is called ONCE, while the VM
     // is loading its draft, BEFORE the test calls markProofReady — a one-shot flowOf(null) would
@@ -279,9 +350,14 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int, measurement: VerificationVerdictMeasurementDto?): AppResult<String> = error("unused")
-    override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
+    override suspend fun retry(itemId: String): AppResult<Unit> {
+        retryItemIds += itemId
+        return AppResult.Ok(Unit)
+    }
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
-    override suspend fun triggerDrain() = Unit
+    override suspend fun triggerDrain() {
+        triggerDrainCalls += 1
+    }
 
 
 }

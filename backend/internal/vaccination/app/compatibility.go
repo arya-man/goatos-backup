@@ -90,7 +90,7 @@ const (
 	DefaultLiveToKilledGapDays        int32 = 14
 	DefaultKilledToKilledGapDays      int32 = 14
 	DefaultCourseBoosterMinGapDays    int32 = 21
-	DefaultMaxVaccinesPerComboSession int32 = 2
+	DefaultMaxVaccinesPerComboSession int32 = 3
 )
 
 func (p genCompatibilityPolicy) withDefaults() genCompatibilityPolicy {

@@ -45,6 +45,14 @@ type SalesRepository interface {
 	// ErrIdempotencyConflict.
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
 
+	// SetDealStatus sets a deal's lifecycle status directly (closing an expected sale on the day
+	// it happens, or marking one failed). status must already be a canonical vocabulary word.
+	SetDealStatus(ctx context.Context, tenantID, dealID, status, actorID string) (domain.Deal, error)
+
+	// RecordDealPayment records one receipt against one deal and, in the SAME transaction,
+	// advances the deal's running payment_received total. Same idempotency contract as CreateDeal.
+	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
+
 	// ListBuyerLeads returns one page of the buyer pipeline (newest first) plus the whole-filter
 	// total and the tenant's existing call-status vocabulary (for the status picker).
 	ListBuyerLeads(ctx context.Context, tenantID string, limit, offset int) (BuyerLeadPage, error)

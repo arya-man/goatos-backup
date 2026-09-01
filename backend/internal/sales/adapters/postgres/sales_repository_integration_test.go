@@ -371,3 +371,171 @@ func TestSalesLedgerPostgresPaths(t *testing.T) {
 		}
 	})
 }
+
+// TestSalesDealPaymentPostgresPaths exercises the buyer-receipts ledger against a real Postgres.
+//
+// Integration rather than unit for the same reason as the feed-purchase instalment test: the
+// running-total update under the row lock, the advance seeding, and the idempotency reservation
+// all live in SQL and in the transaction boundary.
+func TestSalesDealPaymentPostgresPaths(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	deal := seedDeal(t, repo, ctx, "pay-deal-1", domain.DealWrite{
+		SaleDate: "2026-08-20", Farm: "CPT", ProductType: "Goat", Breed: "Sirohi",
+		BuyerName: "Tanveer", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+		AnimalCount: f64(10), SalesValue: 100000, AdvanceAmount: f64(20000),
+	})
+
+	t.Run("a recorded advance seeds the running total and the balance", func(t *testing.T) {
+		if deal.PaymentReceived == nil || *deal.PaymentReceived != 20000 {
+			t.Fatalf("payment_received = %v want the advance 20000", deal.PaymentReceived)
+		}
+		if got := deal.PaymentBalance(); got != 80000 {
+			t.Fatalf("balance = %v want 80000", got)
+		}
+	})
+
+	t.Run("a receipt advances the running total", func(t *testing.T) {
+		after, err := repo.RecordDealPayment(ctx, salesTestTenant, deal.DealID,
+			domain.DealPaymentWrite{ReceivedOn: "2026-08-25", AmountRupees: 50000, Note: "on pickup"}, "", "rcpt-1")
+		if err != nil {
+			t.Fatalf("record receipt: %v", err)
+		}
+		if after.PaymentReceived == nil || *after.PaymentReceived != 70000 {
+			t.Fatalf("payment_received = %v want 70000", after.PaymentReceived)
+		}
+		if got := after.PaymentBalance(); got != 30000 {
+			t.Fatalf("balance = %v want 30000", got)
+		}
+		if len(after.Payments) != 1 || after.Payments[0].AmountRupees != 50000 || after.Payments[0].ReceivedOn != "2026-08-25" {
+			t.Fatalf("payments = %#v want the one receipt", after.Payments)
+		}
+		// Status stays a human decision: money must not flip the deal lifecycle.
+		if after.Status != domain.StatusDealClosed {
+			t.Fatalf("status = %q, a receipt must not change it", after.Status)
+		}
+	})
+
+	t.Run("exact replay records nothing twice", func(t *testing.T) {
+		after, err := repo.RecordDealPayment(ctx, salesTestTenant, deal.DealID,
+			domain.DealPaymentWrite{ReceivedOn: "2026-08-25", AmountRupees: 50000, Note: "on pickup"}, "", "rcpt-1")
+		if err != nil {
+			t.Fatalf("replay: %v", err)
+		}
+		if after.PaymentReceived == nil || *after.PaymentReceived != 70000 || len(after.Payments) != 1 {
+			t.Fatalf("replay changed the ledger: received=%v payments=%d", after.PaymentReceived, len(after.Payments))
+		}
+	})
+
+	t.Run("same key with a different amount is refused", func(t *testing.T) {
+		_, err := repo.RecordDealPayment(ctx, salesTestTenant, deal.DealID,
+			domain.DealPaymentWrite{ReceivedOn: "2026-08-25", AmountRupees: 51000, Note: "on pickup"}, "", "rcpt-1")
+		if !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("want ErrIdempotencyConflict, got %v", err)
+		}
+	})
+
+	t.Run("receipt against an unknown deal writes nothing", func(t *testing.T) {
+		_, err := repo.RecordDealPayment(ctx, salesTestTenant, "00000000-0000-4000-8000-00000000dead",
+			domain.DealPaymentWrite{ReceivedOn: "2026-08-25", AmountRupees: 10}, "", "rcpt-2")
+		if !errors.Is(err, ports.ErrDealNotFound) {
+			t.Fatalf("want ErrDealNotFound, got %v", err)
+		}
+		var rows int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM sales_deal_payments WHERE tenant_id = $1`, salesTestTenant).Scan(&rows); err != nil {
+			t.Fatalf("count receipts: %v", err)
+		}
+		if rows != 1 {
+			t.Fatalf("receipt rows = %d want 1 (the refused write must leave nothing behind)", rows)
+		}
+	})
+
+	t.Run("the page read carries every receipt batched", func(t *testing.T) {
+		page, err := repo.ListDeals(ctx, salesTestTenant, "", 25, 0)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		var found bool
+		for _, d := range page.Deals {
+			if d.DealID == deal.DealID {
+				found = true
+				if len(d.Payments) != 1 || d.Payments[0].AmountRupees != 50000 {
+					t.Fatalf("listed payments = %#v want the one receipt", d.Payments)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("seeded deal missing from the page read")
+		}
+	})
+}
+
+// TestExpectedSaleAdvanceStory pins the maintainer's 2026-08-31 scenario end to end: an advance
+// received TODAY for a sale expected on a FUTURE date is recorded as an Advance Paid deal, its
+// receipt is dated by when the money arrived, and on the day the animals leave the status is
+// flipped to Deal Closed -- by the desk, never by the money.
+func TestExpectedSaleAdvanceStory(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Recorded 2026-08-31 for animals leaving 2026-09-02.
+	deal := seedDeal(t, repo, ctx, "expected-1", domain.DealWrite{
+		SaleDate: "2026-09-02", Farm: "CPT", ProductType: "Goat", Breed: "Sirohi",
+		BuyerName: "Tanveer", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+		AnimalCount: f64(12), SalesValue: 150000,
+		Status: domain.StatusAdvancePaid,
+	})
+	if deal.Status != domain.StatusAdvancePaid {
+		t.Fatalf("status = %q want the named Advance Paid, not the Deal Closed default", deal.Status)
+	}
+	if deal.SaleDate != "2026-09-02" {
+		t.Fatalf("sale_date = %q want the expected future date", deal.SaleDate)
+	}
+
+	// The advance arrives today, dated by when the money moved, not by the sale date.
+	after, err := repo.RecordDealPayment(ctx, salesTestTenant, deal.DealID,
+		domain.DealPaymentWrite{ReceivedOn: "2026-08-31", AmountRupees: 40000, Note: "advance"}, "", "expected-rcpt-1")
+	if err != nil {
+		t.Fatalf("advance receipt: %v", err)
+	}
+	if after.PaymentReceived == nil || *after.PaymentReceived != 40000 || after.PaymentBalance() != 110000 {
+		t.Fatalf("received/balance = %v/%v want 40000/110000", after.PaymentReceived, after.PaymentBalance())
+	}
+	if after.Status != domain.StatusAdvancePaid {
+		t.Fatalf("status = %q, money must not move the lifecycle", after.Status)
+	}
+
+	// A blank status still records the sheet's default -- the named status is opt-in.
+	defaulted := seedDeal(t, repo, ctx, "expected-2", domain.DealWrite{
+		SaleDate: "2026-08-30", Farm: "CBE", ProductType: "Sheep", Breed: "Anantapur",
+		BuyerName: "Keethiraj", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+		AnimalCount: f64(5), SalesValue: 50000,
+	})
+	if defaulted.Status != domain.StatusDealClosed {
+		t.Fatalf("blank status = %q want the Deal Closed default", defaulted.Status)
+	}
+
+	// On 2026-09-02 the animals leave and the desk closes the deal.
+	closed, err := repo.SetDealStatus(ctx, salesTestTenant, deal.DealID, domain.StatusDealClosed, "")
+	if err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if closed.Status != domain.StatusDealClosed {
+		t.Fatalf("status = %q want Deal Closed", closed.Status)
+	}
+	if closed.PaymentReceived == nil || *closed.PaymentReceived != 40000 {
+		t.Fatalf("closing must not touch the money: received = %v", closed.PaymentReceived)
+	}
+	if _, err := repo.SetDealStatus(ctx, salesTestTenant, "00000000-0000-4000-8000-00000000dead", domain.StatusDealClosed, ""); !errors.Is(err, ports.ErrDealNotFound) {
+		t.Fatalf("unknown deal => %v want ErrDealNotFound", err)
+	}
+}

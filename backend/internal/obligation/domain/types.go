@@ -368,7 +368,7 @@ type DrivePlannerSettings struct {
 const (
 	DefaultMaxBatchingHoldDays       int32 = 7
 	DefaultMaxBatchingHoldCount      int32 = 1
-	DefaultMaxShotsPerAnimalPerDrive int32 = 2
+	DefaultMaxShotsPerAnimalPerDrive int32 = 3
 )
 
 func DefaultDrivePlannerSettings() DrivePlannerSettings {

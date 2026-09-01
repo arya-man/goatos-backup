@@ -1,0 +1,872 @@
+{
+  "catalog_version": "kid-weaning-1",
+  "count": 21,
+  "stories": [
+    {
+      "id": "W001",
+      "title": "K3 standing, eating, both bottles, 103\u00b0F \u2192 NAD",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [],
+        "not_hits": [
+          "ACIDOSIS",
+          "FLOPPY_KID",
+          "NAVEL_ILL",
+          "CALCULI"
+        ],
+        "hd_has": [
+          "nad"
+        ],
+        "hd_not": [
+          "offer_ors",
+          "k2_refusal",
+          "session_bottle",
+          "k3_refusal"
+        ],
+        "not_emergencies": [
+          "acidosis_now",
+          "floppy_now",
+          "ip_dextrose"
+        ]
+      }
+    },
+    {
+      "id": "W002",
+      "title": "K3 male straining \u2192 Calculi, ICU, no meloxicam",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2,
+        "straining": "straining"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "CALCULI"
+        ],
+        "not_hits": [
+          "ACIDOSIS",
+          "FLOPPY_KID"
+        ],
+        "acuity": "icu",
+        "no_meloxicam": true,
+        "sop": {
+          "CALCULI": "Calculi"
+        },
+        "tier": {
+          "CALCULI": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "W003",
+      "title": "K3 female straining \u2192 reject",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2,
+        "straining": "straining"
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "female_straining"
+      }
+    },
+    {
+      "id": "W004",
+      "title": "Water sound + not eating solids, suckle present \u2192 Acidosis, offer milk",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2,
+        "left_stomach": "acidosis"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "ACIDOSIS"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "emergencies_has": [
+          "acidosis_now"
+        ],
+        "hd_has": [
+          "concentrate_off",
+          "offer_milk"
+        ],
+        "hd_not": [
+          "session_bottle",
+          "k2_refusal",
+          "force_milk",
+          "offer_ors"
+        ],
+        "acuity": "icu",
+        "sop": {
+          "ACIDOSIS": "Acidosis"
+        }
+      }
+    },
+    {
+      "id": "W005",
+      "title": "Water sound, still eating, both bottles \u2192 Acidosis, ward, no acidosis_now",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2,
+        "left_stomach": "acidosis"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "ACIDOSIS"
+        ],
+        "not_emergencies": [
+          "acidosis_now"
+        ],
+        "hd_not": [
+          "concentrate_off",
+          "k3_refusal"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "W006",
+      "title": "Silent rumen + not eating solids, no splash, both bottles \u2192 Supportive, not Acidosis",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2,
+        "rumen_movement": "not_felt"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "ACIDOSIS"
+        ],
+        "not_emergencies": [
+          "acidosis_now"
+        ],
+        "hd_has": [
+          "offer_milk"
+        ],
+        "hd_not": [
+          "k3_refusal",
+          "offer_ors",
+          "force_milk"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Supportive"
+        },
+        "low_comp": true
+      }
+    },
+    {
+      "id": "W007",
+      "title": "K3 missed one 200 ml bottle \u2192 Milk refusal, ward, offer milk (not ORS, not NAD)",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 1,
+        "session": 1,
+        "milk_intake": "not_drinking"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "ACIDOSIS",
+          "FLOPPY_KID",
+          "FEVER"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "acuity": "ward",
+        "low_comp": true,
+        "evening_walk": true,
+        "hd_has": [
+          "offer_milk",
+          "k3_refusal",
+          "check_until_drinking",
+          "both_shifts"
+        ],
+        "hd_not": [
+          "nad",
+          "offer_ors",
+          "force_milk",
+          "k2_refusal",
+          "session_bottle"
+        ]
+      }
+    },
+    {
+      "id": "W008",
+      "title": "K3 missed both bottles \u2192 Milk refusal, ICU, force 200 ml, RL",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 2,
+        "session": 2,
+        "milk_intake": "not_drinking"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "acuity": "icu",
+        "low_comp": true,
+        "hd_has": [
+          "force_milk",
+          "rl_sq",
+          "k3_refusal",
+          "check_until_drinking",
+          "both_shifts"
+        ],
+        "hd_not": [
+          "offer_ors",
+          "nad",
+          "k2_refusal"
+        ]
+      }
+    },
+    {
+      "id": "W009",
+      "title": "K3 1\u2717, suckle absent \u2192 no oral milk",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "absent",
+        "refusals_today": 1,
+        "session": 1,
+        "milk_intake": "not_drinking"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "hd_has": [
+          "no_oral_milk",
+          "k3_refusal"
+        ],
+        "hd_not": [
+          "offer_milk",
+          "force_milk"
+        ]
+      }
+    },
+    {
+      "id": "W010",
+      "title": "K3 down, 103\u00b0F, suckle present \u2192 crash dextrose then heat then milk, not floppy",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "down",
+        "responsiveness": "dull",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "ACIDOSIS"
+        ],
+        "emergencies_has": [
+          "down",
+          "ip_dextrose",
+          "warm"
+        ],
+        "not_emergencies": [
+          "floppy_now",
+          "rl_sq"
+        ],
+        "hd_has": [
+          "no_force_feed_down",
+          "offer_milk"
+        ],
+        "hd_not": [
+          "milk_off",
+          "bicarb",
+          "force_milk"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "W011",
+      "title": "Front knees \u2192 Laminitis, pull concentrate",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "front_knees",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "LAMINITIS"
+        ],
+        "hd_has": [
+          "pull_concentrate"
+        ],
+        "sop": {
+          "LAMINITIS": "Laminitis"
+        },
+        "tier": {
+          "LAMINITIS": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "W012",
+      "title": "Star-gazing \u2192 Neuro, thiamine (not a PEM label)",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2,
+        "neuro": "star_gazing"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "NEURO"
+        ],
+        "hd_has": [
+          "thiamine",
+          "same_day_neuro"
+        ],
+        "acuity": "icu",
+        "sop": {
+          "NEURO": "Neuro"
+        },
+        "tier": {
+          "NEURO": "PROBABLE"
+        }
+      }
+    },
+    {
+      "id": "W013",
+      "title": "103.5\u00b0F standing, eating, both bottles \u2192 Fever (kids \u2265103.5)",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.5,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "W014",
+      "title": "Diarrhea \u2192 Diarrhea, not coccidia",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2,
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "DIARRHEA"
+        ],
+        "not_hits": [
+          "COCCIDIOSIS"
+        ],
+        "sop": {
+          "DIARRHEA": "Diarrhea"
+        }
+      }
+    },
+    {
+      "id": "W015",
+      "title": "Landing sent on K3 \u2192 reject",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2,
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "landing_not_on_weaning"
+      }
+    },
+    {
+      "id": "W016",
+      "title": "Navel sent on K3 \u2192 reject",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2,
+        "navel": "wet"
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "navel_not_on_weaning"
+      }
+    },
+    {
+      "id": "W017",
+      "title": "Session 3 on K3 \u2192 reject (only morning and evening)",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 3
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "session_required"
+      }
+    },
+    {
+      "id": "W018",
+      "title": "3\u2717 on K3 \u2192 reject (only two bottles)",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 3,
+        "session": 2
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "refusals_today_required"
+      }
+    },
+    {
+      "id": "W019",
+      "title": "Splash + 1\u2717, still eating concentrate \u2192 Acidosis ward, offer milk, not acidosis_now",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 1,
+        "session": 1,
+        "left_stomach": "acidosis",
+        "milk_intake": "not_drinking"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "ACIDOSIS"
+        ],
+        "not_hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_emergencies": [
+          "acidosis_now"
+        ],
+        "hd_has": [
+          "offer_milk",
+          "k3_refusal"
+        ],
+        "hd_not": [
+          "concentrate_off",
+          "force_milk",
+          "offer_ors"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "W020",
+      "title": "Splash + not eating solids + both bottles missed \u2192 Acidosis ICU, force milk",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 2,
+        "session": 2,
+        "left_stomach": "acidosis",
+        "milk_intake": "not_drinking"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "ACIDOSIS"
+        ],
+        "emergencies_has": [
+          "acidosis_now"
+        ],
+        "hd_has": [
+          "concentrate_off",
+          "force_milk",
+          "rl_sq",
+          "k3_refusal"
+        ],
+        "hd_not": [
+          "offer_ors"
+        ],
+        "acuity": "icu",
+        "club": false
+      }
+    },
+    {
+      "id": "W021",
+      "title": "K3 98\u00b0F weak \u2192 hypothermia crash, not floppy",
+      "animal": {
+        "klass": "kid_weaning",
+        "stage": "K3",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Wean-1",
+        "weight_kg": 11
+      },
+      "findings": {
+        "temp": 98.0,
+        "eating": "normal",
+        "activity": "weak",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "refusals_today": 0,
+        "session": 2
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_weaning",
+        "hits": [
+          "HYPOTHERMIA"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "emergencies_has": [
+          "ip_dextrose",
+          "warm"
+        ],
+        "not_emergencies": [
+          "floppy_now",
+          "rl_sq"
+        ],
+        "acuity": "icu",
+        "no_meloxicam": true,
+        "hd_not": [
+          "offer_milk"
+        ],
+        "sop": {
+          "HYPOTHERMIA": "Hypothermia"
+        }
+      }
+    }
+  ]
+}

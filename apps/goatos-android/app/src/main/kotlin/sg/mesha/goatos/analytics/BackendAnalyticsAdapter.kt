@@ -134,6 +134,7 @@ class BackendAnalyticsAdapter(
          */
         val CRITICAL_EVENT_ALLOWLIST = setOf(
             AnalyticsEvents.PROOF_CAPTURE_COMPLETED,
+            AnalyticsEvents.PROOF_CAPTURE_VALIDATION_FAILED,
             AnalyticsEvents.PROOF_PROCESSING_STARTED,
             AnalyticsEvents.PROOF_PROCESSING_COMPLETED,
             AnalyticsEvents.PROOF_PROCESSING_FAILED,
@@ -221,6 +222,15 @@ class BackendAnalyticsAdapter(
             AnalyticsEvents.WEIGHING_CAPTURE_FAILURE,
             AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_FAILURE,
             AnalyticsEvents.WEIGHING_PROOF_CAPTURE_FAILURE,
+            AnalyticsEvents.WEIGHING_SUBMIT_ATTEMPT,
+            AnalyticsEvents.WEIGHING_SUBMIT_SUCCESS,
+            AnalyticsEvents.WEIGHING_SUBMIT_FAILURE,
+            AnalyticsEventsWeighing.WEIGHING_SUBMIT_ATTEMPTED,
+            AnalyticsEventsWeighing.WEIGHING_SUBMIT_SUCCEEDED,
+            AnalyticsEventsWeighing.WEIGHING_SUBMIT_FAILED,
+            AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_OPENED,
+            AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_CONFIRMED,
+            AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_CANCELLED,
             AnalyticsEventsWeighing.WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED,
             AnalyticsEventsWeighing.WEIGHING_PROOF_ATTACH_NO_OBSERVATION,
             AnalyticsEventsWeighing.WEIGHING_OBSERVATION_ENQUEUE_FAILED,

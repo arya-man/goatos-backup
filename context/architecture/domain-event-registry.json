@@ -45,6 +45,7 @@
     "health.case.death_held",
     "health.case.death_resumed",
     "health.case.closed_dead",
+    "health.case.closed",
     "health.treatment.completed",
     "weighing.shed.reopened",
     "weighing.observation.verified",
@@ -805,6 +806,11 @@
           "module": "pccare",
           "file": "backend/internal/pccare/app/verification_handler.go",
           "notes": "PCCareVerificationHandler.HandleEvent filters source.module=pc_care + source.ref_type=pc_care_task and calls ApplyVerifiedTask (approved: task 'pending_verification' -> 'completed' on both state columns, emits pc_care.task.completed) or BounceTaskForRework (rework: -> 'rework' with the verifier's reason). Registered in eventwiring.RegisterVerificationAppliers, the single shared registration point."
+        },
+        {
+          "module": "health",
+          "file": "backend/internal/health/app/verification_handler.go",
+          "notes": "HealthVerificationHandler.HandleEvent filters source.module=health + source.ref_type=health_treatment_session and stamps verified_by/verified_at on the completed session (post-task evidence review; completion is never gated on the verdict)."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -891,6 +897,11 @@
           "module": "pccare",
           "file": "backend/internal/pccare/app/verification_handler.go",
           "notes": "PCCareVerificationHandler.HandleEvent filters source.module=pc_care + source.ref_type=pc_care_task and calls ApplyVerifiedTask (approved: task 'pending_verification' -> 'completed' on both state columns, emits pc_care.task.completed) or BounceTaskForRework (rework: -> 'rework' with the verifier's reason). Registered in eventwiring.RegisterVerificationAppliers, the single shared registration point."
+        },
+        {
+          "module": "health",
+          "file": "backend/internal/health/app/verification_handler.go",
+          "notes": "HealthVerificationHandler.HandleEvent filters source.module=health + source.ref_type=health_treatment_session and flips the completed session back to 'rework' so the operator re-does and re-films it; medicine administrations and completion history are kept -- evidence review never rolls back a treatment already given."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -1351,6 +1362,42 @@
       ]
     },
     {
+      "eventType": "health.observation.submitted",
+      "producer": "health diagnosis engine observation submit",
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/diagnosis_repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/diagnosis_e2e_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "notes": "Aggregate health_diagnosis_run. Carries the proposal's emergencies and field actions, which are actionable WITHOUT a Director confirmation -- a consumer that pages on a red flag must not be gated behind the review. No consumer is wired yet; the event is durable and available for the notification bridge."
+    },
+    {
+      "eventType": "health.diagnosis.confirmed",
+      "producer": "health diagnosis engine Director confirmation",
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/diagnosis_repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/diagnosis_e2e_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "notes": "Aggregate health_diagnosis_run. Emitted when the Health Director confirms; carries both the confirmed and the DECLINED diagnoses, because an override is a rule defect worth reviewing and must not be lost. No consumer is wired yet."
+    },
+    {
       "eventType": "health.case.death_held",
       "producer": "Health counts.death.reported consumer transaction",
       "producerFiles": [
@@ -1394,6 +1441,23 @@
       "owningDoc": "docs/decisions/health-workflows.md",
       "e2eProof": [
         "backend/internal/health/app/event_handlers_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "health.case.closed",
+      "producer": "Health clinical case-closure transaction (POST /app/health/cases/{id}/close)",
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/repository_integration_test.go"
       ],
       "surfaces": [
         "backend",

@@ -15,6 +15,7 @@
  */
 
 import type { ScheduleRule } from "./plan-model";
+import type { ProtocolVersionRule } from "@/lib/api/server";
 
 export type Dose = {
   /** Days from the trigger. First dose: age. Booster: gap after the previous dose. */
@@ -40,6 +41,8 @@ export type EditorVaccine = {
   originalMaxLateDays?: number | null;
   /** Repeat interval in days, or null when the vaccine does not repeat. */
   repeatDays: number | null;
+  /** Existing repeat/revac rule identity, when the backend has one. */
+  repeatDoseCode?: string;
   /**
    * "bacterial" | "viral" | "mixed" | "unknown_review_needed". Only carried for a
    * vaccine added in this session -- toRuleDsl needs it to classify a matrix row
@@ -53,6 +56,18 @@ export type EditorVaccine = {
   species?: string;
   /** "all" | "breeding" | "fattening" | "non_breeding". Same "new row only" scope as pathogenClass. */
   procurementPurpose?: string;
+  anchors?: Record<string, AnchorConfig>;
+};
+
+export type AnchorConfig = {
+  anchorDate: string;
+  reason: string;
+  sourceRef: string;
+  scopeType?: "tenant" | "park" | "shed" | "partition" | "animal_set";
+  scopePayload?: Record<string, unknown>;
+  suppressBeforeAnchor: boolean;
+  chainFutureFromAnchor: boolean;
+  enforceAgeEligibility: boolean;
 };
 
 /** Everything "+ Add a vaccine" collects, before it becomes an EditorVaccine + a matrix row. */
@@ -166,7 +181,7 @@ export type EditorPlan = {
 };
 
 /** Reads the document into the editor's model. */
-export function fromRuleDsl(ruleDsl: unknown, proofPolicy: unknown): EditorPlan {
+export function fromRuleDsl(ruleDsl: unknown, proofPolicy: unknown, activeRules: ProtocolVersionRule[] = []): EditorPlan {
   const doc = asObject(ruleDsl);
   const rows = Array.isArray(doc.matrix_rows) ? (doc.matrix_rows as unknown[]) : [];
   const compat = asObject(doc.compatibility_policy);
@@ -178,7 +193,7 @@ export function fromRuleDsl(ruleDsl: unknown, proofPolicy: unknown): EditorPlan 
   const storedPurposePlans = asObject(proc.purpose_plans);
 
   return {
-    vaccines: rows.map(readVaccine),
+    vaccines: mergeAnchorConfig(mergeActiveRulesIntoEditor(rows.map(readVaccine), rows, activeRules), doc.anchor_config),
     procurement: {
       warmupNoVaccinationDays: numberOrNull(proc.warmup_no_vaccination_days),
       kidsNormalScheduleUntilWeeks: numberOrNull(proc.kids_normal_schedule_until_weeks),
@@ -240,8 +255,10 @@ function readVaccine(row: unknown): EditorVaccine {
     maxLateDays,
     originalMaxLateDays: maxLateDays,
     repeatDays: numberOrNull(repeats[0]?.offset_days),
+    repeatDoseCode: typeof repeats[0]?.dose_code === "string" ? repeats[0]?.dose_code : undefined,
     pathogenClass: typeof vaccine.pathogen_class === "string" ? vaccine.pathogen_class : undefined,
     courseType: typeof vaccine.course_type === "string" ? vaccine.course_type : undefined,
+    anchors: {},
   };
 }
 
@@ -253,6 +270,125 @@ function toDose(rule: ScheduleRule): Dose {
   };
 }
 
+function mergeActiveRulesIntoEditor(
+  vaccines: EditorVaccine[],
+  rows: unknown[],
+  activeRules: ProtocolVersionRule[],
+): EditorVaccine[] {
+  if (activeRules.length === 0) return vaccines;
+  const byDose = vaccineLookupByDose(rows);
+  const byCode = new Map<string, EditorVaccine>(
+    vaccines.map((v) => [normaliseVaccineName(v.code), { ...v, kidDoses: [...v.kidDoses], driveDoses: [...v.driveDoses] }]),
+  );
+  const reset = new Set<string>();
+  const activeDoseOwners = new Map<string, string>();
+  for (const rule of activeRules) {
+    const eligibilityVaccine = vaccineFromEligibility(rule.eligibility_json);
+    const vaccine = eligibilityVaccine.code
+      ? eligibilityVaccine
+      : byDose.get(String(rule.dose_code).trim().toLowerCase()) ?? eligibilityVaccine;
+    if (!vaccine.code) continue;
+    const key = normaliseVaccineName(vaccine.code);
+    const doseKey = String(rule.dose_code ?? "").trim().toLowerCase();
+    if (doseKey) activeDoseOwners.set(doseKey, key);
+    const current =
+      byCode.get(key) ??
+      ({
+        code: vaccine.code,
+        name: vaccine.name || vaccine.code,
+        vaccineClass: vaccine.type,
+        disease: vaccine.disease,
+        on: true,
+        kidDoses: [],
+        driveDoses: [],
+        maxLateDays: numberOrNull(rule.due_window_days),
+        originalMaxLateDays: numberOrNull(rule.due_window_days),
+        repeatDays: null,
+        repeatDoseCode: undefined,
+      } satisfies EditorVaccine);
+    current.code = vaccine.code;
+    current.name = vaccine.name || current.name;
+    current.vaccineClass = vaccine.type || current.vaccineClass;
+    current.disease = vaccine.disease || current.disease;
+    current.on = true;
+    if (!reset.has(key)) {
+      current.kidDoses = [];
+      current.driveDoses = [];
+      current.repeatDays = null;
+      current.repeatDoseCode = undefined;
+      reset.add(key);
+    }
+    if (rule.repeat && rule.repeat !== "none") {
+      current.repeatDays = numberOrNull(rule.offset_days);
+      current.repeatDoseCode = String(rule.dose_code ?? "");
+    } else {
+      const dose = {
+        offsetDays: Number(rule.offset_days ?? 0),
+        triggerType: String(rule.trigger_type ?? ""),
+        doseCode: String(rule.dose_code ?? ""),
+      };
+      if (dose.triggerType === "birth_age") current.kidDoses.push(dose);
+      else current.driveDoses.push(dose);
+    }
+    byCode.set(key, current);
+  }
+  const merged = [...byCode.entries()].map(([key, vaccine]) => {
+    if (reset.has(key)) return vaccine;
+    const kidDoses = vaccine.kidDoses.filter((dose) => !isOwnedByAnotherActiveVaccine(activeDoseOwners, dose.doseCode, key));
+    const driveDoses = vaccine.driveDoses.filter((dose) => !isOwnedByAnotherActiveVaccine(activeDoseOwners, dose.doseCode, key));
+    const repeatClaimedElsewhere =
+      vaccine.repeatDoseCode && isOwnedByAnotherActiveVaccine(activeDoseOwners, vaccine.repeatDoseCode, key);
+    const next = {
+      ...vaccine,
+      kidDoses,
+      driveDoses,
+      repeatDays: repeatClaimedElsewhere ? null : vaccine.repeatDays,
+      repeatDoseCode: repeatClaimedElsewhere ? undefined : vaccine.repeatDoseCode,
+    };
+    if (kidDoses.length === 0 && driveDoses.length === 0 && next.repeatDays === null) next.on = false;
+    return next;
+  });
+  return [...merged.filter((v) => v.on), ...merged.filter((v) => !v.on)];
+}
+
+function isOwnedByAnotherActiveVaccine(activeDoseOwners: ReadonlyMap<string, string>, doseCode: string | undefined, vaccineKey: string): boolean {
+  const owner = activeDoseOwners.get(String(doseCode ?? "").trim().toLowerCase());
+  return Boolean(owner && owner !== vaccineKey);
+}
+
+function vaccineLookupByDose(rows: unknown[]): ReadonlyMap<string, { code: string; name: string; type: string; disease: string }> {
+  const out = new Map<string, { code: string; name: string; type: string; disease: string }>();
+  for (const row of rows) {
+    const r = asObject(row);
+    const vaccine = asObject(r.vaccine);
+    const code = String(vaccine.code ?? r.row_id ?? "");
+    const value = {
+      code,
+      name: String(vaccine.name ?? code),
+      type: String(vaccine.type ?? ""),
+      disease: String(vaccine.disease ?? ""),
+    };
+    const schedule = Array.isArray(r.schedule) ? (r.schedule as ScheduleRule[]) : [];
+    for (const rule of schedule) {
+      const dose = String(rule.dose_code ?? "").trim().toLowerCase();
+      if (dose) out.set(dose, value);
+    }
+  }
+  return out;
+}
+
+function vaccineFromEligibility(value: unknown): { code: string; name: string; type: string; disease: string } {
+  const eligibility = asObject(value);
+  const vaccine = asObject(eligibility.vaccine);
+  const code = String(vaccine.code ?? "");
+  return {
+    code,
+    name: String(vaccine.name ?? code),
+    type: String(vaccine.type ?? ""),
+    disease: String(vaccine.disease ?? ""),
+  };
+}
+
 /**
  * Writes the editor's changes back onto a DEEP COPY of the original document.
  *
@@ -261,7 +397,7 @@ function toDose(rule: ScheduleRule): Dose {
  * and can turn it back on without re-authoring it.
  */
 export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
-  const doc = structuredClone(asObject(original));
+  const doc = sanitizeRuleDslForSave(structuredClone(asObject(original)));
   const byCode = new Map(plan.vaccines.map((v) => [v.code, v]));
 
   const rows = Array.isArray(doc.matrix_rows) ? (doc.matrix_rows as unknown[]) : [];
@@ -328,6 +464,7 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
     const s = asObject(row).schedule;
     return Array.isArray(s) ? s : [];
   });
+  writeAnchorConfig(doc, plan);
 
   const proc = asObject(doc.procurement_policy);
   if (plan.procurement.warmupNoVaccinationDays !== null) {
@@ -365,6 +502,87 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
   proc.sheep_second_wave = purposePlansPayload.breeding.sheep_second_wave;
   doc.procurement_policy = proc;
 
+  return doc;
+}
+
+function mergeAnchorConfig(vaccines: EditorVaccine[], raw: unknown): EditorVaccine[] {
+  const config = asObject(raw);
+  const rules = Array.isArray(config.rules) ? config.rules : [];
+  if (rules.length === 0) return vaccines.map((v) => ({ ...v, anchors: v.anchors ?? {} }));
+  const byVaccine = new Map(vaccines.map((v) => [normaliseVaccineName(v.code), { ...v, anchors: { ...(v.anchors ?? {}) } }]));
+  for (const item of rules) {
+    const r = asObject(item);
+    const vaccineCode = String(r.vaccine_code ?? "");
+    const doseCode = String(r.dose_code ?? "");
+    const anchorDate = String(r.anchor_date ?? "");
+    if (!vaccineCode || !doseCode || !anchorDate) continue;
+    const vaccine = byVaccine.get(normaliseVaccineName(vaccineCode));
+    if (!vaccine) continue;
+    vaccine.anchors = {
+      ...(vaccine.anchors ?? {}),
+      [doseCode]: {
+        anchorDate,
+        reason: String(r.reason ?? "Anchor/base date for this vaccine rule"),
+        sourceRef: String(r.source_ref ?? ""),
+        scopeType: anchorScopeType(r.scope_type),
+        scopePayload: asObject(r.scope_payload),
+        suppressBeforeAnchor: r.suppress_before_anchor !== false,
+        chainFutureFromAnchor: r.chain_future_from_anchor !== false,
+        enforceAgeEligibility: r.enforce_age_eligibility !== false,
+      },
+    };
+  }
+  return vaccines.map((v) => byVaccine.get(normaliseVaccineName(v.code)) ?? { ...v, anchors: v.anchors ?? {} });
+}
+
+function writeAnchorConfig(doc: Record<string, unknown>, plan: EditorPlan) {
+  const rules: Record<string, unknown>[] = [];
+  for (const vaccine of plan.vaccines) {
+    for (const [doseCode, anchor] of Object.entries(vaccine.anchors ?? {})) {
+      if (!anchor.anchorDate) continue;
+      const item: Record<string, unknown> = {
+        vaccine_code: vaccine.code,
+        dose_code: doseCode,
+        anchor_date: anchor.anchorDate,
+        scope_type: anchor.scopeType ?? "tenant",
+        suppress_before_anchor: anchor.suppressBeforeAnchor,
+        chain_future_from_anchor: anchor.chainFutureFromAnchor,
+        enforce_age_eligibility: anchor.enforceAgeEligibility,
+        reason: anchor.reason.trim() || "Anchor/base date for this vaccine rule",
+      };
+      if (anchor.scopePayload && Object.keys(anchor.scopePayload).length > 0) item.scope_payload = anchor.scopePayload;
+      if (anchor.sourceRef.trim()) item.source_ref = anchor.sourceRef.trim();
+      rules.push(item);
+    }
+  }
+  if (rules.length === 0) {
+    delete doc.anchor_config;
+    return;
+  }
+  doc.anchor_config = { rules };
+}
+
+function anchorScopeType(raw: unknown): AnchorConfig["scopeType"] {
+  switch (String(raw ?? "tenant")) {
+    case "park":
+    case "shed":
+    case "partition":
+    case "animal_set":
+      return String(raw) as AnchorConfig["scopeType"];
+    default:
+      return "tenant";
+  }
+}
+
+/**
+ * Draft authoring must not preserve legacy/import-only keys that publish now
+ * rejects. Config-level anchor/base dates are the exception: they live in a
+ * validated anchor_config block until publish applies them through the anchor
+ * service.
+ */
+export function sanitizeRuleDslForSave(ruleDsl: unknown): Record<string, unknown> {
+  const doc = structuredClone(asObject(ruleDsl));
+  delete doc.notes;
   return doc;
 }
 

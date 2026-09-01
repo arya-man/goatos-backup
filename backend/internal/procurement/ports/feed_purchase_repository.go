@@ -62,4 +62,17 @@ type FeedPurchaseRepository interface {
 	// CreateFeedPurchase records one load: idempotency reservation, catalog check, batch-number
 	// assignment, insert and audit in ONE transaction.
 	CreateFeedPurchase(ctx context.Context, tenantID string, write domain.FeedPurchaseWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error)
+	// RecordFeedPurchasePayment records one instalment against one load and, in the SAME
+	// transaction, advances the load's running payment_released total and re-derives its payment
+	// status from the landed cost. Returns the updated purchase with its instalments.
+	RecordFeedPurchasePayment(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchasePaymentWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error)
+	// UpdateFeedPurchase edits an already-recorded load's values (date, quantity, costs, vendor)
+	// under the purchase row lock, re-deriving the landed total, the per-kg rate and the payment
+	// status in the SAME transaction. Naturally idempotent: writing the values a load already has
+	// changes nothing and audits nothing.
+	UpdateFeedPurchase(ctx context.Context, tenantID, purchaseID string, edit domain.FeedPurchaseEdit, actorID string) (domain.FeedPurchase, error)
+	// SetFeedPurchasePaymentStatus sets the load's payment status directly (the edit control for a
+	// status recorded wrong, or a load settled outside the instalment ledger). status must already
+	// be a canonical vocabulary word.
+	SetFeedPurchasePaymentStatus(ctx context.Context, tenantID, purchaseID, status, actorID string) (domain.FeedPurchase, error)
 }

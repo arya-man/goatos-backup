@@ -74,3 +74,51 @@ func (s *FeedPurchaseService) CreateFeedPurchase(ctx context.Context, tenantID s
 	}
 	return s.repo.CreateFeedPurchase(ctx, tenantID, normalized, actorID, strings.TrimSpace(idempotencyKey))
 }
+
+// RecordFeedPurchasePayment validates and records one instalment against one load.
+//
+// The idempotency key is mandatory for the same reason CreateFeedPurchase's is: an instalment is
+// money, and a retried submit must never hand the vendor the same amount twice on the ledger.
+func (s *FeedPurchaseService) RecordFeedPurchasePayment(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchasePaymentWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error) {
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return domain.FeedPurchase{}, ErrFeedPurchaseIdempotencyKeyRequired
+	}
+	if strings.TrimSpace(purchaseID) == "" {
+		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
+	}
+	normalized := write.Normalize()
+	if err := normalized.Validate(biztime.BusinessDayStart(s.now())); err != nil {
+		return domain.FeedPurchase{}, err
+	}
+	return s.repo.RecordFeedPurchasePayment(ctx, tenantID, purchaseID, normalized, actorID, strings.TrimSpace(idempotencyKey))
+}
+
+// SetFeedPurchasePaymentStatus sets a load's payment status directly -- the edit control for a
+// status recorded wrong, or a load settled outside the instalment ledger.
+func (s *FeedPurchaseService) SetFeedPurchasePaymentStatus(ctx context.Context, tenantID, purchaseID, status, actorID string) (domain.FeedPurchase, error) {
+	if strings.TrimSpace(purchaseID) == "" {
+		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
+	}
+	canonical, ok := domain.NormalizeFeedPaymentStatus(status)
+	if !ok {
+		// Rejected, never rewritten to a default: a silently defaulted payment state is a money
+		// fact nobody entered.
+		return domain.FeedPurchase{}, domain.ErrFeedPurchaseValidation{Field: "payment_status", Reason: "must be Paid or Pending"}
+	}
+	return s.repo.SetFeedPurchasePaymentStatus(ctx, tenantID, purchaseID, canonical, actorID)
+}
+
+// EditFeedPurchase validates and applies an edit to an already-recorded load's values.
+//
+// Same IST business-day rule as recording: a load cannot be re-dated into the future, because
+// stock the farm does not have yet must not deplete a feed sheet.
+func (s *FeedPurchaseService) EditFeedPurchase(ctx context.Context, tenantID, purchaseID string, edit domain.FeedPurchaseEdit, actorID string) (domain.FeedPurchase, error) {
+	if strings.TrimSpace(purchaseID) == "" {
+		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
+	}
+	normalized := edit.Normalize()
+	if err := normalized.Validate(biztime.BusinessDayStart(s.now())); err != nil {
+		return domain.FeedPurchase{}, err
+	}
+	return s.repo.UpdateFeedPurchase(ctx, tenantID, purchaseID, normalized, actorID)
+}

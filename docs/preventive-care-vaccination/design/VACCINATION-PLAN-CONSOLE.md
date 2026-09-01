@@ -201,9 +201,9 @@ Procurement *module* (suppliers, loads, transport). Retitled to describe the ani
 | Control | Field | Effect |
 |---|---|---|
 | Settle in · 7 days | `warmup_no_vaccination_days` | No vaccine while transport-stressed |
-| Kid or adult · 16 weeks | `kids_normal_schedule_until_weeks` | Drives `SchedulePathForGoat()` — kid vs adult catch-up, including the 16–20w continuation-only rule (`vaccination/app/schedule_policy.go:186`) |
+| Kid or adult · 16 weeks | `kids_normal_schedule_until_weeks` | Drives `SchedulePathForGoat()` — kid vs adult catch-up, including the 16–19w continuation-only rule (`vaccination/app/schedule_policy.go:186`) |
 | Seller's word · count them | `adult_prior_vaccination_allowed` | Whether unproven claims skip doses |
-| First / second visit | `first_wave`, `second_wave_after_days`, `goat_second_wave`, `sheep_second_wave` | Two visits 28 days apart — max 2 vaccines per visit, live vaccines need spacing |
+| First / second visit | `first_wave`, `second_wave_after_days`, `goat_second_wave`, `sheep_second_wave` | Two visits 28 days apart — max 3 vaccines per visit, live vaccines need spacing |
 
 Seed defaults: `cmd/seed-vaccination-real/main.go:3943`. Validated at
 `protocol/app/publish.go:1003`.

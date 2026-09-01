@@ -26,7 +26,7 @@ func TestVaccinationMatrixAuthorsAllSafetyAndDrivePolicies(t *testing.T) {
 		"drive_policy": {
 			"enabled": true, "combo_align_window_days": float64(7), "max_batching_hold_days": float64(7),
 			"max_batching_hold_count": float64(1), "species_grouping_policy": "kid_mixed",
-			"max_shots_per_animal_per_drive": float64(2),
+			"max_shots_per_animal_per_drive": float64(3),
 		},
 	}
 	for policy, fields := range want {
@@ -227,28 +227,28 @@ func TestDerivedStageFromDOB(t *testing.T) {
 			dob:         ptrTime(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)),
 			asOf:        refTime,
 			wantStage:   "K1",
-			description: "0-week-old is kid (≤20w)",
+			description: "0-week-old is within kid-course age",
 		},
 		{
 			name:        "12 weeks old",
 			dob:         ptrTime(time.Date(2023, 10, 9, 0, 0, 0, 0, time.UTC)), // 12 weeks before refTime
 			asOf:        refTime,
 			wantStage:   "K1",
-			description: "12-week-old is kid (≤20w)",
+			description: "12-week-old is within kid-course age",
 		},
 		{
 			name:        "16 weeks old (at kid cutoff)",
 			dob:         ptrTime(time.Date(2023, 9, 11, 0, 0, 0, 0, time.UTC)), // 16 weeks before refTime
 			asOf:        refTime,
 			wantStage:   "K1",
-			description: "16-week-old is still kid (≤20w)",
+			description: "16-week-old is the kid-course start/eligibility point",
 		},
 		{
 			name:        "20 weeks old (at finish cutoff)",
 			dob:         ptrTime(time.Date(2023, 8, 14, 0, 0, 0, 0, time.UTC)), // 20 weeks before refTime
 			asOf:        refTime,
 			wantStage:   "K1",
-			description: "20-week-old is still kid (≤20w)",
+			description: "20-week-old remains eligible only for kid-course continuation",
 		},
 		{
 			name:        "21 weeks old (past cutoff)",

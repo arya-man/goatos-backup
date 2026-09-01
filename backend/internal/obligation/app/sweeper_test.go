@@ -372,6 +372,53 @@ func TestTotalVaccinationOperatorCapNoOperatorsFoundReturnsFallbackUnchanged(t *
 	}
 }
 
+func TestPlanVaccinationDriveAssignmentsDoesNotInflateAsymmetricVaccineLanes(t *testing.T) {
+	planned := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+	assignments := []domain.DriveAssignment{
+		{
+			BatchID:        "batch-1",
+			PlannedDate:    planned,
+			ParkID:         "park-1",
+			PhysicalShed:   "Mandela 1",
+			PartitionLabel: "Part 1",
+			AnimalCount:    120,
+			TotalDoses:     120,
+			VaccineRuleIDs: []string{"rule-large"},
+			CapacityStatus: "within_cap",
+		},
+		{
+			BatchID:        "batch-1",
+			PlannedDate:    planned,
+			ParkID:         "park-1",
+			PhysicalShed:   "Mandela 1",
+			PartitionLabel: "Part 1",
+			AnimalCount:    60,
+			TotalDoses:     60,
+			VaccineRuleIDs: []string{"rule-small"},
+			CapacityStatus: "within_cap",
+		},
+	}
+	rows, err := planVaccinationDriveAssignments("tenant-1", "park-1", planned, 100, []domain.DriveOperatorCapacity{
+		{OperatorID: "op-1", Cap: 100, ConfiguredCap: 100},
+		{OperatorID: "op-2", Cap: 100, ConfiguredCap: 100},
+	}, assignments, NewSweepSession())
+	if err != nil {
+		t.Fatalf("planVaccinationDriveAssignments: %v", err)
+	}
+	byRule := map[string]int32{}
+	for _, row := range rows {
+		for _, ruleID := range row.VaccineRuleIDs {
+			byRule[ruleID] += row.AnimalCount
+		}
+	}
+	if got := byRule["rule-large"]; got != 120 {
+		t.Fatalf("large lane animals = %d, want 120: %+v", got, rows)
+	}
+	if got := byRule["rule-small"]; got != 60 {
+		t.Fatalf("small lane animals = %d, want 60 and no inflation from the larger lane: %+v", got, rows)
+	}
+}
+
 // TestTotalVaccinationOperatorCapSubtractsSessionLoad is the isolated-function twin of
 // TestOperatorCapacityPlannerHonorsCrossVersionOperatorDayLoad: proves totalVaccinationOperatorCap
 // itself subtracts session.vaccinationOperatorLoad per operator, not just its production callers.
@@ -1304,7 +1351,7 @@ func TestParkMergeStepWalksEverySafeOverflowDateWhenShotCapFull(t *testing.T) {
 	}
 	_, attached, plannedDate, _, _, err := svc.parkMergeStep(context.Background(), "tenant-1", "version-1", SweepConfig{
 		VaccineCode: "FMD",
-	}, domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 1}, due, due, NewSweepSession(), "park-1", remaining, 1, map[string]struct{}{})
+	}, domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 1}, due, due, NewSweepSession(), "park-1", "", remaining, 1, map[string]struct{}{})
 	if err != nil {
 		t.Fatalf("parkMergeStep: %v", err)
 	}

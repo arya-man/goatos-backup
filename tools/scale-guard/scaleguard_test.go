@@ -431,3 +431,163 @@ func TestBaselineRequiresOwnedUnexpiredMetadata(t *testing.T) {
 		})
 	}
 }
+
+// writeGoAt writes src at a chosen repo-relative path so path-scoped rules can be exercised.
+func writeGoAt(t *testing.T, relPath, src string) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	p := filepath.Join(dir, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir, p
+}
+
+// TestHotPathInlineSQLRejectsAFunctionLocalStatement is the adversarial fixture for
+// hot-path-inline-sql.
+//
+// The positive case is the shape GET /vaccination/command actually shipped: a multi-line statement
+// declared as a local inside the repository method that runs it. Nothing could address it -- not a
+// plan test, not this scanner -- so its plan regressed into a 15s pool timeout with every test
+// green and the board showing "Unable to load command board".
+func TestHotPathInlineSQLRejectsAFunctionLocalStatement(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) Board(ctx context.Context) {\n" +
+		"\tboardSQL := `\nSELECT g.goat_id, o.status\nFROM obligation_instances o\nJOIN goats g ON g.goat_id = o.target_id\nWHERE o.tenant_id = $1\n`\n" +
+		"\t_, _ = r.pool.Query(ctx, boardSQL, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/vaccinationexecution/adapters/postgres/repository.go", src)
+	got := rules(scanFile(repo, path))
+	if got["hot-path-inline-sql"] != 1 {
+		t.Fatalf("hot-path-inline-sql = %d, want 1; the guard does not reject a function-local hot-path statement, "+
+			"which is the exact shape that hid the command board's plan regression", got["hot-path-inline-sql"])
+	}
+}
+
+// TestHotPathInlineSQLAcceptsANamedPackageLevelStatement is the negative half.
+//
+// The SAME statement as a package-level const must pass: it has a name, so a query-plan test can
+// EXPLAIN it and a reviewer can diff it. A guard that flagged this too would be telling authors to
+// stop writing SQL rather than to name it.
+func TestHotPathInlineSQLAcceptsANamedPackageLevelStatement(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"const boardSQL = `\nSELECT g.goat_id, o.status\nFROM obligation_instances o\nJOIN goats g ON g.goat_id = o.target_id\nWHERE o.tenant_id = $1\n`\n\n" +
+		"func (r *R) Board(ctx context.Context) {\n\t_, _ = r.pool.Query(ctx, boardSQL, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/vaccinationexecution/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path)); got["hot-path-inline-sql"] != 0 {
+		t.Fatalf("hot-path-inline-sql = %d, want 0; a NAMED package-level statement is the fix this rule asks for "+
+			"and must not itself be flagged", got["hot-path-inline-sql"])
+	}
+}
+
+// TestHotPathInlineSQLIsScopedToPostgresAdapters keeps the rule where serving SQL lives. The same
+// literal in a one-off command or a test helper is not a hot path, and flagging it would train
+// authors to reach for scale-guard:ignore -- which is how a guard stops meaning anything.
+func TestHotPathInlineSQLIsScopedToPostgresAdapters(t *testing.T) {
+	src := "package tool\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) Board(ctx context.Context) {\n" +
+		"\tboardSQL := `\nSELECT g.goat_id, o.status\nFROM obligation_instances o\nJOIN goats g ON g.goat_id = o.target_id\nWHERE o.tenant_id = $1\n`\n" +
+		"\t_, _ = r.pool.Query(ctx, boardSQL, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/tools/importer/importer.go", src)
+	if got := rules(scanFile(repo, path)); got["hot-path-inline-sql"] != 0 {
+		t.Fatalf("hot-path-inline-sql = %d, want 0 outside a postgres adapter", got["hot-path-inline-sql"])
+	}
+}
+
+// TestHotPathInlineSQLIgnoresShortLiterals pins the multi-line threshold. A short single-table
+// lookup is not the shape that hides a plan regression.
+func TestHotPathInlineSQLIgnoresShortLiterals(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) One(ctx context.Context) {\n" +
+		"\t_, _ = r.pool.Query(ctx, `SELECT name FROM locations WHERE location_id = $1`, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path)); got["hot-path-inline-sql"] != 0 {
+		t.Fatalf("hot-path-inline-sql = %d, want 0 for a short single-line lookup", got["hot-path-inline-sql"])
+	}
+}
+
+// TestHotPathInlineSQLRejectsConcatenatedStatements closes a one-keystroke evasion.
+//
+// Splitting a statement across a `+` is gofmt-stable and leaves each half under the newline
+// threshold, so measuring literals individually let the whole shape through. The rule is about SQL
+// a plan test can NAME; assembling it from two anonymous halves is no more nameable than one.
+func TestHotPathInlineSQLRejectsConcatenatedStatements(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) Board(ctx context.Context) {\n" +
+		"\tq := \"SELECT g.goat_id\\nFROM obligation_instances o\\n\" + \"JOIN goats g ON g.goat_id = o.target_id\\nWHERE o.tenant_id = $1\\n\"\n" +
+		"\t_, _ = r.pool.Query(ctx, q, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 1 {
+		t.Fatalf("hot-path-inline-sql = %d, want 1; a statement split across a `+` is still unnameable hot-path SQL", got)
+	}
+}
+
+// TestHotPathInlineSQLRejectsBlockCommentHeader pins the multi-line /* */ case. The single-line
+// `--` header was already covered; a block comment spanning two lines slipped the start match
+// because the regex was not in dot-matches-newline mode.
+func TestHotPathInlineSQLRejectsBlockCommentHeader(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) Board(ctx context.Context) {\n" +
+		"\tq := `/* board read\n   owner: preventive care */\nSELECT g.goat_id\nFROM obligation_instances o\nJOIN goats g ON g.goat_id = o.target_id\nWHERE o.tenant_id = $1\n`\n" +
+		"\t_, _ = r.pool.Query(ctx, q, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 1 {
+		t.Fatalf("hot-path-inline-sql = %d, want 1; a multi-line block-comment header must not hide the statement under it", got)
+	}
+}
+
+// TestHotPathInlineSQLIgnoresBuiltQueries keeps the rule off dynamic assembly. A `+` chain carrying
+// a variable is a query being BUILT, not a statement this rule can read or a plan test can pin, and
+// flagging it would push authors toward scale-guard:ignore.
+// TestHotPathInlineSQLCatchesQueriesBuiltFromAVariable pins the inversion of an earlier, wrong
+// assertion. This test used to require ZERO findings for a statement concatenated with a variable,
+// which locked in the rule's worst hole: `literal + where` escaped the guard entirely while the
+// identical statement without the variable was caught. A query whose final text is not knowable
+// from the source is the one a plan test can LEAST reach -- exempting it inverted the rule's whole
+// justification. The literal half must still be hoisted, so it must still be reported.
+func TestHotPathInlineSQLCatchesQueriesBuiltFromAVariable(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"const filterClause = \"AND o.status = $2\"\n\n" +
+		"func (r *R) Board(ctx context.Context, extra string) {\n" +
+		"\tq := \"SELECT g.goat_id\\nFROM obligation_instances o\\nJOIN goats g ON g.goat_id = o.target_id\\n\" + extra\n" +
+		"\t_, _ = r.pool.Query(ctx, q, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 1 {
+		t.Fatalf("hot-path-inline-sql = %d, want 1: a query assembled from a variable is MORE "+
+			"unreachable to a plan test, not less, and its multi-line literal half must be hoisted", got)
+	}
+}
+
+// TestHotPathInlineSQLCatchesLiteralsSplitAroundAVariable closes the second evasion review found in
+// this rule. Left-associative parsing means `head + where + tail` fails to flatten as a whole AND
+// fails on its `head + where` subtree, so each half was examined alone and neither reached the
+// newline threshold. The literal operands are now summed across the chain.
+func TestHotPathInlineSQLCatchesLiteralsSplitAroundAVariable(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) Board(ctx context.Context, extra string) {\n" +
+		"\tq := \"SELECT g.goat_id\\nFROM obligation_instances o\\n\" + extra + \"JOIN goats g ON g.goat_id = o.target_id\\nWHERE o.tenant_id = $1\\n\"\n" +
+		"\t_, _ = r.pool.Query(ctx, q, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 1 {
+		t.Fatalf("hot-path-inline-sql = %d, want 1: a statement split across two sub-threshold "+
+			"literals around a variable is still unreachable SQL", got)
+	}
+}

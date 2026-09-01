@@ -123,7 +123,7 @@ import, or match on mother vaccination status.
 | --- | --- | --- |
 | ET+TT | 4 wk + 7 wk | 6 months |
 | PPR | 16 wk | 3 years |
-| Blue Tongue (sheep) | 16 wk + 20 wk | 1 year |
+| Blue Tongue (sheep) | 16 wk + 19 wk | 1 year |
 | Goat Pox | 16 wk | 1 year |
 | Sheep Pox | 12 wk | 1 year |
 | FMD | 12 wk | 9 months |
@@ -149,7 +149,7 @@ import, or match on mother vaccination status.
 
 Algorithm: generate dose obligations in sequence. ET+TT dose 2 uses a 21-day
 minimum gap after ET+TT dose 1 for both kid and adult courses; Blue Tongue kid
-dose 2 keeps a 28-day gap.
+dose 2 keeps a 21-day gap.
 
 ---
 
@@ -183,7 +183,7 @@ is live and must wait 4 weeks after PPR.
 4. Blue Tongue + Blue Tongue booster where due by sheep path
 5. FMD + HS
 
-**Important:** Adults do **not** replay the full kid age matrix, and adult entry_date is never a vaccination due-date anchor. Adult campaign work is grouped by the physical shed/partition for the same vaccine/rule; if trusted same-vaccine history exists, booster/repeat timing anchors from that last vaccination date, otherwise the animal travels with the partition campaign start. A later adult entry date must not create a one-animal campaign fragment. Strict DOB/age-window timing remains for kids and young animals through the configured kid schedule window, roughly 16-20 weeks. A prior dose can shift/suppress adult work only when it was administered in our park or our supervised procurement holding park under SOP/video/physical validation; third-party/vendor claims outside that lifecycle do not count.
+**Important:** Adults do **not** replay the full kid age matrix, and adult entry_date is never a vaccination due-date anchor. Adult campaign work is grouped by the physical shed/partition for the same vaccine/rule; if trusted same-vaccine history exists, booster/repeat timing anchors from that last vaccination date, otherwise the animal travels with the partition campaign start. A later adult entry date must not create a one-animal campaign fragment. Strict DOB/age-window timing remains for kids and young animals through the configured kid schedule window, roughly 16-19 weeks for Blue Tongue dose continuation. A prior dose can shift/suppress adult work only when it was administered in our park or our supervised procurement holding park under SOP/video/physical validation; third-party/vendor claims outside that lifecycle do not count.
 
 ---
 
@@ -206,8 +206,8 @@ These apply **between any two administered vaccines**, not only within one serie
 - Explicit combo groups from PDF (FMD+HS, PPR+Blue Tongue, etc.)
 
 **Same-day shot cap:** even if more rows are medically compatible, GoatOS
-plans at most **2 shots per animal per drive/doctor visit**. If 3+ vaccines are
-due, choose the highest-priority compatible pair and schedule the remaining
+plans at most **3 shots per animal per drive/doctor visit**. If 4+ vaccines are
+due, choose the highest-priority compatible group and schedule the remaining
 vaccines on the next safe date.
 
 **Same-day forbidden (unless in approved combo group):**
@@ -288,7 +288,7 @@ dimensions; they are not the maximum grouping boundary.
    postponement: execute, micro-drive, defer for a real blocker, or mark a
    process exception.
 
-7. **Apply the max-shots rule.** At most 2 shots per animal per visit. If more
+7. **Apply the max-shots rule.** At most 3 shots per animal per visit. If more
    due rows exist, keep the highest-priority compatible pair in this drive and
    schedule the rest by live/killed and row-specific gap rules.
 

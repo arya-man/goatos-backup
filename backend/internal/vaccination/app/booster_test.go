@@ -547,6 +547,10 @@ func (f *boosterObligationWriterFake) CancelOpenObligationByIdempotencyKey(conte
 	return "", false, nil
 }
 
+func (f *boosterObligationWriterFake) CancelOpenVaccinationObligationsForGoatDose(context.Context, string, string, string, string, time.Time) (int, error) {
+	return 0, nil
+}
+
 func (f *boosterObligationWriterFake) OpenObligationForRepeatCycle(context.Context, string, string, string, string, string, int32, string) (obldomain.ObligationRef, bool, error) {
 	return obldomain.ObligationRef{}, false, nil
 }
@@ -582,6 +586,10 @@ func (f *boosterObligationWriterFake) RecordStatusEvent(_ context.Context, ev ob
 
 func (f *boosterObligationWriterFake) NextSuccessorSuffix(_ context.Context, _, _ string) (int, error) {
 	return 1, nil
+}
+
+func (f *boosterObligationWriterFake) CancelOpenVaccinationObligationsBeforeActiveAnchors(context.Context, string, []string, time.Time) (int, error) {
+	return 0, nil
 }
 
 // The successor a completion mints must carry the cause that produced it, in the SAME

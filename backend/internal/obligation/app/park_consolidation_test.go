@@ -71,7 +71,7 @@ func TestParkConsolidationOverrideWindowKeepsPPRBlueTongueComboTogether(t *testi
 	bt.RuleID = "rule-bt"
 	bt.ObligationID = "obl-bt"
 
-	if got, want := parkConsolidationGroupKey(cfg, ppr), "park-cpt|combo:PPR+Blue Tongue"; got != want {
+	if got, want := parkConsolidationGroupKey(cfg, ppr), "park-cpt|combo:PPR+FMD+HS"; got != want {
 		t.Fatalf("PPR group key = %q, want %q", got, want)
 	}
 	if got, want := parkConsolidationGroupKey(cfg, bt), "park-cpt|combo:PPR+Blue Tongue"; got != want {
@@ -113,6 +113,26 @@ func TestParkConsolidationBlueTongueRetainsPPRComboWhenPPRIsPublished(t *testing
 	}
 	if got, want := parkConsolidationGroupKey(cfg, bt), "park-cpt|combo:PPR+Blue Tongue"; got != want {
 		t.Fatalf("Blue Tongue group key = %q, want %q when PPR remains published", got, want)
+	}
+}
+
+func TestParkConsolidationOverrideWindowGroupsUnpairedManualAnchorsByDate(t *testing.T) {
+	due := businessDate(time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC))
+	windowEnd := due.AddDate(0, 0, 1)
+	cfg := SweepConfig{RuleVaccineIDs: map[string]RuleVaccineIdentity{
+		"rule-ppr": {VaccineCode: "PPR", VaccinePriority: 2},
+		"rule-hs":  {VaccineCode: "HS", VaccinePriority: 5},
+	}}
+	ppr := domain.ParkConsolidationCandidate{ParkID: "park-cpt", RuleID: "rule-ppr", ObligationID: "obl-ppr", TargetID: "goat-1", DueAt: due, WindowStart: &due, WindowEnd: &windowEnd}
+	hs := ppr
+	hs.RuleID = "rule-hs"
+	hs.ObligationID = "obl-hs"
+	want := "park-cpt|combo:PPR+FMD+HS"
+	if got := parkConsolidationGroupKey(cfg, ppr); got != want {
+		t.Fatalf("PPR group key = %q, want %q", got, want)
+	}
+	if got := parkConsolidationGroupKey(cfg, hs); got != want {
+		t.Fatalf("HS group key = %q, want %q", got, want)
 	}
 }
 

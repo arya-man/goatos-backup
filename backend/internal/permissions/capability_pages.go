@@ -81,6 +81,10 @@ var modulePages = []ModulePage{
 	{Key: "procurement-source-entry", Module: "procurement", Label: "Source Entry", Href: "/procurement/source-entry", Permissions: []string{ProcurementRead}},
 	{Key: "procurement-vendors", Module: "vendors", Label: "Vendors", Href: "/procurement/vendors", Permissions: []string{VendorRead}},
 	{Key: "sales-board", Module: "sales", Label: "Sales", Href: "/sales", Permissions: []string{SalesRead}},
+	// Purchase & barn: per-load reconciliation and profit (maintainer decision 2026-08-31). Its
+	// READ is the same commercial fact the board carries, so it ticks with the sales module; the
+	// load-cost write on it is gated separately on LoadCostWrite.
+	{Key: "sales-loads", Module: "sales", Label: "Purchase & barn", Href: "/sales/loads", Permissions: []string{SalesRead}},
 	{Key: "procurement-feed-purchases", Module: "feed_purchases", Label: "Feed Purchases", Href: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
 
 	{Key: "counts-herd-analytics", Module: "counts", Label: "Herd Analytics", Href: "/counts/analytics", Permissions: []string{CountsRead}},
@@ -124,7 +128,9 @@ var moduleRoutePrefixes = map[string]string{
 	"/verify":                     "verification",
 	"/procurement/source-entry":   "procurement",
 	"/procurement/vendors":        "vendors",
+	"/admin/goats/sale":           "sale_allocation",
 	"/sales":                      "sales",
+	"/sales/loads":                "sales",
 	"/procurement/feed-purchases": "feed_purchases",
 	"/counts":                     "counts",
 	"/counts/herd":                "herd_register",

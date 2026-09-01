@@ -6,3 +6,4 @@
 
 !apps/goatos-android/app/src/dev/google-services.json
 !apps/goatos-android/app/src/stg/google-services.json
+!apps/goatos-android/app/src/prod/google-services.json

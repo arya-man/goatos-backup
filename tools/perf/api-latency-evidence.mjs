@@ -20,6 +20,15 @@ export const REQUIRED_HOT_PATHS = Object.freeze([
   "vaccination_execution",
   "vaccination_operations",
   "vaccination_shed_summary",
+  // The command board and its lazy sections. These MUST be listed here as well as in the manifest:
+  // validateApiLatencyEvidence rejects a report containing any name outside this list, so adding an
+  // endpoint to hot-paths.vaccination.json without adding it here fails the live-api-latency job
+  // with "latency evidence contains undeclared hot paths" rather than reporting its latency.
+  "vaccination_command_board",
+  "vaccination_command_drives",
+  "vaccination_command_closed_without_dose",
+  "vaccination_command_cohort_matrix",
+  "vaccination_command_shed_dose_matrix",
 ]);
 
 export function validateApiLatencyEvidence(report, expectedSha) {

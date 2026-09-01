@@ -52,7 +52,9 @@ import (
 	growthdirectorapp "github.com/vgoats/goatos/backend/internal/growthdirector/app"
 	healthhttp "github.com/vgoats/goatos/backend/internal/health/adapters/http"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
+	healthverificationbridge "github.com/vgoats/goatos/backend/internal/health/adapters/verificationbridge"
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
+	"github.com/vgoats/goatos/backend/internal/health/diagnosis"
 	herdsignalshttp "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/http"
 	herdsignalspg "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/postgres"
 	herdsignalsapp "github.com/vgoats/goatos/backend/internal/herdsignals/app"
@@ -575,6 +577,20 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// the same module, not a different module.
 	healthConfigService := healthapp.NewConfigService(healthRepo)
 	healthConfigHandler := healthhttp.NewConfigHandler(healthConfigService, log)
+	// The diagnosis engine. The register is embedded and validated on first load,
+	// so a rule table that fails its structural checks stops the process here
+	// rather than diagnosing animals from a broken register.
+	healthRegister, err := diagnosis.AdultRegister()
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	healthDiagnosisService, err := healthapp.NewDiagnosisService(healthpg.NewDiagnosisRepository(healthRepo), healthRegister)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	healthDiagnosisHandler := healthhttp.NewDiagnosisHandler(healthDiagnosisService, log)
 	countsApprovalRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
 		WithIdentityTxWriter(identityRepo).
 		WithDeathEvidenceTxGate(tasksWorkflowRepo)
@@ -663,6 +679,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// migration 000174's lock). Procurement owns the write; feeddirection keeps the stock read.
 	procurementFeedPurchaseHandler := procurementhttp.NewFeedPurchaseHandler(
 		procurementapp.NewFeedPurchaseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// The Sales page's LOAD-WISE reconciliation and the load-cost entry (maintainer decision
+	// 2026-08-31, docs/decisions/sales-loadwise.md).
+	procurementLoadwiseHandler := procurementhttp.NewLoadwiseHandler(
+		procurementapp.NewLoadwiseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	// Toxin (maintainer decision 2026-08-25): the aflatoxin strip-test module. Tasks are
 	// born from procurement.feed_purchase.recorded (consumer wired in kernelstages); the
 	// routes here serve the tester's guided step flow and the CEO/CXO-only review.
@@ -673,7 +693,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	salesHandler := saleshttp.NewSalesHandler(
 		salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	vaccinationService := vaccinationapp.NewService(vaccinationRepo)
+	vaccinationService := vaccinationapp.NewService(vaccinationRepo).WithAnchorObligationSuppressor(obligationRepo)
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService)
 	vaccinationBooster := vaccinationapp.NewBoosterService(protocolRepo, obligationRepo).WithGoatReader(vaccinationRepo).WithCrossVaccineGapReader(vaccinationRepo)
@@ -692,10 +712,6 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
-	// Weighing and Health are declared in the same backend registry even before their
-	// producers enqueue verification items. Their verifier modules/pages therefore stay
-	// stable and empty instead of disappearing based on today's queue contents.
-	//
 	// Weighing uses the weighingdomain constants rather than literals: main's weighing
 	// feature filters its own queue by those same constants, so a hand-written vertical
 	// here would silently not match its reads.
@@ -709,6 +725,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			return nil, err
 		}
 	}
+	// Health treatment-evidence verification (2026-08-29): a proof-carrying treatment completion
+	// enqueues one item into health_adults/health_kids (the categories registered just above,
+	// which until now had no producer). Post-task evidence review only -- the verdict applier
+	// lives in eventwiring.RegisterVerificationAppliers.
+	healthService.WithVerificationEnqueuer(healthverificationbridge.New(verificationService))
 	weighingVerificationBridge := weighingverificationbridge.New(verificationService)
 	weighingService.WithVerificationEnqueuer(weighingVerificationBridge)
 	// Same bridge, retire direction: a reopened lump-sum bucket withdraws its
@@ -976,7 +997,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, log)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
@@ -1009,7 +1030,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, bus))
 	sopHandler := sophttp.NewHandler(sopService, log)
 	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log).
-		WithManualCampaignGenerator(vaccinationGeneration)
+		WithManualCampaignGenerator(vaccinationGeneration).
+		WithAnchorManager(vaccinationService)
 	passportService := passportapp.NewService(vaccinationService, obligationRepo, obligationRepo)
 	passportHandler := passporthttp.NewHandler(passportService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
@@ -1116,6 +1138,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.Register(protectedMux, procurementHandler)
 	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
 	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
+	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
 	toxinhttp.Register(protectedMux, toxinHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
@@ -1135,6 +1158,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	healthhttp.Register(protectedMux, healthHandler)
 	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
 	herdsignalshttp.Register(protectedMux, herdSignalsHandler)
+	healthhttp.RegisterDiagnosis(protectedMux, healthDiagnosisHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)

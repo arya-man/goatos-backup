@@ -334,6 +334,15 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		Key:      "sale_allocation",
+		Label:    "Sale Animal Allocation",
+		Blurb:    "Maps sold animals and applies their sold exit.",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelDo: {SalesAllocateAnimals},
+		},
+	},
+	{
 		Key:      "verification",
 		Label:    "Video Verification",
 		Blurb:    "Reviewing the proof videos operators record.",
@@ -494,6 +503,19 @@ var moduleCapabilities = []ModuleCapability{
 			// for the stock cards these loads are counted from, but buying is the procurement desk's job.
 			LevelView: {FeedPurchaseRead},
 			LevelDo:   {FeedPurchaseRead, FeedPurchaseWrite},
+		},
+	},
+	{
+		// The landed cost of a purchased ANIMAL load, entered on the Sales page's load-wise
+		// section (maintainer decision 2026-08-31, docs/decisions/sales-loadwise.md). Its own
+		// module for the same reason feed_purchases is: this is supplier money, and folding it
+		// into the procurement module would hand it to every operator working source entry.
+		Key:      "load_costs",
+		Label:    "Animal Load Costs",
+		Blurb:    "What each purchased animal load cost: animal, transport and other.",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelDo: {LoadCostWrite},
 		},
 	},
 	{

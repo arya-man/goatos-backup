@@ -165,6 +165,11 @@ func navigation() domain.NavigationContract {
 				ID: "sales", Label: "Sales", Icon: "banknote", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeaf("sales-board", "Sales", "/sales", nil),
+					// Load by load — its own page rather than a block on the board (maintainer
+					// decision 2026-08-31). The board answers "how are sales going"; this answers
+					// "how did each batch of animals do", which is a different question read at a
+					// different time, and it carries its own tabs and its own write.
+					navLeaf("sales-loads", "Purchase & barn", "/sales/loads", nil),
 				},
 			},
 			{
@@ -515,6 +520,14 @@ func pages() []domain.PageContract {
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
 			}),
+		// LOAD BY LOAD (maintainer decision 2026-08-31): every purchased load reconciled --
+		// counts on one side, money on the other. Its OWN page under Sales, with the
+		// Purchased / Farm born tabs at the top. Served whole (newest 60 loads) by the
+		// procurement read; a row click opens the load-cost drawer, so the row key is the load id.
+		page("sales-loads", "/sales/loads", "/sales/loads", "Purchase & barn", "Every purchased load reconciled — bought, sold, died, still on farm — and the money on each side.", "module-surface",
+			[]domain.TableContract{
+				tableP("sales-loadwise", "Load by load", "/procurement/loadwise-sales", []string{"load", "farm", "purchased", "sold", "mortality", "remaining", "unaccounted", "purchase_value", "sold_value", "profit_loss"}, "load_id", []int{60}),
+			}),
 		// FEED PURCHASES: the buying side of the feed chain (maintainer decision 2026-08-24,
 		// retiring the read-only half of migration 000174). One server-paged ledger table whose
 		// columns are the sheet's Purchase row, and one entry drawer behind the
@@ -638,6 +651,10 @@ func pages() []domain.PageContract {
 				// nobody fed -- the status filter and the four counts do the finding, so the page only
 				// has to stay short enough to read.
 				tableP("distribution-completions", "Feed direction completion", "/feed-analytics/execution", []string{"park", "pen", "session", "status", "videos", "submitted_by", "submitted_at"}, "fdc_row", []int{10, 25, 50}),
+				// The overview's per-pen feed-mix table pages at TEN by default and
+				// states its own last-7-days basis; farm / shed / feed-item narrowing
+				// runs over the served bounded pen set, like the completion table above.
+				tableP("shed-feed-mix", "Feed by shed", "/feed-analytics/shed-feed", []string{"park", "pen", "items"}, "fsf_row", []int{10, 25, 50}),
 			}),
 		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, per-shed factors, session template and feeding schedule.", "module-surface",
 			[]domain.TableContract{
@@ -853,7 +870,7 @@ func sortable(t domain.TableContract, keys ...string) domain.TableContract {
 // rendering blank.
 func feedPurchaseTable() domain.TableContract {
 	t := tableP("feed-purchases", "Purchases", "/procurement/feed-purchases",
-		[]string{"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "total_cost", "per_kg_cost", "vendor", "payment_status"},
+		[]string{"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "total_cost", "per_kg_cost", "vendor", "payment_status", "payment_balance"},
 		"feed_purchase_id", []int{25, 50, 100})
 	copy := pageCopy("feed-purchases")
 	for i := range t.Columns {
@@ -2070,48 +2087,59 @@ func pageSpecificCopy(id string) map[string]string {
 			"schedule.column.postpone":                           "Move date",
 			"schedule.column.status":                             "Status",
 			// Command board: CEO KPI summary, cohort matrix, verification queue
-			"section.command_board.title":                      "Command Board",
-			"section.command_board.loading":                    "Loading...",
-			"section.command_board.unavailable":                "Unable to load command board",
-			"command_board.kpi.targets":                        "Animals",
-			"command_board.kpi.targets_dl":                     "Distinct animals in program",
-			"command_board.kpi.missed":                         "Missed",
-			"command_board.kpi.missed_dl":                      "Dose window closed unvaccinated",
-			"command_board.shed_vaccine.title":                 "Shed × Vaccine",
-			"command_board.shed_vaccine.meta":                  "Red = goats not vaccinated yet, past their due date. All doses of that vaccine counted together. Click a red box to see which goats.",
-			"command_board.shed_vaccine.column.shed":           "Shed",
-			"command_board.shed_vaccine.state.behind":          "Goats not done",
-			"command_board.shed_vaccine.cell.behind_unit":      "goats",
-			"command_board.shed_vaccine.state.ok":              "All done",
-			"command_board.shed_vaccine.state.not_planned":     "Not given in this shed",
-			"command_board.shed_vaccine.summary_behind":        "sheds have goats pending",
-			"command_board.shed_vaccine.summary_clean":         "Every shed is up to date on every vaccine",
-			"command_board.shed_vaccine.drawer.behind_of":      "behind, of",
-			"command_board.shed_vaccine.drawer.column.due":     "Was due",
-			"command_board.shed_vaccine.cell.verifying_unit":   "pending",
-			"command_board.shed_vaccine.state.verifying":       "Video check pending",
-			"command_board.shed_vaccine.drawer.verifying_of":   "given and waiting for video check, of",
-			"command_board.shed_vaccine.drawer.no_video":       "No video uploaded",
-			"command_board.shed_vaccine.drawer.shed_videos":    "Shed video",
-			"command_board.shed_vaccine.drawer.clip":           "Clip",
-			"command_board.shed_vaccine.drawer.truncated":      "Showing the longest-waiting animals only — the count above is the full figure.",
-			"command_board.pending_sheds.title":                "Pending vaccines by shed",
-			"command_board.pending_sheds.meta":                 "Only missed and verification-pending vaccines, grouped by shed.",
-			"command_board.pending_sheds.empty":                "No shed has a pending vaccine in this scope.",
-			"command_board.pending_sheds.column.shed":          "Shed",
-			"command_board.pending_sheds.column.park":          "Park",
-			"command_board.pending_sheds.column.vaccines":      "Pending vaccines",
-			"command_board.pending_sheds.state.behind":         "missed",
-			"command_board.pending_sheds.state.verifying":      "awaiting verification",
-			"command_board.kpi.verified":                       "Verified",
-			"command_board.kpi.verified_dl":                    "Operator done + verifier accepted",
-			"command_board.kpi.awaiting_verification":          "Awaiting Verification",
-			"command_board.kpi.awaiting_dl":                    "Given · proof uploaded · in queue",
-			"command_board.kpi.overdue":                        "Overdue",
-			"command_board.kpi.overdue_dl":                     "Not given",
-			"command_board.kpi.scheduled_ahead":                "Scheduled Ahead",
-			"command_board.kpi.scheduled_dl":                   "Future drives",
-			"command_board.cohort_matrix.title":                "Cohort Vaccine Matrix",
+			"section.command_board.title":                    "Command Board",
+			"section.command_board.loading":                  "Loading...",
+			"section.command_board.unavailable":              "Unable to load command board",
+			"command_board.kpi.targets":                      "Animals",
+			"command_board.kpi.targets_dl":                   "Distinct animals in program",
+			"command_board.kpi.missed":                       "Missed",
+			"command_board.kpi.missed_dl":                    "Dose window closed unvaccinated",
+			"command_board.shed_vaccine.title":               "Shed × Vaccine",
+			"command_board.shed_vaccine.meta":                "Red = goats not vaccinated yet, past their due date. All doses of that vaccine counted together. Click a red box to see which goats.",
+			"command_board.shed_vaccine.column.shed":         "Shed",
+			"command_board.shed_vaccine.state.behind":        "Goats not done",
+			"command_board.shed_vaccine.cell.behind_unit":    "goats",
+			"command_board.shed_vaccine.state.ok":            "All done",
+			"command_board.shed_vaccine.state.not_planned":   "Not given in this shed",
+			"command_board.shed_vaccine.summary_behind":      "sheds have goats pending",
+			"command_board.shed_vaccine.summary_clean":       "Every shed is up to date on every vaccine",
+			"command_board.shed_vaccine.drawer.behind_of":    "behind, of",
+			"command_board.shed_vaccine.drawer.column.due":   "Was due",
+			"command_board.shed_vaccine.cell.verifying_unit": "pending",
+			"command_board.shed_vaccine.state.verifying":     "Video check pending",
+			"command_board.shed_vaccine.drawer.verifying_of": "given and waiting for video check, of",
+			"command_board.shed_vaccine.drawer.no_video":     "No video uploaded",
+			"command_board.shed_vaccine.drawer.shed_videos":  "Shed video",
+			"command_board.shed_vaccine.drawer.clip":         "Clip",
+			"command_board.shed_vaccine.drawer.truncated":    "Showing the longest-waiting animals only — the count above is the full figure.",
+			"command_board.pending_sheds.title":              "Pending vaccines by shed",
+			"command_board.pending_sheds.meta":               "Only missed and verification-pending vaccines, grouped by shed.",
+			"command_board.pending_sheds.empty":              "No shed has a pending vaccine in this scope.",
+			"command_board.pending_sheds.column.shed":        "Shed",
+			"command_board.pending_sheds.column.park":        "Park",
+			"command_board.pending_sheds.column.vaccines":    "Pending vaccines",
+			"command_board.pending_sheds.state.behind":       "missed",
+			"command_board.pending_sheds.state.verifying":    "awaiting verification",
+			"command_board.kpi.verified":                     "Verified",
+			"command_board.kpi.verified_dl":                  "Operator done + verifier accepted",
+			"command_board.kpi.awaiting_verification":        "Awaiting Verification",
+			"command_board.kpi.awaiting_dl":                  "Given · proof uploaded · in queue",
+			"command_board.kpi.overdue":                      "Overdue",
+			"command_board.kpi.overdue_dl":                   "Not given",
+			"command_board.kpi.scheduled_ahead":              "Scheduled Ahead",
+			"command_board.kpi.scheduled_dl":                 "Future drives",
+			"command_board.cohort_matrix.title":              "Cohort Vaccine Matrix",
+			// The cohort grid loads after the rest of the board (its three reads alone exceeded the
+			// endpoint's latency budget), so these three cover the gap and its two failure modes.
+			// An empty grid during the wait would read as "this tenant has no cohorts", which is a
+			// different and far more alarming fact than "still loading".
+			"command_board.cohort_matrix.loading": "Loading cohort matrix…",
+			// The shed grid is likewise loaded after first paint. Interning its payload cut it from
+			// 408KB to 155KB and the board's p90 barely moved, so the section itself had to move.
+			"command_board.shed_dose_matrix.loading":           "Loading shed matrix…",
+			"command_board.shed_dose_matrix.unavailable":       "Shed matrix is unavailable right now. The rest of the board is up to date.",
+			"command_board.shed_dose_matrix.empty":             "No shed obligations in this scope",
+			"command_board.cohort_matrix.unavailable":          "Cohort matrix is unavailable right now. The rest of the board is up to date.",
 			"command_board.cohort_matrix.column.stage":         "Stage",
 			"command_board.cohort_matrix.column.sex":           "Sex",
 			"command_board.cohort_matrix.column.animals":       "Animals",
@@ -2609,6 +2637,97 @@ func pageSpecificCopy(id string) map[string]string {
 			"required.hint.create": "Business name, record type, contact person, phone number, state, city and status are required.",
 			"disabled.write":       "Your current role can view vendors but not change them.",
 		}
+	case "sales-loads":
+		// Load by load -- the per-load reconciliation page under Sales (maintainer decision
+		// 2026-08-31). Farm language only, like every other page's copy.
+		return map[string]string{
+			"crumb": "Sales",
+
+			// The page's own copy. Two tabs, Purchased (loads) and Farm born (a shell until that
+			// view is built). All backend-owned; the client renders it verbatim.
+			"tab.purchased":                    "Purchased",
+			"tab.farm_born":                    "Farm born",
+			"section.loadwise.title":           "Load by load",
+			"page.tabs.aria":                   "Purchased or farm born",
+			"section.loadwise.aria":            "Load-wise reconciliation",
+			"section.loadwise.subtitle":        "Every purchased load reconciled: bought, sold, died, still on farm — and the money on each side.",
+			"section.loadwise.showing":         "Showing the newest loads",
+			"empty.loadwise":                   "No purchased loads yet. Loads appear here as source entry accepts them into the herd.",
+			"empty.farm_born":                  "Sales of farm-born animals will show here. This view is not built yet.",
+			"loadwise.kpi.purchased":           "Purchased",
+			"loadwise.kpi.sold":                "Sold",
+			"loadwise.kpi.mortality":           "Mortality",
+			"loadwise.kpi.remaining":           "Still on farm",
+			"loadwise.kpi.purchase_value":      "Purchase value",
+			"loadwise.kpi.purchase_value.hint": "recorded costs only",
+			"loadwise.kpi.sold_value":          "Sold value",
+			"loadwise.kpi.sold_value.hint":     "from sales with tagged animals",
+			"loadwise.kpi.profit":              "Profit / loss",
+			"loadwise.kpi.profit.hint":         "sales plus stock on farm, against what the loads cost",
+			"chart.loadwise_counts.title":      "Animals per load",
+			"chart.loadwise_counts.empty":      "No loads to chart yet.",
+			"chart.loadwise_value.title":       "Money per load",
+			"chart.loadwise_value.empty":       "No load has a recorded cost or a priced sale yet.",
+			"chart.series.purchased":           "Purchased",
+			"chart.series.sold_count":          "Sold",
+			"chart.series.mortality":           "Mortality",
+			"chart.series.remaining":           "Remaining",
+			"chart.series.purchase_value":      "Purchase value",
+			"chart.series.sold_value":          "Sold value",
+			"chart.series.profit_loss":         "Profit / loss",
+			"column.load":                      "Load",
+			"column.purchased":                 "Purchased",
+			"column.sold":                      "Sold",
+			"column.mortality":                 "Mortality",
+			// Kept as copy even though the table no longer carries a column for it: culled /
+			// transferred / lost are real exits, and the load-cost drawer still names them so the
+			// fact is never silently dropped from a load that has one.
+			"column.other_exits":    "Other exits",
+			"column.remaining":      "Remaining",
+			"column.unaccounted":    "Unaccounted",
+			"column.purchase_value": "Purchase value",
+			"column.sold_value":     "Sold value",
+			"column.profit_loss":    "Profit / loss",
+			// Still published: the drawer names the stock figure the profit is partly made of, and
+			// the table's profit cell explains an unrealised figure with it.
+			"column.remaining_value":  "Remaining stock value (est.)",
+			"value.profit_unrealised": "includes stock still on farm, not yet sold",
+			// The profit of a load that has sold nothing IS its stock valuation, so the number that
+			// produced it is shown beside it rather than hidden in a tooltip.
+			"value.profit_incl_stock":      "incl. stock",
+			"loadwise.stock_price_note":    "Animals not yet sold are valued at",
+			"loadwise.stock_price_each":    "each",
+			"loadwise.stock_price_unknown": "Animals not yet sold cannot be valued: nothing has sold yet to price them against.",
+			"value.profit_unavailable":     "No cost recorded, so profit cannot be worked out.",
+			"value.cost_missing":           "Cost not recorded",
+			"value.price_basis.load":       "at this load's own average sold price",
+			"value.price_basis.overall":    "at the overall average sold price",
+			// The third basis, and the one a fresh tenant hits FIRST: with no sale anywhere there is
+			// no price to value stock at. It must be published like the other two -- the renderer
+			// resolves this key from price_basis, so an unpublished value takes the page down.
+			"value.price_basis.none":         "no sale yet to price them against",
+			"value.sold_unpriced":            "sold without a tagged sale",
+			"loadwise.row_hint":              "click a load to record its cost",
+			"loadwise.prior.title":           "Before these records",
+			"loadwise.prior.sold":            "Sold earlier",
+			"loadwise.prior.died":            "Died earlier",
+			"loadwise.prior.animals":         "animals",
+			"drawer.load_cost.title":         "Record load cost",
+			"field.animal_cost":              "Animal cost",
+			"field.transport_cost":           "Transport cost",
+			"field.other_cost":               "Other cost",
+			"hint.load_cost":                 "What this load cost to buy and bring in. Animal cost is required; transport and other are optional.",
+			"action.record_load_cost.label":  "Record cost",
+			"action.load_cost_recorded":      "Load cost recorded.",
+			"action.load_cost_record_failed": "Could not record this cost. Check the fields and try again.",
+			"disabled.load_cost":             "Recording a load's cost needs the buying desk's access.",
+
+			// Shared chrome this page renders itself, no longer inherited from the board.
+			"value.none":   "Not recorded",
+			"error.load":   "This page could not be loaded. Try again in a moment.",
+			"action.close": "Close",
+		}
+
 	case "feed-purchases":
 		// Backend-owned copy for the feed purchase ledger. The client renders these verbatim; per
 		// the golden rule it must not hardcode a label, an empty state or a disabled reason of its
@@ -2636,11 +2755,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"column.per_kg_cost":    "Per kg",
 			"column.vendor":         "Vendor",
 			"column.payment_status": "Payment",
-			"column.entry_source":   "Recorded",
-			"value.entry_app":       "In app",
-			"value.entry_sheet":     "From the feed book",
-			"empty.purchases":       "No feed purchases match this view.",
-			"empty.purchases.unset": "No feed purchases recorded yet. Record the first load to start the ledger.",
+			// The money still owed on the load, so a pending row answers "how much" without opening it.
+			"column.payment_balance": "Remaining",
+			"column.entry_source":    "Recorded",
+			"value.entry_app":        "In app",
+			"value.entry_sheet":      "From the feed book",
+			"empty.purchases":        "No feed purchases match this view.",
+			"empty.purchases.unset":  "No feed purchases recorded yet. Record the first load to start the ledger.",
 
 			// Filters and paging.
 			"filter.farm":      "Farm",
@@ -2672,17 +2793,42 @@ func pageSpecificCopy(id string) map[string]string {
 			"required.hint":                     "Date, farm, feed, quantity, vendor and payment status are required.",
 			"hint.batch_no":                     "Leave blank to record this as the next load of this feed at this farm.",
 			"hint.total_cost":                   "Leave blank to add up the feed, transport, loading and unloading costs entered above.",
-			"value.none":                        "—",
-			"action.save":                       "Save",
-			"action.saving":                     "Saving...",
-			"action.cancel":                     "Cancel",
-			"action.close":                      "Close",
-			"action.purchase_recorded":          "Feed purchase recorded.",
-			"action.purchase_record_failed":     "Could not record this purchase. Check the fields and try again.",
-			"action.error_form":                 "Could not complete that action.",
-			"error.load":                        "Could not load the feed purchase ledger. Refresh to try again.",
-			"error.options":                     "Could not load the purchase form options. Refresh to try again.",
-			"disabled.write":                    "Your current role can view feed purchases but not record them.",
+
+			// Payment section of the detail drawer: instalment history, running totals, and the
+			// add-payment / status-edit controls.
+			"section.payments.title":              "Payments",
+			"payments.paid_so_far":                "Paid so far",
+			"payments.balance":                    "Balance to pay",
+			"payments.empty":                      "No payments recorded against this load yet.",
+			"payments.column.paid_on":             "Paid on",
+			"payments.column.amount":              "Amount",
+			"payments.column.note":                "Note",
+			"field.paid_on":                       "Paid on",
+			"field.amount_rupees":                 "Amount paid",
+			"field.note":                          "Note",
+			"hint.record_payment":                 "Record each amount as it is handed over — the balance and payment status update themselves.",
+			"action.record_feed_payment.label":    "Add payment",
+			"action.update_payment_status.label":  "Update status",
+			"action.edit_feed_purchase.label":     "Edit purchase",
+			"drawer.edit.title":                   "Edit this purchase",
+			"hint.edit_identity":                  "Farm, feed and load number cannot be changed — record a new load if those are wrong.",
+			"action.purchase_updated":             "Purchase updated.",
+			"action.purchase_update_failed":       "Could not update this purchase. Check the fields and try again.",
+			"action.payment_recorded":             "Payment recorded.",
+			"action.payment_record_failed":        "Could not record this payment. Check the fields and try again.",
+			"action.payment_status_updated":       "Payment status updated.",
+			"action.payment_status_update_failed": "Could not update the payment status. Try again.",
+			"value.none":                          "—",
+			"action.save":                         "Save",
+			"action.saving":                       "Saving...",
+			"action.cancel":                       "Cancel",
+			"action.close":                        "Close",
+			"action.purchase_recorded":            "Feed purchase recorded.",
+			"action.purchase_record_failed":       "Could not record this purchase. Check the fields and try again.",
+			"action.error_form":                   "Could not complete that action.",
+			"error.load":                          "Could not load the feed purchase ledger. Refresh to try again.",
+			"error.options":                       "Could not load the purchase form options. Refresh to try again.",
+			"disabled.write":                      "Your current role can view feed purchases but not record them.",
 		}
 	case "sales":
 		// Backend-owned copy for the sales page. The client renders these verbatim; per the golden
@@ -2842,23 +2988,44 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// Record-sale drawer.
 			"action.record_sale.label": "Record sale",
-			"drawer.record_sale.title": "Record a sale",
-			"drawer.detail.title":      "Sale details",
-			"field.sale_date":          "Sale date",
-			"field.farm":               "Farm",
-			"field.product_type":       "Product",
-			"field.breed":              "Breed",
-			"field.vendor":             "Vendor",
-			"field.buyer_name":         "Buyer name",
-			"field.buyer_place":        "Buyer place",
-			"field.animal_count":       "Animals",
-			"field.male_count":         "Males",
-			"field.female_count":       "Females",
-			"field.total_weight_kg":    "Total weight (kg)",
-			"field.sales_value":        "Sale value",
-			"field.advance_amount":     "Advance received",
-			"field.comments":           "Comments",
-			"required.hint":            "Sale date, farm, product, breed, vendor, buyer name and sale value are required.",
+			// Payments section of the deal drawer: receipts, running totals, and the add-payment
+			// control. A buyer pays in parts — an advance, more on pickup, the balance later.
+			"section.payments.title":           "Payments",
+			"payments.received_so_far":         "Received so far",
+			"payments.balance":                 "Balance to receive",
+			"payments.empty":                   "No payments recorded against this deal yet.",
+			"payments.column.received_on":      "Received on",
+			"payments.column.amount":           "Amount",
+			"payments.column.note":             "Note",
+			"field.received_on":                "Received on",
+			"field.amount_rupees":              "Amount received",
+			"field.note":                       "Note",
+			"hint.record_payment":              "Record each amount as the buyer hands it over — the balance updates itself.",
+			"action.record_deal_payment.label": "Add payment",
+			"field.status":                     "Deal status",
+			"hint.status":                      "Leave as Deal Closed for a finished sale. Pick Advance Paid or In Discussion to record an expected sale — close it on the day the animals leave.",
+			"action.update_deal_status.label":  "Update status",
+			"action.deal_status_updated":       "Deal status updated.",
+			"action.deal_status_update_failed": "Could not update the deal status. Try again.",
+			"action.payment_recorded":          "Payment recorded.",
+			"action.payment_record_failed":     "Could not record this payment. Check the fields and try again.",
+			"drawer.record_sale.title":         "Record a sale",
+			"drawer.detail.title":              "Sale details",
+			"field.sale_date":                  "Sale date",
+			"field.farm":                       "Farm",
+			"field.product_type":               "Product",
+			"field.breed":                      "Breed",
+			"field.vendor":                     "Vendor",
+			"field.buyer_name":                 "Buyer name",
+			"field.buyer_place":                "Buyer place",
+			"field.animal_count":               "Animals",
+			"field.male_count":                 "Males",
+			"field.female_count":               "Females",
+			"field.total_weight_kg":            "Total weight (kg)",
+			"field.sales_value":                "Sale value",
+			"field.advance_amount":             "Advance received",
+			"field.comments":                   "Comments",
+			"required.hint":                    "Sale date, farm, product, breed, vendor, buyer name and sale value are required.",
 			// The vendor select's own copy. Farm language, and it must name WHERE to go: a
 			// required select the person cannot fill is a dead end without it.
 			"select.vendor.placeholder": "Choose the vendor",
@@ -3883,7 +4050,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"spend.quarter.sub":              "Rolling 92 days",
 			"spend.year.label":               "Spent this year",
 			"spend.year.sub":                 "From January 1st",
-			"chart.spend.hint":               "Directed kg priced at each feed's most recent load rate · ₹ per day",
+			"chart.spend.hint":               "Directed kg priced at each feed's most recent load rate · ₹ per day · from 11-08-2026",
 			"unit.rupees":                    "₹",
 			"col.pens":                       "Pens",
 			"col.kg":                         "kg / day",
@@ -3934,38 +4101,52 @@ func pageSpecificCopy(id string) map[string]string {
 			// Feed direction completion (maintainer decision 2026-08-26): who fed, who did not, and
 			// what they filmed. Farm words only -- the reader sees "Nobody fed this pen", never a
 			// status enum.
-			"completion.title":               "Feed direction completion",
-			"completion.hint":                "Every pen the sheet directed for the chosen day, and whether the feeding was filmed and approved. Open a row to see each video's time and who uploaded it.",
-			"completion.empty":               "No feed sheet was issued for this day, so there was nothing to feed.",
-			"completion.empty_filtered":      "No pens match these filters on this day.",
-			"completion.date.label":          "Feed day",
-			"completion.date.aria":           "Choose which day's feeding the table shows",
-			"completion.filter.shed":         "Shed",
-			"completion.filter.status":       "Status",
-			"col.completion.park":            "Farm",
-			"col.completion.pen":             "Pen",
-			"col.completion.session":         "Session",
-			"col.completion.status":          "Status",
-			"col.completion.videos":          "Videos",
-			"col.completion.who":             "Submitted by",
-			"col.completion.when":            "Submitted at",
-			"completion.status.not_started":  "Nobody fed this pen",
-			"completion.status.await":        "Waiting for review",
-			"completion.status.rework":       "Sent back to refilm",
-			"completion.status.completed":    "Fed and approved",
-			"completion.kpi.not_started":     "Not fed",
-			"completion.kpi.await":           "Waiting for review",
-			"completion.kpi.rework":          "Sent back",
-			"completion.kpi.completed":       "Fed and approved",
-			"completion.kpi.sub":             "pens this day",
-			"completion.slot.weight":         "Weighed feed photo",
-			"completion.slot.feed":           "Feeding video",
-			"completion.slot.water":          "Water video",
-			"completion.slot.missing":        "Not recorded",
-			"completion.slot.no_name":        "Uploader not recorded",
-			"completion.videos.count":        "{done} of 3",
-			"completion.action.details":      "View details",
-			"completion.pager.noun":          "pen",
+			"completion.title":              "Feed direction completion",
+			"completion.hint":               "Every pen the sheet directed for the chosen day, and whether the feeding was filmed and approved. Open a row to see each video's time and who uploaded it.",
+			"completion.empty":              "No feed sheet was issued for this day, so there was nothing to feed.",
+			"completion.empty_filtered":     "No pens match these filters on this day.",
+			"completion.date.label":         "Feed day",
+			"completion.date.aria":          "Choose which day's feeding the table shows",
+			"completion.filter.shed":        "Shed",
+			"completion.filter.status":      "Status",
+			"col.completion.park":           "Farm",
+			"col.completion.pen":            "Pen",
+			"col.completion.session":        "Session",
+			"col.completion.status":         "Status",
+			"col.completion.videos":         "Videos",
+			"col.completion.who":            "Submitted by",
+			"col.completion.when":           "Submitted at",
+			"completion.status.not_started": "Nobody fed this pen",
+			"completion.status.await":       "Waiting for review",
+			"completion.status.rework":      "Sent back to refilm",
+			"completion.status.completed":   "Fed and approved",
+			"completion.kpi.not_started":    "Not fed",
+			"completion.kpi.await":          "Waiting for review",
+			"completion.kpi.rework":         "Sent back",
+			"completion.kpi.completed":      "Fed and approved",
+			"completion.kpi.sub":            "pens this day",
+			"completion.slot.weight":        "Weighed feed photo",
+			"completion.slot.feed":          "Feeding video",
+			"completion.slot.water":         "Water video",
+			"completion.slot.missing":       "Not recorded",
+			"completion.slot.no_name":       "Uploader not recorded",
+			"completion.videos.count":       "{done} of 3",
+			"completion.action.details":     "View details",
+			"completion.pager.noun":         "pen",
+
+			// The overview's per-pen feed-mix table: every shed and pen across the
+			// farms, with the feed items and kg the sheet directed there over the
+			// LAST 7 DAYS (its own window, independent of the page's range chips).
+			"shedfeed.title":                 "Feed by shed — last 7 days",
+			"shedfeed.hint":                  "What each pen was directed over the last 7 days, by feed item — directed kg, up to yesterday",
+			"shedfeed.empty":                 "No feed sheet was issued in the last 7 days, so there is nothing to show.",
+			"shedfeed.empty_filtered":        "No pens match these filters.",
+			"shedfeed.filter.item":           "Feed item",
+			"shedfeed.filter.shed":           "Shed",
+			"shedfeed.pager.noun":            "pen",
+			"col.shedfeed.park":              "Farm",
+			"col.shedfeed.pen":               "Shed / pen",
+			"col.shedfeed.items":             "Feed given (kg, 7 days)",
 			"drawer.completion.aria":         "Feeding detail",
 			"drawer.completion.close_label":  "Close feeding detail",
 			"drawer.completion.eyebrow":      "Feed direction",
@@ -5148,7 +5329,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.guided.safety_title":                     "Automatic safety rules",
 			"modal.rule_editor.guided.read_only":                        "read-only",
 			"modal.rule_editor.guided.safety_hint":                      "These come from Vaccination Rules and are not tweakable here.",
-			"modal.rule_editor.guided.safety_max_shots":                 "Max 2 vaccines per animal per doctor visit.",
+			"modal.rule_editor.guided.safety_max_shots":                 "Max 3 vaccines per animal per doctor visit.",
 			"modal.rule_editor.guided.safety_live_live":                 "Live-to-live minimum gap is 28 days.",
 			"modal.rule_editor.guided.safety_killed_live":               "Live/killed and killed/killed spacing is 14 days unless same-day class rule permits it.",
 			"modal.rule_editor.guided.safety_pregnancy":                 "Pregnancy months 4 and 5 skip vaccination; catch up within 14 days after delivery.",
@@ -5704,6 +5885,18 @@ func pageSpecificCopy(id string) map[string]string {
 func salesOptionGroups() []domain.OptionGroup {
 	return []domain.OptionGroup{
 		{
+			// Mirrors sales/domain.Statuses -- the sheet's four lifecycle words. Kept as literals
+			// rather than an import, exactly as the feed payment group is: the contract compiler
+			// must not depend on a feature module's package. Tones follow dealStatusTone.
+			ID: "sales_deal_statuses",
+			Options: []domain.Option{
+				option("Deal Closed", "Deal Closed", "", "ok"),
+				option("Deal Failed", "Deal Failed", "", "dng"),
+				option("In Discussion", "In Discussion", "", "info"),
+				option("Advance Paid", "Advance Paid", "", "warn"),
+			},
+		},
+		{
 			ID: "sales_farms",
 			Options: []domain.Option{
 				option("all", "All farms", "", ""),
@@ -5885,6 +6078,18 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		})
 	case "sales":
 		return withGenericOptionGroups(salesOptionGroups())
+	case "sales-loads":
+		return withGenericOptionGroups([]domain.OptionGroup{
+			{
+				// The page's two tabs, in the order shown: Purchased first, and it is the tab the
+				// page selects when the URL names none.
+				ID: "sales_views",
+				Options: []domain.Option{
+					option("purchased", "Purchased", "", ""),
+					option("farm_born", "Farm born", "", ""),
+				},
+			},
+		})
 	case "health-config":
 		return withGenericOptionGroups(healthConfigOptionGroups())
 	case "control-tower":
@@ -6471,7 +6676,7 @@ func configOptionGroups() []domain.OptionGroup {
 				option("Goat Pox", "Goat Pox", "vaccine_type=live|pathogen_class=viral|course_type=single|disease=Goat Pox|compatibility_group=Goat Pox|weeks=16|revaccination_days=365|dose_amount=1|vial_doses=25|species=goat", "goat"),
 				option("FMD", "FMD", "vaccine_type=killed|pathogen_class=viral|course_type=single|disease=Foot and mouth disease|compatibility_group=FMD|weeks=12|revaccination_days=274|dose_amount=1|vial_doses=30|species=all", "info"),
 				option("HS", "HS", "vaccine_type=killed|pathogen_class=bacterial|course_type=single|disease=Haemorrhagic septicaemia|compatibility_group=HS|weeks=12|revaccination_days=365|dose_amount=2|vial_doses=100|species=all", "info"),
-				option("Blue Tongue", "Blue Tongue", "vaccine_type=killed|pathogen_class=viral|course_type=booster|disease=Blue Tongue|compatibility_group=Blue Tongue|weeks=16,20|revaccination_days=365|dose_amount=2|vial_doses=100|species=sheep", "sheep"),
+				option("Blue Tongue", "Blue Tongue", "vaccine_type=killed|pathogen_class=viral|course_type=booster|disease=Blue Tongue|compatibility_group=Blue Tongue|weeks=16,19|revaccination_days=365|dose_amount=2|vial_doses=100|species=sheep", "sheep"),
 				option("Sheep Pox", "Sheep Pox", "vaccine_type=live|pathogen_class=viral|course_type=single|disease=Sheep Pox|compatibility_group=Sheep Pox|weeks=12|revaccination_days=365|dose_amount=1|vial_doses=100|species=sheep", "sheep"),
 			},
 		},
@@ -7787,6 +7992,10 @@ func capacityOptionGroup() domain.OptionGroup {
 
 func humanLabel(key string) string {
 	switch key {
+	// Two words that are alternatives, not a compound: the default humanisation renders
+	// "Profit loss", which reads as one thing rather than either-or.
+	case "profit_loss":
+		return "Profit / loss"
 	case "goat_id":
 		return "Goat ID"
 	case "display_id":

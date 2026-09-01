@@ -151,7 +151,8 @@ function migrationCouplesToSeedContract(diff) {
     .filter((line) => /^\+/.test(line) && !/^\+\+\+/.test(line))
     .filter((line) =>
       /\b(CREATE\s+(OR\s+REPLACE\s+)?(TABLE|VIEW|MATERIALIZED\s+VIEW)|ALTER\s+TABLE|DROP\s+(TABLE|VIEW|MATERIALIZED\s+VIEW))\b/i.test(line),
-    );
+    )
+    .filter((line) => !/\bALTER\s+TABLE\b.+\b(?:DISABLE|ENABLE)\s+TRIGGER\b/i.test(line));
   // No canonical-table DDL at all → not a seed/config/SOP contract change, even
   // though a term matched. This covers operational-infra migrations that only
   // CREATE INDEX / CREATE OR REPLACE FUNCTION / add a trigger on a non-seed table

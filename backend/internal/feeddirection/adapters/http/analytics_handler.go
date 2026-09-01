@@ -667,3 +667,66 @@ func (h *Handler) GetStockAnalytics(w http.ResponseWriter, r *http.Request) {
 	dto.Spend = spendSummaryDTO(result.Spend)
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }
+
+type shedFeedItemDTO struct {
+	FeedItemLabel string `json:"feed_item_label"`
+	FeedItemKey   string `json:"feed_item_key"`
+	DirectedKg    string `json:"directed_kg"`
+}
+
+type shedFeedPenRowDTO struct {
+	ParkID    string `json:"park_id"`
+	ParkLabel string `json:"park_label"`
+	ShedID    string `json:"shed_id"`
+	ShedLabel string `json:"shed_label"`
+	// PartitionLabel is the human label; empty for an undivided shed. The
+	// display below is backend-composed (oploc) and rendered verbatim.
+	PartitionLabel             string            `json:"partition_label"`
+	OperationalLocationDisplay string            `json:"operational_location_display"`
+	Items                      []shedFeedItemDTO `json:"items"`
+	DirectedKg                 string            `json:"directed_kg"`
+}
+
+type shedFeedAnalyticsDTO struct {
+	DateFrom string              `json:"date_from"`
+	DateTo   string              `json:"date_to"`
+	Rows     []shedFeedPenRowDTO `json:"rows"`
+}
+
+// GetShedFeedAnalytics serves GET /feed-analytics/shed-feed: the overview
+// table's per-pen feed mix over the window (default the 30 days ending
+// yesterday; the admin-web table asks for its own 7-day window explicitly).
+func (h *Handler) GetShedFeedAnalytics(w http.ResponseWriter, r *http.Request) {
+	in, ok := h.analyticsInput(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.service.ShedFeedAnalytics(r.Context(), in)
+	if err != nil {
+		h.writeServiceError(w, r, "feed analytics shed feed", err)
+		return
+	}
+	from, to := domain.ClampAnalyticsWindow(in.DateFrom, in.DateTo)
+	dto := shedFeedAnalyticsDTO{
+		DateFrom: from.Format("2006-01-02"),
+		DateTo:   to.Format("2006-01-02"),
+		Rows:     make([]shedFeedPenRowDTO, 0, len(result.Rows)),
+	}
+	for _, row := range result.Rows {
+		items := make([]shedFeedItemDTO, 0, len(row.Items))
+		for _, it := range row.Items {
+			items = append(items, shedFeedItemDTO(it))
+		}
+		dto.Rows = append(dto.Rows, shedFeedPenRowDTO{
+			ParkID:                     row.ParkID,
+			ParkLabel:                  row.ParkLabel,
+			ShedID:                     row.ShedID,
+			ShedLabel:                  row.ShedLabel,
+			PartitionLabel:             row.PartitionLabel,
+			OperationalLocationDisplay: row.OperationalLocationDisplay,
+			Items:                      items,
+			DirectedKg:                 row.DirectedKg,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, dto)
+}

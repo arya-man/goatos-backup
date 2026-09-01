@@ -20,10 +20,14 @@ import (
 )
 
 type fakeReader struct {
-	operatorCfg         *vaccexecapp.OperatorAssignmentConfigView
-	lastOperatorCfgPark string
-	parks               []domain.ParkOption
-	parksErr            error
+	lastDrilldownQuery    domain.CommandBoardDrilldownQuery
+	lastShedVaccineQuery  domain.CommandBoardShedVaccineAnimalsQuery
+	lastCohortCellQuery   domain.CommandBoardCohortCellQuery
+	lastDriveOptionsQuery domain.CommandBoardDriveOptionsQuery
+	operatorCfg           *vaccexecapp.OperatorAssignmentConfigView
+	lastOperatorCfgPark   string
+	parks                 []domain.ParkOption
+	parksErr              error
 
 	rows          []domain.ExecutionRow
 	executionPage domain.ExecutionResponse
@@ -61,6 +65,51 @@ type fakeReader struct {
 func (f *fakeReader) VaccinationCommandBoard(_ context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
 	f.lastCommandBoard = q
 	return domain.CommandBoardResponse{}, nil
+}
+
+// The command-board drilldowns. These fakes record the query so the park-scope tests can assert
+// that the CLAMPED park reached the reader, which is the property that must not be lost when an
+// endpoint is split into several routes.
+
+func (f *fakeReader) CommandBoardCohortMatrix(_ context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardCohortMatrixPage, error) {
+	f.lastDrilldownQuery = q
+	return domain.CommandBoardCohortMatrixPage{Cells: []domain.CommandBoardCohortCell{}}, nil
+}
+
+func (f *fakeReader) CommandBoardShedDoseMatrix(_ context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardShedDoseMatrixPage, error) {
+	f.lastDrilldownQuery = q
+	return domain.CommandBoardShedDoseMatrixPage{}, nil
+}
+
+func (f *fakeReader) CommandBoardClosedWithoutDoseAnimals(_ context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error) {
+	f.lastDrilldownQuery = q
+	return domain.CommandBoardClosedWithoutDosePage{Animals: []domain.CommandBoardClosedWithoutDoseAnimal{}}, nil
+}
+
+func (f *fakeReader) CommandBoardShedVaccineAnimals(_ context.Context, q domain.CommandBoardShedVaccineAnimalsQuery) (domain.CommandBoardShedVaccineAnimalsPage, error) {
+	f.lastDrilldownQuery = q.CommandBoardDrilldownQuery
+	f.lastShedVaccineQuery = q
+	return domain.CommandBoardShedVaccineAnimalsPage{
+		Animals:     []domain.CommandBoardShedVaccineAnimal{},
+		ProofVideos: []domain.CommandBoardShedVideo{},
+	}, nil
+}
+
+func (f *fakeReader) CommandBoardCohortExceptions(_ context.Context, q domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortExceptionsPage, error) {
+	f.lastDrilldownQuery = q.CommandBoardDrilldownQuery
+	f.lastCohortCellQuery = q
+	return domain.CommandBoardCohortExceptionsPage{Animals: []domain.CommandBoardCohortAnimal{}}, nil
+}
+
+func (f *fakeReader) CommandBoardCohortDays(_ context.Context, q domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortDaysPage, error) {
+	f.lastDrilldownQuery = q.CommandBoardDrilldownQuery
+	f.lastCohortCellQuery = q
+	return domain.CommandBoardCohortDaysPage{Days: []domain.CommandBoardCohortDay{}}, nil
+}
+
+func (f *fakeReader) CommandBoardDriveOptions(_ context.Context, q domain.CommandBoardDriveOptionsQuery) (domain.CommandBoardDriveOptionsPage, error) {
+	f.lastDriveOptionsQuery = q
+	return domain.CommandBoardDriveOptionsPage{Options: []domain.CommandBoardDriveOption{}}, nil
 }
 
 func (f *fakeReader) LiveTracker(_ context.Context, q domain.LiveTrackerQuery) (domain.LiveTrackerResponse, error) {

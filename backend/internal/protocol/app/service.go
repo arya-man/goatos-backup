@@ -37,6 +37,11 @@ func (s *Service) GetVersion(ctx context.Context, tenantID, versionID string) (d
 	return s.repo.GetVersion(ctx, tenantID, versionID)
 }
 
+// ListRules returns the derived rule rows for a protocol version.
+func (s *Service) ListRules(ctx context.Context, tenantID, versionID string) ([]domain.Rule, error) {
+	return s.repo.ListRules(ctx, tenantID, versionID)
+}
+
 // AddRule appends a dose/phase rule to a draft version.
 func (s *Service) AddRule(ctx context.Context, in domain.NewRule) (string, error) {
 	if err := rejectUnknownSexInEligibilityJSON(in.EligibilityJSON); err != nil {

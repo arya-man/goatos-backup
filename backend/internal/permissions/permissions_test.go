@@ -131,6 +131,75 @@ func TestCriticalDeathExitRouteUsesDedicatedHealthPermission(t *testing.T) {
 	}
 }
 
+func TestSaleAllocationRoutesUseSalesPermissionsWithoutGoatIdentityAccess(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		permission string
+	}{
+		{
+			name:       "locations",
+			method:     "GET",
+			path:       "/admin/goats/sale-locations",
+			permission: SalesAllocateAnimals,
+		},
+		{
+			name:       "candidates",
+			method:     "GET",
+			path:       "/admin/goats/sale-candidates",
+			permission: SalesAllocateAnimals,
+		},
+		{
+			name:       "read allocation",
+			method:     "GET",
+			path:       "/admin/goats/sale-allocations/80000000-0000-4000-8000-000000000001",
+			permission: SalesAllocateAnimals,
+		},
+		{
+			name:       "preview",
+			method:     "POST",
+			path:       "/admin/goats/sale-allocations/preview",
+			permission: SalesAllocateAnimals,
+		},
+		{
+			name:       "confirm",
+			method:     "POST",
+			path:       "/admin/goats/sale-allocations/confirm",
+			permission: SalesAllocateAnimals,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			route, ok := Match(tt.method, tt.path)
+			if !ok {
+				t.Fatalf("%s %s is not registered", tt.method, tt.path)
+			}
+			if len(route.Permissions) != 1 || route.Permissions[0] != tt.permission {
+				t.Fatalf("permissions=%v, want [%s]", route.Permissions, tt.permission)
+			}
+			if !RolesAuthorize([]string{RoleProcurementDirector}, route.Permissions, route.AdminOnly) {
+				t.Fatalf("procurement_director should authorize %s", tt.name)
+			}
+			if RolesAuthorize([]string{RoleKey(TierManager, VerticalSales)}, route.Permissions, route.AdminOnly) {
+				t.Fatalf("sales manager must not inherit sale allocation herd-lifecycle authority through sales.write for %s", tt.name)
+			}
+			if RolesAuthorize([]string{RoleProcurementManager}, route.Permissions, route.AdminOnly) {
+				t.Fatalf("procurement_manager must not authorize %s", tt.name)
+			}
+		})
+	}
+
+	goatWriteRoute, ok := Match("POST", "/admin/goats/10000000-0000-4000-8000-000000000001/identity")
+	if !ok {
+		t.Fatal("identityGoat route is not registered")
+	}
+	if RolesAuthorize([]string{RoleProcurementDirector}, goatWriteRoute.Permissions, goatWriteRoute.AdminOnly) {
+		t.Fatal("procurement_director must not receive broad goat identity write access")
+	}
+}
+
 func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 	implemented := []struct {
 		method string
@@ -231,6 +300,8 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/protocols/versions/65000000-0000-4000-8000-000000000001"},
 		{"POST", "/protocols/versions/65000000-0000-4000-8000-000000000001/publish"},
 		{"POST", "/protocols/vaccination/impact-preview"},
+		{"POST", "/vaccination/anchors/preview"},
+		{"POST", "/vaccination/anchors"},
 		{"POST", "/vaccination/manual-campaigns"},
 		{"GET", "/action-center/obligations"},
 		{"GET", "/vaccination/action-center"},

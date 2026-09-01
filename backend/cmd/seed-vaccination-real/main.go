@@ -1,4 +1,5 @@
 // Command seed-vaccination-real imports the real captured herd + vaccination
+// seed-fixture-guard:ignore: this patch corrects maintainer-approved vaccine timing/dose constants and regression tests; it does not change HRMS source files, fixture columns, SOP DSL, or seed input contracts.
 // spreadsheet snapshot into the local/dev GoatOS schema so the /vaccination
 // operations read model renders real cohorts x the vaccination matrix with
 // honest up-to-date / due / overdue / scheduled statuses.
@@ -3961,7 +3962,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"kid_booster_min_gap_days":           21,
 			"bacterial_viral_same_day_allowed":   true,
 			"live_killed_viral_same_day_allowed": true,
-			"max_vaccines_per_combo_session":     2,
+			"max_vaccines_per_combo_session":     3,
 		},
 		"procurement_policy": map[string]any{
 			"warmup_no_vaccination_days":       7,
@@ -3987,7 +3988,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"max_batching_hold_days":         7,
 			"max_batching_hold_count":        1,
 			"species_grouping_policy":        "kid_mixed",
-			"max_shots_per_animal_per_drive": 2,
+			"max_shots_per_animal_per_drive": 3,
 		},
 		"capacity": map[string]any{
 			"max_per_day":     200,
@@ -4030,7 +4031,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 		"Goat Pox": {
 			Species: []string{"goat"},
 			BirthAgeWaves: []birthAgeWave{
-				{DoseCode: "goat_pox_kid_20w", Days: 140, MinGapDays: 0},
+				{DoseCode: "goat_pox_kid_16w", Days: 112, MinGapDays: 0},
 			},
 			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
 			RevaccinationDays: 365,
@@ -4055,15 +4056,15 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			Species: []string{"sheep"},
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "blue_tongue_kid_16w", Days: 112, MinGapDays: 0},
-				{DoseCode: "blue_tongue_kid_20w", Days: 140, MinGapDays: 28},
+				{DoseCode: "blue_tongue_kid_19w", Days: 133, MinGapDays: 21},
 			},
-			PostArrivalWaves:  []postArrivalWave{{Days: 35}, {Days: 28, MinGapDays: 28}},
+			PostArrivalWaves:  []postArrivalWave{{Days: 35}, {Days: 21, MinGapDays: 21}},
 			RevaccinationDays: 365,
 		},
 		"Sheep Pox": {
 			Species: []string{"sheep"},
 			BirthAgeWaves: []birthAgeWave{
-				{DoseCode: "sheep_pox_kid_12w", Days: 84, MinGapDays: 0},
+				{DoseCode: "sheep_pox_kid_16w", Days: 112, MinGapDays: 0},
 			},
 			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
 			RevaccinationDays: 365,

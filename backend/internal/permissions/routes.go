@@ -34,15 +34,15 @@ var protectedRoutes = []Route{
 	{OperationID: "exitGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/exit", Permissions: []string{GoatWriteIdentity}},
 	// Sale allocation: tag real animals to a recorded sale and exit them as sold.
 	//
-	// The two WRITES carry GoatWriteIdentity because that is exactly what they do -- the
-	// confirm applies the same canonical exit as the single-goat route above, so it can
-	// hold no weaker permission than that route does. Reading the picker is the same
-	// authority as reading the herd.
-	{OperationID: "listSaleLocations", Method: "GET", Pattern: "/admin/goats/sale-locations", Permissions: []string{GoatRead}},
-	{OperationID: "listSaleCandidates", Method: "GET", Pattern: "/admin/goats/sale-candidates", Permissions: []string{GoatRead}},
-	{OperationID: "getSaleAllocation", Method: "GET", Pattern: "/admin/goats/sale-allocations/{sales_deal_id}", Permissions: []string{GoatRead}},
-	{OperationID: "previewSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/preview", Permissions: []string{GoatWriteIdentity}},
-	{OperationID: "confirmSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/confirm", Permissions: []string{GoatWriteIdentity}},
+	// These routes are reachable from the Sales workspace, but they expose live herd identity
+	// picker data and confirm applies the canonical sold exit. Gate them on a narrower
+	// sale-allocation grant instead of SalesWrite, so recording a sales ledger row does not imply
+	// animal lifecycle mutation authority.
+	{OperationID: "listSaleLocations", Method: "GET", Pattern: "/admin/goats/sale-locations", Permissions: []string{SalesAllocateAnimals}},
+	{OperationID: "listSaleCandidates", Method: "GET", Pattern: "/admin/goats/sale-candidates", Permissions: []string{SalesAllocateAnimals}},
+	{OperationID: "getSaleAllocation", Method: "GET", Pattern: "/admin/goats/sale-allocations/{sales_deal_id}", Permissions: []string{SalesAllocateAnimals}},
+	{OperationID: "previewSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/preview", Permissions: []string{SalesAllocateAnimals}},
+	{OperationID: "confirmSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/confirm", Permissions: []string{SalesAllocateAnimals}},
 	{OperationID: "criticalDeathExitGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/critical-death-exit", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "stageGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/stage", Permissions: []string{GoatWriteIdentity}},
 	// Whole-pen cohort reclassification. CEO-only, and the PREVIEW is gated identically to the
@@ -279,6 +279,18 @@ var protectedRoutes = []Route{
 	{OperationID: "listFeedPurchases", Method: "GET", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
 	{OperationID: "createFeedPurchase", Method: "POST", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseWrite}},
 	{OperationID: "getFeedPurchaseOptions", Method: "GET", Pattern: "/procurement/feed-purchase-options", Permissions: []string{FeedPurchaseRead}},
+	// Instalment payments and the payment-status edit are money writes on the same ledger, so they
+	// carry the same write permission as recording the load itself.
+	{OperationID: "recordFeedPurchasePayment", Method: "POST", Pattern: "/procurement/feed-purchases/{purchase_id}/payments", Permissions: []string{FeedPurchaseWrite}},
+	{OperationID: "setFeedPurchasePaymentStatus", Method: "PUT", Pattern: "/procurement/feed-purchases/{purchase_id}/payment-status", Permissions: []string{FeedPurchaseWrite}},
+	{OperationID: "editFeedPurchase", Method: "PUT", Pattern: "/procurement/feed-purchases/{purchase_id}", Permissions: []string{FeedPurchaseWrite}},
+
+	// LOAD-WISE SALES (the Sales page's per-procurement-load reconciliation, maintainer decision
+	// 2026-08-31). The read is the Sales page's data, so it rides SalesRead; the cost entry is
+	// supplier money and carries the dedicated buying-desk permission, the same split feed
+	// purchases keep (see LoadCostWrite's doc comment).
+	{OperationID: "listLoadwiseSales", Method: "GET", Pattern: "/procurement/loadwise-sales", Permissions: []string{SalesRead}},
+	{OperationID: "setLoadCost", Method: "PUT", Pattern: "/procurement/loads/{load_id}/cost", Permissions: []string{LoadCostWrite}},
 
 	// TOXIN (maintainer decision 2026-08-25): the aflatoxin strip-test module. The task
 	// list and detail are ToxinRead; the step work is ToxinExecute; the verdict routes are
@@ -298,6 +310,10 @@ var protectedRoutes = []Route{
 	{OperationID: "listSalesOverview", Method: "GET", Pattern: "/sales/overview", Permissions: []string{SalesRead}},
 	{OperationID: "listSalesDeals", Method: "GET", Pattern: "/sales/deals", Permissions: []string{SalesRead}},
 	{OperationID: "createSalesDeal", Method: "POST", Pattern: "/sales/deals", Permissions: []string{SalesWrite}},
+	// A buyer receipt is a money write on the same ledger, so it carries the same write permission
+	// as recording the deal itself.
+	{OperationID: "recordSalesDealPayment", Method: "POST", Pattern: "/sales/deals/{deal_id}/payments", Permissions: []string{SalesWrite}},
+	{OperationID: "setSalesDealStatus", Method: "POST", Pattern: "/sales/deals/{deal_id}/status", Permissions: []string{SalesWrite}},
 	{OperationID: "listSalesBuyerLeads", Method: "GET", Pattern: "/sales/buyer-leads", Permissions: []string{SalesRead}},
 	{OperationID: "createSalesBuyerLead", Method: "POST", Pattern: "/sales/buyer-leads", Permissions: []string{SalesWrite}},
 	{OperationID: "setSalesBuyerLeadStatus", Method: "POST", Pattern: "/sales/buyer-leads/{lead_id}/status", Permissions: []string{SalesWrite}},
@@ -321,6 +337,8 @@ var protectedRoutes = []Route{
 	{OperationID: "discardProtocolVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/discard", Permissions: []string{ProtocolWrite}},
 	{OperationID: "replaceProtocolDraftVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/replace", Permissions: []string{ProtocolWrite}},
 	{OperationID: "vaccinationImpactPreview", Method: "POST", Pattern: "/protocols/vaccination/impact-preview", Permissions: []string{ProtocolRead}},
+	{OperationID: "previewVaccinationAnchor", Method: "POST", Pattern: "/vaccination/anchors/preview", Permissions: []string{ProtocolRead}},
+	{OperationID: "createVaccinationAnchor", Method: "POST", Pattern: "/vaccination/anchors", Permissions: []string{VaccinationCampaign}},
 	{OperationID: "runVaccinationManualCampaign", Method: "POST", Pattern: "/vaccination/manual-campaigns", Permissions: []string{VaccinationCampaign}},
 	{OperationID: "listActionCenterObligations", Method: "GET", Pattern: "/action-center/obligations", Permissions: []string{ObligationRead}},
 	{OperationID: "listVaccinationActionCenter", Method: "GET", Pattern: "/vaccination/action-center", Permissions: []string{ObligationRead, VaccinationRead}},
@@ -348,6 +366,17 @@ var protectedRoutes = []Route{
 	{OperationID: "listVaccinationExecution", Method: "GET", Pattern: "/vaccination/execution", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/vaccination/execution/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationCommandBoard", Method: "GET", Pattern: "/vaccination/command", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	// The command board's DRILLDOWNS and its paginated drive picker carry the SAME permissions as the
+	// board itself: they are the evidence behind numbers that principal can already read, split onto
+	// their own routes for cost, not for access. Anyone who may read the tile may read the animals
+	// behind it; nobody else reaches either.
+	{OperationID: "getCommandBoardCohortMatrix", Method: "GET", Pattern: "/vaccination/command/cohort-matrix", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardShedDoseMatrix", Method: "GET", Pattern: "/vaccination/command/shed-dose-matrix", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardClosedWithoutDose", Method: "GET", Pattern: "/vaccination/command/closed-without-dose", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardShedVaccineAnimals", Method: "GET", Pattern: "/vaccination/command/shed-vaccine-animals", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardCohortExceptions", Method: "GET", Pattern: "/vaccination/command/cohort-exceptions", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardCohortDays", Method: "GET", Pattern: "/vaccination/command/cohort-days", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardDriveOptions", Method: "GET", Pattern: "/vaccination/command/drives", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	// Live drive-day tracker: same park-scope authority and same permission triple as its command-board
 	// sibling — it is the same vaccination execution data at administration grain, read live.
 	{OperationID: "getVaccinationLiveTracker", Method: "GET", Pattern: "/vaccination/live-tracker", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
@@ -495,6 +524,27 @@ var protectedRoutes = []Route{
 	{OperationID: "listAppHealthWorkItems", Method: "GET", Pattern: "/app/health/work-items", Permissions: []string{HealthRead}},
 	{OperationID: "getAppHealthWorkItem", Method: "GET", Pattern: "/app/health/work-items/{health_session_id}", Permissions: []string{HealthRead}},
 	{OperationID: "completeAppHealthWorkItem", Method: "POST", Pattern: "/app/health/work-items/{health_session_id}/complete", Permissions: []string{HealthExecute}},
+	// The health SOP diagnosis engine. The permission split across these three
+	// routes IS the advisory boundary, and it is the reason they are separate
+	// routes at all:
+	//
+	//   HealthReport   the manager OBSERVES -- submitting proposes and opens nothing
+	//   HealthDiagnose the Director CONFIRMS -- only this opens a treatment course
+	//   HealthRead     reading a proposal back
+	//
+	// Collapsing submit and confirm onto one route would let whoever fills the
+	// form also authorise the treatment, which is exactly what the engine exists
+	// to prevent. Operators hold HealthReport and NOT HealthDiagnose.
+	{OperationID: "submitAppHealthObservation", Method: "POST", Pattern: "/app/health/observations", Permissions: []string{HealthReport}},
+	// The queue is a READ. A health manager may see that what they recorded is
+	// still waiting; only the confirm route below carries the decision authority.
+	{OperationID: "listAppHealthObservations", Method: "GET", Pattern: "/app/health/observations", Permissions: []string{HealthRead}},
+	{OperationID: "getAppHealthObservation", Method: "GET", Pattern: "/app/health/observations/{health_diagnosis_run_id}", Permissions: []string{HealthRead}},
+	{OperationID: "confirmAppHealthDiagnosis", Method: "POST", Pattern: "/app/health/observations/{health_diagnosis_run_id}/confirm", Permissions: []string{HealthDiagnose}},
+	// Closing a case (recovered / referred / canceled) is a clinical judgement, so it carries
+	// HealthDiagnose -- the same authority tier that opens a configured course, and the first
+	// route that permission gates (it was granted since 2026-07-30 with no surface behind it).
+	{OperationID: "closeAppHealthCase", Method: "POST", Pattern: "/app/health/cases/{health_case_id}/close", Permissions: []string{HealthDiagnose}},
 	// Authored treatment protocols (/health-config/*), the surface behind the Health Config screen.
 	//
 	// The read/write split is the whole point: a principal may be allowed to INSPECT the standing
@@ -553,6 +603,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getFeedAnalyticsExecution", Method: "GET", Pattern: "/feed-analytics/execution", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedAnalyticsExperiment", Method: "GET", Pattern: "/feed-analytics/experiment", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedAnalyticsStock", Method: "GET", Pattern: "/feed-analytics/stock", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "getFeedAnalyticsShedFeed", Method: "GET", Pattern: "/feed-analytics/shed-feed", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedPackingWorklist", Method: "GET", Pattern: "/feed-packing/worklist", Permissions: []string{FeedPackingRead}},
 	// Which of a pen-session's proof slots are already recorded, by any operator. A READ on the
 	// feed-direction surface, so it takes the direction read permission -- not the completion write

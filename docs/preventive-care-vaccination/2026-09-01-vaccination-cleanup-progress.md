@@ -1,0 +1,99 @@
+# 2026-09-01 Vaccination Cleanup Progress
+
+This note is the handoff/progress ledger for Codex, Claude, or a human operator
+continuing the September 2026 vaccination cleanup. Follow the rules here before
+changing STG data, running the sweeper, merging, or deploying.
+
+## Current Binding Rules
+
+- ET+TT: goat + sheep, killed bacterial/toxoid, dose 1 at 4w, booster at 7w,
+  then every 6 months after course completion.
+- PPR: goat + sheep, live viral, first dose at 16w, then every 3 years.
+- FMD: goat + sheep, killed viral, first dose at 12w, then every 9 months.
+- HS: goat + sheep, killed bacterial, first dose at 12w, then every 1 year.
+- Goat Pox: goat only, live viral, first dose at 16w, then every 1 year.
+- Sheep Pox: sheep only, live viral, first dose at 16w, then every 1 year.
+- Blue Tongue: sheep only, killed viral, dose 1 at 16w, booster at 19w
+  (21 days after dose 1), then every 1 year.
+- Z1+Z3: goat + sheep, killed bacterial/toxoid, dose 1 at 4w, booster at 7w,
+  then every 6 months after course completion.
+
+## Operational Anchors Already Set Or Intended
+
+- Sheep Pox, Coimbatore adult sheep: 2026-09-04.
+- Blue Tongue, Coimbatore adult sheep: 2026-09-04.
+- PPR/FMD/HS selected eligible cohort: 2026-09-08.
+- Blue Tongue Coimbatore sheep follow-up cohort: 2026-09-22.
+- Z1+Z3 all eligible goat + sheep, all kids and adults: 2026-10-15.
+
+Anchor means base date. It is optional and used only when old/base history is
+missing, unreliable, or intentionally reset. Once set, future boosters and
+revaccinations must chain from the anchor or accepted completion. Open rows
+before the anchor for that anchored scope must be canceled/suppressed; same-day
+anchor rows must stay.
+
+## Must Not Regress
+
+- Never schedule an obligation in the past from a sweeper run.
+- No active duplicate same animal + vaccine + due date rows.
+- No wrong species rows.
+- No underage rows.
+- No active Sep 1 vaccination rows.
+- No operatorless drive cards.
+- Operators must stay in their own park.
+- Z1+Z3 and ET+TT must stay separate.
+- Deferred/sick/ICU animals must not appear in active scan cards, and must
+  return to vaccination scheduling when healthy.
+- Operator packing cap is 200 distinct animals per operator/day.
+- Keep whole sheds/partitions together; avoid splitting sibling parent
+  partitions such as Mandela 1 parts where the cap allows.
+
+## Current Code Fixes In Progress
+
+- BT continuation window is 16w through 19w, not 20w.
+- Stale open obligations that no longer match schedule path must be canceled by
+  the generator instead of silently skipped.
+- Stale booster/follow-up rows without accepted prior dose history must be
+  canceled with `vaccine_primary_course_previous_dose_missing`.
+- Drive-date override/replan must sync obligation due dates from assignment
+  planned dates so UI cards and obligation rows do not disagree.
+- Direct future `/vaccination/anchors` creates are rejected; future operational
+  anchors must be configured in the vaccination plan draft and applied on
+  publish.
+- Generation must read active `vaccination_anchor_events`, including
+  vaccine-level anchors where `dose_code IS NULL`. A `NULL` anchor dose code
+  means "all doses for this vaccine family", not an unknown dose.
+
+## Verification Before Main/STG
+
+1. Run focused Go tests for seed, vaccination app, vaccination HTTP, and
+   obligation postgres adapters.
+2. Run STG/OCI audit queries for duplicates, wrong species, underage, Sep 1
+   rows, pre-anchor rows, unassigned active cards, and ET+TT/Z1+Z3 mixing.
+3. Do not repeatedly dump all STG data into OCI. If STG has 1 million rows, do
+   not copy 1 million rows for every retry. Use targeted delta repair, a scoped
+   cohort, or cleanup of only the rows polluted by the failed test. Full
+   STG-to-OCI refresh requires explicit maintainer approval and is not the
+   default loop.
+4. Run the sweeper/generator on the OCI clone first, then rerun the same audit.
+5. Only after OCI is clean, push, merge to main, deploy STG, clean STG data if
+   needed, and verify in Chrome.
+
+## Current Verification Status
+
+- Focused backend tests passed on 2026-09-01 after the BT 19w, stale-row
+  cancellation, direct-anchor guard, Z1+Z3 dose-code migration, and drive-date
+  sync changes.
+- STG safety audit after cleanup showed zero active Sep 1 rows, zero pre-Sep8
+  PPR/FMD/HS rows, zero pre-Oct15 Z1+Z3 rows, zero duplicate active
+  animal/vaccine/date rows, zero wrong-species rows, and zero underage rows.
+- OCI was refreshed from STG on 2026-09-01 and
+  `bash tools/dev/check-oci-stg-db-parity.sh` passed.
+- A generator replay on the OCI clone then recreated 192 pre-Oct15 Z1+Z3 adult
+  rows, proving the generator did not use event-table vaccine-level anchors as a
+  pre-generation blocker.
+- Local fix now makes generation read active `vaccination_anchor_events`,
+  normalizing vaccine code spelling (`Z1_Z3`, `z1_z3`, `Z1+Z3`) and treating
+  `dose_code IS NULL` as a vaccine-level/all-dose anchor. Keep this covered by
+  `TestManualVaccineAnchorsForGoatReadsFutureVaccineLevelAnchorEvent` and
+  `TestManualVaccineAnchorsForGoatNormalizesVaccineCode` before push.

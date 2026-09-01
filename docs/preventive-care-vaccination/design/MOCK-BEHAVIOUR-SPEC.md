@@ -330,7 +330,7 @@ one. `retirePublishedVaccinationMatrixOverlapsTx` already does this.
 | Parks | **Coimbatore** (934 alive), **Channapatna** (715 alive) | `locations` where `location_type='park'` |
 | Scope options | Both parks / Coimbatore only / Channapatna only | — |
 | Herd | 1,649 alive — 804 goats, 845 sheep | `goats` where `lifecycle_status='alive'` |
-| Schedules | ET+TT 4w+7w/6mo · PPR 16w/3yr · Goat Pox 16w/1yr · Sheep Pox 12w/1yr · Blue Tongue 16w+20w/1yr · FMD 12w/9mo · HS 12w/1yr | wiki Vaccination Rules table |
+| Schedules | ET+TT 4w+7w/6mo · PPR 16w/3yr · Goat Pox 16w/1yr · Sheep Pox 12w/1yr · Blue Tongue 16w+19w/1yr · FMD 12w/9mo · HS 12w/1yr | wiki Vaccination Rules table |
 
 "Ashoka Park", "Gandhi Park", 2,033 and 1,806 were invented and have been removed. **Never
 invent a park, a count, or a schedule.**

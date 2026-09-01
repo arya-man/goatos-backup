@@ -330,3 +330,205 @@ func feedPurchaseCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool) in
 	}
 	return count
 }
+
+// TestFeedPurchasePaymentPostgresPaths exercises the instalment ledger against a real Postgres.
+//
+// Integration rather than unit for the same reason as the create test: the running-total update,
+// the status derivation under the row lock, and the idempotency reservation all live in SQL and
+// in the transaction boundary. A fake repository proves none of them.
+func TestFeedPurchasePaymentPostgresPaths(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFeedPurchaseFixture(t, ctx, pool)
+
+	repo := NewRepository(pool, 10*time.Second)
+
+	// A load with a known landed cost and nothing released yet.
+	write := feedWrite()
+	write.PaymentStatus = domain.FeedPaymentPending
+	created, err := repo.CreateFeedPurchase(ctx, testTenant, write, "", "pay-load-1")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.TotalCost == nil || *created.TotalCost != 76980 {
+		t.Fatalf("fixture total = %v want 76980", created.TotalCost)
+	}
+
+	t.Run("first instalment advances the running total and stays Pending", func(t *testing.T) {
+		after, err := repo.RecordFeedPurchasePayment(ctx, testTenant, created.FeedPurchaseID,
+			domain.FeedPurchasePaymentWrite{PaidOn: "2026-08-21", AmountRupees: 30000, Note: "advance"}, "", "pay-1")
+		if err != nil {
+			t.Fatalf("record payment: %v", err)
+		}
+		if after.PaymentReleased == nil || *after.PaymentReleased != 30000 {
+			t.Fatalf("payment_released = %v want 30000", after.PaymentReleased)
+		}
+		if after.PaymentStatus != domain.FeedPaymentPending {
+			t.Fatalf("status = %q want Pending while money is still owed", after.PaymentStatus)
+		}
+		if len(after.Payments) != 1 || after.Payments[0].AmountRupees != 30000 || after.Payments[0].PaidOn != "2026-08-21" {
+			t.Fatalf("payments = %#v want the one instalment", after.Payments)
+		}
+		if balance := after.PaymentBalance(); balance == nil || *balance != 46980 {
+			t.Fatalf("balance = %v want 46980", balance)
+		}
+	})
+
+	t.Run("exact replay records nothing twice", func(t *testing.T) {
+		after, err := repo.RecordFeedPurchasePayment(ctx, testTenant, created.FeedPurchaseID,
+			domain.FeedPurchasePaymentWrite{PaidOn: "2026-08-21", AmountRupees: 30000, Note: "advance"}, "", "pay-1")
+		if err != nil {
+			t.Fatalf("replay: %v", err)
+		}
+		if after.PaymentReleased == nil || *after.PaymentReleased != 30000 || len(after.Payments) != 1 {
+			t.Fatalf("replay changed the ledger: released=%v payments=%d", after.PaymentReleased, len(after.Payments))
+		}
+	})
+
+	t.Run("same key with a different amount is refused", func(t *testing.T) {
+		_, err := repo.RecordFeedPurchasePayment(ctx, testTenant, created.FeedPurchaseID,
+			domain.FeedPurchasePaymentWrite{PaidOn: "2026-08-21", AmountRupees: 31000, Note: "advance"}, "", "pay-1")
+		if !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("want ErrIdempotencyConflict, got %v", err)
+		}
+	})
+
+	t.Run("the settling instalment flips the load to Paid", func(t *testing.T) {
+		after, err := repo.RecordFeedPurchasePayment(ctx, testTenant, created.FeedPurchaseID,
+			domain.FeedPurchasePaymentWrite{PaidOn: "2026-08-24", AmountRupees: 46980}, "", "pay-2")
+		if err != nil {
+			t.Fatalf("settling payment: %v", err)
+		}
+		if after.PaymentStatus != domain.FeedPaymentPaid {
+			t.Fatalf("status = %q want Paid once the total is covered", after.PaymentStatus)
+		}
+		if len(after.Payments) != 2 {
+			t.Fatalf("payments = %d want 2", len(after.Payments))
+		}
+		if balance := after.PaymentBalance(); balance == nil || *balance != 0 {
+			t.Fatalf("balance = %v want 0", balance)
+		}
+	})
+
+	t.Run("status edit flips directly and an unknown purchase is not found", func(t *testing.T) {
+		after, err := repo.SetFeedPurchasePaymentStatus(ctx, testTenant, created.FeedPurchaseID, domain.FeedPaymentPending, "")
+		if err != nil {
+			t.Fatalf("set status: %v", err)
+		}
+		if after.PaymentStatus != domain.FeedPaymentPending {
+			t.Fatalf("status = %q want Pending after the edit", after.PaymentStatus)
+		}
+		if _, err := repo.SetFeedPurchasePaymentStatus(ctx, testTenant, "00000000-0000-4000-8000-00000000dead", domain.FeedPaymentPaid, ""); !errors.Is(err, ports.ErrFeedPurchaseNotFound) {
+			t.Fatalf("unknown purchase => %v want ErrFeedPurchaseNotFound", err)
+		}
+	})
+
+	t.Run("payment against an unknown purchase writes nothing", func(t *testing.T) {
+		_, err := repo.RecordFeedPurchasePayment(ctx, testTenant, "00000000-0000-4000-8000-00000000dead",
+			domain.FeedPurchasePaymentWrite{PaidOn: "2026-08-24", AmountRupees: 10}, "", "pay-3")
+		if !errors.Is(err, ports.ErrFeedPurchaseNotFound) {
+			t.Fatalf("want ErrFeedPurchaseNotFound, got %v", err)
+		}
+		var rows int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM feed_purchase_payments WHERE tenant_id = $1`, testTenant).Scan(&rows); err != nil {
+			t.Fatalf("count payments: %v", err)
+		}
+		if rows != 2 {
+			t.Fatalf("payment rows = %d want 2 (the refused write must leave nothing behind)", rows)
+		}
+	})
+
+	t.Run("the page read carries every instalment batched", func(t *testing.T) {
+		page, err := repo.ListFeedPurchases(ctx, testTenant, "", 25, 0)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		var found bool
+		for _, p := range page.Purchases {
+			if p.FeedPurchaseID == created.FeedPurchaseID {
+				found = true
+				if len(p.Payments) != 2 {
+					t.Fatalf("listed payments = %d want 2", len(p.Payments))
+				}
+				if p.Payments[0].PaidOn != "2026-08-21" || p.Payments[1].PaidOn != "2026-08-24" {
+					t.Fatalf("payments must list oldest first, got %#v", p.Payments)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("created purchase missing from the page read")
+		}
+	})
+}
+
+// TestFeedPurchaseEditPostgresPaths exercises the edit-purchase write against a real Postgres:
+// the derived landed total, per-kg rate and payment status must all move with the edit, inside
+// the same transaction as the row update.
+func TestFeedPurchaseEditPostgresPaths(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFeedPurchaseFixture(t, ctx, pool)
+
+	repo := NewRepository(pool, 10*time.Second)
+
+	write := feedWrite()
+	write.PaymentStatus = domain.FeedPaymentPending
+	created, err := repo.CreateFeedPurchase(ctx, testTenant, write, "", "edit-load-1")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	t.Run("an edit re-derives total, per-kg and payment status", func(t *testing.T) {
+		// Pay the load off in full first, then RAISE the cost: the derived status must drop back
+		// to Pending because the released total no longer covers the new landed cost.
+		if _, err := repo.RecordFeedPurchasePayment(ctx, testTenant, created.FeedPurchaseID,
+			domain.FeedPurchasePaymentWrite{PaidOn: "2026-08-21", AmountRupees: 76980}, "", "edit-pay-1"); err != nil {
+			t.Fatalf("settle: %v", err)
+		}
+		after, err := repo.UpdateFeedPurchase(ctx, testTenant, created.FeedPurchaseID, domain.FeedPurchaseEdit{
+			PurchaseDate: "2026-08-19", QuantityKg: 12000,
+			FeedCost: f64(90000), TransportCost: f64(10000),
+			Vendor: "Siddi Srilekha",
+		}, "")
+		if err != nil {
+			t.Fatalf("edit: %v", err)
+		}
+		if after.PurchaseDate != "2026-08-19" || after.QuantityKg != 12000 {
+			t.Fatalf("date/quantity = %s/%v", after.PurchaseDate, after.QuantityKg)
+		}
+		if after.TotalCost == nil || *after.TotalCost != 100000 {
+			t.Fatalf("total = %v want the re-derived 100000", after.TotalCost)
+		}
+		if after.PerKgCost == nil || *after.PerKgCost < 8.33 || *after.PerKgCost > 8.34 {
+			t.Fatalf("per-kg = %v want ~8.33", after.PerKgCost)
+		}
+		if after.PaymentStatus != domain.FeedPaymentPending {
+			t.Fatalf("status = %q want Pending once the raised cost exceeds the released total", after.PaymentStatus)
+		}
+		if balance := after.PaymentBalance(); balance == nil || *balance != 23020 {
+			t.Fatalf("balance = %v want 23020", balance)
+		}
+	})
+
+	t.Run("an identity-free edit keeps farm, feed and batch untouched", func(t *testing.T) {
+		after, err := repo.getFeedPurchase(ctx, testTenant, created.FeedPurchaseID)
+		if err != nil {
+			t.Fatalf("read back: %v", err)
+		}
+		if after.FarmLabel != created.FarmLabel || after.FeedItemLabel != created.FeedItemLabel || after.BatchNo != created.BatchNo {
+			t.Fatalf("identity moved: %s/%s/%d", after.FarmLabel, after.FeedItemLabel, after.BatchNo)
+		}
+	})
+
+	t.Run("an edit of an unknown purchase is not found", func(t *testing.T) {
+		_, err := repo.UpdateFeedPurchase(ctx, testTenant, "00000000-0000-4000-8000-00000000dead",
+			domain.FeedPurchaseEdit{PurchaseDate: "2026-08-19", QuantityKg: 1, Vendor: "X"}, "")
+		if !errors.Is(err, ports.ErrFeedPurchaseNotFound) {
+			t.Fatalf("want ErrFeedPurchaseNotFound, got %v", err)
+		}
+	})
+}

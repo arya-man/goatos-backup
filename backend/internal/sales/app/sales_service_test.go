@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 	"github.com/vgoats/goatos/backend/internal/sales/ports"
@@ -12,6 +13,12 @@ import (
 // fakeRepo records what the service actually asked for, so these tests pin the service's
 // validation and filter normalization without a database.
 type fakeRepo struct {
+	statusDealID  string
+	dealStatus    string
+	paymentDealID string
+	payment       domain.DealPaymentWrite
+	paymentKey    string
+
 	overviewFarm  string
 	listFarm      string
 	listLimit     int
@@ -41,6 +48,16 @@ func (f *fakeRepo) CreateDeal(_ context.Context, _ string, write domain.DealWrit
 }
 
 // Pipeline methods: thin recorders, same idea as the deal ones.
+func (f *fakeRepo) SetDealStatus(_ context.Context, _ string, dealID, status, _ string) (domain.Deal, error) {
+	f.statusDealID, f.dealStatus = dealID, status
+	return domain.Deal{DealID: dealID, Status: status}, nil
+}
+
+func (f *fakeRepo) RecordDealPayment(_ context.Context, _ string, dealID string, write domain.DealPaymentWrite, _ string, key string) (domain.Deal, error) {
+	f.paymentDealID, f.payment, f.paymentKey = dealID, write, key
+	return domain.Deal{DealID: dealID}, nil
+}
+
 func (f *fakeRepo) ListBuyerLeads(_ context.Context, _ string, limit, offset int) (ports.BuyerLeadPage, error) {
 	f.listLimit, f.listOffset = limit, offset
 	return ports.BuyerLeadPage{Total: 208}, nil
@@ -260,5 +277,59 @@ func TestSalesHTTPErrorMapsTheContract(t *testing.T) {
 	}
 	if e := SalesHTTPError(errors.New("pgx: something with table detail")); e.HTTPStatus != 500 || e.Message == "pgx: something with table detail" {
 		t.Fatalf("unknown errors must not leak driver text: %+v", e)
+	}
+}
+
+// TestRecordDealPaymentGatesBeforeTheRepository pins the receipt write's service gates: a missing
+// idempotency key and an invalid receipt are refused BEFORE any write reaches the database, and a
+// good receipt reaches the repository normalized with the trimmed key.
+func TestRecordDealPaymentGatesBeforeTheRepository(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewSalesServiceWithClock(repo, func() time.Time { return time.Date(2026, 8, 31, 11, 0, 0, 0, time.UTC) })
+	good := domain.DealPaymentWrite{ReceivedOn: "2026-08-30", AmountRupees: 25000, Note: "  on   pickup "}
+
+	if _, err := svc.RecordDealPayment(context.Background(), "t", "d1", good, "actor", "  "); !errors.Is(err, ErrSalesIdempotencyKeyRequired) {
+		t.Fatalf("blank key => %v, want ErrSalesIdempotencyKeyRequired", err)
+	}
+	bad := good
+	bad.AmountRupees = 0
+	var v domain.ErrDealValidation
+	if _, err := svc.RecordDealPayment(context.Background(), "t", "d1", bad, "actor", "key"); !errors.As(err, &v) || v.Field != "amount_rupees" {
+		t.Fatalf("zero amount => %v, want an amount_rupees rejection", err)
+	}
+	future := good
+	future.ReceivedOn = "2026-09-01"
+	if _, err := svc.RecordDealPayment(context.Background(), "t", "d1", future, "actor", "key"); !errors.As(err, &v) || v.Field != "received_on" {
+		t.Fatalf("future date => %v, want a received_on rejection", err)
+	}
+	if repo.paymentDealID != "" {
+		t.Fatal("the repository must not be reached by a gated receipt")
+	}
+
+	if _, err := svc.RecordDealPayment(context.Background(), "t", "d1", good, "actor", " key-3 "); err != nil {
+		t.Fatalf("record receipt: %v", err)
+	}
+	if repo.paymentDealID != "d1" || repo.paymentKey != "key-3" || repo.payment.Note != "on pickup" {
+		t.Fatalf("repo saw deal=%q key=%q note=%q", repo.paymentDealID, repo.paymentKey, repo.payment.Note)
+	}
+}
+
+// TestSetDealStatusCanonicalizesAndRejects pins the status edit: "advance paid" stores as the
+// sheet's "Advance Paid", and a word outside the closed vocabulary is refused rather than
+// rewritten -- a silently defaulted status is a deal state nobody entered.
+func TestSetDealStatusCanonicalizesAndRejects(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewSalesService(repo)
+
+	if _, err := svc.SetDealStatus(context.Background(), "t", "d1", " advance paid ", "actor"); err != nil {
+		t.Fatalf("set status: %v", err)
+	}
+	if repo.dealStatus != domain.StatusAdvancePaid || repo.statusDealID != "d1" {
+		t.Fatalf("repo saw status=%q deal=%q", repo.dealStatus, repo.statusDealID)
+	}
+
+	var v domain.ErrDealValidation
+	if _, err := svc.SetDealStatus(context.Background(), "t", "d1", "Partially Closed", "actor"); !errors.As(err, &v) || v.Field != "status" {
+		t.Fatalf("unknown status => %v, want a status rejection", err)
 	}
 }

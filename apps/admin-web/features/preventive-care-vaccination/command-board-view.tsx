@@ -1,5 +1,17 @@
 "use client";
 import { useEffect, useMemo, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent } from "react";
+
+import type { CommandBoardCohortMatrixPage } from "@/lib/api/server";
+import {
+  useClosedWithoutDoseAnimals,
+  useCohortMatrix,
+  useShedDoseMatrix,
+  type ShedDoseCellRow,
+  useCohortCellDetail,
+  useDriveCatalogue,
+  useShedVaccineAnimals,
+  type CohortCellRef,
+} from "./command-board-drilldowns";
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
@@ -88,8 +100,14 @@ interface CohortPivotRow {
   // Per-vaccine day split and dose-sequence exceptions, both backend-owned. The grid shows the
   // exception COUNT (a clean 324 and a 321-with-3-missing must not read alike) and the drilldown
   // shows the days and the animals.
-  days: Record<string, CohortDay[]>;
-  exceptions: Record<string, { count: number; goats: CohortAnimal[] }>;
+  exceptions: Record<string, { count: number }>;
+  // The BACKEND cells that fold into each displayed vaccine column of this row.
+  //
+  // A row is a display bucket: it can roll several (stage, sex) cohorts and several parks together.
+  // The day split and the exception animals are now fetched per cell, so the drawer needs to know
+  // which cells it is made of — one page per contributing cell, merged the way the summary numbers
+  // above were merged.
+  cellRefs: Record<string, CohortCellRef[]>;
   // The real management stages that fold into this rung. They are CEO-level noise in the grid, so
   // they live in the drilldown only — the grid stays one row per cohort.
   members: CohortMember[];
@@ -102,23 +120,26 @@ interface CohortMember {
   submitted: Record<string, number>;
   verified: Record<string, number>;
   administeredDates: Record<string, AdministeredDateRange>;
-  exceptions: Record<string, { count: number; goats: CohortAnimal[] }>;
+  exceptions: Record<string, { count: number }>;
 }
 
 type CohortDay = { date: string; animalCount: number };
 type CohortAnimal = { goatId: string; displayId: string; tag?: string };
 
 interface CohortCellInput {
-  cohort: { parkName: string; managementStage: string; sex: string; animalCount: number };
+  cohort: { parkId?: string; parkName: string; managementStage: string; sex: string; animalCount: number };
   vaccineLabel: string;
   pendingCount: number;
   submittedCount?: number;
   verifiedCount: number;
   minAdministeredDate?: string | null;
   maxAdministeredDate?: string | null;
-  administeredDays?: CohortDay[];
   missingPriorDoseCount?: number;
-  missingPriorDoseGoats?: CohortAnimal[];
+  // The raw dose codes behind this cell's single displayed vaccineLabel. They ADDRESS the cell in
+  // the drilldown endpoints: the board collapses several codes onto one column, so the label alone
+  // cannot identify it, and re-deriving the mapping here would put a second, drifting copy of the
+  // dose-labelling table in the frontend.
+  doseCodes?: string[];
 }
 
 // Day counts of the same vaccine coming from several (stage, sex) cohorts land on the same cohort
@@ -129,35 +150,16 @@ interface CohortCellInput {
 // sub-cohorts are DIFFERENT animals dosed on the same day and must sum; repeated dates from the
 // same sub-cohort would double it. The backend already emits one day list per cohort x dose, so
 // the caller must not merge two dose codes into one call.
-function mergeDays(target: Record<string, CohortDay[]>, vaccine: string, days?: CohortDay[]) {
-  if (!days?.length) return;
-  const list = target[vaccine] ?? [];
-  days.forEach((day) => {
-    const found = list.find((candidate) => candidate.date === day.date);
-    if (found) found.animalCount += day.animalCount;
-    else list.push({ date: day.date, animalCount: day.animalCount });
-  });
-  list.sort((a, b) => a.date.localeCompare(b.date));
-  target[vaccine] = list;
-}
-
-function mergeExceptions(
-  target: Record<string, { count: number; goats: CohortAnimal[] }>,
-  vaccine: string,
-  count?: number,
-  goats?: CohortAnimal[],
-) {
+// Exception COUNTS from several sub-cohorts land on the same displayed column and add. The ANIMALS
+// behind them are fetched per cell when the drawer opens (command-board-drilldowns.ts), so only the
+// number is merged here.
+function mergeExceptions(target: Record<string, { count: number }>, vaccine: string, count?: number) {
   if (!count) return;
-  const current = target[vaccine] ?? { count: 0, goats: [] };
+  const current = target[vaccine] ?? { count: 0 };
   current.count += count;
-  (goats ?? []).forEach((goat) => {
-    if (!current.goats.some((candidate) => candidate.goatId === goat.goatId)) current.goats.push(goat);
-  });
   target[vaccine] = current;
 }
 
-// One matrix per FARM: leadership reads this farmwise, so Channapatna and Coimbatore never
-// merge into one set of rows. Farms are ordered by name for a stable read.
 function buildCohortFarms(
   matrix: CohortCellInput[],
   ladder: string[],
@@ -196,8 +198,8 @@ function buildCohortPivot(
     const submitted: Record<string, number> = {};
     const verified: Record<string, number> = {};
     const administeredDates: Record<string, AdministeredDateRange> = {};
-    const days: Record<string, CohortDay[]> = {};
-    const exceptions: Record<string, { count: number; goats: CohortAnimal[] }> = {};
+    const exceptions: Record<string, { count: number }> = {};
+    const cellRefs: Record<string, CohortCellRef[]> = {};
     const members = new Map<string, CohortMember>();
     // Animals are per (stage, sex) cohort and the source repeats a cohort once per vaccine, so
     // head counts accumulate per DISTINCT cohort key — summing the rows directly would multiply
@@ -216,8 +218,16 @@ function buildCohortPivot(
         cell.minAdministeredDate,
         cell.maxAdministeredDate,
       );
-      mergeDays(days, cell.vaccineLabel, cell.administeredDays);
-      mergeExceptions(exceptions, cell.vaccineLabel, cell.missingPriorDoseCount, cell.missingPriorDoseGoats);
+      mergeExceptions(exceptions, cell.vaccineLabel, cell.missingPriorDoseCount);
+      // Record the backend cell so the drawer can fetch this column's days and exception animals.
+      const refs = cellRefs[cell.vaccineLabel] ?? [];
+      refs.push({
+        cohortParkId: cell.cohort.parkId ?? "",
+        managementStage: cell.cohort.managementStage,
+        sex: cell.cohort.sex,
+        doseCodes: cell.doseCodes ?? [],
+      });
+      cellRefs[cell.vaccineLabel] = refs;
 
       let member = members.get(key);
       if (!member) {
@@ -232,7 +242,7 @@ function buildCohortPivot(
         };
         members.set(key, member);
       }
-      mergeExceptions(member.exceptions, cell.vaccineLabel, cell.missingPriorDoseCount, cell.missingPriorDoseGoats);
+      mergeExceptions(member.exceptions, cell.vaccineLabel, cell.missingPriorDoseCount);
       member.pending[cell.vaccineLabel] = (member.pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
       member.submitted[cell.vaccineLabel] =
         (member.submitted[cell.vaccineLabel] ?? 0) + (cell.submittedCount ?? 0);
@@ -257,8 +267,8 @@ function buildCohortPivot(
       submitted,
       verified,
       administeredDates,
-      days,
       exceptions,
+      cellRefs,
       members: Array.from(members.values()).sort((a, b) => b.animals - a.animals),
     };
   });
@@ -267,6 +277,7 @@ function buildCohortPivot(
 
 function buildShedGrid(
   matrix: Array<{
+    doseKey: string;
     shedId: string;
     shedName: string;
     partition_label?: string | null;
@@ -280,7 +291,7 @@ function buildShedGrid(
     maxDueDate?: string | null;
   }>
 ): {
-  byDose: string[];
+  byDose: Array<{ key: string; label: string }>;
   byShed: ShedGridRow[];
 } {
   const doseSet = new Set<string>();
@@ -289,8 +300,16 @@ function buildShedGrid(
   // with separate animal counts. Keying by shedName alone caused them to merge, silently summing counts.
   const shedMap = new Map<string, ShedGridRow>();
 
+  // Keyed on doseKey (the matrix's dose index), NOT on the display label. Two dose codes can share
+  // a label -- DoseQualifiedDisplayLabel leaves both et_tt_kid_4w and et_tt_kid_7w as "ET+TT" -- so
+  // keying on the label merged two real doses into one column and dropped one of their counts,
+  // exactly the way keying sheds by shedName used to merge two sheds. Two columns may therefore
+  // carry the same header until that labeller disambiguates those suffixes; showing the same label
+  // twice is a cosmetic wart, losing an animal count is a wrong number.
+  const doseLabels = new Map<string, string>();
   matrix.forEach((cell) => {
-    doseSet.add(cell.doseRule);
+    doseSet.add(cell.doseKey);
+    doseLabels.set(cell.doseKey, cell.doseRule);
     const shedKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
     if (!shedMap.has(shedKey)) {
       shedMap.set(shedKey, {
@@ -301,7 +320,7 @@ function buildShedGrid(
         cells: {},
       });
     }
-    shedMap.get(shedKey)!.cells[cell.doseRule] = {
+    shedMap.get(shedKey)!.cells[cell.doseKey] = {
       doseRule: cell.doseRule,
       state: cell.state,
       animalCount: cell.animalCount,
@@ -313,7 +332,7 @@ function buildShedGrid(
   });
 
   return {
-    byDose: Array.from(doseSet),
+    byDose: Array.from(doseSet).map((key) => ({ key, label: doseLabels.get(key) ?? "" })),
     byShed: Array.from(shedMap.values()),
   };
 }
@@ -323,8 +342,10 @@ function buildShedGrid(
 // both REQUIRED by the contract -- were dropped before they reached the render. Deriving makes the
 // next dropped field a type error instead of a silent hole in the page.
 type CommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
-type CohortCell = CommandBoardResponse["cohortMatrix"][number];
-type ShedDoseCell = CommandBoardResponse["shedDoseMatrix"][number];
+// The cohort cell shape. It is no longer on the board response -- the matrix is its own section --
+// so it is taken from that section's page type.
+type CohortCell = NonNullable<CommandBoardCohortMatrixPage["cells"]>[number];
+type ShedDoseCell = ShedDoseCellRow;
 type CommandBoardKpis = CommandBoardResponse["kpis"] & {
   missedNotGiven?: number;
   closedWithoutDose?: number;
@@ -333,7 +354,6 @@ type CommandBoardExtras = {
   kpis: CommandBoardKpis;
   shedVaccineMatrix?: ShedVaccineCell[];
   shedVaccineColumns?: Array<{ code: string; label: string }>;
-  closedWithoutDoseAnimals?: ClosedWithoutDoseAnimal[];
   driveOptionsTruncated?: boolean;
 };
 // driveOptions is the one field the view widens: enrichDriveOptions reconstructs counts the skinny
@@ -353,26 +373,9 @@ type ShedVaccineCell = {
   behindAnimals: number;
   verifyingAnimals?: number;
   totalAnimals: number;
-  proofVideos?: Array<{ path: string }>;
-  flaggedAnimals?: Array<{
-    goatId: string;
-    tag?: string | null;
-    tag2?: string | null;
-    displayId: string;
-    partitionLabel?: string | null;
-    dueAt?: string | null;
-  }>;
-};
-
-type ClosedWithoutDoseAnimal = {
-  goatId: string;
-  tag1?: string | null;
-  tag2?: string | null;
-  displayId: string;
-  operational_location_display: string;
-  parkName?: string | null;
-  vaccineLabel: string;
-  reason: string;
+  // No proofVideos / flaggedAnimals here on purpose: both are fetched per cell when the drawer
+  // opens (command-board-drilldowns.ts). Declaring them optional would let a future edit read a
+  // field the board never sends and render a silently empty drawer.
 };
 
 interface CommandBoardViewProps {
@@ -482,9 +485,11 @@ interface SelectedCohortCell {
   submitted: number;
   verified: number;
   dateSpan: string;
-  days: CohortDay[];
   exceptionCount: number;
-  exceptionGoats: CohortAnimal[];
+  // The BACKEND cells this display cell is made of. The drawer fetches its day split and its
+  // exception animals from these; both used to ride on the board payload, computed tenant-wide for
+  // every cell on every render.
+  cellRefs: CohortCellRef[];
   members: Array<{
     label: string;
     animals: number;
@@ -515,9 +520,39 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   const [isPending, startTransition] = useTransition();
   const currentSearch = searchParams?.toString() ?? "";
   const [optimisticDrive, setOptimisticDrive] = useState<{ from: string; value: string } | null>(null);
+  // The scope every drilldown is resolved under: the SAME filter the board was rendered with, so a
+  // drawer explains the number the reader actually clicked. drive_park_id wins over park_id for the
+  // same reason it does on the board's own sections — a selected drive is one park's operator day.
+  const drilldownScope = useMemo(
+    () => ({
+      driveBatchId: driveBatchId || undefined,
+      parkId: driveParkId || searchParams?.get("park_id") || undefined,
+      asOf: searchParams?.get("as_of") || undefined,
+    }),
+    [driveBatchId, driveParkId, searchParams],
+  );
+
+  // The cohort grid is a SECTION loaded after first paint, not a drawer. See useCohortMatrix.
+  const cohortSection = useCohortMatrix<CohortCell>(drilldownScope);
+  const cohortMatrix = cohortSection.data;
+  // The shed grid is likewise a SECTION loaded after first paint. See useShedDoseMatrix: interning
+  // its payload was not enough on its own, so the section itself moved off the board.
+  const shedDoseSection = useShedDoseMatrix(drilldownScope);
+  const shedDoseMatrix = shedDoseSection.data;
+
+  // The board carries only the FIRST PAGE of drives (20). The catalogue used to ship whole and was
+  // 448ms and 753 KB — more than the endpoint's entire 512 KB budget — for a dropdown, and it was
+  // the board's critical path once the drilldowns had moved off it. This completes it in the
+  // background after first paint, so the picker and the future-drive rows stay whole without the
+  // reader waiting for them.
+  const driveCatalogue = useDriveCatalogue(
+    board.driveOptions ?? [],
+    Boolean(board.driveOptionsTruncated),
+    searchParams?.get("park_id") || undefined,
+  );
   const driveOptions = useMemo(
-    () => enrichDriveOptions(board.driveOptions ?? [], board.shedDoseMatrix ?? [], board.cohortMatrix ?? [], board.kpis.targets),
-    [board.driveOptions, board.shedDoseMatrix, board.cohortMatrix, board.kpis.targets],
+    () => enrichDriveOptions(driveCatalogue.options, shedDoseMatrix, cohortMatrix, board.kpis.targets),
+    [driveCatalogue.options, shedDoseMatrix, cohortMatrix, board.kpis.targets],
   );
   const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
   const executedCampaigns = useMemo(() => executedDriveCampaigns(driveOptions), [driveOptions]);
@@ -540,9 +575,12 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   };
 
   const vaccineOptions = useMemo(() => {
-    const labels = (board.cohortMatrix ?? []).map((c) => c.vaccineLabel).filter(Boolean);
+    // Sourced from the SHED DOSE matrix. Both matrices are now lazy sections, so this filter
+    // fills in when the shed grid lands; it is built from the shed grid rather than the cohort
+    // grid because the shed grid is the cheaper of the two and therefore lands first.
+    const labels = shedDoseMatrix.map((c) => c.doseRule).filter(Boolean);
     return Array.from(new Set(labels)).sort();
-  }, [board]);
+  }, [shedDoseMatrix]);
   const [vaccine, setVaccine] = useState<string>("");
   // EMPTY means "no filter, show everything" — it does NOT mean "hide everything". The chips used
   // to initialise to the full set and a click DELETED that status, so pressing "Overdue" hid the
@@ -559,7 +597,24 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // The behind cell's animals travel IN the board payload, so opening a red cell is a local
   // overlay, not a second fetch (local-overlay rule).
   const [selectedShedVaccine, setSelectedShedVaccine] = useState<ShedVaccineCell | null>(null);
-  const closedAnimals = board.closedWithoutDoseAnimals ?? [];
+  // The tile's animals, fetched when the drawer opens. They used to ship on the board payload,
+  // computed tenant-wide on every render; that statement is the one that exhausted the pool timeout
+  // and returned the 500 this whole change exists to fix.
+  const closedDrilldown = useClosedWithoutDoseAnimals(closedDrawerOpen, drilldownScope);
+  const closedAnimals = closedDrilldown.data;
+  // Whole-scope truth from the board, and the only thing the tile's affordance may be gated on.
+  const closedWithoutDoseCount = board.kpis.closedWithoutDose ?? 0;
+  const shedVaccineDrilldown = useShedVaccineAnimals(
+    selectedShedVaccine
+      ? {
+          shedId: selectedShedVaccine.shedId,
+          vaccineCode: selectedShedVaccine.vaccineCode,
+          partitionLabel: selectedShedVaccine.partition_label,
+        }
+      : null,
+    drilldownScope,
+  );
+  const cohortDrilldown = useCohortCellDetail(selectedCell?.cellRefs ?? null, drilldownScope);
   const futureCampaigns = useMemo(
     () => (statuses.size === 0 || statuses.has("scheduled")) ? scheduledDriveCampaigns(futureDrives) : [],
     [futureDrives, statuses],
@@ -586,13 +641,13 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     ...board,
     shedVaccineMatrix: board.shedVaccineMatrix ?? [],
     shedVaccineColumns: board.shedVaccineColumns ?? [],
-    shedDoseMatrix: (board.shedDoseMatrix ?? []).filter(
+    shedDoseMatrix: shedDoseMatrix.filter(
       (c) => matchesVaccine(c.doseRule) && isStatusVisible(c.state),
     ),
-    cohortMatrix: (board.cohortMatrix ?? []).filter((c) => matchesVaccine(c.vaccineLabel)),
+    cohortMatrix: cohortMatrix.filter((c) => matchesVaccine(c.vaccineLabel)),
     verificationQueue: (board.verificationQueue ?? []).filter((r) => matchesVaccine(r.doseRule)),
     };
-  }, [board, vaccine, statuses]);
+  }, [board, shedDoseMatrix, cohortMatrix, vaccine, statuses]);
   const pendingVaccinesByShed = useMemo(() => {
     const vaccineLabels = new Map((view.shedVaccineColumns ?? []).map((c) => [c.code, c.label || c.code]));
     type PendingShed = {
@@ -796,18 +851,21 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               list rather than dead-ending on a number. Disabled-with-reason at zero, so the
               affordance never promises a list that does not exist. */}
           <div
-            className={`kpi mut${closedAnimals.length > 0 ? " kpi-clickable" : ""}`}
-            role={closedAnimals.length > 0 ? "button" : undefined}
-            tabIndex={closedAnimals.length > 0 ? 0 : undefined}
-            aria-disabled={closedAnimals.length === 0 ? true : undefined}
+            // Gated on the COUNT, not on the list. The animals are fetched when the drawer opens,
+            // so gating on closedAnimals.length would make the tile permanently unclickable — the
+            // list is empty until the click that is being prevented.
+            className={`kpi mut${closedWithoutDoseCount > 0 ? " kpi-clickable" : ""}`}
+            role={closedWithoutDoseCount > 0 ? "button" : undefined}
+            tabIndex={closedWithoutDoseCount > 0 ? 0 : undefined}
+            aria-disabled={closedWithoutDoseCount === 0 ? true : undefined}
             title={
-              closedAnimals.length > 0
+              closedWithoutDoseCount > 0
                 ? copy(pageContract, "command_board.kpi.closed_without_dose_open")
                 : copy(pageContract, "command_board.kpi.closed_without_dose_empty")
             }
-            onClick={() => closedAnimals.length > 0 && openClosedDrawer()}
+            onClick={() => closedWithoutDoseCount > 0 && openClosedDrawer()}
             onKeyDown={(e) => {
-              if ((e.key === "Enter" || e.key === " ") && closedAnimals.length > 0) {
+              if ((e.key === "Enter" || e.key === " ") && closedWithoutDoseCount > 0) {
                 e.preventDefault();
                 setClosedDrawerOpen(true);
               }
@@ -1018,6 +1076,24 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
 
         {/* Vaccine × Shed status - colored grid heatmap */}
         <div id="cbm-shed-dose-matrix">
+        {/* The shed grid is loaded AFTER first paint, like the cohort grid. An explicit loading
+            state matters: an empty grid during the gap would read as "this tenant has no sheds",
+            which is a different and alarming fact. */}
+        {shedDoseSection.loading && shedDoseMatrix.length === 0 ? (
+          <div className="cbm-section-state" role="status" aria-live="polite">
+            {copy(pageContract, "command_board.shed_dose_matrix.loading")}
+          </div>
+        ) : null}
+        {shedDoseSection.error ? (
+          <div className="cbm-section-state cbm-section-state-error" role="status">
+            {copy(pageContract, "command_board.shed_dose_matrix.unavailable")}
+          </div>
+        ) : null}
+        {!shedDoseSection.loading && !shedDoseSection.error && shedDoseMatrix.length === 0 ? (
+          <div className="cbm-section-state">
+            {copy(pageContract, "command_board.shed_dose_matrix.empty")}
+          </div>
+        ) : null}
         {view.shedDoseMatrix.length > 0 && (() => {
           const grid = buildShedGrid(view.shedDoseMatrix);
           // Queue age keyed by the same (shed, dose) grain the matrix cells use, so the number
@@ -1042,7 +1118,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                     <tr>
                       <th className="cbm-rowh">{copy(pageContract, "command_board.shed_matrix.column.shed")}</th>
                       {grid.byDose.map((dose) => (
-                        <th key={dose}>{dose}</th>
+                        <th key={dose.key}>{dose.label}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1058,9 +1134,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                         <tr key={shedKey}>
                           <th className="cbm-rowh">{shedLabel}</th>
                           {grid.byDose.map((dose) => {
-                            const cell = row.cells[dose];
+                            const cell = row.cells[dose.key];
                             if (!cell) {
-                              return <td key={dose} className="cbm-cell cbm-na">—</td>;
+                              return <td key={dose.key} className="cbm-cell cbm-na">—</td>;
                             }
                             // Completed cells show the operator's actual administration date. Verification
                             // can happen days later and must never replace the medical date. Scheduled and
@@ -1070,10 +1146,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                               : formatDateSpan(cell.minDueDate, cell.maxDueDate);
                             // An awaiting cell also carries how long it has been sitting with the
                             // verifier — the one fact the removed queue table added.
-                            const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${shedKey}|${dose}`) : undefined;
+                            const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${shedKey}|${dose.label}`) : undefined;
                             return (
                               <td
-                                key={dose}
+                                key={dose.key}
                                 className={`cbm-cell cbm-${cell.state}`}
                                 title={`${shedLabel} · ${cell.animalCount} animals${
                                   waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""
@@ -1108,7 +1184,27 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         {/* Cohort matrix, FARMWISE: one table per farm, cohort ladder down the side, vaccines
             across the top, pending count in the cell (red when > 0) with the verified count
             beneath it so closure is readable without subtracting from the head count. */}
+        {/* The cohort grid is loaded AFTER first paint. Its three statements were ~420ms of the
+            board's ~850ms of SQL and alone held /vaccination/command over its latency budget, so it
+            became its own section. An explicit loading state matters here: an empty grid during the
+            gap would read as "this tenant has no cohorts", which is a different and alarming fact. */}
+        {cohortSection.loading && cohortMatrix.length === 0 ? (
+          <div className="cbm-section-state" role="status" aria-live="polite">
+            {copy(pageContract, "command_board.cohort_matrix.loading")}
+          </div>
+        ) : null}
+        {cohortSection.error ? (
+          <div className="cbm-section-state cbm-section-state-error" role="status">
+            {copy(pageContract, "command_board.cohort_matrix.unavailable")}
+          </div>
+        ) : null}
+        {!cohortSection.loading && !cohortSection.error && cohortMatrix.length === 0 ? (
+          <div className="cbm-section-state">
+            {copy(pageContract, "command_board.cohort_matrix.empty")}
+          </div>
+        ) : null}
         {(() => {
+          if (cohortMatrix.length === 0) return null;
           // MATCHING ladder (catch-all last) and READING order are different backend lists: the
           // Adults catch-all must stay last for bucketing, but the CEO reads Adults before the
           // not-adult cohorts.
@@ -1221,9 +1317,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                   submitted: awaiting,
                                   verified: done,
                                   dateSpan: administeredDate,
-                                  days: row.days[v] ?? [],
                                   exceptionCount,
-                                  exceptionGoats: exception?.goats ?? [],
+                                  cellRefs: row.cellRefs[v] ?? [],
                                   members: row.members.map((member) => ({
                                     label: member.label,
                                     animals: member.animals,
@@ -1404,10 +1499,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 the header. Repeating a link on all 76 rows implied per-goat footage that does not
                 exist. */}
             <div className="cbm-verify-videos">
-              {(selectedShedVaccine.proofVideos ?? []).length > 0 ? (
+              {shedVaccineDrilldown.data.proofVideos.length > 0 ? (
                 <>
                   <span>{copy(pageContract, "command_board.shed_vaccine.drawer.shed_videos")}</span>
-                  {(selectedShedVaccine.proofVideos ?? []).map((video, index) => (
+                  {shedVaccineDrilldown.data.proofVideos.map((video, index) => (
                     <a key={video.path} href={video.path} target="_blank" rel="noreferrer">
                       {copy(pageContract, "command_board.shed_vaccine.drawer.clip")} {index + 1}
                     </a>
@@ -1426,7 +1521,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   to tell which goat each belonged to. */}
               <table className="cbm-verify-table">
                 <tbody>
-                  {(selectedShedVaccine.flaggedAnimals ?? []).map((animal) => (
+                  {shedVaccineDrilldown.data.animals.map((animal) => (
                     <tr key={animal.goatId}>
                       <td>
                         {/* EAR TAGS lead, both of them. Most of the herd carries two and an operator
@@ -1471,7 +1566,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               </table>
               {/* The COUNT is whole-scope truth and the list is capped, so a shorter list must say
                   so rather than read as the complete set. */}
-              {(selectedShedVaccine.flaggedAnimals ?? []).length < selectedShedVaccine.behindAnimals && (
+              {shedVaccineDrilldown.data.animals.length < selectedShedVaccine.behindAnimals && (
                 <p className="cbm-meta">
                   {copy(pageContract, "command_board.shed_vaccine.drawer.truncated")}
                 </p>
@@ -1534,7 +1629,13 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                       {/* Ground location, partition included -- the parent shed name alone would
                           send a park head to the wrong side of a partitioned shed. */}
                       <td>
-                        {animal.operational_location_display}
+                        {/* locationDisplay, not operational_location_display. This drawer asked for
+                            a field the server has never emitted -- the wire name is locationDisplay
+                            (VaccinationCommandBoardClosedWithoutDoseAnimal) -- so the ground
+                            location rendered BLANK, in the one column a park head needs to know
+                            which side of a partitioned shed to walk to. Pre-existing; surfaced when
+                            the drawer moved onto the contract-typed drilldown payload. */}
+                        {animal.locationDisplay}
                         <span className="cbm-closed-park">{animal.parkName}</span>
                       </td>
                       <td>{animal.vaccineLabel}</td>
@@ -1606,9 +1707,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               {/* The day story: which day the operator actually dosed how many animals. */}
               <div className="cbm-drawer-section">
                 <b>{copy(pageContract, "command_board.cohort_matrix.detail.per_day")}</b>
-                {selectedCell.days.length > 0 ? (
+                {cohortDrilldown.data.days.length > 0 ? (
                   <ul className="cbm-daylist">
-                    {selectedCell.days.map((day) => (
+                    {cohortDrilldown.data.days.map((day) => (
                       <li key={day.date}>
                         <span className="d">{formatDateSpan(day.date, day.date)}</span>
                         <span className="n">{day.animalCount}</span>
@@ -1631,14 +1732,17 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   <>
                     <span className="cbm-cohort-detail-exception-count">{selectedCell.exceptionCount}</span>
                     <ul className="cbm-goatlist">
-                      {selectedCell.exceptionGoats.map((goat) => (
+                      {cohortDrilldown.data.exceptionGoats.map((goat) => (
                         <li key={goat.goatId}>
                           {goat.displayId}
                           {goat.tag ? <span className="t">{goat.tag}</span> : null}
                         </li>
                       ))}
                     </ul>
-                    {selectedCell.exceptionCount > selectedCell.exceptionGoats.length ? (
+                    {/* Driven by a REMAINING CURSOR, not by count-vs-length. The list is
+                        de-duplicated across the cell's dose codes while the count is a per-cell
+                        total, so comparing them labelled a complete list as truncated. */}
+                    {cohortDrilldown.data.truncated ? (
                       <span className="cbm-cohort-detail-muted">
                         {copy(pageContract, "command_board.cohort_matrix.detail.capped")} {selectedCell.exceptionCount}
                       </span>

@@ -10,41 +10,41 @@ import (
 
 func TestSchedulePathForGoat(t *testing.T) {
 	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	asOf := dob.AddDate(0, 0, 200) // ~28.5 weeks: past the 20w kid-course finishing window
+	asOf := dob.AddDate(0, 0, 200) // ~28.5 weeks: past the 19w kid-course finishing window
 	proc := genProcurementPolicy{KidsNormalScheduleUntilWeeks: 16}
 
 	// B4 fix: origin_type="birth" no longer bypasses age unconditionally. A farm-born
-	// animal with no kid-management stage tag, long past the 20w finishing window, is
+	// animal with no kid-management stage tag, long past the 19w finishing window, is
 	// adult — this was confirmed bug #5 ("kid doses generated for animals long past
 	// the cutoff"; origin=birth previously forced kid path regardless of age).
 	farmBornPastCutoff := domain.EligibleGoat{OriginType: "birth", DOB: &dob, Stage: "adult"}
 	if got := schedulePathForGoat(farmBornPastCutoff, proc, asOf, nil); got != schedulePathAdultProcurement {
-		t.Fatalf("farm-born past 20w cutoff, no kid tag = %q, want adult_procurement", got)
+		t.Fatalf("farm-born past 19w cutoff, no kid tag = %q, want adult_procurement", got)
 	}
 
-	// The 16-20w finishing window is CONTINUATION-ONLY. A goat already in the kid course
-	// (recorded kid-course administration) may finish its spacing-shifted dose (e.g. 20w-derived
-	// Goat Pox after 16w PPR).
+	// The post-16w finishing window is CONTINUATION-ONLY. A goat already in the kid course
+	// (recorded kid-course administration) may finish a follow-up dose, such as the 19w
+	// Blue Tongue booster after a 16w first dose.
 	finishingWindowAsOf := dob.AddDate(0, 0, 126) // 18 weeks
 	kidCourseHistory := []domain.RecentVaccineAdministration{{
 		AdministeredAt: dob.AddDate(0, 0, 84), VaccineCode: "FMD", DoseCode: "fmd_kid_12w",
 	}}
 	farmBornFinishing := domain.EligibleGoat{OriginType: "birth", DOB: &dob, Stage: "adult"}
 	if got := schedulePathForGoat(farmBornFinishing, proc, finishingWindowAsOf, kidCourseHistory); got != schedulePathKid {
-		t.Fatalf("farm-born within 16-20w window WITH started course = %q, want kid", got)
+		t.Fatalf("farm-born within 16-19w window WITH started course = %q, want kid", got)
 	}
 
-	// A goat in the 16-20w window that NEVER started the kid course (no kid tag, no history) must
+	// A goat in the post-16w continuation window that NEVER started the kid course (no kid tag, no history) must
 	// route adult — a new course may not start after 16 weeks (locked rule section 3).
 	if got := schedulePathForGoat(farmBornFinishing, proc, finishingWindowAsOf, nil); got != schedulePathAdultProcurement {
-		t.Fatalf("farm-born within 16-20w window with no started course = %q, want adult_procurement", got)
+		t.Fatalf("farm-born within 16-19w window with no started course = %q, want adult_procurement", got)
 	}
 
-	// A K-stage tag is still a FRESH in-course signal within the 16-20w finishing window (unlike a
-	// stale tag past 20w), so a K-tagged goat finishing its course routes kid.
+	// A K-stage tag is still a FRESH in-course signal within the post-16w continuation window (unlike a
+	// stale tag past 19w), so a K-tagged goat finishing its course routes kid.
 	kidTaggedFinishing := domain.EligibleGoat{OriginType: "procured", DOB: &dob, Stage: "K1"}
 	if got := schedulePathForGoat(kidTaggedFinishing, proc, finishingWindowAsOf, nil); got != schedulePathKid {
-		t.Fatalf("K1 tag within 16-20w finishing window = %q, want kid", got)
+		t.Fatalf("K1 tag within post-16w continuation window = %q, want kid", got)
 	}
 
 	// A procured goat within the <=16w start window routes kid (a new kid course may start).
@@ -60,12 +60,12 @@ func TestSchedulePathForGoat(t *testing.T) {
 		t.Fatalf("procured adult = %q, want adult_procurement", got)
 	}
 
-	// A live K-stage tag past the 20w finishing window does NOT override age (locked rule
-	// section 3: after 20w always adult). The tag/age conflict is surfaced as a review signal in
+	// A live K-stage tag past the 19w finishing window does NOT override age (locked rule
+	// section 3: after 19w always adult). The tag/age conflict is surfaced as a review signal in
 	// genOneGoat (staleKidStageAfterCutoff), but the goat is scheduled adult and gets no kid doses.
 	procuredOldKidStage := domain.EligibleGoat{OriginType: "procured", DOB: &dob, Stage: "K2"}
 	if got := schedulePathForGoat(procuredOldKidStage, proc, asOf, nil); got != schedulePathAdultProcurement {
-		t.Fatalf("K2 tag past 20w cutoff = %q, want adult_procurement (no stale-tag override)", got)
+		t.Fatalf("K2 tag past 19w cutoff = %q, want adult_procurement (no stale-tag override)", got)
 	}
 
 	// B3: DOB unknown, no stage tag, no kid-course vaccination history → must route
@@ -323,5 +323,20 @@ func TestRuleMatchesSchedulePath(t *testing.T) {
 	}
 	if !ruleMatchesSchedulePath(adultRule, schedulePathAdultProcurement) || ruleMatchesSchedulePath(kidRule, schedulePathAdultProcurement) {
 		t.Fatalf("adult path matching failed")
+	}
+
+	adultManualRule := protodomain.Rule{TriggerType: "manual_campaign", DoseCode: "blue_tongue_adult_w1"}
+	kidManualRule := protodomain.Rule{TriggerType: "manual_campaign", DoseCode: "blue_tongue_kid_16w"}
+	if ruleMatchesSchedulePath(adultManualRule, schedulePathKid) {
+		t.Fatalf("adult manual campaign matched kid path")
+	}
+	if !ruleMatchesSchedulePath(adultManualRule, schedulePathAdultProcurement) {
+		t.Fatalf("adult manual campaign did not match adult path")
+	}
+	if !ruleMatchesSchedulePath(kidManualRule, schedulePathKid) {
+		t.Fatalf("kid manual campaign did not match kid path")
+	}
+	if ruleMatchesSchedulePath(kidManualRule, schedulePathAdultProcurement) {
+		t.Fatalf("kid manual campaign matched adult path")
 	}
 }

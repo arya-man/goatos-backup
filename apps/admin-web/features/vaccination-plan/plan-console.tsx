@@ -21,6 +21,7 @@ import type { ProtocolConfigItem } from "@/lib/api/server";
 
 import { discardDraft, readVersionSettings, startNewVersion } from "./plan-actions";
 import { describeFirstDoses, describeRepeats, readVaccines, type VaccineGroup } from "./plan-model";
+import { personName } from "./version-format";
 import { VersionSheet, type VersionSheetData } from "./version-sheet";
 
 type Props = {
@@ -92,7 +93,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
       label: version.version_label || `V${version.version}`,
       inForce: formatInForceRange(version),
       published: formatDate(version.published_at),
-      vaccines: readVaccines(result.ruleDsl),
+      vaccines: readVaccines(result.ruleDsl, result.rules),
     });
   }, []);
 
@@ -380,14 +381,6 @@ function appliesTo(live: ProtocolConfigItem): string {
  * showing ids, and "90000000-0000-4000-..." tells the reader strictly less than
  * the date already does.
  */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function personName(value: string | undefined | null): string | null {
-  const trimmed = (value ?? "").trim();
-  if (!trimmed || UUID_RE.test(trimmed)) return null;
-  return trimmed;
-}
-
 function formatInForceRange(version: ProtocolConfigItem): string {
   const retiredAt =
     "retired_at" in version && typeof version.retired_at === "string" ? version.retired_at : null;

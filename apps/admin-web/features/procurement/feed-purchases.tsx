@@ -244,6 +244,12 @@ export async function FeedPurchasesPage({
                           </Tag>,
                         )}
                       </td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {/* BACKEND-derived money still owed (total minus instalments, floored at
+                            zero); "—" while the landed cost is unknown. The page never subtracts
+                            anything itself. */}
+                        {cellLink(purchase.payment_balance == null ? none : inr(purchase.payment_balance))}
+                      </td>
                     </tr>
                   );
                 })}
@@ -283,6 +289,7 @@ export async function FeedPurchasesPage({
         purchases={purchases}
         options={options}
         recordIdempotencyKey={randomUUID()}
+        paymentIdempotencyKey={randomUUID()}
         pageContract={pageContract}
         listHref={listHref}
         canRecord={canOpenRecordDrawer}

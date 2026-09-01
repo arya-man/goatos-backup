@@ -194,3 +194,18 @@ func (s *Service) describeDistributionProofs(ctx context.Context, tenantID strin
 		}
 	}
 }
+
+// ShedFeedAnalytics serves the per-pen feed-mix rollup for one window: which
+// feed items each operational location was directed and how many kg of each.
+func (s *Service) ShedFeedAnalytics(ctx context.Context, in DirectedAnalyticsInput) (domain.ShedFeedAnalytics, error) {
+	if s.analytics == nil {
+		return domain.ShedFeedAnalytics{}, fmt.Errorf("feeddirection: analytics reader is not wired")
+	}
+	parkIDs, err := analyticsParkFilter(in.ParkID, in.AuthorizedParkIDs)
+	if err != nil {
+		return domain.ShedFeedAnalytics{}, err
+	}
+	return s.analytics.ShedFeedAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
+		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
+	})
+}

@@ -54,7 +54,7 @@ class HealthRepositoryConvergenceTest {
 
             assertTrue(database.healthWorkItemDao().findAll("stale-session").isEmpty())
             assertEquals(1, database.healthWorkItemDao().findAll("canonical-session").size)
-            assertEquals(1, repository.observePageMeta(filters).first()?.summary?.total)
+            assertEquals(1, repository.observePageMeta(filters).first()?.page?.summary?.total)
         }
     }
 

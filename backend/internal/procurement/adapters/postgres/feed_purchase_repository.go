@@ -18,6 +18,9 @@ import (
 // idemScopeFeedPurchaseCreate namespaces the record-purchase idempotency keys.
 const idemScopeFeedPurchaseCreate = "procurement.feed_purchase.create"
 
+// idemScopeFeedPurchasePayment namespaces the record-instalment idempotency keys.
+const idemScopeFeedPurchasePayment = "procurement.feed_purchase.payment"
+
 // feedPurchaseNaturalKeyConstraint is the unique index a duplicate load violates. Matched by NAME
 // rather than by SQLSTATE 23505 alone: the table carries several checks, and reporting "batch
 // already recorded" for an unrelated violation sends an operator hunting for a duplicate that does
@@ -113,6 +116,10 @@ func (r *Repository) ListFeedPurchases(ctx context.Context, tenantID, farm strin
 		return ports.FeedPurchasePage{}, fmt.Errorf("list feed purchases rows: %w", err)
 	}
 
+	if err := r.attachFeedPurchasePayments(ctx, tenantID, purchases); err != nil {
+		return ports.FeedPurchasePage{}, err
+	}
+
 	page := ports.FeedPurchasePage{Purchases: purchases}
 	totalsQuery := fmt.Sprintf(`
 SELECT count(*), COALESCE(sum(p.quantity_kg), 0), COALESCE(sum(p.total_cost), 0)
@@ -182,7 +189,8 @@ LIMIT 100`, tenantID)
 	return opts, nil
 }
 
-// getFeedPurchase reads one purchase inside the caller's tenant. Used by the create replay path.
+// getFeedPurchase reads one purchase inside the caller's tenant, with its instalments. Used by the
+// create/payment replay paths and as every write's returned read.
 func (r *Repository) getFeedPurchase(ctx context.Context, tenantID, purchaseID string) (domain.FeedPurchase, error) {
 	query := fmt.Sprintf(`SELECT %s FROM public.feed_purchases p WHERE p.tenant_id = $1 AND p.feed_purchase_id = $2`, feedPurchaseColumns)
 	p, err := scanFeedPurchase(r.pool.QueryRow(ctx, query, tenantID, purchaseID))
@@ -192,7 +200,11 @@ func (r *Repository) getFeedPurchase(ctx context.Context, tenantID, purchaseID s
 	if err != nil {
 		return domain.FeedPurchase{}, fmt.Errorf("get feed purchase: %w", err)
 	}
-	return p, nil
+	purchases := []domain.FeedPurchase{p}
+	if err := r.attachFeedPurchasePayments(ctx, tenantID, purchases); err != nil {
+		return domain.FeedPurchase{}, err
+	}
+	return purchases[0], nil
 }
 
 // CreateFeedPurchase records one purchased load: idempotency reservation, catalog check, batch
@@ -359,6 +371,303 @@ func fpInt(v *int) string {
 		return ""
 	}
 	return fmt.Sprintf("%d", *v)
+}
+
+// attachFeedPurchasePayments loads the instalments of every purchase on one page in ONE batched
+// read (`= ANY`, never a per-row query) and attaches them oldest first.
+func (r *Repository) attachFeedPurchasePayments(ctx context.Context, tenantID string, purchases []domain.FeedPurchase) error {
+	if len(purchases) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(purchases))
+	index := make(map[string]int, len(purchases))
+	for i, p := range purchases {
+		ids = append(ids, p.FeedPurchaseID)
+		index[p.FeedPurchaseID] = i
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT payment_id::text, feed_purchase_id::text, paid_on, amount_rupees, note, created_at
+FROM public.feed_purchase_payments
+WHERE tenant_id = $1 AND feed_purchase_id = ANY($2::uuid[])
+ORDER BY paid_on, created_at`, tenantID, ids)
+	if err != nil {
+		return fmt.Errorf("list feed purchase payments: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			payment   domain.FeedPurchasePayment
+			paidOn    time.Time
+			createdAt time.Time
+		)
+		if err := rows.Scan(&payment.PaymentID, &payment.FeedPurchaseID, &paidOn, &payment.AmountRupees, &payment.Note, &createdAt); err != nil {
+			return fmt.Errorf("list feed purchase payments scan: %w", err)
+		}
+		payment.PaidOn = paidOn.Format("2006-01-02")
+		payment.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		if i, ok := index[payment.FeedPurchaseID]; ok {
+			purchases[i].Payments = append(purchases[i].Payments, payment)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list feed purchase payments rows: %w", err)
+	}
+	return nil
+}
+
+// RecordFeedPurchasePayment records one instalment against one load.
+//
+// Everything money-shaped happens in ONE transaction under the purchase's row lock: the instalment
+// insert, the running payment_released total, and the payment status the new total implies. The
+// row lock is what makes the running total safe -- two concurrent instalments each add their own
+// amount to the total the OTHER left, never both to the same stale figure.
+func (r *Repository) RecordFeedPurchasePayment(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchasePaymentWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: begin feed purchase payment: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Semantic fingerprint over the instalment's whole effect: same key + any different field is a
+	// different request and is refused, not recorded.
+	fingerprint := requestFingerprint(purchaseID, write.PaidOn, fpMoney(&write.AmountRupees), write.Note)
+	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeFeedPurchasePayment, idempotencyKey, fingerprint)
+	if err != nil {
+		return domain.FeedPurchase{}, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.FeedPurchase{}, fmt.Errorf("procurement: commit feed purchase payment replay read: %w", err)
+		}
+		return r.getFeedPurchase(ctx, tenantID, purchaseID)
+	}
+
+	// Lock the purchase row for the whole write. Also the tenant check: an id outside the caller's
+	// tenant reads as not found.
+	var (
+		totalCost       *float64
+		paymentReleased *float64
+		currentStatus   string
+	)
+	err = tx.QueryRow(ctx, `
+SELECT total_cost, payment_released, payment_status
+FROM public.feed_purchases
+WHERE tenant_id = $1 AND feed_purchase_id = $2
+FOR UPDATE`, tenantID, purchaseID).Scan(&totalCost, &paymentReleased, &currentStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
+	}
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: lock feed purchase: %w", err)
+	}
+
+	var paymentID string
+	err = tx.QueryRow(ctx, `
+INSERT INTO public.feed_purchase_payments (tenant_id, feed_purchase_id, paid_on, amount_rupees, note, recorded_by)
+VALUES ($1::uuid, $2::uuid, $3::date, $4, $5, nullif($6, '')::uuid)
+RETURNING payment_id::text`,
+		tenantID, purchaseID, write.PaidOn, write.AmountRupees, write.Note, actorID,
+	).Scan(&paymentID)
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: insert feed purchase payment: %w", err)
+	}
+
+	released := write.AmountRupees
+	if paymentReleased != nil {
+		released += *paymentReleased
+	}
+	newStatus := domain.DeriveFeedPaymentStatus(totalCost, released, currentStatus)
+	if _, err := tx.Exec(ctx, `
+UPDATE public.feed_purchases
+SET payment_released = $3, payment_status = $4
+WHERE tenant_id = $1 AND feed_purchase_id = $2`,
+		tenantID, purchaseID, released, newStatus); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: update feed purchase payment total: %w", err)
+	}
+
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    "human",
+		Action:       "procurement.feed_purchase.payment_record",
+		ResourceType: "feed_purchase",
+		ResourceID:   purchaseID,
+		Metadata: map[string]any{
+			"domain":           "procurement",
+			"module":           "feed_purchases",
+			"category":         "payment",
+			"payment_id":       paymentID,
+			"paid_on":          write.PaidOn,
+			"amount_rupees":    write.AmountRupees,
+			"payment_released": released,
+			"payment_status":   newStatus,
+			"idempotency_key":  idempotencyKey,
+			"operation_id":     idempotencyKey,
+		},
+	}); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: audit feed purchase payment: %w", err)
+	}
+
+	if err := completeIdempotency(ctx, tx, tenantID, idemScopeFeedPurchasePayment, idempotencyKey, "feed_purchase_payment", paymentID); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: complete feed purchase payment idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: commit feed purchase payment: %w", err)
+	}
+	return r.getFeedPurchase(ctx, tenantID, purchaseID)
+}
+
+// SetFeedPurchasePaymentStatus sets the load's payment status directly.
+//
+// Naturally idempotent, so no reservation: the guarded UPDATE writes (and audits) only when the
+// status actually changes, and a retry of the same change finds nothing to do.
+func (r *Repository) SetFeedPurchasePaymentStatus(ctx context.Context, tenantID, purchaseID, status, actorID string) (domain.FeedPurchase, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: begin feed purchase status: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var previous string
+	err = tx.QueryRow(ctx, `
+SELECT payment_status
+FROM public.feed_purchases
+WHERE tenant_id = $1 AND feed_purchase_id = $2
+FOR UPDATE`, tenantID, purchaseID).Scan(&previous)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
+	}
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: lock feed purchase status: %w", err)
+	}
+
+	if previous != status {
+		if _, err := tx.Exec(ctx, `
+UPDATE public.feed_purchases
+SET payment_status = $3
+WHERE tenant_id = $1 AND feed_purchase_id = $2`, tenantID, purchaseID, status); err != nil {
+			return domain.FeedPurchase{}, fmt.Errorf("procurement: update feed purchase status: %w", err)
+		}
+		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+			TenantID:     tenantID,
+			ActorID:      actorID,
+			ActorType:    "human",
+			Action:       "procurement.feed_purchase.payment_status_set",
+			ResourceType: "feed_purchase",
+			ResourceID:   purchaseID,
+			Metadata: map[string]any{
+				"domain":          "procurement",
+				"module":          "feed_purchases",
+				"category":        "payment",
+				"previous_status": previous,
+				"payment_status":  status,
+			},
+		}); err != nil {
+			return domain.FeedPurchase{}, fmt.Errorf("procurement: audit feed purchase status: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: commit feed purchase status: %w", err)
+	}
+	return r.getFeedPurchase(ctx, tenantID, purchaseID)
+}
+
+// UpdateFeedPurchase edits an already-recorded load's values.
+//
+// The row lock covers the whole edit so a concurrent instalment cannot interleave: the payment
+// status is re-derived from the NEW landed total against the released total the lock read.
+// Naturally idempotent -- writing the values the load already has changes nothing and audits
+// nothing -- so no reservation is needed.
+func (r *Repository) UpdateFeedPurchase(ctx context.Context, tenantID, purchaseID string, edit domain.FeedPurchaseEdit, actorID string) (domain.FeedPurchase, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: begin feed purchase edit: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	current, err := scanFeedPurchase(tx.QueryRow(ctx, fmt.Sprintf(
+		`SELECT %s FROM public.feed_purchases p WHERE p.tenant_id = $1 AND p.feed_purchase_id = $2 FOR UPDATE`,
+		feedPurchaseColumns), tenantID, purchaseID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
+	}
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: lock feed purchase edit: %w", err)
+	}
+
+	released := 0.0
+	if current.PaymentReleased != nil {
+		released = *current.PaymentReleased
+	}
+	newTotal := edit.TotalOrSplitSum()
+	newStatus := domain.DeriveFeedPaymentStatus(newTotal, released, current.PaymentStatus)
+
+	unchanged := current.PurchaseDate == edit.PurchaseDate &&
+		current.QuantityKg == edit.QuantityKg &&
+		eqMoney(current.FeedCost, edit.FeedCost) && eqMoney(current.TransportCost, edit.TransportCost) &&
+		eqMoney(current.LoadingCost, edit.LoadingCost) && eqMoney(current.UnloadingCost, edit.UnloadingCost) &&
+		eqMoney(current.TotalCost, newTotal) &&
+		current.Vendor == edit.Vendor && current.PaymentStatus == newStatus
+	if !unchanged {
+		if _, err := tx.Exec(ctx, `
+UPDATE public.feed_purchases
+SET purchase_date = $3::date, quantity_kg = $4,
+    feed_cost = $5, transport_cost = $6, loading_cost = $7, unloading_cost = $8,
+    total_cost = $9, per_kg_cost = $10,
+    vendor = $11, payment_status = $12
+WHERE tenant_id = $1 AND feed_purchase_id = $2`,
+			tenantID, purchaseID, edit.PurchaseDate, edit.QuantityKg,
+			edit.FeedCost, edit.TransportCost, edit.LoadingCost, edit.UnloadingCost,
+			newTotal, edit.PerKgCost(), edit.Vendor, newStatus); err != nil {
+			return domain.FeedPurchase{}, fmt.Errorf("procurement: update feed purchase: %w", err)
+		}
+		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+			TenantID:     tenantID,
+			ActorID:      actorID,
+			ActorType:    "human",
+			Action:       "procurement.feed_purchase.edit",
+			ResourceType: "feed_purchase",
+			ResourceID:   purchaseID,
+			Metadata: map[string]any{
+				"domain":            "procurement",
+				"module":            "feed_purchases",
+				"category":          "purchase",
+				"previous_date":     current.PurchaseDate,
+				"previous_quantity": current.QuantityKg,
+				"previous_total":    current.TotalCost,
+				"previous_vendor":   current.Vendor,
+				"purchase_date":     edit.PurchaseDate,
+				"quantity_kg":       edit.QuantityKg,
+				"total_cost":        newTotal,
+				"vendor":            edit.Vendor,
+				"payment_status":    newStatus,
+			},
+		}); err != nil {
+			return domain.FeedPurchase{}, fmt.Errorf("procurement: audit feed purchase edit: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: commit feed purchase edit: %w", err)
+	}
+	return r.getFeedPurchase(ctx, tenantID, purchaseID)
+}
+
+// eqMoney compares two optional money values as stored (paisa precision).
+func eqMoney(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	diff := *a - *b
+	return diff < 0.005 && diff > -0.005
 }
 
 var _ ports.FeedPurchaseRepository = (*Repository)(nil)

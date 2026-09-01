@@ -8,6 +8,28 @@
   },
   "guards": [
     {
+      "id": "additive-publish",
+      "script": "tools/agent-hooks/check-additive-publish.mjs",
+      "makeTarget": "additive-publish-guard",
+      "realCheck": "node tools/agent-hooks/check-additive-publish.mjs",
+      "selfTest": "node tools/agent-hooks/check-additive-publish.mjs --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/additive-publish.md",
+      "requiredInCI": true,
+      "ciStep": "additive-publish-guard",
+      "notes": "Publishing a plan version must only touch the rules that actually changed: adding a 6th vaccine to a plan of 5 leaves those 5 operationally untouched -- same obligation_id, same due_at, same task/batch/proof attachment -- with only protocol_version_id moving. Checks the three ways that guarantee breaks without looking like a bug: the carry-over call vanishing from the supersede path, due_at or status joining the carry-over UPDATE, and a scheduling field dropping out of the rule content fingerprint (which would make an edit read as unchanged and never reach an animal). Lens CD-ADDITIVE-PUBLISH in the review-lens ledger."
+    },
+    {
+      "id": "admin-web-and-backend-boundaries",
+      "script": "tools/agent-hooks/check-boundaries.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-boundaries.sh",
+      "selfTest": "bash tools/agent-hooks/check-boundaries.sh --self-test",
+      "owningDoc": "docs/runbooks/local-ci.md",
+      "requiredInCI": true,
+      "ciStep": "check-boundaries.sh",
+      "notes": "No dedicated Make target: `guardrails:` invokes the script (and its --self-test) directly, and run_common runs both. The self-test builds synthetic admin-web/Go fixtures in a tmpdir and asserts the guard REJECTS them (direct BigQuery/Sheets access, cross-feature deep imports, silent recover())."
+    },
+    {
       "id": "admin-web-date-format",
       "script": "tools/agent-hooks/check-admin-web-date-format.mjs",
       "makeTarget": "admin-web-date-format-guard",
@@ -26,16 +48,6 @@
       "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
       "requiredInCI": true,
       "ciStep": "admin-web-local-overlay-guard"
-    },
-    {
-      "id": "overlay-motion",
-      "script": "tools/agent-hooks/check-overlay-motion.mjs",
-      "makeTarget": "overlay-motion-guard",
-      "realCheck": "node tools/agent-hooks/check-overlay-motion.mjs",
-      "selfTest": "node tools/agent-hooks/check-overlay-motion.mjs --self-test",
-      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
-      "requiredInCI": true,
-      "ciStep": "overlay-motion-guard"
     },
     {
       "id": "admin-web-prefetch",
@@ -58,6 +70,17 @@
       "ciStep": "admin-web-request-reads-guard"
     },
     {
+      "id": "agent-write-scope",
+      "script": "tools/agent-hooks/check-write-scope.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-write-scope.sh",
+      "selfTestExemptReason": "No self-test: this is an agent PreToolUse hook, not a CI lint. It exits 0 unless the operator has placed a .agent/scope.json in the worktree, and it is driven end-to-end by every agent file write through .claude/settings.json and .codex/hooks.json - that live wiring, not a fixture, is what exercises it. It has no CI step to attach a fixture to.",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": false,
+      "ciStep": null,
+      "notes": "Not in the Makefile, not in `guardrails:`, and not in tools/ci/run-local-ci.sh. Exposed as `npm run check:scope` and wired as an agent PreToolUse hook only."
+    },
+    {
       "id": "aggregate-projection-review",
       "script": "tools/agent-hooks/check-aggregate-projection-review.mjs",
       "makeTarget": "aggregate-projection-guard",
@@ -76,28 +99,6 @@
       "owningDoc": "docs/mobile/README.md",
       "requiredInCI": true,
       "ciStep": "mobile-guard"
-    },
-    {
-      "id": "android-outbox-lifecycle-policy",
-      "script": "tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs --self-test",
-      "owningDoc": "docs/decisions/android-offline-first.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard",
-      "notes": "Every Android OutboxOpType explicitly declares immediate UI, success reconciliation, terminal-failure, and process-death policy; wildcard coverage is rejected."
-    },
-    {
-      "id": "android-verifier-detail-scope",
-      "script": "tools/agent-hooks/check-android-verifier-detail-scope.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-verifier-detail-scope.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-verifier-detail-scope.mjs --self-test",
-      "owningDoc": "docs/mobile/proof-video-verification-flow.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard",
-      "notes": "Blocks the 2026-08-11 Android verifier regression where a Weighing queue row showed video but detail opened without the same status/date/missed scope, observed the wrong Room cache slice, and rendered 'No video attached to this item'."
     },
     {
       "id": "android-bounded-memory",
@@ -130,14 +131,15 @@
       "ciStep": "android-compose-lists-guard"
     },
     {
-      "id": "android-navigation-stack",
-      "script": "tools/agent-hooks/check-android-navigation-stack.mjs",
-      "makeTarget": "android-navigation-stack-guard",
-      "realCheck": "node tools/agent-hooks/check-android-navigation-stack.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-navigation-stack.mjs --self-test",
-      "owningDoc": "docs/decisions/android-navigation-stack.md",
+      "id": "android-feed-proof-submit",
+      "script": "tools/agent-hooks/check-android-feed-proof-submit.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-feed-proof-submit.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test",
+      "owningDoc": "SKILLS.md",
       "requiredInCI": true,
-      "ciStep": "android-navigation-stack-guard"
+      "ciStep": "mobile-guard",
+      "notes": "Feed direction, packing, and transport submit keys must include selected proof ids; submit status must observe by outbox id; packing completion must pass partition_label."
     },
     {
       "id": "android-l0-root-chrome",
@@ -151,6 +153,16 @@
       "notes": "L0 root screens must render MeshaScreenHeader (shell-owned chrome), call RefreshOnResume (read screens), and use SyncIconButton (not hand-rolled refresh). Prevents screens shipping without top chrome/drawer/refresh like /vaccination/videos on 2026-08-03."
     },
     {
+      "id": "android-navigation-stack",
+      "script": "tools/agent-hooks/check-android-navigation-stack.mjs",
+      "makeTarget": "android-navigation-stack-guard",
+      "realCheck": "node tools/agent-hooks/check-android-navigation-stack.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-navigation-stack.mjs --self-test",
+      "owningDoc": "docs/decisions/android-navigation-stack.md",
+      "requiredInCI": true,
+      "ciStep": "android-navigation-stack-guard"
+    },
+    {
       "id": "android-orientation-lock",
       "script": "tools/agent-hooks/check-android-orientation-lock.mjs",
       "makeTarget": "mobile-guard",
@@ -159,6 +171,50 @@
       "owningDoc": "docs/mobile/README.md",
       "requiredInCI": true,
       "ciStep": "mobile-guard"
+    },
+    {
+      "id": "android-outbox-lifecycle-policy",
+      "script": "tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs --self-test",
+      "owningDoc": "docs/decisions/android-offline-first.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Every Android OutboxOpType explicitly declares immediate UI, success reconciliation, terminal-failure, and process-death policy; wildcard coverage is rejected."
+    },
+    {
+      "id": "android-proof-video-pipeline",
+      "script": "tools/agent-hooks/check-android-proof-video-pipeline.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/agent-hooks/check-android-proof-video-pipeline.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-proof-video-pipeline.mjs --self-test",
+      "owningDoc": "apps/goatos-android/docs/ui-preview-and-screenshots.md",
+      "requiredInCI": false,
+      "ciStep": "check-android-proof-video-pipeline.mjs",
+      "notes": "Authoring guard for the documented proof-video pipeline; it is not part of the default landing matrix."
+    },
+    {
+      "id": "android-proof-video-screenshots",
+      "script": "tools/agent-hooks/check-android-proof-video-screenshots.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/agent-hooks/check-android-proof-video-screenshots.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-proof-video-screenshots.mjs --self-test",
+      "owningDoc": "apps/goatos-android/docs/ui-preview-and-screenshots.md",
+      "requiredInCI": false,
+      "ciStep": "check-android-proof-video-screenshots.mjs",
+      "notes": "Authoring guard for screenshot extraction from Android proof videos; it is not part of the default landing matrix."
+    },
+    {
+      "id": "android-row-action-scope",
+      "script": "tools/agent-hooks/check-android-row-action-scope.mjs",
+      "makeTarget": "android-row-action-scope-guard",
+      "realCheck": "node tools/agent-hooks/check-android-row-action-scope.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-row-action-scope.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "android-row-action-scope-guard",
+      "notes": "Blocks row-level Android card actions from using a screen-wide busy gate. Covers the individual weighing free-flow regression where animal A's pending save disabled/ignored animal B's Save."
     },
     {
       "id": "android-runtime-permission-sdk-gates",
@@ -172,15 +228,14 @@
       "notes": "Runtime permission request/blocking lists must gate OS-versioned permissions by SDK. POST_NOTIFICATIONS is runtime-grantable only on Android 13+, so Android 12 capture/upload entry must never require it."
     },
     {
-      "id": "android-row-action-scope",
-      "script": "tools/agent-hooks/check-android-row-action-scope.mjs",
-      "makeTarget": "android-row-action-scope-guard",
-      "realCheck": "node tools/agent-hooks/check-android-row-action-scope.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-row-action-scope.mjs --self-test",
-      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "id": "android-screenshot-proof",
+      "script": "tools/ci/check-android-screenshot-proof.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/ci/check-android-screenshot-proof.sh tools/ci/run-local-ci.sh",
+      "selfTest": "bash tools/ci/check-android-screenshot-proof.test.sh",
+      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
       "requiredInCI": true,
-      "ciStep": "android-row-action-scope-guard",
-      "notes": "Blocks row-level Android card actions from using a screen-wide busy gate. Covers the individual weighing free-flow regression where animal A's pending save disabled/ignored animal B's Save."
+      "ciStep": "android_screenshot_proof_coverage_guard"
     },
     {
       "id": "android-ui-copy-layout",
@@ -212,6 +267,28 @@
       "requiredInCI": true,
       "ciStep": "android-vaccination-submit-gate-guard",
       "notes": "Blocks the Android proof_rescan regression where a proof-missing DONE goat can upload proof without repairing the durable scan capture. Submit summary counts sop_task_scan_captures, so accepted proof_rescan must call recordRosterScan before requestGoatProof."
+    },
+    {
+      "id": "android-vaccine-weighing-proof-context",
+      "script": "tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs --self-test",
+      "owningDoc": "SKILLS.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Vaccination and weighing proof captures must pass feature/task overlay context through the shared proof pipeline, burn RFID only for per-animal captures, and keep the phone-QA 2/3-animal plus two-vaccine fixture."
+    },
+    {
+      "id": "android-verifier-detail-scope",
+      "script": "tools/agent-hooks/check-android-verifier-detail-scope.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-verifier-detail-scope.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-verifier-detail-scope.mjs --self-test",
+      "owningDoc": "docs/mobile/proof-video-verification-flow.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Blocks the 2026-08-11 Android verifier regression where a Weighing queue row showed video but detail opened without the same status/date/missed scope, observed the wrong Room cache slice, and rendered 'No video attached to this item'."
     },
     {
       "id": "assistant-route-closure",
@@ -286,6 +363,27 @@
       "ciStep": "clinical-defer-guard"
     },
     {
+      "id": "commandboard-query-plan",
+      "script": "tools/dev/commandboard-query-plan-guard.sh",
+      "makeTarget": "commandboard-query-plan-guard",
+      "realCheck": "make commandboard-query-plan-guard",
+      "selfTest": "bash tools/dev/commandboard-query-plan-guard.sh --self-test",
+      "owningDoc": "docs/runbooks/vaccination-command-board-latency.md",
+      "requiredInCI": false,
+      "ciStep": "command-board query plans",
+      "notes": "EXPLAIN-based plan gate; requires a PostgreSQL server, so it cannot join the no-DB guardrails sweep. It IS reached on a PR: tools/ci/run-local-ci.sh runs it in the query-plans job, which .github/workflows/ci.yml gates on changes.query_plans, and tools/ci/component-paths.json routes vaccinationexecution/adapters/postgres/ there (pinned by a ci-scope self-test). Its DB-free wiring half is registered separately as commandboard-query-plan-wiring and IS required in the guardrails sweep."
+    },
+    {
+      "id": "commandboard-query-plan-wiring",
+      "script": "tools/dev/commandboard-query-plan-guard.sh",
+      "makeTarget": "commandboard-query-plan-wiring-guard",
+      "realCheck": "make commandboard-query-plan-wiring-guard",
+      "selfTest": "bash tools/dev/commandboard-query-plan-guard.sh --self-test",
+      "owningDoc": "docs/runbooks/vaccination-command-board-latency.md",
+      "requiredInCI": true,
+      "ciStep": "commandboard-query-plan-wiring-guard"
+    },
+    {
       "id": "config-validate-or-reject",
       "script": "tools/agent-hooks/check-config-validate-or-reject.mjs",
       "makeTarget": "config-validate-guard",
@@ -294,6 +392,17 @@
       "owningDoc": ".agents/skills/goatos-code-review/references/backend.md",
       "requiredInCI": true,
       "ciStep": "config-validate-guard"
+    },
+    {
+      "id": "contract-drift",
+      "script": "tools/agent-hooks/check-contract-drift.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-contract-drift.sh",
+      "selfTestExemptReason": "No self-test: this guard owns no predicate of its own to attack. It is a 30-line executor that asserts the contract directories exist and then delegates the entire check to `npm --prefix tools/contract-validation run validate` and `make api-client-check`, which carry their own fixtures and failure modes. An adversarial fixture here would only prove that `npm run validate` was spawned.",
+      "owningDoc": "docs/runbooks/local-ci.md",
+      "requiredInCI": true,
+      "ciStep": "check-contract-drift.sh",
+      "notes": "No dedicated Make target: `guardrails:` invokes the script directly; run_common runs it as `agent: contract-drift`."
     },
     {
       "id": "critical-animal-action-availability",
@@ -347,6 +456,17 @@
       "ciStep": "domain-event-envelope-enum-guard"
     },
     {
+      "id": "e2e-kernel-integrity",
+      "script": "tools/agent-hooks/check-e2e-kernel-integrity.sh",
+      "makeTarget": "e2e-integrity-guard",
+      "realCheck": "bash tools/agent-hooks/check-e2e-kernel-integrity.sh",
+      "selfTest": "bash tools/agent-hooks/check-e2e-kernel-integrity.test.sh",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "check-e2e-kernel-integrity.sh",
+      "notes": "Enforces the AGENTS.md rule that an E2E may seed source/input facts but never the derived kernel result it claims to prove. run_backend runs it as `agent: e2e-kernel-integrity`."
+    },
+    {
       "id": "fcm-recipient-routing",
       "script": "tools/agent-hooks/check-fcm-recipient-routing.mjs",
       "makeTarget": "fcm-recipient-routing-guard",
@@ -356,6 +476,39 @@
       "requiredInCI": true,
       "ciStep": "fcm-recipient-routing-guard",
       "notes": "Blocks role-visible-but-no-push regressions: tenant leadership push recipients must resolve from active grants/device tokens, and STG verifier seed must create pc.vaccination verify duty routing."
+    },
+    {
+      "id": "feed-proof-collaboration",
+      "script": "tools/agent-hooks/check-feed-proof-collaboration-guard.mjs",
+      "makeTarget": "feed-proof-collaboration-guard",
+      "realCheck": "node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test",
+      "owningDoc": "docs/product/feed-proof-collaboration.md",
+      "requiredInCI": true,
+      "ciStep": "feed-proof-collaboration-guard",
+      "notes": "Feed distribution proof slots are a shared PARALLEL workspace (maintainer contract 2026-08-15): one shed-session, three slots (weight photo, feed video, water video), filled by peer operators from different phones in any split; no slot gates another; media always uploads compressed + overlay-burned. Five failure modes: (1) a FeedDistributionUiState slot-enabled getter referencing another slot's captured/status flag (sequential gating); (2) CaptureRepository Gate-3 backstop validating photos with the video probe (mime-blind - forced raw-original fallback three times in the field on 2026-08-15); (3) processed-artifact validation called without the output mime type; (4) AppProofMediaProcessor dropping the audit overlay or JPEG compression from the photo path, or the overlay composition from the video path; (5) deletion of the pinned regression tests (ProcessedPhotoValidatorRegressionTest, FeedDistributionSequenceTest, the gate-3 real-JPEG CaptureRepositoryTest case)."
+    },
+    {
+      "id": "feed-submitted-overlay-wiring",
+      "script": "tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs",
+      "makeTarget": "feed-submitted-overlay-wiring-guard",
+      "realCheck": "node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs",
+      "selfTest": "node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs --self-test",
+      "owningDoc": "docs/decisions/android-offline-first.md",
+      "requiredInCI": true,
+      "ciStep": "feed-submitted-overlay-wiring-guard",
+      "notes": "Keeps the queued-submit badge overlay wired end to end (bug 254.mp4: submit a shed-session, return to the worklist, row still reads Pending because the write is only in the outbox). Every Feed worklist renders its chip from lifecycleStatus, so three parts must all survive: the submit ViewModel calls markSubmittedForReview on ENQUEUE SUCCESS; the list ViewModel combines feedCompletionStore.submittedForReviewKeys; and its row mapping runs the status through overlayFeedLifecycleStatus. Deleting any one silently restores the bug while every unit test still passes, because the rule's own tests call the pure function directly and cannot see a severed call site. Also pins overlayFeedLifecycleStatus to exactly ONE definition: Feed Packing and Feed Direction previously drifted apart with per-flow copies. A paging-level test was tried first and rejected \u2014 `rows` ends in cachedIn(viewModelScope) and asSnapshot() never settles under runTest (UncompletedCoroutinesError), so a structural guard is deterministic where that test was flaky."
+    },
+    {
+      "id": "firebase-analytics-param-budget",
+      "script": "tools/agent-hooks/check-firebase-analytics-param-budget.mjs",
+      "makeTarget": "telemetry-guard",
+      "realCheck": "node tools/agent-hooks/check-firebase-analytics-param-budget.mjs",
+      "selfTest": "node tools/agent-hooks/check-firebase-analytics-param-budget.mjs --self-test",
+      "owningDoc": "SKILLS.md",
+      "requiredInCI": true,
+      "ciStep": "telemetry-guard",
+      "notes": "Firebase proof analytics must stay a compact allowlisted envelope; rich address/location/path/error details stay in backend analytics and Room events."
     },
     {
       "id": "frontend-foundations",
@@ -399,14 +552,24 @@
       "ciStep": "goat-shed-scope-guard"
     },
     {
-      "id": "operational-partition-identity",
-      "script": "tools/agent-hooks/check-operational-partition-identity.mjs",
-      "makeTarget": "operational-partition-identity-guard",
-      "realCheck": "node tools/agent-hooks/check-operational-partition-identity.mjs",
-      "selfTest": "node tools/agent-hooks/check-operational-partition-identity.mjs --self-test",
-      "owningDoc": "docs/decisions/partition-is-operational-shed.md",
+      "id": "gradle-config-cache",
+      "script": "tools/ci/check-gradle-config-cache.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/ci/check-gradle-config-cache.sh",
+      "selfTest": "bash tools/ci/check-gradle-config-cache.test.sh",
+      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
       "requiredInCI": true,
-      "ciStep": "operational-partition-identity-guard"
+      "ciStep": "check-gradle-config-cache.sh"
+    },
+    {
+      "id": "gradle-worktree-lock",
+      "script": "tools/ci/check-gradle-worktree-lock.sh",
+      "makeTarget": "gradle-worktree-lock-guard",
+      "realCheck": "bash tools/ci/check-gradle-worktree-lock.sh",
+      "selfTest": "bash tools/ci/check-gradle-worktree-lock.test.sh",
+      "owningDoc": "docs/runbooks/local-ci-performance.md",
+      "requiredInCI": true,
+      "ciStep": "check-gradle-worktree-lock.sh"
     },
     {
       "id": "guardrail-registration",
@@ -417,6 +580,17 @@
       "owningDoc": "docs/runbooks/local-ci.md",
       "requiredInCI": true,
       "ciStep": "guardrail-registration-guard"
+    },
+    {
+      "id": "herd-signals-language",
+      "script": "tools/agent-hooks/check-herd-signals-language.mjs",
+      "makeTarget": "herd-signals-language-guard",
+      "realCheck": "node tools/agent-hooks/check-herd-signals-language.mjs",
+      "selfTest": "node tools/agent-hooks/check-herd-signals-language.mjs --self-test",
+      "owningDoc": "docs/modules/herd-signals.md",
+      "requiredInCI": true,
+      "ciStep": "herd-signals-language-guard",
+      "notes": "Herd Signals product claim boundary: the HoneyComm BLE ear tag exposes only tag id/MAC, RSSI, battery, tag temperature, cumulative motion_count, sensor-OK bits, gateway id, and timestamps -- it cannot detect eating, rumination, sitting, standing, lying, walking, running, fever, body temperature, or disease. Scans backend/internal/herdsignals/**, apps/admin-web/features/herd-signals/**, the herd-signals slice of contracts/openapi/app-api.yaml, docs/modules/herd-signals.md (allowlisted as the boundary's source of truth), and mock/herd-signals-mock.html for claim-shaped assertions of a banned term, body-temperature mislabeling, and mock/demo/sample/synthetic UI copy leaks. See docs/modules/herd-signals.md Section 3."
     },
     {
       "id": "idempotency-writes",
@@ -492,17 +666,6 @@
       "notes": "Maintains separation between Leadership (audit/overview, read-only) and Verifier (action queue, verdict casting) surfaces. Enforces: (1) leadership nav hrefs do not point to /verify* routes, (2) leadership Android screens do not import from feature-verify, (3) verdict controls (approve/reject) do not appear in leadership screens. Incident 2026-08-06: leadership Videos nav was repointed at a verifier route, causing leadership screens to reflect every verifier UI change and creating UX confusion about readable vs. actionable content."
     },
     {
-      "id": "role-scoped-ui-contract",
-      "script": "tools/agent-hooks/check-role-scoped-ui-contract.mjs",
-      "makeTarget": "role-scoped-ui-contract-guard",
-      "realCheck": "node tools/agent-hooks/check-role-scoped-ui-contract.mjs",
-      "selfTest": "node tools/agent-hooks/check-role-scoped-ui-contract.mjs --self-test",
-      "owningDoc": "docs/decisions/role-scoped-ui-is-capability-gated.md",
-      "requiredInCI": true,
-      "ciStep": "role-scoped-ui-contract-guard",
-      "notes": "Admin-web pages are role-agnostic single components, so role differences must come from the backend page contract (capability-gated controls/option_groups), never a role-string conditional in the component. Enforces on a fixed, extendable file list (features/verification-review/verification-review-page.tsx today): (1) no role/permission string literal drives a rendering branch, (2) known oversight-only chrome (module chips, the capture-date range picker) is never present without a controlEnabled(pageContract, ...) gate somewhere in the file. Incident (STG, 2026-08-12): the CEO's oversight filters on /verify rendered for every role that could open the page, including RoleVerifier."
-    },
-    {
       "id": "local-ci-evidence",
       "script": "tools/ci/check-local-ci-evidence.mjs",
       "makeTarget": "local-ci-evidence-guard",
@@ -511,6 +674,28 @@
       "owningDoc": "docs/runbooks/local-release-evidence.md",
       "requiredInCI": true,
       "ciStep": "local-ci-evidence-guard"
+    },
+    {
+      "id": "local-gcp-kernel-parity",
+      "script": "tools/agent-hooks/check-local-gcp-kernel-parity.sh",
+      "makeTarget": "local-gcp-kernel-parity-guard",
+      "realCheck": "bash tools/agent-hooks/check-local-gcp-kernel-parity.sh",
+      "selfTest": "bash tools/agent-hooks/check-local-gcp-kernel-parity.test.sh",
+      "owningDoc": "docs/runbooks/local-gcp-kernel-parity.md",
+      "requiredInCI": false,
+      "ciStep": "local-gcp-kernel-parity-guard",
+      "notes": "requiredInCI=false records that no ordinary tools/ci/run-local-ci.sh component job invokes this target. `make guardrails` does invoke it, and its Make target runs the .test.sh self-test before the real check. F0 must decide and enforce ordinary affected-job routing or a precise reviewed exemption."
+    },
+    {
+      "id": "local-single-db",
+      "script": "tools/agent-hooks/check-local-single-db.sh",
+      "makeTarget": "local-single-db-guard",
+      "realCheck": "bash tools/agent-hooks/check-local-single-db.sh",
+      "selfTestExemptReason": "No self-test: the guard has no injectable input - it asserts required literal lines in a hardcoded list of committed runtime/rule files resolved from its own repo root, so the only fixture it can be fed is the repo itself (delete the single-DB resolution line from tools/dev/run-local-stack.sh and it fails). Recorded blind spot: it proves the text is present, not that a launcher resolves exactly one Goat OS database at runtime; the runtime behaviour is proven by local-stack-service-guard.",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "local-single-db-guard",
+      "notes": "Already wired before this registration: run_backend of tools/ci/run-local-ci.sh runs `local-single-db-guard`, and the Makefile `guardrails:` target already invoked it. Only the manifest entry was missing."
     },
     {
       "id": "migration-duplicate-versions",
@@ -555,6 +740,38 @@
       "ciStep": "check-mock-clicks.mjs"
     },
     {
+      "id": "mock-css-parity",
+      "script": "tools/agent-hooks/check-mock-css-parity.mjs",
+      "makeTarget": "mock-css-parity-guard",
+      "realCheck": "node tools/agent-hooks/check-mock-css-parity.mjs",
+      "selfTest": "node tools/agent-hooks/check-mock-css-parity.mjs --self-test",
+      "owningDoc": "docs/modules/herd-signals.md",
+      "requiredInCI": true,
+      "ciStep": "mock-css-parity-guard",
+      "notes": "v4: rewritten to compare RENDERED, BROWSER-COMPUTED styles (Playwright/Chromium getComputedStyle) between the approved mock and the live app at :3318, instead of statically parsing and hand-resolving CSS text. The old static resolver could not see DOM ancestry, so equal-specificity rules from OTHER admin screens sharing a bare class (e.g. Action Center's .task-ac .tag vs this page's .herd-signals-page .tag) looked like competing rules and produced ~76 false findings nobody could triage without opening devtools -- one of which was 'fixed' by adding a bare-classname duplicate rule to the shared global stylesheet, which had to be reverted. A real browser resolves ancestry/specificity/cascade correctly, so this version asks Chromium directly: it loads both pages, walks a curated, deliberately-paired element registry (by class + position/role, never by content -- the mock has invented fixture data and the app has ~20 real tags) across Live Monitor, Animals, Gateways, Alerts, Tag Mapping, Insights, the row-click drawer and the full-screen history, and diffs colour/background/border/border-radius/font/padding/margin/gap/display/grid-template-columns. Needs both dev servers running -- fails loudly with a clear message if either is down, never silently passes. Cannot see hover/focus states, media queries, or anything behind an interaction it does not drive (see the script header's full limits list). A separate, unchanged banned-pattern scan blocks reintroducing the mock's invented battery-life-estimate text, which the style comparison alone would miss since its class is already styled for other fields."
+    },
+    {
+      "id": "mock-integrity",
+      "script": "tools/agent-hooks/check-mock.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-mock.sh",
+      "selfTestExemptReason": "No self-test: it has no injectable input and no predicate of its own beyond `new Function(src)`. It parses every inline <script> of the one committed file mock/goatos-dashboard-mock.html (the fixture IS the repo file: introduce a syntax error there and Tier 1 fails), then delegates Tier 2 to tools/agent-hooks/check-mock-clicks.mjs, which is registered separately with its own entry.",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": false,
+      "ciStep": null,
+      "notes": "Not in the Makefile, `guardrails:`, or tools/ci/run-local-ci.sh. It is the pre-push hard gate inside tools/agent-hooks/push-mock.sh (AGENTS.md mock auto-push standing order) and is listed by tools/agent-hooks/ai-doctor.sh."
+    },
+    {
+      "id": "module-alerts-tab",
+      "script": "tools/agent-hooks/check-module-alerts-tab.mjs",
+      "makeTarget": "module-alerts-tab-guard",
+      "realCheck": "node tools/agent-hooks/check-module-alerts-tab.mjs",
+      "selfTest": "node tools/agent-hooks/check-module-alerts-tab.mjs --self-test",
+      "owningDoc": "docs/decisions/module-alerts-tab.md",
+      "requiredInCI": true,
+      "ciStep": "module-alerts-tab-guard"
+    },
+    {
       "id": "nav-composition",
       "script": "tools/agent-hooks/check-nav-composition.mjs",
       "makeTarget": "nav-composition-guard",
@@ -587,17 +804,6 @@
       "ciStep": "no-mismatch-review-queue-guard"
     },
     {
-      "id": "herd-signals-language",
-      "script": "tools/agent-hooks/check-herd-signals-language.mjs",
-      "makeTarget": "herd-signals-language-guard",
-      "realCheck": "node tools/agent-hooks/check-herd-signals-language.mjs",
-      "selfTest": "node tools/agent-hooks/check-herd-signals-language.mjs --self-test",
-      "owningDoc": "docs/modules/herd-signals.md",
-      "requiredInCI": true,
-      "ciStep": "herd-signals-language-guard",
-      "notes": "Herd Signals product claim boundary: the HoneyComm BLE ear tag exposes only tag id/MAC, RSSI, battery, tag temperature, cumulative motion_count, sensor-OK bits, gateway id, and timestamps -- it cannot detect eating, rumination, sitting, standing, lying, walking, running, fever, body temperature, or disease. Scans backend/internal/herdsignals/**, apps/admin-web/features/herd-signals/**, the herd-signals slice of contracts/openapi/app-api.yaml, docs/modules/herd-signals.md (allowlisted as the boundary's source of truth), and mock/herd-signals-mock.html for claim-shaped assertions of a banned term, body-temperature mislabeling, and mock/demo/sample/synthetic UI copy leaks. See docs/modules/herd-signals.md Section 3."
-    },
-    {
       "id": "notification-specificity",
       "script": "tools/agent-hooks/check-notification-specificity.mjs",
       "makeTarget": "notification-specificity-guard",
@@ -617,6 +823,26 @@
       "owningDoc": "docs/decisions/android-offline-first.md",
       "requiredInCI": true,
       "ciStep": "offline-first-guard"
+    },
+    {
+      "id": "operational-location",
+      "script": "tools/agent-hooks/check-operational-location.mjs",
+      "makeTarget": "operational-location-guard",
+      "realCheck": "node tools/agent-hooks/check-operational-location.mjs",
+      "selfTest": "node tools/agent-hooks/check-operational-location.mjs --self-test",
+      "owningDoc": "docs/architecture/operational-read-model-contract.md",
+      "requiredInCI": true,
+      "ciStep": "operational-location-guard"
+    },
+    {
+      "id": "operational-partition-identity",
+      "script": "tools/agent-hooks/check-operational-partition-identity.mjs",
+      "makeTarget": "operational-partition-identity-guard",
+      "realCheck": "node tools/agent-hooks/check-operational-partition-identity.mjs",
+      "selfTest": "node tools/agent-hooks/check-operational-partition-identity.mjs --self-test",
+      "owningDoc": "docs/decisions/partition-is-operational-shed.md",
+      "requiredInCI": true,
+      "ciStep": "operational-partition-identity-guard"
     },
     {
       "id": "operational-read-model-contract",
@@ -641,6 +867,26 @@
       "notes": "Detects callers of operatorCapacityPlanner / effectiveOperatorAnimalCap in backend/internal/obligation/app/** that feed the returned cap into a capacity limit/lock sink without a fail-closed check (driveOperatorCapacityExhausted, or maxDriveCells>0 && effectiveCap<=0), which reintroduces the F1 fail-open (cap<=0 read as uncapped) on a config-present-but-no-executable-operator day."
     },
     {
+      "id": "overlay-motion",
+      "script": "tools/agent-hooks/check-overlay-motion.mjs",
+      "makeTarget": "overlay-motion-guard",
+      "realCheck": "node tools/agent-hooks/check-overlay-motion.mjs",
+      "selfTest": "node tools/agent-hooks/check-overlay-motion.mjs --self-test",
+      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
+      "requiredInCI": true,
+      "ciStep": "overlay-motion-guard"
+    },
+    {
+      "id": "parallel-dispatch-cleanup",
+      "script": "tools/ci/check-parallel-dispatch-cleanup.sh",
+      "makeTarget": "parallel-dispatch-cleanup-guard",
+      "realCheck": "bash tools/ci/check-parallel-dispatch-cleanup.sh",
+      "selfTest": "bash tools/ci/check-parallel-dispatch-cleanup.test.sh",
+      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
+      "requiredInCI": true,
+      "ciStep": "check-parallel-dispatch-cleanup.sh"
+    },
+    {
       "id": "proof-capture-authorization",
       "script": "tools/agent-hooks/check-proof-capture-authorization.mjs",
       "makeTarget": "proof-capture-authorization-guard",
@@ -650,6 +896,16 @@
       "requiredInCI": true,
       "ciStep": "proof-capture-authorization-guard",
       "notes": "Proof/evidence capture is authorized by the SAME execution right that authorizes the work it proves. Structurally joins the role->permission maps (permissions.go rolePermissions + permissions_orgrole.go tierPermissions) to the route table (routes.go protectedRoutes) and re-implements AuthorizeRoute's AND/OR semantics: every role holding any *Execute permission MUST be authorized for every /app/proofs write route. Catches the 2026-08-03 shipped defect where the proof routes were gated on the vaccination-era TaskExecute alone, so a growth_director (WeighingExecute, deliberately NOT TaskExecute) could record a weighing observation but 403'd on POST /app/proofs/uploads -- no proof ever reached SYNCED and lump-sum Submit stayed permanently disabled. Self-test includes an adversarial reconstruction of that exact defect plus a future-vertical case (a new *Execute permission with no proof access), so a new vertical cannot repeat it. Blind spots are enumerated in the script header: runtime-composed grants, handler-level authorization inside a proof endpoint, scope/tenant narrowing, evidence surfaces outside /app/proofs, and AdminOnly routes."
+    },
+    {
+      "id": "push-hook-freshness",
+      "script": "tools/ci/check-push-hook-freshness.sh",
+      "makeTarget": "push-hook-freshness-guard",
+      "realCheck": "bash tools/ci/check-push-hook-freshness.sh",
+      "selfTest": "bash tools/ci/check-push-hook-freshness.test.sh",
+      "owningDoc": "docs/runbooks/local-release-evidence.md",
+      "requiredInCI": true,
+      "ciStep": "check-push-hook-freshness.sh"
     },
     {
       "id": "refresh-binding",
@@ -672,6 +928,17 @@
       "ciStep": "review-lens-ledger-guard"
     },
     {
+      "id": "role-scoped-ui-contract",
+      "script": "tools/agent-hooks/check-role-scoped-ui-contract.mjs",
+      "makeTarget": "role-scoped-ui-contract-guard",
+      "realCheck": "node tools/agent-hooks/check-role-scoped-ui-contract.mjs",
+      "selfTest": "node tools/agent-hooks/check-role-scoped-ui-contract.mjs --self-test",
+      "owningDoc": "docs/decisions/role-scoped-ui-is-capability-gated.md",
+      "requiredInCI": true,
+      "ciStep": "role-scoped-ui-contract-guard",
+      "notes": "Admin-web pages are role-agnostic single components, so role differences must come from the backend page contract (capability-gated controls/option_groups), never a role-string conditional in the component. Enforces on a fixed, extendable file list (features/verification-review/verification-review-page.tsx today): (1) no role/permission string literal drives a rendering branch, (2) known oversight-only chrome (module chips, the capture-date range picker) is never present without a controlEnabled(pageContract, ...) gate somewhere in the file. Incident (STG, 2026-08-12): the CEO's oversight filters on /verify rendered for every role that could open the page, including RoleVerifier."
+    },
+    {
       "id": "room-migration-safety",
       "script": "tools/agent-hooks/check-room-migration-safety.mjs",
       "makeTarget": "room-migration-guard",
@@ -690,6 +957,27 @@
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "scale-certification-docs-guard"
+    },
+    {
+      "id": "screen-view-authoring",
+      "script": "tools/agent-hooks/check-screen-view-authoring.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/agent-hooks/check-screen-view-authoring.mjs",
+      "selfTest": "node tools/agent-hooks/check-screen-view-authoring.mjs --self-test",
+      "owningDoc": "docs/TELEMETRY.md",
+      "requiredInCI": false,
+      "ciStep": "check-screen-view-authoring.mjs",
+      "notes": "Authoring wrapper only. The underlying telemetry guard runs elsewhere, but this wrapper has no Make target, ordinary CI step, or live PostToolUse wiring. F0 owns a truthful registration/wiring decision."
+    },
+    {
+      "id": "screenshot-remediation",
+      "script": "tools/ci/check-screenshot-remediation.sh",
+      "makeTarget": "screenshot-remediation-guard",
+      "realCheck": "bash tools/ci/check-screenshot-remediation.sh",
+      "selfTest": "bash tools/ci/check-screenshot-remediation.test.sh",
+      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
+      "requiredInCI": true,
+      "ciStep": "check-screenshot-remediation.sh"
     },
     {
       "id": "secret-accessors",
@@ -849,15 +1137,15 @@
       "ciStep": "vaccination-shed-ack-guard"
     },
     {
-      "id": "feed-proof-collaboration",
-      "script": "tools/agent-hooks/check-feed-proof-collaboration-guard.mjs",
-      "makeTarget": "feed-proof-collaboration-guard",
-      "realCheck": "node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test",
-      "owningDoc": "docs/product/feed-proof-collaboration.md",
+      "id": "weighing-close-gate",
+      "script": "tools/agent-hooks/check-weighing-close-gate-guard.mjs",
+      "makeTarget": "weighing-close-gate-guard",
+      "realCheck": "node tools/agent-hooks/check-weighing-close-gate-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-weighing-close-gate-guard.mjs --self-test",
+      "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
       "requiredInCI": true,
-      "ciStep": "feed-proof-collaboration-guard",
-      "notes": "Feed distribution proof slots are a shared PARALLEL workspace (maintainer contract 2026-08-15): one shed-session, three slots (weight photo, feed video, water video), filled by peer operators from different phones in any split; no slot gates another; media always uploads compressed + overlay-burned. Five failure modes: (1) a FeedDistributionUiState slot-enabled getter referencing another slot's captured/status flag (sequential gating); (2) CaptureRepository Gate-3 backstop validating photos with the video probe (mime-blind - forced raw-original fallback three times in the field on 2026-08-15); (3) processed-artifact validation called without the output mime type; (4) AppProofMediaProcessor dropping the audit overlay or JPEG compression from the photo path, or the overlay composition from the video path; (5) deletion of the pinned regression tests (ProcessedPhotoValidatorRegressionTest, FeedDistributionSequenceTest, the gate-3 real-JPEG CaptureRepositoryTest case)."
+      "ciStep": "weighing-close-gate-guard",
+      "notes": "THE CLOSE GATE IS UNCONDITIONAL (maintainer decision 2026-08-03). Weighing has exactly two verbs, close and reopen; there is no force/override/skip variant of close and 'abandon' is a deleted verb. AGENTS.md claimed this script enforced the rule from 2026-08-03, but the FILE DID NOT EXIST until 2026-08-07 -- the gate was real in close.go and tested, yet nothing stopped a refactor from removing it while every author who read that line believed a machine was watching. Three failure modes: (1) close-gate-removed, no ErrVerificationPending reference survives anywhere in weighing; (2) close-bypass-parameter, a force/override/skip/ignore-verification flag on a weighing close request in Go/Kotlin/TS; (3) abandon-verb-returns, the deleted 'abandon' verb reappearing outside tests. BLIND SPOTS, stated so this guard is not over-trusted the way the missing one was: it cannot prove the gate is reached at runtime on every path (close.go's own tests do that), and it matches on NAMES, so a bypass named inventively (expedite, fastPath) passes -- extend the vocabulary when you meet one."
     },
     {
       "id": "weighing-free-flow",
@@ -871,15 +1159,14 @@
       "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field \u2014 scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
     },
     {
-      "id": "weighing-close-gate",
-      "script": "tools/agent-hooks/check-weighing-close-gate-guard.mjs",
-      "makeTarget": "weighing-close-gate-guard",
-      "realCheck": "node tools/agent-hooks/check-weighing-close-gate-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-weighing-close-gate-guard.mjs --self-test",
-      "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
-      "requiredInCI": true,
-      "ciStep": "weighing-close-gate-guard",
-      "notes": "THE CLOSE GATE IS UNCONDITIONAL (maintainer decision 2026-08-03). Weighing has exactly two verbs, close and reopen; there is no force/override/skip variant of close and 'abandon' is a deleted verb. AGENTS.md claimed this script enforced the rule from 2026-08-03, but the FILE DID NOT EXIST until 2026-08-07 -- the gate was real in close.go and tested, yet nothing stopped a refactor from removing it while every author who read that line believed a machine was watching. Three failure modes: (1) close-gate-removed, no ErrVerificationPending reference survives anywhere in weighing; (2) close-bypass-parameter, a force/override/skip/ignore-verification flag on a weighing close request in Go/Kotlin/TS; (3) abandon-verb-returns, the deleted 'abandon' verb reappearing outside tests. BLIND SPOTS, stated so this guard is not over-trusted the way the missing one was: it cannot prove the gate is reached at runtime on every path (close.go's own tests do that), and it matches on NAMES, so a bypass named inventively (expedite, fastPath) passes -- extend the vocabulary when you meet one."
+      "id": "weighing-isolation-on-edit",
+      "script": "tools/agent-hooks/check-weighing-isolation-on-edit.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-weighing-isolation-on-edit.sh",
+      "selfTestExemptReason": "Editor-hook wrapper (PostToolUse in .claude/settings.json), not a CI gate: it re-runs the already-registered weighing isolation guard at edit time so the failure surfaces at the decision point instead of hours later in the matrix. The underlying guard carries the real check and its own coverage; a self-test here would only assert that a hook shells out.",
+      "owningDoc": "docs/features/weighing/TRD.md",
+      "requiredInCI": false,
+      "ciStep": "check-weighing-isolation-on-edit.sh"
     },
     {
       "id": "weighing-kernel-phase2",
@@ -923,272 +1210,6 @@
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "worker-stage-budgets-guard"
-    },
-    {
-      "id": "module-alerts-tab",
-      "script": "tools/agent-hooks/check-module-alerts-tab.mjs",
-      "makeTarget": "module-alerts-tab-guard",
-      "realCheck": "node tools/agent-hooks/check-module-alerts-tab.mjs",
-      "selfTest": "node tools/agent-hooks/check-module-alerts-tab.mjs --self-test",
-      "owningDoc": "docs/decisions/module-alerts-tab.md",
-      "requiredInCI": true,
-      "ciStep": "module-alerts-tab-guard"
-    },
-    {
-      "id": "screen-view-authoring",
-      "script": "tools/agent-hooks/check-screen-view-authoring.mjs",
-      "makeTarget": null,
-      "realCheck": "node tools/agent-hooks/check-screen-view-authoring.mjs",
-      "selfTest": "node tools/agent-hooks/check-screen-view-authoring.mjs --self-test",
-      "owningDoc": "docs/TELEMETRY.md",
-      "requiredInCI": false,
-      "ciStep": "check-screen-view-authoring.mjs",
-      "notes": "Authoring wrapper only. The underlying telemetry guard runs elsewhere, but this wrapper has no Make target, ordinary CI step, or live PostToolUse wiring. F0 owns a truthful registration/wiring decision."
-    },
-    {
-      "id": "android-screenshot-proof",
-      "script": "tools/ci/check-android-screenshot-proof.sh",
-      "makeTarget": null,
-      "realCheck": "bash tools/ci/check-android-screenshot-proof.sh tools/ci/run-local-ci.sh",
-      "selfTest": "bash tools/ci/check-android-screenshot-proof.test.sh",
-      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
-      "requiredInCI": true,
-      "ciStep": "android_screenshot_proof_coverage_guard"
-    },
-    {
-      "id": "android-proof-video-pipeline",
-      "script": "tools/agent-hooks/check-android-proof-video-pipeline.mjs",
-      "makeTarget": null,
-      "realCheck": "node tools/agent-hooks/check-android-proof-video-pipeline.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-proof-video-pipeline.mjs --self-test",
-      "owningDoc": "apps/goatos-android/docs/ui-preview-and-screenshots.md",
-      "requiredInCI": false,
-      "ciStep": "check-android-proof-video-pipeline.mjs",
-      "notes": "Authoring guard for the documented proof-video pipeline; it is not part of the default landing matrix."
-    },
-    {
-      "id": "android-vaccine-weighing-proof-context",
-      "script": "tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs --self-test",
-      "owningDoc": "SKILLS.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard",
-      "notes": "Vaccination and weighing proof captures must pass feature/task overlay context through the shared proof pipeline, burn RFID only for per-animal captures, and keep the phone-QA 2/3-animal plus two-vaccine fixture."
-    },
-    {
-      "id": "android-feed-proof-submit",
-      "script": "tools/agent-hooks/check-android-feed-proof-submit.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-feed-proof-submit.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test",
-      "owningDoc": "SKILLS.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard",
-      "notes": "Feed direction, packing, and transport submit keys must include selected proof ids; submit status must observe by outbox id; packing completion must pass partition_label."
-    },
-    {
-      "id": "firebase-analytics-param-budget",
-      "script": "tools/agent-hooks/check-firebase-analytics-param-budget.mjs",
-      "makeTarget": "telemetry-guard",
-      "realCheck": "node tools/agent-hooks/check-firebase-analytics-param-budget.mjs",
-      "selfTest": "node tools/agent-hooks/check-firebase-analytics-param-budget.mjs --self-test",
-      "owningDoc": "SKILLS.md",
-      "requiredInCI": true,
-      "ciStep": "telemetry-guard",
-      "notes": "Firebase proof analytics must stay a compact allowlisted envelope; rich address/location/path/error details stay in backend analytics and Room events."
-    },
-    {
-      "id": "android-proof-video-screenshots",
-      "script": "tools/agent-hooks/check-android-proof-video-screenshots.mjs",
-      "makeTarget": null,
-      "realCheck": "node tools/agent-hooks/check-android-proof-video-screenshots.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-proof-video-screenshots.mjs --self-test",
-      "owningDoc": "apps/goatos-android/docs/ui-preview-and-screenshots.md",
-      "requiredInCI": false,
-      "ciStep": "check-android-proof-video-screenshots.mjs",
-      "notes": "Authoring guard for screenshot extraction from Android proof videos; it is not part of the default landing matrix."
-    },
-    {
-      "id": "screenshot-remediation",
-      "script": "tools/ci/check-screenshot-remediation.sh",
-      "makeTarget": "screenshot-remediation-guard",
-      "realCheck": "bash tools/ci/check-screenshot-remediation.sh",
-      "selfTest": "bash tools/ci/check-screenshot-remediation.test.sh",
-      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
-      "requiredInCI": true,
-      "ciStep": "check-screenshot-remediation.sh"
-    },
-    {
-      "id": "push-hook-freshness",
-      "script": "tools/ci/check-push-hook-freshness.sh",
-      "makeTarget": "push-hook-freshness-guard",
-      "realCheck": "bash tools/ci/check-push-hook-freshness.sh",
-      "selfTest": "bash tools/ci/check-push-hook-freshness.test.sh",
-      "owningDoc": "docs/runbooks/local-release-evidence.md",
-      "requiredInCI": true,
-      "ciStep": "check-push-hook-freshness.sh"
-    },
-    {
-      "id": "parallel-dispatch-cleanup",
-      "script": "tools/ci/check-parallel-dispatch-cleanup.sh",
-      "makeTarget": "parallel-dispatch-cleanup-guard",
-      "realCheck": "bash tools/ci/check-parallel-dispatch-cleanup.sh",
-      "selfTest": "bash tools/ci/check-parallel-dispatch-cleanup.test.sh",
-      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
-      "requiredInCI": true,
-      "ciStep": "check-parallel-dispatch-cleanup.sh"
-    },
-    {
-      "id": "gradle-worktree-lock",
-      "script": "tools/ci/check-gradle-worktree-lock.sh",
-      "makeTarget": "gradle-worktree-lock-guard",
-      "realCheck": "bash tools/ci/check-gradle-worktree-lock.sh",
-      "selfTest": "bash tools/ci/check-gradle-worktree-lock.test.sh",
-      "owningDoc": "docs/runbooks/local-ci-performance.md",
-      "requiredInCI": true,
-      "ciStep": "check-gradle-worktree-lock.sh"
-    },
-    {
-      "id": "admin-web-and-backend-boundaries",
-      "script": "tools/agent-hooks/check-boundaries.sh",
-      "makeTarget": null,
-      "realCheck": "bash tools/agent-hooks/check-boundaries.sh",
-      "selfTest": "bash tools/agent-hooks/check-boundaries.sh --self-test",
-      "owningDoc": "docs/runbooks/local-ci.md",
-      "requiredInCI": true,
-      "ciStep": "check-boundaries.sh",
-      "notes": "No dedicated Make target: `guardrails:` invokes the script (and its --self-test) directly, and run_common runs both. The self-test builds synthetic admin-web/Go fixtures in a tmpdir and asserts the guard REJECTS them (direct BigQuery/Sheets access, cross-feature deep imports, silent recover())."
-    },
-    {
-      "id": "contract-drift",
-      "script": "tools/agent-hooks/check-contract-drift.sh",
-      "makeTarget": null,
-      "realCheck": "bash tools/agent-hooks/check-contract-drift.sh",
-      "selfTestExemptReason": "No self-test: this guard owns no predicate of its own to attack. It is a 30-line executor that asserts the contract directories exist and then delegates the entire check to `npm --prefix tools/contract-validation run validate` and `make api-client-check`, which carry their own fixtures and failure modes. An adversarial fixture here would only prove that `npm run validate` was spawned.",
-      "owningDoc": "docs/runbooks/local-ci.md",
-      "requiredInCI": true,
-      "ciStep": "check-contract-drift.sh",
-      "notes": "No dedicated Make target: `guardrails:` invokes the script directly; run_common runs it as `agent: contract-drift`."
-    },
-    {
-      "id": "e2e-kernel-integrity",
-      "script": "tools/agent-hooks/check-e2e-kernel-integrity.sh",
-      "makeTarget": "e2e-integrity-guard",
-      "realCheck": "bash tools/agent-hooks/check-e2e-kernel-integrity.sh",
-      "selfTest": "bash tools/agent-hooks/check-e2e-kernel-integrity.test.sh",
-      "owningDoc": "AGENTS.md",
-      "requiredInCI": true,
-      "ciStep": "check-e2e-kernel-integrity.sh",
-      "notes": "Enforces the AGENTS.md rule that an E2E may seed source/input facts but never the derived kernel result it claims to prove. run_backend runs it as `agent: e2e-kernel-integrity`."
-    },
-    {
-      "id": "local-gcp-kernel-parity",
-      "script": "tools/agent-hooks/check-local-gcp-kernel-parity.sh",
-      "makeTarget": "local-gcp-kernel-parity-guard",
-      "realCheck": "bash tools/agent-hooks/check-local-gcp-kernel-parity.sh",
-      "selfTest": "bash tools/agent-hooks/check-local-gcp-kernel-parity.test.sh",
-      "owningDoc": "docs/runbooks/local-gcp-kernel-parity.md",
-      "requiredInCI": false,
-      "ciStep": "local-gcp-kernel-parity-guard",
-      "notes": "requiredInCI=false records that no ordinary tools/ci/run-local-ci.sh component job invokes this target. `make guardrails` does invoke it, and its Make target runs the .test.sh self-test before the real check. F0 must decide and enforce ordinary affected-job routing or a precise reviewed exemption."
-    },
-    {
-      "id": "local-single-db",
-      "script": "tools/agent-hooks/check-local-single-db.sh",
-      "makeTarget": "local-single-db-guard",
-      "realCheck": "bash tools/agent-hooks/check-local-single-db.sh",
-      "selfTestExemptReason": "No self-test: the guard has no injectable input - it asserts required literal lines in a hardcoded list of committed runtime/rule files resolved from its own repo root, so the only fixture it can be fed is the repo itself (delete the single-DB resolution line from tools/dev/run-local-stack.sh and it fails). Recorded blind spot: it proves the text is present, not that a launcher resolves exactly one Goat OS database at runtime; the runtime behaviour is proven by local-stack-service-guard.",
-      "owningDoc": "AGENTS.md",
-      "requiredInCI": true,
-      "ciStep": "local-single-db-guard",
-      "notes": "Already wired before this registration: run_backend of tools/ci/run-local-ci.sh runs `local-single-db-guard`, and the Makefile `guardrails:` target already invoked it. Only the manifest entry was missing."
-    },
-    {
-      "id": "agent-write-scope",
-      "script": "tools/agent-hooks/check-write-scope.sh",
-      "makeTarget": null,
-      "realCheck": "bash tools/agent-hooks/check-write-scope.sh",
-      "selfTestExemptReason": "No self-test: this is an agent PreToolUse hook, not a CI lint. It exits 0 unless the operator has placed a .agent/scope.json in the worktree, and it is driven end-to-end by every agent file write through .claude/settings.json and .codex/hooks.json - that live wiring, not a fixture, is what exercises it. It has no CI step to attach a fixture to.",
-      "owningDoc": "AGENTS.md",
-      "requiredInCI": false,
-      "ciStep": null,
-      "notes": "Not in the Makefile, not in `guardrails:`, and not in tools/ci/run-local-ci.sh. Exposed as `npm run check:scope` and wired as an agent PreToolUse hook only."
-    },
-    {
-      "id": "mock-integrity",
-      "script": "tools/agent-hooks/check-mock.sh",
-      "makeTarget": null,
-      "realCheck": "bash tools/agent-hooks/check-mock.sh",
-      "selfTestExemptReason": "No self-test: it has no injectable input and no predicate of its own beyond `new Function(src)`. It parses every inline <script> of the one committed file mock/goatos-dashboard-mock.html (the fixture IS the repo file: introduce a syntax error there and Tier 1 fails), then delegates Tier 2 to tools/agent-hooks/check-mock-clicks.mjs, which is registered separately with its own entry.",
-      "owningDoc": "AGENTS.md",
-      "requiredInCI": false,
-      "ciStep": null,
-      "notes": "Not in the Makefile, `guardrails:`, or tools/ci/run-local-ci.sh. It is the pre-push hard gate inside tools/agent-hooks/push-mock.sh (AGENTS.md mock auto-push standing order) and is listed by tools/agent-hooks/ai-doctor.sh."
-    },
-    {
-      "id": "gradle-config-cache",
-      "script": "tools/ci/check-gradle-config-cache.sh",
-      "makeTarget": null,
-      "realCheck": "bash tools/ci/check-gradle-config-cache.sh",
-      "selfTest": "bash tools/ci/check-gradle-config-cache.test.sh",
-      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
-      "requiredInCI": true,
-      "ciStep": "check-gradle-config-cache.sh"
-    },
-    {
-      "id": "weighing-isolation-on-edit",
-      "script": "tools/agent-hooks/check-weighing-isolation-on-edit.sh",
-      "makeTarget": null,
-      "realCheck": "bash tools/agent-hooks/check-weighing-isolation-on-edit.sh",
-      "selfTestExemptReason": "Editor-hook wrapper (PostToolUse in .claude/settings.json), not a CI gate: it re-runs the already-registered weighing isolation guard at edit time so the failure surfaces at the decision point instead of hours later in the matrix. The underlying guard carries the real check and its own coverage; a self-test here would only assert that a hook shells out.",
-      "owningDoc": "docs/features/weighing/TRD.md",
-      "requiredInCI": false,
-      "ciStep": "check-weighing-isolation-on-edit.sh"
-    },
-    {
-      "id": "operational-location",
-      "script": "tools/agent-hooks/check-operational-location.mjs",
-      "makeTarget": "operational-location-guard",
-      "realCheck": "node tools/agent-hooks/check-operational-location.mjs",
-      "selfTest": "node tools/agent-hooks/check-operational-location.mjs --self-test",
-      "owningDoc": "docs/architecture/operational-read-model-contract.md",
-      "requiredInCI": true,
-      "ciStep": "operational-location-guard"
-    },
-    {
-      "id": "feed-submitted-overlay-wiring",
-      "script": "tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs",
-      "makeTarget": "feed-submitted-overlay-wiring-guard",
-      "realCheck": "node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs",
-      "selfTest": "node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs --self-test",
-      "owningDoc": "docs/decisions/android-offline-first.md",
-      "requiredInCI": true,
-      "ciStep": "feed-submitted-overlay-wiring-guard",
-      "notes": "Keeps the queued-submit badge overlay wired end to end (bug 254.mp4: submit a shed-session, return to the worklist, row still reads Pending because the write is only in the outbox). Every Feed worklist renders its chip from lifecycleStatus, so three parts must all survive: the submit ViewModel calls markSubmittedForReview on ENQUEUE SUCCESS; the list ViewModel combines feedCompletionStore.submittedForReviewKeys; and its row mapping runs the status through overlayFeedLifecycleStatus. Deleting any one silently restores the bug while every unit test still passes, because the rule's own tests call the pure function directly and cannot see a severed call site. Also pins overlayFeedLifecycleStatus to exactly ONE definition: Feed Packing and Feed Direction previously drifted apart with per-flow copies. A paging-level test was tried first and rejected \u2014 `rows` ends in cachedIn(viewModelScope) and asSnapshot() never settles under runTest (UncompletedCoroutinesError), so a structural guard is deterministic where that test was flaky."
-    },
-    {
-      "id": "mock-css-parity",
-      "script": "tools/agent-hooks/check-mock-css-parity.mjs",
-      "makeTarget": "mock-css-parity-guard",
-      "realCheck": "node tools/agent-hooks/check-mock-css-parity.mjs",
-      "selfTest": "node tools/agent-hooks/check-mock-css-parity.mjs --self-test",
-      "owningDoc": "docs/modules/herd-signals.md",
-      "requiredInCI": true,
-      "ciStep": "mock-css-parity-guard",
-      "notes": "v4: rewritten to compare RENDERED, BROWSER-COMPUTED styles (Playwright/Chromium getComputedStyle) between the approved mock and the live app at :3318, instead of statically parsing and hand-resolving CSS text. The old static resolver could not see DOM ancestry, so equal-specificity rules from OTHER admin screens sharing a bare class (e.g. Action Center's .task-ac .tag vs this page's .herd-signals-page .tag) looked like competing rules and produced ~76 false findings nobody could triage without opening devtools -- one of which was 'fixed' by adding a bare-classname duplicate rule to the shared global stylesheet, which had to be reverted. A real browser resolves ancestry/specificity/cascade correctly, so this version asks Chromium directly: it loads both pages, walks a curated, deliberately-paired element registry (by class + position/role, never by content -- the mock has invented fixture data and the app has ~20 real tags) across Live Monitor, Animals, Gateways, Alerts, Tag Mapping, Insights, the row-click drawer and the full-screen history, and diffs colour/background/border/border-radius/font/padding/margin/gap/display/grid-template-columns. Needs both dev servers running -- fails loudly with a clear message if either is down, never silently passes. Cannot see hover/focus states, media queries, or anything behind an interaction it does not drive (see the script header's full limits list). A separate, unchanged banned-pattern scan blocks reintroducing the mock's invented battery-life-estimate text, which the style comparison alone would miss since its class is already styled for other fields."
-    },
-    {
-      "id": "additive-publish",
-      "script": "tools/agent-hooks/check-additive-publish.mjs",
-      "makeTarget": "additive-publish-guard",
-      "realCheck": "node tools/agent-hooks/check-additive-publish.mjs",
-      "selfTest": "node tools/agent-hooks/check-additive-publish.mjs --self-test",
-      "owningDoc": "docs/preventive-care-vaccination/additive-publish.md",
-      "requiredInCI": true,
-      "ciStep": "additive-publish-guard",
-      "notes": "Publishing a plan version must only touch the rules that actually changed: adding a 6th vaccine to a plan of 5 leaves those 5 operationally untouched -- same obligation_id, same due_at, same task/batch/proof attachment -- with only protocol_version_id moving. Checks the three ways that guarantee breaks without looking like a bug: the carry-over call vanishing from the supersede path, due_at or status joining the carry-over UPDATE, and a scheduling field dropping out of the rule content fingerprint (which would make an edit read as unchanged and never reach an animal). Lens CD-ADDITIVE-PUBLISH in the review-lens ledger."
     }
   ]
 }

@@ -131,6 +131,46 @@ class ProofArtifactValidatorTest {
         assertEquals(2_000L, result.videoTrackDurationMs)
     }
 
+    @Test
+    fun validateVideoFile_rejectsChandanStyleLowFrameRateRecording() {
+        val video = tempFolder.newFile("low-fps.mp4").apply { writeBytes(ByteArray(2048) { 1 }) }
+        val validator = FileSystemProofArtifactValidator(
+            metadataProbe = { FileSystemProofArtifactValidator.ProbeSuccess(7_488L, "1280", "720") },
+            videoTrackDurationReader = { 7_488L },
+            processedFrameDecoder = { _, _ -> true },
+            videoTrackStatsReader = {
+                FileSystemProofArtifactValidator.VideoTrackStats(durationMs = 7_488L, frameRate = 9.88)
+            },
+        )
+
+        val result = validator.validateVideoFile(video.toURI().toString())
+
+        assertFalse("Should reject Chandan-style ruk-ruk low-FPS recording", result.isValid)
+        assertEquals("video_frame_rate_too_low", result.failureKind)
+        assertEquals(7_488L, result.containerDurationMs)
+        assertEquals(7_488L, result.videoTrackDurationMs)
+        assertEquals(9.88, result.videoFrameRate ?: -1.0, 0.01)
+    }
+
+    @Test
+    fun validateVideoFile_rejectsOneReadableFrameOverValidDuration() {
+        val video = tempFolder.newFile("one-frame.mp4").apply { writeBytes(ByteArray(2048) { 1 }) }
+        val validator = FileSystemProofArtifactValidator(
+            metadataProbe = { FileSystemProofArtifactValidator.ProbeSuccess(2_000L, "640", "480") },
+            videoTrackDurationReader = { 2_000L },
+            processedFrameDecoder = { _, _ -> true },
+            videoTrackStatsReader = {
+                FileSystemProofArtifactValidator.VideoTrackStats(durationMs = 2_000L, frameRate = 0.5)
+            },
+        )
+
+        val result = validator.validateVideoFile(video.toURI().toString())
+
+        assertFalse("Should reject one-frame video despite valid duration/dimensions", result.isValid)
+        assertEquals("video_frame_rate_too_low", result.failureKind)
+        assertEquals(0.5, result.videoFrameRate ?: -1.0, 0.01)
+    }
+
     // Test implementations for different probe scenarios
     private class ProbeSuccessWithInvalidDurationValidator : ProofArtifactValidator {
         override fun validateVideoFile(localUri: String) =

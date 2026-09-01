@@ -83,6 +83,15 @@ const (
 	// Director (maintainer decision 2026-08-21) — same seat as vaccination, because deworming /
 	// ticks removal / hoof trimming / hair trimming are preventive-care work.
 	modulePCCare = "pc_care"
+
+	// moduleHealth mirrors health/domain.VerificationModuleHealth, the string health's
+	// verificationbridge enqueuer writes into the item's Module. Health belongs to the Health
+	// Director's own desk — never pc_director (separate departments, maintainer lock).
+	moduleHealth = "health"
+	// dutyModuleHealth is the position_module_duties.module_code whose 'verify' duty holders
+	// review treatment proofs. It matches the module key the verifier drawer/bootstrap uses for
+	// Health ("aas_health"), so a named health verify duty scopes the same feature everywhere.
+	dutyModuleHealth = "aas_health"
 )
 
 // pendingModuleProfile is the per-module routing + copy contract of a verification.item.pending
@@ -265,6 +274,37 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 		closedBody:         "The verified care record is now complete.",
 		closedScreen:       "record",
 		closedTarget:       "/pc/deworming",
+	},
+	// Health treatment proofs (one video per completed treatment session) route to the Health
+	// Director, who owns the Health module outright (Health_Director.pdf Responsibilities 1-4:
+	// observation, diagnosis, treatment, treatment tracking). Wording is health's own
+	// ("treated"), never another module's, and the tap route is the health surface.
+	moduleHealth: {
+		messageKeyPrefix:     "health",
+		dutyModule:           dutyModuleHealth,
+		leadershipPosition:   positionHealthDirector,
+		leadershipRoleLabel:  positionHealthDirector,
+		verifierTitle:        "Health video waiting",
+		verifierBodySuffix:   " treated; video is waiting for verification.",
+		leadershipTitle:      "Health video pending",
+		leadershipBodySuffix: " treated; health video verification is pending.",
+		leadershipScreen:     "health_overview",
+		leadershipTarget:     "/health/adults",
+
+		approvedTitle:      "Health proof verified",
+		approvedBody:       "The proof is ready for operational closure.",
+		approvedScreen:     "leadership_close",
+		approvedTarget:     "/health/adults",
+		reworkTitle:        "Health proof rejected — rework needed",
+		reworkBody:         "The verifier rejected a health treatment proof. This needs to be resubmitted.",
+		reworkReasonPrefix: "The verifier rejected a health treatment proof. Reason: ",
+		reworkReasonSuffix: " Please resubmit.",
+		reworkScreen:       "record",
+		reworkTarget:       "/health/adults",
+		closedTitle:        "Health record closed",
+		closedBody:         "The verified health treatment record is now complete.",
+		closedScreen:       "record",
+		closedTarget:       "/health/adults",
 	},
 	// Counts proofs (the shifting/movement completion video) route to the Health Director, who
 	// owns Counts per the 2026-08-01 maintainer decision. Deliberately NOT pc_director.

@@ -378,7 +378,7 @@ Each evidence-derived, CEO/COO-published vaccine matrix row must carry:
 | Version audit | version number, created_by/created_at, published_by/published_at, effective dates, retired_by/retired_at where applicable |
 | Vaccination policy | procurement warm-up days, kid normal-schedule cutoff weeks, adult prior-vaccination flag, live/killed/live spacing days, same-day allowance metadata, pregnancy skip/catch-up windows |
 | Source trust policy | trusted only when `source_context` is our park or our procurement holding park, the holding period/procurement SOP/proof is valid, and verifier status is accepted; all other source/procurement claims are untrusted and do not suppress work |
-| Drive planner policy | `max_batching_hold_days` default 7, `max_batching_hold_count` default 1, `max_shots_per_animal_per_drive` default 2, minimum drive size, force-micro-drive-before-last-safe-date behavior, and `species_grouping_policy` (`kid_mixed` or `species_specific`) |
+| Drive planner policy | `max_batching_hold_days` default 7, `max_batching_hold_count` default 1, `max_shots_per_animal_per_drive` default 3, minimum drive size, force-micro-drive-before-last-safe-date behavior, and `species_grouping_policy` (`kid_mixed` or `species_specific`) |
 
 Without those rows, GoatOS can only prove reusable engine plumbing; it cannot
 honestly claim the full practical vaccine matrix is complete. `PPR`, `FMD`,
@@ -671,9 +671,9 @@ stay available to detail and audit surfaces.
    animal `due_at` only for unbatched work. A move/date override is incomplete
    until every lens shows the same park/date/animal membership.
 10. Enforce per-animal shot cap. Default policy is
-   `max_shots_per_animal_per_drive = 2`. Same-day compatible vaccine candidates
-   are not unlimited. If more than 2 vaccines are due for an animal, choose the
-   highest-priority compatible pair and schedule the rest by the governed gaps:
+   `max_shots_per_animal_per_drive = 3`. Same-day compatible vaccine candidates
+   are not unlimited. If more than 3 vaccines are due for an animal, choose the
+   highest-priority compatible group and schedule the rest by the governed gaps:
    live→live 4 weeks, live→killed 2 weeks, killed→killed 2 weeks, kid booster
    3 weeks, plus any row-specific `min_gap_days`.
 11. Score safe candidates deterministically. Hard constraints are not scores.

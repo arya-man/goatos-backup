@@ -97,7 +97,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:            moduleStatusAvailable,
 		priority:          1,
 		contributions: []moduleNavContribution{
-			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},                                                                                          //nav-composition:ignore: registry entry
 			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", hrefIfRole: "/pc/vaccine-stock", labelKeyIfRole: "nav.stock", hrefRole: permissions.RolePCDirector, shared_key: "", priority: 1, requiredPermission: permissions.TaskExecute}, //nav-composition:ignore: registry entry
 			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction, excludedPermission: permissions.TaskExecute},                                                 //nav-composition:ignore: registry entry
 			// Leadership's Videos tab is a REVIEW/audit surface (context/architecture/
@@ -1026,9 +1025,19 @@ func normalizeModuleFeatureKey(key string) string {
 }
 
 // builtVerifiableFeatures lists the shipped feature modules a verifier's [Verify, Alerts]
-// bar can be scoped to, in drawer priority order. Only "available" (built) modules are
-// eligible -- verifiers review evidence for shipped features, not roadmap ones.
-var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts", "pc_care"}
+// bar can be scoped to, in drawer priority order. Only "available" (built) modules with a
+// registered verification category are eligible -- verifiers review evidence for shipped
+// features, not roadmap ones.
+//
+// This list went stale once before (2026-08-29): feed_direction, aas_health, and milk were
+// all moduleStatusAvailable with registered verification categories (verificationcatalog:
+// FeedDistribution/..., HealthAdults/HealthKids, MilkPreparation/MilkFeeding), but a
+// verifier holding only a coarse department-level "verification" grant fell through to a
+// four-entry list and silently never saw their evidence -- the "silent by omission" failure
+// mode verifier_feed_pages_test.go warns about, one layer up. When a new module ships a
+// verification category, add it HERE in drawer priority order;
+// TestVerifierNoDutyFallbackCoversEveryBuiltVerifiableModule pins the set.
+var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "pc_care"}
 
 // verifierFeatureKeys resolves a verifier's grantedModules (from ListGrantedModuleKeys)
 // into the feature keys their per-module [Verify, Alerts] bar is built for.
@@ -1313,7 +1322,8 @@ func modulesForScope(scope navScope, grantedModules []string, localeTag string, 
 		if usesVerificationReviewLens(grants) {
 			href = def.reviewLandingHref
 		}
-		if len(items) > 0 && !navItemsContainHref(items, href) {
+		keepDrawerLanding := def.key == "vaccination" && href == def.landingHref && scope.has(permissions.VaccinationOverviewRead)
+		if len(items) > 0 && !navItemsContainHref(items, href) && !keepDrawerLanding {
 			href = items[0].Href
 		}
 		out = append(out, domain.BootstrapModule{

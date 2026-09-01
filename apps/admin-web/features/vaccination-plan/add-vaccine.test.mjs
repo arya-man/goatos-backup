@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { fromRuleDsl, newVaccineToEditor, toRuleDsl } from "./editor-model.ts";
+import { fromRuleDsl, newVaccineToEditor, sanitizeRuleDslForSave, toRuleDsl } from "./editor-model.ts";
 import { describeChange, readVaccines } from "./plan-model.ts";
 
 /**
@@ -45,6 +45,152 @@ const BASE_DOC = {
   ],
   schedule: [],
 };
+
+test("readVaccines ignores null matrix rows from older imported plans", () => {
+  const vaccines = readVaccines({
+    ...BASE_DOC,
+    matrix_rows: [null, ...BASE_DOC.matrix_rows],
+  });
+
+  assert.equal(vaccines.length, 1);
+  assert.equal(vaccines[0].code, "ET+TT");
+});
+
+test("readVaccines lets active derived rules override stale matrix schedule display", () => {
+  const vaccines = readVaccines(
+    {
+      matrix_rows: [
+        {
+          row_id: "real-seed-hs",
+          vaccine: { code: "HS", name: "HS", type: "killed" },
+          schedule: [{ dose_code: "hs_kid_16w", sequence: 9, trigger_type: "birth_age", offset_days: 84 }],
+        },
+      ],
+    },
+    [
+      {
+        rule_id: "rule-hs",
+        protocol_version_id: "v1",
+        protocol_id: "p1",
+        dose_code: "hs_kid_12w",
+        sequence: 9,
+        trigger_type: "birth_age",
+        offset_days: 84,
+        repeat: "none",
+        eligibility_json: { vaccine: { code: "HS", name: "HS", type: "killed" } },
+      },
+      {
+        rule_id: "rule-ppr",
+        protocol_version_id: "v1",
+        protocol_id: "p1",
+        dose_code: "ppr_kid_16w",
+        sequence: 6,
+        trigger_type: "birth_age",
+        offset_days: 112,
+        repeat: "none",
+        eligibility_json: { vaccine: { code: "PPR", name: "PPR", type: "live" } },
+      },
+    ],
+  );
+
+  const hs = vaccines.find((item) => item.code === "HS");
+  const ppr = vaccines.find((item) => item.code === "PPR");
+  assert.equal(hs?.firstDoses[0]?.dose_code, "hs_kid_12w");
+  assert.equal(hs?.firstDoses[0]?.offset_days, 84);
+  assert.equal(ppr?.inPlan, true);
+  assert.equal(ppr?.firstDoses[0]?.offset_days, 112);
+});
+
+test("draft editor reads active materialized rules including repeat anchors", () => {
+  const plan = fromRuleDsl(
+    {
+      matrix_rows: [
+        {
+          row_id: "ppr",
+          vaccine: { code: "PPR", name: "PPR", type: "live" },
+          schedule: [
+            {
+              dose_code: "stale_ppr",
+              sequence: 1,
+              trigger_type: "birth_age",
+              offset_days: 84,
+              repeat: "none",
+            },
+          ],
+        },
+      ],
+    },
+    {},
+    [
+      {
+        protocol_version_id: "v1",
+        protocol_id: "p1",
+        rule_id: "r1",
+        dose_code: "ppr_16w",
+        sequence: 1,
+        trigger_type: "birth_age",
+        offset_days: 112,
+        repeat: "none",
+        eligibility_json: { vaccine: { code: "PPR", name: "PPR", type: "live" } },
+      },
+      {
+        protocol_version_id: "v1",
+        protocol_id: "p1",
+        rule_id: "r2",
+        dose_code: "ppr_revac",
+        sequence: 2,
+        trigger_type: "after_previous_completion",
+        offset_days: 1095,
+        repeat: "every_n_days",
+        eligibility_json: { vaccine: { code: "PPR", name: "PPR", type: "live" } },
+      },
+    ],
+  );
+
+  assert.equal(plan.vaccines[0].kidDoses[0].doseCode, "ppr_16w");
+  assert.equal(plan.vaccines[0].kidDoses[0].offsetDays, 112);
+  assert.equal(plan.vaccines[0].repeatDays, 1095);
+  assert.equal(plan.vaccines[0].repeatDoseCode, "ppr_revac");
+});
+
+test("draft anchor config round-trips through rule_dsl", () => {
+  const plan = fromRuleDsl({
+    ...BASE_DOC,
+    anchor_config: {
+      rules: [
+        {
+          vaccine_code: "ET+TT",
+          dose_code: "et_tt_4w",
+          anchor_date: "2026-09-08",
+          scope_type: "tenant",
+          reason: "Start this rule from Sep 8",
+          source_ref: "ops-note-1",
+          suppress_before_anchor: true,
+          chain_future_from_anchor: false,
+          enforce_age_eligibility: true,
+        },
+      ],
+    },
+  }, null);
+
+  assert.equal(plan.vaccines[0].anchors.et_tt_4w.anchorDate, "2026-09-08");
+  assert.equal(plan.vaccines[0].anchors.et_tt_4w.chainFutureFromAnchor, false);
+
+  const doc = toRuleDsl(BASE_DOC, plan);
+  assert.deepEqual(doc.anchor_config.rules, [
+    {
+      vaccine_code: "ET+TT",
+      dose_code: "et_tt_4w",
+      anchor_date: "2026-09-08",
+      scope_type: "tenant",
+      suppress_before_anchor: true,
+      chain_future_from_anchor: false,
+      enforce_age_eligibility: true,
+      reason: "Start this rule from Sep 8",
+      source_ref: "ops-note-1",
+    },
+  ]);
+});
 
 test("newVaccineToEditor turns a booster course into kid timing plus adult follow-up", () => {
   const v = newVaccineToEditor({
@@ -415,4 +561,14 @@ test("history change notes use the current display name for an added vaccine cod
   const note = describeChange(oldName, previous, new Map([["Z13", "Z1+Z3"]]));
 
   assert.equal(note, "Added Z1+Z3.");
+});
+
+test("draft save strips unsupported top-level rule_dsl notes instead of publishing them", () => {
+  const doc = sanitizeRuleDslForSave({
+    ...BASE_DOC,
+    notes: [{ text: "legacy import note that publish must not see" }],
+  });
+
+  assert.equal(Object.hasOwn(doc, "notes"), false);
+  assert.ok(Array.isArray(doc.matrix_rows));
 });

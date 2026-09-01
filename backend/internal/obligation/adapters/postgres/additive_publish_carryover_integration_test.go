@@ -32,6 +32,7 @@ const carryOverGoat = "10000000-0000-4000-8000-0000000000d1"
 type carryOverVaccine struct {
 	code     string
 	doseCode string
+	sequence int32
 	offset   int32
 	minGap   int32
 }
@@ -60,8 +61,12 @@ func seedCarryOverVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	}
 	rules := make(map[string]string, len(vaccines))
 	for i, v := range vaccines {
+		sequence := v.sequence
+		if sequence == 0 {
+			sequence = 1
+		}
 		ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
-			TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: v.doseCode, Sequence: 1,
+			TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: v.doseCode, Sequence: sequence,
 			TriggerType: "birth_age", OffsetDays: v.offset, DueWindowDays: 7, MinGapDays: v.minGap,
 			Repeat: "yearly", CatchUp: "immediate",
 			EligibilityJSON: []byte(fmt.Sprintf(`{"vaccine":{"code":%q},"eligibility":{"animal_stage":"adult"}}`, v.code)),
@@ -452,6 +457,88 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, tenantID, clash, cause
 	}
 	if version == v2 {
 		t.Fatalf("the cause-colliding row was rebound anyway, which would have raised 23505 on a real index")
+	}
+}
+
+// Blue Tongue dose-2 work exposed the brittle edge: an already scheduled valid booster can be
+// medically the same obligation even when the next plan rewrites the rule id, dose code and offset
+// (for example kid_20w corrected to kid_19w). Publishing that plan must rebind the existing row,
+// not leave it on the old version for protocol_version_replaced cancellation.
+func TestCarryOverRebindsMedicalEquivalentPrimaryCourseFollowUp(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	seedCapacityGoatInPark(t, ctx, pool, carryOverGoat, cptPark)
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.bt.carryover", Name: "BT CarryOver", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+
+	oldVersion, oldRules := seedCarryOverVersion(t, ctx, pool, protoID, 1, []carryOverVaccine{
+		{code: "BLUE_TONGUE", doseCode: "blue_tongue_kid_16w", sequence: 1, offset: 112, minGap: 365},
+		{code: "BLUE_TONGUE", doseCode: "blue_tongue_kid_20w", sequence: 2, offset: 140, minGap: 21},
+	})
+	if err := proto.PublishVersion(ctx, tenantID, oldVersion, nil); err != nil {
+		t.Fatalf("publish old version: %v", err)
+	}
+	due := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
+	oldObligation := insertObligationForRule(t, ctx, repo, oldVersion, oldRules["blue_tongue_kid_20w"], carryOverGoat,
+		"bt-dose-2-valid-open", due)
+
+	newVersion, _ := seedCarryOverVersion(t, ctx, pool, protoID, 2, []carryOverVaccine{
+		{code: "BLUE_TONGUE", doseCode: "blue_tongue_kid_16w", sequence: 1, offset: 112, minGap: 365},
+		{code: "BLUE_TONGUE", doseCode: "blue_tongue_kid_19w", sequence: 2, offset: 133, minGap: 21},
+	})
+
+	moved, err := repo.CarryOverUnchangedVaccinationObligations(ctx, tenantID, []string{carryOverGoat}, []string{newVersion})
+	if err != nil {
+		t.Fatalf("carry over: %v", err)
+	}
+	if moved != 1 {
+		t.Fatalf("carried over %d, want the valid BT dose-2 row rebound by medical identity", moved)
+	}
+
+	var (
+		version  string
+		doseCode string
+		gotDue   time.Time
+		status   string
+	)
+	if err := pool.QueryRow(ctx, `
+SELECT oi.protocol_version_id::text, pr.dose_code, oi.due_at, oi.status
+FROM obligation_instances oi
+JOIN protocol_rules pr ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+WHERE oi.tenant_id = $1::uuid AND oi.obligation_id = $2::uuid`, tenantID, oldObligation).
+		Scan(&version, &doseCode, &gotDue, &status); err != nil {
+		t.Fatalf("read carried BT row: %v", err)
+	}
+	if version != newVersion {
+		t.Fatalf("BT dose-2 stayed on old version %s, so supersede would cancel it", version)
+	}
+	if doseCode != "blue_tongue_kid_19w" {
+		t.Fatalf("BT dose-2 rebound to dose %q, want blue_tongue_kid_19w", doseCode)
+	}
+	if !gotDue.Equal(due) {
+		t.Fatalf("BT dose-2 due date moved from %s to %s", due, gotDue)
+	}
+	if status != "scheduled" {
+		t.Fatalf("BT dose-2 status = %q, want scheduled", status)
+	}
+
+	stale, err := repo.GoatsWithVaccinationObligationsOutsideVersions(ctx, tenantID, []string{carryOverGoat}, []string{newVersion})
+	if err != nil {
+		t.Fatalf("stale sweep: %v", err)
+	}
+	if len(stale) != 0 {
+		t.Fatalf("BT dose-2 still looks stale after carry-over; supersede would cancel it")
 	}
 }
 

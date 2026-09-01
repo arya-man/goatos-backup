@@ -222,6 +222,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     private val rows = mutableListOf<TrackedRow>()
     private val flow = MutableStateFlow<List<TrackedRow>>(emptyList())
     val captureCalls = mutableListOf<CaptureCall>()
+    val retryUploadIds = mutableListOf<String>()
     private var nextId = 0
 
     /** When true, the NEXT [capture] call returns [AppResult.Err] instead of writing a row, then
@@ -457,6 +458,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     }
 
     override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> {
+        retryUploadIds += id
         val index = rows.indexOfFirst { it.row.id == id }
         if (index >= 0 && rows[index].row.syncStatus == CaptureSyncStatus.FAILED) {
             rows[index] = rows[index].copy(row = rows[index].row.copy(syncStatus = CaptureSyncStatus.PENDING, lastError = null))

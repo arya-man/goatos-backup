@@ -26,6 +26,7 @@ interface ProofArtifactValidator {
         val failureKind: String? = null,
         val containerDurationMs: Long? = null,
         val videoTrackDurationMs: Long? = null,
+        val videoFrameRate: Double? = null,
     )
 
     /**
@@ -74,11 +75,15 @@ class FileSystemProofArtifactValidator internal constructor(
     private val metadataProbe: (File) -> ProbeSuccess,
     private val videoTrackDurationReader: (File) -> Long,
     private val processedFrameDecoder: (File, Long) -> Boolean,
+    private val videoTrackStatsReader: (File) -> VideoTrackStats = { file ->
+        VideoTrackStats(durationMs = videoTrackDurationReader(file))
+    },
 ) : ProofArtifactValidator {
     constructor() : this(
         metadataProbe = ::readMetadataProbe,
         videoTrackDurationReader = ::readVideoTrackDurationMs,
         processedFrameDecoder = ::canDecodeProcessedVideoFrames,
+        videoTrackStatsReader = ::readVideoTrackStats,
     )
 
     // Threshold: if file is at least this many bytes AND probe threw (not succeeded-with-bad-data),
@@ -165,24 +170,37 @@ class FileSystemProofArtifactValidator internal constructor(
                     failureKind = "unreadable_dimensions",
                 )
             }
+            val videoTrackStats = videoTrackStatsReader(file)
+            videoTrackStats.frameRate?.let { frameRate ->
+                if (frameRate < MIN_ACCEPTABLE_AVERAGE_FRAME_RATE) {
+                    return ProofArtifactValidator.ValidationResult(
+                        isValid = false,
+                        reason = "Recording frame rate is too low. Please re-record.",
+                        failureKind = "video_frame_rate_too_low",
+                        containerDurationMs = probeResult.durationMs,
+                        videoTrackDurationMs = videoTrackStats.durationMs,
+                        videoFrameRate = frameRate,
+                    )
+                }
+            }
             if (!allowPlausibleAccept) {
-                val videoTrackDurationMs = videoTrackDurationReader(file)
-                if (videoTrackDurationMs <= 0L) {
+                if (videoTrackStats.durationMs <= 0L) {
                     return ProofArtifactValidator.ValidationResult(
                         isValid = false,
                         reason = "Recording has no readable video track duration.",
                         failureKind = "video_track_duration_unreadable",
                         containerDurationMs = probeResult.durationMs,
-                        videoTrackDurationMs = videoTrackDurationMs,
+                        videoTrackDurationMs = videoTrackStats.durationMs,
                     )
                 }
-                if (videoTrackDurationMs < (probeResult.durationMs * MIN_VIDEO_TRACK_DURATION_RATIO).toLong()) {
+                if (videoTrackStats.durationMs < (probeResult.durationMs * MIN_VIDEO_TRACK_DURATION_RATIO).toLong()) {
                     return ProofArtifactValidator.ValidationResult(
                         isValid = false,
                         reason = "Recording video track ended before audio.",
                         failureKind = "processed_video_track_truncated",
                         containerDurationMs = probeResult.durationMs,
-                        videoTrackDurationMs = videoTrackDurationMs,
+                        videoTrackDurationMs = videoTrackStats.durationMs,
+                        videoFrameRate = videoTrackStats.frameRate,
                     )
                 }
                 if (!processedFrameDecoder(file, probeResult.durationMs)) {
@@ -191,7 +209,7 @@ class FileSystemProofArtifactValidator internal constructor(
                         reason = "Recording could not be decoded after processing.",
                         failureKind = "processed_video_decode_failed",
                         containerDurationMs = probeResult.durationMs,
-                        videoTrackDurationMs = videoTrackDurationMs,
+                        videoTrackDurationMs = videoTrackStats.durationMs,
                     )
                 }
             }
@@ -224,9 +242,12 @@ class FileSystemProofArtifactValidator internal constructor(
     }
 
     internal data class ProbeSuccess(val durationMs: Long, val width: String?, val height: String?)
+    data class VideoTrackStats(val durationMs: Long, val frameRate: Double? = null)
 
     private companion object {
         private const val MIN_VIDEO_TRACK_DURATION_RATIO = 0.80f
+        private const val MIN_ACCEPTABLE_AVERAGE_FRAME_RATE = 15.0
+        private const val MAX_FRAME_RATE_SAMPLE_COUNT = 900
 
         private fun readMetadataProbe(file: File): ProbeSuccess {
             val retriever = MediaMetadataRetriever()
@@ -271,6 +292,10 @@ class FileSystemProofArtifactValidator internal constructor(
         }
 
         private fun readVideoTrackDurationMs(file: File): Long {
+            return readVideoTrackStats(file).durationMs
+        }
+
+        private fun readVideoTrackStats(file: File): VideoTrackStats {
             val extractor = MediaExtractor()
             return try {
                 extractor.setDataSource(file.absolutePath)
@@ -278,10 +303,25 @@ class FileSystemProofArtifactValidator internal constructor(
                     val format = extractor.getTrackFormat(index)
                     val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
                     if (!mime.startsWith("video/", ignoreCase = true)) continue
-                    if (!format.containsKey(MediaFormat.KEY_DURATION)) return 0L
-                    return (format.getLong(MediaFormat.KEY_DURATION) / 1_000L).coerceAtLeast(0L)
+                    if (!format.containsKey(MediaFormat.KEY_DURATION)) return VideoTrackStats(durationMs = 0L)
+                    val durationMs = (format.getLong(MediaFormat.KEY_DURATION) / 1_000L).coerceAtLeast(0L)
+                    if (durationMs <= 0L) return VideoTrackStats(durationMs = 0L)
+                    extractor.selectTrack(index)
+                    var samples = 0
+                    while (extractor.sampleTime >= 0L) {
+                        samples += 1
+                        if (samples >= MAX_FRAME_RATE_SAMPLE_COUNT) break
+                        if (!extractor.advance()) break
+                    }
+                    val sampledDurationMs = if (samples >= MAX_FRAME_RATE_SAMPLE_COUNT) {
+                        (extractor.sampleTime / 1_000L).coerceAtLeast(1L)
+                    } else {
+                        durationMs
+                    }
+                    val frameRate = samples * 1000.0 / sampledDurationMs.coerceAtLeast(1L)
+                    return VideoTrackStats(durationMs = durationMs, frameRate = frameRate)
                 }
-                0L
+                VideoTrackStats(durationMs = 0L)
             } finally {
                 extractor.release()
             }

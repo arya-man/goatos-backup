@@ -185,6 +185,18 @@ enum class OutboxOpType {
     HEALTH_CASE_OPEN,
     /** One idempotent Health treatment-session completion. */
     HEALTH_TREATMENT_COMPLETE,
+
+    /**
+     * The diagnosis engine's two writes. SEPARATE op types, not one, for the same
+     * reason the backend gives them separate routes and separate permissions:
+     * submitting an observation PROPOSES and opens nothing, while confirming is
+     * the only thing that starts a treatment course. One combined item could do
+     * both, which is exactly the collapse the engine exists to prevent.
+     */
+    HEALTH_OBSERVATION_SUBMIT,
+    HEALTH_DIAGNOSIS_CONFIRM,
+    /** One clinical case closure (recovered / referred / canceled), health.diagnose only. */
+    HEALTH_CASE_CLOSE,
     WEIGHING_ANIMAL_OBSERVATION,
     WEIGHING_SHED_OBSERVATION,
 

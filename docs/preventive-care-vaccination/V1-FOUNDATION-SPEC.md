@@ -158,9 +158,9 @@ Procurement vertical for v1.
 - Binding matrix rules (non-negotiable): every v1 obligation/rule generation,
   seed, test, and rendered board MUST follow the two Binding Rules at the top of
   `docs/preventive-care-vaccination/APPROVED-SCHEDULE-MATRIX.md`: (a) kid-course rendering
-  (4w/7w/12w/16w/20w due points only; nothing before 4w; steady-state repeats
-  after 20w) and (b) Goat Pox source-conflict (16w raw / 20w derived when PPR is
-  at 16w; keep both truths, label the derivation, never drop 16w raw).
+  (4w/7w/12w/16w/19w due points only; nothing before 4w; steady-state repeats
+  after the applicable primary course) and (b) live-live source conflicts (16w
+  raw, with effective spacing derived only when two live vaccines would collide).
 - Preserve tracked SOP/vocabulary labels (`PPR`, `ET`, `FMD`, `HS`, `BQ`), but
   labels alone are not V1 completion. Schedule-bearing vaccine rows now come
   from `docs/preventive-care-vaccination/APPROVED-SCHEDULE-MATRIX.md`: ET+TT, PPR, Goat Pox,
@@ -168,7 +168,7 @@ Procurement vertical for v1.
   and gap rules. BQ remains label-only until a later reviewed source adds
   schedule-bearing values.
 - Preserve the matrix interpretation: kid boards show only actual due ages
-  (4w, 7w, 12w, 16w, and applicable 20w follow-through), while adult/fattening
+  (4w, 7w, 12w, 16w, and applicable 19w follow-through), while adult/fattening
   steady state follows repeat intervals from accepted completions and adult
   procurement follows its own first-step path: ET+TT dose 2 at +21 days and
   pox/live spacing at +28 days.

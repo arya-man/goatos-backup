@@ -296,8 +296,8 @@ Use this section to separate dates that GoatOS can compute from configured rules
 | ET+TT repeat after completed course | Code-backed: `et_tt_revac` is after previous completion, offset 182 days |
 | Newborn `901007000504378` ET+TT | DOB 2026-07-25 + 21 days for the first field action per Aryaman newborn instruction; booster then +21 days from actual dose 1 |
 | Pox / Blue Tongue after recent ET+TT | Code safety gap: killed-to-live / killed-to-killed gap is 14 days unless an approved same-day pair is selected; this supports the CPT "from 10 Aug onward" rows after 24-26 Jul ET+TT |
-| Same-session limit | Code-backed max two vaccines per animal per session |
-| Adult Blue Tongue booster at +3 weeks | Aryaman WhatsApp instruction, not currently the committed automatic adult Blue Tongue matrix rule. The committed matrix has Blue Tongue kid dose 1 / booster at 16w / 20w and adult Blue Tongue yearly repeat from accepted completion. Keep the 26 Aug and 31 Aug rows only as Aryaman-entered schedule inputs unless the protocol config is updated to an adult BT W2 rule. |
+| Same-session limit | Code-backed max three vaccines per animal per session |
+| Adult Blue Tongue booster at +3 weeks | Aryaman WhatsApp instruction, not currently the committed automatic adult Blue Tongue matrix rule. The committed matrix has Blue Tongue kid dose 1 / booster at 16w / 19w and adult Blue Tongue yearly repeat from accepted completion. Keep the 26 Aug and 31 Aug rows only as Aryaman-entered schedule inputs unless the protocol config is updated to an adult BT W2 rule. |
 | Repeat cycles for PPR / pox / FMD / HS / adult Blue Tongue | Code-backed per-vaccine anchor precedence: latest accepted same-vaccine completion anchors the next repeat. Do not anchor one vaccine from another vaccine's completion except for medical gap constraints. |
 
 ## Missing-DOB Kid Booster Anchors

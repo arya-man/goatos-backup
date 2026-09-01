@@ -6,7 +6,7 @@ import (
 )
 
 // MaxVaccinesPerComboSession is the maximum distinct vaccine products allowed on one shed visit combo.
-const MaxVaccinesPerComboSession = 2
+const MaxVaccinesPerComboSession = 3
 
 // comboSessionID builds a deterministic combo session key from at most MaxVaccinesPerComboSession members.
 func comboSessionID(members []string) (string, error) {

@@ -57,6 +57,12 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		"chart.monthly_animals.sub", "chart.monthly_manure.sub",
 		"evidence.audit.within_0_3", "evidence.audit.within_1", "evidence.audit.over_1",
 		"action.record_sale.label", "field.sale_date", "field.farm", "field.product_type",
+		"section.payments.title", "payments.received_so_far", "payments.balance", "payments.empty",
+		"payments.column.received_on", "payments.column.amount", "payments.column.note",
+		"field.received_on", "field.amount_rupees", "field.note", "hint.record_payment",
+		"action.record_deal_payment.label", "action.payment_recorded", "action.payment_record_failed",
+		"field.status", "hint.status", "action.update_deal_status.label",
+		"action.deal_status_updated", "action.deal_status_update_failed",
 		"field.breed", "field.buyer_name", "field.total_weight_kg", "field.sales_value",
 		// The vendor select's copy: a REQUIRED field whose dead-end needs an exit, so the
 		// placeholder, the "add them on Vendors" hint, the register-empty replacement and the
@@ -85,6 +91,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	if groups["sales_product_types"] != 3 {
 		t.Fatalf("sales_product_types options = %d", groups["sales_product_types"])
 	}
+
 	for _, id := range []string{"sales_breeds_sheep", "sales_breeds_goat", "sales_breeds_manure"} {
 		if groups[id] == 0 {
 			t.Fatalf("option group %q missing", id)
@@ -116,7 +123,11 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	if salesGroup.Icon != "banknote" {
 		t.Fatalf("sales group icon = %q, want banknote", salesGroup.Icon)
 	}
-	if len(salesGroup.Leaves) != 1 || salesGroup.Leaves[0].Href != "/sales" {
+	// Two leaves now: the board, and Purchase & barn beside it (maintainer decision 2026-08-31).
+	if len(salesGroup.Leaves) != 2 ||
+		salesGroup.Leaves[0].Href != "/sales" ||
+		salesGroup.Leaves[1].Href != "/sales/loads" ||
+		salesGroup.Leaves[1].Label != "Purchase & barn" {
 		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
 	}
 
@@ -166,7 +177,8 @@ func TestSalesRecordSaleControlIsCapabilityGated(t *testing.T) {
 					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 				},
 			})
-			control := controlByID(t, pageByRouteID(t, resp.Pages, "sales").Controls, "record_sale")
+			pageControls := pageByRouteID(t, resp.Pages, "sales").Controls
+			control := controlByID(t, pageControls, "record_sale")
 			if control.Enabled != tc.enabled {
 				t.Fatalf("%s record_sale.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)
 			}
@@ -176,6 +188,153 @@ func TestSalesRecordSaleControlIsCapabilityGated(t *testing.T) {
 			if control.Action != "POST /sales/deals" {
 				t.Fatalf("record_sale.action = %q want the record-sale write", control.Action)
 			}
+			// The buyer-receipt write rides the SAME permission split: money on the same ledger.
+			payment := controlByID(t, pageControls, "record_sales_deal_payment")
+			if payment.Enabled != tc.enabled {
+				t.Fatalf("%s record_sales_deal_payment.enabled = %v want %v (%#v)", tc.name, payment.Enabled, tc.enabled, payment)
+			}
+			if !tc.enabled && payment.DisabledReason == "" {
+				t.Fatalf("%s: disabled record_sales_deal_payment must carry a backend disabled reason", tc.name)
+			}
+			if payment.Action != "POST /sales/deals/{deal_id}/payments" {
+				t.Fatalf("record_sales_deal_payment.action = %q want the receipt write", payment.Action)
+			}
+			status := controlByID(t, pageControls, "update_sales_deal_status")
+			if status.Enabled != tc.enabled {
+				t.Fatalf("%s update_sales_deal_status.enabled = %v want %v", tc.name, status.Enabled, tc.enabled)
+			}
+			if status.Action != "POST /sales/deals/{deal_id}/status" {
+				t.Fatalf("update_sales_deal_status.action = %q want the status write", status.Action)
+			}
 		})
+	}
+}
+
+// TestRecordLoadCostControlIsCapabilityGated pins the load-cost write split: record_load_cost is
+// ENABLED only for a holder of permissions.LoadCostWrite and is otherwise present-but-disabled
+// with a backend reason.
+//
+// The operator row is the mutation test that matters: an operator holds ProcurementWrite for the
+// source-entry screens, so any change that enables this control from ProcurementWrite (or any
+// broader procurement key) turns it red. The feed_director row covers the same leak from the feed
+// oversight side, and growth_director covers a role with no procurement permission at all.
+func TestRecordLoadCostControlIsCapabilityGated(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		role    string
+		enabled bool
+	}{
+		{"ceo_internal", permissions.RoleCEOInternal, true},
+		{"procurement_director", permissions.RoleProcurementDirector, true},
+		{"procurement_manager", permissions.RoleProcurementManager, true},
+		{"feed_director", permissions.RoleFeedDirector, false},
+		{"growth_director", permissions.RoleGrowthDirector, false},
+		{"operator holds procurement write but no load cost write", permissions.RoleOperator, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants: []permissions.ActiveGrant{
+					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+				},
+			})
+			control := controlByID(t, pageByRouteID(t, resp.Pages, "sales-loads").Controls, "record_load_cost")
+			if control.Enabled != tc.enabled {
+				t.Fatalf("%s record_load_cost.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)
+			}
+			if !tc.enabled && control.DisabledReason == "" {
+				t.Fatalf("%s: disabled control must carry a backend disabled reason", tc.name)
+			}
+			if control.Action != "PUT /procurement/loads/{load_id}/cost" {
+				t.Fatalf("record_load_cost.action = %q want the load-cost write", control.Action)
+			}
+		})
+	}
+}
+
+// TestSalesLoadsPageContract pins the Purchase & barn page: its own route under Sales, the
+// load-wise table it serves, its two tabs with Purchased first, and the backend-owned copy the
+// client renders verbatim.
+//
+// It is a SEPARATE page from the sales board (maintainer decision 2026-08-31): the board answers
+// how sales are going, this answers how each batch of animals did.
+func TestSalesLoadsPageContract(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+	})
+
+	page := pageByRouteID(t, resp.Pages, "sales-loads")
+	if page.Href != "/sales/loads" || page.SurfaceKind != "module-surface" {
+		t.Fatalf("page href/kind = %q/%q", page.Href, page.SurfaceKind)
+	}
+	if page.Title != "Purchase & barn" {
+		t.Fatalf("page title = %q, want the maintainer-chosen name", page.Title)
+	}
+	if len(page.Tables) != 1 || page.Tables[0].ID != "sales-loadwise" {
+		t.Fatalf("tables = %+v", page.Tables)
+	}
+	if page.Tables[0].DataSource != "/procurement/loadwise-sales" {
+		t.Fatalf("table source = %q", page.Tables[0].DataSource)
+	}
+	if page.Tables[0].RowClick.Param != "load_id" {
+		t.Fatalf("row param = %q, want the load id the cost drawer opens on", page.Tables[0].RowClick.Param)
+	}
+
+	// The tabs, in order: Purchased is FIRST because the page selects it when the URL names none.
+	var views []domain.Option
+	for _, g := range page.OptionGroups {
+		if g.ID == "sales_views" {
+			views = g.Options
+		}
+	}
+	if len(views) != 2 || views[0].Key != "purchased" || views[1].Key != "farm_born" {
+		t.Fatalf("sales_views = %+v, want purchased then farm_born", views)
+	}
+
+	for _, key := range []string{
+		"crumb", "value.none", "error.load",
+		// Load-wise section (maintainer decision 2026-08-31): tabs, summary tiles, charts,
+		// reconciliation columns and the load-cost drawer are all backend-owned copy.
+		"tab.purchased", "tab.farm_born",
+		"section.loadwise.title", "section.loadwise.subtitle", "empty.loadwise", "empty.farm_born",
+		"loadwise.kpi.purchased", "loadwise.kpi.sold", "loadwise.kpi.mortality",
+		"loadwise.kpi.remaining", "loadwise.kpi.purchase_value", "loadwise.kpi.sold_value",
+		"loadwise.kpi.profit", "loadwise.kpi.profit.hint",
+		"chart.loadwise_counts.title", "chart.loadwise_counts.empty",
+		"chart.loadwise_value.title", "chart.loadwise_value.empty",
+		"chart.series.purchased", "chart.series.sold_count", "chart.series.mortality",
+		"chart.series.remaining", "chart.series.purchase_value", "chart.series.sold_value",
+		"chart.series.profit_loss",
+		"column.load", "column.purchased", "column.sold", "column.mortality",
+		"column.other_exits", "column.remaining", "column.unaccounted",
+		"column.purchase_value", "column.sold_value", "column.profit_loss",
+		"column.remaining_value", "value.profit_unrealised", "value.profit_unavailable",
+		"value.profit_incl_stock", "loadwise.stock_price_note", "loadwise.stock_price_each",
+		"loadwise.stock_price_unknown",
+		"value.cost_missing", "value.price_basis.load", "value.price_basis.overall",
+		// All THREE bases must be published: the renderer resolves this key from the served
+		// price_basis, so an unpublished value throws and takes the whole page down. "none" is
+		// what a tenant with no sales yet returns, i.e. the very first state.
+		"value.price_basis.none",
+		"value.sold_unpriced",
+		"loadwise.prior.title", "loadwise.prior.sold", "loadwise.prior.died",
+		"drawer.load_cost.title", "field.animal_cost", "field.transport_cost", "field.other_cost",
+		"hint.load_cost", "action.record_load_cost.label", "action.load_cost_recorded",
+		"action.load_cost_record_failed", "disabled.load_cost",
+	} {
+		if page.Copy[key] == "" {
+			t.Fatalf("sales-loads copy missing %q", key)
+		}
+	}
+}
+
+// TestSalesLoadsNavLeafRidesSalesRead pins that the new leaf is gated on the SALES permission and
+// not on ProcurementRead, which operators and park heads hold for the intake screens they work.
+func TestSalesLoadsNavLeafRidesSalesRead(t *testing.T) {
+	required := permissionsForNav("sales-loads")
+	if len(required) != 1 || required[0] != permissions.SalesRead {
+		t.Fatalf("permissionsForNav(sales-loads) = %v, want exactly SalesRead", required)
 	}
 }

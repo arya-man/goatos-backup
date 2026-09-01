@@ -19,6 +19,17 @@ type fakeFeedPurchaseRepo struct {
 	listFarm string
 	limit    int
 	offset   int
+
+	paymentCalls      int
+	paymentPurchaseID string
+	payment           domain.FeedPurchasePaymentWrite
+	statusCalls       int
+	statusPurchaseID  string
+	status            string
+
+	editCalls      int
+	editPurchaseID string
+	edit           domain.FeedPurchaseEdit
 }
 
 func (r *fakeFeedPurchaseRepo) ListFeedPurchases(_ context.Context, _, farm string, limit, offset int) (ports.FeedPurchasePage, error) {
@@ -34,6 +45,24 @@ func (r *fakeFeedPurchaseRepo) CreateFeedPurchase(_ context.Context, _ string, w
 	r.calls++
 	r.created, r.key = write, key
 	return domain.FeedPurchase{FeedPurchaseID: "created"}, nil
+}
+
+func (r *fakeFeedPurchaseRepo) RecordFeedPurchasePayment(_ context.Context, _, purchaseID string, write domain.FeedPurchasePaymentWrite, _, key string) (domain.FeedPurchase, error) {
+	r.paymentCalls++
+	r.paymentPurchaseID, r.payment, r.key = purchaseID, write, key
+	return domain.FeedPurchase{FeedPurchaseID: purchaseID}, nil
+}
+
+func (r *fakeFeedPurchaseRepo) SetFeedPurchasePaymentStatus(_ context.Context, _, purchaseID, status, _ string) (domain.FeedPurchase, error) {
+	r.statusCalls++
+	r.statusPurchaseID, r.status = purchaseID, status
+	return domain.FeedPurchase{FeedPurchaseID: purchaseID, PaymentStatus: status}, nil
+}
+
+func (r *fakeFeedPurchaseRepo) UpdateFeedPurchase(_ context.Context, _, purchaseID string, edit domain.FeedPurchaseEdit, _ string) (domain.FeedPurchase, error) {
+	r.editCalls++
+	r.editPurchaseID, r.edit = purchaseID, edit
+	return domain.FeedPurchase{FeedPurchaseID: purchaseID}, nil
 }
 
 func pinnedClock() func() time.Time {
@@ -141,5 +170,88 @@ func TestListFeedPurchasesRejectsRatherThanWidensOrClamps(t *testing.T) {
 	}
 	if repo.listFarm != "" || repo.limit != domain.ClampFeedPurchasePageSize(0) {
 		t.Fatalf("repo saw farm=%q limit=%d", repo.listFarm, repo.limit)
+	}
+}
+
+// TestRecordFeedPurchasePaymentGatesBeforeTheRepository pins the payment write's service gates: a
+// missing idempotency key and an invalid instalment are refused BEFORE any write reaches the
+// database, and a good instalment reaches the repository normalized with the trimmed key.
+func TestRecordFeedPurchasePaymentGatesBeforeTheRepository(t *testing.T) {
+	repo := &fakeFeedPurchaseRepo{}
+	svc := NewFeedPurchaseServiceWithClock(repo, pinnedClock())
+	good := domain.FeedPurchasePaymentWrite{PaidOn: "2026-08-20", AmountRupees: 5000, Note: "  advance   at loading "}
+
+	if _, err := svc.RecordFeedPurchasePayment(context.Background(), "t", "p1", good, "actor", "  "); !errors.Is(err, ErrFeedPurchaseIdempotencyKeyRequired) {
+		t.Fatalf("blank key => %v, want ErrFeedPurchaseIdempotencyKeyRequired", err)
+	}
+	bad := good
+	bad.AmountRupees = 0
+	var v domain.ErrFeedPurchaseValidation
+	if _, err := svc.RecordFeedPurchasePayment(context.Background(), "t", "p1", bad, "actor", "key"); !errors.As(err, &v) || v.Field != "amount_rupees" {
+		t.Fatalf("zero amount => %v, want an amount_rupees rejection", err)
+	}
+	if repo.paymentCalls != 0 {
+		t.Fatalf("the repository must not be reached by a gated payment, got %d calls", repo.paymentCalls)
+	}
+
+	if _, err := svc.RecordFeedPurchasePayment(context.Background(), "t", "p1", good, "actor", " key-9 "); err != nil {
+		t.Fatalf("record payment: %v", err)
+	}
+	if repo.paymentPurchaseID != "p1" || repo.key != "key-9" || repo.payment.Note != "advance at loading" {
+		t.Fatalf("repo saw purchase=%q key=%q note=%q", repo.paymentPurchaseID, repo.key, repo.payment.Note)
+	}
+}
+
+// TestSetFeedPurchasePaymentStatusCanonicalizesAndRejects pins the status edit: "paid" stores as
+// the sheet's "Paid", and a word outside the closed vocabulary is refused rather than rewritten --
+// a silently defaulted payment state is a money fact nobody entered.
+func TestSetFeedPurchasePaymentStatusCanonicalizesAndRejects(t *testing.T) {
+	repo := &fakeFeedPurchaseRepo{}
+	svc := NewFeedPurchaseServiceWithClock(repo, pinnedClock())
+
+	if _, err := svc.SetFeedPurchasePaymentStatus(context.Background(), "t", "p1", " paid ", "actor"); err != nil {
+		t.Fatalf("set status: %v", err)
+	}
+	if repo.status != domain.FeedPaymentPaid || repo.statusPurchaseID != "p1" {
+		t.Fatalf("repo saw status=%q purchase=%q", repo.status, repo.statusPurchaseID)
+	}
+
+	var v domain.ErrFeedPurchaseValidation
+	if _, err := svc.SetFeedPurchasePaymentStatus(context.Background(), "t", "p1", "Partial", "actor"); !errors.As(err, &v) || v.Field != "payment_status" {
+		t.Fatalf("unknown status => %v, want a payment_status rejection", err)
+	}
+	if repo.statusCalls != 1 {
+		t.Fatalf("a rejected status must not reach the repository, got %d calls", repo.statusCalls)
+	}
+}
+
+// TestEditFeedPurchaseGatesBeforeTheRepository pins the edit write's service gates: an invalid
+// edit is refused BEFORE any write reaches the database, and a good edit reaches the repository
+// normalized, with the same IST business-day rule the record form applies.
+func TestEditFeedPurchaseGatesBeforeTheRepository(t *testing.T) {
+	repo := &fakeFeedPurchaseRepo{}
+	svc := NewFeedPurchaseServiceWithClock(repo, pinnedClock())
+	good := domain.FeedPurchaseEdit{PurchaseDate: "2026-08-20", QuantityKg: 12000, Vendor: "  Siddi   Srilekha "}
+
+	bad := good
+	bad.PurchaseDate = "2026-08-26"
+	var v domain.ErrFeedPurchaseValidation
+	if _, err := svc.EditFeedPurchase(context.Background(), "t", "p1", bad, "actor"); !errors.As(err, &v) || v.Field != "purchase_date" {
+		t.Fatalf("future date => %v, want a purchase_date rejection", err)
+	}
+	bad = good
+	bad.QuantityKg = 0
+	if _, err := svc.EditFeedPurchase(context.Background(), "t", "p1", bad, "actor"); !errors.As(err, &v) || v.Field != "quantity_kg" {
+		t.Fatalf("zero quantity => %v, want a quantity_kg rejection", err)
+	}
+	if repo.editCalls != 0 {
+		t.Fatalf("the repository must not be reached by a gated edit, got %d calls", repo.editCalls)
+	}
+
+	if _, err := svc.EditFeedPurchase(context.Background(), "t", "p1", good, "actor"); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	if repo.editPurchaseID != "p1" || repo.edit.Vendor != "Siddi Srilekha" {
+		t.Fatalf("repo saw purchase=%q vendor=%q", repo.editPurchaseID, repo.edit.Vendor)
 	}
 }

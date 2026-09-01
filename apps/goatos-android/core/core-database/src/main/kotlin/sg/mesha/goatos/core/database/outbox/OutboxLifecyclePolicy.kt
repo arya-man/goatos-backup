@@ -111,6 +111,14 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         OutboxOpType.WORKFLOW_ACTION_COMPLETE -> optimisticRefreshLifecycle()
         OutboxOpType.HEALTH_CASE_OPEN -> overlayRefreshLifecycle()
         OutboxOpType.HEALTH_TREATMENT_COMPLETE -> optimisticRefreshLifecycle()
+        // Diagnosis (health-sop engine v1): the observation submit shows an outbox overlay at
+        // once and the sync pass projects the server's RETURNED proposal straight into the Room
+        // run cache (SyncEngine.projectDiagnosisProposal) — the packing/wastage shape.
+        OutboxOpType.HEALTH_OBSERVATION_SUBMIT -> overlayDirectReconcileLifecycle()
+        // The Director's confirm/reject is a decision write whose server answer is likewise
+        // projected directly into the run + queue rows (projectDiagnosisDecision).
+        OutboxOpType.HEALTH_DIAGNOSIS_CONFIRM -> overlayDirectReconcileLifecycle()
+        OutboxOpType.HEALTH_CASE_CLOSE -> overlayRefreshLifecycle()
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> durableDirectReconcileLifecycle()
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> durableDirectReconcileLifecycle()
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> durableDirectReconcileLifecycle()

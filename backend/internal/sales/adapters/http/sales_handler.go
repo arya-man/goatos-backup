@@ -23,6 +23,8 @@ type SalesService interface {
 	GetOverview(ctx context.Context, tenantID, farm string) (domain.Overview, error)
 	ListDeals(ctx context.Context, tenantID string, q app.DealListQuery) (ports.DealPage, error)
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
+	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
+	SetDealStatus(ctx context.Context, tenantID, dealID, status, actorID string) (domain.Deal, error)
 	ListBuyerLeads(ctx context.Context, tenantID string, q app.LeadListQuery) (ports.BuyerLeadPage, error)
 	CreateBuyerLead(ctx context.Context, tenantID string, write domain.BuyerLeadWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
 	SetBuyerLeadStatus(ctx context.Context, tenantID, leadID string, write domain.LeadStatusWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
@@ -56,6 +58,8 @@ func Register(mux *http.ServeMux, h *SalesHandler) {
 	mux.HandleFunc("GET /sales/overview", h.GetOverview)
 	mux.HandleFunc("GET /sales/deals", h.ListDeals)
 	mux.HandleFunc("POST /sales/deals", h.CreateDeal)
+	mux.HandleFunc("POST /sales/deals/{deal_id}/payments", h.RecordDealPayment)
+	mux.HandleFunc("POST /sales/deals/{deal_id}/status", h.SetDealStatus)
 	mux.HandleFunc("GET /sales/buyer-leads", h.ListBuyerLeads)
 	mux.HandleFunc("POST /sales/buyer-leads", h.CreateBuyerLead)
 	mux.HandleFunc("POST /sales/buyer-leads/{lead_id}/status", h.SetBuyerLeadStatus)
@@ -145,6 +149,55 @@ func (h *SalesHandler) CreateDeal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusCreated, toDealPayload(created))
+}
+
+// SetDealStatus serves POST /sales/deals/{deal_id}/status.
+func (h *SalesHandler) SetDealStatus(w http.ResponseWriter, r *http.Request) {
+	var body dealStatusWritePayload
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxSalesRequestBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		h.writeErr(w, r, app.BadRequest("invalid_body", "That status could not be read. Try again."))
+		return
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		h.writeErr(w, r, app.BadRequest("invalid_body", "That status could not be read. Try again."))
+		return
+	}
+	updated, err := h.service.SetDealStatus(r.Context(), tenantID(r), r.PathValue("deal_id"),
+		body.Status, httpmiddleware.ActorIDFromContext(r.Context()))
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toDealPayload(updated))
+}
+
+// RecordDealPayment serves POST /sales/deals/{deal_id}/payments.
+func (h *SalesHandler) RecordDealPayment(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		h.writeErr(w, r, app.BadRequest("missing_idempotency_key", "This payment could not be recorded safely. Try again."))
+		return
+	}
+	var body dealPaymentWritePayload
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxSalesRequestBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		h.writeErr(w, r, app.BadRequest("invalid_body", "That payment form could not be read. Check the fields and try again."))
+		return
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		h.writeErr(w, r, app.BadRequest("invalid_body", "That payment form could not be read. Check the fields and try again."))
+		return
+	}
+	updated, err := h.service.RecordDealPayment(r.Context(), tenantID(r), r.PathValue("deal_id"),
+		body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()), key)
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toDealPayload(updated))
 }
 
 // decode reads and validates a JSON write body.

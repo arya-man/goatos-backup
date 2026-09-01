@@ -416,6 +416,7 @@ run_common() {
   current_job="common"
   step "git-identity-guard" make git-identity-guard
   step "guardrail-registration-guard" make guardrail-registration-guard
+  step "commandboard-query-plan-wiring-guard" make commandboard-query-plan-wiring-guard
   step "local-stack-service-guard" make local-stack-service-guard
   step "local-ci-evidence-guard"   make local-ci-evidence-guard
   step "domain-event-architecture-guard" make domain-event-architecture-guard
@@ -602,6 +603,11 @@ run_query_plans() {
   # index regressions in production queries must fail ordinary PR, push, and local landing CI.
   prepare_query_plan_database
   step "required PostgreSQL query plans" make validate-sqlc-plans
+  # The command board's plan gate runs here for the same reason validate-sqlc-plans does: it is an
+  # index/plan-regression gate on a production read, and /vaccination/command already returned 500
+  # in staging once because nothing could see its plans. It resolves its own database (supplied DSN,
+  # OCI clone, or Docker) and fails rather than skipping when it can reach none.
+  step "command-board query plans" make commandboard-query-plan-guard
   return 0
 }
 

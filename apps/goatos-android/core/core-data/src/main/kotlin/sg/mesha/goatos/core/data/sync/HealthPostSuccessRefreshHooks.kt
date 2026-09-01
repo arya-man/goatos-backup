@@ -26,6 +26,19 @@ fun healthTreatmentCompleteRefreshHook(repository: HealthRepository): PostSucces
         repository.reconcileSuccessfulTreatmentCompletion(payload.healthSessionId).getOrThrow()
     }
 
+fun healthCaseCloseRefreshHook(repository: HealthRepository): PostSuccessRefreshHook =
+    PostSuccessRefreshHook { payloadJson ->
+        val payload = syncJson.decodeFromString<HealthCaseClosePayload>(payloadJson)
+        if (payload.healthSessionId.isNotBlank()) {
+            repository.refreshDetail(payload.healthSessionId).getOrThrow()
+        }
+        if (payload.ageBand.isNotBlank() && payload.businessDate.isNotBlank()) {
+            repository.refreshWorkItems(
+                HealthFilters(ageBand = payload.ageBand, date = payload.businessDate),
+            ).getOrThrow()
+        }
+    }
+
 fun healthTreatmentCompleteFailureHook(repository: HealthRepository): PostTerminalFailureHook =
     PostTerminalFailureHook { payloadJson ->
         val payload = syncJson.decodeFromString<HealthTreatmentCompletePayload>(payloadJson)

@@ -16,7 +16,12 @@
       "vaccination_schedule",
       "vaccination_execution",
       "vaccination_operations",
-      "vaccination_shed_summary"
+      "vaccination_shed_summary",
+      "vaccination_command_board",
+      "vaccination_command_drives",
+      "vaccination_command_closed_without_dose",
+      "vaccination_command_cohort_matrix",
+      "vaccination_command_shed_dose_matrix"
     ],
     "evidence_boundaries": {
       "canonical_5k_50k_serving_reads": [
@@ -26,7 +31,8 @@
         "protocol_adherence",
         "calendar_vaccination",
         "vaccination_schedule",
-        "vaccination_shed_summary"
+        "vaccination_shed_summary",
+        "vaccination_command_board"
       ],
       "local_nonempty_latency_only": [
         "calendar_vaccination_completed_history",
@@ -37,7 +43,11 @@
         "calendar_mobile_month_vaccine_filter",
         "calendar_mobile_history_page_20",
         "vaccination_execution",
-        "vaccination_operations"
+        "vaccination_operations",
+        "vaccination_command_drives",
+        "vaccination_command_closed_without_dose",
+        "vaccination_command_cohort_matrix",
+        "vaccination_command_shed_dose_matrix"
       ]
     },
     "excluded": {
@@ -46,10 +56,81 @@
       "workflow_and_row_detail": "Detail paths require selected backend-issued identities and a separate drilldown contract.",
       "animal_lists": "Per-shed animal pages are keyset-paged and require a selected shed; they are not a tenant-wide list.",
       "full_chain_bulk_writes": "This is canonical serving-read evidence for the 5k-50k envelope, not a bulk command-write certification.",
-      "async_architecture": "Pub/Sub delivery, DLQ recovery, idempotency concurrency, and consumer backpressure require separate architecture/load gates."
+      "async_architecture": "Pub/Sub delivery, DLQ recovery, idempotency concurrency, and consumer backpressure require separate architecture/load gates.",
+      "command_board_cell_drilldowns": "The shed-vaccine, cohort-exception and cohort-day drawers require a SELECTED cell (shed+vaccine, or park+stage+sex+doseCodes) that only a rendered board can supply, so they are covered by commandboard_query_plan_test.go rather than by a fixed URL here. The closed-without-dose drawer needs no cell and IS gated below."
     }
   },
   "endpoints": [
+    {
+      "name": "vaccination_command_board",
+      "method": "GET",
+      "path": "/vaccination/command",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": {
+        "type": "number_min",
+        "path": "kpis.targets",
+        "min": 1
+      }
+    },
+    {
+      "name": "vaccination_command_drives",
+      "method": "GET",
+      "path": "/vaccination/command/drives?limit=20",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": {
+        "type": "array_min",
+        "path": "options",
+        "min": 1
+      }
+    },
+    {
+      "name": "vaccination_command_closed_without_dose",
+      "method": "GET",
+      "path": "/vaccination/command/closed-without-dose?limit=50",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": {
+        "type": "array_min",
+        "path": "animals",
+        "min": 1
+      }
+    },
+    {
+      "name": "vaccination_command_cohort_matrix",
+      "method": "GET",
+      "path": "/vaccination/command/cohort-matrix",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": {
+        "type": "array_min",
+        "path": "cells",
+        "min": 1
+      }
+    },
+    {
+      "name": "vaccination_command_shed_dose_matrix",
+      "method": "GET",
+      "path": "/vaccination/command/shed-dose-matrix",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": {
+        "type": "array_min",
+        "path": "matrix.cells",
+        "min": 1
+      }
+    },
     {
       "name": "control_tower",
       "method": "GET",
@@ -58,7 +139,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "alerts", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "alerts",
+        "min": 1
+      }
     },
     {
       "name": "action_center",
@@ -68,7 +153,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "items",
+        "min": 1
+      }
     },
     {
       "name": "action_center_counts",
@@ -78,7 +167,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 65536,
-      "assertion": { "type": "number_min", "path": "total_count", "min": 1 }
+      "assertion": {
+        "type": "number_min",
+        "path": "total_count",
+        "min": 1
+      }
     },
     {
       "name": "protocol_adherence",
@@ -88,7 +181,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "rows", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "rows",
+        "min": 1
+      }
     },
     {
       "name": "calendar_vaccination",
@@ -98,7 +195,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "items",
+        "min": 1
+      }
     },
     {
       "name": "calendar_vaccination_completed_history",
@@ -108,7 +209,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "items",
+        "min": 1
+      }
     },
     {
       "name": "calendar_vaccination_date_markers",
@@ -118,7 +223,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "date_markers", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "date_markers",
+        "min": 1
+      }
     },
     {
       "name": "calendar_mobile_month_page_20",
@@ -128,7 +237,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "items",
+        "min": 1
+      }
     },
     {
       "name": "calendar_mobile_month_filter_options",
@@ -138,7 +251,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "items",
+        "min": 1
+      }
     },
     {
       "name": "calendar_mobile_month_status_filter",
@@ -148,7 +265,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "items", "min": 0 }
+      "assertion": {
+        "type": "array_min",
+        "path": "items",
+        "min": 0
+      }
     },
     {
       "name": "calendar_mobile_month_vaccine_filter",
@@ -158,7 +279,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "items", "min": 0 }
+      "assertion": {
+        "type": "array_min",
+        "path": "items",
+        "min": 0
+      }
     },
     {
       "name": "calendar_mobile_history_page_20",
@@ -168,7 +293,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "items",
+        "min": 1
+      }
     },
     {
       "name": "vaccination_schedule",
@@ -178,7 +307,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "cohorts", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "cohorts",
+        "min": 1
+      }
     },
     {
       "name": "vaccination_execution",
@@ -188,7 +321,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "rows", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "rows",
+        "min": 1
+      }
     },
     {
       "name": "vaccination_operations",
@@ -198,7 +335,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "cohorts", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "cohorts",
+        "min": 1
+      }
     },
     {
       "name": "vaccination_shed_summary",
@@ -208,7 +349,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "rows", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "rows",
+        "min": 1
+      }
     }
   ]
 }

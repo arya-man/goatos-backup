@@ -195,7 +195,17 @@ function shedLabelWithComposition(
 ): string {
   const chips = composition?.chips ?? [];
   if (chips.length === 0) return shedName;
-  const suffix = chips.map((chip) => compositionLabel(chip, pageContract).replaceAll(" · ", " - ")).join(", ");
+  // Each cohort carries its resident COUNT (maintainer ask 2026-08-31), matching
+  // the sheds table's chips, which have always shown it. "×" and not a bare
+  // number: "Beetal - female - 12" would read as a pen suffix in this dashed
+  // label, while "× 12" can only be a head count. The chip's own backend
+  // `animals` figure, never a client-derived sum.
+  const suffix = chips
+    .map(
+      (chip) =>
+        `${compositionLabel(chip, pageContract).replaceAll(" · ", " - ")} × ${chip.animals.toLocaleString("en-IN")}`,
+    )
+    .join(", ");
   return `${shedName} (${suffix})`;
 }
 

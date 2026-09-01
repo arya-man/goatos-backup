@@ -1939,6 +1939,80 @@ SELECT EXISTS (
 	return exists, nil
 }
 
+// CancelOpenVaccinationObligationsForGoatDose cancels one animal's open vaccination work for one
+// dose code, even when an earlier generation pass already moved the row away from its original
+// idempotency-key date or it was minted by an older protocol version/rule id.
+func (r *Repository) CancelOpenVaccinationObligationsForGoatDose(ctx context.Context, tenantID, goatID, doseCode, reason string, occurredAt time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if _, err := pgconv.UUID(goatID); err != nil {
+		return 0, fmt.Errorf("obligation: goat id: %w", err)
+	}
+	if strings.TrimSpace(doseCode) == "" {
+		return 0, fmt.Errorf("obligation: dose code is required")
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "superseded"
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin goat dose cancel tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	rows, err := tx.Query(ctx, `
+WITH target AS (
+  SELECT oi.obligation_id, oi.batch_id
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.rule_id = oi.rule_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.target_id = $2::uuid
+    AND lower(pr.dose_code) = lower($3::text)
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+    AND pd.category = 'vaccination'
+  FOR UPDATE OF oi
+)
+UPDATE obligation_instances oi
+SET status = 'canceled',
+    batch_id = NULL,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM target
+WHERE oi.obligation_id = target.obligation_id
+RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, '')`, tenantID, goatID, doseCode)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: cancel vaccination goat dose obligations: %w", err)
+	}
+	count, err := recordCanceledObligationRows(ctx, tx, qtx, tenant, tenantID, goatID, reason, occurredAt, rows, map[string]any{
+		"dose_code": doseCode,
+	}, "obligation.CancelOpenVaccinationObligationsForGoatDose")
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit goat dose cancel: %w", err)
+	}
+	return count, nil
+}
+
 // CancelOpenVaccinationObligationsForGoatExceptVersions cancels open vaccination work whose protocol
 // version is no longer effective for the goat after a recheck. Terminal and in-progress work are left
 // untouched; each changed row gets the same cancellation status event and outbox used by SM-3.
@@ -1953,6 +2027,155 @@ SELECT EXISTS (
 //
 // This is the cheap pre-filter for that: one query per page instead of one cancel per animal,
 // so the common case -- nothing to supersede -- costs a single indexed read.
+func (r *Repository) CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx context.Context, tenantID string, goatIDs []string, occurredAt time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	ids := make([]pgtype.UUID, 0, len(goatIDs))
+	for _, goatID := range goatIDs {
+		id, err := pgconv.UUID(goatID)
+		if err != nil {
+			return 0, fmt.Errorf("obligation: goat id %q: %w", goatID, err)
+		}
+		ids = append(ids, id)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin anchor suppression tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx, `
+WITH candidates AS (
+  SELECT oi.obligation_id,
+         vae.vaccination_anchor_event_id,
+         vae.anchor_date,
+         COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''), '') AS vaccine_code
+  FROM obligation_instances oi
+  JOIN protocol_versions pv ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_rules pr ON pr.tenant_id = oi.tenant_id AND pr.protocol_version_id = oi.protocol_version_id AND pr.rule_id = oi.rule_id
+  LEFT JOIN protocol_rule_lineage oi_lineage ON oi_lineage.tenant_id = oi.tenant_id AND oi_lineage.protocol_version_id = oi.protocol_version_id AND oi_lineage.rule_id = oi.rule_id
+  JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  JOIN vaccination_anchor_events vae
+    ON vae.tenant_id = oi.tenant_id
+   AND vae.canceled_at IS NULL
+   AND vae.suppress_before_anchor
+   AND lower(btrim(vae.vaccine_code)) = lower(btrim(COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''), '')))
+   AND (vae.dose_code IS NULL OR lower(btrim(vae.dose_code)) = lower(btrim(COALESCE(pr.dose_code, ''))))
+   AND (
+     vae.scope_type = 'tenant'
+     OR (vae.scope_type = 'animal_set' AND vae.scope_payload ? 'animal_ids' AND (vae.scope_payload -> 'animal_ids') ? oi.target_id::text)
+     OR (vae.scope_type = 'park' AND COALESCE(vae.scope_payload ->> 'park_id', '') = g.park_id::text)
+     OR (vae.scope_type = 'shed' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text)
+     OR (vae.scope_type = 'partition' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text AND COALESCE(vae.scope_payload ->> 'partition_label', '') = COALESCE(gsp.partition_label, 'whole'))
+   )
+  LEFT JOIN protocol_versions anchor_pv ON anchor_pv.tenant_id = vae.tenant_id AND anchor_pv.protocol_version_id = vae.protocol_version_id
+  LEFT JOIN protocol_rules anchor_pr
+    ON anchor_pr.tenant_id = anchor_pv.tenant_id
+   AND anchor_pr.protocol_version_id = anchor_pv.protocol_version_id
+   AND lower(btrim(anchor_pr.dose_code)) = lower(btrim(COALESCE(vae.dose_code, '')))
+   AND lower(btrim(COALESCE(NULLIF(anchor_pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(anchor_pv.rule_dsl -> 'vaccine' ->> 'code', '')))) = lower(btrim(vae.vaccine_code))
+  LEFT JOIN protocol_rule_lineage anchor_lineage
+    ON anchor_lineage.tenant_id = anchor_pr.tenant_id
+   AND anchor_lineage.protocol_version_id = anchor_pr.protocol_version_id
+   AND anchor_lineage.rule_id = anchor_pr.rule_id
+  WHERE oi.tenant_id = $1
+    AND oi.target_type = 'goat'
+    AND (cardinality($2::uuid[]) = 0 OR oi.target_id = ANY($2::uuid[]))
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+    AND oi.due_at::date < vae.anchor_date
+    AND (
+      vae.protocol_version_id IS NULL
+      OR (
+        anchor_pv.protocol_id = pv.protocol_id
+        AND (
+          vae.dose_code IS NULL
+          OR (
+            anchor_pr.rule_id IS NOT NULL
+            AND (
+              (anchor_lineage.identity_key IS NOT NULL AND oi_lineage.identity_key = anchor_lineage.identity_key)
+              OR (
+                anchor_lineage.identity_key IS NULL
+                AND lower(btrim(anchor_pr.dose_code)) = lower(btrim(pr.dose_code))
+                AND anchor_pr.sequence = pr.sequence
+              )
+            )
+          )
+        )
+      )
+    )
+    AND (
+      NOT vae.enforce_age_eligibility
+      OR pr.trigger_type <> 'birth_age'
+      OR (g.dob IS NOT NULL AND g.dob + pr.offset_days <= vae.anchor_date)
+    )
+  FOR UPDATE OF oi
+),
+updated AS (
+  UPDATE obligation_instances oi
+  SET status = 'canceled',
+      batch_id = NULL,
+      row_version = row_version + 1,
+      updated_at = now()
+  FROM candidates c
+  WHERE oi.tenant_id = $1
+    AND oi.obligation_id = c.obligation_id
+  RETURNING oi.obligation_id, c.vaccination_anchor_event_id, c.anchor_date, c.vaccine_code
+),
+events AS (
+  INSERT INTO obligation_status_events (tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key)
+  SELECT $1,
+         u.obligation_id,
+         'canceled',
+         $3,
+         jsonb_build_object('reason', 'vaccination_anchor_suppressed_before_anchor', 'vaccination_anchor_event_id', u.vaccination_anchor_event_id::text, 'anchor_date', u.anchor_date::text, 'vaccine_code', u.vaccine_code),
+         u.obligation_id::text || ':canceled:vaccination_anchor_suppressed_before_anchor:' || u.vaccination_anchor_event_id::text
+  FROM updated u
+  ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+)
+SELECT obligation_id::text FROM updated`, tenant, ids, pgconv.Timestamptz(occurredAt))
+	if err != nil {
+		return 0, fmt.Errorf("obligation: cancel before active anchors: %w", err)
+	}
+	detachedIDs := make([]string, 0)
+	for rows.Next() {
+		var obligationID string
+		if err := rows.Scan(&obligationID); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("obligation: scan anchor cancellation: %w", err)
+		}
+		detachedIDs = append(detachedIDs, obligationID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("obligation: anchor cancellation rows: %w", err)
+	}
+	rows.Close()
+	if len(detachedIDs) > 0 {
+		if err := pruneDetachedDriveMembershipTx(ctx, tx, tenant, detachedIDs); err != nil {
+			return 0, err
+		}
+	}
+	for _, obligationID := range detachedIDs {
+		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, obligationID, obligationCanceledEventType, "canceled", occurredAt, map[string]any{
+			"reason": "vaccination_anchor_suppressed_before_anchor",
+		}, "obligation.CancelOpenVaccinationObligationsBeforeActiveAnchors"); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit anchor suppression: %w", err)
+	}
+	return len(detachedIDs), nil
+}
+
 // OpenObligationForRepeatCycle finds the open row that already holds a repeat cycle, by its
 // CAUSE rather than its idempotency key.
 //
@@ -2364,7 +2587,7 @@ ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 // same animal and vaccine family. Vaccination generation treats this as the
 // animal's base date for that family, suppressing DOB/arrival/calendar rows that
 // would otherwise be regenerated before the anchor has been completed.
-func (r *Repository) ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string) (map[string]domain.ObligationRef, error) {
+func (r *Repository) ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string, asOf time.Time) (map[string]domain.ObligationRef, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	normalizedCodes := make([]string, 0, len(vaccineCodes)*2)
@@ -2385,6 +2608,7 @@ func (r *Repository) ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, 
 	if len(normalizedCodes) == 0 {
 		return nil, nil
 	}
+	anchorDay := biztime.BusinessDayStart(asOf)
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: tenant id: %w", err)
@@ -2412,11 +2636,12 @@ JOIN protocol_rule_dimensions d
 WHERE oi.tenant_id = $1
   AND oi.target_type = 'goat'
   AND oi.target_id = $2
-  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND oi.due_at >= $4
   AND pr.trigger_type = 'manual_campaign'
   AND d.category = 'vaccination'
   AND d.vaccine_code = ANY($3::text[])
-ORDER BY d.vaccine_code, oi.due_at ASC, oi.created_at ASC, oi.obligation_id ASC`, tenant, goat, normalizedCodes)
+ORDER BY d.vaccine_code, oi.due_at ASC, oi.created_at ASC, oi.obligation_id ASC`, tenant, goat, normalizedCodes, anchorDay)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: find manual vaccine anchors: %w", err)
 	}
@@ -2434,6 +2659,58 @@ ORDER BY d.vaccine_code, oi.due_at ASC, oi.created_at ASC, oi.obligation_id ASC`
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("obligation: read manual vaccine anchors: %w", err)
+	}
+	// scale-guard:ignore: bounded by one goat and a small vaccine-code list during per-animal generation; required to make event-table anchors suppress generation itself.
+	anchorRows, err := r.pool.Query(ctx, `
+-- projection-review: membership=active vaccination_anchor_events scoped to one goat through tenant/park/shed/partition/animal-set; group_key=normalized vaccine code; join_cardinality=one goat to matching anchors is 1:N collapsed by DISTINCT ON earliest anchor per vaccine; pagination=bounded by one goat and requested vaccine-code list; scope=single tenant and one animal's current location scope.
+SELECT DISTINCT ON (lower(btrim(vae.vaccine_code)))
+       vae.vaccine_code,
+       vae.vaccination_anchor_event_id::text,
+       'scheduled'::text AS status,
+       vae.anchor_date::timestamp AS due_at,
+       0::int AS row_version,
+       vae.idempotency_key
+FROM vaccination_anchor_events vae
+JOIN goats g
+  ON g.tenant_id = vae.tenant_id
+ AND g.goat_id = $2
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
+WHERE vae.tenant_id = $1
+  AND vae.canceled_at IS NULL
+  AND vae.suppress_before_anchor
+  AND vae.anchor_date >= $4::date
+  AND lower(btrim(replace(vae.vaccine_code, '+', '_'))) = ANY(
+    SELECT lower(btrim(replace(code, '+', '_'))) FROM unnest($3::text[]) AS code
+  )
+  AND (
+    vae.scope_type = 'tenant'
+    OR (vae.scope_type = 'animal_set' AND vae.scope_payload ? 'animal_ids' AND (vae.scope_payload -> 'animal_ids') ? $2::text)
+    OR (vae.scope_type = 'park' AND COALESCE(vae.scope_payload ->> 'park_id', '') = g.park_id::text)
+    OR (vae.scope_type = 'shed' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text)
+    OR (vae.scope_type = 'partition' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text AND COALESCE(vae.scope_payload ->> 'partition_label', '') = COALESCE(gsp.partition_label, 'whole'))
+  )
+ORDER BY lower(btrim(vae.vaccine_code)), vae.anchor_date ASC, vae.created_at ASC, vae.vaccination_anchor_event_id ASC`, tenant, goat, normalizedCodes, anchorDay)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: find vaccination anchor events: %w", err)
+	}
+	defer anchorRows.Close()
+	for anchorRows.Next() {
+		var (
+			code string
+			ref  domain.ObligationRef
+		)
+		if err := anchorRows.Scan(&code, &ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion, &ref.IdempotencyKey); err != nil {
+			return nil, fmt.Errorf("obligation: scan vaccination anchor event: %w", err)
+		}
+		if existing, ok := anchors[code]; !ok || existing.DueAt.IsZero() || ref.DueAt.Before(existing.DueAt) {
+			anchors[code] = ref
+		}
+	}
+	if err := anchorRows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: read vaccination anchor events: %w", err)
 	}
 	return anchors, nil
 }
@@ -2630,7 +2907,135 @@ WHERE oi.tenant_id = $1::uuid
 	if err != nil {
 		return 0, fmt.Errorf("obligation: carry over unchanged vaccination obligations: %w", err)
 	}
-	return int(tag.RowsAffected()), nil
+	carried := int(tag.RowsAffected())
+
+	// Some real vaccination rules have kept the same medical meaning while their protocol identity
+	// changed: the rule was re-authored, renamed, or its age offset was corrected, but the animal
+	// still owes the same vaccine dose on the same date. The strict lineage/content pass above must
+	// stay strict for ordinary edits; this fallback only adopts rows that agree on the stable
+	// vaccination address: vaccine code, dose sequence, kid/adult dose family and the existing open
+	// row's due/cause keys. That keeps valid booster work alive across plan replacement without
+	// carrying arbitrary edited rules forward.
+	tag, err = r.pool.Exec(ctx, `
+WITH effective_rule AS (
+  SELECT DISTINCT ON (
+           lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))),
+           pr."sequence",
+           CASE
+             WHEN strpos(lower(pr.dose_code), '_kid_') > 0 OR right(lower(pr.dose_code), 4) = '_kid' THEN 'kid'
+             WHEN strpos(lower(pr.dose_code), '_adult_') > 0 OR right(lower(pr.dose_code), 6) = '_adult' THEN 'adult'
+             ELSE 'unmarked'
+           END
+         )
+         lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))) AS vaccine_code,
+         pr."sequence",
+         CASE
+           WHEN strpos(lower(pr.dose_code), '_kid_') > 0 OR right(lower(pr.dose_code), 4) = '_kid' THEN 'kid'
+           WHEN strpos(lower(pr.dose_code), '_adult_') > 0 OR right(lower(pr.dose_code), 6) = '_adult' THEN 'adult'
+           ELSE 'unmarked'
+         END AS dose_family,
+         pr.protocol_version_id,
+         pr.rule_id
+  FROM protocol_rules pr
+  JOIN protocol_versions pv
+    ON pv.tenant_id = pr.tenant_id
+   AND pv.protocol_version_id = pr.protocol_version_id
+  LEFT JOIN protocol_rule_dimensions d
+    ON d.tenant_id = pr.tenant_id
+   AND d.protocol_version_id = pr.protocol_version_id
+   AND d.rule_id = pr.rule_id
+   AND d.category = 'vaccination'
+  WHERE pr.tenant_id = $1::uuid
+    AND pr.protocol_version_id = ANY($3::uuid[])
+    AND lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))) <> ''
+  ORDER BY
+    lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))),
+    pr."sequence",
+    CASE
+      WHEN strpos(lower(pr.dose_code), '_kid_') > 0 OR right(lower(pr.dose_code), 4) = '_kid' THEN 'kid'
+      WHEN strpos(lower(pr.dose_code), '_adult_') > 0 OR right(lower(pr.dose_code), 6) = '_adult' THEN 'adult'
+      ELSE 'unmarked'
+    END,
+    pr.rule_id
+),
+retired_rule AS (
+  SELECT pr.rule_id,
+         lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))) AS vaccine_code,
+         pr."sequence",
+         CASE
+           WHEN strpos(lower(pr.dose_code), '_kid_') > 0 OR right(lower(pr.dose_code), 4) = '_kid' THEN 'kid'
+           WHEN strpos(lower(pr.dose_code), '_adult_') > 0 OR right(lower(pr.dose_code), 6) = '_adult' THEN 'adult'
+           ELSE 'unmarked'
+         END AS dose_family
+  FROM protocol_rules pr
+  JOIN protocol_versions pv
+    ON pv.tenant_id = pr.tenant_id
+   AND pv.protocol_version_id = pr.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+  LEFT JOIN protocol_rule_dimensions d
+    ON d.tenant_id = pr.tenant_id
+   AND d.protocol_version_id = pr.protocol_version_id
+   AND d.rule_id = pr.rule_id
+   AND d.category = 'vaccination'
+  WHERE pr.tenant_id = $1::uuid
+    AND pd.category = 'vaccination'
+    AND NOT (pr.protocol_version_id = ANY($3::uuid[]))
+)
+UPDATE obligation_instances oi
+SET protocol_version_id = er.protocol_version_id,
+    rule_id = er.rule_id,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM retired_rule rr
+JOIN effective_rule er
+  ON er.vaccine_code = rr.vaccine_code
+ AND er."sequence" = rr."sequence"
+ AND er.dose_family = rr.dose_family
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND NOT (oi.protocol_version_id = ANY($3::uuid[]))
+  AND rr.rule_id = oi.rule_id
+  AND rr.vaccine_code <> ''
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE clash.tenant_id = oi.tenant_id
+      AND clash.protocol_version_id = er.protocol_version_id
+      AND clash.rule_id = er.rule_id
+      AND clash.target_type = oi.target_type
+      AND clash.target_id = oi.target_id
+      AND clash.due_at IS NOT DISTINCT FROM oi.due_at
+      AND clash.obligation_id <> oi.obligation_id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE oi.repeat_cycle_source_ref IS NOT NULL
+      AND clash.tenant_id = oi.tenant_id
+      AND clash.protocol_version_id = er.protocol_version_id
+      AND clash.rule_id = er.rule_id
+      AND clash.target_type = oi.target_type
+      AND clash.target_id = oi.target_id
+      AND clash.repeat_cycle_source IS NOT DISTINCT FROM oi.repeat_cycle_source
+      AND clash.repeat_cycle_source_ref = oi.repeat_cycle_source_ref
+      AND clash.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND clash.obligation_id <> oi.obligation_id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE oi.repeat_cycle_anchor_obligation_id IS NOT NULL
+      AND clash.tenant_id = oi.tenant_id
+      AND clash.rule_id = er.rule_id
+      AND clash.repeat_cycle_anchor_obligation_id = oi.repeat_cycle_anchor_obligation_id
+      AND clash.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND clash.obligation_id <> oi.obligation_id
+  )`, tenantID, goatIDs, effectiveVersionIDs)
+	if err != nil {
+		return carried, fmt.Errorf("obligation: carry over medically equivalent vaccination obligations: %w", err)
+	}
+	return carried + int(tag.RowsAffected()), nil
 }
 
 func (r *Repository) GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error) {

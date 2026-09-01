@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccports "github.com/vgoats/goatos/backend/internal/vaccination/ports"
@@ -49,6 +50,27 @@ type fakeCampaign struct {
 	hash       string
 	called     bool
 	err        error
+}
+
+type fakeAnchorManager struct {
+	got domain.AnchorCommand
+	err error
+}
+
+func (f *fakeAnchorManager) PreviewAnchor(_ context.Context, in domain.AnchorCommand) (domain.AnchorPreview, error) {
+	f.got = in
+	if f.err != nil {
+		return domain.AnchorPreview{}, f.err
+	}
+	return domain.AnchorPreview{PreviewOnly: true, VaccineCode: in.VaccineCode, DoseCode: in.DoseCode, AnchorDate: in.AnchorDate.Format("2006-01-02"), TotalResolvedAnimals: 2, EligibleAnimals: 2}, nil
+}
+
+func (f *fakeAnchorManager) CreateAnchor(_ context.Context, in domain.AnchorCommand) (domain.AnchorPreview, error) {
+	f.got = in
+	if f.err != nil {
+		return domain.AnchorPreview{}, f.err
+	}
+	return domain.AnchorPreview{AnchorEventID: "40000000-0000-4000-8000-000000000001", Applied: true, VaccineCode: in.VaccineCode, DoseCode: in.DoseCode, AnchorDate: in.AnchorDate.Format("2006-01-02"), TotalResolvedAnimals: 2, EligibleAnimals: 2}, nil
 }
 
 func (f *fakeCampaign) GenerateManualCampaignForVersionWithHTTPRun(_ context.Context, tenantID, versionID, campaignID string, asOf time.Time, idempotencyKey, requestHash string) (domain.GenerationRun, domain.GenerateResult, error) {
@@ -118,7 +140,7 @@ func TestRunManualCampaignCallsGenerator(t *testing.T) {
 	}
 }
 
-func TestRunManualCampaignRejectsFutureAsOf(t *testing.T) {
+func TestRunManualCampaignAcceptsFutureAsAnchorDate(t *testing.T) {
 	campaign := &fakeCampaign{}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(&fakeImpact{}, nil).WithManualCampaignGenerator(campaign))
@@ -131,14 +153,14 @@ func TestRunManualCampaignRejectsFutureAsOf(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d (%s)", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("want 202, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "future_as_of") {
-		t.Fatalf("body = %s", rec.Body.String())
+	if !campaign.called {
+		t.Fatal("generator was not called for future anchor date")
 	}
-	if campaign.called {
-		t.Fatalf("generator was called for future as_of")
+	if !campaign.asOf.After(time.Now()) {
+		t.Fatalf("as_of = %s, want future anchor date", campaign.asOf.Format(time.RFC3339))
 	}
 }
 
@@ -192,6 +214,138 @@ func TestRunManualCampaignRequiresIdempotencyKey(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "missing_idempotency_key") {
 		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+func TestPreviewAnchorDefaultsFlagsAndReturnsCounts(t *testing.T) {
+	anchors := &fakeAnchorManager{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(anchors))
+
+	body := `{"vaccine_code":"PPR","dose_code":"ppr_kid","anchor_date":"2026-09-08","scope_type":"animal_set","scope_payload":{"animal_ids":["30000000-0000-4000-8000-000000000001"]},"reason":"Sep 8 drive"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors/preview", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !anchors.got.SuppressBeforeAnchor || !anchors.got.ChainFutureFromAnchor || !anchors.got.EnforceAgeEligibility {
+		t.Fatalf("default flags not applied: %+v", anchors.got)
+	}
+	if anchors.got.SourceSystem != "admin-web" || anchors.got.IdempotencyKey != "" {
+		t.Fatalf("source/idempotency on preview: %+v", anchors.got)
+	}
+	var resp domain.AnchorPreview
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response json: %v", err)
+	}
+	if !resp.PreviewOnly || resp.EligibleAnimals != 2 {
+		t.Fatalf("response=%+v", resp)
+	}
+}
+
+func TestPreviewAnchorPreservesExplicitFalseFlags(t *testing.T) {
+	anchors := &fakeAnchorManager{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(anchors))
+
+	body := `{"vaccine_code":"PPR","dose_code":"ppr_kid","anchor_date":"2026-09-08","scope_type":"tenant","scope_payload":{},"reason":"Sep 8 drive","suppress_before_anchor":false,"chain_future_from_anchor":false,"enforce_age_eligibility":false}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors/preview", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if anchors.got.SuppressBeforeAnchor || anchors.got.ChainFutureFromAnchor || anchors.got.EnforceAgeEligibility {
+		t.Fatalf("explicit false flags were ignored: %+v", anchors.got)
+	}
+}
+
+func TestPreviewAnchorAcceptsLegacyNestedFlags(t *testing.T) {
+	anchors := &fakeAnchorManager{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(anchors))
+
+	body := `{"vaccine_code":"PPR","dose_code":"ppr_kid","anchor_date":"2026-09-08","scope_type":"tenant","scope_payload":{},"reason":"Sep 8 drive","flags":{"suppress_before_anchor":false,"chain_future_from_anchor":false,"enforce_age_eligibility":false}}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors/preview", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if anchors.got.SuppressBeforeAnchor || anchors.got.ChainFutureFromAnchor || anchors.got.EnforceAgeEligibility {
+		t.Fatalf("legacy false flags were ignored: %+v", anchors.got)
+	}
+}
+
+func TestCreateAnchorRequiresIdempotencyKey(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(&fakeAnchorManager{}))
+	body := `{"vaccine_code":"PPR","anchor_date":"2026-09-08","scope_type":"tenant","scope_payload":{},"reason":"Sep 8 drive"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "missing_idempotency_key") {
+		t.Fatalf("want missing idempotency 400, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateAnchorRejectsFutureOperationalAnchor(t *testing.T) {
+	mux := http.NewServeMux()
+	anchors := &fakeAnchorManager{}
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(anchors))
+	future := biztime.BusinessDayStart(time.Now()).AddDate(0, 0, 1).Format("2006-01-02")
+	body := `{"vaccine_code":"PPR","anchor_date":"` + future + `","scope_type":"tenant","scope_payload":{},"reason":"future plan anchor"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors", strings.NewReader(body))
+	req.Header.Set("Idempotency-Key", "anchor-future-0001")
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "future_anchor_requires_plan_publish") {
+		t.Fatalf("want future anchor 400, got %d %s", rec.Code, rec.Body.String())
+	}
+	if anchors.got.VaccineCode != "" {
+		t.Fatalf("future direct anchor reached manager: %+v", anchors.got)
+	}
+}
+
+func TestCreateAnchorAllowsSameDayHistoricalAnchor(t *testing.T) {
+	mux := http.NewServeMux()
+	anchors := &fakeAnchorManager{}
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(anchors))
+	today := biztime.BusinessDayStart(time.Now()).Format("2006-01-02")
+	body := `{"vaccine_code":"PPR","anchor_date":"` + today + `","scope_type":"tenant","scope_payload":{},"reason":"same day historical anchor"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors", strings.NewReader(body))
+	req.Header.Set("Idempotency-Key", "anchor-today-0001")
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("want same-day anchor 201, got %d %s", rec.Code, rec.Body.String())
+	}
+	if anchors.got.VaccineCode != "PPR" || anchors.got.AnchorDate.Format("2006-01-02") != today {
+		t.Fatalf("same-day direct anchor not passed to manager: %+v", anchors.got)
+	}
+}
+
+func TestCreateAnchorMapsIdempotencyConflict(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(&fakeAnchorManager{err: vaccports.ErrIdempotencyConflict}))
+	body := `{"vaccine_code":"PPR","anchor_date":"2026-01-08","scope_type":"tenant","scope_payload":{},"reason":"historical anchor replay"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors", strings.NewReader(body))
+	req.Header.Set("Idempotency-Key", "anchor-key-0001")
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "idempotency_conflict") {
+		t.Fatalf("want conflict, got %d %s", rec.Code, rec.Body.String())
 	}
 }
 

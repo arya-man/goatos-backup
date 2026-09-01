@@ -108,6 +108,189 @@ type FeedPurchase struct {
 	RecordedBy  *string
 
 	CreatedAt string
+
+	// Payments are the instalments recorded against this load, oldest first. Sheet history has
+	// none: its payment_released figure predates the instalment ledger.
+	Payments []FeedPurchasePayment
+}
+
+// FeedPurchasePayment is one instalment actually handed to the vendor for one purchased load.
+type FeedPurchasePayment struct {
+	PaymentID      string
+	FeedPurchaseID string
+	PaidOn         string // YYYY-MM-DD business date
+	AmountRupees   float64
+	Note           string
+	CreatedAt      string
+}
+
+// PaymentBalance is the money still owed on this load: total cost minus what has been released.
+//
+// A load marked Paid owes NOTHING, whatever the released figure says: most sheet-history rows
+// carry "Paid" with no released amount recorded, and deriving total-minus-nothing there would
+// print a false "remaining" on a settled load. Otherwise nil when the landed cost is not known
+// yet -- a balance against an unknown total would be a number nobody computed. Never negative: an
+// overpayment reads as a zero balance, not as the vendor owing the farm through this ledger.
+func (p FeedPurchase) PaymentBalance() *float64 {
+	if p.PaymentStatus == FeedPaymentPaid {
+		zero := 0.0
+		return &zero
+	}
+	if p.TotalCost == nil {
+		return nil
+	}
+	released := 0.0
+	if p.PaymentReleased != nil {
+		released = *p.PaymentReleased
+	}
+	balance := *p.TotalCost - released
+	if balance < 0 {
+		balance = 0
+	}
+	return &balance
+}
+
+// maxFeedPurchasePaymentNote bounds the free-text note on one instalment.
+const maxFeedPurchasePaymentNote = 300
+
+// FeedPurchasePaymentWrite is the record-payment form: one instalment against one load.
+type FeedPurchasePaymentWrite struct {
+	PaidOn       string
+	AmountRupees float64
+	Note         string
+}
+
+// Normalize trims the write before validation, for the same reason FeedPurchaseWrite does.
+func (w FeedPurchasePaymentWrite) Normalize() FeedPurchasePaymentWrite {
+	out := w
+	out.PaidOn = strings.TrimSpace(w.PaidOn)
+	out.Note = strings.Join(strings.Fields(w.Note), " ")
+	return out
+}
+
+// Validate applies the instalment rules. today is the caller's IST business date: money cannot be
+// recorded as handed over on a day that has not happened.
+func (w FeedPurchasePaymentWrite) Validate(today time.Time) error {
+	paid, err := time.Parse("2006-01-02", w.PaidOn)
+	if err != nil {
+		return ErrFeedPurchaseValidation{Field: "paid_on", Reason: "must be a date"}
+	}
+	if paid.After(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)) {
+		return ErrFeedPurchaseValidation{Field: "paid_on", Reason: "cannot be in the future"}
+	}
+	if w.AmountRupees <= 0 {
+		return ErrFeedPurchaseValidation{Field: "amount_rupees", Reason: "must be more than zero"}
+	}
+	if len(w.Note) > maxFeedPurchasePaymentNote {
+		return ErrFeedPurchaseValidation{Field: "note", Reason: "is too long"}
+	}
+	return nil
+}
+
+// IsFeedPaymentStatus reports whether raw is one of the two payment words, exactly as stored.
+func IsFeedPaymentStatus(raw string) bool {
+	return raw == FeedPaymentPaid || raw == FeedPaymentPending
+}
+
+// NormalizeFeedPaymentStatus canonicalizes a payment word the same way FeedPurchaseWrite.Normalize
+// does ("paid"/"PAID" store as the sheet's "Paid"). ok is false for anything outside the closed
+// vocabulary, so the caller rejects rather than silently defaulting a money state.
+func NormalizeFeedPaymentStatus(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	for _, known := range FeedPaymentStatuses {
+		if strings.EqualFold(trimmed, known) {
+			return known, true
+		}
+	}
+	return "", false
+}
+
+// FeedPurchaseEdit is the edit-purchase form: the values of an already-recorded load.
+//
+// The load's IDENTITY -- farm, feed, batch number -- is deliberately not editable: those three are
+// the natural key the stock cards and the batch counter group by, and "this load is actually a
+// different load" is a delete-and-re-record decision, not a field edit. Payment fields are absent
+// too: money moves through the instalment ledger and the status edit, never through here.
+type FeedPurchaseEdit struct {
+	PurchaseDate string
+	QuantityKg   float64
+
+	FeedCost      *float64
+	TransportCost *float64
+	LoadingCost   *float64
+	UnloadingCost *float64
+	TotalCost     *float64
+
+	Vendor string
+}
+
+// Normalize trims the edit before validation, for the same reason FeedPurchaseWrite does.
+func (e FeedPurchaseEdit) Normalize() FeedPurchaseEdit {
+	out := e
+	out.PurchaseDate = strings.TrimSpace(e.PurchaseDate)
+	out.Vendor = strings.Join(strings.Fields(e.Vendor), " ")
+	return out
+}
+
+// asWrite reuses FeedPurchaseWrite's cost rollup and field rules for the fields an edit carries.
+func (e FeedPurchaseEdit) asWrite() FeedPurchaseWrite {
+	return FeedPurchaseWrite{
+		PurchaseDate: e.PurchaseDate, QuantityKg: e.QuantityKg,
+		FeedCost: e.FeedCost, TransportCost: e.TransportCost,
+		LoadingCost: e.LoadingCost, UnloadingCost: e.UnloadingCost, TotalCost: e.TotalCost,
+		Vendor: e.Vendor,
+	}
+}
+
+// TotalOrSplitSum resolves the landed cost the edit stores, exactly as the record form does.
+func (e FeedPurchaseEdit) TotalOrSplitSum() *float64 { return e.asWrite().TotalOrSplitSum() }
+
+// PerKgCost derives the landed rate from the resolved total, exactly as the record form does.
+func (e FeedPurchaseEdit) PerKgCost() *float64 { return e.asWrite().PerKgCost() }
+
+// Validate applies the record form's rules to the editable fields. today is the caller's IST
+// business date, same as the record form.
+func (e FeedPurchaseEdit) Validate(today time.Time) error {
+	purchased, err := time.Parse("2006-01-02", e.PurchaseDate)
+	if err != nil {
+		return ErrFeedPurchaseValidation{Field: "purchase_date", Reason: "must be a date"}
+	}
+	if purchased.After(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)) {
+		return ErrFeedPurchaseValidation{Field: "purchase_date", Reason: "cannot be in the future"}
+	}
+	if e.QuantityKg <= 0 {
+		return ErrFeedPurchaseValidation{Field: "quantity_kg", Reason: "must be more than zero"}
+	}
+	for field, value := range map[string]*float64{
+		"feed_cost":      e.FeedCost,
+		"transport_cost": e.TransportCost,
+		"loading_cost":   e.LoadingCost,
+		"unloading_cost": e.UnloadingCost,
+		"total_cost":     e.TotalCost,
+	} {
+		if value != nil && *value < 0 {
+			return ErrFeedPurchaseValidation{Field: field, Reason: "cannot be negative"}
+		}
+	}
+	if e.Vendor == "" {
+		return ErrFeedPurchaseValidation{Field: "vendor", Reason: "is required"}
+	}
+	return nil
+}
+
+// DeriveFeedPaymentStatus resolves the status an instalment leaves the load in: Paid once the
+// released total covers the landed cost, Pending otherwise. When the landed cost is not known the
+// current status is kept -- money against an unknown total proves nothing either way.
+func DeriveFeedPaymentStatus(totalCost *float64, releasedTotal float64, current string) string {
+	if totalCost == nil {
+		return current
+	}
+	// A half-paisa tolerance: the numeric(14,2) column rounds to the paisa, and a status that flips
+	// on a rounding artefact would show a fully-paid load as Pending.
+	if releasedTotal >= *totalCost-0.005 {
+		return FeedPaymentPaid
+	}
+	return FeedPaymentPending
 }
 
 // FeedPurchaseWrite is the record-purchase form.

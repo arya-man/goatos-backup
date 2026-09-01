@@ -19,6 +19,7 @@ import (
 	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
 	pccareports "github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -84,6 +85,10 @@ type PCCareVerdictStore interface {
 	BounceTaskForRework(ctx context.Context, p pccareports.BounceTaskParams) (bool, error)
 }
 
+// HealthVerdictStore is satisfied by *healthpg.Repository — the treatment-session verdict half
+// (approve stamps verified_by/verified_at, reject flips the session to rework).
+type HealthVerdictStore = healthapp.TreatmentVerdictStore
+
 // RegisterVerificationAppliers subscribes the shifting, feed-distribution, and feed-packing appliers to
 // the generic verification verdict events on `bus`. Each handler filters strictly on
 // source.module + source.ref_type (counts/shifting_event, feed/feed_distribution_completion,
@@ -97,6 +102,7 @@ func RegisterVerificationAppliers(
 	weighing WeighingVerdictStore,
 	weighingAck weighingapp.VerificationApplyAcker,
 	pcCare PCCareVerdictStore,
+	health HealthVerdictStore,
 	log *slog.Logger,
 ) {
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
@@ -114,6 +120,12 @@ func RegisterVerificationAppliers(
 	// pc_care/pc_care_task. Registered HERE, in the one shared list, so the API bus, the outbox
 	// relay, and the Pub/Sub consumer cannot drift apart.
 	pccareapp.NewPCCareVerificationHandler(pcCare, log).Register(bus)
+	// Health (2026-08-29): the treatment-session applier, filtered to
+	// health/health_treatment_session. Post-task evidence review only — approve stamps
+	// verified_by/verified_at, reject flips the session to 'rework'; nothing rolls back a
+	// treatment already given. Registered HERE, in the one shared list, so the API bus, the
+	// outbox relay, and the Pub/Sub consumer cannot drift apart.
+	healthapp.NewHealthVerificationHandler(health, log).Register(bus)
 	// weighingAck is the receipt weighing sends verification once a verdict has landed on the
 	// observation, so a decided item stops reading as still-being-applied. It may be nil (a bus
 	// built without a verification repo still applies verdicts exactly as before -- the ack is

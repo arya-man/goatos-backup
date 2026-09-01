@@ -10,6 +10,9 @@ func TestVaccinesShareApprovedComboHandlesMultiSessionMembership(t *testing.T) {
 	}{
 		{name: "ET+TT and PPR", a: "ET+TT", b: "PPR"},
 		{name: "PPR and Blue Tongue", a: "PPR", b: "BLUE_TONGUE"},
+		{name: "PPR and FMD", a: "PPR", b: "FMD"},
+		{name: "PPR and HS", a: "PPR", b: "HS"},
+		{name: "FMD and HS", a: "FMD", b: "HS"},
 		{name: "Sheep Pox and Blue Tongue", a: "Sheep Pox", b: "Blue Tongue"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

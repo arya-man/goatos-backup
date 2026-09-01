@@ -118,10 +118,30 @@ data class HealthWorkItemDetailDto(
     @SerialName("medication_count") val medicationCount: Int = 0,
     @SerialName("has_critical_step") val hasCriticalStep: Boolean = false,
     val steps: List<HealthTreatmentStepDto> = emptyList(),
+    /** Backend-derived caller capabilities (mirror health.execute / health.diagnose). Display
+     * gating only — the route permission is the enforcement. Defaults false so an older backend
+     * fails safe (actions hidden) rather than rendering a 403-doomed button. */
+    @SerialName("can_complete") val canComplete: Boolean = false,
+    @SerialName("can_close_case") val canCloseCase: Boolean = false,
 )
 
 @Serializable
 data class HealthCompleteRequestDto(@SerialName("proof_ref") val proofRef: String = "")
+
+@Serializable
+data class HealthCloseCaseRequestDto(
+    val outcome: String,
+    val note: String? = null,
+)
+
+@Serializable
+data class HealthCloseCaseResponseDto(
+    @SerialName("case_id") val caseId: String = "",
+    val status: String = "",
+    @SerialName("closed_at") val closedAt: String = "",
+    @SerialName("canceled_session_count") val canceledSessionCount: Int = 0,
+    @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
+)
 
 @Serializable
 data class HealthCompleteResponseDto(

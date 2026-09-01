@@ -603,7 +603,7 @@ Detect:
   recovery buffer;
 - trusted procurement holding-park history suppresses work correctly, while
   third-party/vendor claims do not;
-- same-day compatibility, max two shots, priority, one-time batching hold, and
+- same-day compatibility, max three shots, priority, one-time batching hold, and
   live/killed gaps are violated;
 - species-locked vaccine reaches wrong species;
 - booster obligation missing after accepted completion;

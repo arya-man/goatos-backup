@@ -3349,6 +3349,550 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/command/cohort-matrix:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardCohortMatrix
+      summary: The command board's cohort (park x stage x sex) x vaccine matrix.
+      description: >-
+        A board SECTION on its own route, not a drilldown: it takes no cell keys and no cursor,
+        because the matrix is a bounded per-cohort aggregate.
+
+
+        It is a separate request only because of cost. Its three statements — the cell aggregate, the
+        true herd head count and the dose-sequence exception count — were roughly 420ms of the
+        board's ~850ms of SQL, enough on their own to hold GET /vaccination/command over a p90 300ms
+        budget that tools/perf/api-latency-policy.mjs hard-caps and will not let anyone raise.
+
+
+        This is a real product change and is recorded as one: the CEO's cohort grid now arrives a
+        moment after the rest of the board. Every number in it is the same whole-scope figure it was
+        when it shipped inline; only its arrival moved.
+      parameters:
+        - name: drive_batch_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: Clamped to the caller's grants exactly as on /vaccination/command.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: The cohort matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardCohortMatrixPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/command/shed-dose-matrix:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardShedDoseMatrix
+      summary: The command board's shed x dose grid.
+      description: >-
+        A board SECTION on its own route, not a drilldown: it takes no cell keys and no cursor,
+        because the grid is a bounded per-shed aggregate.
+
+
+        It is a separate request only because of cost, and only after the cheaper fix was taken
+        first. Interning its shed identities and dose labels cut it from 408KB to 155KB (the whole
+        board payload from 441KB to 207KB) and that was NOT enough: measured on a staging-scale
+        clone, GET /vaccination/command held p90 343 with this section inline and p90 251-281
+        without it, against a p90 300ms budget that tools/perf/api-latency-policy.mjs hard-caps and
+        will not let anyone raise. The cost was the round trip, not the payload.
+
+
+        This is a real product change and is recorded as one: the CEO's shed grid now arrives a
+        moment after the rest of the board. Every number in it is the same whole-scope figure it was
+        when it shipped inline; only its arrival moved.
+      parameters:
+        - name: drive_batch_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: Clamped to the caller's grants exactly as on /vaccination/command.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: The shed x dose grid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardShedDoseMatrixPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/command/closed-without-dose:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardClosedWithoutDose
+      summary: Animals behind the command board's closedWithoutDose KPI tile.
+      description: >-
+        A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens
+        that cell rather than computed for every cell on every render.
+
+
+        These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k
+        obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s
+        pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to
+        the cell it explains and keyset-paginated, so the database does a drawer's work instead of
+        the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board,
+        the lists never were.
+      parameters:
+        - name: drive_batch_id
+          in: query
+          required: false
+          description: The same drive filter the board was rendered under, so the drawer explains the number the reader clicked.
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The same park filter the board was rendered under. Clamped to the caller's grants
+            exactly as on /vaccination/command — a drilldown is a different route, not a different
+            trust boundary.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: >-
+            The as-of the board was rendered at. Carried because the overdue/behind predicates are
+            IST business-DATE comparisons against it: a drawer resolved at a different as-of would
+            list a different animal set than the tile that raised it.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, clamped to 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset position from the previous page's nextCursor. Absent means the first page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of animals whose obligations all closed with no dose recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardClosedWithoutDosePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/command/shed-vaccine-animals:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardShedVaccineAnimals
+      summary: Animals behind ONE shed x vaccine cell, with that shed's proof videos.
+      description: >-
+        A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens
+        that cell rather than computed for every cell on every render.
+
+
+        These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k
+        obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s
+        pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to
+        the cell it explains and keyset-paginated, so the database does a drawer's work instead of
+        the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board,
+        the lists never were.
+      parameters:
+        - name: shed_id
+          in: query
+          required: true
+          description: >-
+            The cell's shed. REQUIRED — without it this is the tenant-wide scan the split exists to
+            remove, which sorted an estimated 57,176 rows to return 500 and took 2.4s to return zero.
+          schema:
+            type: string
+            format: uuid
+        - name: vaccine_code
+          in: query
+          required: true
+          description: The cell's vaccine code, from the board cell's vaccineCode.
+          schema:
+            type: string
+        - name: partition_label
+          in: query
+          required: false
+          description: >-
+            The cell's partition label, from the board cell's partition_label. An unpartitioned
+            shed's cell carries an empty label, which is a real cell key and not a missing parameter.
+          schema:
+            type: string
+        - name: drive_batch_id
+          in: query
+          required: false
+          description: The same drive filter the board was rendered under, so the drawer explains the number the reader clicked.
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The same park filter the board was rendered under. Clamped to the caller's grants
+            exactly as on /vaccination/command — a drilldown is a different route, not a different
+            trust boundary.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: >-
+            The as-of the board was rendered at. Carried because the overdue/behind predicates are
+            IST business-DATE comparisons against it: a drawer resolved at a different as-of would
+            list a different animal set than the tile that raised it.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, clamped to 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset position from the previous page's nextCursor. Absent means the first page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of flagged animals for the cell, plus the shed's proof videos for the days those animals were recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardShedVaccineAnimalsPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/command/cohort-exceptions:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardCohortExceptions
+      summary: Dose-sequence exceptions behind ONE cohort matrix cell.
+      description: >-
+        A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens
+        that cell rather than computed for every cell on every render.
+
+
+        These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k
+        obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s
+        pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to
+        the cell it explains and keyset-paginated, so the database does a drawer's work instead of
+        the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board,
+        the lists never were.
+      parameters:
+        - name: cohort_park_id
+          in: query
+          required: true
+          description: >-
+            The CELL's park, from the board cell's cohort.parkId. Distinct from park_id, which
+            scopes the board: the board may be tenant-wide while the cell belongs to one park. An
+            empty value addresses the park-less cohort and is a real cell, not "unfiltered".
+          schema:
+            type: string
+        - name: management_stage
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: sex
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: dose_codes
+          in: query
+          required: true
+          description: >-
+            Comma-separated dose codes identifying the cell, taken verbatim from the board cell's
+            doseCodes. The board collapses several dose codes onto one displayed vaccineLabel, so a
+            request naming one code under-reports the column it was opened from.
+          schema:
+            type: string
+        - name: drive_batch_id
+          in: query
+          required: false
+          description: The same drive filter the board was rendered under, so the drawer explains the number the reader clicked.
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The same park filter the board was rendered under. Clamped to the caller's grants
+            exactly as on /vaccination/command — a drilldown is a different route, not a different
+            trust boundary.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: >-
+            The as-of the board was rendered at. Carried because the overdue/behind predicates are
+            IST business-DATE comparisons against it: a drawer resolved at a different as-of would
+            list a different animal set than the tile that raised it.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, clamped to 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset position from the previous page's nextCursor. Absent means the first page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of animals holding an accepted LATER dose of the same course while this dose has none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardCohortExceptionsPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/command/cohort-days:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardCohortDays
+      summary: Administered-day split for ONE cohort matrix cell.
+      description: >-
+        A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens
+        that cell rather than computed for every cell on every render.
+
+
+        These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k
+        obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s
+        pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to
+        the cell it explains and keyset-paginated, so the database does a drawer's work instead of
+        the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board,
+        the lists never were.
+      parameters:
+        - name: cohort_park_id
+          in: query
+          required: true
+          description: >-
+            The CELL's park, from the board cell's cohort.parkId. Distinct from park_id, which
+            scopes the board: the board may be tenant-wide while the cell belongs to one park. An
+            empty value addresses the park-less cohort and is a real cell, not "unfiltered".
+          schema:
+            type: string
+        - name: management_stage
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: sex
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: dose_codes
+          in: query
+          required: true
+          description: >-
+            Comma-separated dose codes identifying the cell, taken verbatim from the board cell's
+            doseCodes. The board collapses several dose codes onto one displayed vaccineLabel, so a
+            request naming one code under-reports the column it was opened from.
+          schema:
+            type: string
+        - name: drive_batch_id
+          in: query
+          required: false
+          description: The same drive filter the board was rendered under, so the drawer explains the number the reader clicked.
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The same park filter the board was rendered under. Clamped to the caller's grants
+            exactly as on /vaccination/command — a drilldown is a different route, not a different
+            trust boundary.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: >-
+            The as-of the board was rendered at. Carried because the overdue/behind predicates are
+            IST business-DATE comparisons against it: a drawer resolved at a different as-of would
+            list a different animal set than the tile that raised it.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, clamped to 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset position from the previous page's nextCursor. Absent means the first page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The cell's verified doses split by IST business day, ascending. Bounded by the drive window, so it carries no cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardCohortDaysPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/command/drives:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardDriveOptions
+      summary: The command board's drive picker catalogue, keyset-paginated.
+      description: >-
+        The full drive catalogue. GET /vaccination/command carries only its first page (20).
+
+
+        The picker used to ship whole on first paint: 200 fully decorated drives, 448ms and 753 KB —
+        more than the endpoint's entire 512 KB budget, for a dropdown — and it was the command
+        board's critical path once the drilldowns had moved off it. The statement now resolves and
+        pages the drive rows from cheap columns BEFORE computing per-drive counts, shed-location
+        JSON and day history, so its cost is proportional to the page requested.
+
+
+        Park scope is the CALLER's own, never the selected drive's park: narrowing the catalogue to
+        the park of the drive already chosen deletes every other park's drive from the dropdown and
+        strands the reader there.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: Optional park narrowing, clamped to the caller's grants.
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 20, clamped to 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset position from the previous page's nextCursor.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of drive options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardDriveOptionsPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/live-tracker:
     get:
       tags:
@@ -3593,7 +4137,7 @@ paths:
       description: >
         CEO/CXO vaccination campaign command that records a bounded sidecar override for one
         vaccine code in one park drive date. The sweeper treats the override as a proposed
-        planned date only; max two vaccines per animal session, live/killed spacing, adult booster
+        planned date only; max three vaccines per animal session, live/killed spacing, adult booster
         rules, the +1 week medical window, operator cap, and shed/partition assignment constraints
         are still enforced by the backend planner.
       requestBody:
@@ -4635,7 +5179,9 @@ paths:
         divides the balance by the item's average directed kg over its 3 most recent locked feed
         days (a short window so a ration-regime change moves days-left immediately); a negative balance is served as-is, saying the ledger is missing a load.
         Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on
-        or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
+        or before that day. The daily expenditure SERIES starts at 2026-08-11 (maintainer floor;
+        earlier days priced sheets against a ledger state the farm does not stand behind) — the
+        stock cards and spend summary keep the caller's window. Empty arrays mean the ledger is not bootstrapped for this tenant.
       parameters:
         - name: park_id
           in: query
@@ -4663,6 +5209,67 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FeedAnalyticsStockResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/shed-feed:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsShedFeed
+      summary: Per-pen feed-mix rollup for the Feed Analytics overview table.
+      description: >-
+        For every operational location (shed + optional partition) the frozen sheet directed feed
+        to in the window, the DIRECTED kg of each feed item and the pen's total across items —
+        "Masur Busa 120 kg · Kids concentrate 45 kg" per pen. Same membership and predicates as
+        `/feed-analytics/directed` (live issues, states issued/amended/locked, both workflows), so
+        summing an item across pens agrees with that read's per-item series for the same window.
+
+
+        One row per pen, at most the farm's pen catalog (~200 rows): a bounded set the client
+        filters and pages locally. A pen with no issued sheet rows in the window is ABSENT —
+        absence is "nothing directed", never a fabricated zero row. Blocked cells contribute
+        nothing.
+
+
+        `operational_location_display` is backend-composed per the operational-location
+        convention ("Castro 1", "Godel 1 - Part 3"); clients render it verbatim and never
+        re-derive it from the identity fields.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Narrow to one park. Absent means every park the caller is authorized for — a
+            park-scoped principal can never widen past their grant.
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          description: >-
+            Inclusive window start (Asia/Kolkata business date). Defaults to 29 days before
+            `date_to`; the overview table asks for its own 7-day window explicitly. Capped at 92
+            days, keeping the most recent days.
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: Inclusive window end, defaulting to yesterday; window capped at 92 days.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: One row per pen, ordered by farm, shed, partition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsShedFeedResponse"
         "400":
           description: Malformed date or park id.
         "403":
@@ -6769,6 +7376,215 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/feed-purchases/{purchase_id}/payments:
+    post:
+      tags:
+        - Procurement
+      operationId: recordFeedPurchasePayment
+      summary: Record one instalment paid against a purchased feed load.
+      description: >-
+        The farm does not pay a load in one go: money is released in instalments, and each one is
+        recorded here as its own row. In the same transaction the load's running `payment_released`
+        total advances and its `payment_status` is re-derived from the landed cost -- `Paid` once
+        the released total covers `total_cost`, `Pending` otherwise, and unchanged while the landed
+        cost is not known. A partly-paid load stays `Pending` with money shown against it; there is
+        deliberately no third payment word.
+
+
+        The `Idempotency-Key` header is REQUIRED: an exact replay returns the load as it stands with
+        no new instalment, and the same key with different fields is rejected 409, so a retried
+        submit can never hand the vendor the same amount twice on the ledger. `paid_on` may not be
+        in the future (IST business day).
+      parameters:
+        - name: purchase_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedPurchasePaymentWrite"
+      responses:
+        "200":
+          description: The load after the instalment, with its full payment history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPurchase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/feed-purchases/{purchase_id}:
+    put:
+      tags:
+        - Procurement
+      operationId: editFeedPurchase
+      summary: Edit an already-recorded feed load's values.
+      description: >-
+        Corrects the values of a load recorded wrong -- date, quantity, the landed-cost split, the
+        vendor. The load's IDENTITY (farm, feed, batch number) is deliberately not editable: those
+        three are the natural key the stock cards group by. The landed total, the per-kg rate and
+        the payment status are re-derived inside the same transaction -- raising the cost of a
+        settled load drops it back to Pending with the new balance shown against it. Naturally
+        idempotent: writing the values a load already has changes nothing and audits nothing.
+      parameters:
+        - name: purchase_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedPurchaseEdit"
+      responses:
+        "200":
+          description: The load after the edit, with its payment history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPurchase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/feed-purchases/{purchase_id}/payment-status:
+    put:
+      tags:
+        - Procurement
+      operationId: setFeedPurchasePaymentStatus
+      summary: Set a purchased load's payment status directly.
+      description: >-
+        The edit control for a payment state recorded wrong, or a load settled outside the
+        instalment ledger. The status vocabulary is closed (`Paid` / `Pending`); an unrecognised
+        word is rejected, never rewritten to a default. Naturally idempotent -- setting the status a
+        load already has changes nothing and audits nothing.
+      parameters:
+        - name: purchase_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedPurchaseStatusWrite"
+      responses:
+        "200":
+          description: The load after the status change, with its payment history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPurchase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/loadwise-sales:
+    get:
+      tags:
+        - Procurement
+      operationId: listLoadwiseSales
+      summary: Every purchased animal load reconciled, for the Sales page.
+      description: >-
+        One row per procurement load, newest purchase date first (the newest 60 loads;
+        `total_loads` says how many exist). Counts reconcile by construction: `purchased` =
+        `sold` + `mortality` + `other_exits` + `remaining` + `unaccounted`, and a non-zero
+        `unaccounted` means the herd register and the load disagree.
+
+
+        Money: `purchase_value` is the recorded landed cost (absent = cost not recorded, never
+        zero); `sold_value` is deal value attributed evenly across each deal's tagged animals and
+        summed by load (`sold_priced` says how many sold animals actually carry a share);
+        `remaining_value` prices the animals still on farm at `avg_sold_price`, whose
+        `price_basis` is `load` (its own priced sales), `overall` (the tenant-wide average) or
+        `none` (no estimate). The `summary` aggregates exactly the served rows.
+      responses:
+        "200":
+          description: The load-wise reconciliation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoadwiseSales"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/loads/{load_id}/cost:
+    put:
+      tags:
+        - Procurement
+      operationId: setLoadCost
+      summary: Record (or clear) a purchased animal load's landed cost.
+      description: >-
+        A PUT of the full cost state, naturally idempotent: writing the values the load already
+        carries changes nothing. `animal_cost` is the anchor -- transport and other costs are
+        rejected without it (400 `load_cost_invalid_animal_cost`), and all three null clears the
+        recorded cost. Negative values are rejected, never coerced. Requires the dedicated
+        buying-desk permission (`procurement.load_cost.write`), the same read/write split feed
+        purchases keep.
+      parameters:
+        - name: load_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoadCostWrite"
+      responses:
+        "200":
+          description: Cost recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [recorded] }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/overview:
     get:
       tags:
@@ -6885,6 +7701,94 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/deals/{deal_id}/payments:
+    post:
+      tags:
+        - Sales
+      operationId: recordSalesDealPayment
+      summary: Record one amount received from the buyer against a deal.
+      description: >-
+        A buyer does not pay a deal in one go: an advance when the deal is struck, more on pickup,
+        the balance later -- each is recorded here as its own row with its own date. In the same
+        transaction the deal's running `payment_received` total advances; `payment_balance` derives
+        from it. Deal STATUS is deliberately not derived from money -- the lifecycle stays a human
+        decision. The `Idempotency-Key` header is REQUIRED: an exact replay records nothing new,
+        and the same key with different fields is rejected 409. `received_on` may not be in the
+        future (IST business day).
+      parameters:
+        - name: deal_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesDealPaymentWrite"
+      responses:
+        "200":
+          description: The deal after the receipt, with its full payment history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/deals/{deal_id}/status:
+    post:
+      tags:
+        - Sales
+      operationId: setSalesDealStatus
+      summary: Set a deal's lifecycle status directly.
+      description: >-
+        The edit that closes an expected sale on the day the animals actually leave, or marks one
+        failed. The vocabulary is closed; an unrecognised word is rejected, never rewritten to a
+        default. Money never moves the lifecycle and the lifecycle never moves the money.
+        Naturally idempotent -- setting the status a deal already has changes nothing and audits
+        nothing.
+      parameters:
+        - name: deal_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesDealStatusWrite"
+      responses:
+        "200":
+          description: The deal after the status change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
   /sales/buyer-leads:
@@ -10701,6 +11605,155 @@ paths:
         "409": { $ref: "#/components/responses/WriteConflict" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/observations:
+    get:
+      tags: [Health]
+      operationId: listHealthObservations
+      summary: The Health Director's queue of assessments awaiting a decision.
+      description: >-
+        One keyset page of diagnosis runs, newest first. Defaults to `proposed` — work still
+        awaiting a decision, which is what a queue is for. Gated on `health.read` rather than
+        `health.diagnose`, deliberately: a health manager may see that what they recorded is
+        still waiting. Only `may_confirm` says who can act, and only the confirm route enforces
+        it. Each row carries enough to decide what to open first — the animal, where it is, when
+        it was seen, the ranked problems, and how many emergencies and unexplained findings it
+        has — not the whole proposal, which is a separate read.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [proposed, confirmed, superseded, all]
+          description: >-
+            Defaults to `proposed`. `all` clears the filter. An unrecognised value is rejected
+            rather than ignored, so a typo cannot silently return the wrong queue.
+        - name: goat_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: Narrows to one animal's diagnosis history.
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            Opaque keyset cursor from the previous page's `next_cursor`. Never an offset — new
+            observations land at the head of a newest-first queue, so an offset page would
+            re-show or skip rows as work arrives mid-scroll.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        "200":
+          description: One page of the queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisQueuePage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [Health]
+      operationId: submitHealthObservation
+      summary: Submit one completed observation form and receive a diagnosis proposal.
+      description: >-
+        The health manager records a head-to-toe observation; the deterministic register engine
+        returns a ranked PROPOSAL. Nothing is opened here. The animal's own facts (species, sex,
+        age band, status) are read server-side and are deliberately not accepted from the client,
+        because the engine gates whole diagnoses on them. Emergencies and field actions on the
+        response are actionable immediately and do not wait for a confirmation. Every run pins the
+        register_version that produced it.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitHealthObservationRequest"
+      responses:
+        "201":
+          description: Observation recorded and a proposal returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisProposalResponse"
+        "200":
+          description: Idempotent replay of an earlier submission.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisProposalResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/observations/{health_diagnosis_run_id}:
+    get:
+      tags: [Health]
+      operationId: getHealthObservation
+      summary: Read one diagnosis run and its stored proposal.
+      parameters:
+        - name: health_diagnosis_run_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The diagnosis run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisRun"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/observations/{health_diagnosis_run_id}/confirm:
+    post:
+      tags: [Health]
+      operationId: confirmHealthDiagnosis
+      summary: Confirm a proposal and open a treatment course for each confirmed diagnosis.
+      description: >-
+        The Health Director's decision, and the only path that opens a course. confirmed_problems
+        must be a SUBSET of what the engine proposed; naming anything else answers 422
+        diagnosis_not_proposed, because diagnosing off the register is a separate authority. An
+        empty list is a legitimate override that declines the whole proposal and still decides the
+        run. A confirmed diagnosis whose treatment card has never been published answers 422
+        treatment_plan_missing and writes nothing, rather than opening a course with no treatment
+        in it.
+      parameters:
+        - name: health_diagnosis_run_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmHealthDiagnosisRequest"
+      responses:
+        "200":
+          description: Decision recorded; any confirmed diagnoses have opened a course.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmHealthDiagnosisResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /app/health/work-items:
     get:
       tags: [Health]
@@ -10801,6 +11854,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CompleteHealthWorkItemResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/cases/{health_case_id}/close:
+    post:
+      tags: [Health]
+      operationId: closeHealthCase
+      summary: Close one Health case with its clinical outcome.
+      description: >-
+        Records the clinical closure decision (recovered, referred, or canceled) on an open case
+        and cancels its remaining unworked treatment sessions in the same transaction. Completed
+        sessions keep their history and any pending evidence review. Requires the health.diagnose
+        authority; a case held by the death-review workflow, or already closed, refuses with 409
+        case_not_open. Idempotency-Key makes retries safe.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: health_case_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseHealthCaseRequest"
+      responses:
+        "200":
+          description: Case closed or exact replay returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloseHealthCaseResponse"
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -13394,6 +14483,7 @@ components:
         - quantity_kg
         - vendor
         - payment_status
+        - payments
         - entry_source
         - created_at
       properties:
@@ -13425,8 +14515,28 @@ components:
           nullable: true
           description: DERIVED from total_cost / quantity_kg, never entered, so it cannot drift from its own total.
         vendor: { type: string }
-        payment_released: { type: number, nullable: true }
+        payment_released:
+          type: number
+          nullable: true
+          description: >-
+            Money released to the vendor so far. For app-recorded instalments this is the running
+            total of `payments`, maintained in the same transaction as each instalment; sheet
+            history keeps whatever single figure the sheet carried, with no instalment rows.
         payment_status: { type: string, enum: [Paid, Pending] }
+        payment_balance:
+          type: number
+          nullable: true
+          description: >-
+            BACKEND-derived money still owed -- total_cost minus payment_released, floored at zero.
+            A load marked Paid reads 0 regardless of the released figure (sheet history often
+            carries Paid with no amount recorded). Null while the landed cost is unknown, because a
+            balance against an unknown total is a number nobody computed. Clients render this
+            figure and never derive their own.
+        payments:
+          type: array
+          description: Instalments recorded against this load, oldest first. Empty for sheet history.
+          items:
+            $ref: "#/components/schemas/FeedPurchasePayment"
         entry_source:
           type: string
           enum: [sheet_import, app]
@@ -13434,6 +14544,144 @@ components:
             How the row arrived: bootstrapped sheet history, or recorded in the app. The ledger
             shows the difference rather than presenting history as something a person typed here.
         created_at: { type: string, format: date-time }
+    LoadwiseLoad:
+      type: object
+      description: One procurement load's reconciliation row on the Sales page.
+      required:
+        [load_id, vendor_name, status, declared_count, purchased, sold, mortality, other_exits,
+         remaining, unaccounted, sold_value, sold_priced, price_basis, row_version]
+      # profit_loss is nullable-by-absence (no recorded cost), so it is deliberately not required.
+      properties:
+        load_id: { type: string, format: uuid }
+        load_ref:
+          type: string
+          nullable: true
+          description: The farm's own load number ("131") where known. Display only, never a key.
+        vendor_name: { type: string }
+        purchase_date: { type: string, format: date, nullable: true }
+        status: { type: string }
+        farm:
+          type: string
+          nullable: true
+          description: >-
+            The park code (CBE/CPT) every accepted animal of the load resolves to; absent when the
+            load's animals span parks or none is known -- agree-or-go-bare, never a majority pick.
+        declared_count:
+          type: integer
+          description: >-
+            What the LOAD itself says it brought in. The denominator whenever it is non-zero,
+            which is what makes `unaccounted` a real discrepancy rather than an arithmetic
+            identity.
+        purchased:
+          type: integer
+          description: declared_count when the load declares one, else the animals attributed to it.
+        sold: { type: integer }
+        mortality: { type: integer, description: Animals of this load that died on farm. }
+        other_exits: { type: integer, description: Culled, transferred or lost -- real outcomes, not discrepancies. }
+        remaining: { type: integer, description: Still alive on farm. }
+        unaccounted:
+          type: integer
+          description: >-
+            purchased minus every outcome above. Positive = animals the load declares that
+            nothing accounts for; negative = more animals attributed than it declares. Either
+            way the screen shows it in red; it is never absorbed into another bucket.
+        animal_cost: { type: number, nullable: true }
+        transport_cost: { type: number, nullable: true }
+        other_cost: { type: number, nullable: true }
+        purchase_value:
+          type: number
+          nullable: true
+          description: Landed cost (animal + transport + other). Absent = cost not recorded, never zero.
+        sold_value: { type: number, description: Deal value attributed to this load's sold animals. }
+        sold_priced:
+          type: integer
+          description: How many of `sold` carry an attributed deal share; the rest sold without a tagged sale.
+        avg_sold_price: { type: number, nullable: true }
+        price_basis: { type: string, enum: [load, overall, none] }
+        remaining_value:
+          type: number
+          nullable: true
+          description: remaining x avg_sold_price. Absent when there is no price basis.
+        profit_loss:
+          type: number
+          nullable: true
+          description: >-
+            sold_value + remaining_value - purchase_value: what the load is worth against what it
+            cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole
+            sale value. Part of it is UNREALISED whenever `remaining` > 0 — `price_basis` names
+            the average that valued that stock.
+        prior_sold:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/LoadwisePriorOutcome" }]
+          description: >-
+            Animals of this load ALREADY SOLD before its remaining animals were tracked here —
+            seeded history, already folded into `sold` / `purchased` / `sold_value`; shown with
+            the dates it spans.
+        prior_dead:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/LoadwisePriorOutcome" }]
+          description: Animals already dead before tracking started; folded into `mortality` / `purchased`.
+        row_version: { type: integer }
+    LoadwisePriorOutcome:
+      type: object
+      description: One pre-GoatOS outcome block for a load, with the date range the events span.
+      required: [count]
+      properties:
+        count: { type: integer }
+        value: { type: number, nullable: true, description: Recorded revenue (sold only). }
+        first_on: { type: string, format: date, nullable: true }
+        last_on: { type: string, format: date, nullable: true }
+    LoadwiseSummary:
+      type: object
+      description: Aggregates over exactly the served rows -- no client re-derives its own totals.
+      required:
+        [purchased, sold, mortality, other_exits, remaining, unaccounted, purchase_value,
+         costed_loads, sold_value, remaining_value, profit_loss]
+      properties:
+        purchased: { type: integer }
+        sold: { type: integer }
+        mortality: { type: integer }
+        other_exits: { type: integer }
+        remaining: { type: integer }
+        unaccounted: { type: integer }
+        purchase_value:
+          type: number
+          description: Sum of RECORDED costs only; `costed_loads` says how many rows carry one.
+        costed_loads: { type: integer }
+        sold_value: { type: number }
+        remaining_value: { type: number, description: Sum of the per-load estimates that have a price basis. }
+        profit_loss:
+          type: number
+          description: >-
+            Sums only the loads that HAVE a profit figure (a recorded cost) — the same key set as
+            costed_loads, so priced and unpriced loads are never mixed into one total.
+    LoadwiseSales:
+      type: object
+      required: [loads, total_loads, summary]
+      properties:
+        loads:
+          type: array
+          items:
+            $ref: "#/components/schemas/LoadwiseLoad"
+        total_loads:
+          type: integer
+          description: Whole-tenant load count; the rows are the newest window of it.
+        overall_avg_sold_price:
+          type: number
+          nullable: true
+          description: The tenant-wide average sold price used as the remaining-stock fallback basis.
+        summary:
+          $ref: "#/components/schemas/LoadwiseSummary"
+    LoadCostWrite:
+      type: object
+      description: >-
+        The full cost state of one load. Nullable so "not entered" stays distinct from "entered as
+        0"; transport and other costs are rejected without an animal cost, and all three null
+        clears the recorded cost.
+      properties:
+        animal_cost: { type: number, minimum: 0, nullable: true }
+        transport_cost: { type: number, minimum: 0, nullable: true }
+        other_cost: { type: number, minimum: 0, nullable: true }
     FeedPurchasePage:
       type: object
       required: [purchases, total, quantity_kg, spend_rupees, limit, offset]
@@ -13501,6 +14749,59 @@ components:
         vendor: { type: string, maxLength: 160 }
         payment_released: { type: number, minimum: 0, nullable: true }
         payment_status: { type: string, enum: [Paid, Pending] }
+    FeedPurchasePayment:
+      type: object
+      description: One instalment actually handed to the vendor for one purchased feed load.
+      required: [payment_id, paid_on, amount_rupees, note, created_at]
+      properties:
+        payment_id: { type: string, format: uuid }
+        paid_on:
+          type: string
+          format: date
+          description: The business date the money was handed over, never a timestamp.
+        amount_rupees: { type: number }
+        note:
+          type: string
+          description: Free-text context ("advance at loading", "balance after weighbridge"). May be empty.
+        created_at: { type: string, format: date-time }
+    FeedPurchasePaymentWrite:
+      type: object
+      description: Record-instalment body. Amount must be more than zero; paid_on may not be in the future.
+      required: [paid_on, amount_rupees]
+      properties:
+        paid_on: { type: string, format: date }
+        amount_rupees: { type: number, exclusiveMinimum: 0 }
+        note: { type: string, maxLength: 300 }
+    FeedPurchaseStatusWrite:
+      type: object
+      description: >-
+        Payment-status edit body. The vocabulary is closed; an unrecognised word is rejected,
+        never rewritten to a default.
+      required: [payment_status]
+      properties:
+        payment_status: { type: string, enum: [Paid, Pending] }
+    FeedPurchaseEdit:
+      type: object
+      description: >-
+        Edit-purchase body. Identity (farm, feed, batch) and payment fields are deliberately
+        absent -- money moves through the instalment ledger and the status edit.
+      required: [purchase_date, quantity_kg, vendor]
+      properties:
+        purchase_date:
+          type: string
+          format: date
+          description: May not be in the future (IST business day).
+        quantity_kg: { type: number, exclusiveMinimum: 0 }
+        feed_cost: { type: number, minimum: 0, nullable: true }
+        transport_cost: { type: number, minimum: 0, nullable: true }
+        loading_cost: { type: number, minimum: 0, nullable: true }
+        unloading_cost: { type: number, minimum: 0, nullable: true }
+        total_cost:
+          type: number
+          minimum: 0
+          nullable: true
+          description: Leave out to have the split parts summed, exactly as the record form does.
+        vendor: { type: string, maxLength: 160 }
     FeedPurchaseOptions:
       type: object
       description: The backend-owned vocabulary the record-purchase form renders.
@@ -13752,6 +15053,8 @@ components:
         - product_type
         - breed
         - sales_value
+        - payment_balance
+        - payments
         - status
         - created_at
         - updated_at
@@ -13789,11 +15092,56 @@ components:
         total_weight_kg: { type: number, nullable: true }
         advance_amount: { type: number, nullable: true }
         sales_value: { type: number }
+        payment_received:
+          type: number
+          nullable: true
+          description: >-
+            Running total of money the buyer has handed over: seeded from the recorded advance,
+            advanced by each receipt inside the same transaction. Null when nothing was received.
+        payment_balance:
+          type: number
+          description: >-
+            BACKEND-derived money the buyer still owes -- sales_value minus payment_received,
+            floored at zero. Clients render this figure and never derive their own.
+        payments:
+          type: array
+          description: Receipts recorded against this deal, oldest first. Empty for sheet history.
+          items:
+            $ref: "#/components/schemas/SalesDealPayment"
         status: { type: string, enum: [Deal Closed, Deal Failed, In Discussion, Advance Paid] }
         feedback: { type: string, nullable: true }
         comments: { type: string, nullable: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    SalesDealPayment:
+      type: object
+      description: One amount the buyer actually handed over for one deal.
+      required: [payment_id, received_on, amount_rupees, note, created_at]
+      properties:
+        payment_id: { type: string, format: uuid }
+        received_on:
+          type: string
+          format: date
+          description: The business date the money was received, never a timestamp.
+        amount_rupees: { type: number }
+        note:
+          type: string
+          description: Free-text context ("advance at deal", "on pickup"). May be empty.
+        created_at: { type: string, format: date-time }
+    SalesDealPaymentWrite:
+      type: object
+      description: Record-receipt body. Amount must be more than zero; received_on may not be in the future.
+      required: [received_on, amount_rupees]
+      properties:
+        received_on: { type: string, format: date }
+        amount_rupees: { type: number, exclusiveMinimum: 0 }
+        note: { type: string, maxLength: 300 }
+    SalesDealStatusWrite:
+      type: object
+      description: Deal-status edit body. The vocabulary is closed; an unrecognised word is rejected.
+      required: [status]
+      properties:
+        status: { type: string, enum: [Deal Closed, Deal Failed, In Discussion, Advance Paid] }
     SalesDealPage:
       type: object
       required: [deals, total, limit, offset]
@@ -13843,6 +15191,13 @@ components:
           exclusiveMinimum: 0
           description: Required and must be more than zero.
         advance_amount: { type: number, minimum: 0, nullable: true }
+        status:
+          type: string
+          enum: [Deal Closed, Deal Failed, In Discussion, Advance Paid]
+          description: >-
+            Optional; blank records the default, Deal Closed. Name one to record an EXPECTED sale
+            -- an advance received today for animals leaving on a future date is an Advance Paid
+            deal, and only Deal Closed counts toward revenue.
         comments: { type: string, maxLength: 2000 }
     SalesOverviewSummary:
       type: object
@@ -14999,6 +16354,67 @@ components:
         required_cost:
           type: string
           description: "`required_kg` x `per_kg_cost` -- the week's feed bill at the current rate."
+    FeedAnalyticsShedFeedItem:
+      type: object
+      description: One feed item's DIRECTED kg total inside a pen's window row.
+      required: [feed_item_label, feed_item_key, directed_kg]
+      properties:
+        feed_item_label:
+          type: string
+        feed_item_key:
+          type: string
+        directed_kg:
+          type: string
+          description: Decimal string, kg over the window for this pen and item.
+    FeedAnalyticsShedFeedRow:
+      type: object
+      description: >-
+        One operational location's feed mix over the window. Location identity is carried as
+        separate fields plus the backend-composed display, per the operational-location
+        convention.
+      required:
+        [park_id, park_label, shed_id, shed_label, partition_label,
+         operational_location_display, items, directed_kg]
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        park_label:
+          type: string
+        shed_id:
+          type: string
+          format: uuid
+        shed_label:
+          type: string
+        partition_label:
+          type: string
+          description: Human partition label ("Part 3", "2"); empty for an undivided shed. Never a matching key, never "whole".
+        operational_location_display:
+          type: string
+          description: Backend-composed via the canonical helper ("Castro 1", "Godel 1 - Part 3"); render verbatim.
+        items:
+          type: array
+          description: The pen's feed mix, largest window kg first.
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsShedFeedItem"
+        directed_kg:
+          type: string
+          description: The pen's total across every item, decimal string kg.
+    FeedAnalyticsShedFeedResponse:
+      type: object
+      description: The per-pen feed-mix rollup. DIRECTED kg only — the sheet's instruction, not a measured weight.
+      required: [date_from, date_to, rows]
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsShedFeedRow"
     FeedDirectionRow:
       type: object
       additionalProperties: false
@@ -22232,7 +23648,20 @@ components:
         # answer "this cohort is clean", not "the server did not say". Optional here would make
         # the generated client type it `number | undefined` and invite a client-side default.
         - missingPriorDoseCount
+        # Addresses this cell in the drilldown endpoints. The board collapses several dose codes
+        # onto one displayed vaccineLabel, so the label alone cannot identify the cell, and making
+        # the client re-derive the mapping would put a second, drifting copy of the dose-labelling
+        # table in the frontend.
+        - doseCodes
       properties:
+        doseCodes:
+          type: array
+          items:
+            type: string
+          description: >-
+            The raw dose codes folded into this cell's single displayed vaccineLabel, sorted. Send
+            them as the `dose_codes` parameter of /vaccination/command/cohort-exceptions and
+            /vaccination/command/cohort-days to open this cell's drawers.
         cohort:
           $ref: "#/components/schemas/VaccinationCommandBoardCohort"
         vaccineLabel:
@@ -22267,15 +23696,6 @@ components:
           type: string
           format: date-time
           description: Latest actual operator-administered date among accepted vaccinations in this cohort cell.
-        administeredDays:
-          type: array
-          items:
-            $ref: "#/components/schemas/VaccinationCommandBoardCohortDay"
-          description: >-
-            Per-IST-business-day split of this cell's verified doses, ascending. A
-            minAdministeredDate..maxAdministeredDate span of "30 Jun-1 Jul" hides that 84 animals
-            were dosed on the first day and 237 on the second; this array carries that split so
-            leadership reads the actual operator story rather than a range.
         missingPriorDoseCount:
           type: integer
           description: >-
@@ -22283,14 +23703,120 @@ components:
             LATER dose of the same vaccine course while THIS dose has no accepted completion (for
             example an accepted ET+TT Dose 2 with no accepted Dose 1). Whole-cohort truth, never
             capped. Cohort scope and key set are identical to verifiedCount, so "321 verified · 3
-            exceptions" compares like with like.
-        missingPriorDoseGoats:
+            exceptions" compares like with like. The ANIMALS behind it are fetched per cell from
+            /vaccination/command/cohort-exceptions; they used to ship here, computed tenant-wide for
+            every cell on every render.
+    CommandBoardShedDoseMatrixPage:
+      type: object
+      additionalProperties: false
+      required:
+        - matrix
+      description: >-
+        The shed x dose grid served as its own SECTION rather than on first paint. Interning its
+        payload (408KB -> 155KB) was measured and was NOT sufficient: /vaccination/command held
+        p90 343 with this section inline and p90 251-281 without it, against a non-relaxable
+        300ms budget. The cost was the round trip, not the payload.
+      properties:
+        matrix:
+          $ref: "#/components/schemas/ShedDoseMatrix"
+    CommandBoardCohortMatrixPage:
+      type: object
+      additionalProperties: false
+      required:
+        - cells
+      properties:
+        cells:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCommandBoardCohortCell"
+          description: >-
+            Cohort (park x management_stage x sex) x vaccine cells. Whole-scope figures, identical to
+            what shipped inline on the board before this section was split out for cost.
+    CommandBoardClosedWithoutDosePage:
+      type: object
+      additionalProperties: false
+      required:
+        - animals
+      properties:
+        animals:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCommandBoardClosedWithoutDoseAnimal"
+          description: >-
+            One page of the animals behind kpis.closedWithoutDose. Selected by the SAME per-animal
+            residual predicate the tile counts with, so the list and the number can never describe
+            different animals.
+        nextCursor:
+          type: string
+          description: >-
+            Position to resume from. ABSENT means the list is exhausted, which is a different fact
+            from an empty page.
+    CommandBoardShedVaccineAnimalsPage:
+      type: object
+      additionalProperties: false
+      required:
+        - animals
+        - proofVideos
+      properties:
+        animals:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommandBoardShedVaccineAnimal"
+          description: One page of the animals behind this shed x vaccine cell's behindAnimals count.
+        proofVideos:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommandBoardShedVideo"
+          description: >-
+            The shed's completed proof videos for the IST days this page's animals were recorded.
+            Correlated by SHED and DAY, never by animal: vaccination proof is filmed per shed for
+            the operator day — one clip covers dozens of goats — so hanging a video off each animal
+            row would repeat one link and imply per-goat footage that does not exist.
+        nextCursor:
+          type: string
+    CommandBoardCohortExceptionsPage:
+      type: object
+      additionalProperties: false
+      required:
+        - animals
+      properties:
+        animals:
           type: array
           items:
             $ref: "#/components/schemas/VaccinationCommandBoardCohortAnimal"
           description: >-
-            The animals behind missingPriorDoseCount, capped at 25 per cell so a cell can never
-            return an unbounded list. missingPriorDoseCount remains the full count when capped.
+            One page of the animals behind this cell's missingPriorDoseCount. Built from the same
+            predicate as that count, so the tile and the drawer cannot describe different animals.
+        nextCursor:
+          type: string
+    CommandBoardCohortDaysPage:
+      type: object
+      additionalProperties: false
+      required:
+        - days
+      properties:
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCommandBoardCohortDay"
+          description: >-
+            This cell's verified doses split by IST business day, ascending. No cursor: the row
+            count is bounded by the days in the drive window, and paginating a bar chart would only
+            let a caller render half of one.
+    CommandBoardDriveOptionsPage:
+      type: object
+      additionalProperties: false
+      required:
+        - options
+      properties:
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCommandBoardDriveOption"
+          description: One page of drives, in the same order the board's own first page uses.
+        nextCursor:
+          type: string
+          description: Position to resume from. Absent means the catalogue is exhausted.
     VaccinationCommandBoardClosedWithoutDoseAnimal:
       type: object
       additionalProperties: false
@@ -22373,15 +23899,48 @@ components:
         tag:
           type: string
           description: Primary visible tag when the animal has one.
-    ShedDoseMatrixCell:
+    ShedDoseMatrix:
+      type: object
+      additionalProperties: false
+      required:
+        - sheds
+        - doseRules
+        - cells
+      description: >-
+        The shed x dose grid in INTERNED form. A flat cell array restated each shed's identity
+        strings on every one of its dose cells; on a staging-scale tenant that was 113 shed
+        identities and 21 dose-rule labels spread over 1318 cells (408KB). Identity is carried
+        once in sheds/doseRules and referenced by index from each cell. Clients expand it with the
+        same rule as domain.ShedDoseMatrix.Flatten(): a cell whose index does not resolve is
+        DROPPED, never rendered against a different shed.
+      properties:
+        sheds:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShedDoseMatrixShed"
+          description: Shed x partition identities, referenced by ShedDoseMatrixCell.shed.
+        doseRules:
+          type: array
+          items:
+            type: string
+          description: >-
+            Dose-rule display labels, referenced by ShedDoseMatrixCell.dose. NOT UNIQUE: two entries
+            may carry the SAME string, because DoseQualifiedDisplayLabel only qualifies
+            _W1/_W2/_BOOSTER/_REVAC/_REPEAT/_FIRST, so et_tt_kid_4w and et_tt_kid_7w both render
+            "ET+TT". The INDEX is the identity of a dose, never the label. A client that keys a grid
+            on the label merges two real doses and silently drops one of their animal counts, which
+            is the defect this interning was fixed to prevent -- on a live tenant those two columns
+            carried 526 and 525 animals.
+        cells:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShedDoseMatrixCell"
+    ShedDoseMatrixShed:
       type: object
       additionalProperties: false
       required:
         - shedId
         - shedName
-        - doseRule
-        - state
-        - animalCount
       properties:
         shedId:
           type: string
@@ -22389,29 +23948,32 @@ components:
         shedName:
           type: string
         partition_label:
-          type:
-            - string
-            - "null"
+          type: string
           description: >-
-            Raw stored partition label for shedId ('1', 'Part 3'). Null or
-            absent means the shed is non-partitioned. Never the literal
-            string "whole".
-        source_shed_name:
-          type:
-            - string
-            - "null"
-          description: >-
-            Original partition-bearing source name (e.g. "Castro 1"), kept for
-            traceability only. Not a display field.
+            Raw stored partition label ('1', 'Part 3'). Empty or absent means the shed is
+            non-partitioned. Never the literal string "whole".
         operational_location_display:
           type: string
           description: >-
-            User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
-            -> "Godel 1 - Part 3".
-        doseRule:
-          type: string
-          description: Dose rule identifier (e.g., et_tt_adult_w1) or human label.
+            User-facing location label. No partition -> bare shed name ("Yashoda"); numeric
+            convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". This is NOT
+            redundant with shedName: on a live tenant it differed from shedName on 1282 of 1318
+            cells, because most sheds carry a partition.
+    ShedDoseMatrixCell:
+      type: object
+      additionalProperties: false
+      required:
+        - shed
+        - dose
+        - state
+        - count
+      properties:
+        shed:
+          type: integer
+          description: Index into ShedDoseMatrix.sheds.
+        dose:
+          type: integer
+          description: Index into ShedDoseMatrix.doseRules.
         state:
           type: string
           enum:
@@ -22420,25 +23982,28 @@ components:
             - overdue
             - scheduled
           description: State of completion (verified), awaiting (recorded-unverified), overdue, or scheduled.
-        animalCount:
+        count:
           type: integer
           description: Number of unique animals with this state in this shed for this dose.
-        minAdministeredDate:
+        adminFrom:
           type: string
-          format: date-time
-          description: Earliest administered_at date for verified/awaiting completions.
-        maxAdministeredDate:
+          format: date
+          description: >-
+            Earliest administered business date (IST, YYYY-MM-DD) for verified/awaiting
+            completions. A BUSINESS DATE, not an instant: vaccination's grain is the IST business
+            day, so an RFC3339 timestamp here invited comparison against a wall clock.
+        adminTo:
           type: string
-          format: date-time
-          description: Latest administered_at date for verified/awaiting completions.
-        minDueDate:
+          format: date
+          description: Latest administered business date (IST) for verified/awaiting completions.
+        dueFrom:
           type: string
-          format: date-time
-          description: Earliest due_at date for scheduled obligations.
-        maxDueDate:
+          format: date
+          description: Earliest due business date (IST) for scheduled obligations.
+        dueTo:
           type: string
-          format: date-time
-          description: Latest due_at date for scheduled obligations.
+          format: date
+          description: Latest due business date (IST) for scheduled obligations.
     WeeklyGivenRow:
       type: object
       additionalProperties: false
@@ -22720,30 +24285,6 @@ components:
           description: >-
             DISTINCT animals in this shed carrying any obligation for this vaccine. behindAnimals is
             a subset of the same key set, so behindAnimals <= totalAnimals always.
-        proofVideos:
-          type: array
-          items:
-            $ref: "#/components/schemas/CommandBoardShedVideo"
-          description: >-
-            The shed's vaccination clips for the day these doses were recorded. SHED-and-day grain,
-            not per animal: proof is filmed per shed for the operator day (Sumathi 1 has five clips
-            covering 76 goats), so attaching one to every animal repeats a single link 76 times and
-            implies per-goat footage that does not exist. Absent when nothing was filmed, which is a
-            finding — a verification queue with nothing to watch cannot be drained.
-        flaggedAnimals:
-          type: array
-          items:
-            $ref: "#/components/schemas/CommandBoardShedVaccineAnimal"
-          description: >-
-            The animals behind BOTH flagged states — genuinely behind AND waiting on a verifier —
-            capped across all flagged cells in one board read. Each row carries
-            awaitingVerification, which is what tells the two apart; clients must read that rather
-            than infer it from the cell's state.
-            Previously named behindAnimalsList and documented as behind-only while it already
-            carried verifier-backlog rows, so the field name asserted the opposite of the payload.
-            Evidence for the flag, not the flag itself: behindAnimals and verifyingAnimals stay
-            whole-scope truth, so when this list is shorter than their sum the client must say the
-            list is partial rather than present it as complete.
     CommandBoardShedVideo:
       type: object
       additionalProperties: false
@@ -23337,12 +24878,6 @@ components:
       required:
         - source
         - kpis
-        - cohortMatrix
-        # Always emitted (the Go field carries no omitempty and the repository initialises it), so
-        # an empty residual bucket is the answer "no animals closed without a dose", never a field
-        # the server declined to send.
-        - closedWithoutDoseAnimals
-        - shedDoseMatrix
         - shedVaccineMatrix
         - shedVaccineColumns
         - weeklyGiven
@@ -23397,6 +24932,28 @@ components:
             parks is two operator days in two places and is offered as two choices, so it spends
             two of the 200 rows. When the bound is reached, driveOptionsTruncated is true and the
             list is incomplete — surface that, do not present the list as the full programme.
+        unavailableSections:
+          type: array
+          items:
+            type: string
+          description: >-
+            OPTIONAL board sections whose read failed on this render, named so the UI can show one
+            panel as unavailable instead of showing nothing.
+
+            The board used to be all-or-nothing: any one of its fourteen reads failing returned 500
+            and the page showed "Unable to load command board" with no numbers at all. That is a bad
+            trade on a leadership dashboard — a verification queue that times out is a missing panel,
+            not a missing board, and blanking the KPI row over it destroys the reading the CEO came
+            for. kpis and driveOptions remain REQUIRED and still fail the request.
+
+            Values are section keys: shedVaccineMatrix, shedVaccineColumns, weeklyGiven,
+            verificationQueue — and ONLY those four. cohortMatrix, cohortHeadCounts,
+            cohortExceptions and shedDoseMatrix were removed from this list when they moved to
+            their own routes: on a section endpoint a failure is a plain error response, not a
+            named absence here, so a client waiting for those keys would wait forever.
+            Sorted, and absent on a fully successful render — which is the overwhelmingly common case.
+            A client that ignores this field renders a silently incomplete board rather than a
+            degraded one.
         driveOptionsTruncated:
           type: boolean
           description: >-
@@ -23405,26 +24962,6 @@ components:
             indistinguishable from a drive that was never planned. Clients must show that more
             drives exist (e.g. "narrow by park") rather than presenting a truncated picker as
             complete.
-        cohortMatrix:
-          type: array
-          items:
-            $ref: "#/components/schemas/VaccinationCommandBoardCohortCell"
-          description: Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells.
-        closedWithoutDoseAnimals:
-          type: array
-          items:
-            $ref: "#/components/schemas/VaccinationCommandBoardClosedWithoutDoseAnimal"
-          description: >-
-            The animals behind kpis.closedWithoutDose, capped at 50. The tile answers "how many",
-            which is where the question starts: the next one is always "which animals, and why did
-            their work close with no dose". Selected by the SAME per-animal residual predicate the
-            tile counts with, so the list and the number can never describe different animals. The
-            tile's count stays whole-scope truth when this list is capped.
-        shedDoseMatrix:
-          type: array
-          items:
-            $ref: "#/components/schemas/ShedDoseMatrixCell"
-          description: Shed × dose rule state matrix; each row is a shed+dose combination with state and date range.
         weeklyGiven:
           type: array
           items:
@@ -31498,6 +33035,375 @@ components:
           format: date-time
         idempotent_replay:
           type: boolean
+    HealthObservationFindings:
+      type: object
+      description: >-
+        One head-to-toe observation. Every field is compulsory in the product and sex-hidden
+        fields record N/A rather than blank, because a blank cannot distinguish "nobody looked"
+        from "normal" and the unexplained-findings channel depends on that distinction. Multi
+        fields accept a single value or an array of values.
+      additionalProperties: false
+      properties:
+        temp: { type: number, description: "Rectal temperature in Fahrenheit, one decimal." }
+        eating:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "normal | not_eating | concentrate | green_feed | dry_feed"
+        activity: { type: string, description: "standing | down | limping | back_leg_drag | front_knees | weak" }
+        breathing:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "normal | fast | labored | cough | pant. pant is neither fever nor heat stress; it raises a Director-confirm flag."
+        nasal: { type: boolean }
+        left_stomach:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "normal | bloating | acidosis"
+        frothy_mouth: { type: boolean }
+        rumen_movement: { type: string, enum: [felt, not_felt] }
+        diarrhea:
+          oneOf:
+            - { type: boolean }
+            - { type: string }
+          description: >-
+            Presence, or a descriptive value such as bloody. Blood is a severity detail and
+            NOT a different diagnosis: bloody diarrhea is still Diarrhea and must never be
+            read as coccidiosis.
+        skin_tent: { type: string, description: "lt2 | 2-4 | gt4" }
+        cmt: { type: string, enum: [pos, neg], description: "Female only, and forbidden when lactation is no." }
+        lactation: { type: string, description: "no | milk | colostrum | water | pus" }
+        udder: { type: string, description: "normal | swollen_hard | rashes | wound | lumps" }
+        vulva: { type: string, description: "none | lochia_normal | discharge_bad_smell | pus | prolapse" }
+        famacha: { type: integer, minimum: 1, maximum: 5 }
+        yellow: { type: boolean }
+        straining: { type: string, description: "Male only. no | straining | no_urine" }
+        red_urine: { type: boolean }
+        body_edema: { type: boolean }
+        competition: { type: boolean }
+        stomach_inside: { type: boolean }
+        mouth: { type: string, description: "normal | orf_scabs" }
+        eyes:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "normal | red | cloudy | discharge"
+        locked_jaw: { type: boolean }
+        neuro:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "none | circling | head_tilt | star_gazing | blind | tremors | ataxia"
+        rash_character: { type: string, enum: [flat_itchy, nodular] }
+        hairloss: { type: boolean }
+        leg: { type: string, description: "normal | arthritis | fracture | foot_rot" }
+        lumps: { type: string, description: "no | neck | body" }
+        wounds:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "no | horn | neck | body | legs"
+        flystrike: { type: boolean }
+        eartag_flystrike: { type: boolean }
+        eartag_wound: { type: boolean }
+        ticks: { type: boolean }
+        suckle:
+          type: string
+          enum: [present, absent]
+          description: >-
+            Kids only. The finger test, and a TREATMENT GATE rather than a symptom: a kid
+            that sucks may be given milk by mouth and one that cannot must never be.
+        responsiveness:
+          type: string
+          enum: [alert, dull, unresponsive]
+          description: "Kids only. Deliberately non-specific: dull alone names no disease."
+        navel:
+          type: string
+          enum: [normal, wet, swollen, painful]
+          description: >-
+            Milk kids only. Rejected on weaning, where the navel has closed and the row is
+            not on the form.
+        landing:
+          type: string
+          enum: [spiderman, barely, falls, na]
+          description: >-
+            Milk kids only. The 20 cm drop test, and the only way floppy kid is caught while
+            the animal is still standing. Compulsory when standing; na when already down,
+            because a recumbent kid must not be dropped. Rejected on weaning and fattening.
+        milk_intake:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: >-
+            Milk and weaning kids. normal | not_drinking | reduced. On the free-choice bar
+            this is the drinking axis; on counted sessions refusals_today is.
+        refusals_today:
+          type: integer
+          minimum: 0
+          maximum: 3
+          description: >-
+            Feeds refused today, carry-forward already applied by GoatOS. Milk kids 0-3
+            (three bar sessions), weaning 0-2 (two measured bottles). Compulsory on K1 and
+            K3: a missing count read as zero would turn a kid that refused every feed into
+            a kid that drank.
+        session:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: "Which feed this observation belongs to. Milk 1-3, weaning 1-2 (morning/evening)."
+    HealthObservationContext:
+      type: object
+      description: >-
+        Follow-up state a single form cannot carry. It is what turns a second observation on the
+        same animal into a reconcile rather than a fresh diagnosis. The animal's OPEN problems are
+        resolved server-side from its active courses and are not accepted here.
+      additionalProperties: false
+      properties:
+        day: { type: integer, minimum: 1, description: "Follow-up day; day 1 is the day treatment started." }
+        cmt_neg_streak: { type: integer, minimum: 0 }
+        nad_prior_7d: { type: integer, minimum: 0 }
+        shifted_out_days: { type: integer, minimum: 0 }
+        shed_similar: { type: integer, minimum: 1, description: "Similar presentations in the same shed; drives contagion escalation." }
+        down_followups: { type: integer, minimum: 0 }
+        hour: { type: integer, minimum: 0, maximum: 23 }
+        prior_improved: { type: boolean }
+        problem_improving: { type: boolean }
+        animal_worsening: { type: boolean }
+        heat_confirmed: { type: boolean }
+        died: { type: boolean }
+        off_register: { type: boolean }
+        closed_recent: { type: array, items: { type: string } }
+    SubmitHealthObservationRequest:
+      type: object
+      additionalProperties: false
+      required: [goat_id, findings]
+      properties:
+        goat_id: { type: string, format: uuid }
+        findings: { $ref: "#/components/schemas/HealthObservationFindings" }
+        context: { $ref: "#/components/schemas/HealthObservationContext" }
+    HealthHousingDirective:
+      type: object
+      description: >-
+        Where the animal should be, and which shift lists it appears on. A DIRECTIVE only -- Health
+        never moves an animal or changes its containment; the policy-pack workflow that owns
+        location is the only writer.
+      additionalProperties: false
+      required: [acuity, containment, low_competition, morning_walk, evening_walk, no_due_overnight]
+      properties:
+        acuity: { type: string, enum: [home, field, ward, icu] }
+        containment: { type: string, enum: [home, quarantine] }
+        low_competition: { type: boolean, description: "The animal will lose at the trough and must be fed apart." }
+        morning_walk: { type: boolean }
+        evening_walk: { type: boolean }
+        no_due_overnight: { type: boolean, description: "Always true. The farm is empty 00:00-06:00 IST and nothing is scheduled there." }
+    HealthDiagnosisProposal:
+      type: object
+      description: >-
+        The engine's output. A PROPOSAL: problems open nothing until the Director confirms.
+        emergencies and field_actions are the exceptions and are actionable at once.
+      required: [valid, scope, register_version, housing]
+      properties:
+        valid: { type: boolean }
+        reject_reason:
+          type: string
+          description: >-
+            Why the form was not diagnosed at all. Adult and shared:
+            not_eating_with_feed | wounds_exclusive | female_straining | cmt_without_milk.
+            Kids: not_drinking_with_milk | landing_required | landing_when_down |
+            refusals_today_required | session_required | landing_not_on_weaning |
+            navel_not_on_weaning. Wiring: register_class_mismatch.
+        scope:
+          type: string
+          enum: [adult, kid_milk, kid_weaning, kid_fattening]
+          description: >-
+            The animal class this run was diagnosed as, and therefore which register
+            produced it. One register serves each class and a run is diagnosed against
+            exactly one of them.
+        register_version: { type: string, description: "The rule table this run used, pinned so the proposal stays interpretable after an edit." }
+        emergencies: { type: array, items: { type: string }, description: "Do this now. Hands have already started; the Director is notified after." }
+        problems: { type: array, items: { type: string }, description: "Ranked severity first, then confidence." }
+        covered: { type: array, items: { type: string }, description: "Diagnoses merged into another's treatment. Kept on the record: if the animal does not improve, these are re-opened first." }
+        rechecks: { type: array, items: { type: string } }
+        field_actions: { type: array, items: { type: string }, description: "Treated in place and once. No ICU, no daily follow-up." }
+        unexplained: { type: array, items: { type: string }, description: "Abnormal findings no diagnosis accounts for. Render prominently, never as a footnote." }
+        ongoing: { type: array, items: { type: string } }
+        new: { type: array, items: { type: string } }
+        propose_close: { type: array, items: { type: string }, description: "The engine only PROPOSES; the Director closes." }
+        propose_extend: { type: array, items: { type: string } }
+        tiers: { type: object, additionalProperties: { type: string, enum: [CONFIRMED, PROBABLE, POSSIBLE] } }
+        sop: { type: object, additionalProperties: { type: string } }
+        course_type: { type: object, additionalProperties: { type: string, enum: [F, T, V, Supportive] } }
+        housing: { $ref: "#/components/schemas/HealthHousingDirective" }
+        hd_flags: { type: array, items: { type: string } }
+        hints: { type: array, items: { type: string } }
+        no_meloxicam: { type: boolean, description: "Vetoed on urinary obstruction and on hypothermia." }
+        club: { type: boolean, description: "Two real problems; merge their drugs." }
+    HealthConfirmableProblem:
+      type: object
+      additionalProperties: false
+      required: [id, tier, sop_ref, exit_type, disease_key, sop_available]
+      properties:
+        id: { type: string }
+        tier: { type: string, enum: [CONFIRMED, PROBABLE, POSSIBLE] }
+        sop_ref: { type: string }
+        exit_type: { type: string, enum: [F, T, V, Supportive] }
+        disease_key: { type: string }
+        sop_available:
+          type: boolean
+          description: >-
+            Whether a published treatment card exists. Shown BEFORE the Director decides: confirming
+            a diagnosis with no card cannot open a course, and discovering that afterwards reads as
+            a failure rather than a gap.
+        blocked_reason: { type: string }
+    HealthDiagnosisQueueItem:
+      type: object
+      additionalProperties: false
+      required:
+        [health_diagnosis_run_id, goat_id, goat_display_id, shed_name, partition_label,
+         operational_location_display, observed_at, business_date, status, problems,
+         emergency_count, unexplained_count]
+      properties:
+        health_diagnosis_run_id: { type: string, format: uuid }
+        goat_id: { type: string, format: uuid }
+        goat_display_id: { type: string }
+        shed_name: { type: string }
+        partition_label:
+          type: string
+          description: The HUMAN partition label, blank for an undivided shed or an ambiguous one.
+        operational_location_display:
+          type: string
+          description: >-
+            Backend-composed `shed - partition`. Clients render it verbatim and never re-derive
+            it; blank when the shed does not resolve, in which case the row shows the animal alone.
+        observed_at: { type: string, format: date-time }
+        business_date: { type: string, format: date }
+        status: { type: string, enum: [proposed, confirmed, superseded] }
+        problems:
+          type: array
+          items: { type: string }
+          description: >-
+            The ranked diagnosis ids, severity first then confidence. The order is the backend's;
+            re-sorting it on a client would put a mild certainty above a serious maybe.
+        emergency_count:
+          type: integer
+          description: >-
+            How many things need doing NOW. On the row rather than only inside the proposal
+            because emergencies do not wait for the Director — a queue that hides one behind a
+            tap is worse than no queue.
+        unexplained_count:
+          type: integer
+          description: Abnormal findings no proposed diagnosis accounts for.
+    HealthDiagnosisQueuePage:
+      type: object
+      additionalProperties: false
+      required: [items, may_confirm]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/HealthDiagnosisQueueItem" }
+        next_cursor:
+          type: string
+          nullable: true
+          description: Absent on the last page.
+        may_confirm:
+          type: boolean
+          description: >-
+            Whether THIS caller may decide any of it, from their own grants. A manager may read
+            the queue without being offered the decision on any row.
+    HealthDiagnosisProposalResponse:
+      type: object
+      additionalProperties: false
+      required: [health_diagnosis_run_id, status, proposal]
+      properties:
+        health_diagnosis_run_id: { type: string, format: uuid }
+        status: { type: string, enum: [proposed, confirmed, superseded] }
+        proposal: { $ref: "#/components/schemas/HealthDiagnosisProposal" }
+        confirmable: { type: array, items: { $ref: "#/components/schemas/HealthConfirmableProblem" } }
+        may_confirm:
+          type: boolean
+          description: >-
+            Whether the submitter may also decide. Normally false — the health manager
+            records, the Director confirms — but a Director recording an observation
+            themselves collapses the two acts into one visit.
+        idempotent_replay: { type: boolean }
+    ConfirmHealthDiagnosisRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmed_problems]
+      properties:
+        confirmed_problems:
+          type: array
+          items: { type: string }
+          description: >-
+            A subset of the proposed problems. An empty array declines the whole proposal, which is
+            a legitimate override and still decides the run.
+    HealthOpenedCase:
+      type: object
+      additionalProperties: false
+      required: [case_id, disease_key, exit_type, session_count]
+      properties:
+        case_id: { type: string, format: uuid }
+        disease_key: { type: string }
+        exit_type: { type: string, enum: [F, T, V, Supportive] }
+        duration_days:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 90
+          description: >-
+            Present only for exit_type F. Null for T (closes on a test), V (the Director looks) and
+            Supportive (daily and ongoing) -- those close on evidence, not on a calendar.
+        session_count: { type: integer, minimum: 0, description: "Visits scheduled from the housing directive: ICU both shifts, ward mornings, field none." }
+    ConfirmHealthDiagnosisResponse:
+      type: object
+      additionalProperties: false
+      required: [health_diagnosis_run_id, status]
+      properties:
+        health_diagnosis_run_id: { type: string, format: uuid }
+        status: { type: string, enum: [proposed, confirmed, superseded] }
+        opened_cases: { type: array, items: { $ref: "#/components/schemas/HealthOpenedCase" } }
+        declined: { type: array, items: { type: string }, description: "Proposed diagnoses the Director did not confirm. Every override is a rule defect worth reviewing." }
+        idempotent_replay: { type: boolean }
+    HealthDiagnosisRun:
+      type: object
+      additionalProperties: false
+      required:
+        [health_diagnosis_run_id, goat_id, goat_display_id, register_version, observed_by,
+         observed_at, business_date, proposal, status, confirmable, may_confirm]
+      properties:
+        health_diagnosis_run_id: { type: string, format: uuid }
+        goat_id: { type: string, format: uuid }
+        goat_display_id:
+          type: string
+          description: >-
+            The animal as a person recognises it. Carried on the read because a device
+            opening an assessment has usually never seen the submit response — the manager
+            submits from their phone, the Director opens it on theirs — so a client cache
+            is not a source for this.
+        register_version: { type: string }
+        observed_by: { type: string, format: uuid }
+        observed_at: { type: string, format: date-time }
+        business_date: { type: string, format: date }
+        proposal: { $ref: "#/components/schemas/HealthDiagnosisProposal" }
+        status: { type: string, enum: [proposed, confirmed, superseded] }
+        confirmable:
+          type: array
+          description: >-
+            What the Director may still act on, carried on the read so the queue is
+            self-sufficient on a device that never saw the submit response. Empty once
+            the run is decided.
+          items: { $ref: "#/components/schemas/HealthConfirmableProblem" }
+        may_confirm:
+          type: boolean
+          description: >-
+            Whether THIS caller may cast the decision, resolved from their own grants.
+            A separate fact from `confirmable`: the manager who recorded the observation
+            receives the same list and is precisely the person who must not confirm it.
+            Advisory for the client only — the confirm route is gated independently.
+        confirmed_by: { type: string, format: uuid, nullable: true }
+        confirmed_at: { type: string, format: date-time, nullable: true }
     OpenHealthCaseRequest:
       type: object
       additionalProperties: false
@@ -31624,9 +33530,19 @@ components:
       allOf:
         - $ref: "#/components/schemas/HealthWorkItem"
         - type: object
-          required: [steps]
+          required: [steps, can_complete, can_close_case]
           properties:
             steps: { type: array, items: { $ref: "#/components/schemas/HealthTreatmentStep" } }
+            can_complete:
+              type: boolean
+              description: >-
+                Whether THIS caller may complete the session (mirrors health.execute). Display
+                gating only; the route permission remains the enforcement.
+            can_close_case:
+              type: boolean
+              description: >-
+                Whether THIS caller may clinically close the case (mirrors health.diagnose).
+                Display gating only; the route permission remains the enforcement.
     CompleteHealthWorkItemRequest:
       type: object
       additionalProperties: false
@@ -31641,6 +33557,25 @@ components:
         status: { type: string, enum: [completed] }
         completed_at: { type: string, format: date-time }
         medication_count: { type: integer, minimum: 0 }
+        idempotent_replay: { type: boolean }
+    CloseHealthCaseRequest:
+      type: object
+      additionalProperties: false
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [recovered, referred, canceled]
+        note: { type: string }
+    CloseHealthCaseResponse:
+      type: object
+      additionalProperties: false
+      required: [case_id, status, closed_at, canceled_session_count, idempotent_replay]
+      properties:
+        case_id: { type: string, format: uuid }
+        status: { type: string, enum: [recovered, referred, canceled] }
+        closed_at: { type: string, format: date-time }
+        canceled_session_count: { type: integer, minimum: 0 }
         idempotent_replay: { type: boolean }
     RecordBirthEventRequest:
       description: >-

@@ -94,7 +94,22 @@ var (
 	// Paging repo methods whose loops must prove forward progress.
 	pageMethodRe = regexp.MustCompile(`^(List|Fetch)|Page$|Chunk$`)
 	ignoreRe     = regexp.MustCompile(`scale-guard:ignore:\s*\S`)
-	godCTELimit  = 8
+	// hot-path-inline-sql: a multi-line SQL literal declared INSIDE a function body in a postgres
+	// adapter. Such a statement is unreachable to every guard this repo has -- a query-plan test and
+	// this scanner can only address SQL they can NAME -- so it is structurally exempt from review.
+	// GET /vaccination/command carried FOURTEEN of them and its plans regressed until the endpoint
+	// returned 500 in staging. Hoist it to a package-level const (or SQLC) and give it a plan test.
+	inlineSQLStartRe = regexp.MustCompile(`(?is)^\s*(WITH|SELECT|INSERT|UPDATE|DELETE)\b`)
+	// Leading SQL comments and blank lines are stripped before the start match. A
+	// "-- name: closed-without-dose residual bucket" header is this repo's HOUSE STYLE, so anchoring
+	// the match at the literal's first character made the rule a pure false negative for the most
+	// idiomatic way to write the very statement it exists to catch -- no evasion intent required.
+	// (?s) so a BLOCK comment may span newlines. Without it a /* ... */ header spanning two lines
+	// slipped the start match entirely, which is a false negative on a shape the runbook itself
+	// calls house style.
+	inlineSQLLeadingCommentRe = regexp.MustCompile(`(?s)\A(?:\s*(?:--[^\n]*|/\*.*?\*/)\s*)+`)
+	inlineSQLBodyRe           = regexp.MustCompile(`(?is)\bFROM\b|\bJOIN\b|\bWHERE\b`)
+	godCTELimit               = 8
 	// n-plus-one-fanout: the receiver field of an in-loop ctx-taking call must
 	// name an injected I/O dependency (repo/reader/port/client/roster/proto/...)
 	// for the call to count as a round trip. Descriptive field naming is the
@@ -268,6 +283,14 @@ func scanFile(repo, path string) []finding {
 		addLine("read-rollup-truth", line, msg)
 	}
 
+	// hot-path-inline-sql runs only in postgres adapters, where a multi-line SQL literal inside a
+	// function is by definition a hot-path statement no guard can reach.
+	if isPostgresAdapter(rel) {
+		for _, f := range detectInlineHotPathSQL(file) {
+			add("hot-path-inline-sql", f.pos, f.msg)
+		}
+	}
+
 	// AST pass: loop-scoped rules.
 	ast.Inspect(file, func(n ast.Node) bool {
 		var body *ast.BlockStmt
@@ -390,6 +413,181 @@ func scanFile(repo, path string) []finding {
 		return true
 	})
 	return out
+}
+
+// isPostgresAdapter reports whether rel is a repository adapter file. The rule is scoped to these
+// because that is where serving SQL lives; a SQL literal in a migration tool or a one-off command
+// is not a hot path and naming it buys nothing.
+func isPostgresAdapter(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	return strings.Contains(rel, "/adapters/postgres/") && strings.HasSuffix(rel, ".go")
+}
+
+type inlineSQLFinding struct {
+	pos token.Pos
+	msg string
+}
+
+// detectInlineHotPathSQL finds multi-line SQL string literals declared inside a function body.
+//
+// A package-level const or var passes: it has a name, so commandboard_query_plan_test.go (or any
+// plan test) can EXPLAIN it, this scanner can find it, and a reviewer can diff it. A literal inside
+// a function has none of those properties. That is not a style preference -- it is the reason the
+// command board's fourteen statements could regress into a 15s timeout with every test green.
+//
+// MULTI-LINE is the threshold, deliberately. A one-line "SELECT 1" or a short single-table lookup is
+// not the shape that hides a plan regression, and flagging it would train people to reach for
+// scale-guard:ignore, which is how a guard stops meaning anything.
+func detectInlineHotPathSQL(file *ast.File) []inlineSQLFinding {
+	var out []inlineSQLFinding
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			// CONCATENATIONS ARE FLATTENED FIRST. Measuring each *ast.BasicLit on its own let
+			// `"SELECT a\nFROM t\n" + "WHERE b=1\nAND c=2\n"` through: neither half reaches the
+			// newline threshold, and splitting a literal in two is a one-keystroke, gofmt-stable
+			// evasion of a rule whose whole point is that hot-path SQL must be nameable.
+			if bin, ok := n.(*ast.BinaryExpr); ok && bin.Op == token.ADD {
+				if text, pos, ok := flattenStringConcat(bin); ok {
+					if isInlineHotPathSQL(text) {
+						out = append(out, inlineSQLFinding{
+							pos: pos,
+							msg: "multi-line SQL declared inside " + fn.Name.Name + "() (assembled by concatenation): hoist it to a package-level named const (or SQLC) so a query-plan test and this guard can reach it",
+						})
+					}
+					// Every operand was a literal, so the halves were just reported once as one
+					// statement. Do not descend and report them again.
+					return false
+				}
+				// A mixed chain -- `head + where + tail`. Left-associative parsing means
+				// flattenStringConcat fails on the whole chain AND on its `head + where` subtree,
+				// so each literal is examined alone and a statement split across two sub-threshold
+				// halves around a variable slipped through. Sum the LITERAL operands across the
+				// whole chain before giving up on it.
+				if text, pos, ok := concatLiteralOperands(bin); ok && isInlineHotPathSQL(text) {
+					out = append(out, inlineSQLFinding{
+						pos: pos,
+						msg: "multi-line SQL declared inside " + fn.Name.Name + "() (assembled by concatenation around a variable): hoist it to a package-level named const (or SQLC) so a query-plan test and this guard can reach it",
+					})
+					return false
+				}
+				// An operand was NOT a literal -- `sqlText + where`. KEEP DESCENDING.
+				//
+				// Returning false here (as this rule originally did) meant a statement assembled
+				// from a variable escaped the guard entirely, while the identical statement without
+				// the variable was caught. That exempted precisely the WORST shape: a query whose
+				// final text is not knowable from the source is the one a plan test can least
+				// reach, which is the whole justification for this rule. Descending reports the
+				// multi-line literal half, which is the part that must be hoisted.
+				return true
+			}
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			// BOTH literal kinds. Restricting this to raw literals left a one-keystroke evasion
+			// (backtick -> quote plus \n escapes) that gofmt will not undo, and an interpreted
+			// literal carrying a whole statement is the same unreachable hot-path SQL.
+			text, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				return true
+			}
+			if !isInlineHotPathSQL(text) {
+				return true
+			}
+			out = append(out, inlineSQLFinding{
+				pos: lit.Pos(),
+				msg: "multi-line SQL declared inside " + fn.Name.Name + "(): hoist it to a package-level named const (or SQLC) so a query-plan test and this guard can reach it",
+			})
+			return true
+		})
+	}
+	return out
+}
+
+// isInlineHotPathSQL reports whether a string literal's contents are a multi-line SQL statement.
+//
+// MULTI-LINE is the threshold, deliberately. A one-line "SELECT 1" or a short single-table lookup is
+// not the shape that hides a plan regression, and flagging it would train people to reach for
+// scale-guard:ignore, which is how a guard stops meaning anything.
+func isInlineHotPathSQL(text string) bool {
+	if strings.Count(text, "\n") < 3 {
+		return false
+	}
+	// Leading comment and blank lines are stripped before deciding whether this is SQL: a
+	// "-- name: ..." header is this repo's house style, not an attempt to hide.
+	body := inlineSQLLeadingCommentRe.ReplaceAllString(text, "")
+	return inlineSQLStartRe.MatchString(body) && inlineSQLBodyRe.MatchString(body)
+}
+
+// flattenStringConcat concatenates a `+` chain of string literals. It returns false as soon as any
+// operand is not a plain string literal, because a chain carrying a variable is a built query
+// rather than a statement this rule can read.
+// concatLiteralOperands walks a `+` chain and concatenates only its STRING LITERAL operands,
+// ignoring the rest. flattenStringConcat is all-or-nothing by design (it proves the final text); this
+// is the weaker question the guard actually needs: is there a multi-line statement's worth of SQL
+// sitting in the literal parts, regardless of what is interpolated between them.
+func concatLiteralOperands(expr ast.Expr) (string, token.Pos, bool) {
+	var parts []string
+	var pos token.Pos
+	var walk func(ast.Expr)
+	walk = func(e ast.Expr) {
+		switch v := e.(type) {
+		case *ast.BinaryExpr:
+			if v.Op == token.ADD {
+				walk(v.X)
+				walk(v.Y)
+			}
+		case *ast.BasicLit:
+			if v.Kind != token.STRING {
+				return
+			}
+			text, err := strconv.Unquote(v.Value)
+			if err != nil {
+				return
+			}
+			if pos == 0 {
+				pos = v.Pos()
+			}
+			parts = append(parts, text)
+		}
+	}
+	walk(expr)
+	if len(parts) == 0 {
+		return "", 0, false
+	}
+	return strings.Join(parts, "\n"), pos, true
+}
+
+func flattenStringConcat(expr ast.Expr) (string, token.Pos, bool) {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		if e.Kind != token.STRING {
+			return "", 0, false
+		}
+		text, err := strconv.Unquote(e.Value)
+		if err != nil {
+			return "", 0, false
+		}
+		return text, e.Pos(), true
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return "", 0, false
+		}
+		left, pos, ok := flattenStringConcat(e.X)
+		if !ok {
+			return "", 0, false
+		}
+		right, _, ok := flattenStringConcat(e.Y)
+		if !ok {
+			return "", 0, false
+		}
+		return left + right, pos, true
+	}
+	return "", 0, false
 }
 
 func detectReadRollupTruth(src []byte) (int, string) {

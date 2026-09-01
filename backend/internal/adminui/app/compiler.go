@@ -846,6 +846,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
 		case "sales":
 			out[i].Controls = compileSalesControls(out[i].Controls, input, out[i].Copy)
+		case "sales-loads":
+			out[i].Controls = compileSalesLoadsControls(out[i].Controls, input, out[i].Copy)
 		case "feed-purchases":
 			out[i].Controls = compileFeedPurchaseControls(out[i].Controls, input, out[i].Copy)
 		case "people":
@@ -935,13 +937,55 @@ func compileSalesControls(controls []domain.Control, input BootstrapInput, copy 
 	// One capability gate for the pipeline/evidence writes (leads, farmer groups, market quotes,
 	// tag lists, weight checks): they all ride SalesWrite, and the sheet they replaced is retired
 	// (maintainer decision 2026-08-18), so entry lives here or nowhere.
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "record_pipeline",
 		Label:          controlCopy(copy, "action.record_pipeline.label", "Add record"),
 		Kind:           "secondary_action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /sales/buyer-leads",
+	})
+	// A buyer receipt is a money write on the same ledger, so it rides the same permission as
+	// recording the deal. Declared-and-disabled for read-only principals, like every write here.
+	controls = upsertControl(controls, domain.Control{
+		ID:             "record_sales_deal_payment",
+		Label:          controlCopy(copy, "action.record_deal_payment.label", "Add payment"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/deals/{deal_id}/payments",
+	})
+	// The lifecycle edit that closes an expected sale on the day it happens. Same authority as
+	// recording the deal.
+	return upsertControl(controls, domain.Control{
+		ID:             "update_sales_deal_status",
+		Label:          controlCopy(copy, "action.update_deal_status.label", "Update status"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/deals/{deal_id}/status",
+	})
+}
+
+// compileSalesLoadsControls gates the load-cost write on the Purchase & barn page.
+//
+// Recording a LOAD's landed cost is buying-desk money, not sales recording, so it carries its own
+// dedicated permission (LoadCostWrite, the FeedPurchaseWrite precedent) rather than riding
+// SalesWrite -- a sales recorder who is not the buying desk sees the control disabled with the
+// reason, per the role-scoped-UI-is-capability-gated lock.
+func compileSalesLoadsControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.LoadCostWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.load_cost", "Recording a load's cost needs the buying desk's access.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "record_load_cost",
+		Label:          controlCopy(copy, "action.record_load_cost.label", "Record cost"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /procurement/loads/{load_id}/cost",
 	})
 }
 
@@ -967,13 +1011,44 @@ func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput
 	if !allowed {
 		reason = controlCopy(copy, "disabled.write", "Your current role can view feed purchases but not record them.")
 	}
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "record_feed_purchase",
 		Label:          controlCopy(copy, "action.record_feed_purchase.label", "Record purchase"),
 		Kind:           "primary_action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /procurement/feed-purchases",
+	})
+	// The payment writes share the same permission and therefore the same disabled reason: a
+	// principal who can record the load can record the money against it, and a read-only tier can
+	// do neither. Two controls rather than one because they are two different writes -- the drawer
+	// shows/hides each on its own control, never on a role string.
+	controls = upsertControl(controls, domain.Control{
+		ID:             "record_feed_purchase_payment",
+		Label:          controlCopy(copy, "action.record_feed_payment.label", "Add payment"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /procurement/feed-purchases/{purchase_id}/payments",
+	})
+	controls = upsertControl(controls, domain.Control{
+		ID:             "update_feed_purchase_payment_status",
+		Label:          controlCopy(copy, "action.update_payment_status.label", "Update status"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /procurement/feed-purchases/{purchase_id}/payment-status",
+	})
+	// Editing a recorded load's values is the same authority as recording it: whoever buys feed
+	// may correct a wrongly-typed quantity or cost. Identity (farm/feed/batch) stays immutable at
+	// the contract's own route.
+	return upsertControl(controls, domain.Control{
+		ID:             "edit_feed_purchase",
+		Label:          controlCopy(copy, "action.edit_feed_purchase.label", "Edit purchase"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /procurement/feed-purchases/{purchase_id}",
 	})
 }
 
@@ -1617,9 +1692,12 @@ func permissionsForNav(id string) []string {
 		// they work; the register carries negotiated prices, contact numbers and banking
 		// instruments. Gating the leaf on ProcurementRead would put it in every operator's sidebar.
 		return []string{permissions.VendorRead}
-	case "sales-board":
+	case "sales-board", "sales-loads":
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.
+		//
+		// Purchase & barn reads the same commercial facts per load, so it rides the same
+		// permission. The load-cost WRITE on that page is separately gated on LoadCostWrite.
 		return []string{permissions.SalesRead}
 	case "procurement-feed-purchases":
 		// The dedicated ledger permission, NOT ProcurementRead: the purchase ledger carries

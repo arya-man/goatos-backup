@@ -12,13 +12,16 @@ import {
   createSalesBenchmark,
   createSalesBuyerLead,
   createSalesDeal,
+  recordSalesDealPayment,
+  setSalesDealStatus,
   createSalesFpoLead,
   createSalesSoldTags,
   createSalesWeightCheck,
   setSalesBuyerLeadStatus,
   setSalesFpoLeadStatus,
+  setLoadCost,
 } from "@/lib/api/procurement-server";
-import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite } from "@/lib/api/procurement";
+import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite, SalesDealStatusWrite } from "@/lib/api/procurement";
 
 const SALES_PATH = "/sales";
 
@@ -55,6 +58,8 @@ function readSaleForm(formData: FormData): SalesDealWrite {
     total_weight_kg: parseOptionalNumber("total_weight_kg"),
     sales_value: Number(requiredString(formData, "sales_value")),
     advance_amount: parseOptionalNumber("advance_amount"),
+    // Blank records the backend default (Deal Closed); the cast only satisfies the literal union.
+    ...(optionalString(formData, "status") ? { status: optionalString(formData, "status") as SalesDealWrite["status"] } : {}),
     comments: optionalString(formData, "comments") ?? "",
   };
 }
@@ -68,6 +73,32 @@ export async function recordSaleAction(formData: FormData): Promise<void> {
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.sale_recorded");
+}
+
+/**
+ * Records (or clears) one load's landed cost from the load-wise cost drawer.
+ *
+ * Blank stays null, never 0: a load bought with no transport charge and one whose charge has not
+ * been entered yet are different facts. The backend rejects negatives and detail-without-animal-
+ * cost; this action only reports the outcome.
+ */
+export async function recordLoadCostAction(formData: FormData): Promise<void> {
+  const parseCost = (key: string): number | null => {
+    const trimmed = (formData.get(key)?.toString() ?? "").trim();
+    if (trimmed === "") return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const result = await setLoadCost(requiredString(formData, "load_id"), {
+    animal_cost: parseCost("animal_cost"),
+    transport_cost: parseCost("transport_cost"),
+    other_cost: parseCost("other_cost"),
+  });
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.load_cost_record_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.load_cost_recorded");
 }
 
 // ---- Pipeline & evidence entry (the retired Sales DB sheet's job, now done in the app). ----
@@ -216,4 +247,43 @@ export async function recordWeightCheckAction(formData: FormData): Promise<void>
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.weight_check_recorded");
+}
+
+/**
+ * Records one amount received from the buyer against a deal. The backend advances the running
+ * received total in the same transaction; deal status stays a human decision.
+ */
+export async function recordSalesDealPaymentAction(formData: FormData): Promise<void> {
+  const dealId = requiredString(formData, "deal_id");
+  const note = (formData.get("note")?.toString() ?? "").trim();
+  const result = await recordSalesDealPayment(
+    dealId,
+    {
+      received_on: requiredString(formData, "received_on"),
+      amount_rupees: Number(requiredString(formData, "amount_rupees")),
+      ...(note ? { note } : {}),
+    },
+    // A fresh key per submit, like every sales write: retries of THIS invocation cannot count the
+    // same money twice, while a deliberate second submit records a second receipt.
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.payment_record_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.payment_recorded");
+}
+
+/** Sets a deal's lifecycle status — the edit that closes an expected sale on the day it happens. */
+export async function setSalesDealStatusAction(formData: FormData): Promise<void> {
+  const dealId = requiredString(formData, "deal_id");
+  // The backend validates against its closed vocabulary and REJECTS an unrecognised word; the
+  // cast only satisfies the generated client's literal union, it is not a trust boundary.
+  const status = requiredString(formData, "status") as SalesDealStatusWrite["status"];
+  const result = await setSalesDealStatus(dealId, { status });
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.deal_status_update_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.deal_status_updated");
 }

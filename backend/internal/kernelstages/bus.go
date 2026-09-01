@@ -15,7 +15,6 @@ import (
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
-	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
@@ -41,7 +40,7 @@ import (
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
-	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
+	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
@@ -103,24 +102,14 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// operator, UP to the park head and the owning module's director.
 	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, rosterService, calendarService, logger)).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
-	// Keep every durable handler explicit in this production bus builder. The cascade-event-wiring
-	// guard compares this list with cmd/domain-event-consumer so a wrapper cannot hide bus drift.
-	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
-	countsapp.NewMilkPreparationVerificationHandler(countsMilkPreparationRepo).Register(bus)
+	// Keep every durable verdict applier on the shared registration path so the
+	// kernel stage cannot drift from API/outbox-relay wiring. This path includes
+	// milk-preparation -> UHT stock consumption forwarding.
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, weighingRepo, weighingverificationbridge.New(verificationpg.NewRepository(pool, pgCfg.QueryTimeout)), pccarepg.NewRepository(pool, pgCfg.QueryTimeout), healthRepo, logger)
 	countsapp.NewMilkFeedingVerificationHandler(countsMilkPreparationRepo).Register(bus)
 	// Toxin (maintainer decision 2026-08-25): a recorded feed purchase owes the load an
 	// aflatoxin strip test; the toxin consumer materializes the round-1 task idempotently.
 	toxinapp.NewFeedPurchaseRecordedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
-	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
-	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
-	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)
-	feeddirectionapp.NewFeedWastageVerificationHandler(feedDirectionRepo, logger).Register(bus)
-	// Weighing verdict applier: weighing enqueues a verification item for every
-	// observation, so without this consumer every approve/reject is a silent drop.
-	weighingapp.NewVerificationVerdictHandler(weighingRepo, logger).Register(bus)
-	// PC Care verdict applier: pc_care enqueues a verification item per completed care
-	// task, so without this consumer every approve/reject is a silent drop.
-	pccareapp.NewPCCareVerificationHandler(pccarepg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
 	verificationService := verificationapp.NewService(verificationpg.NewRepository(pool, pgCfg.QueryTimeout), nil)
 	if err := pccareverificationbridge.RegisterCategories(verificationService); err != nil {
 		panic(fmt.Sprintf("register pc care verification categories: %v", err))

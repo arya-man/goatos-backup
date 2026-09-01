@@ -198,7 +198,8 @@ Example: if a sheep receives `ET+TT Booster + PPR` in one visit, that consumes
 one operator animal slot, not two vaccine slots.
 
 The default proof-slice cap is `200` unique animals per operator per business
-date. That number must be visible and editable in Config as
+date unless a reviewed published config changes it. That number must be visible
+and editable in Config as
 `Animals per operator per day`, then published into the drive planner config.
 
 ### 6.2 Operator Availability
@@ -240,12 +241,17 @@ Fairness rules:
 Assignment priority:
 
 1. Keep a physical shed with one operator whenever the complete shed fits the
-   full configured per-operator cap. Residual capacity never justifies a split.
-   Count the shed across every compatible catch-up/repeat rule row in the drive.
+   full configured per-operator cap, normally 200 animals. Residual capacity
+   never justifies a split. Count the shed across every compatible catch-up/
+   repeat rule row in the drive.
 2. If a physical shed exceeds one operator's cap, split by partition.
 3. If a partition exceeds one operator's cap, split the partition by animal list.
 4. If all work fits without splitting partitions, do not split partitions.
 5. Never split an individual animal or its vaccine bundle.
+
+Common parent partitions should move together whenever the parent physical shed
+fits the cap. For example, do not peel `Godel 1 - Part 4` away from the rest of
+`Godel 1` just to fill residual capacity.
 
 ### 6.5 Multi-Day Spillover
 

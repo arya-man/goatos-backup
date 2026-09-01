@@ -27,12 +27,13 @@ func TestSelectIDsWithinVisitShotCapForSessionFiltersUnsafeRows(t *testing.T) {
 	}
 }
 
-func TestVaccineFeasibleOnPlannerDateBlocksThirdSameDayVaccine(t *testing.T) {
+func TestVaccineFeasibleOnPlannerDateBlocksFourthSameDayVaccine(t *testing.T) {
 	planned := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
 	planner := domain.DefaultDrivePlannerSettings()
 	session := NewSweepSession()
 	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "ET_TT", VaccineType: "killed"})
 	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"})
+	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "HS", VaccineType: "killed"})
 
 	candidate := driveCandidate{
 		TargetID:  "goat-1",
@@ -40,25 +41,34 @@ func TestVaccineFeasibleOnPlannerDateBlocksThirdSameDayVaccine(t *testing.T) {
 		WindowEnd: &planned,
 	}
 	if session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "BLUE_TONGUE", VaccineType: "killed"}) {
-		t.Fatal("third same-day vaccine was feasible; want blocked by max two vaccines per animal session")
+		t.Fatal("fourth same-day vaccine was feasible; want blocked by max three vaccines per animal session")
 	}
+
+	session = NewSweepSession()
+	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "ET_TT", VaccineType: "killed"})
+	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"})
 	if !session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"}) {
-		t.Fatal("same vaccine re-check should not count as a third distinct same-day vaccine")
+		t.Fatal("same vaccine re-check should not count as a fourth distinct same-day vaccine")
 	}
 }
 
-func TestVaccineFeasibleOnPlannerDateBlocksUnapprovedSameDayPair(t *testing.T) {
+func TestVaccineFeasibleOnPlannerDateAllowsPPRFMDHSAnchorCombo(t *testing.T) {
 	planned := time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC)
 	planner := domain.DefaultDrivePlannerSettings()
 	session := NewSweepSession()
 	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "FMD", VaccineType: "killed"})
 
 	candidate := driveCandidate{TargetID: "goat-1", DueAt: planned, WindowEnd: &planned}
-	if session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"}) {
-		t.Fatal("FMD+PPR same-day pair was feasible; want blocked because it is not an approved combo")
+	if !session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"}) {
+		t.Fatal("FMD+PPR should be feasible as part of the approved PPR+FMD+HS anchor combo")
 	}
 	if !session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "HS", VaccineType: "killed"}) {
 		t.Fatal("FMD+HS should remain feasible as an approved same-day combo")
+	}
+
+	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"})
+	if !session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "HS", VaccineType: "killed"}) {
+		t.Fatal("PPR+FMD+HS should be feasible up to the three-shot cap")
 	}
 }
 
@@ -102,6 +112,34 @@ func TestSelectParkIDsWithinVisitShotCapForSessionFiltersUnsafeRows(t *testing.T
 	}
 	if !reflect.DeepEqual(selected, []string{"open"}) {
 		t.Fatalf("selected = %#v, want only park row still safe on planned date", selected)
+	}
+}
+
+func TestSelectParkIDsWithinVisitShotCapKeepsSameAnimalManualAnchorRowsTogether(t *testing.T) {
+	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	windowEnd := planned.AddDate(0, 0, 1)
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxShotsPerAnimalPerDrive = 3
+	rows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-ppr", RuleID: "rule-ppr", TargetID: "goat-1", ParkID: "park-1", ShedID: "shed-1", ShedName: "Godel 1 - Part 1", DueAt: planned, WindowStart: &planned, WindowEnd: &windowEnd},
+		{ObligationID: "obl-hs", RuleID: "rule-hs", TargetID: "goat-1", ParkID: "park-1", ShedID: "shed-1", ShedName: "Godel 1 - Part 1", DueAt: planned, WindowStart: &planned, WindowEnd: &windowEnd},
+	}
+
+	selected, _, err := selectParkIDsWithinVisitShotCapForSession(planned, rows, []string{"obl-ppr", "obl-hs"}, &planned, planner, func(ruleID string) RuleVaccineIdentity {
+		switch ruleID {
+		case "rule-ppr":
+			return RuleVaccineIdentity{VaccineCode: "PPR", VaccinePriority: 2, VaccineType: "live"}
+		case "rule-hs":
+			return RuleVaccineIdentity{VaccineCode: "HS", VaccinePriority: 5, VaccineType: "killed"}
+		default:
+			return RuleVaccineIdentity{}
+		}
+	}, NewSweepSession())
+	if err != nil {
+		t.Fatalf("selectParkIDsWithinVisitShotCapForSession: %v", err)
+	}
+	if !reflect.DeepEqual(selected, []string{"obl-ppr", "obl-hs"}) {
+		t.Fatalf("selected = %#v, want both manual-anchor vaccine rows for goat-1", selected)
 	}
 }
 

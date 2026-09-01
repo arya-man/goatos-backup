@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.data.capture
 
+import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
@@ -1422,6 +1423,49 @@ class CaptureRepositoryTest {
                 1,
                 db.proofCaptureDao().countStateEvents(captured.id, "upload_enqueue_failed"),
             )
+        } finally {
+            closeDb(db)
+        }
+    }
+
+    @Test
+    fun `state event foreign-key race is best-effort and does not fail capture`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository(proofUploadFailure = "outbox unavailable")
+            val dao = CountingProofCaptureDao(db.proofCaptureDao()).apply {
+                throwConstraintOnStateEventStage = "upload_enqueue_failed"
+            }
+            val repo = DefaultProofCaptureRepository(
+                dao = dao,
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val result = repo.capture(
+                taskId = "task-event-fk-race",
+                fieldKey = "feed_distribution_video",
+                subject = ProofSubject.SHED,
+                localUri = "file://proof.mp4",
+                mimeType = "video/mp4",
+                caption = "Feed direction proof",
+                scopeType = "task",
+                scopeId = "task-event-fk-race",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = "operator-1",
+                awaitUploadEnqueue = true,
+            )
+
+            assertTrue(result is AppResult.Ok)
+            val captured = (result as AppResult.Ok).value
+            val row = db.proofCaptureDao().findById(captured.id)
+            assertEquals(CaptureSyncStatus.FAILED.name, row?.syncStatus)
+            assertEquals("outbox unavailable", row?.lastError)
+            assertEquals(0, db.proofCaptureDao().countStateEvents(captured.id, "upload_enqueue_failed"))
         } finally {
             closeDb(db)
         }
@@ -3898,6 +3942,7 @@ private fun syncQueueItem(
  */
 private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : ProofCaptureDao {
     var updateStatusCalls = 0
+    var throwConstraintOnStateEventStage: String? = null
 
     override suspend fun insert(entity: ProofCaptureEntity) = delegate.insert(entity)
     override fun observeWorkflowDeathDrafts(workflowId: String): Flow<List<ProofCaptureEntity>> =
@@ -3988,8 +4033,12 @@ private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : P
     )
     override suspend fun markGallerySaved(id: String, gallerySavedUri: String, updatedAtMs: Long) =
         delegate.markGallerySaved(id, gallerySavedUri, updatedAtMs)
-    override suspend fun insertStateEvent(entity: ProofCaptureStateEventEntity) =
+    override suspend fun insertStateEvent(entity: ProofCaptureStateEventEntity) {
+        if (entity.stage == throwConstraintOnStateEventStage) {
+            throw SQLiteConstraintException("FOREIGN KEY constraint failed")
+        }
         delegate.insertStateEvent(entity)
+    }
     override suspend fun countStateEvents(proofId: String, stage: String): Int =
         delegate.countStateEvents(proofId, stage)
     override suspend fun delete(id: String, taskId: String) = delegate.delete(id, taskId)

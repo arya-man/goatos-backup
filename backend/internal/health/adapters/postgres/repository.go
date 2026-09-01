@@ -80,7 +80,7 @@ FOR SHARE`, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &she
 	var existing domain.OpenCaseResult
 	var existingFingerprint string
 	err = tx.QueryRow(ctx, `
-SELECT hc.health_case_id::text, hc.duration_days, hc.request_fingerprint,
+SELECT hc.health_case_id::text, coalesce(hc.duration_days,0), hc.request_fingerprint,
        COALESCE((SELECT hs.health_session_id::text FROM health_treatment_sessions hs
                  WHERE hs.health_case_id=hc.health_case_id ORDER BY hs.due_at,hs.health_session_id LIMIT 1),''),
        (SELECT count(*) FROM health_treatment_sessions hs WHERE hs.health_case_id=hc.health_case_id)
@@ -223,6 +223,11 @@ FROM health_protocol_steps WHERE health_protocol_version_id=$1::uuid ORDER BY da
 	return p, rows.Err()
 }
 
+// duration_days is NULLABLE since the diagnosis engine (000223 exit-type model): only an
+// exit_type='F' course has a fixed day count; T (closes on a test), V (Director looks) and
+// Supportive (ongoing) courses carry NULL. Every scan into the int DTO coalesces to 0, which
+// clients render as an ongoing course. Found live on the 2026-08-29 phone run: a confirmed
+// wounds course 500'd this whole worklist.
 // projection-review: membership=health_treatment_sessions, unique on health_session_id, joined 1:1 to its owning health_cases row; group_key=health_session_id -- step_counts groups on exactly that key and is joined back 1:1, so a session with many steps stays ONE page row; join_cardinality=health_cases, goats and both locations lookups are 1:1 on their tenant-scoped primary keys and only label the row; step_counts is pre-aggregated to one row per health_session_id BEFORE it is joined, which is what stops the steps fan-out; pagination=keyset on (due_at, health_session_id) with LIMIT n+1, and the summary is a separate whole-filter aggregate, never a rollup of the returned page; scope=park/shed, applied from the caller's clamped filters on health_cases
 func (r *Repository) ListWorkItems(ctx context.Context, f domain.ListFilter) (domain.WorkItemPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -239,6 +244,7 @@ WITH page AS (
         CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END AS effective_status
  FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id
  WHERE hs.tenant_id=$1::uuid AND hs.business_date=$2::date AND hc.age_band=$3
+   AND hs.status<>'canceled'
    AND ($4='canceled_death' OR hs.status<>'canceled_death')
    AND ($4='' OR (CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END)=$4)
    AND ($5='' OR hc.disease_key=$5) AND ($6='' OR hc.park_id=nullif($6,'')::uuid)
@@ -251,8 +257,8 @@ WITH page AS (
         bool_or(ss.record_type='critical_action') AS has_critical
  FROM health_session_steps ss JOIN page p ON p.health_session_id=ss.health_session_id GROUP BY ss.health_session_id
 )
-SELECT p.health_session_id::text,p.health_case_id::text,p.goat_id::text,g.display_id,hc.disease_key,hc.disease_name,hc.age_band,
- p.day_no,hc.duration_days,p.business_date::text,p.session,p.due_at,p.effective_status,
+SELECT p.health_session_id::text,p.health_case_id::text,p.goat_id::text,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hc.disease_key,hc.disease_name,hc.age_band,
+ p.day_no,coalesce(hc.duration_days,0),p.business_date::text,p.session,p.due_at,p.effective_status,
  coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),
  coalesce(sc.step_count,0),coalesce(sc.medication_count,0),coalesce(sc.has_critical,false)
 FROM page p JOIN health_cases hc ON hc.health_case_id=p.health_case_id JOIN goats g ON g.goat_id=p.goat_id
@@ -313,7 +319,7 @@ SELECT count(*) FILTER(WHERE effective_status<>'canceled_death')::int,
  count(*) FILTER(WHERE effective_status='canceled_death')::int
 FROM (SELECT CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END effective_status
  FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id
- WHERE hs.tenant_id=$1::uuid AND hs.business_date=$2::date AND hc.age_band=$3
+ WHERE hs.tenant_id=$1::uuid AND hs.business_date=$2::date AND hc.age_band=$3 AND hs.status<>'canceled'
  AND ($4='' OR hc.disease_key=$4) AND ($5='' OR hc.park_id=nullif($5,'')::uuid)
  AND ($6='' OR hc.shed_id=nullif($6,'')::uuid) AND ($7='' OR hs.session=$7)) q`,
 		f.TenantID, f.Date, f.AgeBand, f.DiseaseKey, f.ParkID, f.ShedID, f.Session).Scan(&out.Total, &out.Due, &out.Scheduled, &out.InProgress, &out.Completed, &out.Rework, &out.Held, &out.CanceledDeath)
@@ -327,7 +333,7 @@ func (r *Repository) loadMarkers(ctx context.Context, f domain.ListFilter, out *
 	rows, err := r.pool.Query(ctx, `SELECT hs.business_date::text,count(*)::int FROM health_treatment_sessions hs
 JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id
 WHERE hs.tenant_id=$1::uuid AND hc.age_band=$2 AND hs.business_date >= $3::date AND hs.business_date < $4::date
-AND hs.status NOT IN ('completed','canceled_death') GROUP BY hs.business_date ORDER BY hs.business_date`, f.TenantID, f.AgeBand, from.Format("2006-01-02"), to.Format("2006-01-02"))
+AND hs.status NOT IN ('completed','canceled_death','canceled') GROUP BY hs.business_date ORDER BY hs.business_date`, f.TenantID, f.AgeBand, from.Format("2006-01-02"), to.Format("2006-01-02"))
 	if err != nil {
 		return err
 	}
@@ -382,7 +388,7 @@ func (r *Repository) GetWorkItem(ctx context.Context, tenantID, sessionID string
 	// string is composed in Go through the shared oploc.OperationalLocation.Display() primitive
 	// instead of a hand-rolled SQL CASE -- same output, evaluated once, and routed through the
 	// canonical composer per the operational-location convention.
-	err := r.pool.QueryRow(ctx, `SELECT hs.health_session_id::text,hc.health_case_id::text,hs.goat_id::text,g.display_id,hc.disease_key,hc.disease_name,hc.age_band,hs.day_no,hc.duration_days,hs.business_date::text,hs.session,hs.due_at,
+	err := r.pool.QueryRow(ctx, `SELECT hs.health_session_id::text,hc.health_case_id::text,hs.goat_id::text,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hc.disease_key,hc.disease_name,hc.age_band,hs.day_no,coalesce(hc.duration_days,0),hs.business_date::text,hs.session,hs.due_at,
 CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END,coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),
 COALESCE(part.partition_label, '')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id JOIN goats g ON g.goat_id=hs.goat_id
@@ -459,14 +465,54 @@ func (r *Repository) CompleteWorkItem(ctx context.Context, in domain.CompleteInp
 	var caseID, goatID, disease, status string
 	var completedAt *time.Time
 	var priorKey, priorFingerprint *string
-	err = tx.QueryRow(ctx, `SELECT hs.health_case_id::text,hs.goat_id::text,hc.disease_key,hs.status,hs.completed_at,hs.completion_idempotency_key,hs.completion_fingerprint
+	// enqueueCtx is the treatment-verification enqueue context, read in the SAME locked select so
+	// the item the verifier receives names exactly the row the completion wrote.
+	var enqueueCtx struct {
+		diseaseName, ageBand, goatDisplayID string
+		dayNo                               int
+		parkID, shedID, shedLabel           string
+		partitionLabel                      string
+	}
+	// projection-review: membership=the ONE locked health_treatment_sessions row; group_key=n/a
+	// (single row); join_cardinality=health_cases and goats join 1:1 on their keys, the locations
+	// join is 1:1 on (tenant_id, location_id), and the shed_partitions side is pre-aggregated to
+	// one row per shed (agree-or-go-bare, HAVING count(*)=1) exactly as GetWorkItem does, so the
+	// FOR UPDATE OF hs target can never fan out; pagination=n/a; scope=the session's own case.
+	err = tx.QueryRow(ctx, `SELECT hs.health_case_id::text,hs.goat_id::text,hc.disease_key,hs.status,hs.completed_at,hs.completion_idempotency_key,hs.completion_fingerprint,
+ hc.disease_name,hc.age_band,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hs.day_no,coalesce(hc.park_id::text,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),coalesce(part.partition_label,'')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.health_case_id=hs.health_case_id
-WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid FOR UPDATE`, in.TenantID, in.SessionID).Scan(&caseID, &goatID, &disease, &status, &completedAt, &priorKey, &priorFingerprint)
+JOIN goats g ON g.goat_id=hs.goat_id
+LEFT JOIN locations sl ON sl.tenant_id=hc.tenant_id AND sl.location_id=hc.shed_id
+LEFT JOIN (
+  SELECT sp.tenant_id, sp.shed_id, min(sp.partition_label) AS partition_label
+  FROM shed_partitions sp
+  WHERE sp.status = 'active'
+    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+  GROUP BY sp.tenant_id, sp.shed_id
+  HAVING count(*) = 1
+) part ON part.tenant_id = hc.tenant_id AND part.shed_id = hc.shed_id
+WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid FOR UPDATE OF hs`, in.TenantID, in.SessionID).Scan(
+		&caseID, &goatID, &disease, &status, &completedAt, &priorKey, &priorFingerprint,
+		&enqueueCtx.diseaseName, &enqueueCtx.ageBand, &enqueueCtx.goatDisplayID, &enqueueCtx.dayNo,
+		&enqueueCtx.parkID, &enqueueCtx.shedID, &enqueueCtx.shedLabel, &enqueueCtx.partitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.CompleteResult{}, ports.ErrNotFound
 	}
 	if err != nil {
 		return domain.CompleteResult{}, err
+	}
+	withEnqueueContext := func(res domain.CompleteResult) domain.CompleteResult {
+		res.CaseID = caseID
+		res.GoatID = goatID
+		res.GoatDisplayID = enqueueCtx.goatDisplayID
+		res.DiseaseName = enqueueCtx.diseaseName
+		res.AgeBand = enqueueCtx.ageBand
+		res.DayNo = enqueueCtx.dayNo
+		res.ParkID = enqueueCtx.parkID
+		res.ShedID = enqueueCtx.shedID
+		res.ShedLabel = enqueueCtx.shedLabel
+		res.PartitionLabel = enqueueCtx.partitionLabel
+		return res
 	}
 	if status == "completed" {
 		if priorKey != nil && *priorKey == in.IdempotencyKey && priorFingerprint != nil && *priorFingerprint == in.RequestFingerprint {
@@ -476,12 +522,17 @@ WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid FOR UPDATE`, in.Te
 				return domain.CompleteResult{}, err
 			}
 			committed = true
-			return domain.CompleteResult{SessionID: in.SessionID, Status: "completed", CompletedAt: *completedAt, MedicationCount: count, IdempotentReplay: true}, nil
+			return withEnqueueContext(domain.CompleteResult{SessionID: in.SessionID, Status: "completed", CompletedAt: *completedAt, MedicationCount: count, IdempotentReplay: true}), nil
 		}
 		return domain.CompleteResult{}, ports.ErrConflict
 	}
 	if status == "held_death_review" || status == "canceled_death" {
 		return domain.CompleteResult{}, ports.ErrGoatNotAlive
+	}
+	if status == "canceled" {
+		// Canceled by a clinical closure: the case is no longer open, so its remaining sessions
+		// cannot be worked. Distinct from the death states above -- the animal is alive.
+		return domain.CompleteResult{}, ports.ErrCaseNotOpen
 	}
 	now := r.now().UTC()
 	tag, err := tx.Exec(ctx, `UPDATE health_treatment_sessions SET status='completed',completed_by=$3::uuid,completed_at=$4,proof_ref=nullif($5,''),completion_idempotency_key=$6,completion_fingerprint=$7,row_version=row_version+1,updated_at=now() WHERE tenant_id=$1::uuid AND health_session_id=$2::uuid`, in.TenantID, in.SessionID, in.ActorID, now, in.ProofRef, in.IdempotencyKey, in.RequestFingerprint)
@@ -512,7 +563,156 @@ FROM health_session_steps ss WHERE ss.tenant_id=$1::uuid AND ss.health_session_i
 		return domain.CompleteResult{}, err
 	}
 	committed = true
-	return domain.CompleteResult{SessionID: in.SessionID, Status: "completed", CompletedAt: now, MedicationCount: medCount}, nil
+	return withEnqueueContext(domain.CompleteResult{SessionID: in.SessionID, Status: "completed", CompletedAt: now, MedicationCount: medCount}), nil
+}
+
+// CloseCase records the clinical outcome of an open case (recovered / referred / canceled) and
+// cancels its remaining unworked sessions in the same transaction. Post-hoc evidence review and the
+// death workflow are untouched: a held_death_review or closed_dead case refuses with ErrCaseNotOpen
+// because the death workflow owns it, and completed sessions keep their history and their pending
+// verification items -- a recovery does not un-happen the treatments already given.
+func (r *Repository) CloseCase(ctx context.Context, in domain.CloseCaseInput) (domain.CloseCaseResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.CloseCaseResult{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	var goatID, disease, status string
+	var closedAt *time.Time
+	var priorKey, priorFingerprint *string
+	err = tx.QueryRow(ctx, `SELECT goat_id::text,disease_key,status,closed_at,closure_idempotency_key,closure_fingerprint
+FROM health_cases WHERE tenant_id=$1::uuid AND health_case_id=$2::uuid FOR UPDATE`,
+		in.TenantID, in.CaseID).Scan(&goatID, &disease, &status, &closedAt, &priorKey, &priorFingerprint)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.CloseCaseResult{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return domain.CloseCaseResult{}, err
+	}
+	if priorKey != nil && *priorKey == in.IdempotencyKey {
+		if priorFingerprint == nil || *priorFingerprint != in.RequestFingerprint {
+			return domain.CloseCaseResult{}, ports.ErrConflict
+		}
+		var canceled int
+		_ = tx.QueryRow(ctx, `SELECT count(*) FROM health_treatment_sessions WHERE tenant_id=$1::uuid AND health_case_id=$2::uuid AND status='canceled'`,
+			in.TenantID, in.CaseID).Scan(&canceled)
+		if err := tx.Commit(ctx); err != nil {
+			return domain.CloseCaseResult{}, err
+		}
+		committed = true
+		at := time.Time{}
+		if closedAt != nil {
+			at = *closedAt
+		}
+		return domain.CloseCaseResult{CaseID: in.CaseID, Status: status, ClosedAt: at, CanceledSessionCount: canceled, IdempotentReplay: true}, nil
+	}
+	switch status {
+	case "active", "continued", "referred":
+		// open -- closable. 'referred' stays closable so a referred animal can later be
+		// closed 'recovered' (the death-workflow SQL has always treated referred as open).
+	default:
+		return domain.CloseCaseResult{}, ports.ErrCaseNotOpen
+	}
+	now := r.now().UTC()
+	tag, err := tx.Exec(ctx, `UPDATE health_cases SET status=$3,closed_by=$4::uuid,closed_at=$5,close_note=nullif($6,''),
+closure_idempotency_key=$7,closure_fingerprint=$8,row_version=row_version+1,updated_at=now()
+WHERE tenant_id=$1::uuid AND health_case_id=$2::uuid`,
+		in.TenantID, in.CaseID, in.Outcome, in.ActorID, now, in.Note, in.IdempotencyKey, in.RequestFingerprint)
+	if err != nil {
+		return domain.CloseCaseResult{}, fmt.Errorf("health: close case: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return domain.CloseCaseResult{}, ports.ErrConflict
+	}
+	tag, err = tx.Exec(ctx, `UPDATE health_treatment_sessions SET status='canceled',row_version=row_version+1,updated_at=now()
+WHERE tenant_id=$1::uuid AND health_case_id=$2::uuid AND status IN ('scheduled','due','in_progress','rework')`,
+		in.TenantID, in.CaseID)
+	if err != nil {
+		return domain.CloseCaseResult{}, fmt.Errorf("health: cancel remaining sessions: %w", err)
+	}
+	canceled := int(tag.RowsAffected())
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{TenantID: in.TenantID, ActorID: in.ActorID, ActorType: "operator",
+		Action: "health.case.closed", ResourceType: "health_case", ResourceID: in.CaseID, ScopeType: "goat", ScopeID: goatID,
+		AfterState: map[string]any{"outcome": in.Outcome, "canceled_sessions": canceled}, TraceID: in.TraceID}); err != nil {
+		return domain.CloseCaseResult{}, err
+	}
+	if err := insertHealthOutbox(ctx, tx, in.TenantID, in.ActorID, "health.case.closed", in.CaseID, goatID, in.TraceID,
+		map[string]any{"case_id": in.CaseID, "goat_id": goatID, "disease_key": disease, "outcome": in.Outcome, "canceled_sessions": canceled}); err != nil {
+		return domain.CloseCaseResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.CloseCaseResult{}, err
+	}
+	committed = true
+	return domain.CloseCaseResult{CaseID: in.CaseID, Status: in.Outcome, ClosedAt: now, CanceledSessionCount: canceled}, nil
+}
+
+// ApplyVerifiedTreatment stamps the verifier's approve onto the completed session. Idempotent: a
+// redelivered verdict, or one racing a closure-rework cycle, matches zero rows and is a no-op --
+// re-stamping is never worth failing a durable-bus delivery over.
+func (r *Repository) ApplyVerifiedTreatment(ctx context.Context, tenantID, sessionID, verifiedBy string, verifiedAt time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `UPDATE health_treatment_sessions
+SET verified_by=nullif($3,'')::uuid,verified_at=$4,row_version=row_version+1,updated_at=now()
+WHERE tenant_id=$1::uuid AND health_session_id=$2::uuid AND status='completed' AND verified_at IS NULL`,
+		tenantID, sessionID, verifiedBy, verifiedAt.UTC())
+	if err != nil {
+		return fmt.Errorf("health: apply verified treatment: %w", err)
+	}
+	return nil
+}
+
+// BounceTreatmentForRework applies the verifier's reject: the completed session returns to the
+// 'rework' status (the operator re-does and re-films it; re-completion goes through the ordinary
+// complete path and enqueues a replacement review item keyed on the new proof). Completion history
+// and medicine administrations are kept -- evidence review never rolls back a treatment already
+// given. Idempotent like the approve half.
+func (r *Repository) BounceTreatmentForRework(ctx context.Context, tenantID, sessionID, verifiedBy, reason string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	var caseID, goatID string
+	err = tx.QueryRow(ctx, `UPDATE health_treatment_sessions
+SET status='rework',verified_by=NULL,verified_at=NULL,row_version=row_version+1,updated_at=now()
+WHERE tenant_id=$1::uuid AND health_session_id=$2::uuid AND status='completed'
+RETURNING health_case_id::text,goat_id::text`, tenantID, sessionID).Scan(&caseID, &goatID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("health: bounce treatment for rework: %w", err)
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{TenantID: tenantID, ActorID: verifiedBy, ActorType: "operator",
+		Action: "health.treatment.rework", ResourceType: "health_case", ResourceID: caseID, ScopeType: "goat", ScopeID: goatID,
+		AfterState: map[string]any{"health_session_id": sessionID, "reason": reason}}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (r *Repository) HoldForDeathReview(ctx context.Context, tenantID, goatID string) error {
@@ -595,17 +795,34 @@ func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, even
 	return nil
 }
 
+// aggregate_type is a PARAMETER, not a literal. validate_outbox_event_tenant()
+// dispatches on this column to decide which table the aggregate must exist in,
+// so a hardcoded type would send every Health event to the health_cases check --
+// which is exactly what rejected the first diagnosis-run event.
 const insertHealthOutboxSQL = `INSERT INTO outbox_messages (tenant_id,event_id,event_type,schema_version,aggregate_type,aggregate_id,topic,payload,headers,idempotency_key,trace_id,status,next_attempt_at)
-VALUES ($1::uuid,$2::uuid,$3,'1.0.0','health_case',$4::uuid,$5,$6::jsonb,$7::jsonb,$8,$9,'pending',now()) ON CONFLICT DO NOTHING`
+VALUES ($1::uuid,$2::uuid,$3,'1.0.0',$4,$5::uuid,$6,$7::jsonb,$8::jsonb,$9,$10,'pending',now()) ON CONFLICT DO NOTHING`
 
+// healthOutboxArgs builds a health_case-aggregated outbox row. Health also emits
+// diagnosis-run events, which carry a different aggregate; see
+// healthOutboxArgsFor.
 func healthOutboxArgs(tenantID, actorID, eventType, caseID, goatID, traceID string, payload map[string]any) ([]any, error) {
+	return healthOutboxArgsFor("health_case", tenantID, actorID, eventType, caseID, goatID, traceID, payload)
+}
+
+// healthOutboxArgsFor builds an outbox row for one of Health's aggregate types.
+//
+// The aggregate type is explicit because validate_outbox_event_tenant() checks
+// the aggregate EXISTS in the table that type names. Stamping the wrong type
+// makes the row point at nothing, and the trigger rejects it rather than letting
+// a dangling event reach a consumer.
+func healthOutboxArgsFor(aggregateType, tenantID, actorID, eventType, caseID, goatID, traceID string, payload map[string]any) ([]any, error) {
 	eventID := platformoutbox.DeterministicUUID(eventType + ":" + tenantID + ":" + caseID + ":" + fmt.Sprint(payload["health_session_id"]))
 	now := time.Now().UTC()
 	idem := eventType + ":" + caseID + ":" + fmt.Sprint(payload["health_session_id"])
 	envelope := map[string]any{"event_id": eventID, "event_type": eventType, "schema_version": "1.0.0", "schema_ref": "contracts/jsonschema/domain-event-envelope.schema.json#" + eventType,
-		"aggregate_type": "health_case", "aggregate_id": caseID, "occurred_at": now.Format(time.RFC3339Nano), "recorded_at": now.Format(time.RFC3339Nano),
+		"aggregate_type": aggregateType, "aggregate_id": caseID, "occurred_at": now.Format(time.RFC3339Nano), "recorded_at": now.Format(time.RFC3339Nano),
 		"producer": map[string]any{"module": "health", "service": "goatos-api"}, "idempotency_key": idem,
-		"actor":        map[string]any{"actor_type": map[bool]string{true: "system_rule", false: "operator"}[actorID == ""], "actor_id": nil, "actor_ref": nil},
+		"actor":        map[string]any{"actor_type": map[bool]string{true: "system_rule", false: "human"}[actorID == ""], "actor_id": nil, "actor_ref": nil},
 		"subject_type": "goat", "subject_id": goatID, "visibility_scope": map[string]any{"tenant_id": tenantID}, "evidence_refs": []any{}, "payload": payload, "trace_id": traceID}
 	if actorID != "" {
 		envelope["actor"].(map[string]any)["actor_id"] = actorID
@@ -615,11 +832,15 @@ func healthOutboxArgs(tenantID, actorID, eventType, caseID, goatID, traceID stri
 		return nil, err
 	}
 	headers, _ := json.Marshal(map[string]any{"content_type": "application/json"})
-	return []any{tenantID, eventID, eventType, caseID, healthTopic, body, headers, idem, traceID}, nil
+	return []any{tenantID, eventID, eventType, aggregateType, caseID, healthTopic, body, headers, idem, traceID}, nil
 }
 
 func insertHealthOutbox(ctx context.Context, tx pgx.Tx, tenantID, actorID, eventType, caseID, goatID, traceID string, payload map[string]any) error {
-	args, err := healthOutboxArgs(tenantID, actorID, eventType, caseID, goatID, traceID, payload)
+	return insertHealthOutboxFor(ctx, tx, "health_case", tenantID, actorID, eventType, caseID, goatID, traceID, payload)
+}
+
+func insertHealthOutboxFor(ctx context.Context, tx pgx.Tx, aggregateType, tenantID, actorID, eventType, caseID, goatID, traceID string, payload map[string]any) error {
+	args, err := healthOutboxArgsFor(aggregateType, tenantID, actorID, eventType, caseID, goatID, traceID, payload)
 	if err != nil {
 		return err
 	}

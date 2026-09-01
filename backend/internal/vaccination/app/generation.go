@@ -1,4 +1,4 @@
-// seed-fixture-guard:ignore: this generator change reconciles and supersedes EXISTING obligations,
+// seed-fixture-guard:ignore: this generator change reconciles and supersedes EXISTING obligations and event-table anchors,
 // uses already-seeded procurement purpose data, and reads no new seed source. It adds no seed input,
 // changes no fixture column, and moves no canonical seed schema, so the fixture manifest, the
 // source-CSV validators and the seed-source date contract have nothing to record. The migrations it
@@ -84,6 +84,7 @@ type ObligationWriter interface {
 	RealignOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, dueAt time.Time, windowEnd *time.Time, occurredAt time.Time) (obldomain.ObligationRef, bool, error)
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
+	CancelOpenVaccinationObligationsForGoatDose(ctx context.Context, tenantID, goatID, doseCode, reason string, occurredAt time.Time) (int, error)
 	CancelOpenVaccinationObligationsForExitedGoats(ctx context.Context, tenantID, reason string, occurredAt time.Time) (int, error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
 	// Bounded pre-filter for plan replacement: which of these animals still hold open work
@@ -99,6 +100,7 @@ type ObligationWriter interface {
 	// NextSuccessorSuffix computes the next free numeric successor suffix for a base idempotency key
 	// in one bounded query (R50-011), avoiding O(N) probe round trips on large collision histories.
 	NextSuccessorSuffix(ctx context.Context, tenantID, baseKey string) (int, error)
+	CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx context.Context, tenantID string, goatIDs []string, occurredAt time.Time) (int, error)
 }
 
 // ManualVaccineAnchorReader is implemented by the production obligation store.
@@ -108,7 +110,7 @@ type ObligationWriter interface {
 // recreate earlier work. Repeat rules still run from accepted history after the
 // anchored dose is verified.
 type ManualVaccineAnchorReader interface {
-	ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string) (map[string]obldomain.ObligationRef, error)
+	ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string, asOf time.Time) (map[string]obldomain.ObligationRef, error)
 }
 
 // GenerationRunRecorder persists operator-visible generation status. It is optional for unit
@@ -151,6 +153,7 @@ type cachedVersionPlan struct {
 	eligibility    genEligibility
 	policies       genVersionPolicies
 	vaccineProfile vaccineProfile
+	anchors        genAnchorConfig
 }
 
 type goatGenerationPlan struct {
@@ -162,6 +165,7 @@ type goatGenerationPlan struct {
 	eligibility    genEligibility
 	policies       genVersionPolicies
 	vaccineProfile vaccineProfile
+	anchors        genAnchorConfig
 }
 
 type trustedEvidenceLookup struct {
@@ -381,11 +385,27 @@ type genDSL struct {
 	PregnancyPolicy     genPregnancyPolicy     `json:"pregnancy_policy"`
 	RecoveryPolicy      genRecoveryPolicy      `json:"recovery_policy"`
 	MissedDosePolicy    genMissedDosePolicy    `json:"missed_dose_policy"`
+	AnchorConfig        genAnchorConfig        `json:"anchor_config"`
 }
 
 type genRuleMetadata struct {
 	Eligibility json.RawMessage `json:"eligibility"`
 	Vaccine     genVaccineMeta  `json:"vaccine"`
+}
+
+type genAnchorConfig struct {
+	Rules []genAnchorRule `json:"rules"`
+}
+
+type genAnchorRule struct {
+	VaccineCode           string          `json:"vaccine_code"`
+	DoseCode              string          `json:"dose_code"`
+	AnchorDate            string          `json:"anchor_date"`
+	ScopeType             string          `json:"scope_type"`
+	ScopePayload          json.RawMessage `json:"scope_payload"`
+	SuppressBeforeAnchor  *bool           `json:"suppress_before_anchor"`
+	ChainFutureFromAnchor *bool           `json:"chain_future_from_anchor"`
+	EnforceAgeEligibility *bool           `json:"enforce_age_eligibility"`
 }
 
 func versionPoliciesFromDSL(dsl genDSL) genVersionPolicies {
@@ -544,12 +564,10 @@ func (s *GenerationService) GenerateForVersion(ctx context.Context, tenantID, ve
 	return s.generateForVersion(ctx, tenantID, versionID, asOf, generationOptions{})
 }
 
+// seed-fixture-guard:ignore: future manual anchors are runtime scheduling commands; no HRMS source rows or fixture inputs change
 // GenerateManualCampaignForVersion materializes a deliberate campaign trigger. It is separate from
 // normal publish/backfill generation so manual_campaign rules cannot fire accidentally.
 func (s *GenerationService) GenerateManualCampaignForVersion(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time) (domain.GenerateResult, error) {
-	if manualCampaignAsOfInFuture(asOf) {
-		return domain.GenerateResult{}, domain.ErrFutureManualCampaign
-	}
 	return s.generateForVersion(ctx, tenantID, versionID, asOf, generationOptions{
 		ManualCampaignID: campaignID,
 	})
@@ -615,6 +633,9 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
 			return res, err
 		}
+		if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, activeGoats, asOf); err != nil {
+			return res, err
+		}
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
 		for _, g := range activeGoats {
 			for _, versionID := range effectiveVersionsByPark[generationParkCacheKey(g.ParkID)] {
@@ -631,6 +652,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 					eligibility:    p.eligibility,
 					policies:       p.policies,
 					vaccineProfile: p.vaccineProfile,
+					anchors:        p.anchors,
 				})
 			}
 		}
@@ -645,6 +667,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 		return res, err
 	}
 	runOpts := baseOpts
+	runOpts.anchorDueByGoatRule = anchorDueOverrides(allPlans, asOf)
 	runOpts.campaignDueByGoat, runOpts.cohortAlignedCampaignByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
 	if err != nil {
 		return res, err
@@ -668,6 +691,9 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 		if runOpts.heartbeat != nil && (i+1)%100 == 0 {
 			runOpts.heartbeat(ctx)
 		}
+	}
+	if err := s.suppressOpenWorkBeforeAnchorsForPlans(ctx, tenantID, allPlans, asOf); err != nil {
+		return res, err
 	}
 	if res.FailedGoats > 0 {
 		return res, errGenerationPartialFailures
@@ -815,6 +841,7 @@ func cacheVersionPlan(versionID string, v protodomain.Version, rules []protodoma
 		eligibility:    dsl.Eligibility,
 		policies:       versionPoliciesFromDSL(dsl),
 		vaccineProfile: vaccineProfileFromDSL(dsl),
+		anchors:        dsl.AnchorConfig,
 	}
 	return nil
 }
@@ -845,18 +872,11 @@ func (s *GenerationService) GenerateForVersionWithRun(ctx context.Context, tenan
 // HTTP Idempotency-Key as the durable command key. Exact retries return the same run/result without
 // deriving a fresh as_of timestamp or materializing duplicate manual obligations.
 func (s *GenerationService) GenerateManualCampaignForVersionWithHTTPRun(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time, idempotencyKey, requestHash string) (domain.GenerationRun, domain.GenerateResult, error) {
-	if manualCampaignAsOfInFuture(asOf) {
-		return domain.GenerationRun{}, domain.GenerateResult{}, domain.ErrFutureManualCampaign
-	}
 	return s.generateForVersionWithRun(ctx, tenantID, versionID, asOf, "manual_campaign", manualCampaignTriggerRef(campaignID, asOf), generationOptions{
 		ManualCampaignID:  campaignID,
 		RunIDempotencyKey: idempotencyKey,
 		RunRequestHash:    requestHash,
 	})
-}
-
-func manualCampaignAsOfInFuture(asOf time.Time) bool {
-	return !asOf.IsZero() && asOf.After(time.Now())
 }
 
 func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenantID, versionID string, asOf time.Time, triggerType, triggerRef string, opts generationOptions) (domain.GenerationRun, domain.GenerateResult, error) {
@@ -914,6 +934,7 @@ type generationOptions struct {
 	RunRequestHash              string
 	campaignDueByGoat           map[string]time.Time
 	cohortAlignedCampaignByGoat map[string]bool
+	anchorDueByGoatRule         map[string]time.Time
 	// healthRecoveryAlign enables sick/ICU/quarantine recovery replanning: align to a nearby planned
 	// drive within recovery_policy.max_nearby_drive_align_days (default 7), else micro-drive now.
 	healthRecoveryAlign bool
@@ -927,12 +948,136 @@ func campaignDueGoatKey(versionID, ruleID, goatID string) string {
 	return strings.TrimSpace(versionID) + "\x00" + strings.TrimSpace(ruleID) + "\x00" + strings.TrimSpace(goatID)
 }
 
+func anchorDueGoatRuleKey(versionID, ruleID, goatID string) string {
+	return strings.TrimSpace(versionID) + "\x00" + strings.TrimSpace(ruleID) + "\x00" + strings.TrimSpace(goatID)
+}
+
 func adultCampaignCohortKey(versionID, parkID, vaccineCode string) string {
 	return strings.TrimSpace(versionID) + "\x00" + strings.TrimSpace(parkID) + "\x00" + strings.ToLower(strings.TrimSpace(vaccineCode))
 }
 
 func adultCampaignStart(asOf time.Time) time.Time {
 	return businessDayStart(asOf).AddDate(0, 0, 1)
+}
+
+func anchorDueOverrides(plans []goatGenerationPlan, asOf time.Time) map[string]time.Time {
+	out := make(map[string]time.Time)
+	for _, plan := range plans {
+		if len(plan.anchors.Rules) == 0 {
+			continue
+		}
+		for _, rule := range plan.rules {
+			ruleEligibility, ruleVaccine, err := ruleGenerationContext(rule, plan.eligibility, plan.vaccineProfile)
+			if err != nil {
+				continue
+			}
+			anchor, ok := matchingConfigAnchor(plan.anchors, rule, ruleVaccine, plan.goat, asOf)
+			if !ok {
+				continue
+			}
+			if !goatMatchesEligibility(plan.goat, ruleEligibility, plan.policies.Pregnancy, asOf) {
+				continue
+			}
+			if anchor.enforceAge() && rule.TriggerType == "birth_age" {
+				if plan.goat.DOB == nil || businessDayStart(*plan.goat.DOB).AddDate(0, 0, int(rule.OffsetDays)).After(anchor.date) {
+					continue
+				}
+			}
+			out[anchorDueGoatRuleKey(plan.versionID, rule.RuleID, plan.goat.GoatID)] = anchor.date
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+type matchedConfigAnchor struct {
+	date time.Time
+	genAnchorRule
+}
+
+func matchingConfigAnchor(config genAnchorConfig, rule protodomain.Rule, vaccine vaccineProfile, goat domain.EligibleGoat, asOf time.Time) (matchedConfigAnchor, bool) {
+	for _, anchor := range config.Rules {
+		anchorDose := strings.TrimSpace(anchor.DoseCode)
+		if anchorDose != "" && !strings.EqualFold(anchorDose, strings.TrimSpace(rule.DoseCode)) {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(anchor.VaccineCode), strings.TrimSpace(vaccine.Code)) {
+			continue
+		}
+		date, err := time.Parse("2006-01-02", strings.TrimSpace(anchor.AnchorDate))
+		if err != nil {
+			continue
+		}
+		date = businessDayStart(date)
+		// Config anchors schedule real work. Once the date has passed, completed operator evidence
+		// owns future chaining; do not mint stale "as if completed" obligations from config alone.
+		if date.Before(businessDayStart(asOf)) {
+			continue
+		}
+		if !anchor.scopeMatches(goat) {
+			continue
+		}
+		return matchedConfigAnchor{date: date, genAnchorRule: anchor}, true
+	}
+	return matchedConfigAnchor{}, false
+}
+
+func (a genAnchorRule) enforceAge() bool {
+	return a.EnforceAgeEligibility == nil || *a.EnforceAgeEligibility
+}
+
+func (a genAnchorRule) scopeMatches(g domain.EligibleGoat) bool {
+	scopeType := strings.TrimSpace(a.ScopeType)
+	if scopeType == "" {
+		scopeType = "tenant"
+	}
+	switch scopeType {
+	case "tenant":
+		return true
+	case "animal_set":
+		var payload struct {
+			AnimalIDs []string `json:"animal_ids"`
+		}
+		if err := json.Unmarshal(a.ScopePayload, &payload); err != nil {
+			return false
+		}
+		for _, id := range payload.AnimalIDs {
+			if strings.TrimSpace(id) == g.GoatID {
+				return true
+			}
+		}
+		return false
+	case "park":
+		var payload struct {
+			ParkID string `json:"park_id"`
+		}
+		if err := json.Unmarshal(a.ScopePayload, &payload); err != nil {
+			return false
+		}
+		return strings.TrimSpace(payload.ParkID) == strings.TrimSpace(g.ParkID)
+	case "shed":
+		var payload struct {
+			ShedID string `json:"shed_id"`
+		}
+		if err := json.Unmarshal(a.ScopePayload, &payload); err != nil {
+			return false
+		}
+		return strings.TrimSpace(payload.ShedID) == strings.TrimSpace(g.ShedID)
+	case "partition":
+		var payload struct {
+			ShedID         string `json:"shed_id"`
+			PartitionLabel string `json:"partition_label"`
+		}
+		if err := json.Unmarshal(a.ScopePayload, &payload); err != nil {
+			return false
+		}
+		return strings.TrimSpace(payload.ShedID) == strings.TrimSpace(g.ShedID) &&
+			strings.EqualFold(strings.TrimSpace(payload.PartitionLabel), strings.TrimSpace(g.PartitionLabel))
+	default:
+		return false
+	}
 }
 
 func businessDayEnd(asOf time.Time) time.Time {
@@ -1246,6 +1391,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
 			return res, err
 		}
+		if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, activeGoats, asOf); err != nil {
+			return res, err
+		}
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
 		for _, g := range activeGoats {
 			if !goatMatchesEligibility(g, elig, policies.Pregnancy, asOf) {
@@ -1271,6 +1419,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 				eligibility:    elig,
 				policies:       policies,
 				vaccineProfile: vaccineProf,
+				anchors:        dsl.AnchorConfig,
 			})
 		}
 		allPlans = append(allPlans, pagePlans...)
@@ -1287,6 +1436,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		return res, err
 	}
 	runOpts := opts
+	runOpts.anchorDueByGoatRule = anchorDueOverrides(allPlans, asOf)
 	runOpts.campaignDueByGoat, runOpts.cohortAlignedCampaignByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
 	if err != nil {
 		return res, err
@@ -1310,6 +1460,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		if runOpts.heartbeat != nil && (i+1)%100 == 0 {
 			runOpts.heartbeat(ctx)
 		}
+	}
+	if err := s.suppressOpenWorkBeforeAnchorsForPlans(ctx, tenantID, allPlans, asOf); err != nil {
+		return res, err
 	}
 	if res.FailedGoats > 0 {
 		return res, errGenerationPartialFailures
@@ -1541,7 +1694,7 @@ func (s *GenerationService) recentVaccineAdminsForPlans(ctx context.Context, ten
 func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf, vaccineHistory)
-	manualAnchors, err := s.manualVaccineAnchorsForSeedRules(ctx, tenantID, g.GoatID, rules, versionEligibility, vaccineProf)
+	manualAnchors, err := s.manualVaccineAnchorsForSeedRules(ctx, tenantID, g.GoatID, rules, versionEligibility, vaccineProf, asOf)
 	if err != nil {
 		return err
 	}
@@ -1556,7 +1709,42 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !goatMatchesEligibility(g, ruleEligibility, policies.Pregnancy, asOf) {
 			continue
 		}
+		if adultHistorySuppressesKidSeed(rule, ruleVaccine, vaccineHistory) {
+			// seed-fixture-guard:ignore: reconciles generated obligations against accepted/manual-anchor history without changing HRMS source fixture input.
+			res.SuppressedByTrustedHistory++
+			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_history_outranks_primary_seed", asOf); err != nil {
+				return err
+			}
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") && isKidCourseRule(rule) {
+			if courseDue, found, err := primaryCourseContinuationDueFromHistory(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path, vaccineHistory); err != nil {
+				return err
+			} else if !found && courseDue.IsZero() {
+				if _, _, hasPrevious, err := previousPrimaryCourseRuleAnyPath(rule, ruleVaccine, rules, versionEligibility, vaccineProf); err != nil {
+					return err
+				} else if hasPrevious {
+					// Runtime reconciliation: a stale booster/follow-up without the prior dose must retire
+					// before schedule-path cleanup can hide the real reason.
+					if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_primary_course_previous_dose_missing", asOf); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+		}
 		if !ruleMatchesSchedulePath(rule, path) {
+			if staleSeedSuppressedAcrossSchedulePath(rule, ruleVaccine, path, vaccineHistory) {
+				res.SuppressedByTrustedHistory++
+				if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_history_outranks_primary_seed", asOf); err != nil {
+					return err
+				}
+			} else if isPrimaryCourseRule(rule) {
+				// seed-fixture-guard:ignore: runtime reconciliation only; a rule that no longer belongs to this animal's schedule path must retire its stale open work.
+				if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_rule_no_longer_matches_schedule_path", asOf); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		procPurposeDue, procPurposeOK := procurementPurposePrimaryDue(g, rule, ruleVaccine, policies.Procurement)
@@ -1602,10 +1790,41 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			baseDue = courseDue
 			ok = true
 		} else {
+			if strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") && isKidCourseRule(rule) {
+				// seed-fixture-guard:ignore: runtime booster gating only; HRMS seed input schema/data is unchanged.
+				if _, _, hasPrevious, err := previousPrimaryCourseRule(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path); err != nil {
+					return err
+				} else if hasPrevious {
+					// seed-fixture-guard:ignore: runtime reconciliation only; booster/follow-up rows without the prior course dose are invalid open work.
+					if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_primary_course_previous_dose_missing", asOf); err != nil {
+						return err
+					}
+					continue
+				}
+			}
 			baseDue, ok, skip = dueAt(versionID, rule, g, asOf, opts, policies)
+			if ok && primarySeedSuppressedByVaccineHistory(rule, ruleVaccine, vaccineHistory) {
+				res.SuppressedByTrustedHistory++
+				if staleKey := primarySeedObligationKey(tenantID, versionID, rule, g, baseDue); staleKey != "" {
+					if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "vaccine_history_outranks_primary_seed", asOf); err != nil {
+						return err
+					}
+				}
+				if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_history_outranks_primary_seed", asOf); err != nil {
+					return err
+				}
+				continue
+			}
 		}
 		if ok && !procPurposeDue.IsZero() {
 			baseDue = procPurposeDue
+		}
+		if anchorDue, found := opts.anchorDueByGoatRule[anchorDueGoatRuleKey(versionID, rule.RuleID, g.GoatID)]; found {
+			baseDue = anchorDue
+			ok = true
+			skip = false
+			anchorCatchUpKey = ""
+			historyAnchor = nil
 		}
 		if skip {
 			trusted, err := s.hasTrustedCompletionEvidence(ctx, tenantID, versionID, rule, g, asOf, asOf, trustedLookup)
@@ -1665,7 +1884,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// deferring merely because DOB/entry-date is unknown. due=asOf lets
 				// the normal missed-dose, nearby-drive, and cross-vaccine-gap
 				// machinery below place it correctly — subject to the same
-				// ≤2-per-visit / live-spacing / health-pregnancy gates as any other
+				// max-shots-per-visit / live-spacing / health-pregnancy gates as any other
 				// obligation — never a fabricated kid_12w/kid_16w deferral.
 				//
 				// The materialized obligation uses the SAME stable (date-independent)
@@ -1722,6 +1941,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if manualAnchorSuppressesSeedRule(rule) {
 			if _, found := manualAnchors[vaccineAnchorLookupKey(ruleVaccine.Code)]; found {
 				res.SuppressedByTrustedHistory++
+				if !strings.EqualFold(strings.TrimSpace(rule.TriggerType), "manual_campaign") {
+					if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "manual_anchor_outranks_primary_seed", asOf); err != nil {
+						return err
+					}
+				}
 				continue
 			}
 		}
@@ -1783,6 +2007,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		// two co-due live vaccines (e.g., PPR and Goat Pox both due today) are spaced LiveToLiveGapDays
 		// apart, not left same-day because neither is in the other's history yet.
 		due = applyCrossVaccineGapFloorFromPending(due, ruleVaccine, pending, policies.Compatibility)
+		due = floorGeneratedOpenWorkToToday(due, asOf)
 		if skipNonFutureOpenWork(rule, due, asOf, policies.MissedDose) {
 			continue
 		}
@@ -2262,6 +2487,9 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 	if _, err := s.obl.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, goatID, versionIDs, "version_no_longer_effective_after_recheck", asOf); err != nil {
 		return res, err
 	}
+	if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, []domain.EligibleGoat{g}, asOf); err != nil {
+		return res, err
+	}
 	pagePlans := make([]goatGenerationPlan, 0, len(versionIDs))
 	plans := make(map[string]cachedVersionPlan, len(versionIDs))
 	if err := s.loadVersionPlans(ctx, tenantID, versionIDs, plans); err != nil {
@@ -2291,6 +2519,7 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 		return res, err
 	}
 	runOpts := opts
+	runOpts.anchorDueByGoatRule = anchorDueOverrides(pagePlans, asOf)
 	runOpts.campaignDueByGoat, runOpts.cohortAlignedCampaignByGoat, err = campaignDueOverrides(pagePlans, asOf, vaccineHistoryByGoat)
 	if err != nil {
 		return res, err
@@ -2307,7 +2536,64 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 			return res, err
 		}
 	}
+	if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, []domain.EligibleGoat{g}, asOf); err != nil {
+		return res, err
+	}
 	return res, nil
+}
+
+func (s *GenerationService) suppressOpenWorkBeforeAnchorsForPlans(ctx context.Context, tenantID string, plans []goatGenerationPlan, asOf time.Time) error {
+	goats := activeGenerationGoatsForPlans(plans)
+	for start := 0; start < len(goats); start += int(s.page) {
+		end := start + int(s.page)
+		if end > len(goats) {
+			end = len(goats)
+		}
+		if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, goats[start:end], asOf); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func activeGenerationGoatsForPlans(plans []goatGenerationPlan) []domain.EligibleGoat {
+	capHint := len(plans)
+	if capHint > 1024 {
+		capHint = 1024
+	}
+	out := make([]domain.EligibleGoat, 0, capHint)
+	seen := make(map[string]struct{}, len(plans))
+	for _, p := range plans {
+		if _, ok := seen[p.goat.GoatID]; ok {
+			continue
+		}
+		seen[p.goat.GoatID] = struct{}{}
+		out = append(out, p.goat)
+	}
+	return out
+}
+
+func (s *GenerationService) suppressOpenWorkBeforeAnchors(ctx context.Context, tenantID string, goats []domain.EligibleGoat, asOf time.Time) error {
+	if len(goats) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(goats))
+	seen := make(map[string]struct{}, len(goats))
+	for _, goat := range goats {
+		if strings.TrimSpace(goat.GoatID) == "" {
+			continue
+		}
+		if _, exists := seen[goat.GoatID]; exists {
+			continue
+		}
+		seen[goat.GoatID] = struct{}{}
+		ids = append(ids, goat.GoatID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.obl.CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx, tenantID, ids, asOf)
+	return err
 }
 
 func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, ruleVaccine vaccineProfile, g domain.EligibleGoat, asOf time.Time, recovery genRecoveryPolicy, compatibility genCompatibilityPolicy, vaccineHistory []domain.RecentVaccineAdministration) (*obldomain.RecoveryReschedule, error) {
@@ -2436,6 +2722,14 @@ func skipNonFutureOpenWork(rule protodomain.Rule, due, asOf time.Time, policy ge
 	return !businessDayStart(due).After(businessDayStart(asOf))
 }
 
+func floorGeneratedOpenWorkToToday(due, asOf time.Time) time.Time {
+	today := businessDayStart(asOf)
+	if businessDayStart(due).Before(today) {
+		return today
+	}
+	return due
+}
+
 func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time, nearbyDriveDate *time.Time, policy genMissedDosePolicy) (time.Time, bool) {
 	adjusted, _, skip := applyMissedDosePolicy(rule, due, asOf, nearbyDriveDate, policy)
 	if skip {
@@ -2449,6 +2743,88 @@ func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time, nearbyDriveD
 
 func obligationKeyDue(rule protodomain.Rule, baseDue, materializedDue time.Time) time.Time {
 	return baseDue
+}
+
+func primarySeedSuppressedByVaccineHistory(rule protodomain.Rule, vaccine vaccineProfile, history []domain.RecentVaccineAdministration) bool {
+	if !isPrimaryCourseRule(rule) {
+		return false
+	}
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), strings.TrimSpace(vaccine.Code)) {
+			continue
+		}
+		ruleDose := strings.ToLower(strings.TrimSpace(rule.DoseCode))
+		adminDose := strings.ToLower(strings.TrimSpace(admin.DoseCode))
+		if rule.Sequence > 0 && admin.Sequence == rule.Sequence {
+			return true
+		}
+		if strings.Contains(adminDose, "adult") && strings.Contains(ruleDose, "kid") {
+			return true
+		}
+	}
+	return false
+}
+
+func adultHistorySuppressesKidSeed(rule protodomain.Rule, vaccine vaccineProfile, history []domain.RecentVaccineAdministration) bool {
+	if !isPrimaryCourseRule(rule) || !strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") {
+		return false
+	}
+	if !strings.Contains(strings.ToLower(strings.TrimSpace(rule.DoseCode)), "kid") {
+		return false
+	}
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), strings.TrimSpace(vaccine.Code)) {
+			continue
+		}
+		if strings.Contains(strings.ToLower(strings.TrimSpace(admin.DoseCode)), "adult") {
+			return true
+		}
+	}
+	return false
+}
+
+func staleSeedSuppressedAcrossSchedulePath(rule protodomain.Rule, vaccine vaccineProfile, currentPath string, history []domain.RecentVaccineAdministration) bool {
+	if currentPath == schedulePathKid || !isPrimaryCourseRule(rule) {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") {
+		return false
+	}
+	ruleDose := strings.ToLower(strings.TrimSpace(rule.DoseCode))
+	if !strings.Contains(ruleDose, "kid") {
+		return false
+	}
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), strings.TrimSpace(vaccine.Code)) {
+			continue
+		}
+		adminDose := strings.ToLower(strings.TrimSpace(admin.DoseCode))
+		if strings.Contains(adminDose, "adult") {
+			return true
+		}
+		if admin.Sequence > 0 && rule.Sequence > 0 && admin.Sequence <= rule.Sequence {
+			return true
+		}
+	}
+	return false
+}
+
+func primarySeedObligationKey(tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, baseDue time.Time) string {
+	keyDue := obligationKeyDue(rule, baseDue, baseDue)
+	keyDueToken := keyDue.UTC().Format(time.RFC3339)
+	if isStableAdultCampaignObligationKey(rule, g) {
+		keyDueToken = "adult_campaign"
+	}
+	return obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, keyDueToken, strconv.Itoa(int(rule.Sequence)))
 }
 
 func isStableAdultCampaignObligationKey(rule protodomain.Rule, g domain.EligibleGoat) bool {
@@ -2706,7 +3082,7 @@ func dueAt(versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf 
 	}
 }
 
-func (s *GenerationService) manualVaccineAnchorsForSeedRules(ctx context.Context, tenantID, goatID string, rules []protodomain.Rule, eligibility genEligibility, vaccineProf vaccineProfile) (map[string]obldomain.ObligationRef, error) {
+func (s *GenerationService) manualVaccineAnchorsForSeedRules(ctx context.Context, tenantID, goatID string, rules []protodomain.Rule, eligibility genEligibility, vaccineProf vaccineProfile, asOf time.Time) (map[string]obldomain.ObligationRef, error) {
 	reader, ok := s.obl.(ManualVaccineAnchorReader)
 	if !ok {
 		return nil, nil
@@ -2731,7 +3107,7 @@ func (s *GenerationService) manualVaccineAnchorsForSeedRules(ctx context.Context
 	if len(codes) == 0 {
 		return nil, nil
 	}
-	anchors, err := reader.ManualVaccineAnchorsForGoat(ctx, tenantID, goatID, codes)
+	anchors, err := reader.ManualVaccineAnchorsForGoat(ctx, tenantID, goatID, codes, asOf)
 	if err != nil {
 		return nil, err
 	}
@@ -2868,6 +3244,33 @@ func previousPrimaryCourseRule(rule protodomain.Rule, ruleVaccine vaccineProfile
 	found := false
 	for _, candidate := range rules {
 		if !isPrimaryCourseRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+			continue
+		}
+		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
+		if err != nil {
+			return protodomain.Rule{}, vaccineProfile{}, false, err
+		}
+		if !strings.EqualFold(strings.TrimSpace(candidateVaccine.Code), strings.TrimSpace(ruleVaccine.Code)) {
+			continue
+		}
+		if !primaryRuleBefore(candidate, rule) {
+			continue
+		}
+		if !found || primaryRuleAfter(candidate, best) {
+			best = candidate
+			bestVaccine = candidateVaccine
+			found = true
+		}
+	}
+	return best, bestVaccine, found, nil
+}
+
+func previousPrimaryCourseRuleAnyPath(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile) (protodomain.Rule, vaccineProfile, bool, error) {
+	var best protodomain.Rule
+	var bestVaccine vaccineProfile
+	found := false
+	for _, candidate := range rules {
+		if !isPrimaryCourseRule(candidate) {
 			continue
 		}
 		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)

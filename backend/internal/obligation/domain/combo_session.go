@@ -71,9 +71,14 @@ func ApprovedVaccineComboSessions(vaccineCode string) []string {
 	case "ppr":
 		add("combo:ET+TT+PPR")
 		add("combo:PPR+Blue Tongue")
+		add("combo:PPR+FMD+HS")
 	case "blue tongue":
 		add("combo:PPR+Blue Tongue")
 		add("combo:Sheep Pox+Blue Tongue")
+	case "fmd":
+		add("combo:PPR+FMD+HS")
+	case "hs":
+		add("combo:PPR+FMD+HS")
 	case "sheep pox":
 		add("combo:Sheep Pox+Blue Tongue")
 	}

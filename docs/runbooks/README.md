@@ -11,6 +11,7 @@ Current runbooks:
 - [Local full-stack rehearsal](local-full-stack-rehearsal.md)
 - [Local GCP kernel parity](local-gcp-kernel-parity.md)
 - [Vaccination local business-chain proof (pre-E2E)](vaccination-local-business-chain.md)
+- [`/vaccination/command` latency and the anchor-date boundary on projections](vaccination-command-board-latency.md)
 - [RFID scan capture sync](rfid-scan-capture-sync.md)
 - [Local Docker storage](local-docker-storage.md)
 - [Observability](observability.md)

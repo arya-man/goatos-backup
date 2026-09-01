@@ -164,12 +164,52 @@ func replanVaccinationDriveAssignmentsForDateMoveTx(
 	if err := syncVaccinationDriveAssignmentMembersTx(ctx, tx, tenant, batchIDs); err != nil {
 		return err
 	}
+	if err := syncVaccinationObligationDatesFromAssignmentsTx(ctx, tx, tenant, batchIDs); err != nil {
+		return err
+	}
 	// A moved lane can land on a target-date row that ALREADY EXISTS for the same cell and operator.
 	// That upsert merges the two vaccine lanes, and no arithmetic on the two incoming counts can
 	// describe the merged row (see the ON CONFLICT branch). Membership has just been recomputed from
 	// canonical obligations, so the merged row's OWN ledger is now the only thing that knows which
 	// animals it really covers -- derive both counters from it.
 	return reconcileDriveAssignmentCountersFromMembersTx(ctx, tx, tenant, batchIDs)
+}
+
+// syncVaccinationObligationDatesFromAssignmentsTx keeps the animal-grain obligation ledger aligned
+// with the executable drive plan after a date override/replan. Mobile and calendar surfaces read
+// obligation_instances.due_at as the canonical work date, while operator assignment cards read
+// vaccination_drive_assignments.planned_date; letting those two drift is how a moved drive can still
+// show as work on its old day. Membership has already been rebuilt for the touched batches, so each
+// obligation can be updated from the exact assignment row that owns it.
+func syncVaccinationObligationDatesFromAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchIDs []pgtype.UUID) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	// scale-guard:ignore: bounded to touched batch IDs inside the date-override transaction; projection-review marker below records membership/date/status grain.
+	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=vaccination_drive_assignment_members is UNIQUE by (tenant_id, obligation_id), so every touched obligation joins to at most one executable assignment; group_key=obligation_id; join_cardinality=members:assignment is N:1 and members:obligation is 1:1 by obligation_id; pagination=bounded by explicit touched batch ids; scope=one tenant and the re-planned batches.
+UPDATE obligation_instances oi
+SET due_at = (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'),
+    window_start = (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'),
+    window_end = CASE
+      WHEN oi.window_end IS NULL THEN NULL
+      ELSE (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata')
+    END,
+    updated_at = now()
+FROM vaccination_drive_assignment_members m
+JOIN vaccination_drive_assignments vda
+  ON vda.tenant_id = m.tenant_id
+ AND vda.assignment_id = m.assignment_id
+WHERE oi.tenant_id = $1
+  AND oi.tenant_id = m.tenant_id
+  AND oi.obligation_id = m.obligation_id
+  AND oi.batch_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <> vda.planned_date`,
+		tenant, batchIDs); err != nil {
+		return fmt.Errorf("obligation: sync vaccination obligation dates from drive assignments: %w", err)
+	}
+	return nil
 }
 
 // reconcileDriveAssignmentCountersFromMembersTx re-derives animal_count and total_doses of every
@@ -527,11 +567,13 @@ func driveAvailabilityDates(availability []vaccexecapp.DriveDateAvailability) []
 // instead of creating an over-cap row on the first date.
 func planMovedDriveAssignments(rows []movedDriveAssignment, availability []vaccexecapp.DriveDateAvailability, to time.Time) []plannedDriveAssignment {
 	target := businessDateOnly(to)
-	byID := make(map[string]movedDriveAssignment, len(rows))
-	blocks := make([]vaccexecapp.DriveWorkBlock, 0, len(rows))
-	for i, row := range rows {
-		id := strconv.Itoa(i)
-		byID[id] = row
+	type movedBlock struct {
+		block vaccexecapp.DriveWorkBlock
+		rows  []movedDriveAssignment
+	}
+	blocksByKey := make(map[string]*movedBlock, len(rows))
+	blockOrder := make([]string, 0, len(rows))
+	for _, row := range rows {
 		physicalShed := strings.TrimSpace(row.physicalShed)
 		if physicalShed == "" {
 			physicalShed = "park"
@@ -540,14 +582,42 @@ func planMovedDriveAssignments(rows []movedDriveAssignment, availability []vacce
 		if partition == "" {
 			partition = "whole"
 		}
-		blocks = append(blocks, vaccexecapp.DriveWorkBlock{
-			ID:           id,
-			Park:         row.parkID,
-			PhysicalShed: physicalShed,
-			Partition:    partition,
-			Animals:      int(row.movedAnimalCount),
-			DueDate:      target,
-		})
+		key := strings.Join([]string{strings.TrimSpace(row.parkID), physicalShed, partition}, "\x00")
+		group := blocksByKey[key]
+		if group == nil {
+			id := strconv.Itoa(len(blockOrder))
+			group = &movedBlock{block: vaccexecapp.DriveWorkBlock{
+				ID:           id,
+				Park:         row.parkID,
+				PhysicalShed: physicalShed,
+				Partition:    partition,
+				DueDate:      target,
+			}}
+			blocksByKey[key] = group
+			blockOrder = append(blockOrder, key)
+		}
+		if int(row.movedAnimalCount) > group.block.Animals {
+			group.block.Animals = int(row.movedAnimalCount)
+		}
+		group.rows = append(group.rows, row)
+	}
+	byID := make(map[string][]movedDriveAssignment, len(rows))
+	blocks := make([]vaccexecapp.DriveWorkBlock, 0, len(rows))
+	for _, key := range blockOrder {
+		group := blocksByKey[key]
+		if movedDriveAssignmentLaneCountsMatch(group.rows) {
+			group.block.ID = strconv.Itoa(len(blocks))
+			blocks = append(blocks, group.block)
+			byID[group.block.ID] = group.rows
+			continue
+		}
+		for _, row := range group.rows {
+			block := group.block
+			block.ID = strconv.Itoa(len(blocks))
+			block.Animals = int(row.movedAnimalCount)
+			blocks = append(blocks, block)
+			byID[block.ID] = []movedDriveAssignment{row}
+		}
 	}
 	planned := make([]plannedDriveAssignment, 0, len(rows))
 	appendRow := func(row movedDriveAssignment, plannedDate time.Time, operatorID *string, animals int32, status string, warnings []string) {
@@ -584,6 +654,10 @@ func planMovedDriveAssignments(rows []movedDriveAssignment, availability []vacce
 		}
 		return mergePlannedDriveAssignments(planned)
 	}
+	remainingByBlockID := make(map[string]int32, len(blocks))
+	for _, block := range blocks {
+		remainingByBlockID[block.ID] = int32(block.Animals)
+	}
 	for _, day := range plan.Days {
 		plannedDate, parseErr := time.ParseInLocation("2006-01-02", day.Date, biztime.DefaultLocation())
 		if parseErr != nil {
@@ -593,44 +667,69 @@ func planMovedDriveAssignments(rows []movedDriveAssignment, availability []vacce
 			operatorID := strings.TrimSpace(assignment.OperatorID)
 			blockIDs := uniqueNonBlank(assignment.BlockIDs)
 			for _, blockID := range blockIDs {
-				row, ok := byID[blockID]
+				rows, ok := byID[blockID]
 				if !ok {
 					continue
 				}
-				animals := row.movedAnimalCount
-				if len(blockIDs) == 1 && assignment.Animals > 0 && int32(assignment.Animals) < animals {
-					animals = int32(assignment.Animals)
+				chunkAnimals := remainingByBlockID[blockID]
+				if len(blockIDs) == 1 && assignment.Animals > 0 && int32(assignment.Animals) < chunkAnimals {
+					chunkAnimals = int32(assignment.Animals)
 				}
-				status := "within_cap"
-				warnings := make([]string, 0, 2)
-				if drivePlanHasWarning(assignment.Warnings, "over_cap_required_latest_safe") {
-					status = "over_cap_required"
-					warnings = append(warnings, "operator animal cap exceeded to keep the moved vaccination drive date")
+				if chunkAnimals <= 0 {
+					continue
 				}
-				if drivePlanHasWarning(assignment.Warnings, "forced_partition_split") {
-					warnings = append(warnings, "partition split because one partition exceeded available operator capacity")
+				for _, row := range rows {
+					animals := row.movedAnimalCount
+					if chunkAnimals < animals {
+						animals = chunkAnimals
+					}
+					status := "within_cap"
+					warnings := make([]string, 0, 2)
+					if drivePlanHasWarning(assignment.Warnings, "over_cap_required_latest_safe") {
+						status = "over_cap_required"
+						warnings = append(warnings, "operator animal cap exceeded to keep the moved vaccination drive date")
+					}
+					if drivePlanHasWarning(assignment.Warnings, "forced_partition_split") {
+						warnings = append(warnings, "partition split because one partition exceeded available operator capacity")
+					}
+					var operator *string
+					if operatorID != "" {
+						value := operatorID
+						operator = &value
+					} else {
+						status = "capacity_action"
+						warnings = append(warnings, "no vaccination operator is available on the moved drive date")
+					}
+					appendRow(row, plannedDate, operator, animals, status, warnings)
 				}
-				var operator *string
-				if operatorID != "" {
-					value := operatorID
-					operator = &value
-				} else {
-					status = "capacity_action"
-					warnings = append(warnings, "no vaccination operator is available on the moved drive date")
-				}
-				appendRow(row, plannedDate, operator, animals, status, warnings)
+				remainingByBlockID[blockID] -= chunkAnimals
 			}
 		}
 	}
 	for _, block := range plan.Unassigned {
-		row, ok := byID[block.ID]
+		rows, ok := byID[block.ID]
 		if !ok {
 			continue
 		}
-		appendRow(row, target, nil, int32(block.Animals), "capacity_action",
-			[]string{"no vaccination operator capacity is available on the moved drive date"})
+		for _, row := range rows {
+			appendRow(row, target, nil, int32(block.Animals), "capacity_action",
+				[]string{"no vaccination operator capacity is available on the moved drive date"})
+		}
 	}
 	return mergePlannedDriveAssignments(planned)
+}
+
+func movedDriveAssignmentLaneCountsMatch(rows []movedDriveAssignment) bool {
+	if len(rows) <= 1 {
+		return true
+	}
+	animals := rows[0].movedAnimalCount
+	for _, row := range rows[1:] {
+		if row.movedAnimalCount != animals {
+			return false
+		}
+	}
+	return true
 }
 
 func configuredOperatorCapFromAvailability(availability []vaccexecapp.DriveDateAvailability) int {

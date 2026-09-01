@@ -122,10 +122,28 @@ class VerifyQueueViewModelTest {
     }
 
     @Test
-    fun `a module this client cannot serve reads nothing rather than vaccination proofs`() = runTest(dispatcher) {
+    fun `an unknown module reads nothing rather than vaccination proofs`() = runTest(dispatcher) {
         // The backend composes a verify entry per feature the verifier holds duty on, including
-        // counts and feed. Coercing those to vaccination showed a Counts verifier another module's
-        // proofs and invited a verdict on work they were never asked to review.
+        // modules a given client may not know yet. Coercing those to vaccination showed a verifier
+        // another module's proofs and invited a verdict on work they were never asked to review.
+        val repo = FakeVerifyQueueRepository()
+        val vm = VerifyQueueViewModel(
+            repo = repo,
+            syncRepo = FakeVerifySyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("module" to "future_module")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(emptyList<String?>(), repo.refreshedCategories)
+        assertEquals(emptyList<String?>(), repo.observedCategories)
+        assertNull(vm.state.value.selectedModule)
+        assertTrue(vm.state.value.isUnsupportedModule)
+    }
+
+    @Test
+    fun `a known module-only link opens its landing category`() = runTest(dispatcher) {
         val repo = FakeVerifyQueueRepository()
         val vm = VerifyQueueViewModel(
             repo = repo,
@@ -136,10 +154,9 @@ class VerifyQueueViewModelTest {
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
-        assertEquals(emptyList<String?>(), repo.refreshedCategories)
-        assertEquals(emptyList<String?>(), repo.observedCategories)
-        assertNull(vm.state.value.selectedModule)
-        assertTrue(vm.state.value.isUnsupportedModule)
+        assertEquals(listOf("shifting_move"), repo.refreshedCategories)
+        assertEquals(listOf("shifting_move"), repo.observedCategories)
+        assertFalse(vm.state.value.isUnsupportedModule)
     }
 
     @Test

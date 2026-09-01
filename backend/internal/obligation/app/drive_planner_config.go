@@ -10,6 +10,7 @@ import (
 // approvedDriveCombos lists PDF/source-approved same-day bundles for cross-version date alignment.
 var approvedDriveCombos = map[string][]string{
 	"FMD+HS":                {"FMD", "HS"},
+	"PPR+FMD+HS":            {"PPR", "FMD", "HS"},
 	"PPR+Blue Tongue":       {"PPR", "Blue Tongue"},
 	"ET+TT+PPR":             {"ET+TT", "PPR"},
 	"Sheep Pox+Blue Tongue": {"Sheep Pox", "Blue Tongue"},
