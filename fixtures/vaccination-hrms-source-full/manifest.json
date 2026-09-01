@@ -297,6 +297,11 @@
       "date": "2026-09-01",
       "change": "Vaccination drive assignments now include vaccine_rule_ids in the operator/date/shed/partition identity and cap constraints are clamped to 1..200.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, or seed closeout. This is runtime scheduler storage/cap enforcement so same-day vaccine lanes cannot collapse and persisted caps cannot exceed the field rule."
+    },
+    {
+      "date": "2026-09-01",
+      "change": "Feed experiment quantities are converted from legacy whole-pen kg totals to grams per animal using live pen counts from the herd register.",
+      "vaccination_hrms_source_impact": "none to raw vaccination/HRMS fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity, or seed closeout. The migration reads goats only as the current feed-pen denominator; it does not add, remove, or reinterpret vaccination source fields or trusted vaccination history."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",

@@ -886,3 +886,6 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // Coupling review 2026-08-30: same-day vaccination cap moves from 2 to 3 in the scheduler policy
 // and runtime capacity override. Source validation still checks source dates/history only; no raw
 // HRMS row, vaccination cell, parser input, or SOP proof field changes.
+// Coupling review 2026-09-01: feed experiment per-animal conversion reads goats for live feed-pen
+// counts. That is not a vaccination/HRMS source contract change, so this validator gains no source
+// field, date rule, parser input, SOP proof rule, roster-capacity check, or fixture hash expectation.

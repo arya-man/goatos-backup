@@ -728,3 +728,6 @@ export function updateManifestHashes(directory, manifest) {
 // scheduling safeguards only; they do not alter fixture parsing, row counts, or hashes.
 // HRMS/vaccination source bytes, counts, parser fields, SOP proof grain, and history dates
 // are unchanged; the manifest hash tracks the reviewed policy JSON only.
+// Coupling review 2026-09-01: feed experiment per-animal migration reads goats as live pen counts
+// for feed-denominator conversion only. This fixture library stays vaccination-source-only: no raw
+// HRMS row, parser field, SOP proof grain, source vaccination date, roster capacity, or hash changes.

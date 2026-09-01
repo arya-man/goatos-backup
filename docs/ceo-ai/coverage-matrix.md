@@ -585,6 +585,18 @@ coverage. Explicit documented exclusion — no coverage-matrix mapping required.
 
 | feed_direction_frozen_row_identity | func:RowKey | Explicit exclusion: internal feed-direction row reconstruction helper only; existing feed completion and verification reads remain the leadership assistant coverage source. |
 
+## Explicit exclusion: feed experiment basis conversion audit table (2026-09-01)
+
+`table:feed_experiment_basis_conversions` records one-time migration provenance for
+experiment feed cells converted from legacy whole-pen kg totals into grams per
+animal. It is audit/reversal evidence for migration `000238`, not a live
+operational read model, KPI, assistant question surface, admin API route, Cube
+metric, `ceo_ai.*` view, MCP Toolbox tool, or read-only SQL fallback. Leadership
+assistant coverage remains the existing feed completion, feed direction, and
+verification reporting surfaces that answer what pens are fed.
+
+| feed_experiment_basis_conversions | table:feed_experiment_basis_conversions | Explicit exclusion: one-time feed migration provenance table only; existing feed direction/completion/verification reads remain the leadership assistant coverage source. |
+
 ## Explicit exclusion: shifting destination tag resolver helpers (2026-08-16)
 
 `func:Resolved`, `func:ResolveShiftingDestinationStageDetailed`,
