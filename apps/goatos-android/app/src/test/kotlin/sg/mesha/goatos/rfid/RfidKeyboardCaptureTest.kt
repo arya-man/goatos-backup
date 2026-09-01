@@ -58,6 +58,61 @@ class RfidKeyboardCaptureTest {
     }
 
     @Test
+    fun `scan emits full text even when the reader pauses longer than old timeout`() = runTest {
+        var nowMs = 4_000L
+        val capture = RfidKeyboardCapture(nowMs = { nowMs })
+        val reads = mutableListOf<RfidRead>()
+        val collector = launch(UnconfinedTestDispatcher(testScheduler)) {
+            capture.reads.toList(reads)
+        }
+
+        capture.enabled = true
+        keyEventsFor("901").forEach { event ->
+            nowMs += 10L
+            assertTrue(capture.onKeyEvent(event))
+        }
+        nowMs += 701L
+        keyEventsFor("007000504518").forEach { event ->
+            nowMs += 10L
+            assertTrue(capture.onKeyEvent(event))
+        }
+        nowMs += 10L
+        assertTrue(capture.onKeyEvent(keyDown(KeyEvent.KEYCODE_ENTER, nowMs)))
+
+        assertEquals(listOf("901007000504518"), reads.map { it.tag })
+        collector.cancel()
+    }
+
+    @Test
+    fun `completed scans are separated by enter even after a long idle gap`() = runTest {
+        var nowMs = 5_000L
+        val capture = RfidKeyboardCapture(nowMs = { nowMs })
+        val reads = mutableListOf<RfidRead>()
+        val collector = launch(UnconfinedTestDispatcher(testScheduler)) {
+            capture.reads.toList(reads)
+        }
+
+        capture.enabled = true
+        keyEventsFor("901").forEach { event ->
+            nowMs += 10L
+            assertTrue(capture.onKeyEvent(event))
+        }
+        nowMs += 10L
+        assertTrue(capture.onKeyEvent(keyDown(KeyEvent.KEYCODE_ENTER, nowMs)))
+
+        nowMs += 5_000L
+        keyEventsFor("901007000504518").forEach { event ->
+            nowMs += 10L
+            assertTrue(capture.onKeyEvent(event))
+        }
+        nowMs += 10L
+        assertTrue(capture.onKeyEvent(keyDown(KeyEvent.KEYCODE_ENTER, nowMs)))
+
+        assertEquals(listOf("901", "901007000504518"), reads.map { it.tag })
+        collector.cancel()
+    }
+
+    @Test
     fun `non scan route does not swallow enter or tab while capture is disabled`() = runTest {
         var nowMs = 3_000L
         val capture = RfidKeyboardCapture(nowMs = { nowMs })
@@ -67,6 +122,18 @@ class RfidKeyboardCaptureTest {
 
         assertFalse(capture.onKeyEvent(keyDown(KeyEvent.KEYCODE_ENTER, nowMs)))
         assertFalse(capture.onKeyEvent(keyDown(KeyEvent.KEYCODE_TAB, nowMs)))
+    }
+
+    @Test
+    fun `back key always follows normal navigation path`() = runTest {
+        var nowMs = 6_000L
+        val capture = RfidKeyboardCapture(nowMs = { nowMs })
+
+        capture.enabled = true
+        capture.swallowCompletionKeys = true
+
+        assertFalse(capture.onKeyEvent(keyDown(KeyEvent.KEYCODE_BACK, nowMs)))
+        assertFalse(capture.onKeyEvent(keyUp(KeyEvent.KEYCODE_BACK, nowMs)))
     }
 
     private fun keyEventsFor(text: String): List<KeyEvent> =

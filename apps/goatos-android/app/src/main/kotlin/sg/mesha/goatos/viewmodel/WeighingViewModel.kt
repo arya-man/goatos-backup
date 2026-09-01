@@ -1713,7 +1713,10 @@ class WeighingViewModel @Inject constructor(
     }
 
     fun setWeightEntryActive(active: Boolean) {
-        val captureEnabled = !active && category != PER_SHED_PARTITION_CATEGORY
+        // Keep the RFID listener armed while the weight field is focused. The reader is a
+        // hardware keyboard wedge, so disabling capture here can drop the first digits of the
+        // next scan if the operator pulls the trigger before focus/capture flips back.
+        val captureEnabled = category != PER_SHED_PARTITION_CATEGORY
         reader.setCompletionKeySwallowEnabled(captureEnabled)
         reader.setCaptureEnabled(captureEnabled)
     }
@@ -2743,6 +2746,8 @@ class WeighingViewModel @Inject constructor(
             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
                 buildMap {
                     put(AnalyticsEvents.Params.RFID, rfid)
+                    put("rfid_tag", rfid)
+                    put(AnalyticsEventsWeighing.Params.RFID_LENGTH, rfid.length.toString())
                     row?.animalId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.GOAT_ID, it) }
                     put(AnalyticsEvents.Params.OUTCOME, outcome)
                     put(AnalyticsEvents.Params.REASON, reason)

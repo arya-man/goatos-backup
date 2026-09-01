@@ -94,6 +94,9 @@ object AnalyticsEventsWeighing {
         /** The scanned livestock RFID/tag associated with a per-animal weighing proof. */
         const val RFID = "rfid"
 
+        /** Character count of the RFID string exactly after app-side normalization. */
+        const val RFID_LENGTH = "rfid_length"
+
         /** Server proof_artifacts.proof_id, used to join app telemetry to backend proof rows. */
         const val SERVER_PROOF_ID = "server_proof_id"
 

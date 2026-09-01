@@ -8,13 +8,11 @@ import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * Buffers hardware key events from the keyboard-wedge reader into a tag string, and
- * completes a read on Enter/Tab. Guards against stray manual keys with a short inter-key
- * timeout. Consumes only tag characters + completion keys while [enabled]; everything else
+ * completes a read on Enter/Tab. Consumes only tag characters + completion keys while [enabled]; everything else
  * (Back, volume, etc.) passes through. No EditText anywhere — reads come straight from the
  * activity key-event stream (docs/mobile/rfid-keyboard-reader.md §Scan Capture).
  */
 class RfidKeyboardCapture(
-    private val completionTimeoutMs: Long = 700L,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
     // DROP_OLDEST (not the default SUSPEND): onKeyEvent runs on the main/input thread and can't
@@ -34,7 +32,6 @@ class RfidKeyboardCapture(
     var swallowCompletionKeys: Boolean = false
 
     private val buffer = StringBuilder()
-    private var lastKeyAtMs: Long = 0L
     private var deviceName: String? = null
 
     /** Returns true if the event was consumed as tag input (caller must not pass it on). */
@@ -46,8 +43,6 @@ class RfidKeyboardCapture(
         if (event.action != KeyEvent.ACTION_DOWN) return true // swallow the UP of a consumed key
 
         val now = nowMs()
-        if (now - lastKeyAtMs > completionTimeoutMs) buffer.setLength(0)
-        lastKeyAtMs = now
 
         if (completion) {
             val tag = buffer.toString().trim()

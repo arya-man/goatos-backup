@@ -124,6 +124,63 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6,
 	t.Fatalf("bucket %s not in page", bucketID)
 }
 
+func TestInProgressShedStatusBeatsStaleScheduledWorkItemStatus(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	campaignID := lcpUUID(16071)
+	bucketID := lcpUUID(16081)
+	lcpInsertCampaign(t, ctx, pool, campaignID, repoPark, "2026-08-13", domain.StatusPublished, repoOperator)
+	lcpInsertBucket(t, ctx, pool, bucketID, campaignID, repoExpectedShed, domain.CategoryIndividualAnimal, repoOperator, 0, domain.StatusInProgress)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_work_items (
+  tenant_id, campaign_id, campaign_shed_id, park_id, operator_user_id, weighing_category,
+  shed_label, shed_location_id, planned_business_date, due_business_date, work_state
+)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6,
+        'Gandhi 1', $7::uuid, '2026-08-13'::date, '2026-08-13'::date, 'scheduled')`,
+		repoTenant, campaignID, bucketID, repoPark, repoOperator, domain.CategoryIndividualAnimal, repoExpectedShed)
+
+	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 50)
+	if err != nil {
+		t.Fatalf("list campaigns for operator: %v", err)
+	}
+	for _, campaign := range page.Items {
+		if campaign.CampaignID != campaignID {
+			continue
+		}
+		if len(campaign.Sheds) != 1 {
+			t.Fatalf("campaign sheds=%d, want 1", len(campaign.Sheds))
+		}
+		if campaign.Sheds[0].Status != domain.StatusInProgress {
+			t.Fatalf("list campaign shed status=%s, want in_progress when the bucket has started but its work item is still scheduled", campaign.Sheds[0].Status)
+		}
+
+		detail, err := repo.CampaignByID(ctx, repoTenant, campaignID, ports.CampaignAccess{Unrestricted: true})
+		if err != nil {
+			t.Fatalf("campaign by id: %v", err)
+		}
+		if detail.Sheds[0].Status != domain.StatusInProgress {
+			t.Fatalf("campaign detail shed status=%s, want in_progress", detail.Sheds[0].Status)
+		}
+
+		buckets, err := repo.ListCampaignSheds(ctx, repoTenant, campaignID, "", 50, ports.CampaignAccess{Unrestricted: true})
+		if err != nil {
+			t.Fatalf("list campaign sheds: %v", err)
+		}
+		if buckets.Items[0].Status != domain.StatusInProgress {
+			t.Fatalf("bucket page shed status=%s, want in_progress", buckets.Items[0].Status)
+		}
+		return
+	}
+	t.Fatalf("campaign %s not in operator list", campaignID)
+}
+
 // TestLumpSumWeighedIsAnimalGrainOnBothSurfaces pins the grain half of the defect.
 // A lump-sum proof IS the submission, so a standing (non-withdrawn) shed
 // observation contributes its recorded animal_count to BOTH facts -- and it must

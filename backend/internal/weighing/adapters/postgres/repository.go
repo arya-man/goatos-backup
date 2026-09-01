@@ -3585,7 +3585,7 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	// "Roster gap (operator not found)" placeholder for every assigned shed.
 	rows, err := tx.Query(ctx, `
 SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''),
-  CASE WHEN cs.status IN ('completed','closed','canceled') THEN cs.status ELSE COALESCE(wi.work_state, cs.status) END,
+  CASE WHEN cs.status IN ('in_progress','completed','closed','canceled') THEN cs.status ELSE COALESCE(wi.work_state, cs.status) END,
   COALESCE(wi.planned_business_date::text, ''), COALESCE(wi.due_business_date::text, ''),
   `+readyToCloseCountsSQL+`
 FROM weighing_campaign_sheds cs
@@ -3633,7 +3633,7 @@ func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids 
 	// operator's display name.
 	rows, err := r.pool.Query(ctx, `
 SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''),
-  CASE WHEN cs.status IN ('completed','closed','canceled') THEN cs.status ELSE COALESCE(wi.work_state, cs.status) END,
+  CASE WHEN cs.status IN ('in_progress','completed','closed','canceled') THEN cs.status ELSE COALESCE(wi.work_state, cs.status) END,
   COALESCE(wi.planned_business_date::text, ''), COALESCE(wi.due_business_date::text, ''),
   `+readyToCloseCountsSQL+`
 FROM weighing_campaign_sheds cs

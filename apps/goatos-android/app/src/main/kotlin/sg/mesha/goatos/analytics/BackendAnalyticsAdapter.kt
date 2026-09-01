@@ -219,6 +219,7 @@ class BackendAnalyticsAdapter(
             AnalyticsEvents.FEED_WASTAGE_VIDEO_CAPTURED,
             AnalyticsEvents.FEED_WASTAGE_SUBMITTED,
             AnalyticsEvents.FEED_WASTAGE_COMPLETE_FAILURE,
+            AnalyticsEvents.WEIGHING_SCAN,
             AnalyticsEvents.WEIGHING_CAPTURE_FAILURE,
             AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_FAILURE,
             AnalyticsEvents.WEIGHING_PROOF_CAPTURE_FAILURE,
