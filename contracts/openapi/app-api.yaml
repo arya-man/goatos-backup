@@ -1387,11 +1387,21 @@ paths:
             `farm_born` or `purchased` to report on kids of that origin only; omitted means every
             kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
             The farm both breeds its own kids and buys them in loads, and the two grow differently
-            enough that reading them together answers nothing. Origin is a fact about the PEN a
-            load was put into, not about the animal: a pen carrying a procurement load tag is
-            purchased and every weigh taken in it -- whole-shed or individually scanned -- counts
-            as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin`
-            together reports the kids in BOTH.
+            enough that reading them together answers nothing.
+
+            Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh
+            carries a tag, so it is claimed through the animal that tag resolves to: purchased when
+            that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh
+            carries no tag, so it is claimed through its pen and ONLY when every live resident
+            agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because
+            one average weight cannot be divided between two cohorts; do NOT assume a pen is
+            uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4
+            were bought, and treating that pen as purchased whole is the defect this rule exists to
+            prevent). A tag that resolves to no animal is likewise claimed by neither side: it is
+            still recorded and still counted unfiltered, but it cannot answer where the animal came
+            from, so the two filtered halves need not sum to the unfiltered total.
+
+            Selecting `sex` and `origin` together reports the kids in BOTH.
           schema: {type: string, enum: [farm_born, purchased]}
       responses:
         "200":
@@ -1529,11 +1539,21 @@ paths:
             `farm_born` or `purchased` to report on kids of that origin only; omitted means every
             kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
             The farm both breeds its own kids and buys them in loads, and the two grow differently
-            enough that reading them together answers nothing. Origin is a fact about the PEN a
-            load was put into, not about the animal: a pen carrying a procurement load tag is
-            purchased and every weigh taken in it -- whole-shed or individually scanned -- counts
-            as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin`
-            together reports the kids in BOTH.
+            enough that reading them together answers nothing.
+
+            Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh
+            carries a tag, so it is claimed through the animal that tag resolves to: purchased when
+            that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh
+            carries no tag, so it is claimed through its pen and ONLY when every live resident
+            agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because
+            one average weight cannot be divided between two cohorts; do NOT assume a pen is
+            uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4
+            were bought, and treating that pen as purchased whole is the defect this rule exists to
+            prevent). A tag that resolves to no animal is likewise claimed by neither side: it is
+            still recorded and still counted unfiltered, but it cannot answer where the animal came
+            from, so the two filtered halves need not sum to the unfiltered total.
+
+            Selecting `sex` and `origin` together reports the kids in BOTH.
           schema: {type: string, enum: [farm_born, purchased]}
       responses:
         "200":
@@ -1640,11 +1660,21 @@ paths:
             `farm_born` or `purchased` to report on kids of that origin only; omitted means every
             kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
             The farm both breeds its own kids and buys them in loads, and the two grow differently
-            enough that reading them together answers nothing. Origin is a fact about the PEN a
-            load was put into, not about the animal: a pen carrying a procurement load tag is
-            purchased and every weigh taken in it -- whole-shed or individually scanned -- counts
-            as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin`
-            together reports the kids in BOTH.
+            enough that reading them together answers nothing.
+
+            Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh
+            carries a tag, so it is claimed through the animal that tag resolves to: purchased when
+            that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh
+            carries no tag, so it is claimed through its pen and ONLY when every live resident
+            agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because
+            one average weight cannot be divided between two cohorts; do NOT assume a pen is
+            uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4
+            were bought, and treating that pen as purchased whole is the defect this rule exists to
+            prevent). A tag that resolves to no animal is likewise claimed by neither side: it is
+            still recorded and still counted unfiltered, but it cannot answer where the animal came
+            from, so the two filtered halves need not sum to the unfiltered total.
+
+            Selecting `sex` and `origin` together reports the kids in BOTH.
           schema: {type: string, enum: [farm_born, purchased]}
       responses:
         "200":
@@ -1710,11 +1740,21 @@ paths:
             `farm_born` or `purchased` to report on kids of that origin only; omitted means every
             kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
             The farm both breeds its own kids and buys them in loads, and the two grow differently
-            enough that reading them together answers nothing. Origin is a fact about the PEN a
-            load was put into, not about the animal: a pen carrying a procurement load tag is
-            purchased and every weigh taken in it -- whole-shed or individually scanned -- counts
-            as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin`
-            together reports the kids in BOTH.
+            enough that reading them together answers nothing.
+
+            Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh
+            carries a tag, so it is claimed through the animal that tag resolves to: purchased when
+            that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh
+            carries no tag, so it is claimed through its pen and ONLY when every live resident
+            agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because
+            one average weight cannot be divided between two cohorts; do NOT assume a pen is
+            uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4
+            were bought, and treating that pen as purchased whole is the defect this rule exists to
+            prevent). A tag that resolves to no animal is likewise claimed by neither side: it is
+            still recorded and still counted unfiltered, but it cannot answer where the animal came
+            from, so the two filtered halves need not sum to the unfiltered total.
+
+            Selecting `sex` and `origin` together reports the kids in BOTH.
           schema: {type: string, enum: [farm_born, purchased]}
       responses:
         "200":
@@ -28794,6 +28834,32 @@ components:
           type: number
         pair_count:
           type: integer
+    WeighingGrowthWeeklyGainPoint:
+      type: object
+      additionalProperties: false
+      description: >-
+        One calendar week of the farm's daily gain, computed as the IDENTICAL statistic the
+        headline reports (maintainer decision 2026-08-26): the animal-weighted mean over every
+        kid weighed twice, each kid once at the median of its own pairs in that week, PLUS every
+        whole-shed pen whose average moved, each pen contributing once per animal it holds.
+        Distinct from WeighingGrowthTrendPoint, which is the MEDIAN over SCANNED PAIRS ONLY.
+        A chart rendered beside the headline must read this one, or the two disagree.
+        A week with no qualifying gain is absent from the array, never interpolated or zero-filled.
+      required:
+        - week_start
+        - average_adg_g_per_day
+        - animals
+      properties:
+        week_start:
+          type: string
+          format: date
+          description: Monday (ISO week) in Asia/Kolkata. A pair spanning weeks is bucketed by its later weigh.
+        average_adg_g_per_day:
+          type: number
+          description: Animal-weighted mean for the week. Non-null by construction.
+        animals:
+          type: integer
+          description: The denominator - scanned kids with a gain this week plus the head counts of the pens that moved.
     WeighingGrowthShedLeaderboardRow:
       type: object
       additionalProperties: false
@@ -29361,6 +29427,7 @@ components:
         - headline
         - eligibility
         - trend
+        - weekly_gain
         - shed_leaderboard
         - distribution
         - sale_readiness
@@ -29401,6 +29468,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WeighingGrowthTrendPoint"
+        weekly_gain:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingGrowthWeeklyGainPoint"
         shed_leaderboard:
           type: array
           items:
