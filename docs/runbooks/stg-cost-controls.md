@@ -42,6 +42,12 @@ public during migration, then updates API/admin and lets Cloud Run move traffic
 after readiness passes. The kernel worker can still be drained because it is
 background processing, not the public web/Android request path.
 
+The Slack/Cloud Build entrypoint enforces
+`tools/deploy/audit-stg-zero-downtime-migrations.mjs` before it creates the Cloud
+Deploy release. The audit compares the new `main` commit against the currently
+live API image tag, so it checks the release delta, not just the local working
+tree.
+
 That is the normal industry pattern: expand first, run old and new code together,
 then contract later. Use the emergency fallback
 `GOATOS_STG_ZERO_DOWNTIME_DEPLOY=false` only for a known destructive migration

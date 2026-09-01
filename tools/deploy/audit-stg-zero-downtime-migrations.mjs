@@ -63,10 +63,36 @@ export function auditSql(filename, sql) {
   };
 }
 
+function migrationVersion(file) {
+  const match = file.match(/\/(\d+)_.*\.sql$/);
+  return match ? Number(match[1]) : null;
+}
+
+function maxMigrationVersionAtRef(ref) {
+  const out = execFileSync("git", ["ls-tree", "-r", "--name-only", ref, MIGRATION_DIR], {
+    cwd: repo,
+    encoding: "utf8",
+  });
+  return out
+    .split(/\r?\n/)
+    .map((file) => (file.endsWith(".sql") ? migrationVersion(file) : null))
+    .filter((version) => Number.isInteger(version))
+    .reduce((max, version) => Math.max(max, version), 0);
+}
+
 function changedMigrationFiles(base) {
-  const args = ["diff", "--name-only", base, "--", `${MIGRATION_DIR}/*.sql`];
+  const baseMaxVersion = maxMigrationVersionAtRef(base);
+  const args = ["diff", "--name-status", base, "--", `${MIGRATION_DIR}/*.sql`];
   const out = execFileSync("git", args, { cwd: repo, encoding: "utf8" });
-  return out.split(/\r?\n/).filter(Boolean);
+  return out
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [status, file] = line.split(/\s+/, 2);
+      return { status, file };
+    })
+    .filter(({ status, file }) => status !== "D" && migrationVersion(file) > baseMaxVersion)
+    .map(({ file }) => file);
 }
 
 function listAllMigrationFiles() {
@@ -148,6 +174,7 @@ function selfTest() {
   if (!auditSql("drop.sql", drop)?.rules.includes("drop-column")) throw new Error("self-test: drop column missed");
   if (!auditSql("annotated.sql", annotated)?.okForZeroDowntime) throw new Error("self-test: safe annotation not honored");
   if (auditSql("downtime.sql", markedDowntime)?.okForZeroDowntime) throw new Error("self-test: downtime marker allowed");
+  if (migrationVersion("backend/migrations/postgres/000234_new.sql") !== 234) throw new Error("self-test: migration version parse failed");
 
   const tmp = mkdtempSync(join(tmpdir(), "stg-zdt-migrations-"));
   try {
