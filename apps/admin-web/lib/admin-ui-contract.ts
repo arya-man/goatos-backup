@@ -6,9 +6,9 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
-  // SALES > Purchase & barn page. Its ~60 copy keys all arrived in one change, and admin-web and
+  // SALES > Purchase & born page. Its ~60 copy keys all arrived in one change, and admin-web and
   // the backend deploy separately: if the frontend lands first, every one of these throws and
-  // takes the WHOLE Purchase & barn page down.
+  // takes the WHOLE Purchase & born page down.
   // Same reason weighing-weights carries its Growth Director block below. Remove once the
   // backend serving these keys is the oldest version in production.
   "sales-loads": {

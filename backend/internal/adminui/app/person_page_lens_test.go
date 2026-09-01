@@ -66,7 +66,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 		// 2026-08-27, landed on main while this branch was open), so it now sorts after
 		// the Procurement group rather than inside it.
 		"/sales",
-		// Purchase & barn (maintainer decision 2026-08-31). It rides SalesRead, which this
+		// Purchase & born (maintainer decision 2026-08-31). It rides SalesRead, which this
 		// director already holds, and he is precisely the desk that records a load's landed
 		// cost -- LoadCostWrite is granted exactly where FeedPurchaseWrite is.
 		"/sales/loads",

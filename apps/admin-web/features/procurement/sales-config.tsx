@@ -303,7 +303,7 @@ export async function SalesConfigPage({
         )}
       </section>
 
-      {/* 3 — purchase and barn: a load's landed cost. Its own permission, so this section can be
+      {/* 3 — purchase and born: a load's landed cost. Its own permission, so this section can be
           the only inert one on an otherwise live page. */}
       <section className="card">
         <div className="hd">

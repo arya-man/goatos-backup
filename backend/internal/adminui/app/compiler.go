@@ -1712,7 +1712,7 @@ func permissionsForNav(id string) []string {
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.
 		//
-		// Purchase & barn reads the same commercial facts per load, so it rides the same
+		// Purchase & born reads the same commercial facts per load, so it rides the same
 		// permission. Sales Config rides it too rather than SalesWrite: a sales reader who cannot
 		// record still reaches the page and sees each control DISABLED with its reason, which is
 		// the health-config shape -- a missing leaf reads as a broken product, a disabled button
