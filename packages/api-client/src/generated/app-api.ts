@@ -635,6 +635,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/weighing-dates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whole-shed weighing days and the last day anything was weighed
+         * @description The narrow landing-window read for the Weights screens. Same permission, park scope and window rules as /weighing/shed-weights - a cheaper cut of that read, never a wider one.
+         */
+        get: operations["adminGetWeighingDates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/weighing/leadership/growth": {
         parameters: {
             query?: never;
@@ -11734,11 +11754,36 @@ export interface components {
             animals_with_two_plus_weighs: number;
             total_animals_weighed: number;
         };
+        /** @description The NARROW read the Weights screens resolve their landing window from: which days carry a whole-shed weigh, and the last day anything was weighed. Nothing else. It exists because resolving that window through /weighing/shed-weights over a 400-day lookback runs four queries and discards all but these two fields, which against a cloud database dominates every page load and tab switch. */
+        WeighingDatesResponse: {
+            /** @description Distinct Asia/Kolkata business dates carrying a whole-shed weigh, ascending. */
+            lump_weighing_dates: string[];
+            /**
+             * Format: date
+             * @description Most recent business date carrying a weigh of EITHER grain. Absent when the range holds none - never fabricated, because the screen lands on it.
+             */
+            latest_weighing_date?: string;
+        };
         WeighingGrowthTrendPoint: {
             /** Format: date */
             week_start: string;
             median_adg_g_per_day: number;
             pair_count: number;
+        };
+        /** @description One calendar week of the farm's daily gain, computed as the IDENTICAL statistic the headline reports (maintainer decision 2026-08-26): the animal-weighted mean over every kid weighed twice, each kid once at the median of its own pairs in that week, PLUS every whole-shed pen whose average moved, each pen contributing once per animal it holds. Distinct from WeighingGrowthTrendPoint, which is the MEDIAN over SCANNED PAIRS ONLY. A chart rendered beside the headline must read this one, or the two disagree. A week with no qualifying gain is absent from the array, never interpolated or zero-filled. */
+        WeighingGrowthWeeklyGainPoint: {
+            /**
+             * Format: date
+             * @description Monday (ISO week) in Asia/Kolkata. A pair spanning weeks is bucketed by its later weigh.
+             */
+            week_start: string;
+            /**
+             * Format: double
+             * @description Animal-weighted mean for the week. Non-null by construction.
+             */
+            average_adg_g_per_day: number;
+            /** @description The denominator - scanned kids with a gain this week plus the head counts of the pens that moved. */
+            animals: number;
         };
         WeighingGrowthShedLeaderboardRow: {
             /** Format: uuid */
@@ -11820,6 +11865,65 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
+        /** @description One breed's daily gain for ONE origin -- farm born or purchased. Same measure and same population rule as WeighingWeightGainBucket, split by where the animals came from. Resolved PER ANIMAL for a scanned weigh and agree-or-neither for a whole-shed pen, the identical rule the Weights page's Farm born / Purchased filter follows. THE TWO SIDES NEED NOT ADD UP to the breed's own gain_by_breed entry: an animal whose load is not recorded is claimed by neither side while still counting in the breed total. Render the halves as a comparison, never as a partition of the whole. */
+        WeighingWeightGainOriginBucket: {
+            /** @description The breed, as stored. Clients render it; they do not re-map it. */
+            label: string;
+            /**
+             * @description Never emitted for an animal or pen that is on neither side.
+             * @enum {string}
+             */
+            origin: "farm_born" | "purchased";
+            /** @description Scanned kids of this breed and origin with a computable gain, plus the head counts of the pens claimed for this origin. */
+            animals: number;
+            /**
+             * Format: double
+             * @description The animal-weighted mean for this breed and origin.
+             */
+            median_gain_g_per_day: number;
+        };
+        /** @description One breed's daily gain for ONE physical shed type, for the Shed-wise comparison Manju asked for. It compares elevated sheds against ground sheds; unclassified sheds are omitted rather than guessed from the pen name. */
+        WeighingWeightGainShedTypeBucket: {
+            /** @description The breed */
+            label: string;
+            /** @enum {string} */
+            shed_type: "elevated" | "ground";
+            /** @description Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed. */
+            animals: number;
+            /** Format: double */
+            average_gain_g_per_day: number;
+        };
+        /** @description One weight bracket: how many animals stand in it, and how fast it is growing. BOTH WAYS OF WEIGHING COUNT. A scanned animal is banded by its own latest weight and counts as one; a whole-shed pen is banded by the pen's own latest average weight and counts as ALL the animals it holds, kept whole in that one band rather than spread across neighbours. Bands are lower-inclusive and upper-exclusive, so animals sums to the weighed population. */
+        WeighingWeightBandBucket: {
+            /**
+             * @description Stable key, never display copy - the farm words live in the page contract.
+             * @enum {string}
+             */
+            band: "under_15" | "15_20" | "20_25" | "25_30" | "30_35" | "35_plus";
+            /** @description Scanned kids plus the head counts of the pens whose average lands in this bracket. */
+            animals: number;
+            /** @description The smaller set behind average_gain_g_per_day - weighed twice, plus the head counts of pens whose average moved. Always <= animals. */
+            gain_animals: number;
+            /**
+             * Format: double
+             * @description Animal-weighted mean for the bracket, the same statistic every other gain figure reports. Null when nothing here was weighed twice - a bracket nobody measured twice has no growth rate, and 0 would read as one that stopped.
+             */
+            average_gain_g_per_day?: number | null;
+        };
+        /** @description One breed's daily gain in one calendar week, for the per-breed trend beside the overall weekly series. Same statistic and claim rules as every other gain figure: a scanned animal at the median of its own pairs that week, a pen at its average-weight movement once per animal, and a pen joins a breed only when its live cohort is entirely that breed - so the per-breed weeks need not add up to the overall week. A breed with no gain in a week is ABSENT, never zero-filled. */
+        WeighingWeightGainBreedWeekBucket: {
+            /** @description The breed */
+            label: string;
+            /**
+             * Format: date
+             * @description Monday (ISO week) in Asia/Kolkata; a pair spanning weeks is bucketed by its later weigh.
+             */
+            week_start: string;
+            /** @description This breed's kids with a gain that week, plus the head counts of its single-breed pens that moved. */
+            animals: number;
+            /** Format: double */
+            average_gain_g_per_day: number;
+        };
         /** @description How many animals of one breed fell into each daily-gain band. The four counts are DISJOINT: an animal at 260 g/day is counted in above_250_g_per_day only, every animal lands in exactly one band, and the four add up to animals -- so they may be read as a distribution. A homogeneous-breed whole-shed weigh contributes ALL of its animals to the ONE band its own average-weight change falls into. There is ONE grain: the Weights page's `sex` filter narrows the whole read, so these rows already describe the kids the caller asked for. */
         WeighingWeightGainThresholdBucket: {
             label: string;
@@ -11865,6 +11969,14 @@ export interface components {
             gain_by_breed: components["schemas"]["WeighingWeightGainBucket"][];
             gain_by_sex: components["schemas"]["WeighingWeightGainBucket"][];
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
+            /** @description Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither. */
+            gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
+            /** @description Daily gain per breed split by elevated vs ground shed type. Unclassified sheds are omitted rather than guessed. */
+            gain_by_breed_shed_type: components["schemas"]["WeighingWeightGainShedTypeBucket"][];
+            /** @description How many animals stand in each weight bracket and how fast each grows, under the selected weighing-category filter. Ascending. */
+            by_weight_band: components["schemas"]["WeighingWeightBandBucket"][];
+            /** @description The same gain cut by breed AND calendar week, for the Time-wise per-breed trend. */
+            gain_by_breed_week: components["schemas"]["WeighingWeightGainBreedWeekBucket"][];
             /** @description How many animals of each breed clear 180 / 200 / 250 g per day. Same same-animal population as gain_by_breed; the marks are cumulative. */
             gain_thresholds_by_breed: components["schemas"]["WeighingWeightGainThresholdBucket"][];
             resolved_animals: number;
@@ -12013,6 +12125,7 @@ export interface components {
             headline: components["schemas"]["WeighingGrowthHeadline"];
             eligibility: components["schemas"]["WeighingGrowthEligibility"];
             trend: components["schemas"]["WeighingGrowthTrendPoint"][];
+            weekly_gain: components["schemas"]["WeighingGrowthWeeklyGainPoint"][];
             shed_leaderboard: components["schemas"]["WeighingGrowthShedLeaderboardRow"][];
             distribution: components["schemas"]["WeighingGrowthDistributionBucket"][];
             sale_readiness: components["schemas"]["WeighingGrowthSaleReadiness"];
@@ -15444,6 +15557,12 @@ export interface operations {
                 park_id?: string;
                 /** @description Optional repeated shed location ids (the Weights table's location grain). Absent means every shed in scope. */
                 shed_id?: string[];
+                /** @description Optional sex narrowing, with the same attribution rules as the weights screen. */
+                sex?: "male" | "female";
+                /** @description Optional farm-born/purchased narrowing, with whole-shed rows included only when the pen is attributable. */
+                origin?: "farm_born" | "purchased";
+                /** @description Optional capture-mode narrowing. Omitted or `all` exports both capture modes. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
@@ -15737,6 +15856,8 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
@@ -15760,6 +15881,31 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    adminGetWeighingDates: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+                sex?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingDatesResponse"];
+                };
+            };
+        };
+    };
     adminGetWeighingLeadershipGrowth: {
         parameters: {
             query?: {
@@ -15775,6 +15921,8 @@ export interface operations {
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
                  */
                 origin?: "farm_born" | "purchased";
+                /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
@@ -15805,6 +15953,8 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
@@ -15843,6 +15993,8 @@ export interface operations {
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
                  */
                 origin?: "farm_born" | "purchased";
+                /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
@@ -15880,6 +16032,8 @@ export interface operations {
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
                  */
                 origin?: "farm_born" | "purchased";
+                /** @description `individual_animal` or `per_shed_partition` to report only that weighing mode; omitted means both. The two modes are mutually exclusive at campaign-shed grain, so this filter narrows the read before aggregates are built rather than hiding rows in the browser. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;

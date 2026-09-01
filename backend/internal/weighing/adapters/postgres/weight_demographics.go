@@ -3,10 +3,12 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
+	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
 // GetWeightDemographics returns average weight by breed, sex and management stage.
@@ -24,13 +26,17 @@ import (
 // than by_stage: a whole-shed weigh has no tags, so it reaches the stage rows via
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
-func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin string) (domain.WeightDemographics, error) {
+func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.WeightDemographics, error) {
 	out := domain.WeightDemographics{
 		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
 		ByBreed:               []domain.WeightDemographicBucket{},
 		BySex:                 []domain.WeightDemographicBucket{},
 		ByStage:               []domain.WeightDemographicBucket{},
 		ShedComposition:       []domain.ShedComposition{},
+		ByWeightBand:          []domain.WeightBandBucket{},
+		GainByBreedWeek:       []domain.WeightGainBreedWeekBucket{},
+		GainByBreedOrigin:     []domain.WeightGainOriginBucket{},
+		GainByBreedShedType:   []domain.WeightGainShedTypeBucket{},
 	}
 	if len(parkIDs) == 0 {
 		return out, nil
@@ -43,6 +49,14 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	if sexErr != nil {
 		return domain.WeightDemographics{}, sexErr
 	}
+	weighingCategory = strings.TrimSpace(weighingCategory)
+	switch weighingCategory {
+	case "", "all":
+		weighingCategory = ""
+	case domain.CategoryIndividualAnimal, domain.CategoryPerShedPartition:
+	default:
+		return domain.WeightDemographics{}, fmt.Errorf("%w: unsupported weighing_category filter %q", ports.ErrInvalidArgument, weighingCategory)
+	}
 	// Origin, unlike Sex, is NOT applied natively here. It is a fact about the PEN a load was put
 	// in, not about the goat row this query has already joined, and its one implementation lives in
 	// origin_scope.go so that every card on the page agrees on which pens were bought. This read
@@ -52,6 +66,18 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	if originErr != nil {
 		return domain.WeightDemographics{}, originErr
 	}
+	// The Birth-wise breakdown needs BOTH cohorts at once, which the single filter scope above
+	// cannot express -- it answers "which animals match the selected origin", and this answers
+	// "which side is each animal on". Resolved through the SAME origin_scope.go the filter uses,
+	// so the breakdown and the filter can never disagree about which animals were bought.
+	farmBornScope, farmBornErr := r.resolveOriginScope(ctx, tenantID, parkIDs, "farm_born", periodStart, periodEnd)
+	if farmBornErr != nil {
+		return domain.WeightDemographics{}, farmBornErr
+	}
+	purchasedScope, purchasedErr := r.resolveOriginScope(ctx, tenantID, parkIDs, "purchased", periodStart, periodEnd)
+	if purchasedErr != nil {
+		return domain.WeightDemographics{}, purchasedErr
+	}
 
 	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
 WITH scoped AS (
@@ -59,6 +85,7 @@ WITH scoped AS (
   FROM weighing_campaign_sheds cs
   JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
   WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[]) AND cs.status <> 'canceled'
+    AND ($16::text = '' OR cs.weighing_category = $16::text)
 ),
 latest AS (
   SELECT DISTINCT ON (lower(btrim(o.scanned_identifier)))
@@ -108,6 +135,20 @@ animal_gain AS (
            ORDER BY (weight_kg - prev_w) * 1000.0 / (d - prev_d)) AS g
   FROM paired WHERE prev_d IS NOT NULL AND d > prev_d AND accepted_at >= $3::timestamptz GROUP BY tag
 ),
+-- The same gain, cut by CALENDAR WEEK, for the breed trend on the Time-wise tab. One value per
+-- (animal, week): a pair is bucketed by its LATER weigh, which is the week the movement was
+-- observed in, and an animal weighed several times inside one week contributes the MEDIAN of those
+-- pairs rather than each of them -- the same once-per-animal rule animal_gain above applies over
+-- the whole window.
+animal_gain_week AS (
+  SELECT tag,
+         (date_trunc('week', accepted_at AT TIME ZONE 'Asia/Kolkata'))::date AS week_start,
+         percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY (weight_kg - prev_w) * 1000.0 / (d - prev_d)) AS g
+  FROM paired
+  WHERE prev_d IS NOT NULL AND d > prev_d AND accepted_at >= $3::timestamptz
+  GROUP BY tag, week_start
+),
 ident AS (
   SELECT DISTINCT ON (lower(btrim(gi.identifier_value)))
          lower(btrim(gi.identifier_value)) AS tag, gi.goat_id
@@ -126,8 +167,12 @@ resolved AS (
   WHERE $5::text = '' OR lower(btrim(g.sex)) = $5::text
 ),
 resolved_gain AS (
-  SELECT ag.g, gt.breed, gt.sex, gt.management_stage
+  -- ag.tag is carried so the breed x origin bucket below can ask which LOAD an animal came off.
+  -- Every other consumer of this CTE names its columns explicitly, so the extra column shifts no
+  -- scan; check that before adding another.
+  SELECT ag.g, ag.tag, l.location_id, l.partition_label, gt.breed, gt.sex, gt.management_stage
   FROM animal_gain ag
+  LEFT JOIN latest l ON l.tag = ag.tag
   LEFT JOIN ident i ON i.tag = ag.tag
   LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
   WHERE $5::text = '' OR lower(btrim(gt.sex)) = $5::text
@@ -324,6 +369,46 @@ lump_span AS (
     AND first.partition_label = latest.partition_label
     AND first.rn = 1
   WHERE latest.rn = 1 AND latest.d > first.d
+    AND (NOT $6::bool OR EXISTS (
+      SELECT 1 FROM shed_targets st
+      WHERE st.location_id = latest.location_id AND st.partition_label = latest.partition_label
+    ))
+),
+-- Whole-shed pens cut by calendar week, the pen half of the breed trend. CONSECUTIVE weighs, not
+-- first-vs-latest like lump_span: a weekly series must attribute movement to the week it was
+-- observed in, so each pen weigh is paired with the one before it and bucketed by the later of the
+-- two. rn = 1 keeps ONE movement per pen per week -- a pen weighed three times inside a week would
+-- otherwise add its head count to that week twice.
+pen_week AS (
+  SELECT week_start, location_id, partition_label, animals, g_per_day FROM (
+    SELECT (date_trunc('week', d::timestamp))::date AS week_start,
+           location_id, partition_label,
+           animal_count::float8 AS animals,
+           (average_weight_kg - prev_w) * 1000.0 / NULLIF(d - prev_d, 0) AS g_per_day,
+           row_number() OVER (
+             PARTITION BY location_id, partition_label, (date_trunc('week', d::timestamp))::date
+             ORDER BY d DESC
+           ) AS rn
+    FROM (
+      SELECT s.location_id, COALESCE(s.partition_label, '') AS partition_label,
+             so.average_weight_kg, so.animal_count,
+             (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+             lag(so.average_weight_kg) OVER w AS prev_w,
+             lag((so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date) OVER w AS prev_d
+      FROM weighing_shed_observations so
+      JOIN scoped s ON s.campaign_shed_id = so.campaign_shed_id AND s.tenant_id = so.tenant_id
+      WHERE so.tenant_id = $1::uuid AND s.weighing_category = 'per_shed_partition'
+        AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
+        AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
+        AND (NOT $6::bool OR EXISTS (
+          SELECT 1 FROM shed_targets st
+          WHERE st.location_id = s.location_id AND st.partition_label = COALESCE(s.partition_label, '')
+        ))
+      WINDOW w AS (PARTITION BY s.location_id, COALESCE(s.partition_label, '')
+                   ORDER BY (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date)
+    ) pairs
+    WHERE prev_w IS NOT NULL AND d > prev_d
+  ) ranked WHERE rn = 1
 ),
 individual_composition AS (
   SELECT location_id, partition_label, 'scanned_tags'::text AS source,
@@ -357,6 +442,30 @@ lump_composition AS (
     WHERE ic.location_id = l.location_id AND ic.partition_label = l.partition_label
   )
   GROUP BY l.location_id, l.partition_label
+),
+shed_type AS (
+  SELECT DISTINCT src.location_id, src.partition_label,
+         CASE
+           WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
+                      coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
+                      coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(elevated|elevate)\M'
+             THEN 'elevated'
+           WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
+                      coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
+                      coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(crown|crowned|ground)\M'
+             THEN 'ground'
+           WHEN lower(loc.name) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
+             OR lower(coalesce(parent_loc.name, '')) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
+             THEN 'ground'
+           WHEN lower(loc.name) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
+             OR lower(coalesce(parent_loc.name, '')) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
+             THEN 'elevated'
+         END AS shed_type
+  FROM shed_targets src
+  JOIN locations loc ON loc.location_id = src.location_id AND loc.tenant_id = $1::uuid
+  LEFT JOIN locations parent_loc ON parent_loc.location_id = src.resolved_id AND parent_loc.tenant_id = $1::uuid
+  LEFT JOIN shed_profiles sp ON sp.location_id = src.location_id AND sp.tenant_id = $1::uuid
+  LEFT JOIN shed_profiles parent_sp ON parent_sp.location_id = src.resolved_id AND parent_sp.tenant_id = $1::uuid
 )
 SELECT
   (SELECT count(*) FROM resolved WHERE breed IS NOT NULL),
@@ -446,6 +555,193 @@ SELECT
          GROUP BY ss.stage
        ) parts GROUP BY stage
      ) gs),
+  -- BREED x ORIGIN: the same weighted mean as gb above, split by where the animals came from.
+  -- It is computed HERE, in the one query, rather than by asking this read twice under the two
+  -- origins: this whole response is a single round trip of a heavy aggregate, and two of them
+  -- would recompute by_sex, by_stage, the bands and the shed composition only to throw both
+  -- copies away.
+  --
+  -- ORIGIN IS RESOLVED PER ANIMAL for a scanned weigh, and AGREE-OR-NEITHER for a whole-shed pen
+  -- -- exactly the rule origin_scope.go already applies for the page's own Farm born / Purchased
+  -- filter, which is why the two lists are consumed as opaque bind arrays here rather than
+  -- re-derived. An animal or pen in NEITHER list is claimed by NEITHER side (origin IS NULL is
+  -- dropped), so the two halves need not add up to the breed's own total. That gap is honest: a
+  -- kid whose load is not recorded was still weighed, and still counts in gb above.
+  --
+  -- projection-review: producer grain is one resolved_gain row per animal and one lump_span row
+  -- per (location_id, partition_label); consumer grain is (breed, origin), reached by GROUP BY on
+  -- exactly those two columns after each arm is already at its own grain, so the UNION ALL cannot
+  -- fan out. The weighted mean's numerator sum(gsum) and denominator sum(n) range over the
+  -- identical row set (same FROM, same GROUP BY) -- one key set, stated identical.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, origin, n, g) ORDER BY breed, origin), '[]'::jsonb)
+     FROM (
+       SELECT breed, origin, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT breed, origin, count(*)::bigint n, sum(g)::float8 gsum
+         FROM (
+           SELECT rg.breed, rg.g,
+                  CASE WHEN rg.tag = ANY($10::text[]) THEN 'farm_born'
+                       WHEN rg.tag = ANY($11::text[]) THEN 'purchased' END AS origin
+           FROM resolved_gain rg WHERE rg.breed IS NOT NULL
+         ) scanned
+         WHERE origin IS NOT NULL
+         GROUP BY breed, origin
+         UNION ALL
+         SELECT sc.breed, pen.origin, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls
+         JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         JOIN LATERAL (
+           SELECT CASE
+             WHEN EXISTS (SELECT 1 FROM unnest($12::uuid[], $13::text[]) AS fb(loc, part)
+                          WHERE fb.loc = ls.location_id AND fb.part = ls.partition_label) THEN 'farm_born'
+             WHEN EXISTS (SELECT 1 FROM unnest($14::uuid[], $15::text[]) AS pu(loc, part)
+                          WHERE pu.loc = ls.location_id AND pu.part = ls.partition_label) THEN 'purchased'
+           END AS origin
+         ) pen ON pen.origin IS NOT NULL
+         -- Same claim rule as every other whole-shed arm: the pen counts for a reader only when
+         -- its cohort is entirely one breed, and entirely the selected sex.
+         WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+         GROUP BY sc.breed, pen.origin
+       ) parts GROUP BY breed, origin
+     ) gbo),
+  -- BREED x SHED TYPE: Manju's Shed-wise view. This is not a per-pen leaderboard; it compares the
+  -- two physical shed classes the farm asked for, inside each breed. The class is read from explicit
+  -- shed metadata when present; ground sheds also include the named sheds called out in the review
+  -- note until that classification is modeled as first-class data.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, shed_type, n, g) ORDER BY breed, shed_type), '[]'::jsonb)
+     FROM (
+       SELECT breed, shed_type, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT rg.breed, st.shed_type, count(*)::bigint n, sum(rg.g)::float8 gsum
+         FROM resolved_gain rg
+         JOIN shed_type st ON st.location_id = rg.location_id AND st.partition_label = rg.partition_label
+         WHERE rg.breed IS NOT NULL AND st.shed_type IS NOT NULL
+           AND ($16::text = '' OR $16::text = 'individual_animal')
+         GROUP BY rg.breed, st.shed_type
+         UNION ALL
+         SELECT sc.breed, st.shed_type, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls
+         JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         JOIN shed_type st
+           ON st.location_id = ls.location_id AND st.partition_label = ls.partition_label
+         WHERE sc.breeds = 1 AND st.shed_type IS NOT NULL
+           AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+           AND ($16::text = '' OR $16::text = 'per_shed_partition')
+         GROUP BY sc.breed, st.shed_type
+       ) parts GROUP BY breed, shed_type
+     ) gbst),
+  -- WEIGHT BANDS: how many animals sit in each weight bracket, and how fast that bracket is
+  -- growing. Both arms, always -- a page that banded only the scanned kids would describe this
+  -- farm from a minority of it, since most of its animals are weighed by the whole shed.
+  --
+  -- A SCANNED animal is banded by its OWN latest weight in the window and counts as one.
+  -- A WHOLE-SHED pen is banded by the pen's own latest average weight and counts as ALL the
+  -- animals it holds -- the shed average is the only measured fact, so every animal in the pen is
+  -- kept in the one band that average falls into rather than spread across neighbouring bands,
+  -- which would invent a distribution nobody measured. Same rule the gain bands already use.
+  --
+  -- The gain is the SAME animal-weighted mean every other gain figure on these screens reports:
+  -- a scanned animal at the median of its own pairs, a pen at its average-weight movement once
+  -- per animal. LEFT JOINed on purpose -- an animal or pen weighed ONCE has no gain but is still a
+  -- real animal standing in that weight bracket, so it counts in the head count and not in the
+  -- gain denominator. Reporting it
+  -- as 0 g/day would drag the bracket's growth toward zero with animals nobody measured twice.
+  --
+  -- Bands are lower-inclusive and upper-exclusive, so every animal lands in exactly one and the
+  -- counts sum to the population. The KEYS are stable identifiers; the farm words for them live in
+  -- the page contract, never here.
+  --
+  -- projection-review: producer grain is one resolved row per scanned tag (DISTINCT ON tag) and
+  -- one lump row per (location_id, partition_label) (DISTINCT ON that pair); consumer grain is
+  -- the band, reached by GROUP BY after each arm is already at its own grain, so the UNION ALL
+  -- cannot fan out. animal_gain is 1:0..1 per tag (GROUP BY tag) and lump_span is 1:0..1 per pen
+  -- (rn=1 joined to rn=1), so neither LEFT JOIN multiplies a row. The mean's numerator sum(gsum)
+  -- and denominator sum(gn) range over the identical row set.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(band, n, gn, g) ORDER BY sort), '[]'::jsonb)
+     FROM (
+       SELECT band, sort, sum(n)::bigint AS n, sum(gn)::bigint AS gn,
+              (sum(gsum) / NULLIF(sum(gn), 0))::float8 AS g
+       FROM (
+         SELECT b.band, b.sort,
+                count(*)::bigint                              AS n,
+                count(ag.g)::bigint                           AS gn,
+                COALESCE(sum(ag.g), 0)::float8                AS gsum
+         FROM resolved r
+         LEFT JOIN animal_gain ag ON ag.tag = r.tag
+         CROSS JOIN LATERAL (
+           SELECT CASE WHEN r.weight_kg < 15 THEN 'under_15'
+                       WHEN r.weight_kg < 20 THEN '15_20'
+                       WHEN r.weight_kg < 25 THEN '20_25'
+                       WHEN r.weight_kg < 30 THEN '25_30'
+                       WHEN r.weight_kg < 35 THEN '30_35'
+                       ELSE '35_plus' END AS band,
+                  CASE WHEN r.weight_kg < 15 THEN 1
+                       WHEN r.weight_kg < 20 THEN 2
+                       WHEN r.weight_kg < 25 THEN 3
+                       WHEN r.weight_kg < 30 THEN 4
+                       WHEN r.weight_kg < 35 THEN 5
+                       ELSE 6 END AS sort
+         ) b
+         GROUP BY b.band, b.sort
+         UNION ALL
+         SELECT b.band, b.sort,
+                sum(lu.animal_count)::bigint,
+                COALESCE(sum(ls.animals), 0)::bigint,
+                COALESCE(sum(ls.animals * ls.g_per_day), 0)::float8
+         FROM lump lu
+         LEFT JOIN lump_span ls
+           ON ls.location_id = lu.location_id AND ls.partition_label = lu.partition_label
+         CROSS JOIN LATERAL (
+           SELECT CASE WHEN lu.average_weight_kg < 15 THEN 'under_15'
+                       WHEN lu.average_weight_kg < 20 THEN '15_20'
+                       WHEN lu.average_weight_kg < 25 THEN '20_25'
+                       WHEN lu.average_weight_kg < 30 THEN '25_30'
+                       WHEN lu.average_weight_kg < 35 THEN '30_35'
+                       ELSE '35_plus' END AS band,
+                  CASE WHEN lu.average_weight_kg < 15 THEN 1
+                       WHEN lu.average_weight_kg < 20 THEN 2
+                       WHEN lu.average_weight_kg < 25 THEN 3
+                       WHEN lu.average_weight_kg < 30 THEN 4
+                       WHEN lu.average_weight_kg < 35 THEN 5
+                       ELSE 6 END AS sort
+         ) b
+         GROUP BY b.band, b.sort
+       ) parts GROUP BY band, sort
+     ) wb),
+  -- BREED x WEEK: the Time-wise tab's per-breed trend, over the same weeks the overall series
+  -- covers. Both arms again -- a breed trend built from scanned kids only would describe this farm
+  -- from a minority of it, and the overall weekly line beside it counts pens.
+  --
+  -- Same statistic, same claim rules as every other gain figure: a scanned animal at the median of
+  -- its own pairs for that week, a pen at its average-weight movement once per animal, and a pen
+  -- joins a breed only when its live cohort is entirely that breed. A mixed pen names nothing
+  -- rather than guessing, so the per-breed weeks need not add up to the overall week.
+  --
+  -- projection-review: producer grain is one animal_gain_week row per (tag, week) and one pen_week
+  -- row per (pen, week); consumer grain is (breed, week_start), reached by GROUP BY after each arm
+  -- is already at its own grain, so the UNION ALL cannot fan out. ident is 1:0..1 per tag
+  -- (DISTINCT ON) and shed_cohort is 1:1 per pen (GROUPed by that key), so neither join multiplies
+  -- a row. The mean's numerator and denominator range over the identical row set.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, week_start, n, g) ORDER BY breed, week_start), '[]'::jsonb)
+     FROM (
+       SELECT breed, week_start, sum(n)::bigint AS n, (sum(gsum) / NULLIF(sum(n), 0))::float8 AS g
+       FROM (
+         SELECT gt.breed, aw.week_start, count(*)::bigint AS n, sum(aw.g)::float8 AS gsum
+         FROM animal_gain_week aw
+         LEFT JOIN ident i ON i.tag = aw.tag
+         LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
+         WHERE gt.breed IS NOT NULL AND ($5::text = '' OR lower(btrim(gt.sex)) = $5::text)
+         GROUP BY gt.breed, aw.week_start
+         UNION ALL
+         SELECT sc.breed, pw.week_start, sum(pw.animals)::bigint, sum(pw.animals * pw.g_per_day)::float8
+         FROM pen_week pw
+         JOIN shed_cohort sc
+           ON sc.location_id = pw.location_id AND sc.partition_label = pw.partition_label
+         WHERE sc.breeds = 1
+           AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+         GROUP BY sc.breed, pw.week_start
+       ) parts GROUP BY breed, week_start
+     ) gbw),
   -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
   -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
   -- and the four counts partition n exactly — every animal with a gain lands in one band.
@@ -507,14 +803,26 @@ SELECT
 		resolvedCount, unresolvedCount, lumpTotal, lumpUnattributed int
 		breedJSON, sexJSON, stageJSON                               []byte
 		gainBreedJSON, gainSexJSON, gainStageJSON                   []byte
+		gainByBreedOriginJSON                                       []byte
+		gainByBreedShedTypeJSON                                     []byte
+		weightBandJSON                                              []byte
+		gainBreedWeekJSON                                           []byte
 		gainThresholdBreedJSON                                      []byte
 		compositionJSON                                             []byte
 	)
 	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFilter,
-		originFiltered, originScope.Tags, originScope.LocationIDs, originScope.PartitionLabels).Scan(
+		originFiltered, originScope.Tags, originScope.LocationIDs, originScope.PartitionLabels,
+		farmBornScope.Tags, purchasedScope.Tags,
+		farmBornScope.LocationIDs, farmBornScope.PartitionLabels,
+		purchasedScope.LocationIDs, purchasedScope.PartitionLabels,
+		weighingCategory).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,
+		&gainByBreedOriginJSON,
+		&gainByBreedShedTypeJSON,
+		&weightBandJSON,
+		&gainBreedWeekJSON,
 		&gainThresholdBreedJSON,
 		&compositionJSON,
 	); err != nil {
@@ -542,6 +850,18 @@ SELECT
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainByStage, err = decodeWeightGainBuckets(gainStageJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainByBreedOrigin, err = decodeWeightGainOriginBuckets(gainByBreedOriginJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainByBreedShedType, err = decodeWeightGainShedTypeBuckets(gainByBreedShedTypeJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.ByWeightBand, err = decodeWeightBandBuckets(weightBandJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainByBreedWeek, err = decodeWeightGainBreedWeekBuckets(gainBreedWeekJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainThresholdsByBreed, err = decodeWeightGainThresholdBuckets(gainThresholdBreedJSON); err != nil {
@@ -686,6 +1006,149 @@ func decodeWeightGainBuckets(raw []byte) ([]domain.WeightGainBucket, error) {
 // these rows already describe the kids the reader asked for. Emitting a second, per-sex grain
 // beside the combined one duplicated a rule the query above already applies, and two
 // implementations of one rule drift.
+// decodeWeightGainOriginBuckets reads the four-element rows gbo emits: breed, origin, animals,
+// gain. A row missing either name is SKIPPED rather than defaulted -- a bucket with a blank origin
+// could not be drawn on either side of the Birth-wise comparison, and inventing a side for it would
+// claim an animal for a cohort the query deliberately declined to claim it for.
+func decodeWeightGainOriginBuckets(raw []byte) ([]domain.WeightGainOriginBucket, error) {
+	out := []domain.WeightGainOriginBucket{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if len(row) != 4 {
+			continue
+		}
+		var label, origin string
+		var animals int
+		var gain float64
+		if json.Unmarshal(row[0], &label) != nil || label == "" {
+			continue
+		}
+		if json.Unmarshal(row[1], &origin) != nil || (origin != "farm_born" && origin != "purchased") {
+			continue
+		}
+		if json.Unmarshal(row[2], &animals) != nil || json.Unmarshal(row[3], &gain) != nil {
+			continue
+		}
+		out = append(out, domain.WeightGainOriginBucket{
+			Label: label, Origin: origin, Animals: animals, MedianGainGPerDay: gain,
+		})
+	}
+	return out, nil
+}
+
+func decodeWeightGainShedTypeBuckets(raw []byte) ([]domain.WeightGainShedTypeBucket, error) {
+	out := []domain.WeightGainShedTypeBucket{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if len(row) != 4 {
+			continue
+		}
+		var label, shedType string
+		var animals int
+		var gain float64
+		if json.Unmarshal(row[0], &label) != nil || label == "" {
+			continue
+		}
+		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "ground") {
+			continue
+		}
+		if json.Unmarshal(row[2], &animals) != nil || json.Unmarshal(row[3], &gain) != nil {
+			continue
+		}
+		out = append(out, domain.WeightGainShedTypeBucket{
+			Label: label, ShedType: shedType, Animals: animals, AverageGainGPerDay: gain,
+		})
+	}
+	return out, nil
+}
+
+// decodeWeightBandBuckets reads the four-element rows wb emits: band key, animals, gain animals,
+// gain. A row whose band key is not one of the six is SKIPPED rather than defaulted -- a bracket
+// the client cannot name is a bracket it cannot draw, and filing it under a neighbour would move
+// animals into a weight range they are not in.
+//
+// The gain arrives NULL for a bracket nothing was weighed twice in, and stays nil: 0 g/day would
+// read as a bracket that stopped growing.
+func decodeWeightBandBuckets(raw []byte) ([]domain.WeightBandBucket, error) {
+	out := []domain.WeightBandBucket{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	known := map[string]bool{"under_15": true, "15_20": true, "20_25": true, "25_30": true, "30_35": true, "35_plus": true}
+	for _, row := range rows {
+		if len(row) != 4 {
+			continue
+		}
+		var band string
+		var animals, gainAnimals int
+		if json.Unmarshal(row[0], &band) != nil || !known[band] {
+			continue
+		}
+		if json.Unmarshal(row[1], &animals) != nil || json.Unmarshal(row[2], &gainAnimals) != nil {
+			continue
+		}
+		bucket := domain.WeightBandBucket{Band: band, Animals: animals, GainAnimals: gainAnimals}
+		var gain *float64
+		if json.Unmarshal(row[3], &gain) == nil && gain != nil {
+			bucket.AverageGainGPerDay = gain
+		}
+		out = append(out, bucket)
+	}
+	return out, nil
+}
+
+// decodeWeightGainBreedWeekBuckets reads the four-element rows gbw emits: breed, week start,
+// animals, gain. A row missing either name is SKIPPED rather than defaulted -- a point with no
+// breed or no week cannot be plotted on a per-breed trend, and inventing either would put a
+// measurement on a line it does not belong to.
+func decodeWeightGainBreedWeekBuckets(raw []byte) ([]domain.WeightGainBreedWeekBucket, error) {
+	out := []domain.WeightGainBreedWeekBucket{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if len(row) != 4 {
+			continue
+		}
+		var label, week string
+		var animals int
+		var gain float64
+		if json.Unmarshal(row[0], &label) != nil || label == "" {
+			continue
+		}
+		if json.Unmarshal(row[1], &week) != nil || week == "" {
+			continue
+		}
+		if json.Unmarshal(row[2], &animals) != nil || json.Unmarshal(row[3], &gain) != nil {
+			continue
+		}
+		out = append(out, domain.WeightGainBreedWeekBucket{
+			Label: label, WeekStart: week, Animals: animals, AverageGainGPerDay: gain,
+		})
+	}
+	return out, nil
+}
+
 func decodeWeightGainThresholdBuckets(raw []byte) ([]domain.WeightGainThresholdBucket, error) {
 	out := []domain.WeightGainThresholdBucket{}
 	if len(raw) == 0 {

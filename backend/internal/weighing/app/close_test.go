@@ -372,15 +372,20 @@ func (r *scenarioRepo) GetWeightHistory(context.Context, string, []string, strin
 	return domain.WeightHistory{}, nil
 }
 
-func (r *scenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string) (domain.GrowthADG, error) {
+func (r *scenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string, string) (domain.GrowthADG, error) {
 	return domain.GrowthADG{}, nil
 }
 
-func (r *scenarioRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string, string) (domain.ShedWeights, error) {
+func (r *scenarioRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string, string, string) (domain.ShedWeights, error) {
 	return domain.ShedWeights{}, nil
 }
 
-func (r *scenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string) (domain.WeightDemographics, error) {
+// GetWeighingDates is a stub: the narrow landing-window read is not exercised by this fake.
+func (r *scenarioRepo) GetWeighingDates(context.Context, string, []string, time.Time, time.Time, string, string, string) (domain.WeighingDates, error) {
+	return domain.WeighingDates{}, nil
+}
+
+func (r *scenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 
@@ -396,15 +401,20 @@ func (r *multiParkScenarioRepo) GetWeightHistory(context.Context, string, []stri
 	return domain.WeightHistory{}, nil
 }
 
-func (r *multiParkScenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string) (domain.GrowthADG, error) {
+func (r *multiParkScenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string, string) (domain.GrowthADG, error) {
 	return domain.GrowthADG{}, nil
 }
 
-func (r *multiParkScenarioRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string, string) (domain.ShedWeights, error) {
+func (r *multiParkScenarioRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string, string, string) (domain.ShedWeights, error) {
 	return domain.ShedWeights{}, nil
 }
 
-func (r *multiParkScenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string) (domain.WeightDemographics, error) {
+// GetWeighingDates is a stub: the narrow landing-window read is not exercised by this fake.
+func (r *multiParkScenarioRepo) GetWeighingDates(context.Context, string, []string, time.Time, time.Time, string, string, string) (domain.WeighingDates, error) {
+	return domain.WeighingDates{}, nil
+}
+
+func (r *multiParkScenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 

@@ -60,6 +60,9 @@ export function WeightsExportControl({
   initialParkId,
   initialFrom,
   initialTo,
+  sex,
+  origin,
+  weighingCategory,
   today,
   openHref,
   closeHref,
@@ -72,6 +75,10 @@ export function WeightsExportControl({
   /** The page's selected window, both ends "YYYY-MM-DD" Asia/Kolkata business dates. */
   initialFrom: string;
   initialTo: string;
+  /** Optional host-page filters the CSV must match. */
+  sex?: string;
+  origin?: string;
+  weighingCategory?: string;
   today: string;
   /** Real deep links for new tabs / no-JS; ordinary clicks stay client-local. */
   openHref: string;
@@ -151,6 +158,9 @@ export function WeightsExportControl({
         to,
         parkId: parkId || undefined,
         shedIds: allSheds ? undefined : effectiveShedIds,
+        sex: sex || undefined,
+        origin: origin || undefined,
+        weighingCategory: weighingCategory && weighingCategory !== "all" ? weighingCategory : undefined,
       });
       if (!result.ok) {
         setFailed(true);

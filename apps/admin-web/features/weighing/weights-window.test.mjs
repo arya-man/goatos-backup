@@ -3,6 +3,13 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const source = readFileSync(new URL("./weights.tsx", import.meta.url), "utf8");
+const analyticsSource = readFileSync(new URL("./weights-analytics.tsx", import.meta.url), "utf8");
+const analyticsTabLoadingSource = readFileSync(
+  new URL("./weights-analytics-tab-loading.tsx", import.meta.url),
+  "utf8",
+);
+const landingSource = readFileSync(new URL("./landing-window.ts", import.meta.url), "utf8");
+const segmentedLinksSource = readFileSync(new URL("../../components/segmented-links.tsx", import.meta.url), "utf8");
 const contract = readFileSync(
   new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url),
   "utf8",
@@ -19,31 +26,71 @@ test("the period control is a calendar, not a fixed-window select", () => {
   assert.doesNotMatch(contract, /"filter\.period\.12w"/);
 });
 
-test("the page lands on the latest two lump-sum weighing dates when no period is selected", () => {
-  assert.match(source, /const DEFAULT_WINDOW_DAYS = 15;/);
-  assert.match(source, /const LATEST_LUMP_LOOKBACK_DAYS = 400;/);
-  assert.match(source, /async function landingWindow/);
-  assert.match(source, /getShedWeights\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*\.\.\.lookback,/);
-  assert.match(source, /sex: sexFilter \|\| undefined,/);
-  assert.match(source, /const dates = \[\.\.\.new Set\(result\.data\.lump_weighing_dates \?\? \[\]\)\]\.sort\(\);/);
-  assert.match(source, /from: dates\[dates\.length - 2\],/);
+test("the page lands on 2026-08-03 through the latest weighing when no period is selected", () => {
+  assert.match(landingSource, /export const DEFAULT_WINDOW_FROM = "2026-08-03";/);
+  assert.match(landingSource, /const LATEST_LUMP_LOOKBACK_DAYS = 400;/);
+  assert.match(landingSource, /export async function landingWindow/);
+  assert.match(landingSource, /getWeighingDates\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*\.\.\.lookback,/);
+  assert.match(landingSource, /sex: sexFilter \|\| undefined,/);
+  assert.doesNotMatch(landingSource, /dates\[dates\.length - 2\]/);
+  assert.match(landingSource, /from: DEFAULT_WINDOW_FROM > today \? today : DEFAULT_WINDOW_FROM,/);
   // THE END IS NOT A LUMP DATE. On 25 Aug 2026 the farm scanned 199 kids across 17 sheds and weighed
   // no shed whole, so that day never entered lump_weighing_dates and a window closing on the later
-  // lump date shut a day early -- dropping all 199 from the KPIs, the gain charts and Fair fight
-  // while the period label read as though nothing was missing. The START still comes from the lump
-  // dates, because two whole-shed weighs are what make a shed-average movement measurable.
-  assert.match(source, /const latest = result\.data\.latest_weighing_date \?\? "";/);
-  assert.match(source, /latest > dates\[dates\.length - 1\] \? latest : dates\[dates\.length - 1\]/);
+  // lump date shut a day early -- dropping all 199 from the KPIs while the period label read as
+  // though nothing was missing.
+  assert.match(landingSource, /const latest = result\.data\.latest_weighing_date \?\? "";/);
+  assert.match(landingSource, /const end = BUSINESS_DAY\.test\(latest\) \? latest : today;/);
   // Clamped, like every other window this file resolves: a future end is never rendered.
-  assert.match(source, /to: end > today \? today : end,/);
+  assert.match(landingSource, /to: end > today \? today : end,/);
   // The date is BACKEND-owned. A max taken across the returned rows would be the page deriving
   // business truth from its own rows, which is the rollup-from-a-slice shape this repo bans.
-  assert.doesNotMatch(source, /Math\.max\([^)]*last_weighed_date/);
-  assert.match(source, /return \{ from: istDayPlus\(today, -\(DEFAULT_WINDOW_DAYS - 1\)\), to: today \};/);
+  assert.doesNotMatch(landingSource, /Math\.max\([^)]*last_weighed_date/);
+  assert.match(landingSource, /return \{ from: DEFAULT_WINDOW_FROM > today \? today : DEFAULT_WINDOW_FROM, to: today \};/);
   // istDayPlus is pure calendar arithmetic on an already-resolved IST day. Re-entering a timezone
   // here (or hardcoding +05:30) is what the shared helper exists to prevent.
-  assert.match(source, /import \{ fmtDate, istDayPlus, todayIso \} from "@\/lib\/format";/);
-  assert.doesNotMatch(source, /5\.5 \* 60/);
+  assert.match(landingSource, /import \{ istDayPlus \} from "@\/lib\/format";/);
+  assert.doesNotMatch(landingSource, /5\.5 \* 60/);
+});
+
+test("weights analytics time-wise uses the same selected/default period as every tab", () => {
+  assert.doesNotMatch(analyticsSource, /TREND_WEEKS/);
+  assert.doesNotMatch(analyticsSource, /trendWindow/);
+  assert.doesNotMatch(analyticsSource, /tab === "time" \?[^:]+: window/);
+  assert.match(analyticsSource, /const readWindow = window;/);
+  assert.match(analyticsSource, /getShedWeights\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.doesNotMatch(contract, /last 12 weeks/);
+  assert.doesNotMatch(contract, /those 12 weeks/);
+  assert.doesNotMatch(contract, /not moved by the period filter/);
+});
+
+test("analytics tab changes expose a visible pending state", () => {
+  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  assert.doesNotMatch(analyticsSource, /pendingLabel=/);
+  assert.doesNotMatch(segmentedLinksSource, /pendingLabel\?: string/);
+  assert.match(segmentedLinksSource, /metricseg metricseg-pending/);
+  assert.doesNotMatch(segmentedLinksSource, /metricseg-status/);
+  assert.match(segmentedLinksSource, /metricseg:navigate/);
+  assert.match(segmentedLinksSource, /aria-busy=\{isPending\}/);
+  assert.match(analyticsSource, /<WeightsAnalyticsTabLoading currentTab=\{tab\} \/>/);
+  assert.match(analyticsSource, /className="wt-tab-live"/);
+  assert.match(analyticsTabLoadingSource, /window\.addEventListener\("metricseg:navigate"/);
+  assert.match(analyticsTabLoadingSource, /classList\.add\("wt-tab-switching"\)/);
+  assert.match(analyticsTabLoadingSource, /wt-tab-skeleton/);
+  assert.match(css, /\.metricseg-pending\{/);
+  assert.match(css, /\.wt-tab-switching \.wt-tab-live\{display:none\}/);
+  assert.match(css, /\.wt-tab-skeleton\{/);
+  assert.doesNotMatch(css, /\.metricseg-status\{/);
+});
+
+test("weights analytics sends the weighing mode through every tab read", () => {
+  assert.doesNotMatch(analyticsSource, /WEIGHING_FILTER_TABS/);
+  assert.match(analyticsSource, /weighing_category: modeFilter !== "all" \? modeFilter : undefined/);
+  assert.match(analyticsSource, /getShedWeights\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /weighingCategory=\{modeFilter !== "all" \? modeFilter : undefined\}/);
 });
 
 test("the default window is passed as NAMED fields, never spread", () => {
@@ -51,16 +98,16 @@ test("the default window is passed as NAMED fields, never spread", () => {
   // and would silently overwrite the resolved latest-two-weighings window. It typechecks and
   // renders; only the data is wrong.
   assert.match(source, /defaultFrom: defaultWindow\(today\)\.from,\s*\n\s*defaultTo: defaultWindow\(today\)\.to,/);
-  assert.doesNotMatch(source, /\.\.\.defaultWindow\(/);
+  assert.doesNotMatch(landingSource, /\.\.\.defaultWindow\(/);
 });
 
 test("a hand-edited window falls back instead of taking the page down", () => {
   // Inverted, malformed or absent parameters land on the default; a future end clamps to today,
   // because a weigh cannot have happened tomorrow.
-  assert.match(source, /rawFrom <= rawTo/);
-  assert.match(source, /rawFrom > today \? today : rawFrom/);
-  assert.match(source, /if \(rawFrom \|\| rawTo\) return defaultWindow\(today\);/);
-  assert.match(source, /return defaultWindow\(today\);/);
+  assert.match(landingSource, /rawFrom <= rawTo/);
+  assert.match(landingSource, /rawFrom > today \? today : rawFrom/);
+  assert.match(landingSource, /if \(rawFrom \|\| rawTo\) return defaultWindow\(today\);/);
+  assert.match(landingSource, /return defaultWindow\(today\);/);
 });
 
 test("the headline row is five cards, and the gain figure is stated once", () => {
@@ -74,6 +121,8 @@ test("the headline row is five cards, and the gain figure is stated once", () =>
   assert.doesNotMatch(contract, /"kpi\.gain\.sub":/);
   // g5 needs its own responsive ladder; without it the row falls back to one column.
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  assert.match(analyticsSource, /className="wt-general-metrics"/);
+  assert.match(css, /\.wt-general-metrics\{display:flex;flex-direction:column;gap:18px\}/);
   assert.match(css, /\.g5\{grid-template-columns:repeat\(5,minmax\(0,1fr\)\)\}/);
   assert.match(css, /@media\(max-width:1400px\)\{\.g5\{/);
   assert.match(css, /@media\(max-width:640px\)\{\.g5\{grid-template-columns:1fr\}\}/);
@@ -293,6 +342,12 @@ test("lump marker proxy reads a calendar window independently of the report rang
   );
   assert.match(route, /url\.searchParams\.get\("from"\)/);
   assert.match(route, /url\.searchParams\.get\("to"\)/);
-  assert.match(route, /getShedWeights\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*from,\s*\n\s*to,/);
+  assert.match(route, /url\.searchParams\.get\("sex"\)/);
+  assert.match(route, /url\.searchParams\.get\("origin"\)/);
+  assert.match(route, /url\.searchParams\.get\("weighing"\)/);
+  assert.match(route, /getWeighingDates\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*from,\s*\n\s*to,/);
+  assert.match(route, /sex: sex === "male" \|\| sex === "female" \? sex : undefined,/);
+  assert.match(route, /origin: origin === "farm_born" \|\| origin === "purchased" \? origin : undefined,/);
+  assert.match(route, /weighing_category:\s*\n\s*weighing === "individual_animal" \|\| weighing === "per_shed_partition" \? weighing : undefined,/);
   assert.match(route, /dates: result\.data\.lump_weighing_dates/);
 });

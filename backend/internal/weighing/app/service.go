@@ -24,7 +24,7 @@ type Service struct {
 }
 
 type exportReader interface {
-	ExportCSV(ctx context.Context, tenantID string, parkIDs []string, shedLocationIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error
+	ExportCSV(ctx context.Context, tenantID string, parkIDs []string, shedLocationIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, writer io.Writer) error
 }
 
 func NewService(repo ports.Repository) *Service {
@@ -1369,9 +1369,16 @@ const growthDefaultPeriodDays = domain.ShedWeightsDefaultPeriodDays
 // Requires WeighingMonitor, park-scoped exactly like GetWeightHistory: a park-scoped monitor may
 // only request a park inside their own grant, and a tenant-wide monitor may request any park in
 // the tenant.
-func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.GrowthADG, error) {
+func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.GrowthADG, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.GrowthADG{}, ports.ErrForbidden
+	}
+	if err := validateWeighingCategoryFilter(weighingCategory); err != nil {
+		return domain.GrowthADG{}, err
+	}
+	weighingCategory = strings.TrimSpace(weighingCategory)
+	if weighingCategory == "all" {
+		weighingCategory = ""
 	}
 	// park_id is now OPTIONAL: a caller may omit it to get the herd-wide headline across every
 	// park they are authorized to monitor (see the scope resolution below). When supplied, it
@@ -1431,7 +1438,25 @@ func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor
 		return domain.GrowthADG{}, scopeErr
 	}
 
-	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin)
+	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory)
+}
+
+func validateWeighingCategoryFilter(weighingCategory string) error {
+	switch strings.TrimSpace(weighingCategory) {
+	case "", "all", domain.CategoryIndividualAnimal, domain.CategoryPerShedPartition:
+		return nil
+	default:
+		return ports.ErrInvalidArgument
+	}
+}
+
+func validateOriginFilter(origin string) error {
+	switch strings.TrimSpace(origin) {
+	case "", "farm_born", "purchased":
+		return nil
+	default:
+		return ports.ErrInvalidArgument
+	}
 }
 
 // resolveMonitorParkScope turns an OPTIONAL park_id into the concrete park list a
@@ -1494,7 +1519,7 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 
 // GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
 // screen. Same capability and scope rules as the other leadership reads.
-func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.WeightDemographics, error) {
+func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeightDemographics, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.WeightDemographics{}, ports.ErrForbidden
 	}
@@ -1506,7 +1531,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 	if scopeErr != nil {
 		return domain.WeightDemographics{}, scopeErr
 	}
-	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin)
+	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory)
 }
 
 // GetShedWeights serves the admin-web "Kids — Weights" screen: one row per shed
@@ -1514,7 +1539,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 //
 // Same capability and scope rules as GetLeadershipGrowthADG — this is a leadership
 // read of the same estate, so it must not be reachable on a weaker check.
-func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.ShedWeights, error) {
+func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.ShedWeights, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.ShedWeights{}, ports.ErrForbidden
 	}
@@ -1530,12 +1555,56 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 	if to != "" && !isBusinessDate(to) {
 		return domain.ShedWeights{}, ports.ErrInvalidArgument
 	}
+	if err := validateWeighingCategoryFilter(weighingCategory); err != nil {
+		return domain.ShedWeights{}, err
+	}
+	weighingCategory = strings.TrimSpace(weighingCategory)
+	if weighingCategory == "all" {
+		weighingCategory = ""
+	}
 
 	periodStart, periodEndExclusive, windowErr := s.resolveWeighingWindow(from, to)
 	if windowErr != nil {
 		return domain.ShedWeights{}, windowErr
 	}
-	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex, origin)
+	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex, origin, strings.TrimSpace(weighingCategory))
+}
+
+// GetWeighingDates serves the NARROW read the Weights screens resolve their landing window from:
+// the whole-shed weighing days and the last day anything was weighed, and nothing else.
+//
+// Same permission, same park-scope resolution and same window rules as GetShedWeights -- it is a
+// cheaper cut of that read, never a wider one. It exists because resolving the window through the
+// full read over a 400-day lookback ran four queries and discarded all but these two fields, which
+// against a cloud database is the dominant cost of every page load and tab switch.
+func (s *Service) GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeighingDates, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.WeighingDates{}, ports.ErrForbidden
+	}
+	parkID = strings.TrimSpace(parkID)
+	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+		return domain.WeighingDates{}, ports.ErrInvalidArgument
+	}
+	periodStart, periodEndExclusive, windowErr := s.resolveWeighingWindow(fromBusinessDate, toBusinessDate)
+	if windowErr != nil {
+		return domain.WeighingDates{}, windowErr
+	}
+	if err := validateOriginFilter(origin); err != nil {
+		return domain.WeighingDates{}, err
+	}
+	if err := validateWeighingCategoryFilter(weighingCategory); err != nil {
+		return domain.WeighingDates{}, err
+	}
+	if strings.TrimSpace(weighingCategory) == "all" {
+		weighingCategory = ""
+	}
+	// The SAME scope helper the shed rows use, so this read can never advertise a park the actor
+	// may not see -- a narrow read is not a thinner authorization check.
+	parkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID)
+	if scopeErr != nil {
+		return domain.WeighingDates{}, scopeErr
+	}
+	return s.repo.GetWeighingDates(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, strings.TrimSpace(origin), strings.TrimSpace(weighingCategory))
 }
 
 // resolveWeighingWindow turns optional business dates into the half-open
@@ -1581,7 +1650,7 @@ func (s *Service) resolveWeighingWindow(fromBusinessDate, toBusinessDate string)
 	return periodStart, periodEndInclusive.AddDate(0, 0, 1), nil
 }
 
-func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID string, periodStart, periodEndExclusive time.Time, sex, origin string) (domain.ShedWeights, error) {
+func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID string, periodStart, periodEndExclusive time.Time, sex, origin, weighingCategory string) (domain.ShedWeights, error) {
 	// The SELECTION is authorization-checked through the same helper (it rejects a park the actor
 	// may not see), and the SCOPE is resolved separately with no filter. The park dropdown is built
 	// from the scope, so choosing CPT no longer removes CBE from the list.
@@ -1593,7 +1662,7 @@ func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID
 		return domain.ShedWeights{}, scopeErr
 	}
 
-	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, scopeParkIDs, parkID, periodStart, periodEndExclusive, sex, origin)
+	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, scopeParkIDs, parkID, periodStart, periodEndExclusive, sex, origin, weighingCategory)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
@@ -1684,7 +1753,7 @@ func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, cam
 // year is served, because the export exists to reconcile past periods. parkID
 // optionally narrows to one authorized park; shedLocationIDs optionally narrow
 // to selected shed locations within that scope.
-func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, writer io.Writer) error {
+func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return ports.ErrForbidden
 	}
@@ -1722,7 +1791,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusines
 	if !ok {
 		return ports.ErrNotFound
 	}
-	return reader.ExportCSV(ctx, actor.TenantID, parkIDs, sheds, from, to.AddDate(0, 0, 1), writer)
+	return reader.ExportCSV(ctx, actor.TenantID, parkIDs, sheds, from, to.AddDate(0, 0, 1), strings.TrimSpace(sex), strings.TrimSpace(origin), strings.TrimSpace(weighingCategory), writer)
 }
 
 func exportBusinessDateOrDefault(value string, fallback time.Time) (time.Time, error) {

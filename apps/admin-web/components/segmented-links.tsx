@@ -77,7 +77,12 @@ export function SegmentedLinks({
   }, [isPending]);
 
   return (
-    <span className="metricseg" role="group" aria-label={ariaLabel} aria-busy={isPending}>
+    <span
+      className={isPending ? "metricseg metricseg-pending" : "metricseg"}
+      role="group"
+      aria-label={ariaLabel}
+      aria-busy={isPending}
+    >
       {options.map((option) => (
         <a
           key={option.value}
@@ -93,6 +98,11 @@ export function SegmentedLinks({
             event.preventDefault();
             setOptimistic(option.value);
             restoreTo.current = window.scrollY;
+            window.dispatchEvent(
+              new CustomEvent("metricseg:navigate", {
+                detail: { value: option.value, href: option.href },
+              }),
+            );
             startTransition(() => {
               router.push(option.href, { scroll: false });
             });

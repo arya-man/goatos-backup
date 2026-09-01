@@ -22,10 +22,16 @@ import {
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+// The landing window is SHARED with /weighing/analytics so the two screens can never disagree
+// about which weighing period they are describing. See landing-window.ts for why it is one module.
+import {
+  WINDOW_FROM_PARAM,
+  WINDOW_TO_PARAM,
+  defaultWindow,
+  landingWindow,
+} from "./landing-window";
 
 const PAGE_PATH = "/weighing/weights";
-const WINDOW_FROM_PARAM = "wt_from";
-const WINDOW_TO_PARAM = "wt_to";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 const DEFAULT_LIMIT = 10;
 
@@ -55,14 +61,6 @@ function hrefWith(searchParams: RouteSearchParams, updates: Record<string, strin
   return query ? `${PAGE_PATH}?${query}` : PAGE_PATH;
 }
 
-// Fallback window only. The real landing default is resolved below from the latest two lump-sum
-// weighing dates, because leadership reads this page as "latest available weigh minus the one
-// before it" rather than a clock-calendar fortnight. If that lookup cannot produce two dates, we
-// still need a stable page instead of an empty crash.
-const DEFAULT_WINDOW_DAYS = 15;
-const LATEST_LUMP_LOOKBACK_DAYS = 400;
-// Which view the gain-mark card is showing. Absent means the chart, so a shared link
-// that predates the toggle — or one copied from the default view — keeps meaning "chart".
 const GAIN_VIEW_PARAM = "gain_view";
 // Which view the shed daily-gain card is showing (maintainer request 2026-09-01). Absent
 // means the TABLE: the card was asked for as exact figures, and the bars stay one click away.
@@ -75,74 +73,6 @@ const SEX_PARAM = "sex";
 // beside it, which defaults to male: there is no "the number the farm cares about" side here, and
 // defaulting to one would hide half the herd from a reader who never chose.
 const ORIGIN_PARAM = "origin";
-const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
-
-/**
- * The selected inclusive window, both ends "YYYY-MM-DD" Asia/Kolkata business dates, which is what
- * the API's from/to expect.
- *
- * Malformed, inverted or absent parameters fall back to the default window rather than throwing: a
- * hand-edited URL must not take the page down. A future end is clamped to today, because a weigh
- * cannot have happened tomorrow and the reads would return an empty span for it.
- */
-function explicitWindow(params: RouteSearchParams, today: string): { from: string; to: string } | null {
-  const rawFrom = one(params, WINDOW_FROM_PARAM)?.trim();
-  const rawTo = one(params, WINDOW_TO_PARAM)?.trim();
-  if (rawFrom && rawTo && BUSINESS_DAY.test(rawFrom) && BUSINESS_DAY.test(rawTo) && rawFrom <= rawTo) {
-    return { from: rawFrom > today ? today : rawFrom, to: rawTo > today ? today : rawTo };
-  }
-  if (rawFrom || rawTo) return defaultWindow(today);
-  return null;
-}
-
-async function landingWindow(
-  params: RouteSearchParams,
-  today: string,
-  parkID: string,
-  sexFilter: string,
-): Promise<{ from: string; to: string }> {
-  const selected = explicitWindow(params, today);
-  if (selected) return selected;
-
-  const lookback = {
-    from: istDayPlus(today, -(LATEST_LUMP_LOOKBACK_DAYS - 1)),
-    to: today,
-  };
-  // Same sex scope as the page reads below. Now that an absent `sex` means Male, the default
-  // landing window must be chosen from the male herd too; explicit `sex=all` still reaches this
-  // helper as "", which preserves the old all-kid lookup.
-  const result = await getShedWeights({
-    park_id: parkID || undefined,
-    ...lookback,
-    sex: sexFilter || undefined,
-  });
-  if (!result.ok) return defaultWindow(today);
-
-  const dates = [...new Set(result.data.lump_weighing_dates ?? [])].sort();
-  if (dates.length < 2) return defaultWindow(today);
-  // START from the lump dates, END from the last day the farm weighed ANYTHING.
-  //
-  // The two are different questions and were answered by one list. A shed-average movement needs two
-  // whole-shed weighs, so the START has to be the second-to-last of those. The END does not: on
-  // 25 Aug 2026 the farm scanned 199 kids across 17 sheds and no shed was weighed whole, so that day
-  // was absent from lump_weighing_dates entirely and a window closing on the later lump date shut
-  // one day early -- dropping every one of those kids from the KPIs, the gain charts and Fair fight,
-  // with the period label reading as if nothing had been missed.
-  //
-  // The backend owns the date (`latest_weighing_date`, whole-filter over both weighing grains); a max
-  // taken across the returned rows here would be the page deriving business truth from its own rows.
-  // An empty value falls back to the lump date, which is the behaviour this replaces.
-  const latest = result.data.latest_weighing_date ?? "";
-  const end = BUSINESS_DAY.test(latest) && latest > dates[dates.length - 1] ? latest : dates[dates.length - 1];
-  return {
-    from: dates[dates.length - 2],
-    to: end > today ? today : end,
-  };
-}
-
-function defaultWindow(today: string): { from: string; to: string } {
-  return { from: istDayPlus(today, -(DEFAULT_WINDOW_DAYS - 1)), to: today };
-}
 
 function kg(value: number, fractionDigits = 1): string {
   return value.toLocaleString("en-IN", {
@@ -451,7 +381,7 @@ export async function WeighingWeightsPage({
         rangeSeparator: copy(pageContract, "filter.period.range_separator"),
         markerHint: copy(pageContract, "filter.period.lump_marker_hint"),
       },
-      markerFetchPath: `/api/weighing/lump-markers${parkFilter ? `?park_id=${encodeURIComponent(parkFilter)}` : ""}`,
+      markerFetchPath: `/api/weighing/lump-markers?sex=${encodeURIComponent(sexChoice)}&origin=${encodeURIComponent(originFilter || "all")}&weighing=${encodeURIComponent(modeFilter)}${parkFilter ? `&park_id=${encodeURIComponent(parkFilter)}` : ""}`,
     },
     {
       // allowAll:false because this vocabulary ALREADY carries its own "All" (`weighing_mode`
@@ -855,6 +785,9 @@ export async function WeighingWeightsPage({
             initialParkId={parkFilter}
             initialFrom={window.from}
             initialTo={window.to}
+            sex={sexFilter}
+            origin={originFilter}
+            weighingCategory={modeFilter}
             today={today}
             openHref={hrefWith(params, { wt_export: "1" })}
             closeHref={hrefWith(params, { wt_export: null })}

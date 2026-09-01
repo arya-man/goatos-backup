@@ -60,7 +60,7 @@ func TestShedWeightsOneToManyDeduplicatesRepeatScansPerTag(t *testing.T) {
 	seedShedWeightScan(t, ctx, pool, "TAG-B", 30.0, day)
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -120,7 +120,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'WINDOW-NEW-A', 29.0, $4::uuid, $5::uuid, 
 
 	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
 		time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestShedWeightsStatusMatrixExcludesOnlyCanceledFromScope(t *testing.T) {
 			`UPDATE weighing_campaign_sheds SET status = $1 WHERE campaign_shed_id = $2::uuid`,
 			status, repoAnimalScope)
 
-		out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+		out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 		if err != nil {
 			t.Fatalf("GetShedWeights(%s): %v", status, err)
 		}
@@ -199,7 +199,7 @@ func TestShedWeightsPaginationSummaryMatchesAllReturnedRows(t *testing.T) {
 	seedShedWeightScan(t, ctx, pool, "PAGE-2", 22.0, day)
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -273,7 +273,7 @@ ON CONFLICT (campaign_shed_id) DO NOTHING`,
 		repoTenant, repoPark, repoCampaign, repoOperator)
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestShedWeightsParkScopeReturnsNothingOutsideTheRequestedParks(t *testing.T
 
 	from, to := shedWeightsWindow()
 	other := "00000000-0000-4000-8000-0000000030ff"
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{other}, "", from, to, "", "")
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{other}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestShedWeightsDateShiftHonoursHalfOpenWindow(t *testing.T) {
 	seedShedWeightScan(t, ctx, pool, "WINDOW-OUT", 40.0, boundary)
 
 	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
-		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), boundary, "", "")
+		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), boundary, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -387,7 +387,7 @@ func TestShedWeightsSelectedWindowGainUsesFirstAndLatestInWindow(t *testing.T) {
 
 	from := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestShedWeightsSelectedWindowGainPartitionOneToManyPageBoundaryParkScopeSta
 
 	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestShedWeightsGainNeedsTwoWeighedDatesInsideSelectedWindow(t *testing.T) {
 
 	from := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -533,7 +533,7 @@ func TestShedWeightsLatestWeighingDateSeesAScanOnlyDay(t *testing.T) {
 	seedLoadLumpWeigh(t, ctx, pool, loadPartANew, loadCampaignPartB, repoShedProofTwo, 27.0, 10,
 		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
 
-	lumpOnly, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	lumpOnly, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -544,7 +544,7 @@ func TestShedWeightsLatestWeighingDateSeesAScanOnlyDay(t *testing.T) {
 	// Now a SCAN-ONLY day, three days after the last whole-shed weigh. This is the 25 Aug shape.
 	seedShedWeightScan(t, ctx, pool, "SCAN-ONLY-DAY-1", 18.0, time.Date(2026, 7, 20, 6, 0, 0, 0, time.UTC))
 
-	after, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	after, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights after the scan-only day: %v", err)
 	}
@@ -620,11 +620,11 @@ ON CONFLICT DO NOTHING`, repoTenant, femaleGoat)
 	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
 		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
 
-	female, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
+	female, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(female): %v", err)
 	}
-	male, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "male", "")
+	male, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "male", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(male): %v", err)
 	}
@@ -706,7 +706,7 @@ ON CONFLICT DO NOTHING`, repoTenant, femaleGoat)
 	// good manners. Every block is checked, because a filter threaded into three of four is exactly
 	// the defect this test exists for.
 	const otherPark = "00000000-0000-4000-8000-0000000030fe"
-	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, from, to, "female", "")
+	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(other park): %v", err)
 	}
@@ -732,7 +732,7 @@ INSERT INTO weighing_shed_observations (
   $4::uuid, $5::uuid, 'sexfilter-withdrawn', $6::timestamptz, 'rework', $6::timestamptz)`,
 		repoTenant, loadCampaignPartA, loadPartAOld, repoShedProofTwo, repoOperator,
 		time.Date(2026, 7, 11, 6, 0, 0, 0, time.UTC))
-	afterWithdrawn, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
+	afterWithdrawn, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG after a withdrawn weigh: %v", err)
 	}
@@ -786,11 +786,11 @@ ON CONFLICT DO NOTHING`, repoTenant, oldGoat)
 	// enough that any honest sale-readiness count must include her.
 	seedShedWeightScan(t, ctx, pool, "LONG-AGO-TAG", 41.0, from.AddDate(0, 0, -200))
 
-	female, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
+	female, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(female): %v", err)
 	}
-	unfiltered, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "", "")
+	unfiltered, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(unfiltered): %v", err)
 	}
@@ -879,11 +879,11 @@ ON CONFLICT DO NOTHING`, repoTenant, oldGoat)
 	}
 
 	// And the loud failure: sale readiness handed a window-only scope must refuse, not report zero.
-	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, true, windowOnly); err == nil {
+	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, true, windowOnly, ""); err == nil {
 		t.Fatal("sale readiness must refuse a window-only scope rather than silently filtering every animal out")
 	}
 	// An UNFILTERED read needs no all-time list at all, and must still work.
-	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, false, SexScope{}); err != nil {
+	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, false, SexScope{}, ""); err != nil {
 		t.Fatalf("an unfiltered sale-readiness read needs no sex scope: %v", err)
 	}
 }

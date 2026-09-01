@@ -30,6 +30,7 @@ export type WeighingGrowthResponse = AppApiComponents["schemas"]["WeighingGrowth
 export type ShedWeightsSummary = AppApiComponents["schemas"]["WeighingShedWeightsSummary"];
 export type ShedWeightsRow = AppApiComponents["schemas"]["WeighingShedWeightsRow"];
 export type ShedWeightsResponse = AppApiComponents["schemas"]["WeighingShedWeightsResponse"];
+export type WeighingDatesResponse = AppApiComponents["schemas"]["WeighingDatesResponse"];
 export type MilkPreparationRow = AppApiComponents["schemas"]["MilkPreparationRow"];
 export type MilkPreparationPage = AppApiComponents["schemas"]["MilkPreparationPage"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
@@ -787,14 +788,42 @@ export async function getShedWeights(params: {
    * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
    * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
    * scanned weigh taken in the same pen are on the same side of it.
-   */
+  */
   origin?: string;
+  weighing_category?: string;
 }): Promise<ApiResult<ShedWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<ShedWeightsResponse>("/weighing/shed-weights", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * The NARROW landing-window read: whole-shed weighing days plus the last day anything was weighed.
+ *
+ * Use this, never getShedWeights, to resolve which window a Weights screen should open on. That
+ * read runs four queries and returns the whole shed table, per-load growth and the summary; over
+ * the 400-day lookback the window needs, it was ~570ms locally against ~140ms for the real
+ * windowed read, and every one of those queries is its own round trip to a cloud database.
+ */
+export async function getWeighingDates(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+  sex?: string;
+  origin?: string;
+  weighing_category?: string;
+}): Promise<ApiResult<WeighingDatesResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WeighingDatesResponse>("/weighing/weighing-dates", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -810,6 +839,9 @@ export async function exportWeighingWeightsCsv(params: {
   to?: string;
   park_id?: string;
   shed_id?: readonly string[];
+  sex?: string;
+  origin?: string;
+  weighing_category?: string;
 }): Promise<ApiResult<string>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -836,6 +868,8 @@ export async function getWeightDemographics(params: {
    * scanned weigh taken in the same pen are on the same side of it.
    */
   origin?: string;
+  /** `individual_animal` / `per_shed_partition` narrows aggregate figures to one capture mode. */
+  weighing_category?: string;
 }): Promise<ApiResult<WeightDemographicsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -861,8 +895,9 @@ export async function getWeighingGrowth(params: {
    * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
    * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
    * scanned weigh taken in the same pen are on the same side of it.
-   */
+  */
   origin?: string;
+  weighing_category?: string;
 }): Promise<ApiResult<WeighingGrowthResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

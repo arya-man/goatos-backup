@@ -44,11 +44,12 @@ type Service interface {
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
-	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.GrowthADG, error)
-	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.ShedWeights, error)
-	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.WeightDemographics, error)
+	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.GrowthADG, error)
+	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.ShedWeights, error)
+	GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeighingDates, error)
+	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
-	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, writer io.Writer) error
+	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error
 }
 
 type Handler struct {
@@ -121,6 +122,9 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// reads (mirroring /counts/milk-preparation and its /app twin): admin-web calls the
 	// bare path, the phone calls /app.
 	mux.HandleFunc("GET /weighing/shed-weights", h.GetShedWeights)
+	// The narrow landing-window read. Admin-web only: the phone has no Weights screen, so it is not
+	// mirrored under /app.
+	mux.HandleFunc("GET /weighing/weighing-dates", h.GetWeighingDates)
 	mux.HandleFunc("GET /weighing/weight-demographics", h.GetWeightDemographics)
 	mux.HandleFunc("GET /weighing/leadership/growth", h.GetLeadershipGrowthADG)
 }
@@ -178,6 +182,7 @@ func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request)
 		r.URL.Query().Get("to"),
 		r.URL.Query().Get("sex"),
 		r.URL.Query().Get("origin"),
+		r.URL.Query().Get("weighing_category"),
 	)
 	h.respond(w, r, result, err)
 }
@@ -186,6 +191,22 @@ func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request)
 // with its latest weigh, plus the whole-filter KPI rollup. `park_id` is optional
 // (omit for every park the caller may monitor); `from`/`to` are INCLUSIVE
 // Asia/Kolkata business dates (YYYY-MM-DD).
+// GetWeighingDates serves the narrow read the Weights screens resolve their landing window from.
+// See the service method for why it is not simply a field of the shed-weights response.
+func (h *Handler) GetWeighingDates(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetWeighingDates(
+		r.Context(),
+		actor(r),
+		r.URL.Query().Get("park_id"),
+		r.URL.Query().Get("from"),
+		r.URL.Query().Get("to"),
+		r.URL.Query().Get("sex"),
+		r.URL.Query().Get("origin"),
+		r.URL.Query().Get("weighing_category"),
+	)
+	h.respond(w, r, result, err)
+}
+
 func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetShedWeights(
 		r.Context(),
@@ -195,6 +216,7 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("to"),
 		r.URL.Query().Get("sex"),
 		r.URL.Query().Get("origin"),
+		r.URL.Query().Get("weighing_category"),
 	)
 	h.respond(w, r, result, err)
 }
@@ -205,7 +227,7 @@ func (h *Handler) GetWeightDemographics(w http.ResponseWriter, r *http.Request) 
 	result, err := h.service.GetWeightDemographics(
 		r.Context(), actor(r),
 		r.URL.Query().Get("park_id"), r.URL.Query().Get("from"), r.URL.Query().Get("to"),
-		r.URL.Query().Get("sex"), r.URL.Query().Get("origin"),
+		r.URL.Query().Get("sex"), r.URL.Query().Get("origin"), r.URL.Query().Get("weighing_category"),
 	)
 	h.respond(w, r, result, err)
 }
@@ -956,7 +978,7 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	counting := &countingResponseWriter{ResponseWriter: w}
 	query := r.URL.Query()
-	if err := h.service.ExportCSV(ctx, a, query.Get("from"), query.Get("to"), query.Get("park_id"), query["shed_id"], counting); err != nil {
+	if err := h.service.ExportCSV(ctx, a, query.Get("from"), query.Get("to"), query.Get("park_id"), query["shed_id"], query.Get("sex"), query.Get("origin"), query.Get("weighing_category"), counting); err != nil {
 		if counting.written > 0 {
 			h.log.Error("export csv failed mid-stream", "bytes_written", counting.written, "error", err)
 			return

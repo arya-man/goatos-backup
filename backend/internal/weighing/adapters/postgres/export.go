@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
 // ProofURLResolver turns a proof artifact id into a clickable, playable URL: a time-limited
@@ -148,7 +149,7 @@ func (r *Repository) ExportCampaignCSV(ctx context.Context, tenantID, campaignID
 // resolve a scanned tag — fetched as ONE bounded map before streaming, never per row.
 // A tag that resolves to nothing exports blank cells and is still COUNTED, never
 // dropped: free-flow capture stays untouched.
-func (r *Repository) ExportCSV(ctx context.Context, tenantID string, parkIDs []string, shedLocationIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error {
+func (r *Repository) ExportCSV(ctx context.Context, tenantID string, parkIDs []string, shedLocationIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, writer io.Writer) error {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 
@@ -178,6 +179,26 @@ func (r *Repository) ExportCSV(ctx context.Context, tenantID string, parkIDs []s
 	}
 	if shedLocationIDs == nil {
 		shedLocationIDs = []string{}
+	}
+	sexFilter := strings.TrimSpace(sex) != ""
+	sexScope, err := r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+	if err != nil {
+		return err
+	}
+	originFilter := strings.TrimSpace(origin) != ""
+	originScope, err := r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+	if err != nil {
+		return err
+	}
+	scope := IntersectScopes(sexScope, sexFilter, originScope, originFilter)
+	scopeFilter := sexFilter || originFilter
+	weighingCategory = strings.ToLower(strings.TrimSpace(weighingCategory))
+	switch weighingCategory {
+	case "", "all":
+		weighingCategory = ""
+	case "individual_animal", "per_shed_partition":
+	default:
+		return ports.ErrInvalidArgument
 	}
 
 	identities, err := r.exportGoatIdentities(ctx, tenantID, parkIDs, shedLocationIDs, periodStart, periodEnd)
@@ -217,6 +238,8 @@ WITH individual AS (
   WHERE o.tenant_id=$1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND (cardinality($5::uuid[]) = 0 OR cs.location_id = ANY($5::uuid[]))
+    AND (NOT $6::bool OR lower(btrim(o.scanned_identifier)) = ANY($7::text[]))
+    AND ($10::text = '' OR cs.weighing_category = $10::text)
     AND o.accepted_at >= $3::timestamptz
     AND o.accepted_at < $4::timestamptz
 ),
@@ -246,6 +269,13 @@ lumpsum AS (
   WHERE so.tenant_id=$1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND (cardinality($5::uuid[]) = 0 OR cs.location_id = ANY($5::uuid[]))
+    AND (NOT $6::bool OR EXISTS (
+      SELECT 1
+      FROM unnest($8::uuid[], $9::text[]) AS scoped(location_id, partition_label)
+      WHERE scoped.location_id = cs.location_id
+        AND scoped.partition_label = COALESCE(cs.partition_label, '')
+    ))
+    AND ($10::text = '' OR cs.weighing_category = $10::text)
     AND so.accepted_at >= $3::timestamptz
     AND so.accepted_at < $4::timestamptz
     AND so.withdrawn_at IS NULL
@@ -258,7 +288,7 @@ FROM (
   SELECT * FROM lumpsum
 ) exported
 ORDER BY business_date DESC, park_name ASC, shed_label ASC, partition_label ASC, weighing_type ASC, rfid ASC
-`, tenantID, parkIDs, periodStart, periodEnd, shedLocationIDs)
+`, tenantID, parkIDs, periodStart, periodEnd, shedLocationIDs, scopeFilter, scope.Tags, scope.LocationIDs, scope.PartitionLabels, weighingCategory)
 	if err != nil {
 		return err
 	}

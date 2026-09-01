@@ -149,7 +149,7 @@ func TestLoadWeightsOneToManyExcludesAShedCarryingTwoLoads(t *testing.T) {
 	seedLoadTag(t, ctx, pool, repoPerShed, "L-101", "Supplier B")
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestLoadWeightsPageBoundaryBlendsEveryTaggedShedAcrossBothCaptureModes(t *t
 	seedLoadTag(t, ctx, pool, repoExpectedShed, "L-131", "Shared Supplier")
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -239,7 +239,7 @@ ON CONFLICT (tenant_id, location_id) DO NOTHING`,
 	seedLoadTag(t, ctx, pool, loadFilterShed, "L-FILTER", "Filter Supplier")
 
 	from, to := shedWeightsWindow()
-	unfiltered, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	unfiltered, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights(unfiltered): %v", err)
 	}
@@ -248,7 +248,7 @@ ON CONFLICT (tenant_id, location_id) DO NOTHING`,
 		t.Fatalf("unfiltered load must include both scanned animals, got animals=%d avg=%.1f", load.Animals, load.AverageWeightKg)
 	}
 
-	purchased, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginPurchased)
+	purchased, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginPurchased, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights(purchased): %v", err)
 	}
@@ -257,7 +257,7 @@ ON CONFLICT (tenant_id, location_id) DO NOTHING`,
 		t.Fatalf("purchased load must include only the bought tag, got animals=%d avg=%.1f", load.Animals, load.AverageWeightKg)
 	}
 
-	farmBorn, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginFarmBorn)
+	farmBorn, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginFarmBorn, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights(farm_born): %v", err)
 	}
@@ -266,7 +266,7 @@ ON CONFLICT (tenant_id, location_id) DO NOTHING`,
 		t.Fatalf("farm-born load must include only the home tag, got animals=%d avg=%.1f", load.Animals, load.AverageWeightKg)
 	}
 
-	malePurchased, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "male", OriginPurchased)
+	malePurchased, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "male", OriginPurchased, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights(male+purchased): %v", err)
 	}
@@ -304,7 +304,7 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 	seedLoadIndividualWeigh(t, ctx, pool, loadFilterHomeBkt, "load-home-kid", 10.0, day.Add(time.Minute))
 
 	from, to := shedWeightsWindow()
-	unfiltered, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	unfiltered, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights(unfiltered): %v", err)
 	}
@@ -313,7 +313,7 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 			len(unfiltered.ByLoad), unfiltered.LoadUnattributedSheds)
 	}
 
-	purchased, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginPurchased)
+	purchased, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginPurchased, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights(purchased): %v", err)
 	}
@@ -322,7 +322,7 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 			len(purchased.ByLoad), purchased.LoadUnattributedSheds)
 	}
 
-	farmBorn, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginFarmBorn)
+	farmBorn, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginFarmBorn, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights(farm_born): %v", err)
 	}
@@ -349,7 +349,7 @@ func TestLoadWeightsParkScopeReturnsNothingOutsideTheRequestedParks(t *testing.T
 
 	from, to := shedWeightsWindow()
 	other := "00000000-0000-4000-8000-0000000030ff"
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{other}, "", from, to, "", "")
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{other}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestLoadWeightsStatusMatrixExcludesOnlyCanceledBuckets(t *testing.T) {
 			`UPDATE weighing_campaign_sheds SET status = $1 WHERE campaign_shed_id = $2::uuid`,
 			status, repoShedScope)
 
-		out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+		out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 		if err != nil {
 			t.Fatalf("GetShedWeights(%s): %v", status, err)
 		}
@@ -419,7 +419,7 @@ func TestLoadWeightsGainUsesSelectedWindowAndIsNilWithOneInWindowWeigh(t *testin
 		time.Date(2026, 7, 20, 6, 0, 0, 0, time.UTC))
 	seedLoadTag(t, ctx, pool, repoPerShed, "L-129", "Single Weigh")
 
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestLoadWeightsGainUsesSelectedWindowAndIsNilWithOneInWindowWeigh(t *testin
 
 	out, err = repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
 		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights with outside-window weigh: %v", err)
 	}
@@ -454,7 +454,7 @@ func TestLoadWeightsGainUsesSelectedWindowAndIsNilWithOneInWindowWeigh(t *testin
 
 	out, err = repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
 		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights after in-window second weigh: %v", err)
 	}
@@ -509,7 +509,7 @@ func TestLoadWeightsGainPartitionOneToManyPageBoundaryParkScopeStatusMatrix(t *t
 
 	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -564,7 +564,7 @@ func TestLoadPlacementsNameParkAndShedAndReconcileWithTheLoadTotals(t *testing.T
 
 	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -625,7 +625,7 @@ func TestLoadPlacementDisplayDoesNotDoubleAPartitionTheShedNameCarries(t *testin
 
 	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestOnePenIsListedOnceWithItsHeadCountsSummed(t *testing.T) {
 
 	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}

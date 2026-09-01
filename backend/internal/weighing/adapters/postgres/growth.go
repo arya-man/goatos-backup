@@ -49,6 +49,7 @@ base AS (
   SELECT wo.observation_id, wo.weight_kg::float8 AS weight_kg, wo.accepted_at,
          wo.verification_status, wcs.location_id, wcs.display_name AS shed_name,
          COALESCE(wcs.partition_label, '') AS partition_label,
+         wcs.weighing_category,
          lower(btrim(wo.scanned_identifier)) AS animal_key
   FROM weighing_observations wo
   JOIN weighing_campaign_sheds wcs
@@ -76,7 +77,7 @@ ordered AS (
   WINDOW w AS (PARTITION BY animal_key ORDER BY accepted_at, observation_id)
 ),
 pairs AS (
-  SELECT animal_key, location_id, shed_name, partition_label, observation_id, prev_observation_id,
+  SELECT animal_key, location_id, shed_name, partition_label, weighing_category, observation_id, prev_observation_id,
          verification_status, prev_verification_status, accepted_at, prev_accepted_at,
          -- Carried so a caller can state the actual change ("19.0 -> 18.2 kg"), not just a rate.
          weight_kg, prev_weight,
@@ -110,7 +111,7 @@ qualifying AS (
 //
 // periodStart/periodEnd are Asia/Kolkata business-day boundaries expressed as UTC instants by
 // the caller (the service layer), half-open [periodStart, periodEnd).
-func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin string) (domain.GrowthADG, error) {
+func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.GrowthADG, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 
@@ -142,11 +143,11 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	lookbackStart := periodStart.Add(-growthLookbackDays * 24 * time.Hour)
 	prevLookbackStart := prevStart.Add(-growthLookbackDays * 24 * time.Hour)
 
-	headline, err := r.growthHeadlineStats(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
+	headline, err := r.growthHeadlineStats(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
-	prevHeadline, err := r.growthHeadlineStats(ctx, tenantID, parkIDs, prevLookbackStart, prevStart, prevEnd, sexFiltered, scope)
+	prevHeadline, err := r.growthHeadlineStats(ctx, tenantID, parkIDs, prevLookbackStart, prevStart, prevEnd, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
@@ -163,38 +164,45 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		headline.DeltaGPerDay = &delta
 	}
 
-	rejected, err := r.growthRejectedCount(ctx, tenantID, parkIDs, periodStart, periodEnd)
+	rejected, err := r.growthRejectedCount(ctx, tenantID, parkIDs, periodStart, periodEnd, weighingCategory)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
 	headline.RejectedObservationCount = rejected
 
-	eligibility, err := r.growthEligibility(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope)
+	eligibility, err := r.growthEligibility(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
 
-	trend, err := r.growthTrend(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
+	trend, err := r.growthTrend(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+	if err != nil {
+		return domain.GrowthADG{}, err
+	}
+	// The weekly cut of the HEADLINE statistic, beside the pair-median trend above. Both are
+	// served: `trend` for the surfaces already reading it, `weeklyGain` for any chart that sits
+	// next to the headline and must agree with it.
+	weeklyGain, err := r.growthWeeklyGain(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
 
-	leaderboard, err := r.growthShedLeaderboard(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
+	leaderboard, err := r.growthShedLeaderboard(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
 
-	distribution, err := r.growthDistribution(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
+	distribution, err := r.growthDistribution(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
 
-	saleReadiness, err := r.growthSaleReadiness(ctx, tenantID, parkIDs, sexFiltered, scope)
+	saleReadiness, err := r.growthSaleReadiness(ctx, tenantID, parkIDs, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
 
-	lumpSum, err := r.growthLumpSumTrend(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope)
+	lumpSum, err := r.growthLumpSumTrend(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
@@ -210,7 +218,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
-	losing, err := r.growthLosingAnimals(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
+	losing, err := r.growthLosingAnimals(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
@@ -226,6 +234,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		Headline:        headline,
 		Eligibility:     eligibility,
 		Trend:           trend,
+		WeeklyGain:      weeklyGain,
 		ShedLeaderboard: leaderboard,
 		Distribution:    distribution,
 		SaleReadiness:   saleReadiness,
@@ -233,11 +242,13 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	}, nil
 }
 
-func (r *Repository) growthHeadlineStats(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) (domain.GrowthADGHeadline, error) {
+func (r *Repository) growthHeadlineStats(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) (domain.GrowthADGHeadline, error) {
 	q := `WITH ` + growthPairsCTE + `),
 -- projection-review: membership=weighing_observations; group_key=park_aggregate; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 inperiod AS (
-  SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz
+  SELECT * FROM qualifying
+  WHERE accepted_at >= $5::timestamptz
+    AND ($10::text = '' OR weighing_category = $10::text)
 ),
 -- ONE GAIN PER ANIMAL, which is the grain the gain charts report and therefore the grain the
 -- headline must report. inperiod is PAIRS: a kid weighed three times in the window contributes two
@@ -298,6 +309,7 @@ shed_span AS (
     WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
       AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
       AND o.accepted_at >= $5::timestamptz AND o.accepted_at < $4::timestamptz
+      AND ($10::text = '' OR cs2.weighing_category = $10::text)
       -- A whole-shed weigh carries no tag, so under a Sex filter it is claimed only when its pen's
       -- cohort is entirely that sex (sex_scope.go proves it); a mixed pen is claimed by neither
       -- side, because one shed average cannot be split between two cohorts.
@@ -317,6 +329,7 @@ shed_span AS (
     WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
       AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
       AND o.accepted_at >= $5::timestamptz AND o.accepted_at < $4::timestamptz
+      AND ($10::text = '' OR cs2.weighing_category = $10::text)
       AND (NOT $6::bool OR EXISTS (
         SELECT 1 FROM unnest($8::uuid[], $9::text[]) AS b(loc, part)
         WHERE b.loc = cs2.location_id AND b.part = COALESCE(cs2.partition_label, '')
@@ -348,7 +361,7 @@ SELECT
 	// scanned straight into pointer fields -- this is the ZERO-vs-UNKNOWN fix: a park where every
 	// animal was weighed exactly once must come back with these fields absent, not "0".
 	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags,
-		scope.LocationIDs, scope.PartitionLabels).Scan(
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory).Scan(
 		&h.AverageADGGPerDay, &h.PairCount, &h.HeadlineAnimals, &h.PositiveADGPercent, &h.NegativeADGCount,
 		&h.UnverifiedObservationCount,
 	)
@@ -366,7 +379,7 @@ SELECT
 	return h, nil
 }
 
-func (r *Repository) growthRejectedCount(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (int, error) {
+func (r *Repository) growthRejectedCount(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, weighingCategory string) (int, error) {
 	var count int
 	// projection-review: membership=weighing_observations; group_key=park_aggregate; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 	err := r.pool.QueryRow(ctx, `
@@ -381,11 +394,12 @@ WHERE wo.tenant_id = $1::uuid
   AND wc.park_id = ANY($2::uuid[])
   AND wo.verification_status = 'rejected'
   AND wo.accepted_at >= $3::timestamptz
-  AND wo.accepted_at < $4::timestamptz`, tenantID, parkIDs, periodStart, periodEnd).Scan(&count)
+  AND wo.accepted_at < $4::timestamptz
+  AND ($5::text = '' OR wcs.weighing_category = $5::text)`, tenantID, parkIDs, periodStart, periodEnd, weighingCategory).Scan(&count)
 	return count, err
 }
 
-func (r *Repository) growthEligibility(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) (domain.GrowthEligibility, error) {
+func (r *Repository) growthEligibility(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) (domain.GrowthEligibility, error) {
 	var e domain.GrowthEligibility
 	// projection-review: membership=weighing_observations; group_key=animal_key; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 	err := r.pool.QueryRow(ctx, `
@@ -401,6 +415,7 @@ WITH obs AS (
     AND wo.verification_status <> 'rejected'
     AND wo.accepted_at >= $3::timestamptz
     AND wo.accepted_at < $4::timestamptz
+    AND ($7::text = '' OR wcs.weighing_category = $7::text)
     -- The Sex filter reaches the coverage counters too. This pair is the phone's "70/382" tile --
     -- how many kids have a second weigh out of all weighed -- and leaving it unfiltered reported
     -- the whole herd's coverage under a heading about half of it.
@@ -410,16 +425,18 @@ per_animal AS (
   SELECT animal_key, COUNT(*) AS n FROM obs GROUP BY animal_key
 )
 SELECT COUNT(*) FILTER (WHERE n >= 2), COUNT(*) FROM per_animal`,
-		tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope.Tags).Scan(&e.AnimalsWithTwoPlusWeighs, &e.TotalAnimalsWeighed)
+		tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope.Tags, weighingCategory).Scan(&e.AnimalsWithTwoPlusWeighs, &e.TotalAnimalsWeighed)
 	return e, err
 }
 
-func (r *Repository) growthTrend(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) ([]domain.GrowthTrendPoint, error) {
+func (r *Repository) growthTrend(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) ([]domain.GrowthTrendPoint, error) {
 	// projection-review: membership=weighing_observations; group_key=week_start; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	q := `WITH ` + growthPairsCTE + `),
 inperiod AS (
   SELECT *, (date_trunc('week', accepted_at AT TIME ZONE 'Asia/Kolkata'))::date AS week_start
-  FROM qualifying WHERE accepted_at >= $5::timestamptz
+  FROM qualifying
+  WHERE accepted_at >= $5::timestamptz
+    AND ($8::text = '' OR weighing_category = $8::text)
 )
 SELECT week_start,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) AS median_adg,
@@ -431,7 +448,7 @@ GROUP BY week_start
 -- is never interpolated with a fabricated zero or a carried-forward value, and no week is ever
 -- flagged as "missed" or "overdue".
 ORDER BY week_start`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, weighingCategory)
 	if err != nil {
 		return nil, err
 	}
@@ -449,11 +466,139 @@ ORDER BY week_start`
 	return out, rows.Err()
 }
 
-func (r *Repository) growthShedLeaderboard(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) ([]domain.GrowthShedLeaderboardRow, error) {
+// growthWeeklyGain is the headline statistic cut by calendar week.
+//
+// IT MUST STAY THE SAME STATISTIC AS growthHeadlineStats (maintainer decision 2026-08-26). The
+// two arms below mirror that function's animal_gain and shed_span exactly -- an animal-weighted
+// mean over scanned kids (each once, at the median of its own pairs) PLUS whole-shed pens (each
+// once per animal it holds). growthTrend beside this one is the MEDIAN over SCANNED PAIRS ONLY;
+// putting that on a page next to this headline is what the lock forbids, which is why this is a
+// separate query rather than a second column on that one.
+//
+// projection-review:
+//
+//	producer grain: one weighing_observations row per scan; one weighing_shed_observations row per pen weigh.
+//	consumer grain: arm (a) one row per (week_start, animal_key) -- GROUP BY those two columns.
+//	                arm (b) one row per (week_start, location_id, partition_label) -- rn = 1 over
+//	                that triple, so a pen weighed three times in one week contributes ONE movement,
+//	                not two, and sum(animals) ranges over disjoint pens within each week.
+//	join_cardinality: both arms pre-aggregate to their own grain before the UNION ALL, so the
+//	                final sum() never fans out; the numerator and denominator range over the
+//	                identical row set (same FROM, same WHERE) in each arm.
+//	ratio key set: numerator sum(total) and denominator sum(animals) both range over `weekly`
+//	                grouped by week_start -- one key set, stated identical.
+//	pagination: multi_row (bounded by the caller's window; 12 weeks on the Weights analytics page).
+//	scope: park_ids, plus the sex/origin scope applied to BOTH arms.
+//
+// growthWeeklyGainQuery is hoisted to package scope rather than built inside the function so a
+// query-plan test can reach it by name, which is what the scale guard is asking for.
+const growthWeeklyGainQuery = `WITH ` + growthPairsCTE + `),
+inperiod AS (
+  SELECT *, (date_trunc('week', accepted_at AT TIME ZONE 'Asia/Kolkata'))::date AS week_start
+  FROM qualifying
+  WHERE accepted_at >= $5::timestamptz
+    AND ($10::text = '' OR weighing_category = $10::text)
+),
+-- Arm (a): ONE GAIN PER ANIMAL PER WEEK, at the median of that animal's pairs landing in the week.
+-- Grouping by pairs instead would count the most-handled kids twice, which is the defect the
+-- headline's own animal_gain comment records.
+animal_gain AS (
+  SELECT week_start, animal_key,
+         percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) AS g
+  FROM inperiod GROUP BY week_start, animal_key
+),
+-- Arm (b): whole-shed pens. Every live pen weigh in the window, scoped exactly as the headline
+-- scopes it -- a pen is claimed only when the (location, partition) pair is in the resolved list,
+-- so a mixed-sex or mixed-origin pen is claimed by neither cohort rather than split.
+pen_obs AS (
+  SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label,
+         o.average_weight_kg, o.animal_count,
+         (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
+  FROM weighing_shed_observations o
+  JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id AND cs2.tenant_id = o.tenant_id
+  JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id AND c2.tenant_id = o.tenant_id
+  WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+    AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
+    AND o.accepted_at >= $5::timestamptz AND o.accepted_at < $4::timestamptz
+    AND ($10::text = '' OR cs2.weighing_category = $10::text)
+    AND (NOT $6::bool OR EXISTS (
+      SELECT 1 FROM unnest($8::uuid[], $9::text[]) AS b(loc, part)
+      WHERE b.loc = cs2.location_id AND b.part = COALESCE(cs2.partition_label, '')))
+),
+-- CONSECUTIVE pen weighs, not first-vs-latest-in-window. The headline anchors on the window's two
+-- ends because it reports ONE number for the whole window; a weekly series must attribute movement
+-- to the week it was observed in, so each weigh is paired with the one before it and bucketed by
+-- the LATER weigh -- the identical rule arm (a) applies to a scanned pair spanning two weeks.
+pen_pairs AS (
+  SELECT location_id, partition_label, animal_count, d, average_weight_kg,
+         LAG(average_weight_kg) OVER w AS prev_w,
+         LAG(d) OVER w AS prev_d
+  FROM pen_obs
+  WINDOW w AS (PARTITION BY location_id, partition_label ORDER BY d)
+),
+-- ONE MOVEMENT PER PEN PER WEEK, the most recent in that week. A pen weighed three times inside one
+-- week yields two pairs, and counting both would add its head count to that week's denominator
+-- twice -- the same double-count arm (a) avoids by grouping on animal_key.
+pen_ranked AS (
+  SELECT (date_trunc('week', d::timestamp))::date AS week_start,
+         animal_count::float8 AS animals,
+         (average_weight_kg - prev_w) * 1000.0 / NULLIF(d - prev_d, 0) AS g_per_day,
+         row_number() OVER (
+           PARTITION BY location_id, partition_label, (date_trunc('week', d::timestamp))::date
+           ORDER BY d DESC
+         ) AS rn
+  FROM pen_pairs
+  WHERE prev_w IS NOT NULL AND d > prev_d
+),
+shed_span AS (
+  SELECT week_start, animals, g_per_day FROM pen_ranked WHERE rn = 1
+),
+-- Each arm is already at its own grain, so this UNION ALL cannot fan out.
+weekly AS (
+  SELECT week_start, COALESCE(sum(g), 0) AS total, COUNT(*)::float8 AS animals
+  FROM animal_gain GROUP BY week_start
+  UNION ALL
+  SELECT week_start, COALESCE(sum(animals * g_per_day), 0), COALESCE(sum(animals), 0)
+  FROM shed_span GROUP BY week_start
+)
+SELECT week_start, sum(total) / NULLIF(sum(animals), 0), sum(animals)::bigint
+FROM weekly
+GROUP BY week_start
+-- A week with no animals behind it is dropped rather than reported as zero growth: nobody weighed
+-- then, which is not the same statement as "the herd did not grow".
+HAVING sum(animals) > 0
+ORDER BY week_start`
+
+func (r *Repository) growthWeeklyGain(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) ([]domain.GrowthWeeklyGainPoint, error) {
+	rows, err := r.pool.Query(ctx, growthWeeklyGainQuery, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags,
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	// Initialised, never nil, so the wire carries [] rather than null for a farm with no weighs.
+	out := []domain.GrowthWeeklyGainPoint{}
+	for rows.Next() {
+		var p domain.GrowthWeeklyGainPoint
+		var weekStart time.Time
+		var animals int64
+		if err := rows.Scan(&weekStart, &p.AverageADGGPerDay, &animals); err != nil {
+			return nil, err
+		}
+		p.WeekStart = weekStart.Format("2006-01-02")
+		p.Animals = int(animals)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) growthShedLeaderboard(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) ([]domain.GrowthShedLeaderboardRow, error) {
 	// projection-review: membership=weighing_observations; group_key=location_id; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	q := `WITH ` + growthPairsCTE + `),
 inperiod AS (
-  SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz
+  SELECT * FROM qualifying
+  WHERE accepted_at >= $5::timestamptz
+    AND ($8::text = '' OR weighing_category = $8::text)
 ),
 period_weights AS (
   SELECT wcs.location_id, wcs.display_name AS shed_name,
@@ -477,6 +622,7 @@ period_weights AS (
     AND wo.verification_status <> 'rejected'
     AND wo.accepted_at >= $5::timestamptz
     AND wo.accepted_at < $4::timestamptz
+    AND ($8::text = '' OR wcs.weighing_category = $8::text)
     -- HALF-FILTERED IS WORSE THAN UNFILTERED. This row's daily gain already followed the Sex
     -- filter (its pairs CTE carries the predicate) while its kid count and median weight did not,
     -- so one row showed a male-only gain sitting beside an all-kids count -- two populations, one
@@ -502,7 +648,7 @@ SELECT sw.location_id, sw.shed_name, sw.partition_label, sw.park_name, sw.n, sw.
 FROM shed_weight sw
 LEFT JOIN shed_adg sa ON sa.location_id = sw.location_id AND COALESCE(sa.partition_label, '') = COALESCE(sw.partition_label, '')
 ORDER BY sw.shed_name, sw.partition_label`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, weighingCategory)
 	if err != nil {
 		return nil, err
 	}
@@ -543,13 +689,13 @@ const (
 	growthDistributionBinCount = 12
 )
 
-func (r *Repository) growthDistribution(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) ([]domain.GrowthDistributionBucket, error) {
+func (r *Repository) growthDistribution(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) ([]domain.GrowthDistributionBucket, error) {
 	var negativeCount int
 	// projection-review: membership=weighing_observations; group_key=bucket; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	if err := r.pool.QueryRow(ctx, `WITH `+growthPairsCTE+`),
-inperiod AS (SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz)
+inperiod AS (SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz AND ($8::text = '' OR weighing_category = $8::text))
 SELECT COUNT(*) FROM inperiod WHERE adg_g_per_day < 0`,
-		tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags).Scan(&negativeCount); err != nil {
+		tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, weighingCategory).Scan(&negativeCount); err != nil {
 		return nil, err
 	}
 
@@ -558,13 +704,13 @@ SELECT COUNT(*) FROM inperiod WHERE adg_g_per_day < 0`,
 	// two parameters start at $8. Every consumer of growthPairsCTE binds those two in the same
 	// positions, which is what lets the CTE carry one predicate for all of them.
 	rows, err := r.pool.Query(ctx, `WITH `+growthPairsCTE+`),
-inperiod AS (SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz AND adg_g_per_day >= 0)
-SELECT LEAST(width_bucket(adg_g_per_day, 0, $8::float8, $9::int), $9::int) AS bucket, COUNT(*)
+inperiod AS (SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz AND adg_g_per_day >= 0 AND ($8::text = '' OR weighing_category = $8::text))
+SELECT LEAST(width_bucket(adg_g_per_day, 0, $9::float8, $10::int), $10::int) AS bucket, COUNT(*)
 FROM inperiod
 GROUP BY bucket
 ORDER BY bucket`,
 		tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags,
-		maxEdge, growthDistributionBinCount)
+		weighingCategory, maxEdge, growthDistributionBinCount)
 	if err != nil {
 		return nil, err
 	}
@@ -601,7 +747,7 @@ ORDER BY bucket`,
 	return out, nil
 }
 
-func (r *Repository) growthSaleReadiness(ctx context.Context, tenantID string, parkIDs []string, sexFiltered bool, scope SexScope) (domain.GrowthSaleReadiness, error) {
+func (r *Repository) growthSaleReadiness(ctx context.Context, tenantID string, parkIDs []string, sexFiltered bool, scope SexScope, weighingCategory string) (domain.GrowthSaleReadiness, error) {
 	// FAIL LOUD, never quietly empty. An unresolved AllTimeTags is an empty list, and an empty tag
 	// list filters every animal out -- so a caller that resolved the window-only scope would report
 	// zero sale-ready kids and look like a farm with nothing to sell. That is the kind of wrong
@@ -640,6 +786,7 @@ WITH obs AS (
     -- the denominator. This farm's data cannot show that today because every weigh in it falls
     -- inside the lookback, which is exactly why the regression test below reaches outside it.
     AND (NOT $3::bool OR lower(btrim(wo.scanned_identifier)) = ANY($4::text[]))
+    AND ($5::text = '' OR $5::text = 'individual_animal')
 ),
 latest AS (
   SELECT DISTINCT ON (animal_key) animal_key, weight_kg
@@ -647,7 +794,7 @@ latest AS (
   ORDER BY animal_key, accepted_at DESC, observation_id DESC
 )
 SELECT COUNT(*), COUNT(*) FILTER (WHERE weight_kg >= 30), COUNT(*) FILTER (WHERE weight_kg >= 35)
-FROM latest`, tenantID, parkIDs, sexFiltered, scope.AllTimeTags)
+FROM latest`, tenantID, parkIDs, sexFiltered, scope.AllTimeTags, weighingCategory)
 	var s domain.GrowthSaleReadiness
 	if err != nil {
 		return s, err
@@ -661,7 +808,7 @@ FROM latest`, tenantID, parkIDs, sexFiltered, scope.AllTimeTags)
 	return s, rows.Err()
 }
 
-func (r *Repository) growthLumpSumTrend(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) (domain.GrowthLumpSum, error) {
+func (r *Repository) growthLumpSumTrend(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) (domain.GrowthLumpSum, error) {
 	// Lump-sum shed totals are read HERE, entirely separately from the individual-observation
 	// queries above -- see the GrowthLumpSum domain comment for why a per-animal ADG must never
 	// be derived from the delta between two shed-level averages.
@@ -682,6 +829,7 @@ WHERE wso.tenant_id = $1::uuid
   AND wso.withdrawn_at IS NULL
   AND wso.accepted_at >= $3::timestamptz
   AND wso.accepted_at < $4::timestamptz
+  AND ($8::text = '' OR wcs.weighing_category = $8::text)
   -- The Sex filter reaches this trend too. It did NOT, and the parameters were accepted and
   -- silently ignored: every other block of this read narrowed to the selected half of the herd
   -- while the whole-shed trend kept reporting all ten pen-weeks, so a reader on Female saw a
@@ -695,7 +843,7 @@ WHERE wso.tenant_id = $1::uuid
   ))
 GROUP BY wcs.location_id, wcs.display_name, COALESCE(wcs.partition_label, ''), week_start
 ORDER BY wcs.display_name, COALESCE(wcs.partition_label, ''), week_start`,
-		tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope.LocationIDs, scope.PartitionLabels)
+		tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope.LocationIDs, scope.PartitionLabels, weighingCategory)
 	if err != nil {
 		return domain.GrowthLumpSum{}, err
 	}
@@ -758,10 +906,13 @@ func (r *Repository) growthLosingAnimals(
 	lookbackStart, periodStart, periodEnd time.Time,
 	sexFiltered bool,
 	scope SexScope,
+	weighingCategory string,
 ) ([]domain.GrowthLosingAnimal, error) {
 	q := `WITH ` + growthPairsCTE + `),
 inperiod AS (
-  SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz
+  SELECT * FROM qualifying
+  WHERE accepted_at >= $5::timestamptz
+    AND ($8::text = '' OR weighing_category = $8::text)
 ),
 latest_pair AS (
   SELECT DISTINCT ON (animal_key) *
@@ -775,7 +926,7 @@ FROM latest_pair
 WHERE adg_g_per_day < 0
 ORDER BY adg_g_per_day ASC
 LIMIT 200`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, weighingCategory)
 	if err != nil {
 		return nil, err
 	}
