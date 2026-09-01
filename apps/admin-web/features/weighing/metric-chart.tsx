@@ -127,6 +127,20 @@ type ShedSeries = MetricSeries & {
 };
 
 /**
+ * The Gender column's lines for one pen: ONE when every cohort shares a sex, otherwise one per
+ * cohort so the lines still pair by index with breed and count.
+ *
+ * All-or-nothing on purpose. Collapsing only the runs of equal neighbours would put a single
+ * "male" beside some rows and two beside others with no rule a reader could infer, and a
+ * collapsed cell would no longer be a statement about the whole pen.
+ */
+function sexLines(cohorts: WeightBar["cohorts"]): readonly string[] {
+  const lines = (cohorts ?? []).map((cohort) => cohort.sex);
+  if (lines.length > 1 && lines.every((sex) => sex === lines[0])) return [lines[0]];
+  return lines;
+}
+
+/**
  * The same figures as the chart, read as exact numbers (maintainer request 2026-09-01).
  *
  * The rows come from the CHART's own park columns rather than a second data path, so the
@@ -205,10 +219,18 @@ function ShedMetricTable({
                   </span>
                 ))}
               </td>
+              {/* One line when the whole pen is one sex, every line the moment ONE cohort
+                  differs (maintainer request 2026-09-01). Repeating "male" five times down a
+                  pen that is entirely male is noise, and it buried the mixed pens -- which are
+                  the ones a reader has to look at -- among identical columns. Collapsing is
+                  therefore all-or-nothing: a pen with a single female in it lists every line,
+                  so the collapsed cell can only ever mean "this pen is all of this sex".
+                  Breed and count never collapse: two cohorts really can share a breed (Godel
+                  1 - Part 7 carries Osmanabadi three times), and each carries its own count. */}
               <td className="wsg-sex">
-                {(row.cohorts ?? []).map((cohort, index) => (
+                {sexLines(row.cohorts).map((sex, index) => (
                   <span className="wsg-line" key={`${row.key}|sex|${index}`}>
-                    {cohort.sex}
+                    {sex}
                   </span>
                 ))}
               </td>

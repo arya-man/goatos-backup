@@ -177,6 +177,29 @@ test("the shed table reads breed, gender and count as columns, not out of the pe
   assert.match(css, /table\.wsgtable \.wsg-line\{/);
 });
 
+test("gender is written once for a single-sex pen and every line for a mixed one", () => {
+  // Maintainer request 2026-09-01: repeating "male" five times down an all-male pen is noise,
+  // and it buried the mixed pens among identical columns. All-or-nothing, so a collapsed cell
+  // can only ever mean "this pen is all of this sex" -- one differing cohort brings every line
+  // back, and the lines still pair by index with breed and count.
+  const client = readFileSync(new URL("./metric-chart.tsx", import.meta.url), "utf8");
+  const fn = client.match(/function sexLines\([\s\S]*?\n\}/);
+  assert.ok(fn, "sexLines must exist");
+  // The signature carries TypeScript types; the BODY is plain JS, so the real rule runs here
+  // rather than a copy of it re-derived in the test.
+  const js = fn[0].replace(/function sexLines\([^)]*\)\s*:[^{]*\{/, "function sexLines(cohorts) {");
+  const sexLines = new Function(`${js}; return sexLines;`)();
+  const c = (...sexes) => sexes.map((sex) => ({ breed: "b", sex, animals: 1 }));
+  assert.deepEqual(sexLines(c("male", "male", "male")), ["male"], "all-male pen writes it once");
+  assert.deepEqual(sexLines(c("male", "female", "male")), ["male", "female", "male"], "one differing cohort brings every line back");
+  assert.deepEqual(sexLines(c("female")), ["female"], "a single cohort is already one line");
+  assert.deepEqual(sexLines(undefined), [], "a pen with no composition has no lines");
+  // Breed and count must NOT collapse: two cohorts really can share a breed, and each carries
+  // its own head count.
+  assert.match(client, /\(row\.cohorts \?\? \[\]\)\.map\(\(cohort, index\) => \([\s\S]{0,120}cohort\.breed/);
+  assert.match(client, /\(row\.cohorts \?\? \[\]\)\.map\(\(cohort, index\) => \([\s\S]{0,160}cohort\.animals/);
+});
+
 test("the shed gain card offers no Table/Chart switch", () => {
   // Retired in the frontend (maintainer request 2026-09-01): the figures ARE the card, so the
   // control was one more thing to read past. The backend copy key is left in place and
