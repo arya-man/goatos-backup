@@ -1717,11 +1717,18 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			}
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") && isKidCourseRule(rule) {
+		// seed-fixture-guard:ignore: runtime booster cleanup only; first-dose DOB/anchor eligibility and HRMS seed inputs are unchanged.
+		if rule.Sequence > 1 && strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") && isKidCourseRule(rule) {
 			if courseDue, found, err := primaryCourseContinuationDueFromHistory(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path, vaccineHistory); err != nil {
 				return err
 			} else if !found && courseDue.IsZero() {
-				if _, _, hasPrevious, err := previousPrimaryCourseRuleAnyPath(rule, ruleVaccine, rules, versionEligibility, vaccineProf); err != nil {
+				previousRule := previousPrimaryCourseRule
+				if rule.MinGapDays > 0 {
+					previousRule = func(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, _ string) (protodomain.Rule, vaccineProfile, bool, error) {
+						return previousPrimaryCourseRuleAnyPath(rule, ruleVaccine, rules, fallbackEligibility, fallbackVaccine)
+					}
+				}
+				if _, _, hasPrevious, err := previousRule(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path); err != nil {
 					return err
 				} else if hasPrevious {
 					// Runtime reconciliation: a stale booster/follow-up without the prior dose must retire
@@ -1790,7 +1797,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			baseDue = courseDue
 			ok = true
 		} else {
-			if strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") && isKidCourseRule(rule) {
+			if rule.Sequence > 1 && strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") && isKidCourseRule(rule) {
 				// seed-fixture-guard:ignore: runtime booster gating only; HRMS seed input schema/data is unchanged.
 				if _, _, hasPrevious, err := previousPrimaryCourseRule(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path); err != nil {
 					return err
