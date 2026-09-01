@@ -61,7 +61,13 @@
 -- marker into a lock that fails that delete. If the location is gone the mapping is
 -- meaningless, so it should clear itself rather than block an unrelated write.
 ALTER TABLE shed_partitions
-    ADD COLUMN IF NOT EXISTS alias_location_id uuid REFERENCES locations (location_id) ON DELETE SET NULL;
+    ADD COLUMN IF NOT EXISTS alias_location_id uuid;
+
+ALTER TABLE shed_partitions
+    ADD CONSTRAINT shed_partitions_alias_location_tenant_fk
+    FOREIGN KEY (tenant_id, alias_location_id)
+    REFERENCES locations (tenant_id, location_id)
+    ON DELETE SET NULL (alias_location_id);
 
 COMMENT ON COLUMN shed_partitions.alias_location_id IS
     'Legacy location row that IS this pen (''Castro 1'' = ''Castro'' pen 1). Set only by an explicit backfill or an operator decision, never inferred at read time: a shed name that merely ends in a pen-like suffix is not evidence.';
@@ -126,4 +132,5 @@ UPDATE shed_partitions sp
 
 -- +goose Down
 DROP INDEX IF EXISTS shed_partitions_alias_location_uidx;
+ALTER TABLE shed_partitions DROP CONSTRAINT IF EXISTS shed_partitions_alias_location_tenant_fk;
 ALTER TABLE shed_partitions DROP COLUMN IF EXISTS alias_location_id;
