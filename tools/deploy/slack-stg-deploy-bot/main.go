@@ -376,23 +376,13 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribution bool, slackUserID, triggeredBy, actionLabel string) {
-	cfg.postSlackResponse(responseURL, map[string]any{
-		"response_type":    "in_channel",
-		"replace_original": false,
-		"text":             fmt.Sprintf("%s request received from `main` by %s. Starting deploy checks now.", actionLabel, triggeredBy),
-		"blocks":           deployQueuedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution),
-	})
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	active, err := cfg.activeDeployBuild(ctx)
 	if err != nil {
 		log.Printf("active build check failed: %v", err)
-		cfg.postSlackResponse(responseURL, map[string]any{
-			"response_type": "ephemeral",
-			"text":          fmt.Sprintf("Could not check active deployments: `%s`", err.Error()),
-		})
+		cfg.postDeployRequestFailed(responseURL, actionLabel, triggeredBy, deploySTG, mobileDistribution, fmt.Sprintf("Could not check active deployments: `%s`", err.Error()))
 		return
 	}
 	if active.ID != "" {
@@ -411,10 +401,7 @@ func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribu
 		next, err := cfg.bumpAndroidReleaseVersion(ctx, triggeredBy)
 		if err != nil {
 			log.Printf("android version bump failed: %v", err)
-			cfg.postSlackResponse(responseURL, map[string]any{
-				"response_type": "ephemeral",
-				"text":          fmt.Sprintf("Failed to bump Android release version before deploy: `%s`", err.Error()),
-			})
+			cfg.postDeployRequestFailed(responseURL, actionLabel, triggeredBy, deploySTG, mobileDistribution, fmt.Sprintf("Failed to bump Android release version before deploy: `%s`", err.Error()))
 			return
 		}
 		log.Printf("bumped Android release to %s (%d)", next.Name, next.Code)
@@ -424,9 +411,15 @@ func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribu
 	buildID, err := cfg.runTrigger(ctx, deploySTG, mobileDistribution, slackUserID, triggeredBy, sourceCommitSHA)
 	if err != nil {
 		log.Printf("run trigger failed: %v", err)
+		cfg.postDeployRequestFailed(responseURL, actionLabel, triggeredBy, deploySTG, mobileDistribution, fmt.Sprintf("Failed to start %s: `%s`", actionLabel, err.Error()))
+		return
+	}
+	if buildID == "pending" {
 		cfg.postSlackResponse(responseURL, map[string]any{
-			"response_type": "ephemeral",
-			"text":          fmt.Sprintf("Failed to start %s: `%s`", actionLabel, err.Error()),
+			"response_type":    "in_channel",
+			"replace_original": true,
+			"text":             fmt.Sprintf("%s trigger accepted by Google Cloud Build, but the build id is still pending. Check Cloud Build before clicking deploy again.", actionLabel),
+			"blocks":           deployPendingBuildIDBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution, cfg.cloudDeployURL()),
 		})
 		return
 	}
@@ -442,16 +435,47 @@ func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribu
 	go cfg.monitorBuild(responseURL, buildID, triggeredBy, actionLabel, deploySTG, mobileDistribution)
 }
 
-func deployQueuedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool) []map[string]any {
+func (cfg config) postDeployRequestFailed(responseURL, actionLabel, triggeredBy string, deploySTG, mobileDistribution bool, reason string) {
+	cfg.postSlackResponse(responseURL, map[string]any{
+		"response_type":    "in_channel",
+		"replace_original": true,
+		"text":             fmt.Sprintf("%s request failed before a Cloud Build deploy started.", actionLabel),
+		"blocks":           deployRequestFailedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution, reason),
+	})
+	cfg.postDeployPanel(responseURL)
+}
+
+func deployRequestFailedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool, reason string) []map[string]any {
 	return []map[string]any{
 		{
 			"type": "section",
 			"text": map[string]string{
 				"type": "mrkdwn",
-				"text": fmt.Sprintf("*%s request received* by %s\nBackend/web deploy: `%t`\nMobile distribution: `%t`\n\nStarting active-deploy checks now.", actionLabel, triggeredBy, deploySTG, mobileDistribution),
+				"text": fmt.Sprintf("*%s did not start* by %s\nBackend/web deploy: `%t`\nMobile distribution: `%t`\n\n%s", actionLabel, triggeredBy, deploySTG, mobileDistribution, reason),
 			},
 		},
 	}
+}
+
+func deployPendingBuildIDBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool, deployURL string) []map[string]any {
+	blocks := []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("*%s trigger accepted; build id pending* by %s\nBackend/web deploy: `%t`\nMobile distribution: `%t`\n\nNo deploy panel was re-posted because Cloud Build may still start this request.", actionLabel, triggeredBy, deploySTG, mobileDistribution),
+			},
+		},
+	}
+	if deploySTG {
+		blocks = append(blocks, map[string]any{
+			"type": "actions",
+			"elements": []map[string]any{
+				{"type": "button", "text": map[string]string{"type": "plain_text", "text": "Cloud Deploy"}, "url": deployURL},
+			},
+		})
+	}
+	return blocks
 }
 
 func deployAcceptedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool) []map[string]any {
@@ -524,7 +548,7 @@ func deployStartedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistr
 			"type": "section",
 			"text": map[string]string{
 				"type": "mrkdwn",
-				"text": fmt.Sprintf("*%s in progress* by %s\nBackend/web deploy: `%t`\nMobile distribution: `%t`\n\nThe deploy buttons will return only after success or failure.\n%s", actionLabel, triggeredBy, deploySTG, mobileDistribution, links),
+				"text": fmt.Sprintf("*%s in progress* by %s\nBackend/web deploy: `%t`\nMobile distribution: `%t`\n\nThis message will be replaced with the final result. A new idle controls panel is posted separately after the job closes.\n%s", actionLabel, triggeredBy, deploySTG, mobileDistribution, links),
 			},
 		},
 	}
@@ -546,7 +570,7 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 		case <-ctx.Done():
 			cfg.postSlackResponse(responseURL, map[string]any{
 				"response_type":    "in_channel",
-				"replace_original": false,
+				"replace_original": true,
 				"text":             fmt.Sprintf("%s monitor timed out for build `%s`; check Cloud Build logs.", actionLabel, buildID),
 				"attachments":      deployTerminalAttachments("TIMED_OUT", triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), nil),
 			})
@@ -561,16 +585,15 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 			if !isTerminalBuildStatus(build.Status) {
 				continue
 			}
-			if build.Status == "SUCCESS" {
-				return
-			}
 			cfg.postSlackResponse(responseURL, map[string]any{
 				"response_type":    "in_channel",
-				"replace_original": false,
+				"replace_original": true,
 				"text":             fmt.Sprintf("%s finished with Cloud Build status `%s` for `%s`.", actionLabel, build.Status, buildID),
 				"attachments":      deployTerminalAttachments(build.Status, triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), build.Steps),
 			})
-			cfg.postDeployPanel(responseURL)
+			if build.Status != "SUCCESS" {
+				cfg.postDeployPanel(responseURL)
+			}
 			return
 		}
 	}
@@ -682,57 +705,61 @@ func (cfg config) postDeployPanel(responseURL string) {
 		"response_type":    "in_channel",
 		"replace_original": false,
 		"text":             "GoatOS deploy",
-		"blocks": []map[string]any{
-			{
-				"type": "section",
-				"text": map[string]string{
-					"type": "mrkdwn",
-					"text": "*GoatOS deploy*\nDeploy the current `main` branch to the existing production-facing services, or distribute only the Android release.",
-				},
+		"blocks":           cfg.deployPanelBlocks(),
+	})
+}
+
+func (cfg config) deployPanelBlocks() []map[string]any {
+	return []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": "*GoatOS deploy controls - idle*\nNo deploy is running from this panel. Use these buttons only to start a new deploy from the current `main` branch, or distribute only the Android release.",
 			},
-			{
-				"type":     "actions",
-				"block_id": "deploy_options",
-				"elements": []map[string]any{
-					{
-						"type":      "checkboxes",
-						"action_id": "deploy_options",
-						"options": []map[string]any{
-							{
-								"text": map[string]string{
-									"type": "plain_text",
-									"text": "Also distribute Android mobile",
-								},
-								"description": map[string]string{
-									"type": "plain_text",
-									"text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk",
-								},
-								"value": "mobile_distribution",
+		},
+		{
+			"type":     "actions",
+			"block_id": "deploy_options",
+			"elements": []map[string]any{
+				{
+					"type":      "checkboxes",
+					"action_id": "deploy_options",
+					"options": []map[string]any{
+						{
+							"text": map[string]string{
+								"type": "plain_text",
+								"text": "Also distribute Android mobile",
 							},
+							"description": map[string]string{
+								"type": "plain_text",
+								"text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk",
+							},
+							"value": "mobile_distribution",
 						},
 					},
 				},
 			},
-			{
-				"type": "actions",
-				"elements": []map[string]any{
-					{
-						"type":      "button",
-						"text":      map[string]string{"type": "plain_text", "text": "Deploy backend/web"},
-						"style":     "primary",
-						"action_id": "deploy_goatos_stg_main",
-						"value":     "main",
-					},
-					{
-						"type":      "button",
-						"text":      map[string]string{"type": "plain_text", "text": "Distribute Android only"},
-						"action_id": "deploy_goatos_mobile_only",
-						"value":     "mobile",
-					},
+		},
+		{
+			"type": "actions",
+			"elements": []map[string]any{
+				{
+					"type":      "button",
+					"text":      map[string]string{"type": "plain_text", "text": "Deploy backend/web"},
+					"style":     "primary",
+					"action_id": "deploy_goatos_stg_main",
+					"value":     "main",
+				},
+				{
+					"type":      "button",
+					"text":      map[string]string{"type": "plain_text", "text": "Distribute Android only"},
+					"action_id": "deploy_goatos_mobile_only",
+					"value":     "mobile",
 				},
 			},
 		},
-	})
+	}
 }
 
 func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution bool, slackUserID, triggeredBy, sourceCommitSHA string) (string, error) {

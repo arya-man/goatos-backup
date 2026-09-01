@@ -5,7 +5,7 @@
       "type": "section",
       "text": {
         "type": "mrkdwn",
-        "text": "*GoatOS deploy*\nDeploy the current `main` branch to the existing production-facing services, or distribute only the Android release."
+        "text": "*GoatOS deploy controls - idle*\nNo deploy is running from this panel. Use these buttons only to start a new deploy from the current `main` branch, or distribute only the Android release."
       }
     },
     {
