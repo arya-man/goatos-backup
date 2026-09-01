@@ -336,3 +336,12 @@ Migration `000034_birth_death_workflows.sql` creates `workflow_instances` and
 
 No seed change is required; this runbook note is the coupling companion for the
 `goats` table touch.
+
+## 000225 Blue Tongue Booster Checksum Restoration (2026-09-01, no seed impact)
+
+Migration `000225_blue_tongue_kid_booster_19w.sql` was restored to the exact
+text already applied in staging after a comment-only edit changed the historical
+checksum. This is a checksum preservation repair, not a new protocol-data
+mutation: the existing seed path already writes Blue Tongue dose 2 as
+`blue_tongue_kid_19w` at 133 days with a 21-day minimum gap. No seed command,
+projection recompute, or clean-slate closeout step changes for this restoration.
