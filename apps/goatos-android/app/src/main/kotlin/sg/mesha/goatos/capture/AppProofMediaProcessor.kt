@@ -229,12 +229,14 @@ class AppProofMediaProcessor @Inject constructor(
 
     private fun createVideoOverlayBitmap(lines: List<String>, videoWidth: Int, videoHeight: Int): Bitmap =
         Bitmap.createBitmap(videoWidth.coerceAtLeast(1), videoHeight.coerceAtLeast(1), Bitmap.Config.ARGB_8888).also { bitmap ->
-            drawAuditOverlayAtBottomRight(
+            drawAuditOverlayAtTopLeft(
                 canvas = Canvas(bitmap),
                 width = bitmap.width,
                 height = bitmap.height,
                 lines = lines,
                 textScale = videoOverlayScale(bitmap.width, bitmap.height),
+                maxWidthFraction = VIDEO_OVERLAY_MAX_WIDTH_FRACTION,
+                maxHeightFraction = VIDEO_OVERLAY_MAX_HEIGHT_FRACTION,
             )
         }
 
@@ -244,12 +246,27 @@ class AppProofMediaProcessor @Inject constructor(
         height: Int,
         lines: List<String>,
         textScale: Float,
+        maxWidthFraction: Float = DEFAULT_OVERLAY_MAX_WIDTH_FRACTION,
+        maxHeightFraction: Float = DEFAULT_OVERLAY_MAX_HEIGHT_FRACTION,
     ) {
-        val layout = overlayLayout(lines, width, height, textScale)
+        val layout = overlayLayout(lines, width, height, textScale, maxWidthFraction, maxHeightFraction)
         canvas.save()
         canvas.translate((width - layout.width).toFloat(), (height - layout.height).toFloat())
         drawAuditOverlay(canvas, layout)
         canvas.restore()
+    }
+
+    private fun drawAuditOverlayAtTopLeft(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        lines: List<String>,
+        textScale: Float,
+        maxWidthFraction: Float = DEFAULT_OVERLAY_MAX_WIDTH_FRACTION,
+        maxHeightFraction: Float = DEFAULT_OVERLAY_MAX_HEIGHT_FRACTION,
+    ) {
+        val layout = overlayLayout(lines, width, height, textScale, maxWidthFraction, maxHeightFraction)
+        drawAuditOverlay(canvas, layout)
     }
 
     private fun overlayLayout(
@@ -257,14 +274,16 @@ class AppProofMediaProcessor @Inject constructor(
         mediaWidth: Int,
         mediaHeight: Int,
         textScale: Float = 1f,
+        maxWidthFraction: Float = DEFAULT_OVERLAY_MAX_WIDTH_FRACTION,
+        maxHeightFraction: Float = DEFAULT_OVERLAY_MAX_HEIGHT_FRACTION,
     ): OverlayLayout {
         val density = context.resources.displayMetrics.density
         val widthBound = mediaWidth.coerceAtLeast(1)
         val heightBound = mediaHeight.coerceAtLeast(1)
-        val minWidth = minOf((260 * textScale).toInt().coerceAtLeast(1), widthBound)
-        val minHeight = minOf((140 * textScale).toInt().coerceAtLeast(1), heightBound)
-        val maxWidth = (mediaWidth * 0.86f).toInt().coerceIn(minWidth, widthBound)
-        val maxHeight = (mediaHeight * 0.92f).toInt().coerceIn(minHeight, heightBound)
+        val minWidth = minOf((180 * textScale).toInt().coerceAtLeast(1), widthBound)
+        val minHeight = minOf((72 * textScale).toInt().coerceAtLeast(1), heightBound)
+        val maxWidth = (mediaWidth * maxWidthFraction).toInt().coerceIn(minWidth, widthBound)
+        val maxHeight = (mediaHeight * maxHeightFraction).toInt().coerceIn(minHeight, heightBound)
         val baseTextSize = ((14f * density).coerceIn(18f, 30f) * textScale).coerceAtMost(72f)
         val basePadding = ((10f * density).coerceIn(12f, 22f) * textScale).coerceAtMost(54f)
         val baseGap = ((4f * density).coerceIn(4f, 8f) * textScale).coerceAtMost(18f)
@@ -279,8 +298,8 @@ class AppProofMediaProcessor @Inject constructor(
                 paint = paint,
                 textMaxWidth = textMaxWidth,
                 maxWidth = maxWidth,
-                minWidth = (220 * textScale).toInt(),
-                minHeight = (88 * textScale).toInt(),
+                minWidth = minWidth,
+                minHeight = minHeight,
                 textSize = textSize,
                 padding = padding,
                 lineGap = lineGap,
@@ -296,8 +315,8 @@ class AppProofMediaProcessor @Inject constructor(
             paint = paint,
             textMaxWidth = textMaxWidth,
             maxWidth = maxWidth,
-            minWidth = (220 * textScale).toInt(),
-            minHeight = (88 * textScale).toInt(),
+            minWidth = minWidth,
+            minHeight = minHeight,
             textSize = textSize,
             padding = padding,
             lineGap = lineGap,
@@ -352,7 +371,7 @@ class AppProofMediaProcessor @Inject constructor(
     private fun drawAuditOverlay(canvas: Canvas, layout: OverlayLayout) {
         val textPaint = overlayTextPaint(layout.textSize)
         val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(166, 0, 0, 0)
+            color = Color.argb(90, 0, 0, 0)
         }
         canvas.drawRoundRect(RectF(0f, 0f, layout.width.toFloat(), layout.height.toFloat()), 10f, 10f, bgPaint)
         var y = layout.padding - textPaint.fontMetrics.ascent
@@ -415,7 +434,7 @@ class AppProofMediaProcessor @Inject constructor(
 
     private fun videoOverlayScale(width: Int, height: Int): Float {
         val longSide = max(width, height).coerceAtLeast(1)
-        return (longSide / 1280f).coerceIn(1.1f, 1.9f)
+        return (longSide / 1280f).coerceIn(0.62f, 1.0f)
     }
 
     private fun selectVideoBitrate(width: Int, height: Int, originalBitrate: Int?): Int {
@@ -482,5 +501,9 @@ class AppProofMediaProcessor @Inject constructor(
 
     private companion object {
         private const val PHOTO_MAX_LONG_SIDE_PX = 1920
+        private const val DEFAULT_OVERLAY_MAX_WIDTH_FRACTION = 0.86f
+        private const val DEFAULT_OVERLAY_MAX_HEIGHT_FRACTION = 0.92f
+        private const val VIDEO_OVERLAY_MAX_WIDTH_FRACTION = 0.56f
+        private const val VIDEO_OVERLAY_MAX_HEIGHT_FRACTION = 0.34f
     }
 }

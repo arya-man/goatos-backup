@@ -131,6 +131,11 @@ android {
         buildConfigField("String", "SOURCE_BRANCH", quotedBuildConfig(sourceBranch))
         buildConfigField("String", "SOURCE_LABEL", quotedBuildConfig(sourceLabel))
         buildConfigField("boolean", "SOURCE_DIRTY", sourceDirty.toString())
+        buildConfigField(
+            "String",
+            "PROOF_VIDEO_QUALITY_OVERRIDE",
+            quotedBuildConfig((project.findProperty("goatosProofVideoQualityOverride") as String?).orEmpty()),
+        )
         resValue("string", "goatos_source_commit", sourceCommit)
         resValue("string", "goatos_source_tag", sourceTag.ifBlank { "untagged" })
         resValue("string", "goatos_source_label", sourceLabel)

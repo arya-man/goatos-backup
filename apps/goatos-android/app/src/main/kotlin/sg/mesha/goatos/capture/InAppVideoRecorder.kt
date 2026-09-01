@@ -69,6 +69,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.R
 import sg.mesha.goatos.core.data.capture.ProofArtifactValidator
 import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
@@ -383,11 +384,6 @@ fun InAppVideoRecorderOverlay(
                 .padding(bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            CaptureSubjectPanel(
-                context = captureContext,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
             Text(
                 text = captureContext?.prompt?.let { stringResource(recorderCopyResources(it).instruction) }
                     ?: stringResource(R.string.proof_camera_instruction),
@@ -782,12 +778,7 @@ private class ProofCameraSession {
                         it.surfaceProvider = previewView.surfaceProvider
                     }
                     val recorder = Recorder.Builder()
-                        .setQualitySelector(
-                            QualitySelector.fromOrderedList(
-                                listOf(Quality.SD, Quality.HD),
-                                FallbackStrategy.higherQualityOrLowerThan(Quality.SD),
-                            ),
-                        )
+                        .setQualitySelector(proofVideoQualitySelector())
                         .build()
                     val videoCapture = VideoCapture.withOutput(recorder)
                     cameraProvider.unbindAll()
@@ -818,6 +809,20 @@ private class ProofCameraSession {
         camera = null
         provider = null
     }
+}
+
+private fun proofVideoQualitySelector(): QualitySelector {
+    val forcedQuality = when (BuildConfig.PROOF_VIDEO_QUALITY_OVERRIDE.uppercase()) {
+        "SD" -> Quality.SD
+        "HD" -> Quality.HD
+        "FHD" -> Quality.FHD
+        "UHD" -> Quality.UHD
+        else -> null
+    }
+    return forcedQuality?.let(QualitySelector::from) ?: QualitySelector.fromOrderedList(
+        listOf(Quality.HD, Quality.FHD, Quality.SD),
+        FallbackStrategy.lowerQualityOrHigherThan(Quality.HD),
+    )
 }
 
 /** App-PRIVATE destination (`Context.filesDir`, never external/MediaStore) — invisible to the
