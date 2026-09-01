@@ -67,42 +67,23 @@ direct_count AS (
          = regexp_replace(lower(btrim(b.bucket_partition)), '^part[[:space:]]+', '')
     )
 ),
-parsed_alias AS (
-  SELECT parent.location_id AS shed_id,
-         parent.name AS shed_name,
-         b.bucket_partition,
-         NULLIF(btrim(regexp_replace(
-           substr(b.name, length(parent.name) + 1),
-           '^[[:space:]]*-?[[:space:]]*(?:Part[[:space:]]*)?',
-           ''
-         )), '') AS parsed_partition
-  FROM bucket b
-  JOIN LATERAL (
-    SELECT shed.location_id, shed.name
-    FROM locations shed
-    WHERE shed.tenant_id = b.tenant_id
-      AND shed.parent_location_id = b.parent_location_id
-      AND shed.location_type = 'shed'
-      AND shed.status = 'active'
-      AND shed.retired_at IS NULL
-      AND shed.location_id <> b.location_id
-      AND ((b.name LIKE shed.name || ' %') OR (b.name LIKE shed.name || ' - %'))
-    ORDER BY length(shed.name) DESC, shed.name
-    LIMIT 1
-  ) parent ON true
-  WHERE (SELECT animals FROM direct_count) = 0
-),
 alias_target AS (
-  SELECT p.shed_id,
-         COALESCE(p.bucket_partition, sp.partition_label) AS partition_label
-  FROM parsed_alias p
-  JOIN shed_partitions sp
-    ON sp.tenant_id = $1::uuid
-   AND sp.shed_id = p.shed_id
-   AND sp.status = 'active'
-   AND sp.source = 'location_alias'
-   AND sp.normalized_label = regexp_replace(lower(btrim(p.parsed_partition)), '^part[[:space:]]+', '')
-  WHERE COALESCE(p.bucket_partition, p.parsed_partition, '') <> ''
+  -- The bucket's location is resolved to a pen by EXACT id, never by parsing its
+  -- name. shed_partitions.alias_location_id says which pen a legacy location row
+  -- stands for (migration 000239); nothing here infers it from a name suffix,
+  -- which is why a genuinely standalone shed whose name merely ends in a pen-like
+  -- suffix ('Yashoda 2', 'Q1 2') is still refused rather than silently reporting
+  -- some other shed's animals as weighed.
+  -- The MAPPING is the source of truth, not the bucket's own partition_label. An
+  -- alias location IS one pen, so a label carried alongside it is redundant at
+  -- best and contradictory at worst -- letting it win would make a stale label on
+  -- a 'Castro 1' bucket count 'Castro' pen 2.
+  SELECT sp.shed_id, sp.normalized_label AS normalized_partition
+  FROM shed_partitions sp
+  WHERE sp.tenant_id = $1::uuid
+    AND sp.alias_location_id = $2::uuid
+    AND sp.status = 'active'
+    AND (SELECT animals FROM direct_count) = 0
 ),
 alias_count AS (
   SELECT COUNT(*)::int AS animals
@@ -115,9 +96,9 @@ alias_count AS (
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
-  WHERE COALESCE(a.partition_label, '') <> ''
+  WHERE a.normalized_partition <> ''
     AND regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-        = regexp_replace(lower(btrim(a.partition_label)), '^part[[:space:]]+', '')
+        = a.normalized_partition
 )
 SELECT CASE
   WHEN (SELECT animals FROM direct_count) > 0 THEN (SELECT animals FROM direct_count)
