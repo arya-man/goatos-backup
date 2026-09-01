@@ -7813,6 +7813,7 @@ CREATE TABLE public.shed_partitions (
     source text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    alias_location_id uuid,
     animal_stage_id uuid,
     CONSTRAINT shed_partitions_label_nonblank CHECK ((btrim(partition_label) <> ''::text)),
     CONSTRAINT shed_partitions_not_whole CHECK ((normalized_label <> 'whole'::text)),
@@ -13914,6 +13915,13 @@ CREATE INDEX seed_runs_tenant_state_idx ON public.seed_runs USING btree (tenant_
 
 
 --
+-- Name: shed_partitions_alias_location_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX shed_partitions_alias_location_uidx ON public.shed_partitions USING btree (tenant_id, alias_location_id) WHERE (alias_location_id IS NOT NULL);
+
+
+--
 -- Name: shed_partitions_tenant_shed_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -18163,6 +18171,14 @@ ALTER TABLE ONLY public.shed_lifecycle_status_lookup
 
 ALTER TABLE ONLY public.shed_partitions
     ADD CONSTRAINT shed_partitions_animal_stage_tenant_fk FOREIGN KEY (tenant_id, animal_stage_id) REFERENCES public.animal_stage_lookup(tenant_id, animal_stage_id);
+
+
+--
+-- Name: shed_partitions shed_partitions_alias_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_partitions
+    ADD CONSTRAINT shed_partitions_alias_location_tenant_fk FOREIGN KEY (tenant_id, alias_location_id) REFERENCES public.locations(tenant_id, location_id) ON DELETE SET NULL (alias_location_id);
 
 
 --
