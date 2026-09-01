@@ -24,6 +24,7 @@ test("the page lands on the latest two lump-sum weighing dates when no period is
   assert.match(source, /const LATEST_LUMP_LOOKBACK_DAYS = 400;/);
   assert.match(source, /async function landingWindow/);
   assert.match(source, /getShedWeights\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*\.\.\.lookback,/);
+  assert.match(source, /sex: sexFilter \|\| undefined,/);
   assert.match(source, /const dates = \[\.\.\.new Set\(result\.data\.lump_weighing_dates \?\? \[\]\)\]\.sort\(\);/);
   assert.match(source, /from: dates\[dates\.length - 2\],/);
   // THE END IS NOT A LUMP DATE. On 25 Aug 2026 the farm scanned 199 kids across 17 sheds and weighed
@@ -175,6 +176,29 @@ test("the shed table reads breed, gender and count as columns, not out of the pe
   assert.doesNotMatch(client, /cohorts[\s\S]{0,200}wsg-val/);
   assert.match(css, /table\.wsgtable th\.wsg-sex,/);
   assert.match(css, /table\.wsgtable \.wsg-line\{/);
+});
+
+test("gender is written once for a single-sex pen and every line for a mixed one", () => {
+  // Maintainer request 2026-09-01: repeating "male" five times down an all-male pen is noise,
+  // and it buried the mixed pens among identical columns. All-or-nothing, so a collapsed cell
+  // can only ever mean "this pen is all of this sex" -- one differing cohort brings every line
+  // back, and the lines still pair by index with breed and count.
+  const client = readFileSync(new URL("./metric-chart.tsx", import.meta.url), "utf8");
+  const fn = client.match(/function sexLines\([\s\S]*?\n\}/);
+  assert.ok(fn, "sexLines must exist");
+  // The signature carries TypeScript types; the BODY is plain JS, so the real rule runs here
+  // rather than a copy of it re-derived in the test.
+  const js = fn[0].replace(/function sexLines\([^)]*\)\s*:[^{]*\{/, "function sexLines(cohorts) {");
+  const sexLines = new Function(`${js}; return sexLines;`)();
+  const c = (...sexes) => sexes.map((sex) => ({ breed: "b", sex, animals: 1 }));
+  assert.deepEqual(sexLines(c("male", "male", "male")), ["male"], "all-male pen writes it once");
+  assert.deepEqual(sexLines(c("male", "female", "male")), ["male", "female", "male"], "one differing cohort brings every line back");
+  assert.deepEqual(sexLines(c("female")), ["female"], "a single cohort is already one line");
+  assert.deepEqual(sexLines(undefined), [], "a pen with no composition has no lines");
+  // Breed and count must NOT collapse: two cohorts really can share a breed, and each carries
+  // its own head count.
+  assert.match(client, /\(row\.cohorts \?\? \[\]\)\.map\(\(cohort, index\) => \([\s\S]{0,120}cohort\.breed/);
+  assert.match(client, /\(row\.cohorts \?\? \[\]\)\.map\(\(cohort, index\) => \([\s\S]{0,160}cohort\.animals/);
 });
 
 test("the shed gain card offers no Table/Chart switch", () => {
