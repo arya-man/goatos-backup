@@ -27,7 +27,7 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
 }
 
 /**
- * Purchase & barn — every batch of animals reconciled against what it cost and what it returned.
+ * Purchase & born — every batch of animals reconciled against what it cost and what it returned.
  *
  * Its own page under Sales rather than a block on the board (maintainer decision 2026-08-31): the
  * board answers how sales are going, this answers how each batch did, which is read at a different
