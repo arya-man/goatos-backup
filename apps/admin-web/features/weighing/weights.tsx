@@ -290,10 +290,17 @@ export async function WeighingWeightsPage({
   const params = searchParams ?? {};
   const parkFilter = one(params, "park") ?? "";
   const modeFilter = one(params, "weighing") ?? "all";
-  // Only the two values the herd register carries are honoured; anything else falls back to every
-  // kid rather than emptying the page, because a hand-edited URL must not take the screen down.
+  // MALE is the default (maintainer request 2026-09-01): the farm's growth question is about the
+  // males it is fattening, so an unfiltered landing showed a number nobody had asked for. Every
+  // kid is still one click away as an EXPLICIT `sex=all`, the same shape the Weighing filter
+  // already uses for its own All -- an absent parameter can only mean one thing, and here it
+  // means male. Anything else falls back to the default rather than emptying the page, because a
+  // hand-edited URL must not take the screen down.
   const rawSex = one(params, SEX_PARAM);
-  const sexFilter = rawSex === "male" || rawSex === "female" ? rawSex : "";
+  const sexFilter = rawSex === "female" ? "female" : rawSex === "all" ? "" : "male";
+  // What the CONTROL shows. The reads take "" for every kid; the control cannot, or its All
+  // option would be the blank one and would read back as the male default on the next request.
+  const sexChoice = sexFilter === "" ? "all" : sexFilter;
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
   const losingOffset = boundedOffset(one(params, "losing_offset"));
@@ -453,11 +460,15 @@ export async function WeighingWeightsPage({
       kind: "select",
       param: SEX_PARAM,
       label: copy(pageContract, "filter.sex.label"),
-      value: sexFilter,
-      // allowAll:true, so the blank option IS "every kid" and clearing the filter is the same act
-      // as choosing it — there is no second spelling of the default to disagree with.
-      allowAll: true,
+      value: sexChoice,
+      // allowAll:false, and this vocabulary carries its OWN All — the same reason the Weighing
+      // filter above does. With the bar's generic blank option on top, "every kid" would have two
+      // spellings: the explicit `sex=all` and an absent parameter, which now means MALE. The
+      // blank one would silently switch the page back to the default while claiming to show
+      // everything, so there is exactly one All and it is a real value.
+      allowAll: false,
       options: [
+        { value: "all", label: copy(pageContract, "filter.all_option") },
         { value: "male", label: copy(pageContract, "view.sex.male") },
         { value: "female", label: copy(pageContract, "view.sex.female") },
       ],

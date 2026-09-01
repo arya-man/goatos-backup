@@ -190,7 +190,10 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
   // where the shed table counts every kid while the breed card counts the male half has no true
   // number on it, so the filter travels with every read rather than being applied to one card.
   assert.match(source, /const SEX_PARAM = "sex"/);
-  assert.match(source, /rawSex === "male" \|\| rawSex === "female" \? rawSex : ""/);
+  // MALE is the default and an absent parameter means it (maintainer request 2026-09-01); every
+  // kid is the explicit `sex=all`, which the reads still see as "" -- the value the backend
+  // resolver reads as "no filter", so the unfiltered page runs the query it always ran.
+  assert.match(source, /rawSex === "female" \? "female" : rawSex === "all" \? "" : "male"/);
   for (const read of ["getShedWeights", "getWeighingGrowth", "getWeightDemographics", "getGrowthDirector"]) {
     assert.match(
       source,
@@ -206,16 +209,24 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
   assert.match(source, /sharesOfWhole\(counts, row\.animals\)/);
 });
 
-test("Sex sits in the filter bar beside Weighing, and clearing it means every kid", () => {
+test("Sex sits in the filter bar beside Weighing, defaults to Male, and carries its own All", () => {
   const bar = source.slice(source.indexOf("const filterFields"), source.indexOf("const shedColumns"));
   const weighing = bar.indexOf('param: "weighing"');
   const sex = bar.indexOf("param: SEX_PARAM");
   assert.ok(weighing > 0 && sex > weighing, "Sex must follow the Weighing filter in the bar");
-  // allowAll:true, so the bar's own blank option IS "every kid" — one spelling of the default,
-  // unlike the Weighing vocabulary which carries its own "All" and therefore sets allowAll:false.
-  assert.match(bar.slice(sex), /allowAll: true/);
-  assert.match(bar.slice(sex), /copy\(pageContract, "view\.sex\.male"\)/);
-  assert.match(bar.slice(sex), /copy\(pageContract, "view\.sex\.female"\)/);
+  // allowAll:false and an explicit All option, the same shape the Weighing filter uses. The bar's
+  // generic BLANK option would be a second spelling of "every kid" — and an absent `sex` now means
+  // MALE, so that blank would quietly switch the page back to the default while claiming to show
+  // everything. One All, and it is a real value.
+  const sexField = bar.slice(sex);
+  assert.match(sexField, /allowAll: false/);
+  assert.match(sexField, /\{ value: "all", label: copy\(pageContract, "filter\.all_option"\) \}/);
+  assert.match(sexField, /copy\(pageContract, "view\.sex\.male"\)/);
+  assert.match(sexField, /copy\(pageContract, "view\.sex\.female"\)/);
+  // The control shows "all" where the reads see "": the blank would read back as the male default
+  // on the next request, so the All choice must survive the round trip as a value of its own.
+  assert.match(sexField, /value: sexChoice/);
+  assert.match(source, /const sexChoice = sexFilter === "" \? "all" : sexFilter/);
 });
 
 test("the backend narrows BOTH kinds of weigh, from one resolver", () => {
