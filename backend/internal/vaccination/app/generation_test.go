@@ -841,6 +841,37 @@ func TestPrimaryCourseBoosterWaitsForPreviousDoseHistory(t *testing.T) {
 	}
 }
 
+func TestBirthAgeFirstDoseDoesNotRequireAdultCampaignHistory(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC)
+	dob := asOf.AddDate(0, 0, -84)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-fmd-adult", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "manual_campaign", EligibilityJSON: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"}}`)},
+		{RuleID: "rule-fmd-kid-12w", DoseCode: "fmd_kid_12w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 84, EligibilityJSON: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"}}`)},
+	}
+	goat := defaultPlacedGoat(domain.EligibleGoat{
+		GoatID: "kid-fmd-first-dose", Species: "goat", Stage: "K3", LifecycleStatus: "alive", HealthStatus: "healthy", DOB: &dob,
+	})
+	obl := &generationObligationFake{
+		seen:         map[string]bool{},
+		ruleDoseByID: map[string]string{"rule-fmd-adult": "fmd_adult_w1", "rule-fmd-kid-12w": "fmd_kid_12w"},
+	}
+	res := domain.GenerateResult{}
+
+	if err := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl).genOneGoat(
+		ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
+		generationOptions{}, genVersionPolicies{}, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &res,
+	); err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+	if len(obl.canceledDoses) != 0 {
+		t.Fatalf("canceledDoses=%#v reasons=%#v, want kid first dose not canceled for missing adult campaign history", obl.canceledDoses, obl.cancelReasons)
+	}
+	if len(obl.inserted) != 1 || obl.inserted[0].RuleID != "rule-fmd-kid-12w" {
+		t.Fatalf("inserted=%#v, want kid first-dose FMD obligation", obl.inserted)
+	}
+}
+
 func TestGenerateForVersionCancelsManualCampaignRowsOnWrongSchedulePath(t *testing.T) {
 	ctx := context.Background()
 	asOf := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
