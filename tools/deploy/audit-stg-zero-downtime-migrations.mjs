@@ -70,10 +70,10 @@ function changedMigrationFiles(base, cwd = repo) {
     .split(/\r?\n/)
     .filter(Boolean)
     .map((line) => {
-      const [status, file] = line.split(/\s+/, 2);
-      return { status, file };
+      const [status, ...paths] = line.split(/\s+/);
+      return { status, file: paths.at(-1) };
     })
-    .filter(({ status }) => status !== "D")
+    .filter(({ status, file }) => status !== "D" && file)
     .map(({ file }) => file);
 }
 
@@ -178,6 +178,15 @@ function selfTest() {
     writeFileSync(join(dir, "000001_safe.sql"), drop);
     if (!changedMigrationFiles("HEAD", repoDir).includes(`${MIGRATION_DIR}/000001_safe.sql`)) {
       throw new Error("self-test: changed lower-number migration was skipped");
+    }
+    const moved = spawnSync("git", ["mv", `${MIGRATION_DIR}/000001_safe.sql`, `${MIGRATION_DIR}/000001_renamed.sql`], {
+      cwd: repoDir,
+      encoding: "utf8",
+    });
+    if (moved.status !== 0) throw new Error(`self-test: git mv failed: ${moved.stderr}`);
+    const renamedFiles = changedMigrationFiles("HEAD", repoDir);
+    if (renamedFiles.includes(`${MIGRATION_DIR}/000001_safe.sql`) || !renamedFiles.includes(`${MIGRATION_DIR}/000001_renamed.sql`)) {
+      throw new Error(`self-test: rename current path not audited: ${JSON.stringify(renamedFiles)}`);
     }
     writeFileSync(join(dir, "000002_safe.sql"), safeAdd2);
     const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--files", `${MIGRATION_DIR}/000002_safe.sql`, "--enforce"], {
