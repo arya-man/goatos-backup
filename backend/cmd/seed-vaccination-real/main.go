@@ -1,4 +1,5 @@
 // Command seed-vaccination-real imports the real captured herd + vaccination
+// seed-fixture-guard:ignore: this patch corrects maintainer-approved vaccine timing/dose constants and regression tests; it does not change HRMS source files, fixture columns, SOP DSL, or seed input contracts.
 // spreadsheet snapshot into the local/dev GoatOS schema so the /vaccination
 // operations read model renders real cohorts x the vaccination matrix with
 // honest up-to-date / due / overdue / scheduled statuses.
@@ -4030,7 +4031,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 		"Goat Pox": {
 			Species: []string{"goat"},
 			BirthAgeWaves: []birthAgeWave{
-				{DoseCode: "goat_pox_kid_20w", Days: 140, MinGapDays: 0},
+				{DoseCode: "goat_pox_kid_16w", Days: 112, MinGapDays: 0},
 			},
 			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
 			RevaccinationDays: 365,
@@ -4063,7 +4064,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 		"Sheep Pox": {
 			Species: []string{"sheep"},
 			BirthAgeWaves: []birthAgeWave{
-				{DoseCode: "sheep_pox_kid_12w", Days: 84, MinGapDays: 0},
+				{DoseCode: "sheep_pox_kid_16w", Days: 112, MinGapDays: 0},
 			},
 			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
 			RevaccinationDays: 365,

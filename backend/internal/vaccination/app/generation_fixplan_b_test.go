@@ -166,7 +166,7 @@ func TestNoDOBNeverReceivedVaccineRoutesAdultCatchUpNoKidDose(t *testing.T) {
 	}
 }
 
-// B4: a NEW kid course may only START through 16 weeks. An animal long past the 20-week finishing
+// B4: a NEW kid course may only START through 16 weeks. An animal long past the 19-week finishing
 // window with no kid-management stage tag gets NO new kid course at all — the confirmed defect
 // (186 kid doses scheduled onto adults; origin_type="birth" previously bypassed age with no upper
 // bound whatsoever).
@@ -195,19 +195,19 @@ func TestKidPastCutoffGetsNoNewKidCourse(t *testing.T) {
 	}
 }
 
-// B4: a kid already in course (DOB known, age within the post-16w finishing window) DOES receive its
-// spacing-shifted 20-week dose (e.g. Goat Pox derived to 20w after a 16w PPR dose per the approved
-// matrix's live-live gap rule) — the finishing half of B4, distinct from the "no new course past
-// 16w" half proven above.
-func TestInCourseKidFinishesTwentyWeekDose(t *testing.T) {
+// B4: a kid already in course (DOB known, age within the post-16w finishing window) DOES receive
+// its configured 19-week follow-up dose, distinct from the "no new course past 16w" half proven
+// above.
+func TestInCourseKidFinishesNineteenWeekDose(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	asOf := dob.AddDate(0, 0, 140) // exactly 20 weeks: the Goat Pox 20w-derived due point
+	asOf := dob.AddDate(0, 0, 133) // exactly 19 weeks: Blue Tongue booster due point
 	proto := &generationProtoFake{
 		ruleDSL: []byte(`{"eligibility":{}}`),
 		rules: []protodomain.Rule{{
-			RuleID: "rule-goatpox-20w", DoseCode: "goat_pox_kid_20w", Sequence: 1,
-			TriggerType: "birth_age", OffsetDays: 140, DueWindowDays: 7, CatchUp: "immediate",
+			RuleID: "rule-bt-19w", DoseCode: "blue_tongue_kid_19w", Sequence: 2,
+			TriggerType: "birth_age", OffsetDays: 133, DueWindowDays: 7, MinGapDays: 21, CatchUp: "immediate",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"BLUE_TONGUE","type":"killed","pathogen_class":"viral"}}`),
 		}},
 	}
 	goats := &generationGoatFake{
@@ -227,10 +227,10 @@ func TestInCourseKidFinishesTwentyWeekDose(t *testing.T) {
 		t.Fatalf("generate in-course finishing dose: %v", err)
 	}
 	if result.Generated != 1 || len(obl.inserted) != 1 {
-		t.Fatalf("result=%#v inserted=%#v, want the 20w finishing dose generated", result, obl.inserted)
+		t.Fatalf("result=%#v inserted=%#v, want the 19w finishing dose generated", result, obl.inserted)
 	}
-	if got := obl.inserted[0]; got.RuleID != "rule-goatpox-20w" || !got.DueAt.Equal(businessDayStart(dob).AddDate(0, 0, 140)) {
-		t.Fatalf("inserted=%#v, want the spacing-shifted 20w dose on schedule", got)
+	if got := obl.inserted[0]; got.RuleID != "rule-bt-19w" || !got.DueAt.Equal(businessDayStart(dob).AddDate(0, 0, 133)) {
+		t.Fatalf("inserted=%#v, want the 19w follow-up dose on schedule", got)
 	}
 }
 

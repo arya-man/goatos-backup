@@ -163,7 +163,7 @@ func TestGenerateForVersionChecksAllRecentVaccinesForCrossGap(t *testing.T) {
 func TestGenerateForVersionCreatesSuccessorWhenCanceledWorkBecomesEligibleAgain(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-	asOf := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
 		rules: []protodomain.Rule{{
 			RuleID: "rule-fmd", DoseCode: "fmd-dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28,
@@ -272,7 +272,7 @@ func TestInsertSuccessorForCanceledGenerationReplayHasNoAttemptCeiling(t *testin
 func TestGenerateForVersionCanceledWithoutReasonFailsClosedNoSuccessor(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-	asOf := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
 		rules: []protodomain.Rule{{
 			RuleID: "rule-fmd", DoseCode: "fmd-dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28,
@@ -309,7 +309,7 @@ func TestGenerateForVersionCanceledWithoutReasonFailsClosedNoSuccessor(t *testin
 func TestGenerateForVersionShiftCanceledClinicallyHeldGoatGetsDeferredSuccessor(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-	asOf := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
 		rules: []protodomain.Rule{{
 			RuleID: "rule-fmd", DoseCode: "fmd-dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28,

@@ -17,7 +17,7 @@ import (
 // prior accepted history when resolving schedule path.
 //
 // This animal's DOB puts its first ET+TT dose at ~10 weeks old (unambiguously kid
-// path) and its second dose at ~18 weeks old -- inside the 16-20w
+// path) and its second dose at ~18 weeks old -- inside the 16-19w
 // "continuation-only" window (SchedulePathForGoat), where the goat's CURRENT
 // stage tag is "Adult" (not a kid-management stage). Without the dose-1 history
 // carried forward, dose 2 would misclassify onto the adult path -- either

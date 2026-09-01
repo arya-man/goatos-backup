@@ -219,6 +219,10 @@ func (h *Handler) handleAnchor(w http.ResponseWriter, r *http.Request, apply boo
 		h.badRequest(w, r, "invalid_anchor_date", "anchor_date must be YYYY-MM-DD")
 		return
 	}
+	if apply && anchorDate.After(biztime.BusinessDayStart(time.Now())) {
+		h.badRequest(w, r, "future_anchor_requires_plan_publish", "future anchor/base dates must be configured on the vaccination plan draft and applied by publishing the plan")
+		return
+	}
 	if len(req.ScopePayload) == 0 {
 		req.ScopePayload = json.RawMessage(`{}`)
 	}

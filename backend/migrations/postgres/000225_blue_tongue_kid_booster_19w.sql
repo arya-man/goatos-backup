@@ -5,8 +5,8 @@
 --
 -- Some staging databases carry the stale derived row blue_tongue_kid_20w
 -- at 140d/28d. Source seeding now writes blue_tongue_kid_19w correctly; this
--- migration repairs already-published protocol_rules rows without touching the
--- Goat Pox 20w live-live spacing exception.
+-- migration repairs already-published protocol_rules rows without touching
+-- unrelated live-live spacing rows.
 
 CREATE OR REPLACE FUNCTION pg_temp.goatos_canonical_json(value jsonb)
 RETURNS text

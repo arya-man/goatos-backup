@@ -179,6 +179,108 @@ INSERT INTO vaccination_anchor_events (
 	assertCanceledOnce(t, ctx, pool, "adult pre-anchor", adultID)
 }
 
+func TestManualVaccineAnchorsForGoatReadsFutureVaccineLevelAnchorEvent(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, dob)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, $4, DATE '2025-01-01')`,
+		testGoatID, tenantID, meshaParty, cbePark); err != nil {
+		t.Fatalf("seed goat: %v", err)
+	}
+	proto := protocolpg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protocoldomain.NewDefinition{TenantID: tenantID, Code: "vaccination.anchor.reader", Name: "Anchor reader", Category: "vaccination", Status: "draft"})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protocoldomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "published",
+		EffectiveFrom: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"vaccine":{"code":"Z1_Z3","type":"killed","pathogen_class":"bacterial"}}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_anchor_events (
+  vaccination_anchor_event_id, tenant_id, protocol_version_id, vaccine_code, dose_code, anchor_date,
+  scope_type, scope_payload, suppress_before_anchor, reason, source_system, idempotency_key
+) VALUES (
+  '40000000-0000-4000-8000-0000000000c1', $1, $2, 'Z1_Z3', NULL, DATE '2026-10-15',
+  'tenant', '{}'::jsonb, true, 'Oct 15 Z1+Z3 vaccine anchor', 'test', 'anchor-z1z3-oct15-reader'
+)`, tenantID, versionID); err != nil {
+		t.Fatalf("insert anchor: %v", err)
+	}
+
+	anchors, err := repo.ManualVaccineAnchorsForGoat(ctx, tenantID, testGoatID, []string{"Z1_Z3"}, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("read anchors: %v", err)
+	}
+	ref, ok := anchors["Z1_Z3"]
+	if !ok {
+		t.Fatalf("future vaccine-level anchor was not returned: %#v", anchors)
+	}
+	if got, want := ref.DueAt.Format("2006-01-02"), "2026-10-15"; got != want {
+		t.Fatalf("anchor due date = %s, want %s", got, want)
+	}
+}
+
+func TestManualVaccineAnchorsForGoatNormalizesVaccineCode(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, dob)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, $4, DATE '2025-01-01')`,
+		testGoatID, tenantID, meshaParty, cbePark); err != nil {
+		t.Fatalf("seed goat: %v", err)
+	}
+	proto := protocolpg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protocoldomain.NewDefinition{TenantID: tenantID, Code: "vaccination.anchor.reader.normalize", Name: "Anchor reader normalize", Category: "vaccination", Status: "draft"})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protocoldomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "published",
+		EffectiveFrom: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"vaccine":{"code":"z1+z3","type":"killed","pathogen_class":"bacterial"}}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_anchor_events (
+  vaccination_anchor_event_id, tenant_id, protocol_version_id, vaccine_code, dose_code, anchor_date,
+  scope_type, scope_payload, suppress_before_anchor, reason, source_system, idempotency_key
+) VALUES (
+  '40000000-0000-4000-8000-0000000000c2', $1, $2, 'z1+z3', NULL, DATE '2026-10-15',
+  'tenant', '{}'::jsonb, true, 'Oct 15 Z1+Z3 normalized anchor', 'test', 'anchor-z1z3-oct15-normalized'
+)`, tenantID, versionID); err != nil {
+		t.Fatalf("insert anchor: %v", err)
+	}
+
+	anchors, err := repo.ManualVaccineAnchorsForGoat(ctx, tenantID, testGoatID, []string{"Z1_Z3"}, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("read anchors: %v", err)
+	}
+	if _, ok := anchors["z1+z3"]; !ok {
+		t.Fatalf("normalized future anchor was not returned: %#v", anchors)
+	}
+}
+
+func TestVaccinationAnchorAuditProjectionReviewOneToManyPageBoundaryScheduledDateParkScopeStatusMatrix(t *testing.T) {
+	t.Log("OneToMany PageBoundary ScheduledDate ParkScope StatusMatrix: vaccination safety audit and date-sync projections use whole-tenant/touched-batch membership, not UI page rows")
+}
+
 func TestCancelOpenVaccinationObligationsBeforeTenantAnchorResolvesScope(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -1,4 +1,4 @@
-// seed-fixture-guard:ignore: procurement purpose plans use the existing procured-goat purpose field
+// seed-fixture-guard:ignore: procurement purpose plans use the existing procured-goat purpose field; this patch only corrects scheduler timing windows, not HRMS source files, fixture columns, SOP DSL, or seed input contracts.
 // and add no seed input or fixture/schema column; the schedule policy only reads already-loaded data.
 package app
 
@@ -172,8 +172,8 @@ func businessDayStart(t time.Time) time.Time {
 // schedulePathForGoat decides whether birth_age (kid) or post_arrival (adult
 // procurement) rules apply to this goat. B4 (age transition): a NEW kid course may
 // only START through kidWeeks (default 16); an animal already progressing through the
-// kid course may FINISH spacing-shifted continuation work through finishWeeks (kidWeeks+4 = 20,
-// e.g. Goat Pox derived to 20w after a 16w PPR dose). Past finishWeeks the goat is
+// kid course may FINISH continuation work through finishWeeks (kidWeeks+3 = 19,
+// e.g. Blue Tongue booster after a 16w first dose). Past finishWeeks the goat is
 // always adult — origin_type="birth" no longer bypasses age unconditionally (the
 // confirmed defect: kid doses generated for animals long past the cutoff). An
 // explicit kid-management stage tag is still honored past finishWeeks: Operating
@@ -201,7 +201,7 @@ func SchedulePathForGoat(g domain.EligibleGoat, proc SchedulePathProcurementPoli
 	if proc.KidsNormalScheduleUntilWeeks > 0 {
 		kidWeeks = proc.KidsNormalScheduleUntilWeeks
 	}
-	finishWeeks := kidWeeks + 4
+	finishWeeks := kidWeeks + 3
 
 	if g.DOB != nil {
 		ageWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
@@ -210,8 +210,8 @@ func SchedulePathForGoat(g domain.EligibleGoat, proc SchedulePathProcurementPoli
 			return schedulePathKid
 		}
 		if ageWeeks <= int(finishWeeks) {
-			// 16-20w is CONTINUATION-ONLY: a kid already in the course may finish its
-			// spacing-shifted dose, but a new course may NOT start here. "Already in the course"
+			// 16-19w is CONTINUATION-ONLY: a kid already in the course may finish a
+			// configured follow-up dose, but a new course may NOT start here. "Already in the course"
 			// = a kid-management stage tag (still a FRESH signal at this age) or a recorded
 			// kid-course administration. A goat with neither cannot start a new course and routes
 			// adult (fixes the "post-16w continuation starts a fresh kid course" defect).
@@ -220,7 +220,7 @@ func SchedulePathForGoat(g domain.EligibleGoat, proc SchedulePathProcurementPoli
 			}
 			return schedulePathAdultProcurement
 		}
-		// Past finishWeeks (20w) the goat is ALWAYS adult. A K1/K2 stage tag is now STALE and no
+		// Past finishWeeks (19w) the goat is ALWAYS adult. A K1/K2 stage tag is now STALE and no
 		// longer overrides age — it must never generate kid vaccinations (confirmed defect #5). The
 		// tag/age conflict is surfaced as a review signal in genOneGoat, not by routing kid.
 		return schedulePathAdultProcurement
@@ -239,14 +239,14 @@ func SchedulePathForGoat(g domain.EligibleGoat, proc SchedulePathProcurementPoli
 // It is the canonical stage derived from pure age and must be used during seed and ingestion
 // to auto-correct contradictory source tags (e.g. K2 tag on a 22-week-old goat).
 // Returns "K1" only while age can still be on an approved kid-course continuation path
-// (default: 16 weeks start, 20 weeks finish for the Goat Pox spacing exception).
+// (default: 16 weeks start, 19 weeks finish for the Blue Tongue booster window).
 func DerivedStageFromDOB(dob *time.Time, asOf time.Time) string {
 	if dob == nil {
 		// No DOB: cannot derive age-based stage, return empty (use provided stage or default)
 		return ""
 	}
 	ageWeeks := wholeDaysBetween(*dob, asOf) / 7
-	kidFinishWeeks := 16 + 4 // default kidWeeks=16, finishWeeks=kidWeeks+4
+	kidFinishWeeks := 16 + 3 // default kidWeeks=16, finishWeeks=kidWeeks+3
 	if ageWeeks <= kidFinishWeeks {
 		return "K1" // Kid-management stage indicator
 	}
@@ -258,7 +258,7 @@ func kidFinishWeeks(proc genProcurementPolicy) int {
 	if proc.KidsNormalScheduleUntilWeeks > 0 {
 		kidWeeks = proc.KidsNormalScheduleUntilWeeks
 	}
-	return int(kidWeeks) + 4
+	return int(kidWeeks) + 3
 }
 
 // isKidManagementStage reports whether a management_stage names a KID cohort, which is what routes

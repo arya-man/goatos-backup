@@ -643,7 +643,7 @@ func TestSourceVaccinationDateIsHistoryRejectsFutureBusinessDate(t *testing.T) {
 
 func TestSeedSchedulePathUsesLiveCutoffForSourceHistory(t *testing.T) {
 	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	asOf := dob.AddDate(0, 0, 210) // 30 weeks: past the default 20w kid-course finish window.
+	asOf := dob.AddDate(0, 0, 210) // 30 weeks: past the default 19w kid-course finish window.
 
 	path := seedSchedulePathForGoat("birth", &dob, "K1", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
 	if path != "adult" {
@@ -688,6 +688,38 @@ func TestSeedPublicationMatrixCanExcludeConfiguredVaccines(t *testing.T) {
 	}
 	if _, ok := buildCanonicalVaccinationMatrix()["PPR"]; !ok {
 		t.Fatalf("canonical matrix must still include PPR for source/history mapping")
+	}
+}
+
+func TestCanonicalVaccinationMatrixMatchesCurrentKidAgeRules(t *testing.T) {
+	matrix := buildCanonicalVaccinationMatrix()
+	for _, tc := range []struct {
+		vaccine  string
+		doseCode string
+		days     int
+	}{
+		{vaccine: "PPR", doseCode: "ppr_kid_16w", days: 112},
+		{vaccine: "Goat Pox", doseCode: "goat_pox_kid_16w", days: 112},
+		{vaccine: "Sheep Pox", doseCode: "sheep_pox_kid_16w", days: 112},
+		{vaccine: "Blue tongue", doseCode: "blue_tongue_kid_16w", days: 112},
+		{vaccine: "FMD", doseCode: "fmd_kid_12w", days: 84},
+		{vaccine: "HS", doseCode: "hs_kid_12w", days: 84},
+	} {
+		spec, ok := matrix[tc.vaccine]
+		if !ok {
+			t.Fatalf("%s missing from canonical matrix", tc.vaccine)
+		}
+		if len(spec.BirthAgeWaves) == 0 {
+			t.Fatalf("%s has no birth-age waves", tc.vaccine)
+		}
+		wave := spec.BirthAgeWaves[0]
+		if wave.DoseCode != tc.doseCode || wave.Days != tc.days {
+			t.Fatalf("%s first kid wave = %s/%dd, want %s/%dd", tc.vaccine, wave.DoseCode, wave.Days, tc.doseCode, tc.days)
+		}
+	}
+	bt := matrix["Blue tongue"].BirthAgeWaves
+	if len(bt) < 2 || bt[1].DoseCode != "blue_tongue_kid_19w" || bt[1].Days != 133 || bt[1].MinGapDays != 21 {
+		t.Fatalf("Blue tongue booster = %#v, want 19w/133d and 21d after dose 1", bt)
 	}
 }
 
@@ -768,7 +800,7 @@ func TestSeedSchedulePathHonorsConfigurableCutoffAndHistorySignal(t *testing.T) 
 	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	asOf := dob.AddDate(0, 0, 154) // 22 weeks.
 
-	// With the default 16w start cutoff, the continuation window ends at 20w for the
+	// With the default 16w start cutoff, the continuation window ends at 19w for the
 	// Goat Pox spacing exception; even a stale K-stage
 	// tag must not force a kid-course source mapping.
 	if got := seedSchedulePathForGoat("birth", &dob, "K2", nil, asOf, 16, nil); got != "adult" {
@@ -776,7 +808,7 @@ func TestSeedSchedulePathHonorsConfigurableCutoffAndHistorySignal(t *testing.T) 
 	}
 
 	// If the active rule config moves the normal kid start cutoff to 20w, the continuation window ends
-	// at 24w and a fresh K-stage tag remains valid in-course evidence.
+	// at 23w and a fresh K-stage tag remains valid in-course evidence.
 	if got := seedSchedulePathForGoat("birth", &dob, "K2", nil, asOf, 20, nil); got != "kid" {
 		t.Fatalf("22w with configured 20w cutoff and K-stage = %q, want kid", got)
 	}

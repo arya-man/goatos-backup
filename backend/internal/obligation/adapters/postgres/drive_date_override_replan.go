@@ -164,12 +164,52 @@ func replanVaccinationDriveAssignmentsForDateMoveTx(
 	if err := syncVaccinationDriveAssignmentMembersTx(ctx, tx, tenant, batchIDs); err != nil {
 		return err
 	}
+	if err := syncVaccinationObligationDatesFromAssignmentsTx(ctx, tx, tenant, batchIDs); err != nil {
+		return err
+	}
 	// A moved lane can land on a target-date row that ALREADY EXISTS for the same cell and operator.
 	// That upsert merges the two vaccine lanes, and no arithmetic on the two incoming counts can
 	// describe the merged row (see the ON CONFLICT branch). Membership has just been recomputed from
 	// canonical obligations, so the merged row's OWN ledger is now the only thing that knows which
 	// animals it really covers -- derive both counters from it.
 	return reconcileDriveAssignmentCountersFromMembersTx(ctx, tx, tenant, batchIDs)
+}
+
+// syncVaccinationObligationDatesFromAssignmentsTx keeps the animal-grain obligation ledger aligned
+// with the executable drive plan after a date override/replan. Mobile and calendar surfaces read
+// obligation_instances.due_at as the canonical work date, while operator assignment cards read
+// vaccination_drive_assignments.planned_date; letting those two drift is how a moved drive can still
+// show as work on its old day. Membership has already been rebuilt for the touched batches, so each
+// obligation can be updated from the exact assignment row that owns it.
+func syncVaccinationObligationDatesFromAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchIDs []pgtype.UUID) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	// scale-guard:ignore: bounded to touched batch IDs inside the date-override transaction; projection-review marker below records membership/date/status grain.
+	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=vaccination_drive_assignment_members is UNIQUE by (tenant_id, obligation_id), so every touched obligation joins to at most one executable assignment; group_key=obligation_id; join_cardinality=members:assignment is N:1 and members:obligation is 1:1 by obligation_id; pagination=bounded by explicit touched batch ids; scope=one tenant and the re-planned batches.
+UPDATE obligation_instances oi
+SET due_at = (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'),
+    window_start = (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'),
+    window_end = CASE
+      WHEN oi.window_end IS NULL THEN NULL
+      ELSE (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata')
+    END,
+    updated_at = now()
+FROM vaccination_drive_assignment_members m
+JOIN vaccination_drive_assignments vda
+  ON vda.tenant_id = m.tenant_id
+ AND vda.assignment_id = m.assignment_id
+WHERE oi.tenant_id = $1
+  AND oi.tenant_id = m.tenant_id
+  AND oi.obligation_id = m.obligation_id
+  AND oi.batch_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <> vda.planned_date`,
+		tenant, batchIDs); err != nil {
+		return fmt.Errorf("obligation: sync vaccination obligation dates from drive assignments: %w", err)
+	}
+	return nil
 }
 
 // reconcileDriveAssignmentCountersFromMembersTx re-derives animal_count and total_doses of every

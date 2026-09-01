@@ -38,6 +38,12 @@ The draft editor may show optional anchor/base date fields and preview counts.
 It must not perform an immediate operational create from the draft screen. The
 anchor becomes active when the vaccination plan version is published.
 
+Do not use the direct `/vaccination/anchors` endpoint for future operational
+anchor dates. That endpoint is reserved for historical/base evidence. Future
+operational anchors must be stored in `rule_dsl.anchor_config` and applied by
+publishing the vaccination plan so the backend can create real scheduled work,
+cancel only true pre-anchor rows, and keep booster/revac chaining auditable.
+
 The published/read-only plan view should show the active anchor/base dates for
 each rule. A separate emergency/data-repair admin command may exist, but it
 must use the same backend validation and kernel path as the published config.
@@ -87,16 +93,23 @@ Before publishing or manually applying an anchor, preview and verify:
 For any anchor engine change, prove it on the maintainer OCI Postgres clone
 before pushing or deploying:
 
-1. Bring OCI data to STG parity by delta repair only, unless the maintainer
-   explicitly approves a full refresh.
-2. Insert or configure the anchor.
-3. Cancel stale pre-anchor open rows that should be suppressed.
-4. Run the same sweeper/generator command path used by production.
-5. Confirm no older pre-anchor rows reappear.
-6. Confirm same-day anchor rows remain.
-7. Confirm boosters/revacs chain after the anchor/completion date.
-8. Confirm underage or species-mismatch animals are excluded.
-9. Report counts by park, shed/partition, vaccine, date, age bracket, and reason.
+1. Do not use full STG dump/OCI restore as a retry loop. If STG has 1 million
+   rows, do not dump 1 million rows repeatedly into OCI just to retest a
+   vaccination fix.
+2. Bring OCI data to STG parity by targeted delta repair, a minimal scoped
+   cohort, or a one-time maintainer-approved snapshot only. After a failed test,
+   clean only the rows polluted by that test and replay the narrow scenario.
+3. Full STG-to-OCI refresh is allowed only when parity is unknown and the
+   maintainer explicitly approves it for that run. It is not a default
+   validation step.
+4. Insert or configure the anchor.
+5. Cancel stale pre-anchor open rows that should be suppressed.
+6. Run the same sweeper/generator command path used by production.
+7. Confirm no older pre-anchor rows reappear.
+8. Confirm same-day anchor rows remain.
+9. Confirm boosters/revacs chain after the anchor/completion date.
+10. Confirm underage or species-mismatch animals are excluded.
+11. Report counts by park, shed/partition, vaccine, date, age bracket, and reason.
 
 On Ravi's laptop, use the OCI DB/tunnel path when available. Do not require
 laptop Docker or Colima for these proofs.
@@ -105,6 +118,24 @@ laptop Docker or Colima for these proofs.
 
 These examples came from the August 2026 anchor cleanup session and should be
 used as reference behavior for future agents.
+
+### September 2026 STG Anchor Decisions
+
+Current maintainer-set operational anchors:
+
+| Vaccine | Scope | Anchor/base date | Meaning |
+|---|---|---:|---|
+| Sheep Pox | Coimbatore adult sheep | 2026-09-04 | CBE adult sheep first/base Sheep Pox drive; no earlier accepted CBE adult Sheep Pox history should be assumed. |
+| Blue Tongue | Coimbatore adult sheep | 2026-09-04 | CBE adult sheep first/base Blue Tongue drive where selected adults were due before the later cohort. |
+| PPR | tenant eligible scope | 2026-09-08 | Base anchor for the selected 16w+ cohort; cancel/suppress open PPR rows before the anchor for that cohort. |
+| FMD | tenant eligible scope | 2026-09-08 | Base anchor for the selected 12w+ cohort; cancel/suppress open FMD rows before the anchor for that cohort. |
+| HS | tenant eligible scope | 2026-09-08 | Base anchor for the selected 12w+ cohort; cancel/suppress open HS rows before the anchor for that cohort. |
+| Blue Tongue | Coimbatore sheep follow-up cohort | 2026-09-22 | CBE sheep Blue Tongue drive intentionally placed after the September 8 PPR/FMD/HS anchor. |
+| Z1+Z3 | tenant eligible goat + sheep scope | 2026-10-15 | All live eligible kids and adults start Z1+Z3 from this base date; booster follows 21 days later and repeats start after course completion. |
+
+Do not move these dates during cleanup. Only cancel or reschedule rows that are
+before the relevant anchor, duplicated, underage, wrong species, unassigned, or
+otherwise impossible under the rule matrix.
 
 ### Z1+Z3 October 15 Anchor
 

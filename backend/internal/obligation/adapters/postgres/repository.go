@@ -2660,6 +2660,58 @@ ORDER BY d.vaccine_code, oi.due_at ASC, oi.created_at ASC, oi.obligation_id ASC`
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("obligation: read manual vaccine anchors: %w", err)
 	}
+	// scale-guard:ignore: bounded by one goat and a small vaccine-code list during per-animal generation; required to make event-table anchors suppress generation itself.
+	anchorRows, err := r.pool.Query(ctx, `
+-- projection-review: membership=active vaccination_anchor_events scoped to one goat through tenant/park/shed/partition/animal-set; group_key=normalized vaccine code; join_cardinality=one goat to matching anchors is 1:N collapsed by DISTINCT ON earliest anchor per vaccine; pagination=bounded by one goat and requested vaccine-code list; scope=single tenant and one animal's current location scope.
+SELECT DISTINCT ON (lower(btrim(vae.vaccine_code)))
+       vae.vaccine_code,
+       vae.vaccination_anchor_event_id::text,
+       'scheduled'::text AS status,
+       vae.anchor_date::timestamp AS due_at,
+       0::int AS row_version,
+       vae.idempotency_key
+FROM vaccination_anchor_events vae
+JOIN goats g
+  ON g.tenant_id = vae.tenant_id
+ AND g.goat_id = $2
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
+WHERE vae.tenant_id = $1
+  AND vae.canceled_at IS NULL
+  AND vae.suppress_before_anchor
+  AND vae.anchor_date >= $4::date
+  AND lower(btrim(replace(vae.vaccine_code, '+', '_'))) = ANY(
+    SELECT lower(btrim(replace(code, '+', '_'))) FROM unnest($3::text[]) AS code
+  )
+  AND (
+    vae.scope_type = 'tenant'
+    OR (vae.scope_type = 'animal_set' AND vae.scope_payload ? 'animal_ids' AND (vae.scope_payload -> 'animal_ids') ? $2::text)
+    OR (vae.scope_type = 'park' AND COALESCE(vae.scope_payload ->> 'park_id', '') = g.park_id::text)
+    OR (vae.scope_type = 'shed' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text)
+    OR (vae.scope_type = 'partition' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text AND COALESCE(vae.scope_payload ->> 'partition_label', '') = COALESCE(gsp.partition_label, 'whole'))
+  )
+ORDER BY lower(btrim(vae.vaccine_code)), vae.anchor_date ASC, vae.created_at ASC, vae.vaccination_anchor_event_id ASC`, tenant, goat, normalizedCodes, anchorDay)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: find vaccination anchor events: %w", err)
+	}
+	defer anchorRows.Close()
+	for anchorRows.Next() {
+		var (
+			code string
+			ref  domain.ObligationRef
+		)
+		if err := anchorRows.Scan(&code, &ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion, &ref.IdempotencyKey); err != nil {
+			return nil, fmt.Errorf("obligation: scan vaccination anchor event: %w", err)
+		}
+		if existing, ok := anchors[code]; !ok || existing.DueAt.IsZero() || ref.DueAt.Before(existing.DueAt) {
+			anchors[code] = ref
+		}
+	}
+	if err := anchorRows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: read vaccination anchor events: %w", err)
+	}
 	return anchors, nil
 }
 

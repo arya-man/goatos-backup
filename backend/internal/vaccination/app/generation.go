@@ -1,4 +1,4 @@
-// seed-fixture-guard:ignore: this generator change reconciles and supersedes EXISTING obligations,
+// seed-fixture-guard:ignore: this generator change reconciles and supersedes EXISTING obligations and event-table anchors,
 // uses already-seeded procurement purpose data, and reads no new seed source. It adds no seed input,
 // changes no fixture column, and moves no canonical seed schema, so the fixture manifest, the
 // source-CSV validators and the seed-source date contract have nothing to record. The migrations it
@@ -1717,6 +1717,22 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			}
 			continue
 		}
+		if strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") && isKidCourseRule(rule) {
+			if courseDue, found, err := primaryCourseContinuationDueFromHistory(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path, vaccineHistory); err != nil {
+				return err
+			} else if !found && courseDue.IsZero() {
+				if _, _, hasPrevious, err := previousPrimaryCourseRuleAnyPath(rule, ruleVaccine, rules, versionEligibility, vaccineProf); err != nil {
+					return err
+				} else if hasPrevious {
+					// Runtime reconciliation: a stale booster/follow-up without the prior dose must retire
+					// before schedule-path cleanup can hide the real reason.
+					if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_primary_course_previous_dose_missing", asOf); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+		}
 		if !ruleMatchesSchedulePath(rule, path) {
 			if staleSeedSuppressedAcrossSchedulePath(rule, ruleVaccine, path, vaccineHistory) {
 				res.SuppressedByTrustedHistory++
@@ -3228,6 +3244,33 @@ func previousPrimaryCourseRule(rule protodomain.Rule, ruleVaccine vaccineProfile
 	found := false
 	for _, candidate := range rules {
 		if !isPrimaryCourseRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+			continue
+		}
+		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
+		if err != nil {
+			return protodomain.Rule{}, vaccineProfile{}, false, err
+		}
+		if !strings.EqualFold(strings.TrimSpace(candidateVaccine.Code), strings.TrimSpace(ruleVaccine.Code)) {
+			continue
+		}
+		if !primaryRuleBefore(candidate, rule) {
+			continue
+		}
+		if !found || primaryRuleAfter(candidate, best) {
+			best = candidate
+			bestVaccine = candidateVaccine
+			found = true
+		}
+	}
+	return best, bestVaccine, found, nil
+}
+
+func previousPrimaryCourseRuleAnyPath(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile) (protodomain.Rule, vaccineProfile, bool, error) {
+	var best protodomain.Rule
+	var bestVaccine vaccineProfile
+	found := false
+	for _, candidate := range rules {
+		if !isPrimaryCourseRule(candidate) {
 			continue
 		}
 		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)

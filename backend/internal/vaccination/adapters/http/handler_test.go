@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccports "github.com/vgoats/goatos/backend/internal/vaccination/ports"
@@ -296,10 +297,48 @@ func TestCreateAnchorRequiresIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestCreateAnchorRejectsFutureOperationalAnchor(t *testing.T) {
+	mux := http.NewServeMux()
+	anchors := &fakeAnchorManager{}
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(anchors))
+	future := biztime.BusinessDayStart(time.Now()).AddDate(0, 0, 1).Format("2006-01-02")
+	body := `{"vaccine_code":"PPR","anchor_date":"` + future + `","scope_type":"tenant","scope_payload":{},"reason":"future plan anchor"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors", strings.NewReader(body))
+	req.Header.Set("Idempotency-Key", "anchor-future-0001")
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "future_anchor_requires_plan_publish") {
+		t.Fatalf("want future anchor 400, got %d %s", rec.Code, rec.Body.String())
+	}
+	if anchors.got.VaccineCode != "" {
+		t.Fatalf("future direct anchor reached manager: %+v", anchors.got)
+	}
+}
+
+func TestCreateAnchorAllowsSameDayHistoricalAnchor(t *testing.T) {
+	mux := http.NewServeMux()
+	anchors := &fakeAnchorManager{}
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(anchors))
+	today := biztime.BusinessDayStart(time.Now()).Format("2006-01-02")
+	body := `{"vaccine_code":"PPR","anchor_date":"` + today + `","scope_type":"tenant","scope_payload":{},"reason":"same day historical anchor"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors", strings.NewReader(body))
+	req.Header.Set("Idempotency-Key", "anchor-today-0001")
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("want same-day anchor 201, got %d %s", rec.Code, rec.Body.String())
+	}
+	if anchors.got.VaccineCode != "PPR" || anchors.got.AnchorDate.Format("2006-01-02") != today {
+		t.Fatalf("same-day direct anchor not passed to manager: %+v", anchors.got)
+	}
+}
+
 func TestCreateAnchorMapsIdempotencyConflict(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(&fakeAnchorManager{err: vaccports.ErrIdempotencyConflict}))
-	body := `{"vaccine_code":"PPR","anchor_date":"2026-09-08","scope_type":"tenant","scope_payload":{},"reason":"Sep 8 drive"}`
+	body := `{"vaccine_code":"PPR","anchor_date":"2026-01-08","scope_type":"tenant","scope_payload":{},"reason":"historical anchor replay"}`
 	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors", strings.NewReader(body))
 	req.Header.Set("Idempotency-Key", "anchor-key-0001")
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
