@@ -156,6 +156,9 @@ require_zero_downtime_migration_audit() {
   if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
     git fetch --depth=500 origin main >/dev/null 2>&1 || true
   fi
+  if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
+    git fetch --unshallow origin main >/dev/null 2>&1 || git fetch origin main >/dev/null 2>&1 || true
+  fi
   git cat-file -e "${base_commit}^{commit}" 2>/dev/null || {
     echo "ERROR: cannot prove zero-downtime migrations because live API commit ${base_commit} is not in this checkout" >&2
     return 1
