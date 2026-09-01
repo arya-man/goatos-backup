@@ -8,20 +8,20 @@ import (
 )
 
 func TestComboSessionKeyFMDHS(t *testing.T) {
-	if got := comboSessionKey("FMD"); got != "combo:FMD+HS" {
-		t.Fatalf("FMD session = %q, want combo:FMD+HS", got)
+	if got := comboSessionKey("FMD"); got != "combo:PPR+FMD+HS" {
+		t.Fatalf("FMD session = %q, want combo:PPR+FMD+HS", got)
 	}
-	if got := comboSessionKey("HS"); got != "combo:FMD+HS" {
-		t.Fatalf("HS session = %q, want combo:FMD+HS", got)
+	if got := comboSessionKey("HS"); got != "combo:PPR+FMD+HS" {
+		t.Fatalf("HS session = %q, want combo:PPR+FMD+HS", got)
 	}
 }
 
 func TestBatchSessionUsesComboWhenKnown(t *testing.T) {
-	if got := batchSession("rule-fmd", "FMD"); got != "combo:FMD+HS" {
-		t.Fatalf("session = %q, want combo:FMD+HS", got)
+	if got := batchSession("rule-fmd", "FMD"); got != "combo:PPR+FMD+HS" {
+		t.Fatalf("session = %q, want combo:PPR+FMD+HS", got)
 	}
-	if got := batchSession("rule-ppr", "PPR"); got != "combo:PPR+Blue Tongue" {
-		t.Fatalf("session = %q, want combo:PPR+Blue Tongue", got)
+	if got := batchSession("rule-ppr", "PPR"); got != "combo:PPR+FMD+HS" {
+		t.Fatalf("session = %q, want combo:PPR+FMD+HS", got)
 	}
 	if got := batchSession("rule-bt", "BLUE_TONGUE"); got != "combo:PPR+Blue Tongue" {
 		t.Fatalf("session = %q, want combo:PPR+Blue Tongue", got)

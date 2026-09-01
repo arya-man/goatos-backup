@@ -108,11 +108,11 @@ func VaccinesShareApprovedCombo(a, b string) bool {
 var vaccineComboSessions = map[string]string{
 	"et+tt":       "combo:ET+TT+PPR",
 	"et tt":       "combo:ET+TT+PPR",
-	"ppr":         "combo:PPR+Blue Tongue",
+	"ppr":         "combo:PPR+FMD+HS",
 	"blue tongue": "combo:PPR+Blue Tongue",
 	"sheep pox":   "combo:Sheep Pox+Blue Tongue",
-	"fmd":         "combo:FMD+HS",
-	"hs":          "combo:FMD+HS",
+	"fmd":         "combo:PPR+FMD+HS",
+	"hs":          "combo:PPR+FMD+HS",
 }
 
 func normalizeVaccineComboCode(code string) string {

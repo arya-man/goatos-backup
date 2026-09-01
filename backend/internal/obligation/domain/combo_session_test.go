@@ -31,3 +31,12 @@ func TestVaccinesShareApprovedComboRejectsUnrelatedLivePair(t *testing.T) {
 		t.Fatal("PPR and Sheep Pox must not be same-day compatible")
 	}
 }
+
+func TestPPRFMDHSUseOneBatchSession(t *testing.T) {
+	want := "combo:PPR+FMD+HS"
+	for _, vaccine := range []string{"PPR", "FMD", "HS"} {
+		if got := BatchSession("rule-"+vaccine, vaccine); got != want {
+			t.Fatalf("BatchSession(%q) = %q, want %q", vaccine, got, want)
+		}
+	}
+}
