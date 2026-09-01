@@ -99,6 +99,55 @@ type WeightGainOriginBucket struct {
 	MedianGainGPerDay float64 `json:"median_gain_g_per_day"`
 }
 
+// WeightBandBucket is one weight bracket: how many animals stand in it, and how fast it is growing.
+//
+// BOTH WAYS OF WEIGHING COUNT. A scanned animal is banded by its OWN latest weight in the window
+// and counts as one. A whole-shed pen is banded by the pen's own latest average weight and counts
+// as ALL the animals it holds -- the shed average is the only measured fact, so the pen's animals
+// are kept whole in the one band that average falls into rather than spread across neighbouring
+// bands, which would invent a distribution nobody measured. Same rule the daily-gain bands use.
+//
+// Bands are lower-inclusive and upper-exclusive, so every animal lands in exactly one and Animals
+// sums to the weighed population.
+type WeightBandBucket struct {
+	// Band is a stable KEY, never display copy: under_15, 15_20, 20_25, 25_30, 30_35, 35_plus.
+	// The farm words live in the page contract.
+	Band string `json:"band"`
+	// Animals is everything standing in this bracket -- scanned kids plus the head counts of the
+	// pens whose average lands here.
+	Animals int `json:"animals"`
+	// GainAnimals is the smaller set behind AverageGainGPerDay: those weighed TWICE, plus the head
+	// counts of pens whose average moved. Always <= Animals, and reported separately because an
+	// animal weighed once is a real animal in this bracket with no growth to report.
+	GainAnimals int `json:"gain_animals"`
+	// AverageGainGPerDay is the animal-weighted mean for the bracket -- the same statistic every
+	// other gain figure on these screens reports. NIL when nothing here was weighed twice: a
+	// bracket nobody measured twice has NO growth rate, and 0 would read as one that stopped.
+	AverageGainGPerDay *float64 `json:"average_gain_g_per_day,omitempty"`
+}
+
+// WeightGainBreedWeekBucket is one breed's daily gain in one calendar week, for the per-breed
+// trend beside the overall weekly series.
+//
+// Same statistic and same claim rules as every other gain figure: a scanned animal at the median of
+// its own pairs for that week, a pen at its average-weight movement once per animal, and a pen
+// joins a breed only when its live cohort is entirely that breed. A mixed pen names nothing, so the
+// per-breed weeks need not add up to the overall week -- that gap is honest rather than missing.
+//
+// A breed with no gain in a week is simply ABSENT: never interpolated, never carried forward, and
+// never a fabricated zero, which would read as a week that breed stopped growing.
+type WeightGainBreedWeekBucket struct {
+	Label string `json:"label"`
+	// WeekStart is the Monday (ISO week) in Asia/Kolkata, YYYY-MM-DD. A pair spanning weeks is
+	// bucketed by its LATER weigh, the week the movement was observed in.
+	WeekStart string `json:"week_start"`
+	// Animals is the denominator: this breed's kids with a gain that week, plus the head counts of
+	// its single-breed pens that moved.
+	Animals int `json:"animals"`
+	// AverageGainGPerDay is the animal-weighted mean for this breed and week.
+	AverageGainGPerDay float64 `json:"average_gain_g_per_day"`
+}
+
 // ShedCompositionChip is one real breed+sex cohort visible in a shed row. It is
 // context, not weight attribution: mixed whole-shed averages are not split across
 // these chips.
@@ -138,6 +187,11 @@ type WeightDemographics struct {
 	// The same gain, split by where the animals came from, for the Weights analytics page's
 	// Birth-wise tab. Computed in the SAME query so it can never disagree with GainByBreed above.
 	GainByBreedOrigin []WeightGainOriginBucket `json:"gain_by_breed_origin"`
+	// How many animals stand in each weight bracket and how fast each is growing, counting BOTH
+	// ways of weighing. Ascending by bracket.
+	ByWeightBand []WeightBandBucket `json:"by_weight_band"`
+	// The same gain cut by breed AND calendar week, for the Time-wise tab's per-breed trend.
+	GainByBreedWeek []WeightGainBreedWeekBucket `json:"gain_by_breed_week"`
 	// How many animals of each breed fell into each daily-gain band. DISJOINT bands
 	// over the same population GainByBreed uses — same-animal pairs plus
 	// homogeneous lump-sum sheds, each shed's animals landing whole in the ONE band

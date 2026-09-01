@@ -41,7 +41,7 @@ const DEFAULT_LIMIT = 25;
 /** Time-wise is fixed at twelve weeks — a quarter — whatever the period filter says. */
 const TREND_WEEKS = 12;
 
-const TABS = ["general", "breed", "birth", "shed", "time"] as const;
+const TABS = ["general", "breed", "birth", "shed", "weight", "time"] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -164,7 +164,8 @@ export async function WeighingWeightsAnalyticsPage({
   // the whole-shed gain figures the Shed-wise tab reads. Only the tab's own extra reads are
   // fetched beside it, so opening Breed-wise does not pay for the Growth queries.
   const wantsGrowth = tab === "general" || tab === "shed" || tab === "time";
-  const wantsDemographics = tab === "breed" || tab === "shed" || tab === "birth";
+  const wantsDemographics =
+    tab === "breed" || tab === "shed" || tab === "birth" || tab === "weight" || tab === "time";
 
   // ONE demographics read serves all three tabs that need it, Birth-wise included: the backend
   // carries `gain_by_breed_origin` on this same response. Asking the read twice under the two
@@ -351,8 +352,10 @@ export async function WeighingWeightsAnalyticsPage({
         />
       ) : null}
 
+      {tab === "weight" ? <WeightTab pageContract={pageContract} demo={demo} /> : null}
+
       {tab === "time" ? (
-        <TimeTab pageContract={pageContract} growth={growth?.ok ? growth.data : null} />
+        <TimeTab pageContract={pageContract} growth={growth?.ok ? growth.data : null} demo={demo} />
       ) : null}
     </div>
   );
@@ -830,6 +833,76 @@ function ShedTab({
 }
 
 /**
+ * WEIGHT-WISE — how many animals stand in each weight bracket, and how fast each is growing.
+ *
+ * BOTH WAYS OF WEIGHING COUNT, which on this farm is the whole point: a scanned animal is banded by
+ * its own latest weight, and a whole-shed pen by the pen's average, contributing ALL the animals it
+ * holds to that one bracket. Most of this farm's kids are weighed by the shed, so banding only the
+ * scanned ones would describe the herd from a minority of it.
+ *
+ * The two numbers per bracket deliberately have DIFFERENT denominators, and the row says so: the
+ * head count is every animal standing there, the gain comes only from those weighed twice. A
+ * bracket where nothing was weighed twice shows no gain rather than 0 g/day, which would read as a
+ * bracket that stopped growing.
+ */
+function WeightTab({ pageContract, demo }: { pageContract: AdminUiPageContract; demo: WeightDemographicsResponse | null }) {
+  const bands = demo?.by_weight_band ?? [];
+  // The backend orders these ascending and owns the band keys; the farm words come from the page
+  // contract, so a bracket the contract cannot name is never drawn with its raw key.
+  const groups: BarGroup[] = bands
+    .filter((band) => band.animals > 0)
+    .map((band) => {
+      const bars: GroupedBar[] = [
+        {
+          key: `${band.band}-animals`,
+          label: copy(pageContract, "series.animals"),
+          value: band.animals,
+          seriesKey: "animals",
+        },
+      ];
+      if (band.average_gain_g_per_day != null) {
+        bars.push({
+          key: `${band.band}-gain`,
+          label: copy(pageContract, "series.gain"),
+          value: Math.round(band.average_gain_g_per_day),
+          seriesKey: "gain",
+          // The gain's own denominator rides on the bar, because it is not the head count beside it.
+          noteLabel: `${band.gain_animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        });
+      }
+      return {
+        key: band.band,
+        heading: copy(pageContract, `band.weight.${band.band}`),
+        // A bracket with animals but no second weigh says so, rather than leaving the reader to
+        // wonder whether the gain bar failed to render.
+        subheading:
+          band.average_gain_g_per_day == null ? copy(pageContract, "value.weight.no_gain") : undefined,
+        bars,
+      };
+    });
+
+  return (
+    <section className="card wchart" aria-label={copy(pageContract, "section.weight.aria")}>
+      <h2 className="h">
+        <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.weight.title")}
+      </h2>
+      <p className="muted small">{copy(pageContract, "section.weight.caption")}</p>
+      <GroupedBars
+        groups={groups}
+        // Two scales, because a head count and a growth rate are not comparable lengths -- the same
+        // reason Breed-wise keeps weight and gain apart.
+        series={[
+          { key: "animals", label: copy(pageContract, "series.animals"), unit: "", fractionDigits: 0 },
+          { key: "gain", label: copy(pageContract, "series.gain"), unit: "g", fractionDigits: 0 },
+        ]}
+        emptyLabel={copy(pageContract, "empty.weight.body")}
+        chartLabel={copy(pageContract, "section.weight.aria")}
+      />
+    </section>
+  );
+}
+
+/**
  * TIME-WISE — the last twelve weeks of daily gain.
  *
  * Reads `weekly_gain`, NOT `trend`. They look interchangeable and are not: `trend` is the median
@@ -841,7 +914,15 @@ function ShedTab({
  * A week nobody weighed in is ABSENT rather than drawn at zero. Interpolating or zero-filling
  * would state that the kids stopped growing in a week when the truth is that nobody looked.
  */
-function TimeTab({ pageContract, growth }: { pageContract: AdminUiPageContract; growth: WeighingGrowthResponse | null }) {
+function TimeTab({
+  pageContract,
+  growth,
+  demo,
+}: {
+  pageContract: AdminUiPageContract;
+  growth: WeighingGrowthResponse | null;
+  demo: WeightDemographicsResponse | null;
+}) {
   const bars = (growth?.weekly_gain ?? []).map((point) => ({
     key: point.week_start,
     label: point.week_start,
@@ -851,7 +932,26 @@ function TimeTab({ pageContract, growth }: { pageContract: AdminUiPageContract; 
     modeTone: "mut" as const,
   }));
 
+  // One group per breed, its weeks in order. Ordered by breed so a reader finds the same row in the
+  // same place each week; the backend already returns the rows sorted by (breed, week).
+  const breedWeekGroups: BarGroup[] = [];
+  for (const point of demo?.gain_by_breed_week ?? []) {
+    let group = breedWeekGroups.find((entry) => entry.key === point.label);
+    if (!group) {
+      group = { key: point.label, heading: point.label, bars: [] };
+      breedWeekGroups.push(group);
+    }
+    (group.bars as GroupedBar[]).push({
+      key: `${point.label}-${point.week_start}`,
+      label: point.week_start,
+      value: Math.round(point.average_gain_g_per_day),
+      seriesKey: "gain",
+      noteLabel: `${point.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+    });
+  }
+
   return (
+    <>
     <section className="card wchart" aria-label={copy(pageContract, "section.time.aria")}>
       <h2 className="h">
         <CalendarRange className="ic" size={15} aria-hidden /> {copy(pageContract, "section.time.title")}
@@ -867,5 +967,25 @@ function TimeTab({ pageContract, growth }: { pageContract: AdminUiPageContract; 
       />
       <p className="muted small">{copy(pageContract, "note.time.gaps")}</p>
     </section>
+    {/* The SAME twelve weeks, one row per breed. A second section rather than more series on the
+        chart above: twelve weeks across six breeds is 72 bars, and stacking them on one axis
+        answers "which breed" more slowly than six short rows do.
+
+        The breed rows need not add up to the overall trend, and the caption says so -- a shed
+        holding more than one breed counts in the overall series and in no breed here, because one
+        shed average cannot be divided between two cohorts. */}
+    <section className="card wchart" aria-label={copy(pageContract, "section.time.breed.aria")}>
+      <h2 className="h">
+        <Sprout className="ic" size={15} aria-hidden /> {copy(pageContract, "section.time.breed.title")}
+      </h2>
+      <p className="muted small">{copy(pageContract, "section.time.breed.caption")}</p>
+      <GroupedBars
+        groups={breedWeekGroups}
+        series={[{ key: "gain", label: copy(pageContract, "series.gain"), unit: "g", fractionDigits: 0 }]}
+        emptyLabel={copy(pageContract, "empty.time.breed.body")}
+        chartLabel={copy(pageContract, "section.time.breed.aria")}
+      />
+    </section>
+    </>
   );
 }

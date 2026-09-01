@@ -11867,6 +11867,37 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
+        /** @description One weight bracket: how many animals stand in it, and how fast it is growing. BOTH WAYS OF WEIGHING COUNT. A scanned animal is banded by its own latest weight and counts as one; a whole-shed pen is banded by the pen's own latest average weight and counts as ALL the animals it holds, kept whole in that one band rather than spread across neighbours. Bands are lower-inclusive and upper-exclusive, so animals sums to the weighed population. */
+        WeighingWeightBandBucket: {
+            /**
+             * @description Stable key, never display copy - the farm words live in the page contract.
+             * @enum {string}
+             */
+            band: "under_15" | "15_20" | "20_25" | "25_30" | "30_35" | "35_plus";
+            /** @description Scanned kids plus the head counts of the pens whose average lands in this bracket. */
+            animals: number;
+            /** @description The smaller set behind average_gain_g_per_day - weighed twice, plus the head counts of pens whose average moved. Always <= animals. */
+            gain_animals: number;
+            /**
+             * Format: double
+             * @description Animal-weighted mean for the bracket, the same statistic every other gain figure reports. Null when nothing here was weighed twice - a bracket nobody measured twice has no growth rate, and 0 would read as one that stopped.
+             */
+            average_gain_g_per_day?: number | null;
+        };
+        /** @description One breed's daily gain in one calendar week, for the per-breed trend beside the overall weekly series. Same statistic and claim rules as every other gain figure: a scanned animal at the median of its own pairs that week, a pen at its average-weight movement once per animal, and a pen joins a breed only when its live cohort is entirely that breed - so the per-breed weeks need not add up to the overall week. A breed with no gain in a week is ABSENT, never zero-filled. */
+        WeighingWeightGainBreedWeekBucket: {
+            /** @description The breed */
+            label: string;
+            /**
+             * Format: date
+             * @description Monday (ISO week) in Asia/Kolkata; a pair spanning weeks is bucketed by its later weigh.
+             */
+            week_start: string;
+            /** @description This breed's kids with a gain that week, plus the head counts of its single-breed pens that moved. */
+            animals: number;
+            /** Format: double */
+            average_gain_g_per_day: number;
+        };
         /** @description How many animals of one breed fell into each daily-gain band. The four counts are DISJOINT: an animal at 260 g/day is counted in above_250_g_per_day only, every animal lands in exactly one band, and the four add up to animals -- so they may be read as a distribution. A homogeneous-breed whole-shed weigh contributes ALL of its animals to the ONE band its own average-weight change falls into. There is ONE grain: the Weights page's `sex` filter narrows the whole read, so these rows already describe the kids the caller asked for. */
         WeighingWeightGainThresholdBucket: {
             label: string;
@@ -11914,6 +11945,10 @@ export interface components {
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
             /** @description Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither. */
             gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
+            /** @description How many animals stand in each weight bracket and how fast each grows, counting both ways of weighing. Ascending. */
+            by_weight_band: components["schemas"]["WeighingWeightBandBucket"][];
+            /** @description The same gain cut by breed AND calendar week, for the Time-wise per-breed trend. */
+            gain_by_breed_week: components["schemas"]["WeighingWeightGainBreedWeekBucket"][];
             /** @description How many animals of each breed clear 180 / 200 / 250 g per day. Same same-animal population as gain_by_breed; the marks are cumulative. */
             gain_thresholds_by_breed: components["schemas"]["WeighingWeightGainThresholdBucket"][];
             resolved_animals: number;
