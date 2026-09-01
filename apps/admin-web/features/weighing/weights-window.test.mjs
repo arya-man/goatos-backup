@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const source = readFileSync(new URL("./weights.tsx", import.meta.url), "utf8");
+const analyticsSource = readFileSync(new URL("./weights-analytics.tsx", import.meta.url), "utf8");
 const landingSource = readFileSync(new URL("./landing-window.ts", import.meta.url), "utf8");
+const segmentedLinksSource = readFileSync(new URL("../../components/segmented-links.tsx", import.meta.url), "utf8");
 const contract = readFileSync(
   new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url),
   "utf8",
@@ -44,6 +46,30 @@ test("the page lands on 2026-08-03 through the latest weighing when no period is
   // here (or hardcoding +05:30) is what the shared helper exists to prevent.
   assert.match(landingSource, /import \{ istDayPlus \} from "@\/lib\/format";/);
   assert.doesNotMatch(landingSource, /5\.5 \* 60/);
+});
+
+test("weights analytics time-wise uses the same selected/default period as every tab", () => {
+  assert.doesNotMatch(analyticsSource, /TREND_WEEKS/);
+  assert.doesNotMatch(analyticsSource, /trendWindow/);
+  assert.doesNotMatch(analyticsSource, /tab === "time" \?[^:]+: window/);
+  assert.match(analyticsSource, /const readWindow = window;/);
+  assert.match(analyticsSource, /getShedWeights\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.doesNotMatch(contract, /last 12 weeks/);
+  assert.doesNotMatch(contract, /those 12 weeks/);
+  assert.doesNotMatch(contract, /not moved by the period filter/);
+});
+
+test("analytics tab changes expose a visible pending state", () => {
+  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  assert.match(analyticsSource, /pendingLabel=\{copy\(pageContract, "state\.loading"\)\}/);
+  assert.match(segmentedLinksSource, /pendingLabel\?: string/);
+  assert.match(segmentedLinksSource, /metricseg metricseg-pending/);
+  assert.match(segmentedLinksSource, /className="metricseg-status" role="status"/);
+  assert.match(segmentedLinksSource, /aria-busy=\{isPending\}/);
+  assert.match(css, /\.metricseg-pending\{/);
+  assert.match(css, /\.metricseg-status\{/);
 });
 
 test("the default window is passed as NAMED fields, never spread", () => {

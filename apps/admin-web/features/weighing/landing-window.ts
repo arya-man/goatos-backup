@@ -19,7 +19,7 @@ export const WINDOW_TO_PARAM = "wt_to";
 
 /**
  * The farm asked for the default period to start at the first dense/proper weighing history.
- * goatos-stg currently has the reliable run from 2026-08-03 onward; before that, July rows are
+ * The shared staging data currently has the reliable run from 2026-08-03 onward; before that, July rows are
  * sparse weekly checks and make the default read noisy. Keep this fixed until enough later history
  * exists to replace it with a true long-term rolling window.
  */

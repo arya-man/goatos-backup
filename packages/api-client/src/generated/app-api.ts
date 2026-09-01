@@ -11884,7 +11884,7 @@ export interface components {
         };
         /** @description One breed's daily gain for ONE physical shed type, for the Shed-wise comparison Manju asked for. It compares elevated sheds against ground sheds; unclassified sheds are omitted rather than guessed from the pen name. */
         WeighingWeightGainShedTypeBucket: {
-            /** @description The breed, as stored. */
+            /** @description The breed */
             label: string;
             /** @enum {string} */
             shed_type: "elevated" | "ground";
@@ -15917,7 +15917,7 @@ export interface operations {
                  * @description `farm_born` or `purchased` to report on kids of that origin only; omitted means every kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is. The farm both breeds its own kids and buys them in loads, and the two grow differently enough that reading them together answers nothing.
                  *     Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh carries a tag, so it is claimed through the animal that tag resolves to: purchased when that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh carries no tag, so it is claimed through its pen and ONLY when every live resident agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because one average weight cannot be divided between two cohorts; do NOT assume a pen is uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4 were bought, and treating that pen as purchased whole is the defect this rule exists to prevent). A tag that resolves to no animal is likewise claimed by neither side: it is still recorded and still counted unfiltered, but it cannot answer where the animal came from, so the two filtered halves need not sum to the unfiltered total.
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
-                */
+                 */
                 origin?: "farm_born" | "purchased";
             };
             header?: never;
@@ -15985,7 +15985,7 @@ export interface operations {
                  * @description `farm_born` or `purchased` to report on kids of that origin only; omitted means every kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is. The farm both breeds its own kids and buys them in loads, and the two grow differently enough that reading them together answers nothing.
                  *     Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh carries a tag, so it is claimed through the animal that tag resolves to: purchased when that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh carries no tag, so it is claimed through its pen and ONLY when every live resident agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because one average weight cannot be divided between two cohorts; do NOT assume a pen is uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4 were bought, and treating that pen as purchased whole is the defect this rule exists to prevent). A tag that resolves to no animal is likewise claimed by neither side: it is still recorded and still counted unfiltered, but it cannot answer where the animal came from, so the two filtered halves need not sum to the unfiltered total.
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
-                */
+                 */
                 origin?: "farm_born" | "purchased";
             };
             header?: never;
@@ -16022,7 +16022,7 @@ export interface operations {
                  * @description `farm_born` or `purchased` to report on kids of that origin only; omitted means every kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is. The farm both breeds its own kids and buys them in loads, and the two grow differently enough that reading them together answers nothing.
                  *     Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh carries a tag, so it is claimed through the animal that tag resolves to: purchased when that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh carries no tag, so it is claimed through its pen and ONLY when every live resident agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because one average weight cannot be divided between two cohorts; do NOT assume a pen is uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4 were bought, and treating that pen as purchased whole is the defect this rule exists to prevent). A tag that resolves to no animal is likewise claimed by neither side: it is still recorded and still counted unfiltered, but it cannot answer where the animal came from, so the two filtered halves need not sum to the unfiltered total.
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
-                */
+                 */
                 origin?: "farm_born" | "purchased";
                 /** @description `individual_animal` or `per_shed_partition` to report only that weighing mode; omitted means both. The two modes are mutually exclusive at campaign-shed grain, so this filter narrows the read before aggregates are built rather than hiding rows in the browser. */
                 weighing_category?: "individual_animal" | "per_shed_partition";

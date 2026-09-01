@@ -2605,6 +2605,9 @@ select:disabled { opacity: .45; }
 .metricseg a{padding:3px 9px;border-radius:6px;font-size:11.5px;font-weight:650;color:var(--muted);text-decoration:none;white-space:nowrap}
 .metricseg a:hover{color:var(--brand-d)}
 .metricseg a.on{background:var(--panel);color:var(--brand-d)}
+.metricseg-pending{cursor:progress;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 45%,transparent)}
+.metricseg-pending a{pointer-events:none}
+.metricseg-status{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-left:1px solid var(--line);font-size:11px;font-weight:650;color:var(--muted);white-space:nowrap}
 .card .h{display:flex;align-items:center;gap:8px}
 .wbars-empty{display:grid;place-items:center;text-align:center;padding:0 14px}
 /* Grouped bars for the Weights analytics page: several named groups, each holding one or more

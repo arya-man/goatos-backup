@@ -12,7 +12,8 @@ Reviewed locally against OCI via `127.0.0.1:15432`, with backend on
   grouped by breed. It no longer renders the old per-shed leaderboard. Partitions are
   classified from their parent shed name when needed.
 - Weight-wise: covered as an extra useful tab. Bands latest weights and shows growth per band.
-- Time-wise: covered. Shows last 12 weeks plus breed-wise weekly trend.
+- Time-wise: covered. Shows weekly growth for the selected/default period plus breed-wise
+  weekly trend; the default period starts on 2026-08-03.
 
 ## Fixes Added In This Review
 
@@ -29,7 +30,10 @@ Reviewed locally against OCI via `127.0.0.1:15432`, with backend on
 - Updated the CSV export path so the file follows the active page filters for sex,
   origin, and weighing mode, instead of exporting a broader population than the screen.
 - Set the shared Weights / Weights analytics default period to start from 2026-08-03,
-  the first dense/proper goatos-stg weighing history, through the latest weighing date.
+  the first dense/proper shared staging weighing history, through the latest weighing date.
+- Kept Time-wise on that same selected/default period instead of a separate fixed twelve-week
+  window, so switching tabs never silently changes the population.
+- Added a visible pending state to URL-driven analytics tabs, while preserving scroll position.
 - Fixed OpenAPI/generated TypeScript contract drift for:
   - `gain_by_breed_shed_type`
   - `weighing_category` on weight demographics

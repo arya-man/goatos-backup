@@ -4011,18 +4011,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"band.weight.30_35":    "30 – 35 kg",
 			"band.weight.35_plus":  "35 kg and over",
 
-			// Time-wise. The fixed window is stated in the caption because it is the one control
-			// on this page a reader cannot change, and an unexplained fixed window reads as the
-			// period filter being broken.
+			// Time-wise. It follows the same selected window as the other tabs so every tab slices
+			// one population. The default window begins at the first dense weighing run.
 			"section.time.title":         "Weekly growth",
-			"section.time.caption":       "Daily gain for each of the last 12 weeks — about a quarter, which is the span a fattening cycle is judged over. This tab always shows those 12 weeks and is not moved by the period filter; the park and sex filters still apply. Both ways of weighing are counted here.",
+			"section.time.caption":       "Daily gain by week inside the selected period. The default period starts on 03 Aug 2026, where the reliable weighing run begins. Park, sex and origin filters still apply. Both ways of weighing are counted here.",
 			"section.time.aria":          "Daily gain by week",
-			"empty.time.body":            "No week in the last 12 has a kid or a shed weighed twice.",
+			"empty.time.body":            "No week in this period has a kid or a shed weighed twice.",
 			"value.time.animals":         "kids",
 			"section.time.breed.title":   "Weekly growth by breed",
-			"section.time.breed.caption": "The same twelve weeks, one row per breed, counting both ways of weighing. A shed holding more than one breed is counted in the overall trend above but in no breed here, so the breed rows need not add up to it.",
+			"section.time.breed.caption": "The same selected period, one row per breed, counting both ways of weighing. A shed holding more than one breed is counted in the overall trend above but in no breed here, so the breed rows need not add up to it.",
 			"section.time.breed.aria":    "Daily gain by breed and week",
-			"empty.time.breed.body":      "No breed has a kid or a single-breed shed weighed twice in the last 12 weeks.",
+			"empty.time.breed.body":      "No breed has a kid or a single-breed shed weighed twice in this period.",
 			"note.time.gaps":             "A week nobody weighed in has no bar. It is left out rather than drawn as zero, which would read as a week the kids stopped growing.",
 		} {
 			analytics[key] = value

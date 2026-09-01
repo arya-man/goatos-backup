@@ -9,7 +9,7 @@ import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { istDayPlus, todayIso } from "@/lib/format";
+import { todayIso } from "@/lib/format";
 import {
   firstAuthRequiredError,
   getShedWeights,
@@ -39,9 +39,6 @@ const ORIGIN_PARAM = "origin";
 const TAB_PARAM = "tab";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 const DEFAULT_LIMIT = 25;
-
-/** Time-wise is fixed at twelve weeks — a quarter — whatever the period filter says. */
-const TREND_WEEKS = 12;
 
 const TABS = ["general", "breed", "birth", "shed", "weight", "time"] as const;
 type Tab = (typeof TABS)[number];
@@ -75,18 +72,6 @@ function boundedLimit(raw: string | undefined): number {
 function boundedOffset(raw: string | undefined): number {
   const parsed = Number(raw);
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 5000 ? parsed : 0;
-}
-
-/**
- * The twelve-week window, aligned to ISO Mondays so the first bucket is a whole week rather than
- * a stub. The backend buckets on Monday too, so a window starting mid-week would draw a short
- * first bar that reads as a slow week instead of a partial one.
- */
-function trendWindow(today: string): { from: string; to: string } {
-  const parsed = new Date(`${today}T00:00:00Z`);
-  // getUTCDay is 0=Sunday; shift so 0=Monday, matching date_trunc('week').
-  const mondayOffset = (parsed.getUTCDay() + 6) % 7;
-  return { from: istDayPlus(today, -(mondayOffset + (TREND_WEEKS - 1) * 7)), to: today };
 }
 
 function kg(value: number, fractionDigits = 1): string {
@@ -145,8 +130,9 @@ export async function WeighingWeightsAnalyticsPage({
 
   const today = todayIso();
   const window = await landingWindow(params, today, parkFilter, sexFilter);
-  // Time-wise is the ONE tab the period filter does not move, so it fetches its own window.
-  const readWindow = tab === "time" ? trendWindow(today) : window;
+  // Every tab reads the same selected/default period, including Time-wise. That keeps the tab strip
+  // as slices of one population instead of silently changing the date range under the reader.
+  const readWindow = window;
 
   const scope = {
     park_id: parkFilter || undefined,
@@ -340,6 +326,7 @@ export async function WeighingWeightsAnalyticsPage({
         <SegmentedLinks
           ariaLabel={copy(pageContract, "tab.aria")}
           current={tab}
+          pendingLabel={copy(pageContract, "state.loading")}
           options={TABS.map((name) => ({
             value: name,
             label: copy(pageContract, `tab.${name}`),
@@ -875,7 +862,7 @@ function WeightTab({ pageContract, demo }: { pageContract: AdminUiPageContract; 
 }
 
 /**
- * TIME-WISE — the last twelve weeks of daily gain.
+ * TIME-WISE — weekly daily gain inside the selected period.
  *
  * Reads `weekly_gain`, NOT `trend`. They look interchangeable and are not: `trend` is the median
  * over SCANNED PAIRS ONLY, while this page's own headline is the animal-weighted mean over those
@@ -939,8 +926,8 @@ function TimeTab({
       />
       <p className="muted small">{copy(pageContract, "note.time.gaps")}</p>
     </section>
-    {/* The SAME twelve weeks, one row per breed. A second section rather than more series on the
-        chart above: twelve weeks across six breeds is 72 bars, and stacking them on one axis
+    {/* The selected period's weeks, one row per breed. A second section rather than more series on
+        the chart above: many weeks across six breeds is dense, and stacking them on one axis
         answers "which breed" more slowly than six short rows do.
 
         The breed rows need not add up to the overall trend, and the caption says so -- a shed
