@@ -90,7 +90,12 @@ function explicitWindow(params: RouteSearchParams, today: string): { from: strin
   return null;
 }
 
-async function landingWindow(params: RouteSearchParams, today: string, parkID: string): Promise<{ from: string; to: string }> {
+async function landingWindow(
+  params: RouteSearchParams,
+  today: string,
+  parkID: string,
+  sexFilter: string,
+): Promise<{ from: string; to: string }> {
   const selected = explicitWindow(params, today);
   if (selected) return selected;
 
@@ -98,12 +103,13 @@ async function landingWindow(params: RouteSearchParams, today: string, parkID: s
     from: istDayPlus(today, -(LATEST_LUMP_LOOKBACK_DAYS - 1)),
     to: today,
   };
-  // Deliberately UNFILTERED by sex: this call only asks WHEN the farm last weighed, and the answer
-  // must not move when a reader switches to Male — a window that jumped on every filter change
-  // would silently compare two different fortnights.
+  // Same sex scope as the page reads below. Now that an absent `sex` means Male, the default
+  // landing window must be chosen from the male herd too; explicit `sex=all` still reaches this
+  // helper as "", which preserves the old all-kid lookup.
   const result = await getShedWeights({
     park_id: parkID || undefined,
     ...lookback,
+    sex: sexFilter || undefined,
   });
   if (!result.ok) return defaultWindow(today);
 
@@ -316,7 +322,7 @@ export async function WeighingWeightsPage({
   // The window is business DAYS, not a clock offset: a weigh belongs to the Asia/Kolkata day it
   // happened on.
   const today = todayIso();
-  const window = await landingWindow(params, today, parkFilter);
+  const window = await landingWindow(params, today, parkFilter, sexFilter);
 
   // EVERY read carries the Sex filter (maintainer, 2026-08-26). It is a page filter, not a card
   // one: a page where the shed table counts every kid while the breed card counts the male half

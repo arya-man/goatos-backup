@@ -24,6 +24,7 @@ test("the page lands on the latest two lump-sum weighing dates when no period is
   assert.match(source, /const LATEST_LUMP_LOOKBACK_DAYS = 400;/);
   assert.match(source, /async function landingWindow/);
   assert.match(source, /getShedWeights\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*\.\.\.lookback,/);
+  assert.match(source, /sex: sexFilter \|\| undefined,/);
   assert.match(source, /const dates = \[\.\.\.new Set\(result\.data\.lump_weighing_dates \?\? \[\]\)\]\.sort\(\);/);
   assert.match(source, /from: dates\[dates\.length - 2\],/);
   // THE END IS NOT A LUMP DATE. On 25 Aug 2026 the farm scanned 199 kids across 17 sheds and weighed
