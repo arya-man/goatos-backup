@@ -878,8 +878,8 @@ WHERE tenant_id = $1::uuid
   -- keeps Go and SQL on one normalization; a bare partition_label compare would treat "Part 3" and
   -- "part 3" as different partitions of the same shed.
   AND partition_key = CASE
-        WHEN $7::text IS NULL OR btrim($7::text) = '' THEN 'whole'
-        ELSE feed_config_norm($7::text)
+        WHEN $6::text IS NULL OR btrim($6::text) = '' THEN 'whole'
+        ELSE feed_config_norm($6::text)
       END
   AND feed_item_key = feed_config_norm($3)
   AND source = 'workbook'
