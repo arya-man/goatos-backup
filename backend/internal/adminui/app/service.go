@@ -3462,6 +3462,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"export.empty":              "Nothing was weighed for this selection. The file has only the header row.",
 			"kpi.kids.label":            "Kids weighed",
 			"kpi.kids.sub":              "in the selected period",
+			"kpi.kids.split.label":      "Individual · Lump-sum",
+			"kpi.kids.split.total_sub":  "total in the selected period",
 			"kpi.total.label":           "Total weight",
 			"kpi.total.sub":             "of the kids actually weighed",
 			"kpi.average.label":         "Average weight",

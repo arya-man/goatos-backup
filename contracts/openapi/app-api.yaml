@@ -28933,6 +28933,8 @@ components:
         - sheds_weighed
         - sheds_in_scope
         - animals_weighed
+        - individual_animals_weighed
+        - lump_sum_animals_weighed
         - total_weight_kg
         - at_or_above_30kg
         - at_or_above_35kg
@@ -28944,6 +28946,12 @@ components:
           type: integer
         animals_weighed:
           type: integer
+        individual_animals_weighed:
+          type: integer
+          description: Animals weighed through per-animal RFID scans.
+        lump_sum_animals_weighed:
+          type: integer
+          description: Animals counted through whole-shed lump-sum weighing rows.
         total_weight_kg:
           type: number
           format: double

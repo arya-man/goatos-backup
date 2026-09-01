@@ -11865,6 +11865,10 @@ export interface components {
             sheds_weighed: number;
             sheds_in_scope: number;
             animals_weighed: number;
+            /** @description Animals weighed through per-animal RFID scans. */
+            individual_animals_weighed: number;
+            /** @description Animals counted through whole-shed lump-sum weighing rows. */
+            lump_sum_animals_weighed: number;
             /** Format: double */
             total_weight_kg: number;
             /**
