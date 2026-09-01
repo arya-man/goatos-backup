@@ -158,6 +158,14 @@ require_zero_downtime_migration_audit() {
     git fetch --deepen=1000 origin main || true
   fi
   if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
+    local release_ref
+    release_ref="$(git ls-remote --tags origin "refs/tags/stg/release-*-${base_commit}" | awk '{print $2}' | tail -n 1)"
+    if [[ -n "$release_ref" ]]; then
+      echo "live commit $base_commit found via release tag $release_ref; fetching tag"
+      git fetch origin "${release_ref}:${release_ref}" || true
+    fi
+  fi
+  if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
     git fetch --depth=5000 origin '+refs/heads/main:refs/remotes/origin/main' || true
   fi
   if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
