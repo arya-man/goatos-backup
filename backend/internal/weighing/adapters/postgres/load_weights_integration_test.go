@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
 // Adversarial coverage for the load-wise growth rollup. Each test seeds real rows and asserts the
@@ -16,14 +17,21 @@ import (
 // returning a plausible-looking bar.
 
 const (
-	loadCampaignTwo   = "00000000-0000-4000-8000-00000000a001"
-	loadShedScopeTwo  = "00000000-0000-4000-8000-00000000a101"
-	loadCampaignPartA = "00000000-0000-4000-8000-00000000a002"
-	loadCampaignPartB = "00000000-0000-4000-8000-00000000a003"
-	loadPartAOld      = "00000000-0000-4000-8000-00000000a111"
-	loadPartANew      = "00000000-0000-4000-8000-00000000a112"
-	loadPartBOld      = "00000000-0000-4000-8000-00000000a121"
-	loadPartBNew      = "00000000-0000-4000-8000-00000000a122"
+	loadCampaignTwo    = "00000000-0000-4000-8000-00000000a001"
+	loadShedScopeTwo   = "00000000-0000-4000-8000-00000000a101"
+	loadCampaignPartA  = "00000000-0000-4000-8000-00000000a002"
+	loadCampaignPartB  = "00000000-0000-4000-8000-00000000a003"
+	loadFilterShed     = "00000000-0000-4000-8000-00000000a201"
+	loadFilterBucket   = "00000000-0000-4000-8000-00000000a202"
+	loadFilterBought   = "00000000-0000-4000-8000-00000000a203"
+	loadFilterHome     = "00000000-0000-4000-8000-00000000a204"
+	loadFilterLoad     = "00000000-0000-4000-8000-00000000a205"
+	loadFilterHomeShed = "00000000-0000-4000-8000-00000000a206"
+	loadFilterHomeBkt  = "00000000-0000-4000-8000-00000000a207"
+	loadPartAOld       = "00000000-0000-4000-8000-00000000a111"
+	loadPartANew       = "00000000-0000-4000-8000-00000000a112"
+	loadPartBOld       = "00000000-0000-4000-8000-00000000a121"
+	loadPartBNew       = "00000000-0000-4000-8000-00000000a122"
 )
 
 // A second campaign, so one LOCATION can hold two weighs. weighing_shed_observations is UNIQUE on
@@ -70,6 +78,52 @@ INSERT INTO weighing_shed_load_tags (tenant_id, location_id, load_ref, owner_nam
 VALUES ($1::uuid, $2::uuid, $3, $4)
 ON CONFLICT (tenant_id, location_id, load_ref) DO UPDATE SET owner_name = EXCLUDED.owner_name`,
 		repoTenant, locationID, loadRef, owner)
+}
+
+func seedLoadIndividualWeigh(t *testing.T, ctx context.Context, pool *pgxpool.Pool, bucketID, tag string, weightKg float64, at time.Time) {
+	t.Helper()
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, $8, $9::timestamptz, $9::timestamptz)`,
+		repoTenant, repoCampaign, bucketID, tag, weightKg, repoAnimalProof, repoOperator,
+		fmt.Sprintf("loadweights:individual:%s:%s:%d", bucketID, tag, at.UnixNano()), at)
+}
+
+func seedLoadOriginGoats(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-A203', 'Load Filter Breed', 'male', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid),
+       ($3::uuid, $2::uuid, 'G-A204', 'Load Filter Breed', 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO UPDATE
+SET sex=EXCLUDED.sex, current_location_id=EXCLUDED.current_location_id, park_id=EXCLUDED.park_id, shed_id=EXCLUDED.shed_id`,
+		loadFilterBought, repoTenant, loadFilterHome, repoParty, loadFilterShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', 'load-purchased-kid', 'load-purchased-kid', 'global', true, 'active', now(), 'test'),
+       ($1::uuid, $3::uuid, 'animal_identifier_1', 'load-home-kid',      'load-home-kid',      'global', true, 'active', now(), 'test')
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE
+SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status='active'`,
+		repoTenant, loadFilterBought, loadFilterHome)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO procurement_loads (load_id, tenant_id, source_party_id, idempotency_key)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'loadweights:origin-filter-load')
+ON CONFLICT (load_id) DO NOTHING`, loadFilterLoad, repoTenant, repoParty)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO procurement_load_goats (load_goat_id, tenant_id, load_id, goat_id)
+VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid)
+ON CONFLICT DO NOTHING`, repoTenant, loadFilterLoad, loadFilterBought)
+}
+
+func findLoad(t *testing.T, loads []domain.LoadGainBucket, loadRef string) domain.LoadGainBucket {
+	t.Helper()
+	for _, load := range loads {
+		if load.LoadRef == loadRef {
+			return load
+		}
+	}
+	t.Fatalf("missing load %q in %#v", loadRef, loads)
+	return domain.LoadGainBucket{}
 }
 
 // ONE-TO-MANY FAN-OUT, the defect this rollup is most exposed to. A shed genuinely can hold
@@ -160,6 +214,121 @@ func TestLoadWeightsPageBoundaryBlendsEveryTaggedShedAcrossBothCaptureModes(t *t
 	}
 	if !found {
 		t.Fatal("expected the tagged load to appear in by_load")
+	}
+}
+
+func TestLoadWeightsCohortFilterNarrowsIndividualArm(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'Load Filter Shed', $3::uuid, 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`,
+		loadFilterShed, repoTenant, repoPark)
+	seedLoadBucket(t, ctx, pool, loadFilterBucket, repoCampaign, loadFilterShed, "individual_animal")
+	seedLoadOriginGoats(t, ctx, pool)
+
+	day := time.Date(2026, 7, 20, 6, 0, 0, 0, time.UTC)
+	seedLoadIndividualWeigh(t, ctx, pool, loadFilterBucket, "load-purchased-kid", 30.0, day)
+	seedLoadIndividualWeigh(t, ctx, pool, loadFilterBucket, "load-home-kid", 10.0, day.Add(time.Minute))
+	seedLoadTag(t, ctx, pool, loadFilterShed, "L-FILTER", "Filter Supplier")
+
+	from, to := shedWeightsWindow()
+	unfiltered, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	if err != nil {
+		t.Fatalf("GetShedWeights(unfiltered): %v", err)
+	}
+	load := findLoad(t, unfiltered.ByLoad, "L-FILTER")
+	if load.Animals != 2 || fmt.Sprintf("%.1f", load.AverageWeightKg) != "20.0" {
+		t.Fatalf("unfiltered load must include both scanned animals, got animals=%d avg=%.1f", load.Animals, load.AverageWeightKg)
+	}
+
+	purchased, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginPurchased)
+	if err != nil {
+		t.Fatalf("GetShedWeights(purchased): %v", err)
+	}
+	load = findLoad(t, purchased.ByLoad, "L-FILTER")
+	if load.Animals != 1 || fmt.Sprintf("%.1f", load.AverageWeightKg) != "30.0" {
+		t.Fatalf("purchased load must include only the bought tag, got animals=%d avg=%.1f", load.Animals, load.AverageWeightKg)
+	}
+
+	farmBorn, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginFarmBorn)
+	if err != nil {
+		t.Fatalf("GetShedWeights(farm_born): %v", err)
+	}
+	load = findLoad(t, farmBorn.ByLoad, "L-FILTER")
+	if load.Animals != 1 || fmt.Sprintf("%.1f", load.AverageWeightKg) != "10.0" {
+		t.Fatalf("farm-born load must include only the home tag, got animals=%d avg=%.1f", load.Animals, load.AverageWeightKg)
+	}
+
+	malePurchased, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "male", OriginPurchased)
+	if err != nil {
+		t.Fatalf("GetShedWeights(male+purchased): %v", err)
+	}
+	load = findLoad(t, malePurchased.ByLoad, "L-FILTER")
+	if load.Animals != 1 || fmt.Sprintf("%.1f", load.AverageWeightKg) != "30.0" {
+		t.Fatalf("sex+origin filter must intersect on tags, got animals=%d avg=%.1f", load.Animals, load.AverageWeightKg)
+	}
+}
+
+func TestLoadWeightsUnattributedFallbackUsesCohortScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+VALUES ($1::uuid, $3::uuid, 'shed', 'Fallback Purchased Shed', $4::uuid, 'active'),
+       ($2::uuid, $3::uuid, 'shed', 'Fallback Home Shed',      $4::uuid, 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`,
+		loadFilterShed, loadFilterHomeShed, repoTenant, repoPark)
+	seedLoadBucket(t, ctx, pool, loadFilterBucket, repoCampaign, loadFilterShed, "individual_animal")
+	seedLoadBucket(t, ctx, pool, loadFilterHomeBkt, repoCampaign, loadFilterHomeShed, "individual_animal")
+	seedLoadOriginGoats(t, ctx, pool)
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE goats
+SET current_location_id = $3::uuid, shed_id = $3::uuid
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		repoTenant, loadFilterHome, loadFilterHomeShed)
+
+	day := time.Date(2026, 7, 20, 6, 0, 0, 0, time.UTC)
+	seedLoadIndividualWeigh(t, ctx, pool, loadFilterBucket, "load-purchased-kid", 30.0, day)
+	seedLoadIndividualWeigh(t, ctx, pool, loadFilterHomeBkt, "load-home-kid", 10.0, day.Add(time.Minute))
+
+	from, to := shedWeightsWindow()
+	unfiltered, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "")
+	if err != nil {
+		t.Fatalf("GetShedWeights(unfiltered): %v", err)
+	}
+	if len(unfiltered.ByLoad) != 0 || unfiltered.LoadUnattributedSheds != 2 {
+		t.Fatalf("unfiltered fallback must report two unattributed sheds and no loads, got loads=%d unattributed=%d",
+			len(unfiltered.ByLoad), unfiltered.LoadUnattributedSheds)
+	}
+
+	purchased, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginPurchased)
+	if err != nil {
+		t.Fatalf("GetShedWeights(purchased): %v", err)
+	}
+	if len(purchased.ByLoad) != 0 || purchased.LoadUnattributedSheds != 1 {
+		t.Fatalf("purchased fallback must report only the bought shed, got loads=%d unattributed=%d",
+			len(purchased.ByLoad), purchased.LoadUnattributedSheds)
+	}
+
+	farmBorn, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", OriginFarmBorn)
+	if err != nil {
+		t.Fatalf("GetShedWeights(farm_born): %v", err)
+	}
+	if len(farmBorn.ByLoad) != 0 || farmBorn.LoadUnattributedSheds != 1 {
+		t.Fatalf("farm-born fallback must report only the home shed, got loads=%d unattributed=%d",
+			len(farmBorn.ByLoad), farmBorn.LoadUnattributedSheds)
 	}
 }
 

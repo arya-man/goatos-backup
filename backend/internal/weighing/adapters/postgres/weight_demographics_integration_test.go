@@ -1077,12 +1077,17 @@ ON CONFLICT DO NOTHING`, repoTenant, partALoad, weightDemoGoat)
 	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 
-	gainFor := func(t *testing.T, origin string) (float64, int) {
+	demoFor := func(t *testing.T, origin string) domain.WeightDemographics {
 		t.Helper()
 		out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", origin)
 		if err != nil {
 			t.Fatalf("GetWeightDemographics(origin=%q): %v", origin, err)
 		}
+		return out
+	}
+	gainFor := func(t *testing.T, origin string) (float64, int) {
+		t.Helper()
+		out := demoFor(t, origin)
 		for _, bucket := range out.GainByBreed {
 			if bucket.Label == "Partition Breed" {
 				return bucket.MedianGainGPerDay, bucket.Animals
@@ -1096,15 +1101,27 @@ ON CONFLICT DO NOTHING`, repoTenant, partALoad, weightDemoGoat)
 	if gain, animals := gainFor(t, ""); animals != 20 || fmt.Sprintf("%.1f", gain) != "571.4" {
 		t.Fatalf("unfiltered must blend both partitions over 20 kids, got %.1f over %d", gain, animals)
 	}
+	if out := demoFor(t, ""); out.LumpSumAnimals != 20 || out.LumpSumUnattributedAnimals != 0 {
+		t.Fatalf("unfiltered counters must describe both whole-shed pens, got lump=%d unattributed=%d",
+			out.LumpSumAnimals, out.LumpSumUnattributedAnimals)
+	}
 
 	// Purchased: Part A alone. 20 kids here would mean the untagged partition leaked in; 571.4
 	// would mean the filter selected nothing and the page fell back to the blend.
 	if gain, animals := gainFor(t, OriginPurchased); animals != 10 || fmt.Sprintf("%.1f", gain) != "1000.0" {
 		t.Fatalf("purchased must report Part A alone: want 1000.0 over 10, got %.1f over %d", gain, animals)
 	}
+	if out := demoFor(t, OriginPurchased); out.LumpSumAnimals != 10 || out.LumpSumUnattributedAnimals != 0 {
+		t.Fatalf("purchased counters must exclude the farm-born pen, got lump=%d unattributed=%d",
+			out.LumpSumAnimals, out.LumpSumUnattributedAnimals)
+	}
 
 	// Farm born: Part B alone, from the SAME shed, breed and window.
 	if gain, animals := gainFor(t, OriginFarmBorn); animals != 10 || fmt.Sprintf("%.1f", gain) != "142.9" {
 		t.Fatalf("farm born must report Part B alone: want 142.9 over 10, got %.1f over %d", gain, animals)
+	}
+	if out := demoFor(t, OriginFarmBorn); out.LumpSumAnimals != 10 || out.LumpSumUnattributedAnimals != 0 {
+		t.Fatalf("farm-born counters must exclude the purchased pen, got lump=%d unattributed=%d",
+			out.LumpSumAnimals, out.LumpSumUnattributedAnimals)
 	}
 }

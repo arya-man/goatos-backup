@@ -90,6 +90,7 @@ lump_daily AS (
     ))
 ),
 ind_daily AS (
+  -- projection-review: membership=one row per scanned tag and business day from scoped individual-animal observations; group_key=(location_id, partition_label, d) after DISTINCT ON tag/day; join_cardinality=scoped is 1 row per campaign shed, individual observations are narrowed by scanned tag scope before grouping, tag is 0..1 per physical shed after HAVING count(*) = 1; pagination=NONE, whole filtered load chart for the selected window; scope=tenant_id + authorized park ids + half-open accepted_at window + optional sex/origin tag scope
   -- ONE ROW PER ANIMAL PER DAY, not one per capture: weighing_observations keeps
   -- superseded rows (000061/000073, and a reopened bucket re-scans a tag that
   -- already has one), so a bare avg() over captures weights re-scanned animals
@@ -115,6 +116,10 @@ ind_daily AS (
       -- A rejected proof is not a real weight. Pending IS included: an unverified
       -- weight is still a measurement, matching shed_weights.go and growth.go.
       AND o.verification_status <> 'rejected'
+      -- Cohort filter, individual half. Lump-sum rows are narrowed by bucket above; scanned
+      -- rows must be narrowed by tag here, or the load chart keeps all individual animals while
+      -- the rest of the Weights page reports the selected sex/origin.
+      AND (NOT $5::bool OR lower(btrim(o.scanned_identifier)) = ANY($8::text[]))
     ORDER BY o.campaign_shed_id,
              COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''), o.observation_id::text),
              (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date,
@@ -226,7 +231,8 @@ LEFT JOIN locations pk ON pk.location_id = sp.park_id AND pk.tenant_id = $1::uui
 GROUP BY t.load_ref, t.owner_name
 ORDER BY 6 DESC NULLS LAST, t.load_ref`
 
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope.LocationIDs, scope.PartitionLabels)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFiltered,
+		scope.LocationIDs, scope.PartitionLabels, scope.Tags)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -265,22 +271,60 @@ ORDER BY 6 DESC NULLS LAST, t.load_ref`
 	// The unattributed count rides on every row, so a result with NO loads at all
 	// leaves it at zero above. Read it on its own in that case, or the screen cannot
 	// distinguish "no mapping authored yet" from "nothing weighed".
+	//
+	// projection-review: membership=same shed_latest population as the main load query when no uniquely-tagged load rows exist; group_key=none, scalar count over distinct measured operational rows; join_cardinality=scoped is 1 row per campaign bucket, each arm returns distinct (location_id, partition_label), tag is 0..1 uniquely tagged physical shed and is anti-joined; pagination=NONE, bounded by authorized park scope and selected half-open window; scope=tenant_id + authorized park ids + half-open accepted_at window + optional sex/origin tags and bucket scope
 	if len(out) == 0 {
 		if err := r.pool.QueryRow(ctx, `
-SELECT count(DISTINCT cs.location_id)::int
-FROM weighing_campaign_sheds cs
-JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
-WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[]) AND cs.status <> 'canceled'
-  AND (
-    EXISTS (SELECT 1 FROM weighing_shed_observations o
-             WHERE o.campaign_shed_id = cs.campaign_shed_id AND o.tenant_id = cs.tenant_id
-               AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
-               AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz)
-    OR EXISTS (SELECT 1 FROM weighing_observations o
-                WHERE o.campaign_shed_id = cs.campaign_shed_id AND o.tenant_id = cs.tenant_id
-                  AND o.verification_status <> 'rejected'
-                  AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz)
-  )`, tenantID, parkIDs, periodStart, periodEnd).Scan(&unattributed); err != nil {
+WITH scoped AS (
+  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id,
+         COALESCE(cs.partition_label, '') AS partition_label,
+         cs.weighing_category
+  FROM weighing_campaign_sheds cs
+  JOIN weighing_campaigns c
+    ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
+  WHERE cs.tenant_id = $1::uuid
+    AND c.park_id = ANY($2::uuid[])
+    AND cs.status <> 'canceled'
+),
+shed_latest AS (
+  SELECT DISTINCT s.location_id, s.partition_label
+  FROM scoped s
+  JOIN weighing_shed_observations o
+    ON o.campaign_shed_id = s.campaign_shed_id
+   AND o.tenant_id = s.tenant_id
+   AND o.withdrawn_at IS NULL
+   AND o.verification_status <> 'rejected'
+   AND o.accepted_at >= $3::timestamptz
+   AND o.accepted_at < $4::timestamptz
+  WHERE s.weighing_category = 'per_shed_partition'
+    AND (NOT $5::bool OR EXISTS (
+      SELECT 1 FROM unnest($6::uuid[], $7::text[]) AS b(loc, part)
+      WHERE b.loc = s.location_id AND b.part = s.partition_label
+    ))
+  UNION
+  SELECT DISTINCT s.location_id, s.partition_label
+  FROM scoped s
+  JOIN weighing_observations o
+    ON o.campaign_shed_id = s.campaign_shed_id
+   AND o.tenant_id = s.tenant_id
+   AND o.verification_status <> 'rejected'
+   AND o.accepted_at >= $3::timestamptz
+   AND o.accepted_at < $4::timestamptz
+  WHERE s.weighing_category = 'individual_animal'
+    AND (NOT $5::bool OR lower(btrim(o.scanned_identifier)) = ANY($8::text[]))
+),
+tag AS (
+  SELECT location_id
+  FROM weighing_shed_load_tags
+  WHERE tenant_id = $1::uuid
+  GROUP BY location_id
+  HAVING count(*) = 1
+)
+SELECT count(*)::int
+FROM shed_latest sl
+WHERE NOT EXISTS (SELECT 1 FROM tag t WHERE t.location_id = sl.location_id)`,
+			tenantID, parkIDs, periodStart, periodEnd, sexFiltered,
+			scope.LocationIDs, scope.PartitionLabels, scope.Tags).Scan(&unattributed); err != nil {
 			return nil, 0, err
 		}
 	}

@@ -199,7 +199,9 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
   for (const read of ["getShedWeights", "getWeighingGrowth", "getWeightDemographics", "getGrowthDirector"]) {
     assert.match(
       source,
-      new RegExp(`${read}\\(\\{ park_id: parkFilter \\|\\| undefined, \\.\\.\\.window, sex: sexFilter \\|\\| undefined \\}\\)`),
+      new RegExp(
+        `${read}\\(\\{ park_id: parkFilter \\|\\| undefined, \\.\\.\\.window, sex: sexFilter \\|\\| undefined, origin: originFilter \\|\\| undefined \\}\\)`,
+      ),
       `${read} must carry the sex filter`,
     );
   }

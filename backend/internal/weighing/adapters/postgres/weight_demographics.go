@@ -277,6 +277,13 @@ lump AS (
       WHERE sc.location_id = s.location_id AND sc.partition_label = COALESCE(s.partition_label, '')
         AND sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text
     ))
+    -- Origin filter, whole-shed half. The coverage counters below read from lump directly, so
+    -- this CTE must be narrowed before they sum it; narrowing only the chart joins would leave
+    -- the counters describing every penned kid while the charts describe one origin.
+    AND (NOT $6::bool OR EXISTS (
+      SELECT 1 FROM unnest($8::uuid[], $9::text[]) AS b(loc, part)
+      WHERE b.loc = s.location_id AND b.part = COALESCE(s.partition_label, '')
+    ))
   ORDER BY s.location_id, s.partition_label, sh.accepted_at DESC, sh.shed_observation_id DESC
 ),
 lump_span AS (
