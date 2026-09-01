@@ -3982,13 +3982,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.birth.body":      "No breed has a farm-born or purchased kid with a second weigh in this period.",
 
 			// Shed-wise. Exactly the comparison requested in the voice note: elevated sheds
-			// against crown/ground sheds within every breed.
-			"section.shed.title":      "Elevated vs crown sheds",
-			"section.shed.caption":    "Daily gain for each breed, split by physical shed type: elevated shed against crown shed. A shed without that profile is left out rather than guessed.",
+			// against ground sheds within every breed.
+			"section.shed.title":      "Elevated vs ground sheds",
+			"section.shed.caption":    "Daily gain for each breed, split by physical shed type: elevated shed against ground shed. A shed without that profile is left out rather than guessed.",
 			"section.shed.aria":       "Daily gain by breed and shed type",
-			"empty.shed.body":         "No shed-type profile has daily gain in this period. Add elevated or crown shed profiles, then weigh twice.",
+			"empty.shed.body":         "No shed-type profile has daily gain in this period. Add elevated or ground shed profiles, then weigh twice.",
 			"view.shed_type.elevated": "Elevated shed",
-			"view.shed_type.crown":    "Crown shed",
+			"view.shed_type.ground":   "Ground shed",
 			"value.shed.mixed":        "Mixed breeds",
 			"value.shed.unknown":      "Breed not recorded",
 

@@ -8,7 +8,7 @@ Reviewed locally against OCI via `127.0.0.1:15432`, with backend on
 - General: covered.
 - Breed-wise: covered. Shows daily gain and average weight per breed.
 - Birth-wise: covered. Shows farm-born vs purchased average daily gain per breed.
-- Shed-wise: code now targets the requested comparison: elevated shed vs crown/ground shed,
+- Shed-wise: code now targets the requested comparison: elevated shed vs ground shed,
   grouped by breed. It no longer renders the old per-shed leaderboard.
 - Weight-wise: covered as an extra useful tab. Bands latest weights and shows growth per band.
 - Time-wise: covered. Shows last 12 weeks plus breed-wise weekly trend.
@@ -19,7 +19,10 @@ Reviewed locally against OCI via `127.0.0.1:15432`, with backend on
 - Enabled the Weighing filter only on tabs where the API can honestly narrow the data:
   Breed-wise, Birth-wise, Shed-wise, and Weight-wise.
 - Added backend response field `gain_by_breed_shed_type`.
-- Replaced Shed-wise frontend with elevated vs crown/ground grouped bars per breed.
+- Replaced Shed-wise frontend with elevated vs ground grouped bars per breed.
+- Added the review-note shed classification until this becomes first-class shed metadata:
+  - Ground sheds: Gandhi, Castro, Ho Chi Minh, Yashoda Old.
+  - Elevated sheds: Mandela, Godel, Sumathi, Yashoda, Yashoda New.
 - Fixed an origin-filter leak in whole-shed weight/gain band inputs.
 - Fixed OpenAPI/generated TypeScript contract drift for:
   - `gain_by_breed_shed_type`
@@ -36,14 +39,16 @@ Direct API call for `2026-08-24..2026-08-31`, `sex=male` returned real data:
 - weight band rows present
 - `gain_by_breed_shed_type`: empty
 
-The empty Shed-wise result is because OCI currently has no explicit elevated/crown/ground
+The initial empty Shed-wise result happened because OCI had no explicit elevated/ground
 shed metadata. I checked both data and schema:
 
-- no location or shed profile text matching elevated/crown/ground/raised/floor terms
+- no location or shed profile text matching elevated/ground/raised/floor terms
 - no relevant public column like elevated, crown, ground, shed type, housing, or floor
   except unrelated health diagnosis housing columns
 
-So the remaining gap is data classification, not the analytics aggregation or UI.
+The current implementation therefore uses the review-note names above as a fallback, while
+still preferring explicit metadata when it exists. Do not remove that fallback unless the
+same mapping is migrated into DB-backed shed metadata.
 
 ## Screenshots
 
@@ -51,6 +56,7 @@ So the remaining gap is data classification, not the analytics aggregation or UI
 - `/tmp/pr162-oci-refresh-breed.png`
 - `/tmp/pr162-oci-refresh-birth.png`
 - `/tmp/pr162-oci-refresh-shed.png`
+- `/tmp/pr162-oci-shed-ground-after-mapping.png`
 - `/tmp/pr162-oci-refresh-weight.png`
 - `/tmp/pr162-oci-refresh-time.png`
 
@@ -59,4 +65,3 @@ So the remaining gap is data classification, not the analytics aggregation or UI
 - `cd backend && go test ./internal/weighing/...`
 - `cd apps/admin-web && npm run typecheck`
 - `git diff --check`
-

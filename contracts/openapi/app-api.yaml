@@ -29116,13 +29116,13 @@ components:
       required: [label, shed_type, animals, average_gain_g_per_day]
       description: >-
         One breed's daily gain for ONE physical shed type, for the Shed-wise comparison Manju asked
-        for. It compares elevated sheds against crown/ground sheds; unclassified sheds are omitted
+        for. It compares elevated sheds against ground sheds; unclassified sheds are omitted
         rather than guessed from the pen name.
       properties:
         label: {type: string, description: The breed, as stored.}
         shed_type:
           type: string
-          enum: [elevated, crown]
+          enum: [elevated, ground]
         animals:
           type: integer
           description: Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed.
@@ -29273,7 +29273,7 @@ components:
           items: {$ref: "#/components/schemas/WeighingWeightGainOriginBucket"}
         gain_by_breed_shed_type:
           type: array
-          description: "Daily gain per breed split by elevated vs crown/ground shed type. Unclassified sheds are omitted rather than guessed."
+          description: "Daily gain per breed split by elevated vs ground shed type. Unclassified sheds are omitted rather than guessed."
           items: {$ref: "#/components/schemas/WeighingWeightGainShedTypeBucket"}
         by_weight_band:
           type: array

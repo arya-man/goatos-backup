@@ -11882,12 +11882,12 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
-        /** @description One breed's daily gain for ONE physical shed type, for the Shed-wise comparison Manju asked for. It compares elevated sheds against crown/ground sheds; unclassified sheds are omitted rather than guessed from the pen name. */
+        /** @description One breed's daily gain for ONE physical shed type, for the Shed-wise comparison Manju asked for. It compares elevated sheds against ground sheds; unclassified sheds are omitted rather than guessed from the pen name. */
         WeighingWeightGainShedTypeBucket: {
             /** @description The breed, as stored. */
             label: string;
             /** @enum {string} */
-            shed_type: "elevated" | "crown";
+            shed_type: "elevated" | "ground";
             /** @description Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed. */
             animals: number;
             /** Format: double */
@@ -11971,7 +11971,7 @@ export interface components {
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
             /** @description Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither. */
             gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
-            /** @description Daily gain per breed split by elevated vs crown/ground shed type. Unclassified sheds are omitted rather than guessed. */
+            /** @description Daily gain per breed split by elevated vs ground shed type. Unclassified sheds are omitted rather than guessed. */
             gain_by_breed_shed_type: components["schemas"]["WeighingWeightGainShedTypeBucket"][];
             /** @description How many animals stand in each weight bracket and how fast each grows, counting both ways of weighing. Ascending. */
             by_weight_band: components["schemas"]["WeighingWeightBandBucket"][];

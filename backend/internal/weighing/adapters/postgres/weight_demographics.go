@@ -446,6 +446,12 @@ lump_composition AS (
 shed_type AS (
   SELECT DISTINCT src.location_id, src.partition_label,
          CASE
+           WHEN lower(loc.name) ~ '\m(gandhi|castro|ho chi minh|yashoda old)\M'
+             OR lower(coalesce(parent_loc.name, '')) ~ '\m(gandhi|castro|ho chi minh|yashoda old)\M'
+             THEN 'ground'
+           WHEN lower(loc.name) ~ '\m(mandela|godel|sumathi|yashoda|yashoda new)\M'
+             OR lower(coalesce(parent_loc.name, '')) ~ '\m(mandela|godel|sumathi|yashoda|yashoda new)\M'
+             THEN 'elevated'
            WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
                       coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
                       coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(elevated|elevate)\M'
@@ -453,7 +459,7 @@ shed_type AS (
            WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
                       coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
                       coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(crown|crowned|ground)\M'
-             THEN 'crown'
+             THEN 'ground'
          END AS shed_type
   FROM shed_targets src
   JOIN locations loc ON loc.location_id = src.location_id AND loc.tenant_id = $1::uuid
@@ -599,9 +605,9 @@ SELECT
        ) parts GROUP BY breed, origin
      ) gbo),
   -- BREED x SHED TYPE: Manju's Shed-wise view. This is not a per-pen leaderboard; it compares the
-  -- two physical shed classes the farm asked for, inside each breed. The class is intentionally
-  -- read from explicit shed metadata (location notes / shed profile notes / shed profile context)
-  -- and unclassified pens are skipped rather than guessed from a painted name.
+  -- two physical shed classes the farm asked for, inside each breed. The class is read from explicit
+  -- shed metadata when present; ground sheds also include the named sheds called out in the review
+  -- note until that classification is modeled as first-class data.
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, shed_type, n, g) ORDER BY breed, shed_type), '[]'::jsonb)
      FROM (
        SELECT breed, shed_type, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
@@ -1055,7 +1061,7 @@ func decodeWeightGainShedTypeBuckets(raw []byte) ([]domain.WeightGainShedTypeBuc
 		if json.Unmarshal(row[0], &label) != nil || label == "" {
 			continue
 		}
-		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "crown") {
+		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "ground") {
 			continue
 		}
 		if json.Unmarshal(row[2], &animals) != nil || json.Unmarshal(row[3], &gain) != nil {

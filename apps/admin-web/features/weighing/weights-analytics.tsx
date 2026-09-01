@@ -701,7 +701,7 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
 }
 
 /**
- * SHED-WISE — elevated shed against crown/ground shed, per breed.
+ * SHED-WISE — elevated shed against ground shed, per breed.
  */
 function ShedTab({
   pageContract,
@@ -712,14 +712,14 @@ function ShedTab({
 }) {
   const buckets = demo?.gain_by_breed_shed_type ?? [];
   const elevated = new Map(buckets.filter((b) => b.shed_type === "elevated").map((b) => [b.label, b]));
-  const crown = new Map(buckets.filter((b) => b.shed_type === "crown").map((b) => [b.label, b]));
-  const breeds = [...new Set([...elevated.keys(), ...crown.keys()])].sort((a, b) =>
+  const ground = new Map(buckets.filter((b) => b.shed_type === "ground").map((b) => [b.label, b]));
+  const breeds = [...new Set([...elevated.keys(), ...ground.keys()])].sort((a, b) =>
     a.localeCompare(b, undefined, { numeric: true }),
   );
   const groups: BarGroup[] = breeds.map((breed) => {
     const bars: GroupedBar[] = [];
     const elevatedBucket = elevated.get(breed);
-    const crownBucket = crown.get(breed);
+    const groundBucket = ground.get(breed);
     if (elevatedBucket) {
       bars.push({
         key: `${breed}-elevated`,
@@ -729,13 +729,13 @@ function ShedTab({
         noteLabel: `${elevatedBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
       });
     }
-    if (crownBucket) {
+    if (groundBucket) {
       bars.push({
-        key: `${breed}-crown`,
-        label: copy(pageContract, "view.shed_type.crown"),
-        value: Math.round(crownBucket.average_gain_g_per_day),
-        seriesKey: "crown",
-        noteLabel: `${crownBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        key: `${breed}-ground`,
+        label: copy(pageContract, "view.shed_type.ground"),
+        value: Math.round(groundBucket.average_gain_g_per_day),
+        seriesKey: "ground",
+        noteLabel: `${groundBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
       });
     }
     return { key: breed, heading: breed, bars };
@@ -751,7 +751,7 @@ function ShedTab({
         groups={groups}
         series={[
           { key: "elevated", scaleKey: "gain", label: copy(pageContract, "view.shed_type.elevated"), unit: "g", fractionDigits: 0 },
-          { key: "crown", scaleKey: "gain", label: copy(pageContract, "view.shed_type.crown"), unit: "g", fractionDigits: 0 },
+          { key: "ground", scaleKey: "gain", label: copy(pageContract, "view.shed_type.ground"), unit: "g", fractionDigits: 0 },
         ]}
         emptyLabel={copy(pageContract, "empty.shed.body")}
         chartLabel={copy(pageContract, "section.shed.aria")}
