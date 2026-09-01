@@ -14,6 +14,11 @@ const weightsSource = readFileSync(join(here, "weights.tsx"), "utf8");
 const sectionSource = readFileSync(join(here, "growth-director.tsx"), "utf8");
 
 test("weights page fetches growth director inside the existing Promise.all", () => {
+  assert.match(
+    weightsSource,
+    /weighing_category: weighingCategoryFilter \|\| undefined/,
+    "the shared Weights page scope must carry weighing_category before Growth Director reads it",
+  );
   const promiseAll = weightsSource.match(/Promise\.all\(\[[\s\S]*?\]\);/);
   assert.ok(promiseAll, "weights.tsx must keep a single Promise.all request plan");
   assert.match(

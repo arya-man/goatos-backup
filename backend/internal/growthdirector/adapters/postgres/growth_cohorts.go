@@ -18,7 +18,7 @@ import (
 // shed_id); join_cardinality=goat_identifiers 0..1 (lifetime-unique), goats 1
 // (PK), canon 0..1 (PK), so a pair row cannot multiply; pagination=NONE,
 // bounded by the shed/cohort floors; scope=tenant + park ANY + week overlap.
-func (r *Repository) fairFight(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) (domain.FairFight, error) {
+func (r *Repository) fairFight(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, weighingCategory string) (domain.FairFight, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	out := domain.FairFight{Cohorts: []domain.FairFightCohort{}}
@@ -62,7 +62,7 @@ FROM (
 ) x
 WHERE sheds_in_cohort >= 2             -- a fair fight needs two sheds fielding the same kind of kid
 ORDER BY breed, sex, median_adg_g_day DESC`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags, nil, nil, weighingCategory)
 	if err != nil {
 		return out, err
 	}
@@ -96,13 +96,13 @@ ORDER BY breed, sex, median_adg_g_day DESC`
 // of starting body weight scored as flat), so one noisy scale never brands a
 // shed as shrinking. Week-over-week deltas come from a second query over
 // consecutive-round pairs and merge by group key.
-func (r *Repository) slowGrowth(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) (domain.SlowGrowth, error) {
+func (r *Repository) slowGrowth(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, weighingCategory string) (domain.SlowGrowth, error) {
 	out := domain.SlowGrowth{TargetGPerDay: domain.SlowGrowthTargetGPerDay, Groups: []domain.SlowGrowthGroup{}}
-	groups, err := r.slowGrowthGroups(ctx, tenantID, parkIDs, startDate, endDate, sexFiltered, scope)
+	groups, err := r.slowGrowthGroups(ctx, tenantID, parkIDs, startDate, endDate, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return out, err
 	}
-	deltas, err := r.weekOverWeekDeltas(ctx, tenantID, parkIDs, startDate, endDate, sexFiltered, scope)
+	deltas, err := r.weekOverWeekDeltas(ctx, tenantID, parkIDs, startDate, endDate, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return out, err
 	}
@@ -117,7 +117,7 @@ func (r *Repository) slowGrowth(ctx context.Context, tenantID string, parkIDs []
 	return out, nil
 }
 
-func (r *Repository) slowGrowthGroups(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) ([]domain.SlowGrowthGroup, error) {
+func (r *Repository) slowGrowthGroups(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, weighingCategory string) ([]domain.SlowGrowthGroup, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	const q = `
@@ -151,7 +151,7 @@ WHERE shed_id IS NOT NULL
 GROUP BY shed_id, shed_label, partition_label, park_name, breed, sex
 HAVING count(*) FILTER (WHERE NOT implausible) >= 3
 ORDER BY median_noise_adj_g_day ASC NULLS LAST, shed_id, partition_label, breed, sex`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags, nil, nil, weighingCategory)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func slowGrowthStatus(noiseAdjustedMedian *float64) string {
 // week before it, over CONSECUTIVE-round pairs (each pair attributed to the
 // shed and week of its later round). A group needs pairs in two distinct weeks
 // before a trend exists; everything else is simply absent from the map.
-func (r *Repository) weekOverWeekDeltas(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) (map[string]float64, error) {
+func (r *Repository) weekOverWeekDeltas(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, weighingCategory string) (map[string]float64, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	const q = `
@@ -245,7 +245,7 @@ FROM solid_weeks cur
 JOIN solid_weeks prev
   ON prev.shed_id = cur.shed_id AND prev.partition_label = cur.partition_label AND prev.breed = cur.breed AND prev.sex = cur.sex AND prev.solid_rn = 2
 WHERE cur.solid_rn = 1`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags, nil, nil, weighingCategory)
 	if err != nil {
 		return nil, err
 	}

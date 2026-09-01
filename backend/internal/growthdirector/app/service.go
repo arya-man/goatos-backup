@@ -28,12 +28,19 @@ func NewService(repo ports.Repository) *Service {
 // Weights screen. Same capability and scope rules as the weighing leadership
 // reads (GetShedWeights / GetWeightDemographics): WeighingMonitor gate, then
 // the caller's own authorized-park scope, never wider.
-func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.GrowthDirectorWeights, error) {
+func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.GrowthDirectorWeights, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.GrowthDirectorWeights{}, ports.ErrForbidden
 	}
 	parkID = strings.TrimSpace(parkID)
 	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+		return domain.GrowthDirectorWeights{}, ports.ErrInvalidArgument
+	}
+	weighingCategory = strings.TrimSpace(weighingCategory)
+	if weighingCategory == "all" {
+		weighingCategory = ""
+	}
+	if weighingCategory != "" && weighingCategory != "individual_animal" && weighingCategory != "per_shed_partition" {
 		return domain.GrowthDirectorWeights{}, ports.ErrInvalidArgument
 	}
 	periodStart, periodEndExclusive, err := s.resolveWindow(fromBusinessDate, toBusinessDate)
@@ -44,7 +51,7 @@ func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Act
 	if scopeErr != nil {
 		return domain.GrowthDirectorWeights{}, scopeErr
 	}
-	return s.repo.GetGrowthDirectorWeights(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin)
+	return s.repo.GetGrowthDirectorWeights(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory)
 }
 
 // resolveMonitorParkScope turns an OPTIONAL park_id into the concrete park list

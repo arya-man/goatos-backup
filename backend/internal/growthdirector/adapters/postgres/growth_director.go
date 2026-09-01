@@ -24,6 +24,7 @@ import (
 //
 //	$1 tenant_id uuid, $2 park_ids uuid[],
 //	$3 period start date (inclusive), $4 period end date (EXCLUSIVE)
+//	$9 weighing_category filter, or blank for both modes
 const weighingObsCTE = `
 obs AS (
   SELECT o.observation_id,
@@ -47,6 +48,7 @@ obs AS (
     AND c.period_start_date < $4::date
     AND btrim(o.scanned_identifier) <> ''
     AND o.verification_status <> 'rework'
+    AND ($9::text = '' OR cs.weighing_category = $9::text)
     -- Sex filter, applied ONCE for every widget that starts from this CTE. $5 is FALSE for the
     -- unfiltered page, which therefore runs exactly the query it ran before. The tag list is
     -- resolved by the weighing package's sex_scope.go, so the Weights page and these widgets
@@ -101,7 +103,7 @@ const breedSexJoin = `
 // GetGrowthDirectorWeights builds all six Growth Director widgets for one
 // half-open window. parkIDs must be non-empty and already authorization-checked
 // by the caller: this method does no scoping of its own.
-func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin string) (domain.GrowthDirectorWeights, error) {
+func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.GrowthDirectorWeights, error) {
 	loc := biztime.DefaultLocation()
 	out := domain.GrowthDirectorWeights{
 		Period: domain.Period{
@@ -156,22 +158,22 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	}
 	out.Parks = parks
 
-	if out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
+	if out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
 		return out, err
 	}
-	if out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
+	if out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
 		return out, err
 	}
-	if out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
+	if out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
 		return out, err
 	}
-	if out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
+	if out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
 		return out, err
 	}
 	if out.FeedProblems, err = r.feedProblems(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
 		return out, err
 	}
-	if out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
+	if out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
 		return out, err
 	}
 	return out, nil
@@ -216,7 +218,7 @@ func emptyBands() []domain.WeightBand {
 //	  goat_identifiers   0..1 per tag, by the lifetime-unique index
 //
 //	Ratio key sets: none -- every output is a count of animals, not a ratio.
-func (r *Repository) roadToSale(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) (domain.RoadToSale, error) {
+func (r *Repository) roadToSale(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, weighingCategory string) (domain.RoadToSale, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	out := domain.RoadToSale{Bands: emptyBands()}
@@ -256,6 +258,7 @@ lump_obs AS (
     AND so.verification_status <> 'rework'
     AND so.animal_count > 0
     AND so.average_weight_kg IS NOT NULL
+    AND ($9::text = '' OR cs.weighing_category = $9::text)
     -- The page's cohort filters (Sex, and Origin since 2026-09-01) reach a pen through its BUCKET,
     -- not through a tag it does not have. $5 is FALSE for the unfiltered page, which therefore runs
     -- this arm unnarrowed.
@@ -323,7 +326,7 @@ FROM scored
 GROUP BY band_idx
 ORDER BY band_idx`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
-		scope.LocationIDs, scope.PartitionLabels)
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory)
 	if err != nil {
 		return out, err
 	}
@@ -359,7 +362,7 @@ ORDER BY band_idx`
 // count so the two views reconcile. The lump-sum side MUST filter
 // withdrawn_at IS NULL: live-row uniqueness is a PARTIAL index (000067), and
 // dropping the predicate fans out reopened buckets.
-func (r *Repository) trust(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) (domain.Trust, error) {
+func (r *Repository) trust(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, weighingCategory string) (domain.Trust, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	var out domain.Trust
@@ -369,12 +372,14 @@ WITH obs AS (
          o.verification_status, o.campaign_id
   FROM weighing_observations o
   JOIN weighing_campaigns c ON c.tenant_id = o.tenant_id AND c.campaign_id = o.campaign_id
+  LEFT JOIN weighing_campaign_sheds cs ON cs.tenant_id = o.tenant_id AND cs.campaign_shed_id = o.campaign_shed_id
   WHERE o.tenant_id = $1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND c.status <> 'canceled'
     AND c.period_end_date >= $3::date
     AND c.period_start_date < $4::date
     AND btrim(o.scanned_identifier) <> ''
+    AND ($9::text = '' OR cs.weighing_category = $9::text)
     AND (NOT $5::bool OR lower(btrim(o.scanned_identifier)) = ANY($6::text[]))
 ),
 tagged AS (
@@ -397,6 +402,7 @@ shed_obs AS (
     AND c.status <> 'canceled'
     AND c.period_end_date >= $3::date
     AND c.period_start_date < $4::date
+    AND ($9::text = '' OR cs.weighing_category = $9::text)
     -- A whole-shed weigh has no tag, so under a filter it counts only when its shed's cohort is
     -- that sex — the same claim rule the Weights page applies, from the same resolver.
     AND (NOT $5::bool OR EXISTS (
@@ -416,7 +422,7 @@ SELECT
   s.live_shed_observations
 FROM shed_obs s`
 	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, startDate, endDate,
-		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels).Scan(
+		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels, weighingCategory).Scan(
 		&out.ScansTotal, &out.ScansMatched, &out.ScansUnmatched,
 		&out.ScansPendingVerification, &out.ScansRework,
 		&out.IdentitiesTotal, &out.IdentitiesWithPair, &out.IdentitiesOnceOnly,

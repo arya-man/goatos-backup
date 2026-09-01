@@ -16072,6 +16072,8 @@ export interface operations {
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
                  */
                 origin?: "farm_born" | "purchased";
+                /** @description `individual_animal` or `per_shed_partition` to report only that weighing mode; omitted means both. The filter reaches every weighing-backed Growth Director widget, while feed-only problem rows remain a feed-sheet health read. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
