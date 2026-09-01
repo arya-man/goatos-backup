@@ -90,3 +90,24 @@ Active September schedule after cleanup:
 | 2026-09-29 | Channapatna | Goat Pox | `goat_pox_kid_16w` | 1 | 20.4w | Mandela 1 | DOB rule: Goat Pox at 16 weeks |
 | 2026-09-29 | Channapatna | Sheep Pox | `sheep_pox_kid_16w` | 90 | 20.4-24.0w | Castro, Godel 2, Mandela 1 | DOB rule: Sheep Pox at 16 weeks |
 | 2026-09-30 | Channapatna | Sheep Pox | `sheep_pox_kid_16w` | 20 | 24.1-24.3w | Godel 2 | DOB rule: Sheep Pox at 16 weeks |
+
+Follow-up OCI cleanup on 2026-09-01:
+
+- Canceled 584 stale unbatched PPR/HS obligations that were left over from pre-anchor generation. These were not attached to drive batches, but they still appeared in schedule queries.
+- After this cleanup, there are no active PPR/FMD/HS obligations before 2026-09-08 and no Sep 9-16 stale PPR/HS rows.
+- Final invariant check: Sep 1 active = 0, duplicates = 0, pre-Oct-15 Z1+Z3 = 0, pre-Sep-8 PPR/FMD/HS = 0, wrong-species BT/Goat Pox/Sheep Pox = 0, missed September = 0, overdue September = 0.
+
+Remaining unbatched September rows after final cleanup:
+
+| Date | Park | Vaccine | Dose code | Count | Age weeks | Sheds | History check |
+| --- | --- | --- | --- | ---: | --- | --- | --- |
+| 2026-09-26 | Channapatna | FMD | `fmd_kid_12w` | 4 | 12.0w | Yashoda | No accepted FMD history |
+| 2026-09-26 | Channapatna | HS | `hs_kid_12w` | 4 | 12.0w | Yashoda | No accepted HS history |
+| 2026-09-26 | Coimbatore | FMD | `fmd_kid_12w` | 10 | 12.0w | Yashoda | No accepted FMD history |
+| 2026-09-26 | Coimbatore | HS | `hs_kid_12w` | 10 | 12.0w | Yashoda | No accepted HS history |
+| 2026-09-28 | Channapatna | Sheep Pox | `sheep_pox_kid_16w` | 48 | 20.3w | Castro, Godel 2 | No accepted Sheep Pox history |
+| 2026-09-29 | Channapatna | Goat Pox | `goat_pox_kid_16w` | 1 | 20.4w | Mandela 1 | No accepted Goat Pox history |
+| 2026-09-29 | Channapatna | Sheep Pox | `sheep_pox_kid_16w` | 90 | 20.4-24.0w | Castro, Godel 2, Mandela 1 | No accepted Sheep Pox history |
+| 2026-09-30 | Channapatna | Sheep Pox | `sheep_pox_kid_16w` | 20 | 24.1-24.3w | Godel 2 | No accepted Sheep Pox history |
+
+Do not mark the operational schedule fully complete until the owner decides whether these valid future DOB rows should remain unbatched for scheduler pickup or be pre-batched into operator drive cards.
