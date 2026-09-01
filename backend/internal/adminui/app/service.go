@@ -3962,7 +3962,6 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// General. The summary this page opens on is the Weights page's own, so a reader
 			// lands on figures they already recognise before the cuts below re-slice them.
-			"section.general.caption": "The whole selected period, before any of the cuts beside it. Every other tab re-slices exactly these kids.",
 
 			// Breed-wise. Two measures on one chart, and they are NOT the same population:
 			// weight covers every kid weighed, gain only those weighed twice. The caption has to

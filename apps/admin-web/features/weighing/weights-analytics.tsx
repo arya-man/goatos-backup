@@ -418,8 +418,6 @@ function GeneralTab({
 
   return (
     <>
-      <p className="muted small">{copy(pageContract, "section.general.caption")}</p>
-
       <div className="wt-general-metrics">
         <section className="grid g5 kpi-row" aria-label={copy(pageContract, "section.sheds.aria")}>
           <div className="kpi">
