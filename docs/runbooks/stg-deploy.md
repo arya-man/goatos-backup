@@ -61,7 +61,7 @@ clean `origin/main` checkout directly:
 
 ```bash
 gcloud builds submit --project=goatos-stg --config=cloudbuild.stg.yaml \
-  --substitutions=COMMIT_SHA="$(git rev-parse --short=12 origin/main)",_DEPLOY_STG=true,_DEPLOY_MOBILE=false,_TRIGGERED_BY="Codex"
+  --substitutions=_COMMIT_SHA="$(git rev-parse --short=12 origin/main)",_DEPLOY_STG=true,_DEPLOY_MOBILE=false,_TRIGGERED_BY="Codex"
 ```
 
 Both paths use Cloud Build for Docker image creation and post Slack status

@@ -109,7 +109,7 @@ authority. Do not require or assume Docker on a laptop. If an agent is driving a
 deploy outside Slack, it should start the `goatos-stg-deploy-main` Cloud Build
 trigger when the trigger can resolve `main`; otherwise submit the checked-out
 `origin/main` source to Cloud Build with `cloudbuild.stg.yaml` and an explicit
-`COMMIT_SHA=<12-char-main-sha>` substitution. The local
+`_COMMIT_SHA=<12-char-main-sha>` substitution. The local
 `tools/deploy/stg-clouddeploy-release.sh` path is break-glass only for an OCI or
 other remote builder that actually has Docker; it is not the Mac/laptop path.
 
