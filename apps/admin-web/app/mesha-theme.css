@@ -2677,6 +2677,25 @@ select:disabled { opacity: .45; }
    separators must still reach the frame. */
 .wtable table.tbl th:first-child,
 .wtable table.tbl td:first-child{padding-left:16px}
+/* ---- Shed daily-gain / average-weight TABLE view ---------------------------------------------
+   The same card as the bar chart, read as exact figures (maintainer request 2026-09-01).
+   `table-layout:fixed` because a pen label carries its whole breed/sex composition — "Yashoda 7
+   (Beetal - female × 4, Beetal - male × 4, Sojat - male × 3, …)" — and an auto-layout table sized
+   itself to that one cell, pushing the basis chip and the VALUE off the card's right edge behind a
+   horizontal scrollbar. The shed cell is therefore the only one that wraps; the three fixed columns
+   keep the number where the eye expects it. */
+.weights-page table.wsgtable{width:100%;table-layout:fixed}
+.weights-page table.wsgtable th.wsg-park,
+.weights-page table.wsgtable td.wsg-park{width:78px}
+.weights-page table.wsgtable th.wsg-basis,
+.weights-page table.wsgtable td.wsg-basis{width:112px}
+.weights-page table.wsgtable th.wsg-val,
+.weights-page table.wsgtable td.wsg-val{width:132px;font-variant-numeric:tabular-nums}
+.weights-page table.wsgtable td.wsg-shed{white-space:normal;overflow-wrap:anywhere}
+/* A loss reads as a loss in both views: the same `--danger` the bar list paints a negative bar
+   and its value with (`.wbar .wbv.neg`), so switching to the table cannot quietly turn a losing
+   pen into an ordinary black number. */
+.weights-page table.wsgtable td.wsg-val.neg{color:var(--danger)}
 .wcomp-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;max-width:340px}
 .wcomp-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:1px solid var(--line2);background:color-mix(in srgb,var(--panel) 76%,var(--bg));color:var(--muted);border-radius:6px;padding:2px 7px;font-size:10.5px;font-weight:750;line-height:1.25;white-space:nowrap}
 .wcomp-chip span{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 5px;border-radius:999px;background:var(--brand-soft);color:var(--brand-d);font-size:10px;font-weight:850}

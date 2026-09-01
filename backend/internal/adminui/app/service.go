@@ -3518,8 +3518,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.gain.body":        "A kid has to be weighed twice before a gain can be worked out.",
 			// Distinct from the above: these sheds DO have a second weigh, they are just all
 			// losing. Reusing the "needs a second weigh" line there would be a lie.
-			"empty.gain.all_losing":        "Every shed with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
-			"chart.gain.caption_shed":      "Same-animal rows show daily gain. Lump-sum rows show average weight change for that exact shed or partition; shifts, sales, deaths, or new animals can also move it.",
+			"empty.gain.all_losing":   "Every shed with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
+			"chart.gain.caption_shed": "Same-animal rows show daily gain. Lump-sum rows show average weight change for that exact shed or partition; shifts, sales, deaths, or new animals can also move it.",
+			// The same card reads as a CHART or as the exact figures (maintainer request
+			// 2026-09-01), the same shape the breed-wise gain card already carries. The choice
+			// lives in the URL like every other toggle on this page, so it survives a reload and
+			// travels in a shared link. Column headers are the card's own copy: this card is a
+			// chart-first surface with no table contract to draw them from.
+			"section.shed_gain.view_aria":  "Show the shed figures as a chart or a table",
+			"table.shed_gain.park":         "Park",
+			"table.shed_gain.shed":         "Shed",
+			"table.shed_gain.basis":        "Basis",
+			"table.shed_gain.gain":         "Daily gain",
+			"table.shed_gain.weight":       "Average weight",
 			"section.demographics.title":   "Breed, sex and stage",
 			"section.demographics.aria":    "Weight by breed, sex and stage",
 			"section.demographics.caption": "Daily gain counts kids weighed twice and sheds weighed as one total. Weight uses the latest weighed animals.",
