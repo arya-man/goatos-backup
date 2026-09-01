@@ -21,7 +21,17 @@ fi
 cd "$repo_root"
 
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+  git_askpass_script="$(mktemp)"
+  cat >"$git_askpass_script" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  *Username*) printf '%s\n' x-access-token ;;
+  *Password*) printf '%s' "$GITHUB_TOKEN" ;;
+esac
+EOF
+  chmod 700 "$git_askpass_script"
+  export GIT_ASKPASS="$git_askpass_script"
+  export GIT_TERMINAL_PROMPT=0
 fi
 
 if [[ -n "${COMMIT_SHA:-}" ]]; then
