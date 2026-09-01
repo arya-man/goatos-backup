@@ -2,7 +2,7 @@
 //
 // ONE implementation, imported by both, rather than a copy each. The two screens are read against
 // each other — a reader moves from the estate's weights to the analysis of them — and a window
-// that meant "the last two whole-shed weighs" on one page and something else on the other would
+// that starts on the proper Aug 2026 weighing history on one page and something else on the other would
 // make every figure look like it disagreed when only the period differed. Two copies of a rule
 // this fiddly (a lookback, a second-to-last date, a separate end date, three fallbacks) drift on
 // the first change to either.
@@ -18,19 +18,19 @@ export const WINDOW_FROM_PARAM = "wt_from";
 export const WINDOW_TO_PARAM = "wt_to";
 
 /**
- * Fallback window only. The real landing default is resolved below from the latest two lump-sum
- * weighing dates, because leadership reads these screens as "latest available weigh minus the one
- * before it" rather than a clock-calendar fortnight. If that lookup cannot produce two dates, a
- * stable page still has to render.
+ * The farm asked for the default period to start at the first dense/proper weighing history.
+ * goatos-stg currently has the reliable run from 2026-08-03 onward; before that, July rows are
+ * sparse weekly checks and make the default read noisy. Keep this fixed until enough later history
+ * exists to replace it with a true long-term rolling window.
  */
-export const DEFAULT_WINDOW_DAYS = 15;
+export const DEFAULT_WINDOW_FROM = "2026-08-03";
 export const LATEST_LUMP_LOOKBACK_DAYS = 400;
 export const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 export type Window = { from: string; to: string };
 
 export function defaultWindow(today: string): Window {
-  return { from: istDayPlus(today, -(DEFAULT_WINDOW_DAYS - 1)), to: today };
+  return { from: DEFAULT_WINDOW_FROM > today ? today : DEFAULT_WINDOW_FROM, to: today };
 }
 
 /**
@@ -50,7 +50,7 @@ export function explicitWindow(params: RouteSearchParams, today: string): Window
   return null;
 }
 
-/** The window a page opens on: the reader's own selection, else the latest two whole-shed weighs. */
+/** The window a page opens on: the reader's own selection, else 2026-08-03 through latest weighing. */
 export async function landingWindow(
   params: RouteSearchParams,
   today: string,
@@ -80,24 +80,13 @@ export async function landingWindow(
   });
   if (!result.ok) return defaultWindow(today);
 
-  const dates = [...new Set(result.data.lump_weighing_dates ?? [])].sort();
-  if (dates.length < 2) return defaultWindow(today);
-  // START from the lump dates, END from the last day the farm weighed ANYTHING.
-  //
-  // The two are different questions and were answered by one list. A shed-average movement needs two
-  // whole-shed weighs, so the START has to be the second-to-last of those. The END does not: on
-  // 25 Aug 2026 the farm scanned 199 kids across 17 sheds and no shed was weighed whole, so that day
-  // was absent from lump_weighing_dates entirely and a window closing on the later lump date shut
-  // one day early -- dropping every one of those kids from the KPIs, the gain charts and Fair fight,
-  // with the period label reading as if nothing had been missed.
-  //
-  // The backend owns the date (`latest_weighing_date`, whole-filter over both weighing grains); a max
-  // taken across the returned rows here would be the page deriving business truth from its own rows.
-  // An empty value falls back to the lump date, which is the behaviour this replaces.
+  // END from the last day the farm weighed ANYTHING, not just a lump-sum day.
+  // The backend owns the date (`latest_weighing_date`, whole-filter over both weighing grains);
+  // an empty value falls back to today so the page still renders.
   const latest = result.data.latest_weighing_date ?? "";
-  const end = BUSINESS_DAY.test(latest) && latest > dates[dates.length - 1] ? latest : dates[dates.length - 1];
+  const end = BUSINESS_DAY.test(latest) ? latest : today;
   return {
-    from: dates[dates.length - 2],
+    from: DEFAULT_WINDOW_FROM > today ? today : DEFAULT_WINDOW_FROM,
     to: end > today ? today : end,
   };
 }

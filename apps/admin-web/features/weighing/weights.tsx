@@ -23,7 +23,7 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 // The landing window is SHARED with /weighing/analytics so the two screens can never disagree
-// about which fortnight they are describing. See landing-window.ts for why it is one module.
+// about which weighing period they are describing. See landing-window.ts for why it is one module.
 import {
   WINDOW_FROM_PARAM,
   WINDOW_TO_PARAM,

@@ -28,6 +28,8 @@ Reviewed locally against OCI via `127.0.0.1:15432`, with backend on
 - Added the same Download drawer to `/weighing/analytics` as `/weighing/weights`.
 - Updated the CSV export path so the file follows the active page filters for sex,
   origin, and weighing mode, instead of exporting a broader population than the screen.
+- Set the shared Weights / Weights analytics default period to start from 2026-08-03,
+  the first dense/proper goatos-stg weighing history, through the latest weighing date.
 - Fixed OpenAPI/generated TypeScript contract drift for:
   - `gain_by_breed_shed_type`
   - `weighing_category` on weight demographics
@@ -63,6 +65,7 @@ same mapping is migrated into DB-backed shed metadata.
 - `/tmp/pr162-oci-refresh-shed.png`
 - `/tmp/pr162-oci-shed-ground-after-mapping.png`
 - `/tmp/pr162-analytics-download-final.png`
+- `/tmp/pr162-analytics-default-aug3-final.png`
 - `/tmp/pr162-oci-refresh-weight.png`
 - `/tmp/pr162-oci-refresh-time.png`
 
