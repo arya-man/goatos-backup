@@ -1200,7 +1200,10 @@
   .cbm-daylist .u{color:var(--faint);font-size:11px}
   .cbm-goatlist{flex-direction:row;flex-wrap:wrap;gap:6px}
   .cbm-goatlist li{border:1px solid var(--line2);border-radius:8px;padding:2px 8px;font-size:11.5px;font-variant-numeric:tabular-nums}
+  .cbm-goatlist .rfid{font-weight:650;color:var(--ink)}
   .cbm-goatlist .t{color:var(--faint);margin-left:6px}
+  .cbm-goatlist li.local-tag .rfid{color:var(--muted)}
+  .cbm-goatlist li.missing-rfid .rfid{color:var(--danger)}
   .cbm-cohort-detail-exception-count{display:block;font-size:20px;font-weight:700;color:var(--danger);margin-bottom:6px}
   .cbm-cohort-detail-muted{color:var(--faint);font-size:11.5px}
   /* Drilldown sections inside the record drawer. The inline panel's block styles were removed

@@ -126,6 +126,15 @@ interface CohortMember {
 type CohortDay = { date: string; animalCount: number };
 type CohortAnimal = { goatId: string; displayId: string; tag?: string };
 
+function visibleAnimalTag(tag?: string | null) {
+  const value = (tag ?? "").trim();
+  return value;
+}
+
+function isRfidTag(tag?: string | null) {
+  return /^\d{12,}$/.test((tag ?? "").trim());
+}
+
 interface CohortCellInput {
   cohort: { parkId?: string; parkName: string; managementStage: string; sex: string; animalCount: number };
   vaccineLabel: string;
@@ -1732,12 +1741,19 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   <>
                     <span className="cbm-cohort-detail-exception-count">{selectedCell.exceptionCount}</span>
                     <ul className="cbm-goatlist">
-                      {cohortDrilldown.data.exceptionGoats.map((goat) => (
-                        <li key={goat.goatId}>
-                          {goat.displayId}
-                          {goat.tag ? <span className="t">{goat.tag}</span> : null}
-                        </li>
-                      ))}
+                      {cohortDrilldown.data.exceptionGoats.map((goat) => {
+                        const tag = visibleAnimalTag(goat.tag);
+                        return (
+                          <li
+                            key={goat.goatId}
+                            className={tag ? (isRfidTag(tag) ? "rfid-tag" : "local-tag") : "missing-rfid"}
+                            title={goat.displayId}
+                            aria-label={tag ? `${tag} for ${goat.displayId}` : `No tag for ${goat.displayId}`}
+                          >
+                            <span className="rfid">{tag || "No tag"}</span>
+                          </li>
+                        );
+                      })}
                     </ul>
                     {/* Driven by a REMAINING CURSOR, not by count-vs-length. The list is
                         de-duplicated across the cell's dose codes while the count is a per-cell
