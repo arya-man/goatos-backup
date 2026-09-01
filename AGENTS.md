@@ -2258,7 +2258,70 @@ Purpose:
   precedent). Any OTHER nested `*/sops` route still needs
   its own recorded maintainer decision — the five routes are named in
   `check-ia-guard.mjs` `MODULE_SURFACE_ROUTE_EXCEPTIONS`.
-  The machine guard carries the same allowlist — the two Config entries plus
+  **Confirmed LANDED-COST rule (maintainer decision 2026-09-01): a load's Purchase
+  value is its LANDED cost — animals PLUS transport PLUS booking, labour, transit
+  and transition feed — never the ex-farm animal price.** The formula
+  (`procurement/domain.loadPurchaseValue`) was always right; only the animal
+  figure was ever imported, because the farm's Procurement DB sheet records cost
+  as ONE ROW PER EVENT per load and the importer read the Purchase row and
+  concluded no split existed. That understated the eight live loads by ₹2.99L
+  (5.8%) and overstated profit by the same. All six cost types count; `animal`
+  and `transport` keep their columns and the rest roll into `other`. An UNKNOWN
+  kind rolls into `other` rather than being dropped — an unclassified cost is
+  still money spent. The list keeps three columns and the itemisation appears on
+  CLICK; `procurement_load_cost_lines` is the source and the three columns are a
+  roll-up maintained in the same transaction, with a hand edit replacing that
+  load's lines so a breakdown can never disagree with the figure beside it.
+  The table also carries **Landing price / live kg** (landed cost ÷
+  `purchase_weight_kg`), and three charts follow the money chart in the same load
+  order: weight per animal in vs out, price per kg landing vs sale, and fattening
+  days. **The fattening clock starts on ARRIVAL, not purchase** — the farm warms
+  animals up at the source — and is ANIMAL-WEIGHTED across a load's sales.
+  On the sale side the maintainer kept the DISPLAYED sold value and took only
+  weight from `salesDB_clean`, so `sold_weighed_value` feeds price-per-kg ONLY and
+  must never be summed into the sold-value column. `sold_weighed_animals` is the
+  denominator that keeps the average honest: load 101 sold 66 animals but only 26
+  were weighed, and dividing by 66 reports a shrinking animal that never existed.
+  A load that has sold nothing reports ABSENCE, never zero.
+  **The AGE clock is separate from the fattening clock and must not be merged**
+  (maintainer request 2026-09-01): `fattening_days` starts on ARRIVAL and stops at
+  SALE; `days_since_purchase` starts at PURCHASE and runs while the load is open.
+  A load past `procurement/domain.LoadAgeAlertDays` (90, strictly greater — "exceeds
+  90 days") that STILL HOLDS ANIMALS raises a daily alert to the CXO ALONE; a load
+  past 90 days that sold out is history and is deliberately silent, because alerting
+  on it forever would train the reader to ignore the alert. Once per day comes from
+  the BUSINESS DATE in the idempotency key, never a private scheduler — the
+  `FeedLowStockNotifier` pattern, required by the task-kernel lock. The notifier
+  consumes the FINISHED load-wise read model so the push and the chart can never
+  disagree about which loads are overdue. Canonical prose:
+  `docs/decisions/load-landed-cost-and-growth.md`; schema: migration
+  `000234_procurement_load_cost_lines.sql`.
+
+  **Ratified exception (maintainer decision 2026-09-01): `/sales/config`.**
+  The THIRD Config entry, same shape and same reasoning as the two above, plus a
+  second half the others do not have. Sales Config is where every sales fact is
+  ENTERED or CHANGED — recording a sale, tagging the animals it is made of,
+  buyer and farmer-group leads, market quotes, sold-tag lists, weight checks,
+  a deal's payments and status, and a purchased load's landed cost. It authors
+  nothing generic and duplicates no lens; it is classified `module-surface`, not
+  `authority-screen`, and `/config` remains the single generic protocol-rule
+  authority screen.
+  **The second half is the lock: `/sales` and `/sales/loads` are READ-ONLY.**
+  Their backend page contracts declare NO write control at all — not a disabled
+  one — so neither page can render a button, a form or an entry drawer for
+  anyone, the CEO included. That is what makes entry exist in exactly one place;
+  an entry form living on two screens is a form whose two copies drift. The
+  authorities did not merge with the pages: `record_sale`, `record_pipeline`,
+  `record_sales_deal_payment` and `update_sales_deal_status` ride `SalesWrite`,
+  while `record_load_cost` keeps `LoadCostWrite`, so the sales desk sees the
+  cost control disabled with its reason on a page whose other controls are live.
+  The page itself is reached on `SalesRead` (the `/health/config` shape): a
+  reader opens it and sees each control disabled with a backend reason rather
+  than finding the leaf missing. Pinned by
+  `TestSalesReadPagesCarryNoWriteControl` (mutation-tested: restoring the write
+  compilation on `/sales` turns it red), `TestSalesConfigPageContract` and the
+  load-cost gate's sales-director row.
+  The machine guard carries the same allowlist — the three Config entries plus
   the five SOP-split routes — in `apps/admin-web/scripts/check-ia-guard.mjs`;
   widening it needs a new recorded maintainer decision here first.
 - Config / Protocol Rules is a generic Admin / Data Ops authority screen

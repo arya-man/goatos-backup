@@ -23,7 +23,11 @@ import {
 } from "@/lib/api/procurement-server";
 import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite, SalesDealStatusWrite } from "@/lib/api/procurement";
 
-const SALES_PATH = "/sales";
+// Every sales write is submitted from /sales/config (maintainer decision 2026-09-01), so that is
+// the page whose cache must be invalidated -- a save that revalidated only the read board would
+// leave the operator looking at the ledger they just wrote to, unchanged. The read pages are
+// force-dynamic and re-read on their own next visit.
+const SALES_PATH = "/sales/config";
 
 /**
  * Reads the record-sale fields off the form.

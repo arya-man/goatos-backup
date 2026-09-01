@@ -9,7 +9,6 @@ import { HBarList } from "@/components/hbar-list";
 import { MonthColumns } from "@/components/month-columns";
 import { Tag } from "@/components/ui-primitives";
 import {
-  actionFeedbackCopy,
   controlEnabled,
   copy,
   optionGroup,
@@ -19,11 +18,10 @@ import {
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError, listProcurementVendorOptions, listSaleLocations } from "@/lib/api/server";
+import { firstAuthRequiredError, listProcurementVendorOptions } from "@/lib/api/server";
 import type { ProcurementVendorOptions } from "@/lib/api/server";
-import { getSalesOverview, listSalesBuyerLeads, listSalesDeals, listSalesFpoLeads } from "@/lib/api/procurement-server";
+import { getSalesOverview, listSalesDeals } from "@/lib/api/procurement-server";
 import type { SalesDeal, SalesOverview } from "@/lib/api/procurement";
-import { SalesPipelineDrawers, type SalesPanel } from "./sales-pipeline-drawers";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import {
   dealStatusTone,
@@ -41,7 +39,6 @@ import {
   salesHref,
 } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
-import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 
 const PAGE_PATH = "/sales";
 const DEFAULT_FARM = "all";
@@ -66,14 +63,11 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
 function OverviewSections({
   overview,
   pageContract,
-  panelLink,
   buyersHref,
   buyersPage,
 }: {
   overview: SalesOverview;
   pageContract: AdminUiPageContract;
-  /** Renders the header button that opens one entry drawer, or null when the caller cannot record. */
-  panelLink: (panel: SalesPanel, labelKey: string) => ReactNode;
   /** Link builder for the buyer board's pager, preserving every other selected search param. */
   buyersHref: (page: number) => string;
   /** 1-based buyer board page, already clamped by the caller. */
@@ -220,7 +214,6 @@ function OverviewSections({
               <h3>{copy(pageContract, "section.market.title")}</h3>
               <div className="sp" style={{ flex: 1 }} />
               <span className="muted small">{copy(pageContract, "section.market.subtitle")}</span>
-              {panelLink("quote", "action.add_quote")}
             </div>
             {overview.market_benchmarks.length === 0 ? (
               <div className="empty">{copy(pageContract, "empty.market")}</div>
@@ -351,7 +344,6 @@ function OverviewSections({
                   {num(overview.buyer_pipeline.total)} {copy(pageContract, "pipeline.buyers.total")}
                 </Tag>
                 <div className="sp" style={{ flex: 1 }} />
-                {panelLink("buyer_leads", "action.add_lead")}
               </div>
               {overview.buyer_pipeline.total === 0 ? (
                 <div className="empty">{copy(pageContract, "empty.buyer_pipeline")}</div>
@@ -389,7 +381,6 @@ function OverviewSections({
                   {num(overview.fpo_pipeline.total)} {copy(pageContract, "pipeline.fpo.total")}
                 </Tag>
                 <div className="sp" style={{ flex: 1 }} />
-                {panelLink("fpo_leads", "action.add_fpo")}
               </div>
               {overview.fpo_pipeline.total === 0 ? (
                 <div className="empty">{copy(pageContract, "empty.fpo_pipeline")}</div>
@@ -428,7 +419,6 @@ function OverviewSections({
               <div className="hd">
                 <h3 style={{ whiteSpace: "nowrap" }}>{copy(pageContract, "evidence.tags.title")}</h3>
                 <div className="sp" style={{ flex: 1 }} />
-                {panelLink("tags", "action.add_tags")}
               </div>
               <p className="muted small" style={{ marginTop: 0 }}>
                 {copy(pageContract, "section.evidence.subtitle")}
@@ -461,7 +451,6 @@ function OverviewSections({
               <div className="hd">
                 <h3 style={{ whiteSpace: "nowrap" }}>{copy(pageContract, "evidence.audit.title")}</h3>
                 <div className="sp" style={{ flex: 1 }} />
-                {panelLink("weight_check", "action.add_weight_check")}
               </div>
               <p className="muted small" style={{ marginTop: 0 }}>
                 {copy(pageContract, "evidence.audit.subtitle")}
@@ -533,27 +522,22 @@ export async function SalesPage({
   // The whole screen's data in ONE parallel read: the overview contract, one ledger page, and the
   // first page of each pipeline (the entry drawers list and update them; LocalOverlayLink opens
   // without an RSC request, so drawer data must ride with the page).
-  const [overviewResult, dealsResult, buyerLeadsResult, fpoLeadsResult, saleLocations, vendorOptionsResult] =
-    await Promise.all([
+  //
+  // The pipeline lead lists and the tag-animals location catalog are deliberately NOT read here
+  // any more: they fed ENTRY forms, and entry moved to /sales/config (maintainer decision
+  // 2026-09-01). Fetch = render — this page renders no form, so it asks for no form's data.
+  const [overviewResult, dealsResult, vendorOptionsResult] = await Promise.all([
     getSalesOverview({ farm }),
     listSalesDeals({ farm, limit, offset }),
-    listSalesBuyerLeads({ limit: 20 }),
-    listSalesFpoLeads({ limit: 20 }),
-    // The picker's park/shed/pen vocabulary, backend-owned. It excludes the legacy
-    // partition-alias shed rows ("Castro 1") that hold no animals and no pens -- offering
-    // them gave an operator a choice that could only ever return an empty list.
-    listSaleLocations(),
-    // Every sale is made TO a vendor (maintainer decision 2026-08-27), so the record-sale drawer
-    // needs the active register with the page -- LocalOverlayLink opens it without an RSC request.
-    // ONE bounded read, never a paged walk of /procurement/vendors: that is the banned SSR
-    // full-walk shape (make admin-web-request-reads-guard).
+    // The deal drawer here is a READ-ONLY detail, and it still names the buyer's vendor. Resolving
+    // that id to the register's name needs the active register with the page — LocalOverlayLink
+    // opens the drawer without an RSC request. ONE bounded read, never a paged walk of
+    // /procurement/vendors: that is the banned SSR full-walk shape.
     listProcurementVendorOptions(),
   ]);
 
   if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
 
-  // Pass plain backend data; the drawer issues no fetch of its own on open.
-  const tagLocations = saleLocations.ok ? saleLocations.data : { parks: [], locations: [] };
   // null means the register could NOT be read (it is a separate permission, procurement.vendor.read).
   // The drawer renders a stated error for that case rather than an empty dropdown, which would read
   // as "there are no vendors" and send the person to add one that already exists.
@@ -565,25 +549,15 @@ export async function SalesPage({
   const pageCount = Math.max(1, Math.ceil(total / limit));
   const pageNumber = Math.min(pageCount, Math.floor(offset / limit) + 1);
 
-  const actionStatus = one(sp, "action_status");
-  const actionKey = one(sp, "action_key");
+  // READ-ONLY BY CONTRACT (maintainer decision 2026-09-01): the backend page contract for /sales
+  // declares no write control at all, so `controlEnabled` is false for everyone including the CEO
+  // and the deal drawer below opens as a detail view. Recording, editing and tagging live on
+  // /sales/config. Do not "restore" a button here — add the control back to this page's contract
+  // first, which TestSalesReadPagesCarryNoWriteControl refuses.
   const canRecord = controlEnabled(pageContract, "record_sale", false);
-  const canRecordPipeline = controlEnabled(pageContract, "record_pipeline", false);
   const none = copy(pageContract, "value.none");
   const dealColumns = tableLabels(pageContract, "sales-deals");
-  const listHref = hrefWithQuery(sp, { deal_id: null, panel: null });
-  const panelHrefFor = (panel: SalesPanel) => hrefWithQuery(sp, { deal_id: null, panel });
-  // One header control opens the entry drawer only when the page contract grants write access.
-  // The server routes enforce the same permission.
-  const panelLink = (panel: SalesPanel, labelKey: string): ReactNode =>
-    canRecordPipeline ? (
-      <LocalOverlayLink href={panelHrefFor(panel)} className="btn sm" scroll={false}>
-        {copy(pageContract, labelKey)}
-      </LocalOverlayLink>
-    ) : null;
-
-  const buyerLeadPage = buyerLeadsResult.ok ? buyerLeadsResult.data : { leads: [], total: 0, status_options: [] };
-  const fpoLeadPage = fpoLeadsResult.ok ? fpoLeadsResult.data : { leads: [], total: 0, status_options: [] };
+  const listHref = hrefWithQuery(sp, { deal_id: null });
 
   return (
     <div className="screen on">
@@ -600,46 +574,7 @@ export async function SalesPage({
           <h1>{pageContract.title}</h1>
           <div className="sub">{pageContract.subtitle}</div>
         </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {canRecord ? (
-          <LocalOverlayLink
-            href={hrefWithQuery(sp, { deal_id: "new" })}
-            className="btn primary"
-            scroll={false}
-            style={{ marginBottom: 4 }}
-          >
-            {copy(pageContract, "action.record_sale.label")}
-          </LocalOverlayLink>
-        ) : null}
-        {/* Tagging animals to a sale WRITES HERD IDENTITY -- it exits each animal as sold --
-            so it is gated on the same record_sale capability as recording the deal, and
-            additionally on there being a recorded sale to tag animals to. */}
-        {canRecord && deals.length > 0 ? (
-          <LocalOverlayLink
-            href={hrefWithQuery(sp, { tag_sale: deals[0].deal_id })}
-            className="btn"
-            scroll={false}
-            style={{ marginBottom: 4 }}
-            title={copy(pageContract, "action.tag_animals.hint")}
-          >
-            {copy(pageContract, "action.tag_animals.label")}
-          </LocalOverlayLink>
-        ) : null}
       </div>
-
-      {/* Write feedback. Without this the operator records a sale and the drawer simply closes,
-          which is indistinguishable from the save being dropped. */}
-      {actionStatus ? (
-        actionStatus === "success" ? (
-          <div className="note" style={{ marginBottom: 14 }}>
-            {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </div>
-        ) : (
-          <div className="alert" style={{ marginBottom: 14 }}>
-            {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </div>
-        )
-      ) : null}
 
       {!overviewResult.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
@@ -671,7 +606,6 @@ export async function SalesPage({
         <OverviewSections
           overview={overview}
           pageContract={pageContract}
-          panelLink={panelLink}
           buyersPage={buyersPage}
           buyersHref={(page) => hrefWithQuery(sp, { buyers_page: page > 1 ? String(page) : null })}
         />
@@ -778,30 +712,6 @@ export async function SalesPage({
         listHref={listHref}
         canRecord={canRecord}
         vendorOptions={vendorOptions}
-      />
-      {canRecord ? (
-        <SaleAllocationDrawer
-          deals={deals}
-          locations={tagLocations}
-          pageContract={pageContract}
-          listHref={listHref}
-        />
-      ) : null}
-      <SalesPipelineDrawers
-        pageContract={pageContract}
-        listHref={listHref}
-        panelHrefs={{
-          buyer_leads: panelHrefFor("buyer_leads"),
-          fpo_leads: panelHrefFor("fpo_leads"),
-          quote: panelHrefFor("quote"),
-          tags: panelHrefFor("tags"),
-          weight_check: panelHrefFor("weight_check"),
-        }}
-        canRecord={canRecordPipeline}
-        buyerLeads={buyerLeadPage.leads}
-        buyerStatusOptions={buyerLeadPage.status_options}
-        fpoLeads={fpoLeadPage.leads}
-        fpoStatusOptions={fpoLeadPage.status_options}
       />
     </div>
   );

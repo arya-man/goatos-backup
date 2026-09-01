@@ -70,6 +70,10 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 		// director already holds, and he is precisely the desk that records a load's landed
 		// cost -- LoadCostWrite is granted exactly where FeedPurchaseWrite is.
 		"/sales/loads",
+		// Sales Config (maintainer decision 2026-09-01), which is where the load-cost write
+		// he owns MOVED to when /sales/loads became read-only. Withholding it would leave him
+		// the one desk that records a load's cost with nowhere to record it.
+		"/sales/config",
 		"/feed/analytics",
 		"/feed/sops",
 	}

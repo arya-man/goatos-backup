@@ -844,10 +844,11 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileVerificationReviewControls(out[i].Controls, input, out[i].Copy)
 		case "health-config":
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
-		case "sales":
-			out[i].Controls = compileSalesControls(out[i].Controls, input, out[i].Copy)
-		case "sales-loads":
-			out[i].Controls = compileSalesLoadsControls(out[i].Controls, input, out[i].Copy)
+		case "sales-config":
+			// Sales Config is the ONLY sales write surface (maintainer decision 2026-09-01).
+			// /sales and /sales/loads are deliberately absent from this switch: a page that
+			// declares no write control renders none, which is what makes them read-only.
+			out[i].Controls = compileSalesConfigControls(out[i].Controls, input, out[i].Copy)
 		case "feed-purchases":
 			out[i].Controls = compileFeedPurchaseControls(out[i].Controls, input, out[i].Copy)
 		case "people":
@@ -910,15 +911,19 @@ func compileHealthConfigControls(controls []domain.Control, input BootstrapInput
 	return controls
 }
 
-// compileSalesControls splits /sales by authority: SalesRead reaches the board and
-// reads the ledger; only SalesWrite may record a sale.
+// compileSalesConfigControls declares every sales WRITE, all of it on /sales/config (maintainer
+// decision 2026-09-01). /sales and /sales/loads read the same facts and declare no write of their
+// own, so an entry form exists in exactly one place and cannot drift between two.
+//
+// Splitting by authority is unchanged by the move: SalesRead reaches the page, only SalesWrite may
+// record a sale or a receipt, and only LoadCostWrite may cost a load. One page, two permissions.
 //
 // The control is declared for every principal who reaches the page and DISABLED with a reason for
 // those who may not use it, rather than omitted -- a missing button reads as a broken page, a
 // disabled one carrying "your role can view sales but not record them" is an answer. Same shape as
 // compileHealthConfigControls. The route behind it requires the same permission, so a principal
 // who defeats the disabled state still gets 403; the control is the honest label, not the lock.
-func compileSalesControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+func compileSalesConfigControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
 	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps the control
 	// enabled, matching compileConfigControls and compileHealthConfigControls.
 	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesWrite})
@@ -957,7 +962,7 @@ func compileSalesControls(controls []domain.Control, input BootstrapInput, copy 
 	})
 	// The lifecycle edit that closes an expected sale on the day it happens. Same authority as
 	// recording the deal.
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "update_sales_deal_status",
 		Label:          controlCopy(copy, "action.update_deal_status.label", "Update status"),
 		Kind:           "row_action",
@@ -965,26 +970,24 @@ func compileSalesControls(controls []domain.Control, input BootstrapInput, copy 
 		DisabledReason: reason,
 		Action:         "POST /sales/deals/{deal_id}/status",
 	})
-}
 
-// compileSalesLoadsControls gates the load-cost write on the Purchase & barn page.
-//
-// Recording a LOAD's landed cost is buying-desk money, not sales recording, so it carries its own
-// dedicated permission (LoadCostWrite, the FeedPurchaseWrite precedent) rather than riding
-// SalesWrite -- a sales recorder who is not the buying desk sees the control disabled with the
-// reason, per the role-scoped-UI-is-capability-gated lock.
-func compileSalesLoadsControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
-	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.LoadCostWrite})
-	reason := ""
-	if !allowed {
-		reason = controlCopy(copy, "disabled.load_cost", "Recording a load's cost needs the buying desk's access.")
+	// The load-cost write moved here with every other sales entry, but it keeps its OWN
+	// permission. Recording a LOAD's landed cost is buying-desk money, not sales recording, so it
+	// carries LoadCostWrite (the FeedPurchaseWrite precedent) rather than riding SalesWrite -- a
+	// sales recorder who is not the buying desk sees this one control disabled with its reason
+	// while the rest of the page stays live, per the role-scoped-UI-is-capability-gated lock.
+	// Sharing the page must never mean sharing the authority.
+	costAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.LoadCostWrite})
+	costReason := ""
+	if !costAllowed {
+		costReason = controlCopy(copy, "disabled.load_cost", "Recording a load's cost needs the buying desk's access.")
 	}
 	return upsertControl(controls, domain.Control{
 		ID:             "record_load_cost",
 		Label:          controlCopy(copy, "action.record_load_cost.label", "Record cost"),
 		Kind:           "row_action",
-		Enabled:        allowed,
-		DisabledReason: reason,
+		Enabled:        costAllowed,
+		DisabledReason: costReason,
 		Action:         "PUT /procurement/loads/{load_id}/cost",
 	})
 }
@@ -1692,12 +1695,16 @@ func permissionsForNav(id string) []string {
 		// they work; the register carries negotiated prices, contact numbers and banking
 		// instruments. Gating the leaf on ProcurementRead would put it in every operator's sidebar.
 		return []string{permissions.VendorRead}
-	case "sales-board", "sales-loads":
+	case "sales-board", "sales-loads", "sales-config":
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.
 		//
 		// Purchase & barn reads the same commercial facts per load, so it rides the same
-		// permission. The load-cost WRITE on that page is separately gated on LoadCostWrite.
+		// permission. Sales Config rides it too rather than SalesWrite: a sales reader who cannot
+		// record still reaches the page and sees each control DISABLED with its reason, which is
+		// the health-config shape -- a missing leaf reads as a broken product, a disabled button
+		// carrying "your role can view sales but not record them" is an answer. The WRITES on it
+		// are separately gated (SalesWrite, and LoadCostWrite for a load's cost).
 		return []string{permissions.SalesRead}
 	case "procurement-feed-purchases":
 		// The dedicated ledger permission, NOT ProcurementRead: the purchase ledger carries

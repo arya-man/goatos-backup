@@ -75,6 +75,20 @@ export function LoadwiseSection({
     { key: "mortality", label: copy(pageContract, "chart.series.mortality"), tone: "danger" },
     { key: "remaining", label: copy(pageContract, "chart.series.remaining"), tone: "teal" },
   ];
+  // The growth read: how heavy an animal came in against how heavy it went out, and what a
+  // kilogram cost against what it fetched. Same load order as the two charts above, so a reader
+  // scans one column of loads down the page.
+  const weightSeries: GroupedSeries[] = [
+    { key: "avg_purchase_weight_kg", label: copy(pageContract, "chart.series.avg_purchase_weight"), tone: "info" },
+    { key: "avg_sale_weight_kg", label: copy(pageContract, "chart.series.avg_sale_weight"), tone: "ok" },
+  ];
+  const perKgSeries: GroupedSeries[] = [
+    { key: "landed_price_per_kg", label: copy(pageContract, "chart.series.landing_price_per_kg"), tone: "info" },
+    { key: "sale_price_per_kg", label: copy(pageContract, "chart.series.sale_price_per_kg"), tone: "ok" },
+  ];
+  const fatteningSeries: GroupedSeries[] = [
+    { key: "fattening_days", label: copy(pageContract, "chart.series.fattening_days"), tone: "teal" },
+  ];
   const valueSeries: GroupedSeries[] = [
     { key: "purchase_value", label: copy(pageContract, "chart.series.purchase_value"), tone: "info" },
     { key: "sold_value", label: copy(pageContract, "chart.series.sold_value"), tone: "ok" },
@@ -215,6 +229,85 @@ export function LoadwiseSection({
             }))}
           />
 
+          {/* Chart 3 — weight per animal, in against out. The pair only means something when both
+              halves exist, and a load that has sold nothing has no sale weight, so its second bar
+              is absent rather than zero. */}
+          <div className="mt">{copy(pageContract, "chart.loadwise_weight.title")}</div>
+          <GroupedColumns
+            series={weightSeries}
+            chartLabel={copy(pageContract, "chart.loadwise_weight.title")}
+            emptyLabel={copy(pageContract, "chart.loadwise_weight.empty")}
+            data={loads.map((load) => ({
+              key: load.load_id,
+              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
+              label: loadLabel(load, loadWord, none),
+              values: [load.avg_purchase_weight_kg ?? null, load.avg_sale_weight_kg ?? null],
+              displays: [
+                load.avg_purchase_weight_kg == null
+                  ? copy(pageContract, "value.weight_missing")
+                  : `${num(load.avg_purchase_weight_kg, 1)} ${copy(pageContract, "value.kg")}`,
+                load.avg_sale_weight_kg == null
+                  ? copy(pageContract, "value.not_sold_yet")
+                  : `${num(load.avg_sale_weight_kg, 1)} ${copy(pageContract, "value.kg")}`,
+              ],
+              // The sale average is over the animals actually WEIGHED on the way out, which is
+              // fewer than sold on some loads. Saying so here is the difference between a sample
+              // and a claim about the whole load.
+              subLabel:
+                load.sold_weighed_animals != null && load.sold_weighed_animals < load.sold
+                  ? `${num(load.sold_weighed_animals)} / ${num(load.sold)} ${copy(pageContract, "value.weighed_out")}`
+                  : load.vendor_name,
+            }))}
+          />
+
+          {/* Chart 4 — what a kilogram cost against what it fetched. */}
+          <div className="mt">{copy(pageContract, "chart.loadwise_per_kg.title")}</div>
+          <GroupedColumns
+            series={perKgSeries}
+            chartLabel={copy(pageContract, "chart.loadwise_per_kg.title")}
+            emptyLabel={copy(pageContract, "chart.loadwise_per_kg.empty")}
+            data={loads.map((load) => ({
+              key: load.load_id,
+              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
+              label: loadLabel(load, loadWord, none),
+              values: [load.landed_price_per_kg ?? null, load.sale_price_per_kg ?? null],
+              displays: [
+                load.landed_price_per_kg == null
+                  ? copy(pageContract, "value.cost_missing")
+                  : inr(load.landed_price_per_kg, 2),
+                load.sale_price_per_kg == null
+                  ? copy(pageContract, "value.not_sold_yet")
+                  : inr(load.sale_price_per_kg, 2),
+              ],
+              subLabel: load.vendor_name,
+            }))}
+          />
+
+          {/* Chart 5 — the fattening clock: arrival to sale, animal-weighted. Absent for a load
+              that has not sold, because there is no elapsed span to state yet. */}
+          <div className="mt">{copy(pageContract, "chart.loadwise_fattening.title")}</div>
+          <GroupedColumns
+            series={fatteningSeries}
+            chartLabel={copy(pageContract, "chart.loadwise_fattening.title")}
+            emptyLabel={copy(pageContract, "chart.loadwise_fattening.empty")}
+            data={loads.map((load) => ({
+              key: load.load_id,
+              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
+              label: loadLabel(load, loadWord, none),
+              values: [load.fattening_days ?? null],
+              displays: [
+                load.fattening_days == null
+                  ? copy(pageContract, "value.not_sold_yet")
+                  : `${num(load.fattening_days)} ${copy(pageContract, "value.days")}`,
+              ],
+              // The clock starts on ARRIVAL, not purchase — stated on the bar so nobody reads it
+              // against the purchase date in the row above.
+              subLabel: load.arrived_on
+                ? `${copy(pageContract, "value.arrived_on")} ${shortDate(load.arrived_on)}`
+                : load.vendor_name,
+            }))}
+          />
+
           {/* The reconciliation table. */}
           <div className="twrap" style={{ marginTop: 12 }}>
             <table className="loadwise-table" aria-label={copy(pageContract, "section.loadwise.aria")}>
@@ -272,6 +365,35 @@ export function LoadwiseSection({
                         "num",
                       )}
                       {cell(moneyCell(load.purchase_value, copy(pageContract, "value.cost_missing")), "num")}
+                      {/* LANDING PRICE PER LIVE KG (maintainer request 2026-09-01): what one live
+                          kilogram cost to land. Absent when the load was never weighed OR never
+                          costed -- two different gaps, so the cell says which rather than
+                          printing a figure derived from a missing half. Two decimals, because
+                          this is the number vendors are compared on and whole rupees would hide
+                          the difference between two deals. */}
+                      {cell(
+                        load.landed_price_per_kg == null ? (
+                          <span
+                            className="muted"
+                            title={copy(
+                              pageContract,
+                              load.purchase_value == null ? "value.cost_missing" : "value.weight_missing",
+                            )}
+                          >
+                            {copy(
+                              pageContract,
+                              load.purchase_value == null ? "value.cost_missing" : "value.weight_missing",
+                            )}
+                          </span>
+                        ) : (
+                          <span
+                            title={`${num(load.purchase_weight_kg ?? 0, 1)} ${copy(pageContract, "value.live_kg")}`}
+                          >
+                            {inr(load.landed_price_per_kg, 2)}
+                          </span>
+                        ),
+                        "num",
+                      )}
                       {cell(
                         load.sold > load.sold_priced ? (
                           <span

@@ -14544,6 +14544,28 @@ components:
             How the row arrived: bootstrapped sheet history, or recorded in the app. The ledger
             shows the difference rather than presenting history as something a person typed here.
         created_at: { type: string, format: date-time }
+    LoadCostLine:
+      type: object
+      description: One recorded cost event on a procurement load.
+      required: [kind, amount, source]
+      properties:
+        kind:
+          type: string
+          enum: [animal, transport, booking, labour, transit, transition_feed, other]
+          description: >-
+            The farm's own cost vocabulary, from the Procurement DB sheet's Record Type column.
+            `animal` is that sheet's "Purchase" row. Clients render a backend-owned label keyed on
+            this string and must not compose one from it.
+        amount:
+          type: number
+          description: Rupees. Zero is a real recorded fact (a step that happened at no charge); never negative.
+        note: { type: string }
+        source:
+          type: string
+          enum: [app, sheet_import]
+          description: >-
+            Where the figure came from, so a number lifted from the farm's sheet is never mistaken
+            for one a person typed.
     LoadwiseLoad:
       type: object
       description: One procurement load's reconciliation row on the Sales page.
@@ -14585,6 +14607,16 @@ components:
             purchased minus every outcome above. Positive = animals the load declares that
             nothing accounts for; negative = more animals attributed than it declares. Either
             way the screen shows it in red; it is never absorbed into another bucket.
+        cost_lines:
+          type: array
+          description: >-
+            What the three cost buckets below are MADE OF -- the farm's own cost events for this
+            load. Rendered when a load is OPENED, never in the list (maintainer decision
+            2026-09-01): the list stays three columns and the breakdown appears on click. Empty for
+            a load costed by hand before the itemisation existed, which is NOT the same as a load
+            with no cost -- the buckets answer that.
+          items:
+            $ref: "#/components/schemas/LoadCostLine"
         animal_cost: { type: number, nullable: true }
         transport_cost: { type: number, nullable: true }
         other_cost: { type: number, nullable: true }
@@ -14592,6 +14624,71 @@ components:
           type: number
           nullable: true
           description: Landed cost (animal + transport + other). Absent = cost not recorded, never zero.
+        purchase_weight_kg:
+          type: number
+          nullable: true
+          description: >-
+            The load's total LIVE weight at purchase, in kg. Absent = not weighed, which is a
+            different fact from zero and is why landed_price_per_kg can be absent on a fully
+            costed load.
+        landed_price_per_kg:
+          type: number
+          nullable: true
+          description: >-
+            What one live kilogram of this load cost to land: purchase_value / purchase_weight_kg.
+            The farm's own figure for comparing one vendor's deal against another when the animals
+            differ in size. Absent when either half is unknown -- never a fabricated zero, which
+            would read as "these animals were free".
+        avg_purchase_weight_kg:
+          type: number
+          nullable: true
+          description: >-
+            How heavy one animal was coming in: purchase_weight_kg over the animals purchased.
+        avg_sale_weight_kg:
+          type: number
+          nullable: true
+          description: >-
+            How heavy one animal was going out, over the animals that were actually WEIGHED on the
+            way out (sold_weighed_animals), not over every animal sold. Some legacy sales recorded
+            no weight, and dividing by the full sold count would report an animal the farm never
+            sold. Absent when the load has sold nothing, or nothing weighed.
+        sale_price_per_kg:
+          type: number
+          nullable: true
+          description: >-
+            What one kilogram fetched, against landed_price_per_kg's what one cost. Value and
+            weight are drawn from the SAME weighed sales, so the ratio describes a real set of
+            rows. This is NOT the load's sold value and must not be presented as one.
+        sold_weighed_animals:
+          type: integer
+          nullable: true
+          description: >-
+            The denominator behind avg_sale_weight_kg -- the animals that carry a sale weight.
+            Published so a client can say the average is over a sample rather than imply a total.
+        arrived_on:
+          type: string
+          format: date
+          nullable: true
+          description: >-
+            The day the animals REACHED THE FARM. Not the purchase date: the farm warms animals up
+            at the source, so a load is bought a day or more before it lands here, and the
+            fattening clock starts on arrival.
+        days_since_purchase:
+          type: integer
+          nullable: true
+          description: >-
+            The load's AGE: whole days from its purchase date to today's Asia/Kolkata business
+            date. A DIFFERENT clock from fattening_days -- that one starts on arrival and stops at
+            sale, this one starts at purchase and keeps running while the load is open. A load
+            past 90 days still holding animals raises the daily CXO alert. Absent when the
+            purchase date is unknown.
+        fattening_days:
+          type: integer
+          nullable: true
+          description: >-
+            Days between arrival and sale, ANIMAL-WEIGHTED across the load's sales -- a load that
+            leaves in four batches over four months has no single sale date, and weighting by how
+            many animals left on each answers "how long was the average animal fattened".
         sold_value: { type: number, description: Deal value attributed to this load's sold animals. }
         sold_priced:
           type: integer
@@ -28933,6 +29030,8 @@ components:
         - sheds_weighed
         - sheds_in_scope
         - animals_weighed
+        - individual_animals_weighed
+        - lump_sum_animals_weighed
         - total_weight_kg
         - at_or_above_30kg
         - at_or_above_35kg
@@ -28944,6 +29043,12 @@ components:
           type: integer
         animals_weighed:
           type: integer
+        individual_animals_weighed:
+          type: integer
+          description: Animals weighed through per-animal RFID scans.
+        lump_sum_animals_weighed:
+          type: integer
+          description: Animals counted through whole-shed lump-sum weighing rows.
         total_weight_kg:
           type: number
           format: double

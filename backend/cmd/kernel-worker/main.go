@@ -172,6 +172,11 @@ func run(ctx context.Context, args []string) error {
 			// lock forbids a module keeping its own scheduler, and "once per day" comes from the
 			// notifier's business-date idempotency key rather than from a cron expression.
 			kernelstages.NewFeedLowStockStage(deps, tenantID, logger),
+			// Daily overdue-load alert to the CXO (maintainer decision 2026-09-01): a load bought
+			// more than 90 days ago whose animals are still on farm. Same lane and the same
+			// once-per-day mechanism as the low-stock alert above -- a business-date idempotency
+			// key, not a cron expression.
+			kernelstages.NewLoadAgeAlertStage(deps, tenantID, logger),
 			kernelstages.NewMilkFeedingStage(deps, tenantID),
 			// WEIGHING PHASE 2 cadence. No new worker binary: the weighing
 			// work-item kernel (terminal reconcile -> roll-forward ->

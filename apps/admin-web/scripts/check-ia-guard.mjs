@@ -99,9 +99,21 @@ function hasCommandSegment(route) {
 // screen, and no command lens (Control Tower, Action Center, Calendar, Protocol Adherence,
 // Workflows) is exempted for any vertical. The "sops" segment stays in COMMAND_SEGMENTS so any
 // OTHER nested sops route (e.g. /procurement/sops) still fails without its own recorded decision.
+//
+// `/sales/config`, approved by explicit maintainer decision 2026-09-01 and recorded in AGENTS.md
+// plus the "sales" nav group comment in the backend contract. Same shape as the two Config entries
+// above and admitted for the same reason: it is Sales' own DATA-ENTRY surface, not a second copy
+// of a top-level lens. It authors nothing generic -- it is where a sale, its animals, the buyer
+// and farmer-group pipeline, market quotes, tag lists, weight checks and a purchased load's
+// landed cost are RECORDED, against /sales/* and /procurement/loads/*. The two Sales read pages
+// became read-only in the same change (their page contracts declare no write control), so entry
+// exists in exactly one place. No generic `/config` authority screen is duplicated: the "config"
+// segment stays in COMMAND_SEGMENTS, so any OTHER nested config route still fails without its own
+// recorded decision.
 const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set([
   "/feed/config",
   "/health/config",
+  "/sales/config",
   "/counts/sops",
   "/feed/sops",
   "/milk/sops",

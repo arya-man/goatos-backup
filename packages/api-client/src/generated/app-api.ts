@@ -5916,6 +5916,22 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
+        /** @description One recorded cost event on a procurement load. */
+        LoadCostLine: {
+            /**
+             * @description The farm's own cost vocabulary, from the Procurement DB sheet's Record Type column. `animal` is that sheet's "Purchase" row. Clients render a backend-owned label keyed on this string and must not compose one from it.
+             * @enum {string}
+             */
+            kind: "animal" | "transport" | "booking" | "labour" | "transit" | "transition_feed" | "other";
+            /** @description Rupees. Zero is a real recorded fact (a step that happened at no charge); never negative. */
+            amount: number;
+            note?: string;
+            /**
+             * @description Where the figure came from, so a number lifted from the farm's sheet is never mistaken for one a person typed.
+             * @enum {string}
+             */
+            source: "app" | "sheet_import";
+        };
         /** @description One procurement load's reconciliation row on the Sales page. */
         LoadwiseLoad: {
             /** Format: uuid */
@@ -5941,11 +5957,34 @@ export interface components {
             remaining: number;
             /** @description purchased minus every outcome above. Positive = animals the load declares that nothing accounts for; negative = more animals attributed than it declares. Either way the screen shows it in red; it is never absorbed into another bucket. */
             unaccounted: number;
+            /** @description What the three cost buckets below are MADE OF -- the farm's own cost events for this load. Rendered when a load is OPENED, never in the list (maintainer decision 2026-09-01): the list stays three columns and the breakdown appears on click. Empty for a load costed by hand before the itemisation existed, which is NOT the same as a load with no cost -- the buckets answer that. */
+            cost_lines?: components["schemas"]["LoadCostLine"][];
             animal_cost?: number | null;
             transport_cost?: number | null;
             other_cost?: number | null;
             /** @description Landed cost (animal + transport + other). Absent = cost not recorded, never zero. */
             purchase_value?: number | null;
+            /** @description The load's total LIVE weight at purchase, in kg. Absent = not weighed, which is a different fact from zero and is why landed_price_per_kg can be absent on a fully costed load. */
+            purchase_weight_kg?: number | null;
+            /** @description What one live kilogram of this load cost to land: purchase_value / purchase_weight_kg. The farm's own figure for comparing one vendor's deal against another when the animals differ in size. Absent when either half is unknown -- never a fabricated zero, which would read as "these animals were free". */
+            landed_price_per_kg?: number | null;
+            /** @description How heavy one animal was coming in: purchase_weight_kg over the animals purchased. */
+            avg_purchase_weight_kg?: number | null;
+            /** @description How heavy one animal was going out, over the animals that were actually WEIGHED on the way out (sold_weighed_animals), not over every animal sold. Some legacy sales recorded no weight, and dividing by the full sold count would report an animal the farm never sold. Absent when the load has sold nothing, or nothing weighed. */
+            avg_sale_weight_kg?: number | null;
+            /** @description What one kilogram fetched, against landed_price_per_kg's what one cost. Value and weight are drawn from the SAME weighed sales, so the ratio describes a real set of rows. This is NOT the load's sold value and must not be presented as one. */
+            sale_price_per_kg?: number | null;
+            /** @description The denominator behind avg_sale_weight_kg -- the animals that carry a sale weight. Published so a client can say the average is over a sample rather than imply a total. */
+            sold_weighed_animals?: number | null;
+            /**
+             * Format: date
+             * @description The day the animals REACHED THE FARM. Not the purchase date: the farm warms animals up at the source, so a load is bought a day or more before it lands here, and the fattening clock starts on arrival.
+             */
+            arrived_on?: string | null;
+            /** @description The load's AGE: whole days from its purchase date to today's Asia/Kolkata business date. A DIFFERENT clock from fattening_days -- that one starts on arrival and stops at sale, this one starts at purchase and keeps running while the load is open. A load past 90 days still holding animals raises the daily CXO alert. Absent when the purchase date is unknown. */
+            days_since_purchase?: number | null;
+            /** @description Days between arrival and sale, ANIMAL-WEIGHTED across the load's sales -- a load that leaves in four batches over four months has no single sale date, and weighting by how many animals left on each answers "how long was the average animal fattened". */
+            fattening_days?: number | null;
             /** @description Deal value attributed to this load's sold animals. */
             sold_value: number;
             /** @description How many of `sold` carry an attributed deal share; the rest sold without a tagged sale. */
@@ -11865,6 +11904,10 @@ export interface components {
             sheds_weighed: number;
             sheds_in_scope: number;
             animals_weighed: number;
+            /** @description Animals weighed through per-animal RFID scans. */
+            individual_animals_weighed: number;
+            /** @description Animals counted through whole-shed lump-sum weighing rows. */
+            lump_sum_animals_weighed: number;
             /** Format: double */
             total_weight_kg: number;
             /**

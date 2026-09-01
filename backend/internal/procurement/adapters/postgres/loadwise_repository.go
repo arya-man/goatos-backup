@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -148,8 +149,25 @@ stats AS (
     FROM outcomes o
     GROUP BY o.load_id
 )
+-- projection-review: membership=procurement_loads (the served window itself); group_key=load_id
+-- (procurement_loads PK) on every attached side; join_cardinality=parties 1:1 on source_party_id,
+-- stats 1:1 by construction (GROUP BY m.load_id), prior 1:1 (GROUP BY load_id), and the 2026-09-01
+-- cost columns are PLAIN COLUMNS of procurement_loads -- 1:1 with the row by definition, adding no
+-- join and no fan-out; pagination=LIMIT $2 newest loads, whole-tenant total_loads reported beside
+-- the window so the count never means "of this page"; scope=tenant_id on the outer WHERE and on
+-- every CTE.
+--
+-- The ITEMISATION is deliberately NOT joined here. Cost lines are 1:N against a load, so joining
+-- them into this statement would multiply every row -- purchased counts, sold value, the lot --
+-- which is the classic fan-out this marker exists to refuse. They are fetched by
+-- loadCostLinesSQL as a separate set-based read and attached in Go by load_id, so a load with
+-- five cost lines is still exactly one row here.
 SELECT pl.load_id::text, COALESCE(pl.context->>'load_ref', ''), COALESCE(p.display_name, ''), pl.purchase_date, pl.status,
-       pl.animal_cost::float8, pl.transport_cost::float8, pl.other_cost::float8, pl.row_version,
+       pl.animal_cost::float8, pl.transport_cost::float8, pl.other_cost::float8,
+       pl.purchase_weight_kg::float8,
+       pl.sold_weight_kg::float8, pl.sold_weighed_animals, pl.sold_weighed_value::float8,
+       pl.arrived_on, pl.fattening_days,
+       pl.row_version,
        pl.expected_count,
        COALESCE(s.purchased, 0), COALESCE(s.sold, 0), COALESCE(s.mortality, 0),
        COALESCE(s.other_exits, 0), COALESCE(s.remaining, 0),
@@ -175,6 +193,71 @@ LEFT JOIN prior pr ON pr.load_id = pl.load_id
 WHERE pl.tenant_id = $1
 ORDER BY pl.purchase_date DESC NULLS LAST, pl.created_at DESC, pl.load_id
 LIMIT $2`
+
+// loadCostLinesSQL reads the itemisation for a whole page of loads at once. Ordered by the kind's
+// own position in domain.CostLineKinds, so the breakdown reads animal -> transport -> booking ->
+// labour -> transit -> feed rather than alphabetically; an unknown kind sorts last instead of
+// disappearing.
+const loadCostLinesSQL = `
+SELECT l.load_id::text, l.line_id::text, l.kind, l.amount::float8, l.note, l.source
+FROM public.procurement_load_cost_lines l
+WHERE l.tenant_id = $1 AND l.load_id = ANY($2::uuid[])
+ORDER BY l.load_id, COALESCE(array_position($3::text[], l.kind), 999), l.recorded_at, l.line_id`
+
+// attachCostLines fills every row's CostLines in ONE query.
+//
+// A failure here is NOT fatal to the page: the three bucket figures are already scanned and they
+// are what the list renders. Losing the breakdown costs the reader the detail behind a number,
+// while failing the whole read costs them the number itself -- so this degrades rather than takes
+// Purchase & barn down.
+func (r *Repository) attachCostLines(ctx context.Context, tenantID string, loads []domain.LoadwiseLoad) error {
+	if len(loads) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(loads))
+	for _, load := range loads {
+		ids = append(ids, load.LoadID)
+	}
+
+	rows, err := r.pool.Query(ctx, loadCostLinesSQL, tenantID, ids, domain.CostLineKinds)
+	if err != nil {
+		return fmt.Errorf("procurement: loadwise cost lines: %w", err)
+	}
+	defer rows.Close()
+
+	byLoad := make(map[string][]domain.LoadCostLine, len(loads))
+	for rows.Next() {
+		var (
+			loadID string
+			line   domain.LoadCostLine
+		)
+		if err := rows.Scan(&loadID, &line.LineID, &line.Kind, &line.Amount, &line.Note, &line.Source); err != nil {
+			return fmt.Errorf("procurement: loadwise cost lines scan: %w", err)
+		}
+		byLoad[loadID] = append(byLoad[loadID], line)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("procurement: loadwise cost lines rows: %w", err)
+	}
+	for i := range loads {
+		loads[i].CostLines = byLoad[loads[i].LoadID]
+	}
+	return nil
+}
+
+// clearLoadCostLinesSQL and insertLoadCostLinesSQL are the write half of the cost itemisation. A
+// hand edit through the cost drawer states BUCKET TOTALS, so it replaces this load's lines with one
+// line per bucket it names -- the breakdown a reader opens can then never claim a split that does
+// not add up to the figure beside it.
+const clearLoadCostLinesSQL = `
+DELETE FROM public.procurement_load_cost_lines
+WHERE tenant_id = $1 AND load_id = $2`
+
+// One set-based insert over the named buckets, never an Exec per bucket.
+const insertLoadCostLinesSQL = `
+INSERT INTO public.procurement_load_cost_lines (tenant_id, load_id, kind, amount, source, recorded_by)
+SELECT $1, $2, k, a, 'app', nullif($5, '')::uuid
+FROM unnest($3::text[], $4::numeric[]) AS t(k, a)`
 
 // loadwiseOverallAvgSQL prices the remaining-stock fallback: the average per-animal share across
 // EVERY tagged allocation on a positive-value deal (farm-born sales included — a realized animal
@@ -215,6 +298,7 @@ func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoad
 		var (
 			row            domain.LoadwiseLoad
 			purchaseDate   *time.Time
+			arrivedOn      *time.Time
 			priorSoldFirst *time.Time
 			priorSoldLast  *time.Time
 			priorDeadFirst *time.Time
@@ -222,7 +306,10 @@ func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoad
 		)
 		if err := rows.Scan(
 			&row.LoadID, &row.LoadRef, &row.VendorName, &purchaseDate, &row.Status,
-			&row.AnimalCost, &row.TransportCost, &row.OtherCost, &row.RowVersion,
+			&row.AnimalCost, &row.TransportCost, &row.OtherCost, &row.PurchaseWeightKg,
+			&row.SoldWeightKg, &row.SoldWeighedAnimals, &row.SoldWeighedValue,
+			&arrivedOn, &row.FatteningDays,
+			&row.RowVersion,
 			&row.DeclaredCount,
 			&row.Purchased, &row.Sold, &row.Mortality,
 			&row.OtherExits, &row.Remaining,
@@ -237,6 +324,8 @@ func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoad
 			// A business DATE: formatted as its calendar day, never shifted through a timezone.
 			row.PurchaseDate = purchaseDate.Format("2006-01-02")
 		}
+		// A business DATE, like purchase_date: its calendar day, never shifted through a timezone.
+		row.ArrivedOn = bizDate(arrivedOn)
 		row.PriorSold.FirstOn, row.PriorSold.LastOn = bizDate(priorSoldFirst), bizDate(priorSoldLast)
 		row.PriorDead.FirstOn, row.PriorDead.LastOn = bizDate(priorDeadFirst), bizDate(priorDeadLast)
 		// Unaccounted is derived in the domain AFTER the prior outcomes fold in (FinalizeLoadwise).
@@ -244,6 +333,14 @@ func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoad
 	}
 	if err := rows.Err(); err != nil {
 		return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise sales rows: %w", err)
+	}
+
+	// The itemisation for EVERY served load in ONE set-based read keyed on the ids just scanned --
+	// never a query per load, which is the banned n+1 fan-out (a 60-load page would be 61 round
+	// trips). The kind ordering is fixed server-side so the client renders a stable breakdown
+	// without sorting business vocabulary itself.
+	if err := r.attachCostLines(ctx, tenantID, loads); err != nil {
+		return domain.LoadwiseSales{}, err
 	}
 
 	var totalLoads int
@@ -265,7 +362,10 @@ func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoad
 		overall = &overallAvg
 	}
 
-	return domain.FinalizeLoadwise(loads, totalLoads, overall), nil
+	// The age clock reads against TODAY's Asia/Kolkata business date. A load is bought on a day,
+	// so its age is a whole number of business days -- never a UTC instant, which would flip the
+	// figure for five and a half hours every night.
+	return domain.FinalizeLoadwise(loads, totalLoads, overall, biztime.BusinessDate(time.Now())), nil
 }
 
 // bizDate renders an optional business DATE as its calendar day, never shifted through a timezone.
@@ -321,6 +421,44 @@ SET animal_cost = $3, transport_cost = $4, other_cost = $5,
 WHERE tenant_id = $1 AND load_id = $2`,
 		tenantID, loadID, edit.AnimalCost, edit.TransportCost, edit.OtherCost, actorID); err != nil {
 		return fmt.Errorf("procurement: update load cost: %w", err)
+	}
+
+	// THE ITEMISATION FOLLOWS THE FIGURE. A hand edit through the cost drawer replaces the edited
+	// buckets' lines with ONE line of that bucket's own kind, so the breakdown a reader opens can
+	// never claim a split that does not add up to the number beside it. This is the price of
+	// keeping both -- and it is the right way round: the person typing the total is stating the
+	// total, and a stale "transport 43,000 / labour 8,000" under a new total of 20,000 would be a
+	// lie the screen tells confidently.
+	//
+	// Only the buckets actually written are collapsed. Clearing the cost (nil animal cost) removes
+	// every line, matching the columns going NULL.
+	if _, err := tx.Exec(ctx, clearLoadCostLinesSQL, tenantID, loadID); err != nil {
+		return fmt.Errorf("procurement: clear load cost lines: %w", err)
+	}
+	kinds := make([]string, 0, 3)
+	amounts := make([]float64, 0, 3)
+	for _, part := range []struct {
+		kind   string
+		amount *float64
+	}{
+		{domain.CostKindAnimal, edit.AnimalCost},
+		{domain.CostKindTransport, edit.TransportCost},
+		{domain.CostKindOther, edit.OtherCost},
+	} {
+		if part.amount == nil {
+			continue
+		}
+		kinds = append(kinds, part.kind)
+		amounts = append(amounts, *part.amount)
+	}
+	// ONE set-based insert over the collected buckets, never an Exec per bucket. Three round trips
+	// would be harmless at this size, but the rule has no size exception -- the shape is what gets
+	// copied into the next loop, which is over rows rather than three fixed fields.
+	if len(kinds) > 0 {
+		if _, err := tx.Exec(ctx, insertLoadCostLinesSQL,
+			tenantID, loadID, kinds, amounts, actorID); err != nil {
+			return fmt.Errorf("procurement: write load cost lines: %w", err)
+		}
 	}
 
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{

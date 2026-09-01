@@ -7,7 +7,6 @@ import { firstAuthRequiredError } from "@/lib/api/server";
 import { getLoadwiseSales } from "@/lib/api/procurement-server";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { LoadwiseSection } from "./loadwise-section";
-import { LoadCostDrawer } from "./load-cost-drawer";
 
 const PAGE_PATH = "/sales/loads";
 /** The tab the page opens on when the URL names none — the first option the contract serves. */
@@ -32,7 +31,11 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
  *
  * Its own page under Sales rather than a block on the board (maintainer decision 2026-08-31): the
  * board answers how sales are going, this answers how each batch did, which is read at a different
- * time and carries its own write.
+ * time.
+ *
+ * READ-ONLY since the 2026-09-01 decision that moved every sales entry to /sales/config. The
+ * load-cost write that used to open from these rows lives there; this page's backend contract
+ * declares no control, so nothing here can open a form.
  */
 export async function SalesLoadsPage({
   searchParams,
@@ -53,9 +56,12 @@ export async function SalesLoadsPage({
   const loadwiseResult = view === DEFAULT_VIEW ? await getLoadwiseSales() : null;
   if (loadwiseResult && firstAuthRequiredError(loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);
 
+  // READ-ONLY BY CONTRACT (maintainer decision 2026-09-01): this page's backend contract declares
+  // no write control, so `controlEnabled` is false for everyone and the load rows below are not
+  // clickable. Recording a load's cost lives on /sales/config. Do not "restore" the drawer here —
+  // add the control back to this page's contract first, which
+  // TestSalesReadPagesCarryNoWriteControl refuses.
   const canRecordCost = controlEnabled(pageContract, "record_load_cost", false);
-  const listHref = hrefWithQuery(sp, { cost_load: null });
-  const loads = loadwiseResult?.ok ? loadwiseResult.data.loads : [];
 
   return (
     <div className="screen on">
@@ -98,10 +104,7 @@ export async function SalesLoadsPage({
           {views.map((option) => (
             <Link
               key={option.key}
-              href={hrefWithQuery(sp, {
-                view: option.key === DEFAULT_VIEW ? null : option.key,
-                cost_load: null,
-              })}
+              href={hrefWithQuery(sp, { view: option.key === DEFAULT_VIEW ? null : option.key })}
               scroll={false}
               className={option.key === view ? "btn p" : "btn"}
               aria-current={option.key === view ? "true" : undefined}
@@ -118,15 +121,6 @@ export async function SalesLoadsPage({
         loadwise={loadwiseResult}
         canRecordCost={canRecordCost}
         costHref={(loadId) => hrefWithQuery(sp, { cost_load: loadId })}
-      />
-
-      {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
-          gated on a server-read search param would never appear. */}
-      <LoadCostDrawer
-        loads={loads}
-        pageContract={pageContract}
-        listHref={listHref}
-        canRecordCost={canRecordCost}
       />
     </div>
   );
