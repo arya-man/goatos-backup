@@ -154,18 +154,21 @@ require_zero_downtime_migration_audit() {
   }
 
   if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
-    git fetch --depth=500 origin main >/dev/null 2>&1 || true
+    echo "live commit $base_commit not present in initial checkout; deepening origin/main history"
+    git fetch --deepen=1000 origin main || true
   fi
   if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
-    git fetch --unshallow origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1 ||
-      git fetch origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1 ||
-      true
+    git fetch --depth=5000 origin '+refs/heads/main:refs/remotes/origin/main' || true
   fi
   if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
-    echo "live commit $base_commit not present after origin fetch; fetching GitHub main history directly"
-    git fetch --unshallow https://github.com/vgoats/goatos.git '+refs/heads/main:refs/remotes/origin/main' >/dev/null 2>&1 ||
-      git fetch https://github.com/vgoats/goatos.git '+refs/heads/main:refs/remotes/origin/main' >/dev/null 2>&1 ||
-      true
+    echo "live commit $base_commit still missing; unshallowing origin/main history"
+    git fetch --unshallow origin '+refs/heads/main:refs/remotes/origin/main' || true
+  fi
+  if git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
+    git merge-base --is-ancestor "$base_commit" HEAD || {
+      echo "ERROR: live API commit ${base_commit} exists but is not an ancestor of ${commit_sha}" >&2
+      return 1
+    }
   fi
   git cat-file -e "${base_commit}^{commit}" 2>/dev/null || {
     echo "ERROR: cannot prove zero-downtime migrations because live API commit ${base_commit} is not in this checkout" >&2
