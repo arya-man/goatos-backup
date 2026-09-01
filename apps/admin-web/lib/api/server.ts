@@ -788,8 +788,9 @@ export async function getShedWeights(params: {
    * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
    * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
    * scanned weigh taken in the same pen are on the same side of it.
-   */
+  */
   origin?: string;
+  weighing_category?: string;
 }): Promise<ApiResult<ShedWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -815,6 +816,8 @@ export async function getWeighingDates(params: {
   from?: string;
   to?: string;
   sex?: string;
+  origin?: string;
+  weighing_category?: string;
 }): Promise<ApiResult<WeighingDatesResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -892,8 +895,9 @@ export async function getWeighingGrowth(params: {
    * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
    * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
    * scanned weigh taken in the same pen are on the same side of it.
-   */
+  */
   origin?: string;
+  weighing_category?: string;
 }): Promise<ApiResult<WeighingGrowthResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

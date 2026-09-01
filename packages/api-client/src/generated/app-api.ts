@@ -11973,7 +11973,7 @@ export interface components {
             gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
             /** @description Daily gain per breed split by elevated vs ground shed type. Unclassified sheds are omitted rather than guessed. */
             gain_by_breed_shed_type: components["schemas"]["WeighingWeightGainShedTypeBucket"][];
-            /** @description How many animals stand in each weight bracket and how fast each grows, counting both ways of weighing. Ascending. */
+            /** @description How many animals stand in each weight bracket and how fast each grows, under the selected weighing-category filter. Ascending. */
             by_weight_band: components["schemas"]["WeighingWeightBandBucket"][];
             /** @description The same gain cut by breed AND calendar week, for the Time-wise per-breed trend. */
             gain_by_breed_week: components["schemas"]["WeighingWeightGainBreedWeekBucket"][];
@@ -15562,7 +15562,7 @@ export interface operations {
                 /** @description Optional farm-born/purchased narrowing, with whole-shed rows included only when the pen is attributable. */
                 origin?: "farm_born" | "purchased";
                 /** @description Optional capture-mode narrowing. Omitted or `all` exports both capture modes. */
-                weighing_category?: "individual_animal" | "per_shed_partition";
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
@@ -15856,6 +15856,8 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
@@ -15919,6 +15921,8 @@ export interface operations {
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
                  */
                 origin?: "farm_born" | "purchased";
+                /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
@@ -15949,6 +15953,8 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
@@ -15987,6 +15993,8 @@ export interface operations {
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
                  */
                 origin?: "farm_born" | "purchased";
+                /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;
@@ -16025,7 +16033,7 @@ export interface operations {
                  */
                 origin?: "farm_born" | "purchased";
                 /** @description `individual_animal` or `per_shed_partition` to report only that weighing mode; omitted means both. The two modes are mutually exclusive at campaign-shed grain, so this filter narrows the read before aggregates are built rather than hiding rows in the browser. */
-                weighing_category?: "individual_animal" | "per_shed_partition";
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;

@@ -27,8 +27,9 @@ JOIN weighing_campaigns c
   ON c.campaign_id = cs.campaign_id
  AND c.tenant_id = cs.tenant_id
 WHERE sh.tenant_id = $1::uuid
-  AND c.park_id = ANY($2::uuid[])
-  AND cs.weighing_category = 'per_shed_partition'
+	  AND c.park_id = ANY($2::uuid[])
+	  AND cs.weighing_category = 'per_shed_partition'
+	  AND ($8::text = '' OR cs.weighing_category = $8::text)
   AND cs.status <> 'canceled'
   AND sh.withdrawn_at IS NULL
   AND sh.verification_status <> 'rejected'
@@ -56,9 +57,10 @@ SELECT max(d)::text FROM (
   FROM weighing_observations o
   JOIN weighing_campaign_sheds cs ON cs.campaign_shed_id = o.campaign_shed_id AND cs.tenant_id = o.tenant_id
   JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
-  WHERE o.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
-    AND cs.status <> 'canceled'
-    AND o.verification_status <> 'rejected'
+	WHERE o.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
+	    AND cs.status <> 'canceled'
+	    AND ($9::text = '' OR cs.weighing_category = $9::text)
+	    AND o.verification_status <> 'rejected'
     AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
     AND (NOT $5::bool OR lower(btrim(o.scanned_identifier)) = ANY($8::text[]))
   UNION ALL
@@ -66,9 +68,10 @@ SELECT max(d)::text FROM (
   FROM weighing_shed_observations sh
   JOIN weighing_campaign_sheds cs ON cs.campaign_shed_id = sh.campaign_shed_id AND cs.tenant_id = sh.tenant_id
   JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
-  WHERE sh.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
-    AND cs.status <> 'canceled'
-    AND sh.withdrawn_at IS NULL AND sh.verification_status <> 'rejected'
+	WHERE sh.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
+	    AND cs.status <> 'canceled'
+	    AND ($9::text = '' OR cs.weighing_category = $9::text)
+	    AND sh.withdrawn_at IS NULL AND sh.verification_status <> 'rejected'
     AND sh.accepted_at >= $3::timestamptz AND sh.accepted_at < $4::timestamptz
     AND (NOT $5::bool OR EXISTS (
       SELECT 1 FROM unnest($6::uuid[], $7::text[]) AS b(loc, part)
@@ -94,20 +97,27 @@ SELECT max(d)::text FROM (
 // It resolves the sex scope exactly as the shed-weights read does -- a day whose only whole-shed
 // weigh belongs to the other sex is not a day this reader has data for, so the landing window must
 // not open on it -- and then runs the two date queries and nothing else.
-func (r *Repository) GetWeighingDates(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.WeighingDates, error) {
+func (r *Repository) GetWeighingDates(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.WeighingDates, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	scope, err := r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+	sexScope, err := r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
 	if err != nil {
 		return domain.WeighingDates{}, err
 	}
-	return r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, strings.TrimSpace(sex) != "", scope)
+	originScope, err := r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+	if err != nil {
+		return domain.WeighingDates{}, err
+	}
+	sexApplied := strings.TrimSpace(sex) != ""
+	originApplied := strings.TrimSpace(origin) != ""
+	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
+	return r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexApplied || originApplied, scope, strings.TrimSpace(weighingCategory))
 }
 
-func (r *Repository) weighingDates(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) (domain.WeighingDates, error) {
+func (r *Repository) weighingDates(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) (domain.WeighingDates, error) {
 	out := domain.WeighingDates{LumpWeighingDates: []string{}}
 	dateRows, err := r.pool.Query(ctx, lumpWeighingDatesQuery, tenantID, parkIDs, periodStart, periodEnd,
-		sexFiltered, scope.LocationIDs, scope.PartitionLabels)
+		sexFiltered, scope.LocationIDs, scope.PartitionLabels, weighingCategory)
 	if err != nil {
 		return domain.WeighingDates{}, err
 	}
@@ -137,7 +147,7 @@ func (r *Repository) weighingDates(ctx context.Context, tenantID string, parkIDs
 	// above use, so the date can never advertise a day this reader has no data for.
 	var latestWeighed *string
 	if err := r.pool.QueryRow(ctx, latestWeighingDateQuery, tenantID, parkIDs, periodStart, periodEnd,
-		sexFiltered, scope.LocationIDs, scope.PartitionLabels, scope.Tags).Scan(&latestWeighed); err != nil {
+		sexFiltered, scope.LocationIDs, scope.PartitionLabels, scope.Tags, weighingCategory).Scan(&latestWeighed); err != nil {
 		return domain.WeighingDates{}, err
 	}
 	if latestWeighed != nil {

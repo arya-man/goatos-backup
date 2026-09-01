@@ -12,6 +12,8 @@ export async function GET(request: Request) {
   const to = url.searchParams.get("to")?.trim() ?? "";
   const parkID = url.searchParams.get("park_id")?.trim() ?? "";
   const sex = url.searchParams.get("sex")?.trim() ?? "";
+  const origin = url.searchParams.get("origin")?.trim() ?? "";
+  const weighing = url.searchParams.get("weighing")?.trim() ?? "";
 
   if (!BUSINESS_DAY.test(from) || !BUSINESS_DAY.test(to) || from > to) {
     return NextResponse.json(
@@ -28,6 +30,9 @@ export async function GET(request: Request) {
     from,
     to,
     sex: sex === "male" || sex === "female" ? sex : undefined,
+    origin: origin === "farm_born" || origin === "purchased" ? origin : undefined,
+    weighing_category:
+      weighing === "individual_animal" || weighing === "per_shed_partition" ? weighing : undefined,
   });
   if (!result.ok) {
     return NextResponse.json(

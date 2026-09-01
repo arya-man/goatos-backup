@@ -801,7 +801,7 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
-	growth, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
+	growth, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -891,7 +891,7 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 
-	growth, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
+	growth, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -1002,7 +1002,7 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 
-	base, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
+	base, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -1026,7 +1026,7 @@ INSERT INTO weighing_shed_observations (
   $4::uuid, $5::uuid, 'gain-aggregate-withdrawn', $6::timestamptz, 'rework', $6::timestamptz)`,
 		repoTenant, loadCampaignPartB, loadPartANew, repoShedProofTwo, repoOperator,
 		time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC))
-	withWithdrawn, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
+	withWithdrawn, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG after a withdrawn weigh: %v", err)
 	}
@@ -1041,7 +1041,7 @@ INSERT INTO weighing_shed_observations (
 	// PARK SCOPE: these pens hang off repoPark. Asking about a park that owns none of them must
 	// return nothing rather than the tenant's rows -- the scope predicate carrying, not the caller.
 	otherPark := "00000000-0000-4000-8000-0000000030ff"
-	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, from, to, "female", "")
+	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG for another park: %v", err)
 	}
@@ -1053,7 +1053,7 @@ INSERT INTO weighing_shed_observations (
 	// PAGE BOUNDARY: the headline is a WHOLE-FILTER aggregate. The shed table paginates; this number
 	// must not. Asking for a single-row page of the table must leave the gain untouched -- recomputing
 	// a summary from the visible slice is the capped read-time rollup this repo bans outright.
-	table, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "female", "")
+	table, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}

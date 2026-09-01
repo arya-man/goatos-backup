@@ -195,7 +195,7 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
   // resolver reads as "no filter", so the unfiltered page runs the query it always ran.
   assert.match(source, /rawSex === "female" \? "female" : rawSex === "all" \? "" : "male"/);
   assert.match(source, /landingWindow\(params, today, parkFilter, sexFilter\)/);
-  assert.match(source, /getShedWeights\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*\.\.\.lookback,\s*\n\s*sex: sexFilter \|\| undefined,/);
+  assert.match(source, /getShedWeights\(\{ park_id: parkFilter \|\| undefined, \.\.\.window, sex: sexFilter \|\| undefined, origin: originFilter \|\| undefined \}\)/);
   for (const read of ["getShedWeights", "getWeighingGrowth", "getWeightDemographics", "getGrowthDirector"]) {
     assert.match(
       source,

@@ -64,7 +64,8 @@ import (
 // weighing_observations_campaign_scanned_identifier_idx rather than seq-scanning
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
-func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin string) (domain.ShedWeights, error) {
+func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.ShedWeights, error) {
+	weighingCategory = strings.TrimSpace(weighingCategory)
 	// The ROWS honour the selection; the VOCABULARY below is built from the whole scope. Keeping
 	// them separate is the fix for a dropdown that collapsed to the park already chosen.
 	parkIDs := scopeParkIDs
@@ -124,6 +125,7 @@ WITH scoped AS (
   WHERE cs.tenant_id = $1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND cs.status <> 'canceled'
+    AND ($13::text = '' OR cs.weighing_category = $13::text)
 ),
 ind AS (
   -- projection-review: membership=scoped buckets whose weighing_category is individual_animal, each joined to its own deduplicated scans; group_key=s.campaign_shed_id (weighing_campaign_sheds PK, so one row per bucket); join_cardinality=LATERAL latest is 1 row per DISTINCT scanned tag and the GROUP BY collapses it to exactly 1 row per bucket, no side multiplies; pagination=NONE, bounded by the outer LIMIT and the tenant+park+date window; scope=s.tenant_id carried into the correlated subquery
@@ -220,9 +222,10 @@ shed_span AS (
            row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY o.accepted_at DESC) AS rn
     FROM weighing_shed_observations o
     JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id
-    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
-    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
-      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
+	    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
+	    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+	      AND ($13::text = '' OR cs2.weighing_category = $13::text)
+	      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
       AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
       AND (NOT $8::bool OR EXISTS (
         SELECT 1 FROM unnest($10::uuid[], $11::text[]) AS b(loc, part)
@@ -235,9 +238,10 @@ shed_span AS (
            row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY o.accepted_at ASC) AS rn
     FROM weighing_shed_observations o
     JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id
-    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
-    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
-      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
+	    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
+	    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+	      AND ($13::text = '' OR cs2.weighing_category = $13::text)
+	      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
       AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
       AND (NOT $8::bool OR EXISTS (
         SELECT 1 FROM unnest($10::uuid[], $11::text[]) AS b(loc, part)
@@ -395,7 +399,7 @@ LIMIT $7`
 		domain.SaleThresholdLowerKg, domain.SaleThresholdUpperKg,
 		domain.MaxShedWeightsRows,
 		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels,
-		growthLookbackDays)
+		growthLookbackDays, weighingCategory)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
@@ -494,7 +498,7 @@ ORDER BY display_order, name, location_id`, tenantID, scopeParkIDs)
 	// The two date facts come from ONE helper, shared with the narrow /weighing/weighing-dates read
 	// the Weights screens resolve their landing window from. Two copies of these queries would let
 	// the window a page opens on disagree with the dates the same page then reports.
-	dates, err := r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope)
+	dates, err := r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
@@ -511,7 +515,7 @@ ORDER BY display_order, name, location_id`, tenantID, scopeParkIDs)
 	// read rather than another CTE here: it collapses to LOAD grain, not shed grain,
 	// and folding a different grain into this query is how a shed ends up counted
 	// once per load it touches.
-	byLoad, unattributed, err := r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope)
+	byLoad, unattributed, err := r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}

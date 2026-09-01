@@ -33,14 +33,11 @@ export function SegmentedLinks({
   options,
   current,
   ariaLabel,
-  pendingLabel,
 }: {
   options: readonly SegmentedOption[];
   current: string;
   /** Already resolved from the page contract by the caller; omitted when the group is unlabelled. */
   ariaLabel?: string;
-  /** Optional visible pending text for URL-driven groups whose server render takes noticeable time. */
-  pendingLabel?: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -81,7 +78,7 @@ export function SegmentedLinks({
 
   return (
     <span
-      className={isPending && pendingLabel ? "metricseg metricseg-pending" : "metricseg"}
+      className={isPending ? "metricseg metricseg-pending" : "metricseg"}
       role="group"
       aria-label={ariaLabel}
       aria-busy={isPending}
@@ -101,6 +98,11 @@ export function SegmentedLinks({
             event.preventDefault();
             setOptimistic(option.value);
             restoreTo.current = window.scrollY;
+            window.dispatchEvent(
+              new CustomEvent("metricseg:navigate", {
+                detail: { value: option.value, href: option.href },
+              }),
+            );
             startTransition(() => {
               router.push(option.href, { scroll: false });
             });
@@ -109,12 +111,6 @@ export function SegmentedLinks({
           {option.label}
         </a>
       ))}
-      {isPending && pendingLabel ? (
-        <span className="metricseg-status" role="status">
-          <span className="wfspin" aria-hidden />
-          {pendingLabel}
-        </span>
-      ) : null}
     </span>
   );
 }

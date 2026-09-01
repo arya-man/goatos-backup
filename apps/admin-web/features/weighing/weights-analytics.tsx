@@ -32,6 +32,7 @@ import {
   defaultWindow,
   landingWindow,
 } from "./landing-window";
+import { WeightsAnalyticsTabLoading } from "./weights-analytics-tab-loading";
 
 const PAGE_PATH = "/weighing/analytics";
 const SEX_PARAM = "sex";
@@ -42,13 +43,6 @@ const DEFAULT_LIMIT = 25;
 
 const TABS = ["general", "breed", "birth", "shed", "weight", "time"] as const;
 type Tab = (typeof TABS)[number];
-
-/**
- * The tabs whose figures the Weighing filter can actually narrow at the API boundary. Time-wise
- * still includes the overall weekly growth endpoint, so it stays unfiltered until that endpoint
- * grows the same query parameter.
- */
-const WEIGHING_FILTER_TABS = new Set<Tab>(["breed", "birth", "shed", "weight"]);
 
 function hrefWith(searchParams: RouteSearchParams, updates: Record<string, string | null>): string {
   const next = new URLSearchParams();
@@ -138,7 +132,7 @@ export async function WeighingWeightsAnalyticsPage({
     park_id: parkFilter || undefined,
     sex: sexFilter || undefined,
     origin: originFilter || undefined,
-    weighing_category: WEIGHING_FILTER_TABS.has(tab) && modeFilter !== "all" ? modeFilter : undefined,
+    weighing_category: modeFilter !== "all" ? modeFilter : undefined,
   };
 
   // Every tab needs the shed read: it carries the park vocabulary the filter bar renders, plus
@@ -240,30 +234,16 @@ export async function WeighingWeightsAnalyticsPage({
         rangeSeparator: copy(pageContract, "filter.period.range_separator"),
         markerHint: copy(pageContract, "filter.period.lump_marker_hint"),
       },
-      markerFetchPath: `/api/weighing/lump-markers?sex=${encodeURIComponent(sexChoice)}${parkFilter ? `&park_id=${encodeURIComponent(parkFilter)}` : ""}`,
+      markerFetchPath: `/api/weighing/lump-markers?sex=${encodeURIComponent(sexChoice)}&origin=${encodeURIComponent(originFilter || "all")}&weighing=${encodeURIComponent(modeFilter)}${parkFilter ? `&park_id=${encodeURIComponent(parkFilter)}` : ""}`,
     },
-    // WEIGHING IS OFFERED ONLY WHERE IT ACTUALLY NARROWS SOMETHING at the API boundary
-    // (maintainer decision, review of PR 162). It selects a capture MODE -- kids scanned one at a
-    // time, or a whole pen on the scale once. General and Time-wise still include the growth
-    // endpoint, which does not accept weighing_category, so those tabs hide the control until that
-    // backend read grows the same filter.
-    //
-    // The PARAMETER is deliberately left alone when the control is hidden, so a choice made on a
-    // filtered tab survives a trip through General or Time-wise and is still set on the way back.
-    ...(WEIGHING_FILTER_TABS.has(tab)
-      ? [
-          {
-            // allowAll:false — this vocabulary already carries its own All, and the bar's generic
-            // blank option on top would make two Alls that do not agree.
-            kind: "select" as const,
-            param: "weighing",
-            label: copy(pageContract, "filter.weighing.label"),
-            value: modeFilter,
-            allowAll: false,
-            options: modeOptions.map((option) => ({ value: option.key, label: option.label })),
-          },
-        ]
-      : []),
+    {
+      kind: "select",
+      param: "weighing",
+      label: copy(pageContract, "filter.weighing.label"),
+      value: modeFilter,
+      allowAll: false,
+      options: modeOptions.map((option) => ({ value: option.key, label: option.label })),
+    },
     {
       // Sex governs the WHOLE page, every tab alike: a screen whose tabs disagree about which
       // kids they counted has no true number on it. Same reason it carries its own explicit All
@@ -311,7 +291,7 @@ export async function WeighingWeightsAnalyticsPage({
             initialTo={window.to}
             sex={sexFilter}
             origin={originFilter}
-            weighingCategory={WEIGHING_FILTER_TABS.has(tab) ? modeFilter : undefined}
+            weighingCategory={modeFilter !== "all" ? modeFilter : undefined}
             today={today}
             openHref={hrefWith(params, { wt_export: "1" })}
             closeHref={hrefWith(params, { wt_export: null })}
@@ -326,7 +306,6 @@ export async function WeighingWeightsAnalyticsPage({
         <SegmentedLinks
           ariaLabel={copy(pageContract, "tab.aria")}
           current={tab}
-          pendingLabel={copy(pageContract, "state.loading")}
           options={TABS.map((name) => ({
             value: name,
             label: copy(pageContract, `tab.${name}`),
@@ -336,6 +315,7 @@ export async function WeighingWeightsAnalyticsPage({
           }))}
         />
       </div>
+      <WeightsAnalyticsTabLoading currentTab={tab} />
 
       <p className="muted small" style={{ margin: "0 0 -4px" }}>
         {copy(pageContract, "kpi.sheds.label")}: {summary.sheds_weighed} / {summary.sheds_in_scope}
@@ -343,33 +323,35 @@ export async function WeighingWeightsAnalyticsPage({
         {periodStart} – {periodEnd}
       </p>
 
-      {tab === "general" ? (
-        <GeneralTab
-          pageContract={pageContract}
-          summary={summary}
-          rows={rows}
-          parks={parks}
-          parkFilter={parkFilter}
-          modeFilter={modeFilter}
-          growth={growth?.ok ? growth.data : null}
-          perParkGain={perParkGain}
-          limit={limit}
-          offset={offset}
-          params={params}
-        />
-      ) : null}
+      <div className="wt-tab-live">
+        {tab === "general" ? (
+          <GeneralTab
+            pageContract={pageContract}
+            summary={summary}
+            rows={rows}
+            parks={parks}
+            parkFilter={parkFilter}
+            modeFilter={modeFilter}
+            growth={growth?.ok ? growth.data : null}
+            perParkGain={perParkGain}
+            limit={limit}
+            offset={offset}
+            params={params}
+          />
+        ) : null}
 
-      {tab === "breed" ? <BreedTab pageContract={pageContract} demo={demo} /> : null}
+        {tab === "breed" ? <BreedTab pageContract={pageContract} demo={demo} /> : null}
 
-      {tab === "birth" ? <BirthTab pageContract={pageContract} demo={demo} /> : null}
+        {tab === "birth" ? <BirthTab pageContract={pageContract} demo={demo} /> : null}
 
-      {tab === "shed" ? <ShedTab pageContract={pageContract} demo={demo} /> : null}
+        {tab === "shed" ? <ShedTab pageContract={pageContract} demo={demo} /> : null}
 
-      {tab === "weight" ? <WeightTab pageContract={pageContract} demo={demo} /> : null}
+        {tab === "weight" ? <WeightTab pageContract={pageContract} demo={demo} /> : null}
 
-      {tab === "time" ? (
-        <TimeTab pageContract={pageContract} growth={growth?.ok ? growth.data : null} demo={demo} />
-      ) : null}
+        {tab === "time" ? (
+          <TimeTab pageContract={pageContract} growth={growth?.ok ? growth.data : null} demo={demo} />
+        ) : null}
+      </div>
     </div>
   );
 }

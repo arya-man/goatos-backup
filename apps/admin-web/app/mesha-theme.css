@@ -2607,7 +2607,18 @@ select:disabled { opacity: .45; }
 .metricseg a.on{background:var(--panel);color:var(--brand-d)}
 .metricseg-pending{cursor:progress;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 45%,transparent)}
 .metricseg-pending a{pointer-events:none}
-.metricseg-status{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-left:1px solid var(--line);font-size:11px;font-weight:650;color:var(--muted);white-space:nowrap}
+.wt-tab-switching .wt-tab-live{display:none}
+.wt-tab-skeleton{display:grid;gap:14px;min-height:420px}
+.wt-skel-head{display:flex;align-items:center;gap:10px}
+.wt-skel-icon{width:20px;height:20px;border-radius:5px}
+.wt-skel-title{width:min(260px,42vw);height:22px}
+.wt-skel-copy{width:min(760px,80vw);height:15px}
+.wt-skel-copy.short{width:min(460px,55vw)}
+.wt-skel-bars{display:grid;gap:18px;margin-top:10px}
+.wt-skel-row{display:grid;grid-template-columns:minmax(120px,260px) 1fr 72px;gap:18px;align-items:center}
+.wt-skel-label{height:28px}
+.wt-skel-bar{height:26px}
+.wt-skel-value{height:22px}
 .card .h{display:flex;align-items:center;gap:8px}
 .wbars-empty{display:grid;place-items:center;text-align:center;padding:0 14px}
 /* Grouped bars for the Weights analytics page: several named groups, each holding one or more

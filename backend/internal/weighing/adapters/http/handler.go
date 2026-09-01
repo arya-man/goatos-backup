@@ -44,9 +44,9 @@ type Service interface {
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
-	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.GrowthADG, error)
-	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.ShedWeights, error)
-	GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.WeighingDates, error)
+	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.GrowthADG, error)
+	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.ShedWeights, error)
+	GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeighingDates, error)
 	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error
@@ -182,6 +182,7 @@ func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request)
 		r.URL.Query().Get("to"),
 		r.URL.Query().Get("sex"),
 		r.URL.Query().Get("origin"),
+		r.URL.Query().Get("weighing_category"),
 	)
 	h.respond(w, r, result, err)
 }
@@ -200,6 +201,8 @@ func (h *Handler) GetWeighingDates(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("from"),
 		r.URL.Query().Get("to"),
 		r.URL.Query().Get("sex"),
+		r.URL.Query().Get("origin"),
+		r.URL.Query().Get("weighing_category"),
 	)
 	h.respond(w, r, result, err)
 }
@@ -213,6 +216,7 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("to"),
 		r.URL.Query().Get("sex"),
 		r.URL.Query().Get("origin"),
+		r.URL.Query().Get("weighing_category"),
 	)
 	h.respond(w, r, result, err)
 }

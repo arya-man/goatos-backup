@@ -46,7 +46,7 @@ import (
 //	HAVING count(*) = 1 excludes it, and it is counted in the unattributed scalar
 //	instead. One shed average cannot be divided between two suppliers; apportioning
 //	it by head count would invent a distribution nobody measured.
-func (r *Repository) loadWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) ([]domain.LoadGainBucket, int, error) {
+func (r *Repository) loadWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) ([]domain.LoadGainBucket, int, error) {
 	out := []domain.LoadGainBucket{}
 	if len(parkIDs) == 0 {
 		return out, 0, nil
@@ -63,6 +63,7 @@ WITH scoped AS (
   WHERE cs.tenant_id = $1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND cs.status <> 'canceled'
+    AND ($9::text = '' OR cs.weighing_category = $9::text)
 ),
 lump_daily AS (
   -- withdrawn_at IS REQUIRED: 000067 made this table's uniqueness PARTIAL over live
@@ -232,7 +233,7 @@ GROUP BY t.load_ref, t.owner_name
 ORDER BY 6 DESC NULLS LAST, t.load_ref`
 
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFiltered,
-		scope.LocationIDs, scope.PartitionLabels, scope.Tags)
+		scope.LocationIDs, scope.PartitionLabels, scope.Tags, weighingCategory)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -285,6 +286,7 @@ WITH scoped AS (
   WHERE cs.tenant_id = $1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND cs.status <> 'canceled'
+    AND ($9::text = '' OR cs.weighing_category = $9::text)
 ),
 shed_latest AS (
   SELECT DISTINCT s.location_id, s.partition_label
@@ -324,7 +326,7 @@ SELECT count(*)::int
 FROM shed_latest sl
 WHERE NOT EXISTS (SELECT 1 FROM tag t WHERE t.location_id = sl.location_id)`,
 			tenantID, parkIDs, periodStart, periodEnd, sexFiltered,
-			scope.LocationIDs, scope.PartitionLabels, scope.Tags).Scan(&unattributed); err != nil {
+			scope.LocationIDs, scope.PartitionLabels, scope.Tags, weighingCategory).Scan(&unattributed); err != nil {
 			return nil, 0, err
 		}
 	}

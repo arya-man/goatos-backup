@@ -4,6 +4,10 @@ import test from "node:test";
 
 const source = readFileSync(new URL("./weights.tsx", import.meta.url), "utf8");
 const analyticsSource = readFileSync(new URL("./weights-analytics.tsx", import.meta.url), "utf8");
+const analyticsTabLoadingSource = readFileSync(
+  new URL("./weights-analytics-tab-loading.tsx", import.meta.url),
+  "utf8",
+);
 const landingSource = readFileSync(new URL("./landing-window.ts", import.meta.url), "utf8");
 const segmentedLinksSource = readFileSync(new URL("../../components/segmented-links.tsx", import.meta.url), "utf8");
 const contract = readFileSync(
@@ -63,13 +67,30 @@ test("weights analytics time-wise uses the same selected/default period as every
 
 test("analytics tab changes expose a visible pending state", () => {
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
-  assert.match(analyticsSource, /pendingLabel=\{copy\(pageContract, "state\.loading"\)\}/);
-  assert.match(segmentedLinksSource, /pendingLabel\?: string/);
+  assert.doesNotMatch(analyticsSource, /pendingLabel=/);
+  assert.doesNotMatch(segmentedLinksSource, /pendingLabel\?: string/);
   assert.match(segmentedLinksSource, /metricseg metricseg-pending/);
-  assert.match(segmentedLinksSource, /className="metricseg-status" role="status"/);
+  assert.doesNotMatch(segmentedLinksSource, /metricseg-status/);
+  assert.match(segmentedLinksSource, /metricseg:navigate/);
   assert.match(segmentedLinksSource, /aria-busy=\{isPending\}/);
+  assert.match(analyticsSource, /<WeightsAnalyticsTabLoading currentTab=\{tab\} \/>/);
+  assert.match(analyticsSource, /className="wt-tab-live"/);
+  assert.match(analyticsTabLoadingSource, /window\.addEventListener\("metricseg:navigate"/);
+  assert.match(analyticsTabLoadingSource, /classList\.add\("wt-tab-switching"\)/);
+  assert.match(analyticsTabLoadingSource, /wt-tab-skeleton/);
   assert.match(css, /\.metricseg-pending\{/);
-  assert.match(css, /\.metricseg-status\{/);
+  assert.match(css, /\.wt-tab-switching \.wt-tab-live\{display:none\}/);
+  assert.match(css, /\.wt-tab-skeleton\{/);
+  assert.doesNotMatch(css, /\.metricseg-status\{/);
+});
+
+test("weights analytics sends the weighing mode through every tab read", () => {
+  assert.doesNotMatch(analyticsSource, /WEIGHING_FILTER_TABS/);
+  assert.match(analyticsSource, /weighing_category: modeFilter !== "all" \? modeFilter : undefined/);
+  assert.match(analyticsSource, /getShedWeights\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /weighingCategory=\{modeFilter !== "all" \? modeFilter : undefined\}/);
 });
 
 test("the default window is passed as NAMED fields, never spread", () => {
@@ -320,7 +341,11 @@ test("lump marker proxy reads a calendar window independently of the report rang
   assert.match(route, /url\.searchParams\.get\("from"\)/);
   assert.match(route, /url\.searchParams\.get\("to"\)/);
   assert.match(route, /url\.searchParams\.get\("sex"\)/);
+  assert.match(route, /url\.searchParams\.get\("origin"\)/);
+  assert.match(route, /url\.searchParams\.get\("weighing"\)/);
   assert.match(route, /getWeighingDates\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*from,\s*\n\s*to,/);
   assert.match(route, /sex: sex === "male" \|\| sex === "female" \? sex : undefined,/);
+  assert.match(route, /origin: origin === "farm_born" \|\| origin === "purchased" \? origin : undefined,/);
+  assert.match(route, /weighing_category:\s*\n\s*weighing === "individual_animal" \|\| weighing === "per_shed_partition" \? weighing : undefined,/);
   assert.match(route, /dates: result\.data\.lump_weighing_dates/);
 });

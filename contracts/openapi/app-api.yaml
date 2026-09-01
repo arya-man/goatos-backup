@@ -897,7 +897,7 @@ paths:
           name: weighing_category
           schema:
             type: string
-            enum: [individual_animal, per_shed_partition]
+            enum: [all, individual_animal, per_shed_partition]
           description: Optional capture-mode narrowing. Omitted or `all` exports both capture modes.
       responses:
         "200":
@@ -1335,6 +1335,11 @@ paths:
           schema:
             type: string
             format: date
+        - name: weighing_category
+          in: query
+          required: false
+          description: Optional capture-mode narrowing. Omitted or `all` counts both capture modes.
+          schema: {type: string, enum: [all, individual_animal, per_shed_partition]}
       responses:
         "200":
           description: Growth/ADG read model for the requested park or herd-wide scope.
@@ -1441,6 +1446,11 @@ paths:
 
             Selecting `sex` and `origin` together reports the kids in BOTH.
           schema: {type: string, enum: [farm_born, purchased]}
+        - name: weighing_category
+          in: query
+          required: false
+          description: Optional capture-mode narrowing. Omitted or `all` counts both capture modes.
+          schema: {type: string, enum: [all, individual_animal, per_shed_partition]}
       responses:
         "200":
           description: Growth/ADG read model for the requested park or herd-wide scope.
@@ -1500,6 +1510,11 @@ paths:
           schema:
             type: string
             format: date
+        - name: weighing_category
+          in: query
+          required: false
+          description: Optional capture-mode narrowing. Omitted or `all` counts both capture modes.
+          schema: {type: string, enum: [all, individual_animal, per_shed_partition]}
       responses:
         "200":
           description: Per-shed weights and the whole-filter summary.
@@ -1593,6 +1608,11 @@ paths:
 
             Selecting `sex` and `origin` together reports the kids in BOTH.
           schema: {type: string, enum: [farm_born, purchased]}
+        - name: weighing_category
+          in: query
+          required: false
+          description: Optional capture-mode narrowing. Omitted or `all` counts both capture modes.
+          schema: {type: string, enum: [all, individual_animal, per_shed_partition]}
       responses:
         "200":
           description: Per-shed weights and the whole-filter summary.
@@ -1721,7 +1741,7 @@ paths:
             `individual_animal` or `per_shed_partition` to report only that weighing mode; omitted
             means both. The two modes are mutually exclusive at campaign-shed grain, so this filter
             narrows the read before aggregates are built rather than hiding rows in the browser.
-          schema: {type: string, enum: [individual_animal, per_shed_partition]}
+          schema: {type: string, enum: [all, individual_animal, per_shed_partition]}
       responses:
         "200":
           description: Weight broken down by breed, sex and stage.
@@ -29295,7 +29315,7 @@ components:
           items: {$ref: "#/components/schemas/WeighingWeightGainShedTypeBucket"}
         by_weight_band:
           type: array
-          description: How many animals stand in each weight bracket and how fast each grows, counting both ways of weighing. Ascending.
+          description: How many animals stand in each weight bracket and how fast each grows, under the selected weighing-category filter. Ascending.
           items: {$ref: "#/components/schemas/WeighingWeightBandBucket"}
         gain_by_breed_week:
           type: array

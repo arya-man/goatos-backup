@@ -236,8 +236,8 @@ func navigation() domain.NavigationContract {
 				ID: "weighing", Label: "Weighing", Icon: "scale", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("weighing-weights", "Weights", "/weighing/weights", "weighing.weights", nil),
-					// Weights analytics: the same weighing facts cut five ways -- overall, by breed,
-					// by farm-born/purchased, by shed and by week. A SEPARATE leaf from Weights
+					// Weights analytics: the same weighing facts cut six ways -- overall, by breed,
+					// by farm-born/purchased, by shed type, by weight band and by week. A SEPARATE leaf from Weights
 					// above rather than more cards on it: that page answers "what does the estate
 					// weigh today", this one answers "what is growing faster than what", and the
 					// second question wants the whole screen.
@@ -630,10 +630,10 @@ func pages() []domain.PageContract {
 				// is bounded by the herd catalogue, so it is not paged.
 				weightsGainThresholdTable(),
 			}),
-		// Weights analytics -- five tabs over the SAME reads the Weights page uses, so the two
+		// Weights analytics -- six tabs over the SAME reads the Weights page uses, so the two
 		// screens can never disagree about a number. It declares ONE table (the shed-wise tab's
 		// figures); every other tab is a chart, and a chart is not a TableContract.
-		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — Weights analytics", "Growth cut five ways: overall, by breed, by farm-born vs purchased, by shed and by week.", "module-surface",
+		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — Weights analytics", "Growth cut six ways: overall, by breed, by farm-born vs purchased, by shed type, by weight band and by week.", "module-surface",
 			// The shed table on the General tab, which is the Weights page's own table read from
 			// the same endpoint -- so the two screens cannot disagree about a shed's figures.
 			//
@@ -3968,7 +3968,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// weight covers every kid weighed, gain only those weighed twice. The caption has to
 			// say so, or the two bars read as one fact about one set of animals.
 			"section.breed.title":   "Breed-wise growth",
-			"section.breed.caption": "Daily gain and average weight for each breed, counting both ways of weighing. The two bars count different kids: weight covers every kid weighed, gain only those with a second weigh or a whole-shed pen that moved.",
+			"section.breed.caption": "Daily gain and average weight for each breed, under the selected weighing mode. The two bars count different kids: weight covers every kid weighed, gain only those with a second weigh or a whole-shed pen that moved.",
 			"section.breed.aria":    "Daily gain and average weight by breed",
 			"series.gain":           "Daily gain",
 			"series.weight":         "Average weight",
@@ -3977,7 +3977,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Birth-wise. The two halves deliberately need not add up to the whole, and saying so
 			// is the difference between an honest gap and apparent missing data.
 			"section.birth.title":   "Farm born vs purchased",
-			"section.birth.caption": "Daily gain for each breed, counting both ways of weighing, split by where the kids came from. A breed shows one bar when the farm only has one kind. Kids whose origin is not recorded are counted in neither, so the two sides need not add up to the breed's own total.",
+			"section.birth.caption": "Daily gain for each breed under the selected weighing mode, split by where the kids came from. A breed shows one bar when the farm only has one kind. Kids whose origin is not recorded are counted in neither, so the two sides need not add up to the breed's own total.",
 			"section.birth.aria":    "Daily gain by breed and origin",
 			"empty.birth.body":      "No breed has a farm-born or purchased kid with a second weigh in this period.",
 
@@ -3997,7 +3997,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// in it. The caption states the two things a reader would otherwise assume wrongly:
 			// that a whole pen sits in one bracket, and that the gain is drawn from a smaller set.
 			"section.weight.title":   "Weight-wise",
-			"section.weight.caption": "How many animals stand in each weight bracket, counting both ways of weighing, and how fast each bracket is growing. A whole-shed pen sits entirely in the bracket its average weight falls into. The daily gain beside each bracket comes only from the animals in it weighed twice, so its head count is the smaller one.",
+			"section.weight.caption": "How many animals stand in each weight bracket under the selected weighing mode, and how fast each bracket is growing. A whole-shed pen sits entirely in the bracket its average weight falls into. The daily gain beside each bracket comes only from the animals in it weighed twice, so its head count is the smaller one.",
 			"section.weight.aria":    "Animals and daily gain by weight bracket",
 			"empty.weight.body":      "No kid was weighed in this period.",
 			"series.animals":         "Animals",
@@ -4014,12 +4014,12 @@ func pageSpecificCopy(id string) map[string]string {
 			// Time-wise. It follows the same selected window as the other tabs so every tab slices
 			// one population. The default window begins at the first dense weighing run.
 			"section.time.title":         "Weekly growth",
-			"section.time.caption":       "Daily gain by week inside the selected period. The default period starts on 03 Aug 2026, where the reliable weighing run begins. Park, sex and origin filters still apply. Both ways of weighing are counted here.",
+			"section.time.caption":       "Daily gain by week inside the selected period under the selected weighing mode. The default period starts on 03 Aug 2026, where the reliable weighing run begins. Park, sex and origin filters still apply.",
 			"section.time.aria":          "Daily gain by week",
 			"empty.time.body":            "No week in this period has a kid or a shed weighed twice.",
 			"value.time.animals":         "kids",
 			"section.time.breed.title":   "Weekly growth by breed",
-			"section.time.breed.caption": "The same selected period, one row per breed, counting both ways of weighing. A shed holding more than one breed is counted in the overall trend above but in no breed here, so the breed rows need not add up to it.",
+			"section.time.breed.caption": "The same selected period and weighing mode, one row per breed. A shed holding more than one breed is counted in the overall trend above but in no breed here, so the breed rows need not add up to it.",
 			"section.time.breed.aria":    "Daily gain by breed and week",
 			"empty.time.breed.body":      "No breed has a kid or a single-breed shed weighed twice in this period.",
 			"note.time.gaps":             "A week nobody weighed in has no bar. It is left out rather than drawn as zero, which would read as a week the kids stopped growing.",
