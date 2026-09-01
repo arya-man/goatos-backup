@@ -1494,7 +1494,7 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 
 // GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
 // screen. Same capability and scope rules as the other leadership reads.
-func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.WeightDemographics, error) {
+func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeightDemographics, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.WeightDemographics{}, ports.ErrForbidden
 	}
@@ -1506,7 +1506,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 	if scopeErr != nil {
 		return domain.WeightDemographics{}, scopeErr
 	}
-	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin)
+	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory)
 }
 
 // GetShedWeights serves the admin-web "Kids — Weights" screen: one row per shed

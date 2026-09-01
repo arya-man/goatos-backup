@@ -3,10 +3,12 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
+	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
 // GetWeightDemographics returns average weight by breed, sex and management stage.
@@ -24,7 +26,7 @@ import (
 // than by_stage: a whole-shed weigh has no tags, so it reaches the stage rows via
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
-func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin string) (domain.WeightDemographics, error) {
+func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.WeightDemographics, error) {
 	out := domain.WeightDemographics{
 		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
 		ByBreed:               []domain.WeightDemographicBucket{},
@@ -34,6 +36,7 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 		ByWeightBand:          []domain.WeightBandBucket{},
 		GainByBreedWeek:       []domain.WeightGainBreedWeekBucket{},
 		GainByBreedOrigin:     []domain.WeightGainOriginBucket{},
+		GainByBreedShedType:   []domain.WeightGainShedTypeBucket{},
 	}
 	if len(parkIDs) == 0 {
 		return out, nil
@@ -45,6 +48,14 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	sexFilter, sexErr := normalizeSexFilter(sex)
 	if sexErr != nil {
 		return domain.WeightDemographics{}, sexErr
+	}
+	weighingCategory = strings.TrimSpace(weighingCategory)
+	switch weighingCategory {
+	case "", "all":
+		weighingCategory = ""
+	case domain.CategoryIndividualAnimal, domain.CategoryPerShedPartition:
+	default:
+		return domain.WeightDemographics{}, fmt.Errorf("%w: unsupported weighing_category filter %q", ports.ErrInvalidArgument, weighingCategory)
 	}
 	// Origin, unlike Sex, is NOT applied natively here. It is a fact about the PEN a load was put
 	// in, not about the goat row this query has already joined, and its one implementation lives in
@@ -74,6 +85,7 @@ WITH scoped AS (
   FROM weighing_campaign_sheds cs
   JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
   WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[]) AND cs.status <> 'canceled'
+    AND ($16::text = '' OR cs.weighing_category = $16::text)
 ),
 latest AS (
   SELECT DISTINCT ON (lower(btrim(o.scanned_identifier)))
@@ -158,8 +170,9 @@ resolved_gain AS (
   -- ag.tag is carried so the breed x origin bucket below can ask which LOAD an animal came off.
   -- Every other consumer of this CTE names its columns explicitly, so the extra column shifts no
   -- scan; check that before adding another.
-  SELECT ag.g, ag.tag, gt.breed, gt.sex, gt.management_stage
+  SELECT ag.g, ag.tag, l.location_id, l.partition_label, gt.breed, gt.sex, gt.management_stage
   FROM animal_gain ag
+  LEFT JOIN latest l ON l.tag = ag.tag
   LEFT JOIN ident i ON i.tag = ag.tag
   LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
   WHERE $5::text = '' OR lower(btrim(gt.sex)) = $5::text
@@ -356,6 +369,10 @@ lump_span AS (
     AND first.partition_label = latest.partition_label
     AND first.rn = 1
   WHERE latest.rn = 1 AND latest.d > first.d
+    AND (NOT $6::bool OR EXISTS (
+      SELECT 1 FROM shed_targets st
+      WHERE st.location_id = latest.location_id AND st.partition_label = latest.partition_label
+    ))
 ),
 -- Whole-shed pens cut by calendar week, the pen half of the breed trend. CONSECUTIVE weighs, not
 -- first-vs-latest like lump_span: a weekly series must attribute movement to the week it was
@@ -383,6 +400,10 @@ pen_week AS (
       WHERE so.tenant_id = $1::uuid AND s.weighing_category = 'per_shed_partition'
         AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
         AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
+        AND (NOT $6::bool OR EXISTS (
+          SELECT 1 FROM shed_targets st
+          WHERE st.location_id = s.location_id AND st.partition_label = COALESCE(s.partition_label, '')
+        ))
       WINDOW w AS (PARTITION BY s.location_id, COALESCE(s.partition_label, '')
                    ORDER BY (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date)
     ) pairs
@@ -421,6 +442,24 @@ lump_composition AS (
     WHERE ic.location_id = l.location_id AND ic.partition_label = l.partition_label
   )
   GROUP BY l.location_id, l.partition_label
+),
+shed_type AS (
+  SELECT DISTINCT src.location_id, src.partition_label,
+         CASE
+           WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
+                      coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
+                      coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(elevated|elevate)\M'
+             THEN 'elevated'
+           WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
+                      coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
+                      coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(crown|crowned|ground)\M'
+             THEN 'crown'
+         END AS shed_type
+  FROM shed_targets src
+  JOIN locations loc ON loc.location_id = src.location_id AND loc.tenant_id = $1::uuid
+  LEFT JOIN locations parent_loc ON parent_loc.location_id = src.resolved_id AND parent_loc.tenant_id = $1::uuid
+  LEFT JOIN shed_profiles sp ON sp.location_id = src.location_id AND sp.tenant_id = $1::uuid
+  LEFT JOIN shed_profiles parent_sp ON parent_sp.location_id = src.resolved_id AND parent_sp.tenant_id = $1::uuid
 )
 SELECT
   (SELECT count(*) FROM resolved WHERE breed IS NOT NULL),
@@ -559,6 +598,32 @@ SELECT
          GROUP BY sc.breed, pen.origin
        ) parts GROUP BY breed, origin
      ) gbo),
+  -- BREED x SHED TYPE: Manju's Shed-wise view. This is not a per-pen leaderboard; it compares the
+  -- two physical shed classes the farm asked for, inside each breed. The class is intentionally
+  -- read from explicit shed metadata (location notes / shed profile notes / shed profile context)
+  -- and unclassified pens are skipped rather than guessed from a painted name.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, shed_type, n, g) ORDER BY breed, shed_type), '[]'::jsonb)
+     FROM (
+       SELECT breed, shed_type, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT rg.breed, st.shed_type, count(*)::bigint n, sum(rg.g)::float8 gsum
+         FROM resolved_gain rg
+         JOIN shed_type st ON st.location_id = rg.location_id AND st.partition_label = rg.partition_label
+         WHERE rg.breed IS NOT NULL AND st.shed_type IS NOT NULL
+           AND ($16::text = '' OR $16::text = 'individual_animal')
+         GROUP BY rg.breed, st.shed_type
+         UNION ALL
+         SELECT sc.breed, st.shed_type, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls
+         JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         JOIN shed_type st
+           ON st.location_id = ls.location_id AND st.partition_label = ls.partition_label
+         WHERE sc.breeds = 1 AND st.shed_type IS NOT NULL
+           AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+           AND ($16::text = '' OR $16::text = 'per_shed_partition')
+         GROUP BY sc.breed, st.shed_type
+       ) parts GROUP BY breed, shed_type
+     ) gbst),
   -- WEIGHT BANDS: how many animals sit in each weight bracket, and how fast that bracket is
   -- growing. Both arms, always -- a page that banded only the scanned kids would describe this
   -- farm from a minority of it, since most of its animals are weighed by the whole shed.
@@ -733,6 +798,7 @@ SELECT
 		breedJSON, sexJSON, stageJSON                               []byte
 		gainBreedJSON, gainSexJSON, gainStageJSON                   []byte
 		gainByBreedOriginJSON                                       []byte
+		gainByBreedShedTypeJSON                                     []byte
 		weightBandJSON                                              []byte
 		gainBreedWeekJSON                                           []byte
 		gainThresholdBreedJSON                                      []byte
@@ -742,11 +808,13 @@ SELECT
 		originFiltered, originScope.Tags, originScope.LocationIDs, originScope.PartitionLabels,
 		farmBornScope.Tags, purchasedScope.Tags,
 		farmBornScope.LocationIDs, farmBornScope.PartitionLabels,
-		purchasedScope.LocationIDs, purchasedScope.PartitionLabels).Scan(
+		purchasedScope.LocationIDs, purchasedScope.PartitionLabels,
+		weighingCategory).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,
 		&gainByBreedOriginJSON,
+		&gainByBreedShedTypeJSON,
 		&weightBandJSON,
 		&gainBreedWeekJSON,
 		&gainThresholdBreedJSON,
@@ -779,6 +847,9 @@ SELECT
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainByBreedOrigin, err = decodeWeightGainOriginBuckets(gainByBreedOriginJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainByBreedShedType, err = decodeWeightGainShedTypeBuckets(gainByBreedShedTypeJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
 	if out.ByWeightBand, err = decodeWeightBandBuckets(weightBandJSON); err != nil {
@@ -960,6 +1031,38 @@ func decodeWeightGainOriginBuckets(raw []byte) ([]domain.WeightGainOriginBucket,
 		}
 		out = append(out, domain.WeightGainOriginBucket{
 			Label: label, Origin: origin, Animals: animals, MedianGainGPerDay: gain,
+		})
+	}
+	return out, nil
+}
+
+func decodeWeightGainShedTypeBuckets(raw []byte) ([]domain.WeightGainShedTypeBucket, error) {
+	out := []domain.WeightGainShedTypeBucket{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if len(row) != 4 {
+			continue
+		}
+		var label, shedType string
+		var animals int
+		var gain float64
+		if json.Unmarshal(row[0], &label) != nil || label == "" {
+			continue
+		}
+		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "crown") {
+			continue
+		}
+		if json.Unmarshal(row[2], &animals) != nil || json.Unmarshal(row[3], &gain) != nil {
+			continue
+		}
+		out = append(out, domain.WeightGainShedTypeBucket{
+			Label: label, ShedType: shedType, Animals: animals, AverageGainGPerDay: gain,
 		})
 	}
 	return out, nil

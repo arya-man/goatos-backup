@@ -1696,6 +1696,14 @@ paths:
 
             Selecting `sex` and `origin` together reports the kids in BOTH.
           schema: {type: string, enum: [farm_born, purchased]}
+        - name: weighing_category
+          in: query
+          required: false
+          description: >-
+            `individual_animal` or `per_shed_partition` to report only that weighing mode; omitted
+            means both. The two modes are mutually exclusive at campaign-shed grain, so this filter
+            narrows the read before aggregates are built rather than hiding rows in the browser.
+          schema: {type: string, enum: [individual_animal, per_shed_partition]}
       responses:
         "200":
           description: Weight broken down by breed, sex and stage.
@@ -28875,6 +28883,33 @@ components:
           type: number
         pair_count:
           type: integer
+    WeighingGrowthWeeklyGainPoint:
+      type: object
+      additionalProperties: false
+      description: >-
+        One calendar week of the farm's daily gain, computed as the IDENTICAL statistic the
+        headline reports (maintainer decision 2026-08-26): the animal-weighted mean over every
+        kid weighed twice, each kid once at the median of its own pairs in that week, PLUS every
+        whole-shed pen whose average moved, each pen contributing once per animal it holds.
+        Distinct from WeighingGrowthTrendPoint, which is the MEDIAN over SCANNED PAIRS ONLY.
+        A chart rendered beside the headline must read this one, or the two disagree.
+        A week with no qualifying gain is absent from the array, never interpolated or zero-filled.
+      required:
+        - week_start
+        - average_adg_g_per_day
+        - animals
+      properties:
+        week_start:
+          type: string
+          format: date
+          description: Monday (ISO week) in Asia/Kolkata. A pair spanning weeks is bucketed by its later weigh.
+        average_adg_g_per_day:
+          type: number
+          format: double
+          description: Animal-weighted mean for the week. Non-null by construction.
+        animals:
+          type: integer
+          description: The denominator - scanned kids with a gain this week plus the head counts of the pens that moved.
     WeighingGrowthShedLeaderboardRow:
       type: object
       additionalProperties: false
@@ -29075,6 +29110,23 @@ components:
           type: number
           format: double
           description: "The animal-weighted mean for this breed and origin."
+    WeighingWeightGainShedTypeBucket:
+      type: object
+      additionalProperties: false
+      required: [label, shed_type, animals, average_gain_g_per_day]
+      description: >-
+        One breed's daily gain for ONE physical shed type, for the Shed-wise comparison Manju asked
+        for. It compares elevated sheds against crown/ground sheds; unclassified sheds are omitted
+        rather than guessed from the pen name.
+      properties:
+        label: {type: string, description: The breed, as stored.}
+        shed_type:
+          type: string
+          enum: [elevated, crown]
+        animals:
+          type: integer
+          description: Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed.
+        average_gain_g_per_day: {type: number, format: double}
     WeighingWeightBandBucket:
       type: object
       additionalProperties: false
@@ -29191,7 +29243,7 @@ components:
     WeighingWeightDemographicsResponse:
       type: object
       additionalProperties: false
-      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, gain_by_breed_origin, by_weight_band, gain_by_breed_week, gain_thresholds_by_breed, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
+      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, gain_by_breed_origin, gain_by_breed_shed_type, by_weight_band, gain_by_breed_week, gain_thresholds_by_breed, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
       properties:
         by_breed:
           type: array
@@ -29219,6 +29271,10 @@ components:
           type: array
           description: "Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither."
           items: {$ref: "#/components/schemas/WeighingWeightGainOriginBucket"}
+        gain_by_breed_shed_type:
+          type: array
+          description: "Daily gain per breed split by elevated vs crown/ground shed type. Unclassified sheds are omitted rather than guessed."
+          items: {$ref: "#/components/schemas/WeighingWeightGainShedTypeBucket"}
         by_weight_band:
           type: array
           description: How many animals stand in each weight bracket and how fast each grows, counting both ways of weighing. Ascending.

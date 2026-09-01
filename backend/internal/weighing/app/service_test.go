@@ -820,7 +820,7 @@ func (r *fakeRepo) GetWeighingDates(context.Context, string, []string, time.Time
 	return domain.WeighingDates{}, nil
 }
 
-func (r *fakeRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string) (domain.WeightDemographics, error) {
+func (r *fakeRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 

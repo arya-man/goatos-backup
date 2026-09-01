@@ -11770,6 +11770,21 @@ export interface components {
             median_adg_g_per_day: number;
             pair_count: number;
         };
+        /** @description One calendar week of the farm's daily gain, computed as the IDENTICAL statistic the headline reports (maintainer decision 2026-08-26): the animal-weighted mean over every kid weighed twice, each kid once at the median of its own pairs in that week, PLUS every whole-shed pen whose average moved, each pen contributing once per animal it holds. Distinct from WeighingGrowthTrendPoint, which is the MEDIAN over SCANNED PAIRS ONLY. A chart rendered beside the headline must read this one, or the two disagree. A week with no qualifying gain is absent from the array, never interpolated or zero-filled. */
+        WeighingGrowthWeeklyGainPoint: {
+            /**
+             * Format: date
+             * @description Monday (ISO week) in Asia/Kolkata. A pair spanning weeks is bucketed by its later weigh.
+             */
+            week_start: string;
+            /**
+             * Format: double
+             * @description Animal-weighted mean for the week. Non-null by construction.
+             */
+            average_adg_g_per_day: number;
+            /** @description The denominator - scanned kids with a gain this week plus the head counts of the pens that moved. */
+            animals: number;
+        };
         WeighingGrowthShedLeaderboardRow: {
             /** Format: uuid */
             location_id: string;
@@ -11867,6 +11882,17 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
+        /** @description One breed's daily gain for ONE physical shed type, for the Shed-wise comparison Manju asked for. It compares elevated sheds against crown/ground sheds; unclassified sheds are omitted rather than guessed from the pen name. */
+        WeighingWeightGainShedTypeBucket: {
+            /** @description The breed, as stored. */
+            label: string;
+            /** @enum {string} */
+            shed_type: "elevated" | "crown";
+            /** @description Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed. */
+            animals: number;
+            /** Format: double */
+            average_gain_g_per_day: number;
+        };
         /** @description One weight bracket: how many animals stand in it, and how fast it is growing. BOTH WAYS OF WEIGHING COUNT. A scanned animal is banded by its own latest weight and counts as one; a whole-shed pen is banded by the pen's own latest average weight and counts as ALL the animals it holds, kept whole in that one band rather than spread across neighbours. Bands are lower-inclusive and upper-exclusive, so animals sums to the weighed population. */
         WeighingWeightBandBucket: {
             /**
@@ -11945,6 +11971,8 @@ export interface components {
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
             /** @description Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither. */
             gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
+            /** @description Daily gain per breed split by elevated vs crown/ground shed type. Unclassified sheds are omitted rather than guessed. */
+            gain_by_breed_shed_type: components["schemas"]["WeighingWeightGainShedTypeBucket"][];
             /** @description How many animals stand in each weight bracket and how fast each grows, counting both ways of weighing. Ascending. */
             by_weight_band: components["schemas"]["WeighingWeightBandBucket"][];
             /** @description The same gain cut by breed AND calendar week, for the Time-wise per-breed trend. */
@@ -15882,7 +15910,7 @@ export interface operations {
                  * @description `farm_born` or `purchased` to report on kids of that origin only; omitted means every kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is. The farm both breeds its own kids and buys them in loads, and the two grow differently enough that reading them together answers nothing.
                  *     Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh carries a tag, so it is claimed through the animal that tag resolves to: purchased when that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh carries no tag, so it is claimed through its pen and ONLY when every live resident agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because one average weight cannot be divided between two cohorts; do NOT assume a pen is uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4 were bought, and treating that pen as purchased whole is the defect this rule exists to prevent). A tag that resolves to no animal is likewise claimed by neither side: it is still recorded and still counted unfiltered, but it cannot answer where the animal came from, so the two filtered halves need not sum to the unfiltered total.
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
-                 */
+                */
                 origin?: "farm_born" | "purchased";
             };
             header?: never;
@@ -15950,7 +15978,7 @@ export interface operations {
                  * @description `farm_born` or `purchased` to report on kids of that origin only; omitted means every kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is. The farm both breeds its own kids and buys them in loads, and the two grow differently enough that reading them together answers nothing.
                  *     Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh carries a tag, so it is claimed through the animal that tag resolves to: purchased when that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh carries no tag, so it is claimed through its pen and ONLY when every live resident agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because one average weight cannot be divided between two cohorts; do NOT assume a pen is uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4 were bought, and treating that pen as purchased whole is the defect this rule exists to prevent). A tag that resolves to no animal is likewise claimed by neither side: it is still recorded and still counted unfiltered, but it cannot answer where the animal came from, so the two filtered halves need not sum to the unfiltered total.
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
-                 */
+                */
                 origin?: "farm_born" | "purchased";
             };
             header?: never;
@@ -15987,8 +16015,10 @@ export interface operations {
                  * @description `farm_born` or `purchased` to report on kids of that origin only; omitted means every kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is. The farm both breeds its own kids and buys them in loads, and the two grow differently enough that reading them together answers nothing.
                  *     Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh carries a tag, so it is claimed through the animal that tag resolves to: purchased when that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh carries no tag, so it is claimed through its pen and ONLY when every live resident agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because one average weight cannot be divided between two cohorts; do NOT assume a pen is uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4 were bought, and treating that pen as purchased whole is the defect this rule exists to prevent). A tag that resolves to no animal is likewise claimed by neither side: it is still recorded and still counted unfiltered, but it cannot answer where the animal came from, so the two filtered halves need not sum to the unfiltered total.
                  *     Selecting `sex` and `origin` together reports the kids in BOTH.
-                 */
+                */
                 origin?: "farm_born" | "purchased";
+                /** @description `individual_animal` or `per_shed_partition` to report only that weighing mode; omitted means both. The two modes are mutually exclusive at campaign-shed grain, so this filter narrows the read before aggregates are built rather than hiding rows in the browser. */
+                weighing_category?: "individual_animal" | "per_shed_partition";
             };
             header?: never;
             path?: never;

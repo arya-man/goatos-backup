@@ -99,6 +99,18 @@ type WeightGainOriginBucket struct {
 	MedianGainGPerDay float64 `json:"median_gain_g_per_day"`
 }
 
+// WeightGainShedTypeBucket is one breed's daily gain for one physical shed class.
+//
+// The farm wants this as Elevated shed versus Crown/Ground shed. Unlike the per-shed
+// leaderboard, this is not a list of pens: it is an aggregate by breed and shed class. The
+// class must come from explicit shed metadata; an unclassified shed is not guessed from its name.
+type WeightGainShedTypeBucket struct {
+	Label              string  `json:"label"`
+	ShedType           string  `json:"shed_type"`
+	Animals            int     `json:"animals"`
+	AverageGainGPerDay float64 `json:"average_gain_g_per_day"`
+}
+
 // WeightBandBucket is one weight bracket: how many animals stand in it, and how fast it is growing.
 //
 // BOTH WAYS OF WEIGHING COUNT. A scanned animal is banded by its OWN latest weight in the window
@@ -187,6 +199,8 @@ type WeightDemographics struct {
 	// The same gain, split by where the animals came from, for the Weights analytics page's
 	// Birth-wise tab. Computed in the SAME query so it can never disagree with GainByBreed above.
 	GainByBreedOrigin []WeightGainOriginBucket `json:"gain_by_breed_origin"`
+	// The same gain, split by breed and physical shed class, for the Shed-wise tab.
+	GainByBreedShedType []WeightGainShedTypeBucket `json:"gain_by_breed_shed_type"`
 	// How many animals stand in each weight bracket and how fast each is growing, counting BOTH
 	// ways of weighing. Ascending by bracket.
 	ByWeightBand []WeightBandBucket `json:"by_weight_band"`

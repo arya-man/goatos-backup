@@ -3981,14 +3981,16 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.birth.aria":    "Daily gain by breed and origin",
 			"empty.birth.body":      "No breed has a farm-born or purchased kid with a second weigh in this period.",
 
-			// Shed-wise. Grouped by breed so a reader compares pens holding the same animals; a
-			// pen holding more than one breed is named as such rather than filed under one of them.
-			"section.shed.title":   "Shed-wise growth",
-			"section.shed.caption": "Daily gain for each shed, grouped by the breed it holds, so a slow pen is read against pens holding the same animals. A shed holding more than one breed is grouped on its own.",
-			"section.shed.aria":    "Daily gain by shed within each breed",
-			"empty.shed.body":      "No shed has a daily gain in this period. A gain needs two weighs.",
-			"value.shed.mixed":     "Mixed breeds",
-			"value.shed.unknown":   "Breed not recorded",
+			// Shed-wise. Exactly the comparison requested in the voice note: elevated sheds
+			// against crown/ground sheds within every breed.
+			"section.shed.title":      "Elevated vs crown sheds",
+			"section.shed.caption":    "Daily gain for each breed, split by physical shed type: elevated shed against crown shed. A shed without that profile is left out rather than guessed.",
+			"section.shed.aria":       "Daily gain by breed and shed type",
+			"empty.shed.body":         "No shed-type profile has daily gain in this period. Add elevated or crown shed profiles, then weigh twice.",
+			"view.shed_type.elevated": "Elevated shed",
+			"view.shed_type.crown":    "Crown shed",
+			"value.shed.mixed":        "Mixed breeds",
+			"value.shed.unknown":      "Breed not recorded",
 
 			// Weight-wise. The head count is the headline here and the gain rides beside it, because
 			// a bracket's growth is only worth reading once you know how many animals are standing

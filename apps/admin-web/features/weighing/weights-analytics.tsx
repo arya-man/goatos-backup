@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { CalendarRange, Gauge, Scale, Sprout, Warehouse } from "lucide-react";
+import { CalendarRange, Scale, Sprout, Warehouse } from "lucide-react";
 
 import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { WeightBars } from "./weight-bars";
@@ -45,12 +45,11 @@ const TABS = ["general", "breed", "birth", "shed", "weight", "time"] as const;
 type Tab = (typeof TABS)[number];
 
 /**
- * The tabs whose figures the Weighing filter can actually narrow: the two built from per-shed
- * ROWS. The other three read aggregates that arrive with both capture modes already blended into
- * one mean, which no client-side filter can unpick — so the control is not offered there rather
- * than offered and ignored.
+ * The tabs whose figures the Weighing filter can actually narrow at the API boundary. Time-wise
+ * still includes the overall weekly growth endpoint, so it stays unfiltered until that endpoint
+ * grows the same query parameter.
  */
-const WEIGHING_FILTER_TABS = new Set<Tab>(["general", "shed"]);
+const WEIGHING_FILTER_TABS = new Set<Tab>(["breed", "birth", "shed", "weight"]);
 
 function hrefWith(searchParams: RouteSearchParams, updates: Record<string, string | null>): string {
   const next = new URLSearchParams();
@@ -114,16 +113,6 @@ function workflowLabel(status: string, pageContract: AdminUiPageContract): strin
  * across two breeds would invent a distribution nobody measured, and picking the majority breed
  * would make a pen's group flip as animals move.
  */
-function shedBreed(
-  composition: { chips: readonly { breed?: string; animals: number }[] } | undefined,
-  pageContract: AdminUiPageContract,
-): { key: string; heading: string } {
-  const breeds = [...new Set((composition?.chips ?? []).map((chip) => chip.breed?.trim()).filter(Boolean))];
-  if (breeds.length === 1) return { key: breeds[0] as string, heading: breeds[0] as string };
-  if (breeds.length > 1) return { key: "__mixed", heading: copy(pageContract, "value.shed.mixed") };
-  return { key: "__unknown", heading: copy(pageContract, "value.shed.unknown") };
-}
-
 export async function WeighingWeightsAnalyticsPage({
   searchParams,
   pageContract,
@@ -158,6 +147,7 @@ export async function WeighingWeightsAnalyticsPage({
   const scope = {
     park_id: parkFilter || undefined,
     sex: sexFilter || undefined,
+    weighing_category: WEIGHING_FILTER_TABS.has(tab) && modeFilter !== "all" ? modeFilter : undefined,
   };
 
   // Every tab needs the shed read: it carries the park vocabulary the filter bar renders, plus
@@ -342,15 +332,7 @@ export async function WeighingWeightsAnalyticsPage({
 
       {tab === "birth" ? <BirthTab pageContract={pageContract} demo={demo} /> : null}
 
-      {tab === "shed" ? (
-        <ShedTab
-          pageContract={pageContract}
-          rows={rows}
-          modeFilter={modeFilter}
-          demo={demo}
-          growth={growth?.ok ? growth.data : null}
-        />
-      ) : null}
+      {tab === "shed" ? <ShedTab pageContract={pageContract} demo={demo} /> : null}
 
       {tab === "weight" ? <WeightTab pageContract={pageContract} demo={demo} /> : null}
 
@@ -719,102 +701,45 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
 }
 
 /**
- * SHED-WISE — every shed's daily gain, grouped by the breed it holds.
- *
- * Grouped rather than one long list because the question is "which of MY sheep pens is lagging",
- * and a flat list of ~40 pens across six breeds answers it only after the reader mentally
- * re-sorts it. Within a group the sheds are ALPHABETICAL, so a named pen is where it was last
- * time; the bar lengths carry the comparison.
- *
- * TWO MEASUREMENTS SHARE THIS CHART and each bar says which it is. A per-animal shed reports the
- * median of its kids' own gains; a whole-shed pen reports how fast its AVERAGE is moving, which
- * population change also moves. Merging them silently would be the defect; showing only the first
- * would drop most of this farm's kids, who are weighed by the whole shed.
+ * SHED-WISE — elevated shed against crown/ground shed, per breed.
  */
 function ShedTab({
   pageContract,
-  rows,
-  modeFilter,
   demo,
-  growth,
 }: {
   pageContract: AdminUiPageContract;
-  rows: readonly ShedWeightsRow[];
-  modeFilter: string;
   demo: WeightDemographicsResponse | null;
-  growth: WeighingGrowthResponse | null;
 }) {
-  const compositionByShed = new Map(
-    (demo?.shed_composition ?? []).map((item) => [shedKey(item.location_id, item.partition_label), item]),
+  const buckets = demo?.gain_by_breed_shed_type ?? [];
+  const elevated = new Map(buckets.filter((b) => b.shed_type === "elevated").map((b) => [b.label, b]));
+  const crown = new Map(buckets.filter((b) => b.shed_type === "crown").map((b) => [b.label, b]));
+  const breeds = [...new Set([...elevated.keys(), ...crown.keys()])].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
   );
-  const weighedRows = rows.filter((row) => row.animals_weighed > 0);
-  const visibleRows =
-    modeFilter === "all" ? weighedRows : weighedRows.filter((row) => row.weighing_category === modeFilter);
-  const visibleKeys = new Set(visibleRows.map((row) => shedKey(row.location_id, row.partition_label)));
-
-  type ShedGain = { key: string; label: string; value: number; breed: { key: string; heading: string }; note: string; tone: "info" | "mut" };
-
-  const perAnimal: ShedGain[] = (growth?.shed_leaderboard ?? [])
-    .filter((shed) => shed.adg_pair_count > 0 && visibleKeys.has(shedKey(shed.location_id, shed.partition_label)))
-    .map((shed) => {
-      const key = shedKey(shed.location_id, shed.partition_label);
-      return {
-        key,
-        // The park travels IN the label here, not as a separate column: 39 shed names exist in
-        // BOTH parks, so a bare pen name would silently merge two different sheds.
-        label: `${shed.park_name} · ${shed.operational_location_display || shed.display_name}`,
-        value: Math.round(shed.median_adg_g_per_day),
-        breed: shedBreed(compositionByShed.get(key), pageContract),
-        note: copy(pageContract, "value.weighing.individual"),
-        tone: "info" as const,
-      };
-    });
-
-  const wholeShed: ShedGain[] = visibleRows
-    .filter((row) => row.shed_average_gain_g_per_day != null)
-    .map((row) => {
-      const key = shedKey(row.location_id, row.partition_label);
-      return {
-        key: `${key}-shed`,
-        label: `${row.park_name} · ${row.operational_location_display || row.shed_display_name}`,
-        value: Math.round(row.shed_average_gain_g_per_day as number),
-        breed: shedBreed(compositionByShed.get(key), pageContract),
-        note: copy(pageContract, "value.weighing.lump"),
-        tone: "mut" as const,
-      };
-    });
-
-  const byBreed = new Map<string, { heading: string; bars: GroupedBar[] }>();
-  for (const shed of [...perAnimal, ...wholeShed]) {
-    const group = byBreed.get(shed.breed.key) ?? { heading: shed.breed.heading, bars: [] };
-    group.bars.push({
-      key: shed.key,
-      label: shed.label,
-      value: shed.value,
-      seriesKey: "gain",
-      noteLabel: shed.note,
-      noteTone: shed.tone,
-    });
-    byBreed.set(shed.breed.key, group);
-  }
-
-  // Named breeds first, alphabetically; the mixed and unrecorded groups last, because they are
-  // the residue rather than a breed anyone is comparing.
-  const groups: BarGroup[] = [...byBreed.entries()]
-    .sort(([a], [b]) => {
-      const residue = (key: string) => (key.startsWith("__") ? 1 : 0);
-      return residue(a) - residue(b) || a.localeCompare(b, undefined, { numeric: true });
-    })
-    .map(([key, group]) => ({
-      key,
-      heading: group.heading,
-      // ALPHABETICAL within the breed (maintainer request), not ranked by gain. A rank tells a
-      // reader nothing about where a specific pen will be, so finding "Castro 2" meant scanning
-      // the whole group; a stable A-Z order means the same pen sits in the same place on every
-      // load, and the bar lengths still show at a glance which pens are behind. `numeric` keeps
-      // "Castro 2" ahead of "Castro 10". Same order the Weights page's shed chart uses.
-      bars: group.bars.slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })),
-    }));
+  const groups: BarGroup[] = breeds.map((breed) => {
+    const bars: GroupedBar[] = [];
+    const elevatedBucket = elevated.get(breed);
+    const crownBucket = crown.get(breed);
+    if (elevatedBucket) {
+      bars.push({
+        key: `${breed}-elevated`,
+        label: copy(pageContract, "view.shed_type.elevated"),
+        value: Math.round(elevatedBucket.average_gain_g_per_day),
+        seriesKey: "elevated",
+        noteLabel: `${elevatedBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+      });
+    }
+    if (crownBucket) {
+      bars.push({
+        key: `${breed}-crown`,
+        label: copy(pageContract, "view.shed_type.crown"),
+        value: Math.round(crownBucket.average_gain_g_per_day),
+        seriesKey: "crown",
+        noteLabel: `${crownBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+      });
+    }
+    return { key: breed, heading: breed, bars };
+  });
 
   return (
     <section className="card wchart" aria-label={copy(pageContract, "section.shed.aria")}>
@@ -824,7 +749,10 @@ function ShedTab({
       <p className="muted small">{copy(pageContract, "section.shed.caption")}</p>
       <GroupedBars
         groups={groups}
-        series={[{ key: "gain", label: copy(pageContract, "series.gain"), unit: "g", fractionDigits: 0 }]}
+        series={[
+          { key: "elevated", scaleKey: "gain", label: copy(pageContract, "view.shed_type.elevated"), unit: "g", fractionDigits: 0 },
+          { key: "crown", scaleKey: "gain", label: copy(pageContract, "view.shed_type.crown"), unit: "g", fractionDigits: 0 },
+        ]}
         emptyLabel={copy(pageContract, "empty.shed.body")}
         chartLabel={copy(pageContract, "section.shed.aria")}
       />

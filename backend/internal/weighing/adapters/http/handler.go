@@ -47,7 +47,7 @@ type Service interface {
 	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.GrowthADG, error)
 	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.ShedWeights, error)
 	GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.WeighingDates, error)
-	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.WeightDemographics, error)
+	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, writer io.Writer) error
 }
@@ -223,7 +223,7 @@ func (h *Handler) GetWeightDemographics(w http.ResponseWriter, r *http.Request) 
 	result, err := h.service.GetWeightDemographics(
 		r.Context(), actor(r),
 		r.URL.Query().Get("park_id"), r.URL.Query().Get("from"), r.URL.Query().Get("to"),
-		r.URL.Query().Get("sex"), r.URL.Query().Get("origin"),
+		r.URL.Query().Get("sex"), r.URL.Query().Get("origin"), r.URL.Query().Get("weighing_category"),
 	)
 	h.respond(w, r, result, err)
 }

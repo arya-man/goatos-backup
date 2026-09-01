@@ -484,7 +484,7 @@ type Repository interface {
 	// GetWeightDemographics returns average weight by breed, sex and management stage.
 	// This is the ONE weighing read permitted to resolve a scanned tag to its animal
 	// (maintainer decision 2026-08-07); see domain.WeightDemographics for the scope.
-	GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin string) (domain.WeightDemographics, error)
+	GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.WeightDemographics, error)
 
 	// ExportCampaignCSV exports weighing observations for a campaign as CSV.
 	// It streams CSV-formatted rows to the provided writer, including both individual

@@ -862,6 +862,8 @@ export async function getWeightDemographics(params: {
    * scanned weigh taken in the same pen are on the same side of it.
    */
   origin?: string;
+  /** `individual_animal` / `per_shed_partition` narrows aggregate figures to one capture mode. */
+  weighing_category?: string;
 }): Promise<ApiResult<WeightDemographicsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

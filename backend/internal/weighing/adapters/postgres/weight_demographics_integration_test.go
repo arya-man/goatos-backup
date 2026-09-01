@@ -90,7 +90,7 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 
 	from := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "")
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -240,7 +240,7 @@ SET shed_id=EXCLUDED.shed_id, partition_label=EXCLUDED.partition_label, source_s
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -302,7 +302,7 @@ SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, management_stage=EXCLUDED.management
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -406,7 +406,7 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 	seedShedWeightScan(t, ctx, pool, "chip-slow", 21.5, time.Date(2026, 7, 29, 6, 10, 0, 0, time.UTC))
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
-		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -480,7 +480,7 @@ ON CONFLICT (tenant_id, normalized_value) DO UPDATE SET goat_id=EXCLUDED.goat_id
 	seedShedWeightScan(t, ctx, pool, tag, 23.0, time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC))
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
-		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -592,7 +592,7 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-slow'`, re
 
 	windowFrom := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	windowTo := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, windowFrom, windowTo, "", "")
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, windowFrom, windowTo, "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -615,7 +615,7 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-slow'`, re
 
 	// PARK SCOPE. The same window under a park these kids are not in returns nothing for this
 	// breed — the park filter is a real predicate, not a label on an unscoped aggregate.
-	otherPark, err := repo.GetWeightDemographics(ctx, repoTenant, []string{weightDemoGodelShed}, windowFrom, windowTo, "", "")
+	otherPark, err := repo.GetWeightDemographics(ctx, repoTenant, []string{weightDemoGodelShed}, windowFrom, windowTo, "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(other park): %v", err)
 	}
@@ -714,7 +714,7 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "")
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -797,7 +797,7 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 
-	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
+	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -1176,7 +1176,7 @@ ON CONFLICT DO NOTHING`, repoTenant, partALoad, weightDemoGoat)
 
 	demoFor := func(t *testing.T, origin string) domain.WeightDemographics {
 		t.Helper()
-		out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", origin)
+		out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", origin, "")
 		if err != nil {
 			t.Fatalf("GetWeightDemographics(origin=%q): %v", origin, err)
 		}

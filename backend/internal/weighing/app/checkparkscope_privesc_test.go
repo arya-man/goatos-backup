@@ -316,7 +316,7 @@ func (r *parkScopeCheckRepo) GetWeighingDates(context.Context, string, []string,
 	return domain.WeighingDates{}, nil
 }
 
-func (r *parkScopeCheckRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string) (domain.WeightDemographics, error) {
+func (r *parkScopeCheckRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 
