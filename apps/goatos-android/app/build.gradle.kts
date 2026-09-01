@@ -156,7 +156,7 @@ android {
             // growth a 15 kg and an 11 kg reading of "the same goat" minutes apart. Namespacing
             // the scan per shed in dev builds makes 5 tags behave like 5 distinct animals in
             // each shed. It is a FLAVOUR field, so stg/prod cannot compile it in.
-            buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
+            buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "true")
             buildConfigField(
                 "String",
                 "PROOF_VIDEO_QUALITY_OVERRIDE",

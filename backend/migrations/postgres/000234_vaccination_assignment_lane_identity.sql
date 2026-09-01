@@ -37,3 +37,7 @@ ALTER TABLE public.workforce_positions
 ALTER TABLE public.workforce_positions
   ADD CONSTRAINT workforce_positions_vaccination_daily_animal_cap_check
   CHECK (vaccination_daily_animal_cap IS NULL OR vaccination_daily_animal_cap BETWEEN 1 AND 200);
+
+-- +goose Down
+-- Irreversible operational correction. This migration restores the lane identity
+-- and capacity checks expected by runtime code; do not roll it back automatically.
