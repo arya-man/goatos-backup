@@ -2295,7 +2295,7 @@ Purpose:
   consumes the FINISHED load-wise read model so the push and the chart can never
   disagree about which loads are overdue. Canonical prose:
   `docs/decisions/load-landed-cost-and-growth.md`; schema: migration
-  `000234_procurement_load_cost_lines.sql`.
+  `000235_procurement_load_cost_lines.sql`.
 
   **Ratified exception (maintainer decision 2026-09-01): `/sales/config`.**
   The THIRD Config entry, same shape and same reasoning as the two above, plus a

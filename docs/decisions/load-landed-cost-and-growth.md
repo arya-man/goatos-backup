@@ -149,4 +149,4 @@ chart can never disagree about whether a load is overdue.
 - `TestOverdueLoadAlertNamesTheLoadVendorFarmAgeAndHeadCount`,
   `TestOverdueLoadAlertReadsTheSharedReadModelOnce`, `TestNoOverdueLoadsQueuesNothing`.
 
-Schema: migration `000234_procurement_load_cost_lines.sql`.
+Schema: migration `000235_procurement_load_cost_lines.sql`.

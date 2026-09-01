@@ -48,7 +48,7 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
   return qs ? `${PAGE_PATH}?${qs}` : PAGE_PATH;
 }
 
-/** One pipeline/evidence entry button. Rendered only when the backend grants the write. */
+/** One pipeline/evidence entry button. Shown only when the backend grants the write. */
 function panelButton(href: string, label: string) {
   return (
     <LocalOverlayLink href={href} className="btn sm" scroll={false}>

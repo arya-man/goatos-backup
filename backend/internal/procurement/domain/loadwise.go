@@ -208,10 +208,12 @@ func DaysSincePurchase(purchaseDate, asOf string) *int {
 	}
 	bought, err := time.Parse("2006-01-02", purchaseDate)
 	if err != nil {
+		// exception:exempt invalid business-date input makes the derived age absent
 		return nil
 	}
 	today, err := time.Parse("2006-01-02", asOf)
 	if err != nil {
+		// exception:exempt invalid business-date input makes the derived age absent
 		return nil
 	}
 	days := int(today.Sub(bought).Hours() / 24)
