@@ -63,27 +63,9 @@ export function auditSql(filename, sql) {
   };
 }
 
-function migrationVersion(file) {
-  const match = file.match(/\/(\d+)_.*\.sql$/);
-  return match ? Number(match[1]) : null;
-}
-
-function maxMigrationVersionAtRef(ref) {
-  const out = execFileSync("git", ["ls-tree", "-r", "--name-only", ref, MIGRATION_DIR], {
-    cwd: repo,
-    encoding: "utf8",
-  });
-  return out
-    .split(/\r?\n/)
-    .map((file) => (file.endsWith(".sql") ? migrationVersion(file) : null))
-    .filter((version) => Number.isInteger(version))
-    .reduce((max, version) => Math.max(max, version), 0);
-}
-
-function changedMigrationFiles(base) {
-  const baseMaxVersion = maxMigrationVersionAtRef(base);
+function changedMigrationFiles(base, cwd = repo) {
   const args = ["diff", "--name-status", base, "--", `${MIGRATION_DIR}/*.sql`];
-  const out = execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+  const out = execFileSync("git", args, { cwd, encoding: "utf8" });
   return out
     .split(/\r?\n/)
     .filter(Boolean)
@@ -91,7 +73,7 @@ function changedMigrationFiles(base) {
       const [status, file] = line.split(/\s+/, 2);
       return { status, file };
     })
-    .filter(({ status, file }) => status !== "D" && migrationVersion(file) > baseMaxVersion)
+    .filter(({ status }) => status !== "D")
     .map(({ file }) => file);
 }
 
@@ -166,6 +148,7 @@ function run() {
 
 function selfTest() {
   const safeAdd = "-- +goose Up\nCREATE TABLE a (id uuid PRIMARY KEY);\n-- +goose Down\nDROP TABLE a;";
+  const safeAdd2 = "-- +goose Up\nCREATE TABLE b (id uuid PRIMARY KEY);\n-- +goose Down\nDROP TABLE b;";
   const drop = "-- +goose Up\nALTER TABLE goats DROP COLUMN old_name;\n-- +goose Down\n";
   const annotated = "-- +goose Up\n-- stg-zero-downtime: safe because old code does not read this table\nDROP TABLE unused_shadow;\n-- +goose Down\n";
   const markedDowntime = "-- +goose Up\n-- deploy-downtime-required: rewrites a live table\nDELETE FROM goats;\n-- +goose Down\n";
@@ -174,16 +157,30 @@ function selfTest() {
   if (!auditSql("drop.sql", drop)?.rules.includes("drop-column")) throw new Error("self-test: drop column missed");
   if (!auditSql("annotated.sql", annotated)?.okForZeroDowntime) throw new Error("self-test: safe annotation not honored");
   if (auditSql("downtime.sql", markedDowntime)?.okForZeroDowntime) throw new Error("self-test: downtime marker allowed");
-  if (migrationVersion("backend/migrations/postgres/000234_new.sql") !== 234) throw new Error("self-test: migration version parse failed");
 
   const tmp = mkdtempSync(join(tmpdir(), "stg-zdt-migrations-"));
   try {
     const repoDir = join(tmp, "repo");
-    spawnSync("git", ["init", repoDir], { stdio: "ignore" });
+    const init = spawnSync("git", ["init", repoDir], { encoding: "utf8" });
+    if (init.status !== 0) throw new Error(`self-test: git init failed: ${init.stderr}`);
     const dir = join(repoDir, MIGRATION_DIR);
-    spawnSync("mkdir", ["-p", dir]);
+    const mkdir = spawnSync("mkdir", ["-p", dir], { encoding: "utf8" });
+    if (mkdir.status !== 0) throw new Error(`self-test: mkdir failed: ${mkdir.stderr}`);
     writeFileSync(join(dir, "000001_safe.sql"), safeAdd);
-    const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--files", `${MIGRATION_DIR}/000001_safe.sql`, "--enforce"], {
+    const add = spawnSync("git", ["add", "."], { cwd: repoDir, encoding: "utf8" });
+    if (add.status !== 0) throw new Error(`self-test: git add failed: ${add.stderr}`);
+    const commit = spawnSync("git", ["commit", "-m", "base"], {
+      cwd: repoDir,
+      env: { ...process.env, GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" },
+      encoding: "utf8",
+    });
+    if (commit.status !== 0) throw new Error(`self-test: git commit failed: ${commit.stderr}`);
+    writeFileSync(join(dir, "000001_safe.sql"), drop);
+    if (!changedMigrationFiles("HEAD", repoDir).includes(`${MIGRATION_DIR}/000001_safe.sql`)) {
+      throw new Error("self-test: changed lower-number migration was skipped");
+    }
+    writeFileSync(join(dir, "000002_safe.sql"), safeAdd2);
+    const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--files", `${MIGRATION_DIR}/000002_safe.sql`, "--enforce"], {
       cwd: repoDir,
       encoding: "utf8",
     });

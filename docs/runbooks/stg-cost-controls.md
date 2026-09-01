@@ -45,8 +45,8 @@ background processing, not the public web/Android request path.
 The Slack/Cloud Build entrypoint enforces
 `tools/deploy/audit-stg-zero-downtime-migrations.mjs` before it creates the Cloud
 Deploy release. The audit compares the new `main` commit against the currently
-live API image tag, so it checks the release delta, not just the local working
-tree.
+live API image tag and checks every changed non-deleted Postgres migration in
+that release delta, not just the local working tree.
 
 That is the normal industry pattern: expand first, run old and new code together,
 then contract later. Use the emergency fallback
