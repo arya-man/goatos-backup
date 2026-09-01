@@ -161,8 +161,16 @@ require_zero_downtime_migration_audit() {
       git fetch origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1 ||
       true
   fi
+  if ! git cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
+    echo "live commit $base_commit not present after origin fetch; fetching GitHub main history directly"
+    git fetch --unshallow https://github.com/vgoats/goatos.git '+refs/heads/main:refs/remotes/origin/main' >/dev/null 2>&1 ||
+      git fetch https://github.com/vgoats/goatos.git '+refs/heads/main:refs/remotes/origin/main' >/dev/null 2>&1 ||
+      true
+  fi
   git cat-file -e "${base_commit}^{commit}" 2>/dev/null || {
     echo "ERROR: cannot prove zero-downtime migrations because live API commit ${base_commit} is not in this checkout" >&2
+    echo "git shallow state: $(git rev-parse --is-shallow-repository 2>/dev/null || echo unknown)" >&2
+    echo "git remotes: $(git remote -v 2>/dev/null | tr '\n' ';' || echo none)" >&2
     return 1
   }
 
