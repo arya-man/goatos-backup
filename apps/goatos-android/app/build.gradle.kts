@@ -131,11 +131,6 @@ android {
         buildConfigField("String", "SOURCE_BRANCH", quotedBuildConfig(sourceBranch))
         buildConfigField("String", "SOURCE_LABEL", quotedBuildConfig(sourceLabel))
         buildConfigField("boolean", "SOURCE_DIRTY", sourceDirty.toString())
-        buildConfigField(
-            "String",
-            "PROOF_VIDEO_QUALITY_OVERRIDE",
-            quotedBuildConfig((project.findProperty("goatosProofVideoQualityOverride") as String?).orEmpty()),
-        )
         resValue("string", "goatos_source_commit", sourceCommit)
         resValue("string", "goatos_source_tag", sourceTag.ifBlank { "untagged" })
         resValue("string", "goatos_source_label", sourceLabel)
@@ -162,6 +157,11 @@ android {
             // the scan per shed in dev builds makes 5 tags behave like 5 distinct animals in
             // each shed. It is a FLAVOUR field, so stg/prod cannot compile it in.
             buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "true")
+            buildConfigField(
+                "String",
+                "PROOF_VIDEO_QUALITY_OVERRIDE",
+                quotedBuildConfig((project.findProperty("goatosProofVideoQualityOverride") as String?).orEmpty()),
+            )
             buildConfigField("String", "API_BASE_URL", "\"${devApiBaseUrl.replace("\"", "\\\"")}\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"http://localhost:3311/login\"")
             // Telemetry (docs/TELEMETRY.md): ON for dev. The dev Android client is registered in
@@ -184,6 +184,7 @@ android {
         create("stg") {
             dimension = "env"
             buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
+            buildConfigField("String", "PROOF_VIDEO_QUALITY_OVERRIDE", "\"\"")
             applicationIdSuffix = ".stg"
             versionNameSuffix = "-stg"
             signingConfig = signingConfigs.getByName("stgRelease")
@@ -213,6 +214,7 @@ android {
             dimension = "env"
             signingConfig = signingConfigs.getByName("stgRelease")
             buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
+            buildConfigField("String", "PROOF_VIDEO_QUALITY_OVERRIDE", "\"\"")
             buildConfigField("String", "API_BASE_URL", "\"https://api.goatos.mesha.sg/\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://dashboard.mesha.sg/login\"")
             // Reuses the existing goatos-stg Firebase/GCP project with the production package.
