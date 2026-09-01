@@ -177,12 +177,11 @@ paths, signed URLs, or Firebase tokens.
 
 | Flavor | Firebase project | Evidence | `TELEMETRY_ENABLED` |
 |---|---|---|---|
-| `stg` | `goatos-stg` | **Confirmed** — committed in `app/src/stg/google-services.json`, `app/src/stg/res/values/firebase.xml`, and `app/build.gradle.kts`'s `firebaseAppDistribution { appId = "1:514832198871:android:0cb898377ba4f7f7f19492" }` | `true` |
 | `dev` | **not confirmed** | No Firebase config of any kind existed in this repo for `dev` before this change | `false` |
 | `prod` | `goatos-stg` | **Confirmed production-facing package** — `sg.mesha.goatos` is registered in the existing Firebase project and `app/src/prod/google-services.json` is provisioned from Firebase | `false` by default; enable deliberately for release telemetry |
 
-`app/src/stg/google-services.json` is the historical staging Firebase Android client config for
-`sg.mesha.goatos.stg`. `app/src/dev/google-services.json` is a schema-valid placeholder with
+The historical staging Android app `sg.mesha.goatos.stg` has been removed from the active
+distribution path. `app/src/dev/google-services.json` is a schema-valid placeholder with
 obviously-fake ids. `app/src/prod/google-services.json` is the production-facing package config
 for `sg.mesha.goatos` inside the reused `goatos-stg` Firebase project. Full detail + setup steps:
 `app/src/google-services-README.md`.
@@ -261,14 +260,12 @@ mutually compatible with AGP 9.2 — see the compatibility note on `firebasePerf
 ```
 ./gradlew :core:core-network:compileDebugKotlin :core:core-analytics:compileDebugKotlin \
   :core:core-analytics:testDebugUnitTest \
-  :app:compileStgDebugKotlin :app:compileDevDebugKotlin :app:compileProdDebugKotlin
+  :app:compileDevDebugKotlin :app:compileProdDebugKotlin
 ```
 
-**Result: BUILD SUCCESSFUL for every task above**, including `:app:compileStgDebugKotlin`'s
-`processStgDebugGoogleServices` step (confirms the reconstructed `app/src/stg/google-services.json`
-is well-formed and its `package_name` matches the `stg` flavor's applicationId), and
-`:app:compileDevDebugKotlin` / `:app:compileProdDebugKotlin` (confirms the placeholder
-`google-services.json` files for those flavors don't break their builds either). One real
+**Result: BUILD SUCCESSFUL for every task above**, including `:app:compileDevDebugKotlin` /
+`:app:compileProdDebugKotlin` (confirms the flavor `google-services.json` files do not break
+their builds). One real
 compile error was caught and fixed during this pass: `:app` needed a direct `implementation(libs.okhttp)`
 dependency (added to `app/build.gradle.kts`) because `core-network`'s own OkHttp dependency is
 `implementation`-scoped and not exposed transitively, so `AppModule.kt` couldn't otherwise resolve
@@ -276,9 +273,8 @@ dependency (added to `app/build.gradle.kts`) because `core-network`'s own OkHttp
 are pre-existing (unrelated files this task never touched — `AppNavHost.kt`, `SyncWorker.kt`,
 `Overlays.kt`).
 
-**Not run** (out of scope / needs a device): `assembleStgRelease` / Firebase App Distribution
-end-to-end, and any real on-device run with `TELEMETRY_ENABLED=true` hitting a live Firebase
-project.
+**Not run** (out of scope / needs a device): Firebase App Distribution end-to-end, and any real
+on-device run with `TELEMETRY_ENABLED=true` hitting a live Firebase project.
 
 ## 8. Companion rule: never swallow an exception
 

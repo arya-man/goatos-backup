@@ -18,7 +18,7 @@ The Gradle worktree lock (`tools/ci/gradle-worktree-lock.sh`) guards against par
 **Status:** FIXED in commit b109203ec  
 **Reproduction:**
 ```bash
-# Linux VM: ssh -i ~/.ssh/goatos_oci_dev_ed25519 opc@137.23.51.115
+# Linux VM: use the operator-provided OCI SSH helper or host from local secrets.
 cd /Users/ravi/goatos-work/proof-flow-integration
 bash tools/ci/check-gradle-worktree-lock.sh 2>&1 | grep -A 5 "case b"
 ```
@@ -92,7 +92,7 @@ The guard's Linux atomicity bugs have no impact on the lock's actual job: exclud
 SSH into the OCI A1 VM provisioned in CLAUDE.md:
 
 ```bash
-ssh -i ~/.ssh/goatos_oci_dev_ed25519 opc@137.23.51.115
+ssh -i "$GOATOS_OCI_KEY" "$GOATOS_OCI_USER@$GOATOS_OCI_HOST"
 cd /Users/ravi/goatos-work/proof-flow-integration  # clone the worktree there
 bash tools/ci/check-gradle-worktree-lock.sh 2>&1 | grep "^── gradle\|^FAIL\|^\|PROCEED"
 ```

@@ -1802,12 +1802,15 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		anchorCatchUpKey := ""
 		// Set only on the history-driven repeat path below, and only for repeat rules.
 		var historyAnchor *obldomain.RepeatCycleSource
+		// seed-fixture-guard:ignore: preserves runtime history-derived repeat due dates; no HRMS source rows, fixture columns, or SOP contract change.
+		historyDrivenDue := false
 		baseDue, ok, skip := time.Time{}, false, false
 		if courseDue, found, err := primaryCourseContinuationDueFromHistory(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path, vaccineHistory); err != nil {
 			return err
 		} else if found {
 			baseDue = courseDue
 			ok = true
+			historyDrivenDue = true
 		} else {
 			if birthAgeKidRuleRequiresPriorPrimary(rule) {
 				// seed-fixture-guard:ignore: runtime min-gap booster gating only; HRMS seed input schema/data is unchanged.
@@ -1844,6 +1847,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			skip = false
 			anchorCatchUpKey = ""
 			historyAnchor = nil
+			historyDrivenDue = false
 		}
 		if skip {
 			trusted, err := s.hasTrustedCompletionEvidence(ctx, tenantID, versionID, rule, g, asOf, asOf, trustedLookup)
@@ -1944,6 +1948,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				if historyDue, found := dueAfterPreviousCompletion(rule, ruleVaccine, vaccineHistory); found {
 					baseDue = historyDue
 					ok = true
+					historyDrivenDue = true
 					// This due date was derived from a specific past administration, and it
 					// moves whenever a newer administration of the same vaccine lands. Record
 					// the administration itself as the cycle's cause so the moved date updates
@@ -2026,7 +2031,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		// two co-due live vaccines (e.g., PPR and Goat Pox both due today) are spaced LiveToLiveGapDays
 		// apart, not left same-day because neither is in the other's history yet.
 		due = applyCrossVaccineGapFloorFromPending(due, ruleVaccine, pending, policies.Compatibility)
-		due = floorGeneratedOpenWorkToToday(due, asOf)
+		if !historyDrivenDue {
+			due = floorGeneratedOpenWorkToToday(due, asOf)
+		}
 		if skipNonFutureOpenWork(rule, due, asOf, policies.MissedDose) {
 			continue
 		}

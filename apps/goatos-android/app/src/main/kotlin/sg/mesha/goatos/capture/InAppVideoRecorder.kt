@@ -93,9 +93,9 @@ fun InAppVideoRecorderOverlay(
     captureContext: ProofCaptureContext? = null,
     onResult: (CapturedVideo?) -> Unit,
     onCameraEvent: (String) -> Unit = {},
-    onValidationFailure: (ProofArtifactValidator.ValidationResult) -> Unit = {},
     // MEDIUM: Accept validator as dependency instead of constructing inline
     artifactValidator: ProofArtifactValidator = remember { FileSystemProofArtifactValidator() },
+    onValidationFailure: (ProofArtifactValidator.ValidationResult) -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current

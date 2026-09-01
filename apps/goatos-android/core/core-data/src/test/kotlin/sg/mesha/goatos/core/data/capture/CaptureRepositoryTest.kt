@@ -3,6 +3,7 @@ package sg.mesha.goatos.core.data.capture
 import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import android.database.sqlite.SQLiteConstraintException
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.Dispatchers
@@ -1518,6 +1519,49 @@ class CaptureRepositoryTest {
                 1,
                 db.proofCaptureDao().countStateEvents(captured.id, "upload_enqueue_failed"),
             )
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `state event foreign-key race is best-effort and does not fail capture`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository(proofUploadFailure = "outbox unavailable")
+            val dao = CountingProofCaptureDao(db.proofCaptureDao()).apply {
+                throwConstraintOnStateEventStage = "upload_enqueue_failed"
+            }
+            val repo = DefaultProofCaptureRepository(
+                dao = dao,
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val result = repo.capture(
+                taskId = "task-event-fk-race",
+                fieldKey = "feed_distribution_video",
+                subject = ProofSubject.SHED,
+                localUri = "file://proof.mp4",
+                mimeType = "video/mp4",
+                caption = "Feed direction proof",
+                scopeType = "task",
+                scopeId = "task-event-fk-race",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = "operator-1",
+                awaitUploadEnqueue = true,
+            )
+
+            assertTrue(result is AppResult.Ok)
+            val captured = (result as AppResult.Ok).value
+            val row = db.proofCaptureDao().findById(captured.id)
+            assertEquals(CaptureSyncStatus.FAILED.name, row?.syncStatus)
+            assertEquals("outbox unavailable", row?.lastError)
+            assertEquals(0, db.proofCaptureDao().countStateEvents(captured.id, "upload_enqueue_failed"))
         } finally {
             db.close()
         }

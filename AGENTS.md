@@ -167,6 +167,12 @@ emulator target required by the task and verify the changed screen there.
 Static tests, typecheck, backend API checks, and screenshots from before the
 last edit are not enough.
 
+**HARD RULE - ADB text is literal, not URL-decoded.** When entering credentials
+or any literal text with `adb shell input text`, never encode `@` as `%40`;
+`adb input text` types `%40` literally. Use a literal escaped at-sign such as
+`natheswar7\@gmail.com`, then verify the field text in the UI hierarchy before
+tapping submit/sign-in.
+
 **HARD RULE - UI work requires BOTH visual regression and E2E.** For every
 browser-visible `apps/admin-web` change, after the final code edit and before
 reporting done or pushing as ready, agents must complete both checks on the real

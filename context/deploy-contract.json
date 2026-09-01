@@ -30,8 +30,8 @@
         "Google Play Internal Testing",
         "https://mesha.sg/app.apk"
       ],
-      "play_package": "sg.mesha.goatos.stg",
-      "firebase_gradle_task": ":app:appDistributionUploadStgRelease",
+      "play_package": "sg.mesha.goatos",
+      "firebase_gradle_task": ":app:appDistributionUploadProdRelease",
       "apk_mirror": "gs://goatos-stg-public-downloads/operator/latest/app.apk"
     },
     "bug_041_blocks_deploy": false

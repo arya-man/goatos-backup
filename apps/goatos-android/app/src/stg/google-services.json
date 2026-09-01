@@ -13,18 +13,18 @@
         }
       },
       "oauth_client": [
-      {
-        "client_id": "514832198871-fle500c1sv83m4vut0c3ura8ej1cntvl.apps.googleusercontent.com",
-        "client_type": 1,
-        "android_info": {
-          "package_name": "sg.mesha.goatos.stg",
-          "certificate_hash": "8a6c643b88c9b4c2b913e05e94006a8a84386af3"
-        }
-      },
-      {
-        "client_id": "514832198871-ucslnet88jrirhobk8tm5nf0kqkpcldt.apps.googleusercontent.com",
-        "client_type": 1,
-        "android_info": {
+        {
+          "client_id": "514832198871-fle500c1sv83m4vut0c3ura8ej1cntvl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "sg.mesha.goatos.stg",
+            "certificate_hash": "8a6c643b88c9b4c2b913e05e94006a8a84386af3"
+          }
+        },
+        {
+          "client_id": "514832198871-ucslnet88jrirhobk8tm5nf0kqkpcldt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
             "package_name": "sg.mesha.goatos.stg",
             "certificate_hash": "68575e9101132902438e82e3ac41c6f9d83bea0b"
           }

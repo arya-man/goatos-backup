@@ -8,6 +8,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CompletableDeferred
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 
 /** One captured proof video, as the capture port sees it — a local, already-durable file the
  *  caller hands to Room (docs/mobile/proof-capture-sync-and-e2e.md §2/§3: "Room first").
@@ -163,6 +164,7 @@ class FakeProofCaptureSource(
 @InstallIn(SingletonComponent::class)
 interface ProofCaptureSourceEntryPoint {
     fun delegatingProofCaptureSource(): DelegatingProofCaptureSource
+    fun analyticsPort(): AnalyticsPort
 }
 
 @Composable
