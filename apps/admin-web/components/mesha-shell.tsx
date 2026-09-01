@@ -236,7 +236,11 @@ export function MeshaShell({
   // was a second, stale-looking answer to the same question sitting three inches above the real
   // one. Nothing is lost by removing it: these pages own the park in their own filter bar, so the
   // choice is still on screen, once.
-  const PAGES_OWNING_PARK_SCOPE = ["/counts/breakdown", "/weighing/weights"];
+  // Pages that render their OWN park control on the `park` query param. The shell's global park
+  // selector is hidden for them, because two controls writing one parameter fight each other and
+  // the reader has no way to tell which one won. Weights analytics carries the same filter bar as
+  // Weights beside it, so it belongs here for the same reason.
+  const PAGES_OWNING_PARK_SCOPE = ["/counts/breakdown", "/weighing/weights", "/weighing/analytics"];
   const lockTopBarParkSelector = PAGES_OWNING_PARK_SCOPE.includes(pathname);
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);

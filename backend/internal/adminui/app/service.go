@@ -3967,7 +3967,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// weight covers every kid weighed, gain only those weighed twice. The caption has to
 			// say so, or the two bars read as one fact about one set of animals.
 			"section.breed.title":   "Breed-wise growth",
-			"section.breed.caption": "Daily gain and average weight for each breed. The two bars count different kids: weight covers every kid weighed, gain only those with a second weigh or a whole-shed pen that moved.",
+			"section.breed.caption": "Daily gain and average weight for each breed, counting both ways of weighing. The two bars count different kids: weight covers every kid weighed, gain only those with a second weigh or a whole-shed pen that moved.",
 			"section.breed.aria":    "Daily gain and average weight by breed",
 			"series.gain":           "Daily gain",
 			"series.weight":         "Average weight",
@@ -3976,7 +3976,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Birth-wise. The two halves deliberately need not add up to the whole, and saying so
 			// is the difference between an honest gap and apparent missing data.
 			"section.birth.title":   "Farm born vs purchased",
-			"section.birth.caption": "Daily gain for each breed, split by where the kids came from. A breed shows one bar when the farm only has one kind. Kids whose origin is not recorded are counted in neither, so the two sides need not add up to the breed's own total.",
+			"section.birth.caption": "Daily gain for each breed, counting both ways of weighing, split by where the kids came from. A breed shows one bar when the farm only has one kind. Kids whose origin is not recorded are counted in neither, so the two sides need not add up to the breed's own total.",
 			"section.birth.aria":    "Daily gain by breed and origin",
 			"empty.birth.body":      "No breed has a farm-born or purchased kid with a second weigh in this period.",
 
@@ -3993,7 +3993,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// on this page a reader cannot change, and an unexplained fixed window reads as the
 			// period filter being broken.
 			"section.time.title":   "Weekly growth",
-			"section.time.caption": "Daily gain for each of the last 12 weeks — about a quarter, which is the span a fattening cycle is judged over. This tab always shows those 12 weeks and is not moved by the period filter; the park, weighing and sex filters still apply.",
+			"section.time.caption": "Daily gain for each of the last 12 weeks — about a quarter, which is the span a fattening cycle is judged over. This tab always shows those 12 weeks and is not moved by the period filter; the park and sex filters still apply. Both ways of weighing are counted here.",
 			"section.time.aria":    "Daily gain by week",
 			"empty.time.body":      "No week in the last 12 has a kid or a shed weighed twice.",
 			"value.time.animals":   "kids",

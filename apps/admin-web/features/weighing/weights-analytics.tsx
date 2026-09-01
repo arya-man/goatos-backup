@@ -44,6 +44,14 @@ const TREND_WEEKS = 12;
 const TABS = ["general", "breed", "birth", "shed", "time"] as const;
 type Tab = (typeof TABS)[number];
 
+/**
+ * The tabs whose figures the Weighing filter can actually narrow: the two built from per-shed
+ * ROWS. The other three read aggregates that arrive with both capture modes already blended into
+ * one mean, which no client-side filter can unpick — so the control is not offered there rather
+ * than offered and ignored.
+ */
+const WEIGHING_FILTER_TABS = new Set<Tab>(["general", "shed"]);
+
 function hrefWith(searchParams: RouteSearchParams, updates: Record<string, string | null>): string {
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(searchParams)) {
@@ -241,16 +249,34 @@ export async function WeighingWeightsAnalyticsPage({
       },
       markerFetchPath: `/api/weighing/lump-markers${parkFilter ? `?park_id=${encodeURIComponent(parkFilter)}` : ""}`,
     },
-    {
-      // allowAll:false — this vocabulary already carries its own All, and the bar's generic blank
-      // option on top would make two Alls that do not agree.
-      kind: "select",
-      param: "weighing",
-      label: copy(pageContract, "filter.weighing.label"),
-      value: modeFilter,
-      allowAll: false,
-      options: modeOptions.map((option) => ({ value: option.key, label: option.label })),
-    },
+    // WEIGHING IS OFFERED ONLY WHERE IT ACTUALLY NARROWS SOMETHING (maintainer decision, review of
+    // PR 162). It selects a capture MODE -- kids scanned one at a time, or a whole pen on the scale
+    // once -- and the page filters on that client-side, over shed rows. General and Shed-wise have
+    // those rows; Breed-wise, Birth-wise and Time-wise are served by aggregates that arrive with
+    // both modes already blended, and no client-side filter can take one back out of a mean.
+    //
+    // It was rendered on all five tabs and did nothing on three of them: a reader could select
+    // "Lump sum" and the breed chart would carry on counting scanned kids, with the control sitting
+    // there claiming otherwise. A filter that silently does nothing is worse than an absent one --
+    // it is a wrong answer the reader has no reason to doubt.
+    //
+    // The PARAMETER is deliberately left alone when the control is hidden, so a choice made on
+    // General survives a trip through Breed-wise and is still set on the way back. Those tabs'
+    // captions say in farm words that both ways of weighing are counted.
+    ...(WEIGHING_FILTER_TABS.has(tab)
+      ? [
+          {
+            // allowAll:false — this vocabulary already carries its own All, and the bar's generic
+            // blank option on top would make two Alls that do not agree.
+            kind: "select" as const,
+            param: "weighing",
+            label: copy(pageContract, "filter.weighing.label"),
+            value: modeFilter,
+            allowAll: false,
+            options: modeOptions.map((option) => ({ value: option.key, label: option.label })),
+          },
+        ]
+      : []),
     {
       // Sex governs the WHOLE page, every tab alike: a screen whose tabs disagree about which
       // kids they counted has no true number on it. Same reason it carries its own explicit All
