@@ -353,26 +353,15 @@ export async function saveShedFactor(formData: FormData): Promise<FeedConfigActi
 // So the same discipline holds: read every numeric field as a STRING, reject blanks before any
 // conversion, and forward out-of-range values verbatim for the backend to refuse.
 //
-// RULE 3 — THE HEAD COUNT IS NEVER A MULTIPLIER, AND IS NEVER INVENTED.
+// RULE 3 — NOBODY TYPES A HEAD COUNT.
 //
-// `absolute_kg` is already the shed total. `head_count` is informational context and is passed
-// through untouched; a cleared one is sent as null ("not recorded"), which is a different statement
-// from 0 ("this shed is empty"). Nothing here multiplies, defaults, or derives it.
+// The authored figure is GRAMS PER ANIMAL and the FEED SHEET multiplies it, by the pen's LIVE head
+// count, on the day it generates. That count is a fact the herd register answers -- the config
+// screen shows the same live figure -- so this path neither collects nor sends one. The stale
+// recorded count these forms used to carry is what the 2026-09-01 "use live only" instruction
+// retired.
 // -------------------------------------------------------------------------------------------------
 
-/**
- * Reads the optional informational head count.
- *
- * Returns `undefined` for a cleared field — the caller sends `null`, recording "not recorded" — and
- * `NaN` for a non-numeric one. It is NEVER defaulted to 0, which would state the shed is empty.
- */
-function readOptionalCount(formData: FormData, field: string): number | undefined {
-  const raw = formData.get(field);
-  if (typeof raw !== "string") return undefined;
-  const trimmed = raw.trim();
-  if (trimmed === "") return undefined;
-  return Number(trimmed);
-}
 
 /**
  * Enrol ONE PEN onto the experiment workflow, authoring every feed item of it in a single write.
@@ -420,22 +409,18 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
     return { ok: false, messageKey: REJECTED };
   }
 
-  const headCount = readOptionalCount(formData, "head_count");
-  if (headCount !== undefined && Number.isNaN(headCount)) {
-    return { ok: false, messageKey: REJECTED };
-  }
-
-  const items: { feed_item: string; absolute_kg: number }[] = [];
+  const items: { feed_item: string; grams_per_head: number }[] = [];
   for (let i = 0; ; i += 1) {
     const label = formData.get(`item_label_${i}`);
     if (typeof label !== "string") break;
     const trimmedLabel = label.trim();
-    // A blank kg authors NOTHING for that item — the rule-1 blank-is-not-zero contract, applied per
-    // row. It is skipped rather than sent as 0, which would mean "feed none of this, deliberately".
-    const kg = readAuthoredNumber(formData, `item_kg_${i}`);
-    if (kg === null) continue;
-    if (Number.isNaN(kg) || trimmedLabel === "") return { ok: false, messageKey: REJECTED };
-    items.push({ feed_item: trimmedLabel, absolute_kg: kg });
+    // A blank figure authors NOTHING for that item — the rule-1 blank-is-not-zero contract, applied
+    // per row. It is skipped rather than sent as 0, which would mean "feed none of this,
+    // deliberately".
+    const grams = readAuthoredNumber(formData, `item_grams_${i}`);
+    if (grams === null) continue;
+    if (Number.isNaN(grams) || trimmedLabel === "") return { ok: false, messageKey: REJECTED };
+    items.push({ feed_item: trimmedLabel, grams_per_head: grams });
   }
   // Enrolling with no quantity would put the pen on the experiment workflow with nothing authored,
   // and the direction generator would then feed it nothing at all.
@@ -446,7 +431,6 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
       park_id: parkId,
       shed_id: shedId,
       partition_label: partitionLabel,
-      head_count: headCount ?? null,
       experiment_category: category,
       items,
     },
@@ -474,16 +458,11 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
   // the backend as "the whole-shed row" rather than being rejected as a missing field.
   const partitionLabel = (formData.get("partition_label") ?? "").toString().trim();
 
-  const absoluteKg = readAuthoredNumber(formData, "absolute_kg");
+  const gramsPerHead = readAuthoredNumber(formData, "grams_per_head");
   // Blank: the operator cleared the field. That is not "feed nothing" and not "leave it alone" — no
   // request is sent, and the contract's own explanation is returned.
-  if (absoluteKg === null) return EXPERIMENT_BLANK_IS_NOT_ZERO;
-  if (Number.isNaN(absoluteKg)) return { ok: false, messageKey: REJECTED };
-
-  const headCount = readOptionalCount(formData, "head_count");
-  if (headCount !== undefined && Number.isNaN(headCount)) {
-    return { ok: false, messageKey: REJECTED };
-  }
+  if (gramsPerHead === null) return EXPERIMENT_BLANK_IS_NOT_ZERO;
+  if (Number.isNaN(gramsPerHead)) return { ok: false, messageKey: REJECTED };
 
   const result = await upsertFeedConfigExperiment(
     {
@@ -494,10 +473,7 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
       partition_label: partitionLabel,
       feed_item: feedItem,
       // Sent verbatim. A negative or over-precise value is the backend's to reject.
-      absolute_kg: absoluteKg,
-      // A cleared count records "not recorded" as null. It is never coerced to 0, and it is never
-      // multiplied into absolute_kg by anything on this path.
-      head_count: headCount ?? null,
+      grams_per_head: gramsPerHead,
       experiment_category: category,
     },
     readIdempotencyKey(formData),

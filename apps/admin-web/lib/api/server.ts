@@ -1747,8 +1747,10 @@ export async function listFeedConfigExperiment(params: {
   feed_item?: string[];
   experiment_category?: string;
   /**
-   * Half of one filter: both or neither. Named kg_ and not grams_ because this compares an ABSOLUTE
-   * PEN TOTAL, while the ration grid's grams_op compares a PER-HEAD RATE.
+   * Half of one filter: both or neither. It compares GRAMS PER ANIMAL; the kg_ name survives only so
+   * an in-flight bookmark does not break. A legacy pen-total cell is claimed by neither side and
+   * drops out while the filter is on -- its number is kg for a whole pen and cannot answer a
+   * per-animal question.
    */
   kg_op?: "gt" | "gte" | "eq" | "lte" | "lt" | "neq";
   kg_value?: string;
@@ -1766,11 +1768,12 @@ export async function listFeedConfigExperiment(params: {
   );
 }
 
-// `absolute_kg` is a REQUIRED number here for the same reason `grams_per_head` is above, and the
+// `grams_per_head` is a REQUIRED number here for the same reason the ration grid's is, and the
 // failure mode is quieter: a missing ration rate BLOCKS a shed visibly, while a missing experiment
-// row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with
-// roughly twice the authored quantity. There is deliberately no optional variant this function could
-// turn into 0. `head_count` may be null ("not recorded") but must never be invented.
+// row silently drops the pen back onto the ration grid and prints a complete-looking sheet. There is
+// deliberately no optional variant this function could turn into 0. `head_count` may be null
+// ("not recorded") but must never be invented, and is NOT the multiplier -- the pen's live head
+// count is.
 /**
  * The park's PEN CATALOG — every operational location a quantity may be authored against.
  *
@@ -1843,8 +1846,9 @@ export async function upsertFeedConfigExperiment(
 /**
  * Switch a whole shed between the experiment workflow and the normal per-head ration grid.
  *
- * This changes WHAT THE ANIMALS ARE FED, not what is displayed: active feeds the shed its authored
- * absolute kg, retired returns it to projected head count x grams per head x shed factor.
+ * This changes WHAT THE ANIMALS ARE FED, not what is displayed: active feeds the pen its authored
+ * experiment quantities, retired returns it to the ration grid (projected head count x grams per
+ * head x shed factor).
  */
 /**
  * One bounded page of the authored treatment rulebook: one row per disease per age band, each

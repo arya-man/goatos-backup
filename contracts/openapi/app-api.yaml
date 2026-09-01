@@ -8590,10 +8590,11 @@ paths:
       operationId: listFeedConfigExperiment
       summary: List hand-authored experiment pens, for one park or the whole tenant.
       description: >-
-        Returns the authored ABSOLUTE kg per feed item for each experiment pen (an undivided shed is
-        its single whole-shed pen). absolute_kg is a PEN TOTAL, never a per-head rate, and head_count
-        travels as informational context only -- multiplying the two would overfeed the pen by its
-        entire population. Active membership puts that pen on the experiment workflow; a pen with no
+        Returns the authored quantity per feed item for each experiment pen (an undivided shed is
+        its single whole-shed pen). quantity_basis says which figure a cell carries: grams_per_head
+        is a per-animal rate the feed sheet multiplies by the pen's live head count, absolute_kg is a
+        legacy PEN TOTAL that is multiplied by nothing. live_head_count is the pen's population read
+        from the herd register at request time -- the same one the sheet multiplies by. Active membership puts that pen on the experiment workflow; a pen with no
         active row is fed from the per-head ration grid instead. Both statuses are returned by
         default so a withdrawn pen's authored quantities stay visible
         and can be restored without re-keying them. Pagination counts complete operational pens,
@@ -8665,11 +8666,12 @@ paths:
           in: query
           required: false
           description: >-
-            Comparison applied to absolute_kg, paired with kg_value; both are supplied together or
-            neither is, and sending one alone is rejected 400 rather than defaulted. Named kg_ rather
-            than grams_ on purpose: the ration grid compares a PER-HEAD RATE in grams and this
-            compares an ABSOLUTE PEN TOTAL in kg. They are not the same quantity and must not read
-            as one parameter shared between two screens.
+            Comparison applied to grams_per_head, paired with kg_value; both are supplied together
+            or neither is, and sending one alone is rejected 400 rather than defaulted. The kg_ name
+            is kept only so an in-flight client or bookmark does not break -- the number compared is
+            GRAMS PER ANIMAL. A legacy absolute_kg cell is claimed by neither side of the comparison
+            and drops out while this filter is on: its figure is kg for a whole pen and cannot answer
+            a question asked per animal. It is still listed in the unfiltered view.
           schema:
             type: string
             enum: [gt, gte, eq, lte, lt, neq]
@@ -8678,7 +8680,7 @@ paths:
           required: false
           description: >-
             The value kg_op compares against, as an exact decimal STRING with at most three decimal
-            places -- the representation absolute_kg is returned in. A value that is not an exact
+            places -- the representation grams_per_head is returned in. A value that is not an exact
             decimal is rejected 400.
           schema:
             type: string
@@ -8706,9 +8708,10 @@ paths:
       operationId: upsertFeedConfigExperiment
       summary: Edit one feed-item cell of an already-enrolled experiment pen.
       description: >-
-        Authors the absolute kg for one (park, shed, partition, feed_item). The pen must already have
+        Authors the grams per animal for one (park, shed, partition, feed_item), moving a legacy
+        pen-total cell onto that basis. The pen must already have
         experiment configuration; first enrollment is accepted only by the atomic batch endpoint,
-        so this route cannot leave a new pen with a partial feed set. absolute_kg is REQUIRED and
+        so this route cannot leave a new pen with a partial feed set. grams_per_head is REQUIRED and
         validated rather than defaulted: absent fails the request, an explicit 0 is accepted (an arm
         that deliberately gets none of an item), and a negative or over-precise value is rejected
         with a field error. Any edit forces the pen's rows back to status='active' -- a quantity stored on a
@@ -8799,7 +8802,7 @@ paths:
         looks complete. The experiment arm and head count are carried once for the pen, never per
         item. A feed item named twice is rejected rather than de-duplicated, because the two cells
         collapse onto one row and the survivor would be arbitrary. As with the single-cell write, an
-        item the author left blank must be OMITTED from items entirely -- a null absolute_kg is a
+        item the author left blank must be OMITTED from items entirely -- a null grams_per_head is a
         rejected request, never an instruction to feed nothing. If the pen already has any authored
         cell, the request returns 409 rather than treating a stale or concurrent enrollment form as
         a partial update; existing pens are changed through the explicit cell editor.
@@ -18150,7 +18153,8 @@ components:
         - shed_name
         - operational_location_display
         - feed_item
-        - absolute_kg
+        - quantity_basis
+        - live_head_count
         - experiment_category
         - status
       properties:
@@ -18185,18 +18189,34 @@ components:
             undivided). Render verbatim; never rejoin shed_name and partition_label client-side.
         feed_item:
           type: string
+        quantity_basis:
+          type: string
+          enum: [grams_per_head, absolute_kg]
+          description: >-
+            Which figure this cell carries, and therefore what it MEANS. `grams_per_head` is a
+            per-animal rate the feed sheet multiplies by the pen's live head count (every cell
+            authored from 2026-09-01). `absolute_kg` is a legacy PEN TOTAL that is multiplied by
+            nothing. Exactly one of the two fields below is present; render the one this names and
+            never fall back to the other -- the two differ by the pen's entire population.
+        grams_per_head:
+          type: string
+          description: >-
+            Exact decimal string. Grams ONE animal in this pen gets of this item per day. Present
+            iff quantity_basis is `grams_per_head`.
         absolute_kg:
           type: string
           description: >-
-            Exact decimal string. A PEN TOTAL in kg, never a per-head rate -- it is already
-            inclusive of however many animals are in the pen. Never multiply it by head_count.
-        head_count:
+            Exact decimal string. A legacy PEN TOTAL in kg, never a per-head rate -- it is already
+            inclusive of however many animals are in the pen, and is never multiplied by head_count.
+            Present iff quantity_basis is `absolute_kg`.
+        live_head_count:
           type: integer
-          nullable: true
           description: >-
-            INFORMATIONAL only: the population the hand-entered quantity was authored against. It is
-            never a multiplier. Null means the population was not recorded, which is NOT the same as
-            0 -- rendering null as 0 would state the pen is empty.
+            How many animals are in this pen RIGHT NOW, resolved by the backend from the herd
+            register -- the same population the feed sheet multiplies the authored rate by, so the
+            screen and the sheet cannot disagree. ZERO is a real answer (an empty pen an experiment
+            is configured for ahead of the animals), never "unknown". The stale figure an author once
+            typed beside the quantity is no longer read, written or returned.
         experiment_category:
           type: string
           description: >-
@@ -18308,13 +18328,6 @@ components:
           description: >-
             The experiment ARM, carried ONCE for the pen rather than per item. Per-item copies would
             let one pen hold two arms, with the display picking whichever row sorted first.
-        head_count:
-          type: integer
-          minimum: 0
-          nullable: true
-          description: >-
-            INFORMATIONAL population for the pen. Never multiplied into any absolute_kg. Carried once
-            for the pen. Null records "not recorded", which stays distinct from an authored 0.
         items:
           type: array
           minItems: 1
@@ -18328,19 +18341,20 @@ components:
       additionalProperties: false
       required:
         - feed_item
-        - absolute_kg
+        - grams_per_head
       properties:
         feed_item:
           type: string
           minLength: 1
-        absolute_kg:
+        grams_per_head:
           type: number
           minimum: 0
           multipleOf: 0.001
           description: >-
-            Authored ABSOLUTE kg for the whole pen of this item. An explicit 0 is accepted (an arm
-            that deliberately gets none of it); a negative or over-precise value is rejected with a
-            field error. An item the author cleared must be omitted from the array entirely.
+            Grams ONE animal in this pen gets of this item per day; the feed sheet multiplies it by
+            the pen's live head count. An explicit 0 is accepted (an arm that deliberately gets none
+            of it); a negative or over-precise value is rejected with a field error. An item the
+            author cleared must be omitted from the array entirely.
     SetFeedConfigFeedItemStatusRequest:
       type: object
       additionalProperties: false
@@ -18420,7 +18434,7 @@ components:
         - park_id
         - shed_id
         - feed_item
-        - absolute_kg
+        - grams_per_head
         - experiment_category
       properties:
         park_id:
@@ -18440,25 +18454,23 @@ components:
         feed_item:
           type: string
           minLength: 1
-        absolute_kg:
+        grams_per_head:
           type: number
           minimum: 0
           multipleOf: 0.001
           description: >-
-            Authored ABSOLUTE kg for the addressed pen (or undivided shed). REQUIRED -- it must never be omitted and filled
-            in as 0. The failure mode of an absent value is quieter than on the ration grid and worse
-            for it: a missing ration rate BLOCKS the shed loudly, while a missing experiment row
-            silently drops the shed back onto the per-head grid and prints a complete-looking sheet
-            with roughly twice the authored quantity. An explicit 0 is accepted; a negative or
-            over-precise value is rejected with a field error rather than clamped. A cleared input in
-            the UI must NOT be sent as 0.
-        head_count:
-          type: integer
-          minimum: 0
-          nullable: true
-          description: >-
-            INFORMATIONAL population count. Never multiplied into absolute_kg. Optional: null records
-            "not recorded", which stays distinct from an authored 0.
+            Grams ONE animal in the addressed pen (or undivided shed) gets of this item per day; the
+            feed sheet multiplies it by the pen's live head count. REQUIRED -- it must never be
+            omitted and filled in as 0. The failure mode of an absent value is quieter than on the
+            ration grid and worse for it: a missing ration rate BLOCKS the pen loudly, while a
+            missing experiment row silently drops the pen back onto the ration grid and prints a
+            complete-looking sheet. An explicit 0 is accepted; a negative or over-precise value is
+            rejected with a field error rather than clamped. A cleared input in the UI must NOT be
+            sent as 0.
+
+            WRITING A CELL MOVES IT ONTO THIS BASIS. A cell that currently carries a legacy
+            absolute_kg pen total is re-authored as grams per animal by this request; there is no
+            route that writes a pen total any more.
         experiment_category:
           type: string
           minLength: 1

@@ -44,7 +44,10 @@ const (
 	// fit, so these must stay in step with the schema.
 	gramsScale      = 3 // feed_ration_rates.grams_per_head    numeric(12,3)
 	multiplierScale = 4 // feed_shed_factors.multiplier        numeric(8,4)
-	absoluteKgScale = 3 // feed_experiment_config.absolute_kg  numeric(12,3)
+	absoluteKgScale = 3 // feed_experiment_config.absolute_kg  numeric(12,3) -- legacy rows only
+	// feed_experiment_config.grams_per_head numeric(12,3). Same scale as the ration grid's rate,
+	// because it is the same kind of number: grams per animal per day.
+	experimentGramsScale = 3
 )
 
 // Clock lets tests pin the business date. Production passes nil and gets the real clock.
@@ -391,7 +394,7 @@ func (s *Service) ListExperimentConfig(ctx context.Context, tenantID string, f E
 		Status:             normalizedStatus,
 		FeedItems:          cleanStrings(f.FeedItems),
 		ExperimentCategory: strings.TrimSpace(f.ExperimentCategory),
-		KgCompare:          compare,
+		GramsCompare:       compare,
 		Page:               page,
 	})
 }
@@ -402,10 +405,12 @@ func (s *Service) ListExperimentConfig(ctx context.Context, tenantID string, f E
 // two sections of Feed Config filter on the same shapes (a set of feed items, a comparison against
 // the authored quantity), so an author who learns one has learned the other.
 //
-// The quantities themselves are NOT the same kind of number, which is why the fields are named
-// apart rather than shared: the ration grid holds a per-head RATE in grams and this holds an
-// ABSOLUTE kg total for a pen. Calling both "grams" here is how the two get confused, and confusing
-// them is how a pen gets fed its per-head rate as a shed total.
+// Both quantities are now a per-head RATE IN GRAMS (maintainer decision 2026-09-01): an experiment
+// cell is authored per animal, exactly as a ration-grid cell is, and the two sections differ in
+// where the rate comes FROM rather than in what it means. The wire names keep their `kg_` prefix
+// only so an in-flight bookmark or client does not break; the number they compare is grams per
+// animal, and a legacy pen-total cell is claimed by neither side of the comparison (see
+// domain.ExperimentConfigQuery.GramsCompare).
 type ExperimentConfigFilter struct {
 	ParkID string
 	ShedID string
@@ -802,20 +807,21 @@ func (s *Service) UpsertScheduleConfig(ctx context.Context, in UpsertScheduleCon
 	})
 }
 
-// UpsertExperimentConfigInput authors one experiment shed's ABSOLUTE kg of one feed item.
+// UpsertExperimentConfigInput authors one experiment pen's GRAMS PER ANIMAL of one feed item.
 //
-// AbsoluteKg is a *string for exactly the same absent-vs-zero reason as GramsPerHead, and the stakes
-// are the mirror image. On the ration grid a missing rate BLOCKS the shed loudly; here a missing row
-// is silent — the shed simply stops being an experiment shed and gets fed off the per-head grid at
-// roughly twice the authored quantity, on a sheet that looks complete. So:
+// GramsPerHead is a *string for exactly the same absent-vs-zero reason as the ration grid's, and the
+// stakes are the mirror image. On the grid a missing rate BLOCKS the shed loudly; here a missing row
+// is silent — the pen simply stops being an experiment pen and gets fed off the ration grid instead,
+// on a sheet that looks complete. So:
 //
 //	nil    -- ABSENT. Rejected. It is not "feed nothing" and it is not "leave it as it was".
 //	"0"    -- the author entered zero. Accepted: an arm that deliberately gets none of an item.
 //	"-5"   -- present but out of range. Rejected with a field error, never clamped.
 //
-// HeadCount is INFORMATIONAL and is never multiplied into AbsoluteKg (see domain.ExperimentConfig).
-// It is a pointer so "not recorded" stays distinct from an authored 0, which would state the shed is
-// empty.
+// THE FIGURE IS PER ANIMAL and the generator multiplies it by the pen's LIVE head count. Nothing
+// here asks for a head count: the pen's population is a fact the herd register answers live, on the
+// sheet and on the config screen alike, so there is no figure for an author to restate and no stale
+// copy of one to go wrong (maintainer instruction 2026-09-01, "use live only, forget recorded").
 type UpsertExperimentConfigInput struct {
 	TenantID string
 	ActorRef string
@@ -826,8 +832,7 @@ type UpsertExperimentConfigInput struct {
 	// shed-wide 'whole' row rather than a pen, so the client must send the pen it rendered.
 	PartitionLabel     string
 	FeedItemLabel      string
-	AbsoluteKg         *string
-	HeadCount          *int32
+	GramsPerHead       *string
 	ExperimentCategory string
 
 	IdempotencyKey     string
@@ -858,16 +863,12 @@ func (s *Service) UpsertExperimentConfig(ctx context.Context, in UpsertExperimen
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	if in.AbsoluteKg == nil {
-		return domain.WriteResult{}, &domain.FieldError{Field: "absolute_kg", Reason: domain.ErrMissingField}
+	if in.GramsPerHead == nil {
+		return domain.WriteResult{}, &domain.FieldError{Field: "grams_per_head", Reason: domain.ErrMissingField}
 	}
-	// allowZero=true: 0 kg is a legal authored quantity. Negative is not, and is rejected rather than
-	// clamped.
-	kg, err := domain.NormalizeDecimal("absolute_kg", *in.AbsoluteKg, absoluteKgScale, true)
-	if err != nil {
-		return domain.WriteResult{}, err
-	}
-	headCount, err := domain.ValidateHeadCount("head_count", in.HeadCount)
+	// allowZero=true: 0 g is a legal authored quantity (an arm that deliberately gets none of an
+	// item). Negative is not, and is rejected rather than clamped.
+	grams, err := domain.NormalizeDecimal("grams_per_head", *in.GramsPerHead, experimentGramsScale, true)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
@@ -877,20 +878,19 @@ func (s *Service) UpsertExperimentConfig(ctx context.Context, in UpsertExperimen
 		ShedID:             shedID,
 		PartitionLabel:     strings.TrimSpace(in.PartitionLabel),
 		FeedItemLabel:      item,
-		AbsoluteKg:         kg,
-		HeadCount:          headCount,
+		GramsPerHead:       grams,
 		ExperimentCategory: category,
 	})
 }
 
 // ExperimentBatchCellInput is one authored feed item inside a batch enrolment.
 //
-// AbsoluteKg is a *string for the same absent-vs-zero reason as the single-cell write. A cell the
+// GramsPerHead is a *string for the same absent-vs-zero reason as the single-cell write. A cell the
 // author left BLANK must not be in this slice at all; a cell that is here and carries nil is an
 // error, not an instruction to feed nothing.
 type ExperimentBatchCellInput struct {
 	FeedItemLabel string
-	AbsoluteKg    *string
+	GramsPerHead  *string
 }
 
 // UpsertExperimentConfigBatchInput enrolls every feed item of ONE unconfigured pen atomically.
@@ -901,7 +901,6 @@ type UpsertExperimentConfigBatchInput struct {
 	ShedID             string
 	PartitionLabel     string
 	ExperimentCategory string
-	HeadCount          *int32
 	Cells              []ExperimentBatchCellInput
 
 	IdempotencyKey     string
@@ -936,11 +935,6 @@ func (s *Service) UpsertExperimentConfigBatch(ctx context.Context, in UpsertExpe
 	if len(in.Cells) == 0 {
 		return domain.WriteResult{}, &domain.FieldError{Field: "items", Reason: domain.ErrMissingField}
 	}
-	headCount, err := domain.ValidateHeadCount("head_count", in.HeadCount)
-	if err != nil {
-		return domain.WriteResult{}, err
-	}
-
 	// Duplicate feed items are rejected rather than de-duplicated. Two cells naming the same item
 	// carry two different authored quantities; inside one INSERT they race and the survivor is
 	// arbitrary, so silently keeping one would store a number the author did not choose. Compared on
@@ -957,14 +951,14 @@ func (s *Service) UpsertExperimentConfigBatch(ctx context.Context, in UpsertExpe
 			return domain.WriteResult{}, &domain.FieldError{Field: "items", Reason: domain.ErrDuplicateFeedItem}
 		}
 		seen[key] = struct{}{}
-		if cell.AbsoluteKg == nil {
-			return domain.WriteResult{}, &domain.FieldError{Field: "absolute_kg", Reason: domain.ErrMissingField}
+		if cell.GramsPerHead == nil {
+			return domain.WriteResult{}, &domain.FieldError{Field: "grams_per_head", Reason: domain.ErrMissingField}
 		}
-		kg, err := domain.NormalizeDecimal("absolute_kg", *cell.AbsoluteKg, absoluteKgScale, true)
+		grams, err := domain.NormalizeDecimal("grams_per_head", *cell.GramsPerHead, experimentGramsScale, true)
 		if err != nil {
 			return domain.WriteResult{}, err
 		}
-		cells = append(cells, domain.ExperimentBatchCell{FeedItemLabel: item, AbsoluteKg: kg})
+		cells = append(cells, domain.ExperimentBatchCell{FeedItemLabel: item, GramsPerHead: grams})
 	}
 
 	return s.repo.UpsertExperimentConfigBatch(ctx, domain.UpsertExperimentConfigBatchCommand{
@@ -973,7 +967,6 @@ func (s *Service) UpsertExperimentConfigBatch(ctx context.Context, in UpsertExpe
 		ShedID:             shedID,
 		PartitionLabel:     strings.TrimSpace(in.PartitionLabel),
 		ExperimentCategory: category,
-		HeadCount:          headCount,
 		Cells:              cells,
 	})
 }

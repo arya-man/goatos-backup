@@ -666,7 +666,7 @@ func TestRepositoryErrorsPassThrough(t *testing.T) {
 // Experiment sheds
 // =================================================================================================
 
-// TestUpsertExperimentConfigRejectsAbsentAbsoluteKg is the experiment twin of
+// TestUpsertExperimentConfigRejectsAbsentGramsPerHead is the experiment twin of
 // TestUpsertRationRateRejectsAbsentGramsWithoutDefaulting, and the consequence of getting it wrong
 // is arguably worse.
 //
@@ -677,31 +677,31 @@ func TestRepositoryErrorsPassThrough(t *testing.T) {
 // 2026-07-20 data that was roughly 2.2x the authored quantity (398.8 kg vs 182.0 kg of CBE
 // concentrate) printed on a sheet that looked complete.
 //
-// So an absent absolute_kg must fail, and it must fail BEFORE any side effect.
-func TestUpsertExperimentConfigRejectsAbsentAbsoluteKg(t *testing.T) {
+// So an absent grams_per_head must fail, and it must fail BEFORE any side effect.
+func TestUpsertExperimentConfigRejectsAbsentGramsPerHead(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := pinnedService(repo)
 
 	_, err := svc.UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
 		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
 		FeedItemLabel: "RGS Concentrate", ExperimentCategory: "Sheep M NEW",
-		AbsoluteKg:         nil, // ABSENT
+		GramsPerHead:       nil, // ABSENT
 		IdempotencyKey:     "key-12345678",
 		RequestFingerprint: "fp",
 	})
 	if !errors.Is(err, domain.ErrMissingField) {
-		t.Fatalf("absent absolute_kg error = %v, want ErrMissingField", err)
+		t.Fatalf("absent grams_per_head error = %v, want ErrMissingField", err)
 	}
 	var fe *domain.FieldError
-	if !errors.As(err, &fe) || fe.Field != "absolute_kg" {
-		t.Fatalf("error = %v, want a FieldError naming absolute_kg", err)
+	if !errors.As(err, &fe) || fe.Field != "grams_per_head" {
+		t.Fatalf("error = %v, want a FieldError naming grams_per_head", err)
 	}
 	if repo.writeCalls != 0 {
 		t.Fatalf("repository was called %d times for a rejected write, want 0", repo.writeCalls)
 	}
 }
 
-// TestUpsertExperimentConfigAcceptsAuthoredZero: 0 kg is a REAL authored quantity here, exactly as
+// TestUpsertExperimentConfigAcceptsAuthoredZero: 0 g is a REAL authored quantity here, exactly as
 // 0 g is on the ration grid. An arm that deliberately gets none of an item is part of the experiment
 // design -- the live CBE data has "Castro 1" on 0.0 kg of three of its five items -- so it must
 // reach the repository as an exact "0.000" rather than being treated as missing.
@@ -712,64 +712,37 @@ func TestUpsertExperimentConfigAcceptsAuthoredZero(t *testing.T) {
 	if _, err := svc.UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
 		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
 		FeedItemLabel: "Mesha Concentrate Goat", ExperimentCategory: "Sheep M NEW",
-		AbsoluteKg:         str("0"),
-		HeadCount:          i32(64),
+		GramsPerHead:       str("0"),
 		IdempotencyKey:     "key-12345678",
 		RequestFingerprint: "fp",
 	}); err != nil {
 		t.Fatalf("authored zero rejected: %v", err)
 	}
-	if repo.lastExperiment.AbsoluteKg != "0.000" {
-		t.Fatalf("absolute_kg = %q, want %q", repo.lastExperiment.AbsoluteKg, "0.000")
-	}
-	// The head count must travel through UNCHANGED and unscaled. Nothing in the service may fold it
-	// into the quantity -- absolute_kg is already the shed total.
-	if repo.lastExperiment.HeadCount == nil || *repo.lastExperiment.HeadCount != 64 {
-		t.Fatalf("head_count = %v, want 64 carried through untouched", repo.lastExperiment.HeadCount)
+	if repo.lastExperiment.GramsPerHead != "0.000" {
+		t.Fatalf("grams_per_head = %q, want %q", repo.lastExperiment.GramsPerHead, "0.000")
 	}
 }
 
-// TestUpsertExperimentConfigDistinguishesUnrecordedHeadCountFromZero locks the nullable head count.
+// NOBODY TYPES A HEAD COUNT ANY MORE (maintainer instruction 2026-09-01, "use live only, forget
+// recorded"). The command carries no such field, and a client that still sends one is refused rather
+// than quietly ignored: an accepted-and-dropped field reads to the sender as recorded.
 //
-// nil means "the population was not recorded alongside this quantity". 0 means "this shed is
-// empty". They are different statements about a live shed, and defaulting nil to 0 would print the
-// second when the author said the first. Because the count is informational this cannot misfeed a
-// shed -- but it is displayed next to a feeding instruction, and a wrong population there misleads
-// the operator judging whether the hand-entered kg still looks right.
-func TestUpsertExperimentConfigDistinguishesUnrecordedHeadCountFromZero(t *testing.T) {
+// This is the inverse of the test it replaces, which locked the nullable "not recorded" state of a
+// figure the author typed. That figure disagreed with the pen's actual population on 15 of 34 live
+// pens, which is why it stopped being read, written and asked for.
+func TestUpsertExperimentConfigTakesNoHeadCount(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := pinnedService(repo)
-
-	if _, err := svc.UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
+	if _, err := pinnedService(repo).UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
 		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
 		FeedItemLabel: "Vijay Concentrate", ExperimentCategory: "Goat F NEW",
-		AbsoluteKg:         str("12.5"),
-		HeadCount:          nil, // NOT RECORDED
+		GramsPerHead:       str("12.5"),
 		IdempotencyKey:     "key-12345678",
 		RequestFingerprint: "fp",
 	}); err != nil {
-		t.Fatalf("absent head count rejected: %v", err)
+		t.Fatalf("write without a head count rejected: %v", err)
 	}
-	if repo.lastExperiment.HeadCount != nil {
-		t.Fatalf("head_count = %v, want nil preserved rather than defaulted to 0", *repo.lastExperiment.HeadCount)
-	}
-
-	// A negative count is PRESENT but out of range, so it is rejected rather than clamped.
-	repo2 := &fakeRepo{}
-	_, err := pinnedService(repo2).UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
-		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
-		FeedItemLabel: "Vijay Concentrate", ExperimentCategory: "Goat F NEW",
-		AbsoluteKg:         str("12.5"),
-		HeadCount:          i32(-3),
-		IdempotencyKey:     "key-12345678",
-		RequestFingerprint: "fp",
-	})
-	var fe *domain.FieldError
-	if !errors.As(err, &fe) || fe.Field != "head_count" {
-		t.Fatalf("negative head count error = %v, want a FieldError naming head_count", err)
-	}
-	if repo2.writeCalls != 0 {
-		t.Fatalf("repository was called for a rejected write")
+	if repo.writeCalls != 1 {
+		t.Fatalf("repository calls = %d, want 1", repo.writeCalls)
 	}
 }
 
@@ -782,7 +755,7 @@ func TestUpsertExperimentConfigRequiresTheExperimentArm(t *testing.T) {
 	_, err := pinnedService(repo).UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
 		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
 		FeedItemLabel: "RGS Concentrate", ExperimentCategory: "   ",
-		AbsoluteKg:         str("10"),
+		GramsPerHead:       str("10"),
 		IdempotencyKey:     "key-12345678",
 		RequestFingerprint: "fp",
 	})

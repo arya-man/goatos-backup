@@ -986,15 +986,15 @@ ON CONFLICT DO NOTHING`, fcTenant, fcShed); err != nil {
 		cells               []domain.ExperimentBatchCell
 	}{
 		{"Part 1", "Sheep M NEW", []domain.ExperimentBatchCell{
-			{FeedItemLabel: "Concentrate", AbsoluteKg: "14.000"},
-			{FeedItemLabel: "Green Fodder", AbsoluteKg: "4.000"},
-			{FeedItemLabel: "Baking Soda", AbsoluteKg: "0.000"},
+			{FeedItemLabel: "Concentrate", GramsPerHead: "14.000"},
+			{FeedItemLabel: "Green Fodder", GramsPerHead: "4.000"},
+			{FeedItemLabel: "Baking Soda", GramsPerHead: "0.000"},
 		}},
 		{"Part 2", "B+S Goat F NEW", []domain.ExperimentBatchCell{
-			{FeedItemLabel: "Green Fodder", AbsoluteKg: "6.000"},
+			{FeedItemLabel: "Green Fodder", GramsPerHead: "6.000"},
 		}},
 		{"Part 3", "Sheep M NEW", []domain.ExperimentBatchCell{
-			{FeedItemLabel: "Green Fodder", AbsoluteKg: "8.000"},
+			{FeedItemLabel: "Green Fodder", GramsPerHead: "8.000"},
 		}},
 	}
 	for i, p := range pens {
@@ -1065,9 +1065,9 @@ ON CONFLICT DO NOTHING`, fcTenant, fcShed); err != nil {
 	})
 
 	t.Run("more than zero hides the authored zeros", func(t *testing.T) {
-		page := list(t, domain.ExperimentConfigQuery{KgCompare: &domain.GramsComparison{Op: domain.GramsOpGreaterThan, Value: "0"}})
+		page := list(t, domain.ExperimentConfigQuery{GramsCompare: &domain.GramsComparison{Op: domain.GramsOpGreaterThan, Value: "0"}})
 		for _, row := range page.Items {
-			if row.AbsoluteKg == "0.000" {
+			if row.GramsPerHead == "0.000" {
 				t.Fatal("kg > 0 returned an authored zero")
 			}
 		}
@@ -1096,9 +1096,9 @@ ON CONFLICT DO NOTHING`, fcTenant, fcShed); err != nil {
 		page := list(t, domain.ExperimentConfigQuery{
 			ExperimentCategory: "Sheep M NEW",
 			FeedItems:          []string{"Green Fodder"},
-			KgCompare:          &domain.GramsComparison{Op: domain.GramsOpAtLeast, Value: "8"},
+			GramsCompare:       &domain.GramsComparison{Op: domain.GramsOpAtLeast, Value: "8"},
 		})
-		if len(page.Items) != 1 || page.Items[0].AbsoluteKg != "8.000" {
+		if len(page.Items) != 1 || page.Items[0].GramsPerHead != "8.000" {
 			t.Fatalf("composed filter returned %+v, want only the 8.000 Green Fodder cell", page.Items)
 		}
 	})
@@ -1186,7 +1186,7 @@ func experimentCommand(key, fingerprint, itemLabel, kg string) domain.UpsertExpe
 			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-20",
 			IdempotencyKey: key, RequestFingerprint: fingerprint,
 		},
-		ParkID: fcPark, ShedID: fcShed, FeedItemLabel: itemLabel, AbsoluteKg: kg,
+		ParkID: fcPark, ShedID: fcShed, FeedItemLabel: itemLabel, GramsPerHead: kg,
 		ExperimentCategory: "control",
 	}
 }
@@ -1231,9 +1231,9 @@ func TestUpsertExperimentConfigReactivatesWholeShedNotJustEditedCell(t *testing.
 	items := []string{"Concentrate", "Hybrid", "COFS", "Hedge Lucerne", "Dry Maize"}
 	cells := make([]domain.ExperimentBatchCell, 0, len(items))
 	for _, item := range items {
-		cells = append(cells, domain.ExperimentBatchCell{FeedItemLabel: item, AbsoluteKg: "1.500"})
+		cells = append(cells, domain.ExperimentBatchCell{FeedItemLabel: item, GramsPerHead: "1.500"})
 	}
-	enrollExperimentPen(t, ctx, repo, "key-retire5-insert", fcShed, "", "Arm A", nil, cells)
+	enrollExperimentPen(t, ctx, repo, "key-retire5-insert", fcShed, "", "Arm A", cells)
 
 	// Retire the whole shed. All five rows must flip to 'retired'.
 	if _, err := repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
@@ -1329,7 +1329,7 @@ func TestUpsertExperimentConfigRejectsShedFromDifferentPark(t *testing.T) {
 			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-19",
 			IdempotencyKey: "key-cr03-exp", RequestFingerprint: "fp-cr03-exp",
 		},
-		ParkID: fcPark, ShedID: fcShedOtherPark, FeedItemLabel: "Concentrate", AbsoluteKg: "2.000",
+		ParkID: fcPark, ShedID: fcShedOtherPark, FeedItemLabel: "Concentrate", GramsPerHead: "2.000",
 	}
 
 	_, err := repo.UpsertExperimentConfig(ctx, cmd)
@@ -1380,58 +1380,55 @@ func TestUpsertExperimentConfigSyncsShedMetadataAcrossCells(t *testing.T) {
 	pool := setupFeedConfigDB(t, ctx)
 	repo := fcRepo(pool)
 
-	initialHeadCount := int32(40)
 	items := []string{"Concentrate", "Fodder", "Mineral Mix"}
 	cells := make([]domain.ExperimentBatchCell, 0, len(items))
 	for _, item := range items {
-		cells = append(cells, domain.ExperimentBatchCell{FeedItemLabel: item, AbsoluteKg: "1.500"})
+		cells = append(cells, domain.ExperimentBatchCell{FeedItemLabel: item, GramsPerHead: "1.500"})
 	}
-	enrollExperimentPen(t, ctx, repo, "key-cr07-insert", fcShed, "", "control", &initialHeadCount, cells)
+	enrollExperimentPen(t, ctx, repo, "key-cr07-insert", fcShed, "", "control", cells)
 
 	// Sanity: all three rows agree before the edit under test.
 	before := experimentShedMetadata(t, ctx, pool)
 	for _, item := range items {
-		if before[item].category != "control" || before[item].headCount != 40 {
-			t.Fatalf("before edit, %s = (%s, %d), want (control, 40)", item, before[item].category, before[item].headCount)
+		if before[item].category != "control" {
+			t.Fatalf("before edit, %s arm = %q, want control", item, before[item].category)
 		}
 	}
 
-	// Edit ONE cell's shed-level metadata: new arm, new head count.
-	updatedHeadCount := int32(52)
+	// Edit ONE cell's shed-level metadata: a new arm. (There is no head count to edit any more --
+	// the pen's population is read live wherever it is needed.)
 	editCmd := domain.UpsertExperimentConfigCommand{
 		WriteIdentity: domain.WriteIdentity{
 			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-20",
 			IdempotencyKey: "key-cr07-edit", RequestFingerprint: "fp-cr07-edit",
 		},
-		ParkID: fcPark, ShedID: fcShed, FeedItemLabel: "Concentrate", AbsoluteKg: "1.750",
-		ExperimentCategory: "treatment", HeadCount: &updatedHeadCount,
+		ParkID: fcPark, ShedID: fcShed, FeedItemLabel: "Concentrate", GramsPerHead: "1.750",
+		ExperimentCategory: "treatment",
 	}
 	if _, err := repo.UpsertExperimentConfig(ctx, editCmd); err != nil {
 		t.Fatalf("edit Concentrate cell: %v", err)
 	}
 
-	// EVERY row for the shed -- not just Concentrate -- must now report the new category/head
-	// count. A sibling still showing (control, 40) is the exact bug CR-07 describes: whichever row
-	// PlanDaily happens to load first decides what the whole shed's direction prints.
+	// EVERY row for the shed -- not just Concentrate -- must now report the new arm. A sibling still
+	// showing "control" is the exact bug CR-07 describes: whichever row PlanDaily happens to load
+	// first decides what the whole shed's direction prints.
 	after := experimentShedMetadata(t, ctx, pool)
 	for _, item := range items {
-		got := after[item]
-		if got.category != "treatment" || got.headCount != 52 {
-			t.Fatalf("after editing Concentrate, %s = (%s, %d), want (treatment, 52) -- sibling row not synced",
-				item, got.category, got.headCount)
+		if got := after[item]; got.category != "treatment" {
+			t.Fatalf("after editing Concentrate, %s arm = %q, want treatment -- sibling row not synced", item, got.category)
 		}
 	}
-	// The edited row's own quantity (absolute_kg) is per-item and must NOT have been overwritten
+	// The edited row's own quantity (grams_per_head) is per-item and must NOT have been overwritten
 	// on the siblings: only the shed-level fields sync, not the per-cell quantity.
 	var fodderKg string
 	if err := pool.QueryRow(ctx, `
-SELECT absolute_kg::text FROM feed_experiment_config
+SELECT grams_per_head::text FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND feed_item_key = feed_config_norm('Fodder')`, fcTenant, fcPark, fcShed).Scan(&fodderKg); err != nil {
-		t.Fatalf("read Fodder absolute_kg: %v", err)
+		t.Fatalf("read Fodder grams_per_head: %v", err)
 	}
 	if fodderKg != "1.500" {
-		t.Fatalf("Fodder absolute_kg = %q, want unchanged 1.500 (only shed-level fields sync, not per-item quantity)", fodderKg)
+		t.Fatalf("Fodder grams_per_head = %q, want unchanged 1.500 (only shed-level fields sync, not per-item quantity)", fodderKg)
 	}
 }
 

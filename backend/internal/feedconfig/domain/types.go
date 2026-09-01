@@ -127,6 +127,22 @@ const (
 	ExperimentStatusRetired = "retired"
 )
 
+// Experiment quantity bases, mirroring feed_experiment_config.quantity_basis.
+//
+// THE TWO ARE OFF BY THE PEN'S ENTIRE POPULATION, so a row's basis is a stored fact and never
+// inferred from whichever column happens to be non-null. Every WRITE authors
+// ExperimentBasisGramsPerHead (maintainer decision 2026-09-01); ExperimentBasisAbsoluteKg exists
+// because rows authored before that decision keep feeding exactly what they feed today until an
+// author re-enters them, and converting them would write a per-head rate nobody typed.
+//
+// These strings must equal domain.ExperimentBasis* in the feeddirection package, which reads the
+// same column. They are duplicated rather than shared for the same reason every other feed vocabulary
+// is: this package must not import the generator.
+const (
+	ExperimentBasisGramsPerHead = "grams_per_head"
+	ExperimentBasisAbsoluteKg   = "absolute_kg"
+)
+
 // Statuses recognised by feed_item_catalog. Mirrors that table's own CHECK constraint.
 //
 // `retired` is what "remove this feed item" means here. It is not a soft-delete flag the screen
@@ -456,18 +472,24 @@ type ShedFactorPage struct {
 	HasMore bool         `json:"has_more"`
 }
 
-// ExperimentConfig is one authored cell of an EXPERIMENT operational pen: the absolute kg of one
-// feed item that pen is fed (an undivided shed is represented as its single whole-shed pen).
+// ExperimentConfig is one authored cell of an EXPERIMENT operational pen: what one feed item that
+// pen is fed (an undivided shed is represented as its single whole-shed pen).
 //
-// ABSOLUTE KG IS A SHED TOTAL, NOT A PER-HEAD RATE. That is the one distinction between this type
-// and RationRate that must never blur. HeadCount travels with it as INFORMATIONAL context -- the
-// population the operator authored the figure against -- and multiplying the two would overfeed the
-// shed by a factor of its entire population. Nothing in this module, the generator, or the UI may
-// treat HeadCount as a multiplier; ExperimentPlanner ignores the projected count for quantity
-// purposes entirely and flags the row so nothing downstream can scale by it.
+// TWO BASES, AND QuantityBasis SAYS WHICH. A cell authored today carries GramsPerHead, a per-animal
+// rate the generator multiplies by the pen's LIVE projected head count (maintainer decision
+// 2026-09-01). A cell authored before that carries AbsoluteKg, a PEN TOTAL that is never multiplied
+// by anything. Exactly one of the two is present, and no code may read the other as a substitute:
+// the two differ by the pen's entire population.
 //
-// HeadCount is a POINTER because the column is nullable: a shed whose population was not recorded
-// alongside the quantity is an honest gap, and rendering it as 0 would state that the shed is empty.
+// THE COUNT THIS TYPE CARRIES IS THE PEN'S LIVE RESIDENT COUNT (maintainer instruction 2026-09-01:
+// "use live only, forget recorded"). The stored feed_experiment_config.head_count is a figure
+// somebody typed beside the quantity at some past date and nothing maintains it -- on the live data
+// it disagreed with the actual population for 15 of 34 pens -- so it is no longer read, no longer
+// written, and no longer shown. It survives only as provenance for what migration 000238 divided by.
+//
+// LiveHeadCount is therefore a FACT ABOUT THE PEN, resolved at read time, not authored: it is the
+// same population the feed sheet multiplies the rate by, so the screen and the sheet cannot disagree
+// about how many animals a pen holds.
 type ExperimentConfig struct {
 	ExperimentConfigID string `json:"experiment_config_id"`
 	ParkID             string `json:"park_id"`
@@ -489,10 +511,20 @@ type ExperimentConfig struct {
 	// same string ("Mandela 1 - Part 3"); clients render it verbatim and never rejoin the halves.
 	OperationalLocationDisplay string `json:"operational_location_display"`
 	FeedItemLabel              string `json:"feed_item"`
-	// AbsoluteKg is an exact decimal string for the same reason GramsPerHead is: numeric(12,3) is
-	// exact and a float round-trip is not.
-	AbsoluteKg string `json:"absolute_kg"`
-	HeadCount  *int32 `json:"head_count,omitempty"`
+	// QuantityBasis is ExperimentBasisGramsPerHead or ExperimentBasisAbsoluteKg. A client renders the
+	// figure the basis names and must never fall back to the other field, which is empty precisely so
+	// that a fallback cannot silently print a pen total as a per-animal rate.
+	QuantityBasis string `json:"quantity_basis"`
+	// GramsPerHead is grams per animal per day, empty on a legacy pen-total cell. An exact decimal
+	// string for the same reason the ration grid's is: numeric(12,3) is exact, a float round-trip is
+	// not.
+	GramsPerHead string `json:"grams_per_head,omitempty"`
+	// AbsoluteKg is the legacy PEN TOTAL in kg, empty on a per-animal cell.
+	AbsoluteKg string `json:"absolute_kg,omitempty"`
+	// LiveHeadCount is how many animals are in this pen RIGHT NOW. Zero is a real answer (an empty
+	// pen), not a missing one, which is why it is a plain int rather than a pointer: unlike the
+	// authored quantity there is no "nobody said" state for a census the register can always answer.
+	LiveHeadCount int32 `json:"live_head_count"`
 	// ExperimentCategory is the experiment ARM. It stands in for the shed tag on the direction sheet,
 	// because an experiment shed has no ration grain and therefore no authored tag to report.
 	ExperimentCategory string `json:"experiment_category"`
@@ -517,10 +549,15 @@ type ExperimentConfigQuery struct {
 	// ExperimentCategory narrows to one ARM ("Sheep M NEW"). Matched on the normalized key like every
 	// other feed-config label, so casing and separator differences resolve the same way.
 	ExperimentCategory string
-	// KgCompare narrows by the authored absolute kg. Nil means no filter; a pointer for the same
-	// reason RationRateQuery.GramsCompare is one -- 0 is a legitimate value to compare against.
-	KgCompare *GramsComparison
-	Page      Page
+	// GramsCompare narrows by the authored GRAMS PER ANIMAL. Nil means no filter; a pointer for the
+	// same reason RationRateQuery.GramsCompare is one -- 0 is a legitimate value to compare against.
+	//
+	// A LEGACY PEN-TOTAL CELL IS CLAIMED BY NEITHER SIDE of this filter, and that gap is honest
+	// rather than missing data: its authored number is kg for a whole pen, so it cannot answer a
+	// question asked in grams per animal, and coercing it into one would need a head count this
+	// table does not own. It is still listed, and still counted, in the unfiltered view.
+	GramsCompare *GramsComparison
+	Page         Page
 }
 
 type ExperimentConfigPage struct {
@@ -533,10 +570,11 @@ type ExperimentConfigPage struct {
 // ExperimentBatchCell is one authored feed item inside a batch enrolment.
 type ExperimentBatchCell struct {
 	FeedItemLabel string
-	// AbsoluteKg is an exact decimal string, already normalized. Same absent-vs-zero contract as the
-	// single-cell write: a cell the author left blank is NOT in this slice at all, and a cell that IS
-	// here carries a real authored number, which may legitimately be "0".
-	AbsoluteKg string
+	// GramsPerHead is grams per animal per day, an exact decimal string, already normalized. Same
+	// absent-vs-zero contract as the single-cell write: a cell the author left blank is NOT in this
+	// slice at all, and a cell that IS here carries a real authored number, which may legitimately be
+	// "0".
+	GramsPerHead string
 }
 
 // UpsertExperimentConfigBatchCommand enrolls EVERY feed item of one unconfigured pen atomically.
@@ -560,7 +598,10 @@ type UpsertExperimentConfigBatchCommand struct {
 	// phantom whole-shed row beside the real pens.
 	PartitionLabel     string
 	ExperimentCategory string
-	HeadCount          *int32
+	// No head count. The pen's population is a fact the herd register answers live (see
+	// ExperimentConfig.LiveHeadCount); asking an author to type it again produced the stale figure
+	// this module stopped reading on 2026-09-01.
+	//
 	// Cells is the authored set, at least one. Duplicate feed items are rejected before this point:
 	// two cells normalizing to the same key would race each other inside one statement and the
 	// survivor would be arbitrary.
@@ -687,14 +728,22 @@ type UpsertScheduleConfigCommand struct {
 	TransportTime  *string
 }
 
-// UpsertExperimentConfigCommand authors one experiment shed's absolute kg of one feed item.
+// UpsertExperimentConfigCommand authors one experiment pen's GRAMS PER ANIMAL of one feed item.
 //
-// AbsoluteKg is a canonical decimal STRING and is REQUIRED, exactly like GramsPerHead: "absent" is
-// not representable, because the HTTP layer must already have rejected a cleared field rather than
-// filling it with 0. An authored 0 IS legal (an arm that deliberately gets none of an item).
+// EVERY WRITE AUTHORS THE PER-ANIMAL BASIS. There is no command that writes an absolute pen total
+// any more: legacy rows keep the figure they were authored with and are converted by nothing, but
+// the moment an author re-enters a cell they are entering grams per animal, and the row's basis
+// moves with it. That is the whole of the 2026-09-01 change on the write path.
 //
-// HeadCount is a pointer so "not recorded" (NULL) stays distinct from an authored 0, which would
-// state the shed is empty.
+// GramsPerHead is a canonical decimal STRING and is REQUIRED, exactly like the ration grid's:
+// "absent" is not representable, because the HTTP layer must already have rejected a cleared field
+// rather than filling it with 0. An authored 0 IS legal (an arm that deliberately gets none of an
+// item).
+//
+// THERE IS NO HEAD COUNT ON THIS COMMAND. The pen's population is read live wherever it is needed
+// -- the feed sheet multiplies by it and the config screen shows it -- so nothing asks an author to
+// restate it. The stored feed_experiment_config.head_count is left exactly as it is: it is now
+// provenance for what migration 000238 divided by, and an edit must not silently blank it.
 type UpsertExperimentConfigCommand struct {
 	WriteIdentity
 	ParkID string
@@ -706,8 +755,7 @@ type UpsertExperimentConfigCommand struct {
 	// author clicked. Empty is legitimate for an undivided shed and normalizes to 'whole'.
 	PartitionLabel     string
 	FeedItemLabel      string
-	AbsoluteKg         string
-	HeadCount          *int32
+	GramsPerHead       string
 	ExperimentCategory string
 }
 
@@ -1083,27 +1131,6 @@ func ValidateFeedItemStatus(field, raw string) (string, error) {
 		return "", fieldErr(field, ErrInvalidFeedItemStatus, raw)
 	}
 	return v, nil
-}
-
-// ValidateHeadCount checks the INFORMATIONAL population figure carried alongside an absolute
-// quantity.
-//
-// It is validate-or-reject like every other authored value: a present-but-negative count fails
-// rather than being clamped. nil is legal and means "not recorded" -- which is NOT the same as 0,
-// and is why this returns the pointer through unchanged rather than defaulting it.
-//
-// Note what this function does NOT do: it never influences a quantity. head_count is not a
-// multiplier here (see ExperimentConfig), so an out-of-range value cannot under- or over-feed a
-// shed; it is rejected because a wrong number printed next to a feeding instruction misleads the
-// operator reading it.
-func ValidateHeadCount(field string, raw *int32) (*int32, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	if *raw < 0 {
-		return nil, fieldErr(field, ErrNegativeValue, fmt.Sprintf("%d", *raw))
-	}
-	return raw, nil
 }
 
 // ValidateAppliesTo rejects a shed-tag course filter outside the schema vocabulary.

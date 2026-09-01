@@ -340,14 +340,23 @@ func blockedRow(row DailyRow, cfg ConfigSnapshot, reason BlockedReason) DailyRow
 // Experiment workflow: hand-authored absolute quantities
 // ---------------------------------------------------------------------------
 
-// ExperimentPlanner serves sheds whose quantities are hand-entered as ABSOLUTE kg for the whole
-// shed, rather than derived from the ration grid.
+// ExperimentPlanner serves pens whose quantities are hand-entered cell by cell, rather than derived
+// from the ration grid.
 //
-// THE ABSOLUTE QUANTITY IS ALREADY A SHED TOTAL. head_count is informational and is never
-// multiplied into it -- doing so would overfeed the shed by a factor of its entire population,
-// which is the single most important distinction between feed_experiment_config and
-// feed_ration_rates. This planner therefore ignores the projected head count for quantity purposes
-// entirely and only carries it through for display, flagged as informational.
+// IT AUTHORS A RATE, NOT A GRID (maintainer decision 2026-09-01). A cell is GRAMS PER ANIMAL and is
+// multiplied by the pen's live projected head count -- the same count the normal workflow uses, so
+// an experiment pen and a normal pen answer "how many animals am I feeding" from one source. The
+// shed factor is deliberately NOT applied: an experiment quantity is grams x head count and nothing
+// else.
+//
+// LEGACY CELLS ARE STILL PEN TOTALS. Every cell authored before that decision carries
+// ExperimentBasisAbsoluteKg, and for those the figure is ALREADY a whole-pen total that must never
+// be multiplied by head count -- doing so would overfeed the pen by a factor of its entire
+// population. Nothing converts one basis into the other: a conversion would write a per-head rate
+// nobody authored and would drift from today's quantity the moment an animal moves.
+//
+// The two readings are off by the pen's whole population, so this planner never guesses. A cell
+// whose basis it does not recognize BLOCKS.
 type ExperimentPlanner struct{}
 
 func (ExperimentPlanner) Workflow() string { return WorkflowExperiment }
@@ -438,11 +447,12 @@ func describeGrains(grains []ShedGrain, cfg ConfigSnapshot, facet func(ShedGrain
 	return strings.Join(labels, MultiValueSeparator)
 }
 
-// PlanDaily returns ONE row for the whole shed, carrying the authored absolute quantities.
+// PlanDaily returns ONE row for the whole pen, carrying the authored quantities.
 //
-// One row, not one per ration grain, because the authored quantity is not per grain: it is a
-// single hand-entered figure for the shed. Splitting it across grains would require an allocation
-// rule nobody authored.
+// One row, not one per ration grain, because the authored quantity is not per grain: it is a single
+// hand-entered figure for the pen. A grams-per-animal cell is scaled by the pen's TOTAL projected
+// head count for the same reason -- the author entered one rate for the arm, not one per breed --
+// and splitting it across grains would require an allocation rule nobody authored.
 //
 // The authored cells are the COMPLETE list of what this shed is fed. A catalog item with no
 // experiment row is not a gap and is not blocked: the operator hand-entered exactly the items this
@@ -483,8 +493,12 @@ func (ExperimentPlanner) PlanDaily(shed ShedInput, cfg ConfigSnapshot) []DailyRo
 		RationGroup:   "",
 		ExperimentArm: category,
 		HeadCount:     headCount,
-		// The flag that stops anything downstream from multiplying by head count.
-		HeadCountInformational: true,
+		// TRUE ONLY WHEN NO CELL USED THE COUNT. The flag says "HeadCount did not drive these
+		// quantities", which stops anything downstream multiplying by it a second time; a pen whose
+		// cells are all legacy pen totals still needs that protection. The moment one cell is
+		// authored as grams per animal the count IS a driver, and claiming otherwise would print a
+		// head count beside a quantity it produced while labelling it informational.
+		HeadCountInformational: !cellsUseHeadCount(cells),
 		OverduePending:         overduePending,
 		Workflow:               WorkflowExperiment,
 		Items:                  make([]DailyItem, 0, len(cells)),
@@ -494,7 +508,56 @@ func (ExperimentPlanner) PlanDaily(shed ShedInput, cfg ConfigSnapshot) []DailyRo
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].FeedItemKey < ordered[j].FeedItemKey })
 
 	for _, cell := range ordered {
-		item := DailyItem{FeedItemLabel: cell.FeedItemLabel, FeedItemKey: cell.FeedItemKey}
+		row.Items = append(row.Items, experimentItem(shed, cell, headCount))
+	}
+	return []DailyRow{row}
+}
+
+// cellsUseHeadCount reports whether ANY of a pen's cells is authored per animal.
+func cellsUseHeadCount(cells []ExperimentCell) bool {
+	for _, cell := range cells {
+		if cell.Basis == ExperimentBasisGramsPerHead {
+			return true
+		}
+	}
+	return false
+}
+
+// experimentItem resolves ONE authored cell against its own basis.
+//
+// THE BASIS SWITCH IS THE WHOLE SAFETY PROPERTY OF THIS FUNCTION. The two readings of the same
+// stored number differ by the pen's entire population, so there is no default branch and no
+// fallback: an unrecognized basis blocks the cell rather than feeding the pen a figure derived from
+// a guess. That mirrors the zero-vs-missing rule everywhere else in this package -- absence blocks,
+// it never resolves to a number.
+func experimentItem(shed ShedInput, cell ExperimentCell, headCount int64) DailyItem {
+	item := DailyItem{FeedItemLabel: cell.FeedItemLabel, FeedItemKey: cell.FeedItemKey}
+
+	switch cell.Basis {
+	case ExperimentBasisGramsPerHead:
+		grams, ok := ParseDecimal(cell.GramsPerHead)
+		if !ok {
+			item.Blocked = &BlockedReason{
+				Code: BlockReasonNoRationRate,
+				Detail: fmt.Sprintf(
+					"stored experiment rate %q for shed %s / item %q is not a valid decimal",
+					cell.GramsPerHead, shed.ShedLabel, cell.FeedItemLabel),
+			}
+			return item
+		}
+		// grams per animal x the pen's LIVE projected head count. A pen with no animals resolves to
+		// zero rather than blocking, exactly as the normal workflow does: nothing is missing, there
+		// is simply nobody to feed today.
+		daily := new(big.Rat).SetInt64(headCount)
+		daily.Mul(daily, grams)
+		gramsLabel := cell.GramsPerHead
+		item.DailyGrams = daily
+		// Reported so the sheet can show the rate the quantity came from, the same column the ration
+		// grid fills. NO shed factor: an experiment quantity is grams x head count and nothing else,
+		// so ShedFactor stays nil rather than claiming an un-applied 1.0.
+		item.GramsPerHead = &gramsLabel
+		return item
+	case ExperimentBasisAbsoluteKg:
 		kg, ok := ParseDecimal(cell.AbsoluteKg)
 		if !ok {
 			item.Blocked = &BlockedReason{
@@ -503,12 +566,18 @@ func (ExperimentPlanner) PlanDaily(shed ShedInput, cfg ConfigSnapshot) []DailyRo
 					"stored experiment quantity %q for shed %s / item %q is not a valid decimal",
 					cell.AbsoluteKg, shed.ShedLabel, cell.FeedItemLabel),
 			}
-			row.Items = append(row.Items, item)
-			continue
+			return item
 		}
 		// Authored in kg; the shared pipeline works in grams. NO head-count multiplication.
 		item.DailyGrams = kg.Mul(kg, new(big.Rat).SetInt64(1000))
-		row.Items = append(row.Items, item)
+		return item
+	default:
+		item.Blocked = &BlockedReason{
+			Code: BlockReasonNoRationRate,
+			Detail: fmt.Sprintf(
+				"experiment cell for shed %s / item %q carries unknown quantity basis %q; it cannot be read as either a per-animal rate or a pen total",
+				shed.ShedLabel, cell.FeedItemLabel, cell.Basis),
+		}
+		return item
 	}
-	return []DailyRow{row}
 }

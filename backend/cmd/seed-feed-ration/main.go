@@ -36,9 +36,12 @@
 //	                          rate) that gap only surfaces later as a direction that never went out.
 //
 //	feed_experiment_config -- (migration 000003) the 34 hand-entered EXPERIMENT sheds, 17 per park,
-//	                          from the separate experiment workbook. Their quantities are ABSOLUTE
-//	                          kg for the whole shed and are NEVER multiplied by head count; the
-//	                          head count travels alongside as informational context only.
+//	                          from the separate experiment workbook. The workbook records an
+//	                          ABSOLUTE kg per pen; the table stores GRAMS PER ANIMAL since
+//	                          2026-09-01, so the loader divides by the workbook's own head count on
+//	                          the way in (workbookGramsPerHead) -- the same arithmetic migration
+//	                          000238 applied to the rows already in the database. A cell the app has
+//	                          since authored (source='app') is left untouched.
 //	                          Membership in this table IS what makes a shed an experiment shed --
 //	                          there is no separate flag -- so an unseeded row does not merely lose a
 //	                          label, it silently feeds that shed off the per-head ration grid. That
@@ -78,6 +81,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"sort"
@@ -476,7 +480,7 @@ func run(args []string) error {
 		st.RatesSkipped)
 	fmt.Printf("  schedules_inserted=%d schedules_superseded=%d schedules_corrected_same_day=%d schedules_unchanged=%d (local Asia/Kolkata times, per park x workflow)\n",
 		st.SchedulesInserted, st.SchedulesSuperseded, st.SchedulesCorrected, st.SchedulesUnchanged)
-	fmt.Printf("  experiment_sheds_resolved=%d experiment_rows_inserted=%d updated=%d unchanged=%d (ABSOLUTE kg per shed; head_count is informational and is NEVER multiplied in)\n",
+	fmt.Printf("  experiment_sheds_resolved=%d experiment_rows_inserted=%d updated=%d unchanged=%d (GRAMS PER ANIMAL, converted from the workbook's pen kg by its own head count; the sheet multiplies by the pen's LIVE count)\n",
 		st.ExperimentShedsResolved, st.ExperimentRowsInserted, st.ExperimentRowsUpdated, st.ExperimentRowsUnchanged)
 	if st.ExperimentRowsOutsideSource > 0 {
 		fmt.Printf("  experiment_rows_outside_source=%d (active rows this source does not name; left untouched -- retiring one would move that shed back onto the per-head grid)\n",
@@ -764,9 +768,14 @@ func seedExperiments(
 		shedID    string
 		partition string
 		item      string
-		kg        string
-		count     int32
-		category  string
+		// kg is the workbook's figure as the workbook states it: an ABSOLUTE total for the pen. The
+		// table stores GRAMS PER ANIMAL since 2026-09-01, so it is divided by the pen's head count
+		// below -- LIVE where the herd register can answer, the workbook's own count where it cannot.
+		kg    float64
+		count float64
+		// grams is that derived per-animal rate, filled in once the live counts are known.
+		grams    string
+		category string
 	}
 	var cells []cell
 	locations := map[string]bool{}
@@ -796,8 +805,8 @@ func seedExperiments(
 				shedID:    shedID,
 				partition: partitionLabel,
 				item:      feedItemName(header),
-				kg:        formatNumeric(row.Kg[header], 3),
-				count:     int32(row.Count),
+				kg:        row.Kg[header],
+				count:     row.Count,
 				category:  strings.TrimSpace(row.Category),
 			})
 		}
@@ -807,14 +816,60 @@ func seedExperiments(
 		return nil
 	}
 
+	// THE DENOMINATOR IS THE PEN'S LIVE POPULATION (maintainer instruction 2026-09-01, "use live
+	// only, forget recorded"), read once for every pen this seed touches rather than per cell.
+	//
+	// The workbook carries its own head count beside each pen's kg, and it is used ONLY where the
+	// herd register cannot answer -- a pen with no live animals, which on a fresh database is every
+	// pen until the goats are loaded. Without that fallback the order of two seed commands would
+	// decide whether the feed config lands at all; with it, a re-run once the animals exist corrects
+	// the rate to the live figure. Which one was used is reported, because a rate derived from a
+	// stale workbook count is worth knowing about.
+	liveCounts, err := loadLivePenCounts(ctx, tx, tenantID)
+	if err != nil {
+		return err
+	}
+	fallbackPens := map[string]bool{}
+	for i := range cells {
+		denominator := cells[i].count
+		if live, ok := liveCounts[cells[i].shedID+"\x1f"+cells[i].partition]; ok && live > 0 {
+			denominator = float64(live)
+		} else {
+			fallbackPens[cells[i].shedID+"\x1f"+cells[i].partition] = true
+		}
+		grams, err := workbookGramsPerHead(cells[i].kg, denominator)
+		if err != nil {
+			return fmt.Errorf("experiment pen %s: %w", cells[i].shedID, err)
+		}
+		cells[i].grams = grams
+	}
+	if len(fallbackPens) > 0 {
+		fmt.Printf("  experiment: %d pen(s) had no live animals; their per-animal rates came from the workbook's own head count and should be re-seeded once the herd is loaded.\n", len(fallbackPens))
+	}
+
 	b := &pgx.Batch{}
-	// 1. Update any existing row whose quantity, head count, arm or status differs.
+	// 1. Update any existing row whose quantity, head count, arm or status differs -- BUT ONLY ITS
+	//    OWN ROWS.
+	//
+	//    The workbook records an ABSOLUTE kg for a whole pen; since 2026-09-01 the table stores GRAMS
+	//    PER ANIMAL, so the seeder converts on the way in (see workbookGramsPerHead) using the
+	//    workbook's own head count -- the same arithmetic migration 000238 applied to the rows that
+	//    were already there. Writing kg into the per-animal column would be off by the pen's whole
+	//    population, and the pairing CHECK would refuse the row outright.
+	//
+	//    `source = 'workbook'` is the other half. The app is a writer now too, and re-asserting the
+	//    workbook over a rate the farm corrected on screen would silently discard that correction --
+	//    the same reason the health-config importer refuses to run over app-authored protocols. A
+	//    cell authored in the app is left exactly as it is.
 	for _, c := range cells {
 		b.Queue(`
 UPDATE feed_experiment_config
-SET absolute_kg = $4::numeric,
-    head_count = $5,
-    experiment_category = $6,
+SET quantity_basis = 'grams_per_head',
+    grams_per_head = $4::numeric,
+    absolute_kg = NULL,
+    -- head_count is NOT written. Nothing reads it any more: it is provenance for what migration
+    -- 000238 divided by, and the count that matters is the pen's live population.
+    experiment_category = $5,
     status = 'active',
     updated_at = now()
 WHERE tenant_id = $1::uuid
@@ -827,17 +882,18 @@ WHERE tenant_id = $1::uuid
         ELSE feed_config_norm($7::text)
       END
   AND feed_item_key = feed_config_norm($3)
-  AND (absolute_kg, head_count, experiment_category, status)
-      IS DISTINCT FROM ($4::numeric, $5::integer, $6::text, 'active'::text)`,
-			tenantID, c.shedID, c.item, c.kg, c.count, c.category, c.partition)
+  AND source = 'workbook'
+  AND (grams_per_head, experiment_category, status)
+      IS DISTINCT FROM ($4::numeric, $5::text, 'active'::text)`,
+			tenantID, c.shedID, c.item, c.grams, c.category, c.partition)
 	}
 	// 2. Insert wherever no row exists. park_id is read from the shed's own parent rather than passed
 	//    in, so the row's park can never disagree with the shed's actual placement -- the pair is the
 	//    natural key the direction path filters on.
 	for _, c := range cells {
 		b.Queue(`
-INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label, feed_item_label, absolute_kg, head_count, experiment_category, status)
-SELECT $1::uuid, l.parent_location_id, l.location_id, NULLIF(btrim($7::text), ''), $3, $4::numeric, $5, $6, 'active'
+INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label, feed_item_label, quantity_basis, grams_per_head, experiment_category, status, source)
+SELECT $1::uuid, l.parent_location_id, l.location_id, NULLIF(btrim($6::text), ''), $3, 'grams_per_head', $4::numeric, $5, 'active', 'workbook'
 FROM locations l
 WHERE l.tenant_id = $1::uuid AND l.location_id = $2::uuid
   AND NOT EXISTS (
@@ -845,11 +901,11 @@ WHERE l.tenant_id = $1::uuid AND l.location_id = $2::uuid
     WHERE e.tenant_id = $1::uuid
       AND e.shed_id = $2::uuid
       AND e.partition_key = CASE
-            WHEN $7::text IS NULL OR btrim($7::text) = '' THEN 'whole'
-            ELSE feed_config_norm($7::text)
+            WHEN $6::text IS NULL OR btrim($6::text) = '' THEN 'whole'
+            ELSE feed_config_norm($6::text)
           END
       AND e.feed_item_key = feed_config_norm($3)
-  )`, tenantID, c.shedID, c.item, c.kg, c.count, c.category, c.partition)
+  )`, tenantID, c.shedID, c.item, c.grams, c.category, c.partition)
 	}
 
 	// scale-guard:ignore: this IS the batched form -- one SendBatch for the whole experiment cell set (170 rows today, bounded by the authored experiment size), never one round trip per cell.
@@ -1568,6 +1624,67 @@ WHERE NOT EXISTS (
 }
 
 // ---- helpers ----
+
+// loadLivePenCounts reads how many live animals each OPERATIONAL PEN holds, keyed the way the
+// experiment table is: shed id plus the pen label, with an undivided shed's animals on the blank
+// label.
+//
+// One grouped pass, inside the seed's own transaction, rather than a count per cell: 200 cells
+// across 35 pens would otherwise re-scan the same animals 200 times for an answer that is the same
+// for every cell of a pen.
+// projection-review: membership=every live goat of the tenant grouped to the pen identity the experiment table is keyed on; group_key=(shed_id,COALESCE(partition_label,”)) matched in Go against each cell's own (shedID, partition) pair, the same key the write statements below use; join_cardinality=goats to goat_shed_partitions is 0:1 on its (tenant_id,goat_id) PK so no animal is counted twice and no pen borrows another's residents; pagination=none, one grouped read per seed run rather than a count per cell; scope=one tenant, whole herd, bounded by herd size
+func loadLivePenCounts(ctx context.Context, tx pgx.Tx, tenantID string) (map[string]int64, error) {
+	rows, err := tx.Query(ctx, `
+SELECT g.shed_id::text,
+       COALESCE(p.partition_label, ''),
+       count(*)
+FROM goats g
+LEFT JOIN goat_shed_partitions p
+       ON p.tenant_id = g.tenant_id AND p.goat_id = g.goat_id
+WHERE g.tenant_id = $1::uuid
+  AND g.lifecycle_status = 'alive'
+GROUP BY 1, 2`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("load live pen counts: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var shedID, partition string
+		var count int64
+		if err := rows.Scan(&shedID, &partition, &count); err != nil {
+			return nil, fmt.Errorf("scan live pen count: %w", err)
+		}
+		out[shedID+"\x1f"+partition] = count
+	}
+	return out, rows.Err()
+}
+
+// workbookGramsPerHead converts one workbook cell -- an ABSOLUTE kg for a whole pen -- into the
+// per-animal rate the table stores (maintainer instruction 2026-09-01).
+//
+// It is the SAME arithmetic migration 000238 applies to rows already in the database
+// (kg x 1000 / the pen's head count, truncated), deliberately so: a database that was migrated and a
+// database that was seeded from the workbook must land on identical rates, or the two ways of
+// standing a system up disagree about what the farm feeds. The caller supplies the denominator: the
+// pen's LIVE population where the herd register can answer, the workbook's own count where it
+// cannot.
+//
+// A ZERO count is a hard failure rather than a skipped cell or a zero rate. The workbook says this
+// pen is fed and nothing can say how many animals are in it, so no rate can be derived: dividing
+// would be a panic and inventing 0 g would feed the pen nothing while looking configured -- the
+// exact silent-underfeed this module's zero-vs-missing rule exists to prevent. A negative kg is
+// rejected upstream when the workbook is parsed.
+func workbookGramsPerHead(kg float64, count float64) (string, error) {
+	if count <= 0 {
+		return "", fmt.Errorf("workbook head count is %v, so no per-animal rate can be derived from %.3f kg", count, kg)
+	}
+	// TRUNCATED, never rounded to nearest -- the same direction migration 000238 truncates in, and
+	// for the same reason: the generator rounds a pen's session quantity UP to a packable 0.1 kg, so
+	// a rate a hair ABOVE exact silently lifts a pen's sheet by a notch it never had. See that
+	// migration's comment for the worked case (8 kg / 31 animals).
+	return formatNumeric(math.Trunc((kg*1000)/count*1000)/1000, 3), nil
+}
 
 // formatNumeric renders a float as a fixed-precision decimal string so it is bound as ::numeric
 // rather than travelling through float64 rounding on the way into an exact numeric column.

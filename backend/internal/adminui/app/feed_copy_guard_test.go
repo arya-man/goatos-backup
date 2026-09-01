@@ -201,7 +201,9 @@ func TestFeedPagesDeclareRequiredCopy(t *testing.T) {
 			"section.experiment.title", "section.experiment.aria", "section.experiment.caption",
 			"section.experiment.note", "section.experiment.switch_note",
 			"table.experiment.aria", "table.experiment.noun",
+			"label.experiment_grams_per_head", "label.experiment_grams_per_head_note",
 			"label.experiment_absolute_kg", "label.experiment_absolute_kg_note",
+			"label.experiment_basis_grams", "label.experiment_basis_kg",
 			"label.experiment_head_count", "label.experiment_head_count_note",
 			"label.experiment_category", "label.experiment_category_note",
 			"label.experiment_active", "label.experiment_active_note",
@@ -329,7 +331,7 @@ func TestFeedTableColumnsAreExact(t *testing.T) {
 		// cannot: Castro, Gandhi and Yashoda each exist in both parks. The ban below still holds for
 		// every other table here, all of which do require park_id.
 		{"feed-config", "experiment-config", []string{
-			"park", "shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status",
+			"park", "shed", "experiment_category", "live_head_count", "feed_item", "experiment_quantity", "status",
 		}},
 	} {
 		got := feedTableColumnKeys(t, tc.routeID, tc.tableID)
@@ -423,59 +425,95 @@ func TestFeedScheduleNoteDoesNotReadAsFeedingTime(t *testing.T) {
 	}
 }
 
-// TestExperimentHeadCountIsNeverPresentedAsAMultiplier is the experiment-shed twin of
-// TestFeedBlockedCopyIsNeverReadAsZero, and it guards the single most consequential confusion this
-// screen can create.
+// TestExperimentHeadCountIsTheLivePenPopulation guards the count this screen shows.
 //
-// feed_experiment_config.absolute_kg is a SHED TOTAL, already inclusive of every animal in the shed.
-// The head count beside it is context for the operator who authored the figure, NOT a multiplier —
-// multiplying the two would overfeed the shed by a factor of its entire population. That is the
-// opposite of Feed Direction, where head_count genuinely IS the first term of
-// head count x grams per head x shed factor.
+// It used to guard the OPPOSITE property: the column carried a figure an author had typed beside the
+// quantity, nothing maintained it, and the danger was that someone would multiply by it. On
+// 2026-09-01 the maintainer retired that figure outright -- "use live only, forget recorded" -- and
+// the column became the pen's LIVE population, read from the herd register per request. The danger
+// inverted with it: a reader who takes this number for a stale typed one will not trust the sheet
+// that was computed from it, and an author who thinks they are expected to maintain it will look for
+// an input that is deliberately no longer there.
 //
-// Because humanLabel() is keyed by column key alone and has no table context, the two screens are
-// kept apart by USING DIFFERENT KEYS ("informational_head_count" here, "head_count" there). This
-// test locks both halves of that arrangement: the experiment header must carry the warning, and Feed
-// Direction's must NOT — a well-meaning edit that "unified" the two keys would either deny the
-// multiplication that really happens on Feed Direction, or assert one that must never happen here.
-func TestExperimentHeadCountIsNeverPresentedAsAMultiplier(t *testing.T) {
-	if got := humanLabel("informational_head_count"); !strings.Contains(strings.ToLower(got), "informational") {
+// Because humanLabel() is keyed by column key alone and has no table context, this screen and Feed
+// Direction stay apart by USING DIFFERENT KEYS ("live_head_count" here, "head_count" there). They
+// are different facts -- a live census versus the projected count frozen onto an issued sheet -- so
+// the keys must not be unified even though the labels now read alike.
+func TestExperimentHeadCountIsTheLivePenPopulation(t *testing.T) {
+	if got := humanLabel("live_head_count"); strings.Contains(strings.ToLower(got), "informational") {
 		t.Errorf(
-			"humanLabel(%q) = %q must mark the count as informational — on an experiment row the kg is already a shed total, so a header that reads like Feed Direction's multiplier invites someone to multiply it",
-			"informational_head_count", got,
+			"humanLabel(%q) = %q still calls the count informational; it is the live population the sheet multiplies by",
+			"live_head_count", got,
 		)
 	}
-	// The shared key must stay the plain multiplier label for Feed Direction's sake.
-	if got := humanLabel("head_count"); strings.Contains(strings.ToLower(got), "informational") {
-		t.Errorf(
-			"humanLabel(%q) = %q — this key labels Feed Direction's head count, where the value IS multiplied by the ration rate; the informational wording belongs only to %q",
-			"head_count", got, "informational_head_count",
-		)
+	// The retired key must not come back on the table itself. humanLabel would still de-underscore it
+	// into a plausible-looking "Informational head count" header, so the guard is on the CONTRACT's
+	// column list, where a stale key renders an empty column nobody can explain.
+	for _, column := range feedTableColumnKeys(t, "feed-config", "experiment-config") {
+		if column == "informational_head_count" {
+			t.Fatal("experiment-config still declares informational_head_count; the recorded count was retired on 2026-09-01 in favour of live_head_count")
+		}
 	}
 
 	copyMap := pageSpecificCopy("feed-config")
 
-	// The hover note must actively DENY the multiplication rather than merely omitting it, for the
-	// same reason label.blocked_note must deny the zero reading: an operator fills a silence with the
-	// behaviour they know from the other Feed screens.
+	// The hover note must say WHERE the number comes from and that nobody maintains it by hand. Both
+	// halves matter: "live" is what makes it trustworthy beside a quantity derived from it, and "not
+	// typed" is what stops an author hunting for the input this screen deliberately no longer has.
 	headNote := strings.ToLower(copyMap["label.experiment_head_count_note"])
 	if headNote == "" {
 		t.Fatal("feed-config is missing label.experiment_head_count_note")
 	}
-	if !strings.Contains(headNote, "not a multiplier") && !strings.Contains(headNote, "never multiplied") {
+	if !strings.Contains(headNote, "right now") && !strings.Contains(headNote, "live") {
 		t.Errorf(
-			"label.experiment_head_count_note = %q must state outright that the count is NOT a multiplier",
+			"label.experiment_head_count_note = %q must say the count is the pen's population right now",
+			copyMap["label.experiment_head_count_note"],
+		)
+	}
+	if !strings.Contains(headNote, "nobody types") && !strings.Contains(headNote, "herd register") {
+		t.Errorf(
+			"label.experiment_head_count_note = %q must say where the count comes from rather than leaving it to read as a figure someone maintains",
 			copyMap["label.experiment_head_count_note"],
 		)
 	}
 
+	// THE AUTHORING FIELD IS PER ANIMAL (maintainer decision 2026-09-01), and its note must say what
+	// the number is multiplied BY. An author who reads "grams" and thinks "for the pen" enters a
+	// figure a whole population too small, which is the same class of error the old copy guarded from
+	// the other direction.
+	gramsNote := strings.ToLower(copyMap["label.experiment_grams_per_head_note"])
+	if gramsNote == "" {
+		t.Fatal("feed-config is missing label.experiment_grams_per_head_note")
+	}
+	if !strings.Contains(gramsNote, "one animal") && !strings.Contains(gramsNote, "per animal") {
+		t.Errorf(
+			"label.experiment_grams_per_head_note = %q must say the figure is what ONE animal gets",
+			copyMap["label.experiment_grams_per_head_note"],
+		)
+	}
+	if !strings.Contains(gramsNote, "head count") && !strings.Contains(gramsNote, "number of animals") {
+		t.Errorf(
+			"label.experiment_grams_per_head_note = %q must say the sheet multiplies it by how many animals are in the pen",
+			copyMap["label.experiment_grams_per_head_note"],
+		)
+	}
+
+	// THE LEGACY FIELD KEEPS ITS OLD WARNING, and this half of the test is unchanged on purpose.
+	// Rows authored before the change still hold a whole-pen total that nothing multiplies, and a
+	// reader looking at one beside a per-animal cell has to be told which they are looking at.
 	kgNote := strings.ToLower(copyMap["label.experiment_absolute_kg_note"])
 	if kgNote == "" {
 		t.Fatal("feed-config is missing label.experiment_absolute_kg_note")
 	}
-	if !strings.Contains(kgNote, "not a per-head") && !strings.Contains(kgNote, "whole shed") && !strings.Contains(kgNote, "shed total") {
+	if !strings.Contains(kgNote, "whole pen") && !strings.Contains(kgNote, "whole shed") && !strings.Contains(kgNote, "pen total") && !strings.Contains(kgNote, "shed total") {
 		t.Errorf(
-			"label.experiment_absolute_kg_note = %q must say the quantity is a whole-shed total rather than a per-head figure",
+			"label.experiment_absolute_kg_note = %q must say the quantity is a whole-pen total rather than a per-animal figure",
+			copyMap["label.experiment_absolute_kg_note"],
+		)
+	}
+	if !strings.Contains(kgNote, "never multiplied") && !strings.Contains(kgNote, "not multiplied") {
+		t.Errorf(
+			"label.experiment_absolute_kg_note = %q must keep saying the legacy total is never multiplied by a head count",
 			copyMap["label.experiment_absolute_kg_note"],
 		)
 	}

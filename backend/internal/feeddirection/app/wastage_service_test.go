@@ -67,7 +67,7 @@ func (f *fakeWastageStore) WastageMeasurementRecorded(context.Context, string, s
 func newWastageService(store *fakeWastageStore, enq FeedWastageVerificationEnqueuer) (*Service, *fakeConfigRepo) {
 	svc, config, _ := newTestService()
 	config.snapshot.ExperimentByLocation[domain.ExperimentLocationKey(shedA, "")] = []domain.ExperimentCell{
-		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "12.000", Category: "Trial A"},
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: domain.ExperimentBasisAbsoluteKg, AbsoluteKg: "12.000", Category: "Trial A"},
 	}
 	issueStore := newFakeIssueStore()
 	sched := &fakeScheduleReader{clocks: []domain.WorkflowClock{normalClock(), experimentClock()}, parks: []string{testPark}}

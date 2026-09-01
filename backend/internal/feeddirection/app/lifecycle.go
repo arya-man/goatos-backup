@@ -249,9 +249,15 @@ func displayKg(kg string) string {
 //
 // TWO NARROWINGS, both load-bearing:
 //
-//   - EXPERIMENT IS EXEMPT. Experiment rations are authored as absolute kg per pen, so a head-count
-//     change moves no quantity there; reopening one would discard a perfectly good video for a sheet
-//     that did not change.
+//   - EXPERIMENT IS EXEMPT, and since 2026-09-01 that is a DELIBERATE TRADE rather than a free one.
+//     The original reason was arithmetic: experiment rations were absolute kg per pen, so a
+//     head-count change moved no quantity there and reopening one would have discarded a perfectly
+//     good video for a sheet that did not change. Experiment cells are now authored as grams per
+//     animal and DO move with the head count, so that reason no longer holds -- and the maintainer,
+//     shown exactly this consequence, chose to keep the exemption anyway. The accepted cost: an
+//     experiment pen whose count moved between packing and the correction keeps a video proving the
+//     pre-correction quantity. Do not "fix" this by widening the reopen; it is a recorded decision,
+//     and changing it is the maintainer's call. See docs/decisions/feed-experiment-per-animal.md.
 //   - HEAD COUNT ONLY, per pen. AffectedShedIDs would also fire for a relabelled ration group or a
 //     re-authored gram rate, and it is shed-wide -- reopening Castro - 1 and Castro - 3 because
 //     Castro - 2 gained animals. Making an operator refilm is expensive, so it is spent only where
