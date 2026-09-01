@@ -289,8 +289,8 @@ func TestSalesLoadsPageContract(t *testing.T) {
 	if page.Tables[0].DataSource != "/procurement/loadwise-sales" {
 		t.Fatalf("table source = %q", page.Tables[0].DataSource)
 	}
-	if page.Tables[0].RowClick.Param != "load_id" {
-		t.Fatalf("row param = %q, want the load id the cost drawer opens on", page.Tables[0].RowClick.Param)
+	if page.Tables[0].RowClick.Enabled {
+		t.Fatalf("sales-loads must be read-only and declare no row click: %+v", page.Tables[0].RowClick)
 	}
 
 	// The tabs, in order: Purchased is FIRST because the page selects it when the URL names none.
@@ -374,6 +374,7 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 	writes := []string{
 		"record_sale",
 		"record_pipeline",
+		"allocate_sale_animals",
 		"record_sales_deal_payment",
 		"update_sales_deal_status",
 		"record_load_cost",
@@ -389,7 +390,7 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 		}
 	}
 
-	// And the same five ARE on the config page, or the writes moved nowhere.
+	// And the same writes ARE on the config page, or the writes moved nowhere.
 	config := pageByRouteID(t, resp.Pages, "sales-config")
 	for _, id := range writes {
 		control := controlByID(t, config.Controls, id)
@@ -451,7 +452,7 @@ func TestSalesConfigPageContract(t *testing.T) {
 		"section.payments.title", "field.received_on", "field.amount_rupees",
 		"action.record_deal_payment.label", "field.status", "action.update_deal_status.label",
 		"action.tag_animals.label", "action.tag_animals.hint", "action.confirm_sold",
-		"disabled.write",
+		"disabled.write", "disabled.allocate_animals",
 		// Inherited from Purchase & barn: the load-cost drawer.
 		"drawer.load_cost.title", "field.animal_cost", "field.transport_cost", "field.other_cost",
 		"hint.load_cost", "action.record_load_cost.label", "disabled.load_cost",

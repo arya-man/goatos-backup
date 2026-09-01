@@ -122,6 +122,7 @@ export async function SalesConfigPage({
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
   const canRecord = controlEnabled(pageContract, "record_sale", false);
+  const canAllocateAnimals = controlEnabled(pageContract, "allocate_sale_animals", false);
   const canRecordPipeline = controlEnabled(pageContract, "record_pipeline", false);
   const canRecordCost = controlEnabled(pageContract, "record_load_cost", false);
   const none = copy(pageContract, "value.none");
@@ -154,7 +155,7 @@ export async function SalesConfigPage({
         {/* Tagging animals to a sale WRITES HERD IDENTITY — it exits each animal as sold — so it
             is gated on the same capability as recording the deal, and additionally on there
             being a recorded sale to tag animals to. */}
-        {canRecord && deals.length > 0 ? (
+        {canAllocateAnimals && deals.length > 0 ? (
           <LocalOverlayLink
             href={hrefWithQuery(sp, { tag_sale: deals[0].deal_id })}
             className="btn"
@@ -387,7 +388,7 @@ export async function SalesConfigPage({
         canRecord={canRecord}
         vendorOptions={vendorOptions}
       />
-      {canRecord ? (
+      {canAllocateAnimals ? (
         <SaleAllocationDrawer
           deals={deals}
           locations={tagLocations}

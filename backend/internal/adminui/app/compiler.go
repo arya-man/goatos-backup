@@ -950,6 +950,19 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 		DisabledReason: reason,
 		Action:         "POST /sales/buyer-leads",
 	})
+	allocateAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesAllocateAnimals})
+	allocateReason := ""
+	if !allocateAllowed {
+		allocateReason = controlCopy(copy, "disabled.allocate_animals", "Tagging animals to a sale needs herd allocation access.")
+	}
+	controls = upsertControl(controls, domain.Control{
+		ID:             "allocate_sale_animals",
+		Label:          controlCopy(copy, "action.tag_animals.label", "Tag animals to sale"),
+		Kind:           "secondary_action",
+		Enabled:        allocateAllowed,
+		DisabledReason: allocateReason,
+		Action:         "POST /goats/sale-allocations/confirm",
+	})
 	// A buyer receipt is a money write on the same ledger, so it rides the same permission as
 	// recording the deal. Declared-and-disabled for read-only principals, like every write here.
 	controls = upsertControl(controls, domain.Control{
