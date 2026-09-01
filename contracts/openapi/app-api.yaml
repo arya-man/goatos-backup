@@ -29605,6 +29605,7 @@ components:
         - headline
         - eligibility
         - trend
+        - weekly_gain
         - shed_leaderboard
         - distribution
         - sale_readiness
@@ -29645,6 +29646,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WeighingGrowthTrendPoint"
+        weekly_gain:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingGrowthWeeklyGainPoint"
         shed_leaderboard:
           type: array
           items:

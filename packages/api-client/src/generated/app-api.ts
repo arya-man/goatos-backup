@@ -12125,6 +12125,7 @@ export interface components {
             headline: components["schemas"]["WeighingGrowthHeadline"];
             eligibility: components["schemas"]["WeighingGrowthEligibility"];
             trend: components["schemas"]["WeighingGrowthTrendPoint"][];
+            weekly_gain: components["schemas"]["WeighingGrowthWeeklyGainPoint"][];
             shed_leaderboard: components["schemas"]["WeighingGrowthShedLeaderboardRow"][];
             distribution: components["schemas"]["WeighingGrowthDistributionBucket"][];
             sale_readiness: components["schemas"]["WeighingGrowthSaleReadiness"];
