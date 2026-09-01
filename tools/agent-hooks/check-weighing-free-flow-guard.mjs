@@ -283,8 +283,8 @@ const HERD_JOIN_EXEMPT_FILES = new Map([
     "backend/internal/weighing/adapters/postgres/weight_demographics.go",
     {
       reason:
-        "maintainer decisions 2026-08-07/2026-08-19: average weight by breed/sex/stage and lump-sum shed/partition composition on the Weights screen",
-      tables: HERD_JOIN_BASE_TABLES,
+        "maintainer decisions 2026-08-07/2026-08-19/2026-09-02: average weight by breed/sex/stage, lump-sum shed/partition composition, and explicit shed-type profile metadata on the Weights screen",
+      tables: [...HERD_JOIN_BASE_TABLES, "shed_profiles"],
     },
   ],
   [
