@@ -11740,18 +11740,6 @@ export interface components {
             median_adg_g_per_day: number;
             pair_count: number;
         };
-        /** @description One calendar week of the farm's daily gain, computed as the IDENTICAL statistic the headline reports (maintainer decision 2026-08-26): the animal-weighted mean over every kid weighed twice, each kid once at the median of its own pairs in that week, PLUS every whole-shed pen whose average moved, each pen contributing once per animal it holds. Distinct from WeighingGrowthTrendPoint, which is the MEDIAN over SCANNED PAIRS ONLY. A chart rendered beside the headline must read this one, or the two disagree. A week with no qualifying gain is absent from the array, never interpolated or zero-filled. */
-        WeighingGrowthWeeklyGainPoint: {
-            /**
-             * Format: date
-             * @description Monday (ISO week) in Asia/Kolkata. A pair spanning weeks is bucketed by its later weigh.
-             */
-            week_start: string;
-            /** @description Animal-weighted mean for the week. Non-null by construction. */
-            average_adg_g_per_day: number;
-            /** @description The denominator - scanned kids with a gain this week plus the head counts of the pens that moved. */
-            animals: number;
-        };
         WeighingGrowthShedLeaderboardRow: {
             /** Format: uuid */
             location_id: string;
@@ -12025,7 +12013,6 @@ export interface components {
             headline: components["schemas"]["WeighingGrowthHeadline"];
             eligibility: components["schemas"]["WeighingGrowthEligibility"];
             trend: components["schemas"]["WeighingGrowthTrendPoint"][];
-            weekly_gain: components["schemas"]["WeighingGrowthWeeklyGainPoint"][];
             shed_leaderboard: components["schemas"]["WeighingGrowthShedLeaderboardRow"][];
             distribution: components["schemas"]["WeighingGrowthDistributionBucket"][];
             sale_readiness: components["schemas"]["WeighingGrowthSaleReadiness"];

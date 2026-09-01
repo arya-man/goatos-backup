@@ -28834,32 +28834,6 @@ components:
           type: number
         pair_count:
           type: integer
-    WeighingGrowthWeeklyGainPoint:
-      type: object
-      additionalProperties: false
-      description: >-
-        One calendar week of the farm's daily gain, computed as the IDENTICAL statistic the
-        headline reports (maintainer decision 2026-08-26): the animal-weighted mean over every
-        kid weighed twice, each kid once at the median of its own pairs in that week, PLUS every
-        whole-shed pen whose average moved, each pen contributing once per animal it holds.
-        Distinct from WeighingGrowthTrendPoint, which is the MEDIAN over SCANNED PAIRS ONLY.
-        A chart rendered beside the headline must read this one, or the two disagree.
-        A week with no qualifying gain is absent from the array, never interpolated or zero-filled.
-      required:
-        - week_start
-        - average_adg_g_per_day
-        - animals
-      properties:
-        week_start:
-          type: string
-          format: date
-          description: Monday (ISO week) in Asia/Kolkata. A pair spanning weeks is bucketed by its later weigh.
-        average_adg_g_per_day:
-          type: number
-          description: Animal-weighted mean for the week. Non-null by construction.
-        animals:
-          type: integer
-          description: The denominator - scanned kids with a gain this week plus the head counts of the pens that moved.
     WeighingGrowthShedLeaderboardRow:
       type: object
       additionalProperties: false
@@ -29427,7 +29401,6 @@ components:
         - headline
         - eligibility
         - trend
-        - weekly_gain
         - shed_leaderboard
         - distribution
         - sale_readiness
@@ -29468,10 +29441,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WeighingGrowthTrendPoint"
-        weekly_gain:
-          type: array
-          items:
-            $ref: "#/components/schemas/WeighingGrowthWeeklyGainPoint"
         shed_leaderboard:
           type: array
           items:
