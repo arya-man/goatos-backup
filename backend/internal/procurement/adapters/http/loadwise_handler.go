@@ -86,6 +86,10 @@ type loadwiseLoadPayload struct {
 	SoldWeighedAnimals *int   `json:"sold_weighed_animals,omitempty"`
 	ArrivedOn          string `json:"arrived_on,omitempty"`
 	FatteningDays      *int   `json:"fattening_days,omitempty"`
+	// The RUNNING fattening clock: days from arrival to today for a load that has NOT sold. Same
+	// start as fattening_days and mutually exclusive with it -- a load that has sold answers with
+	// its finished span alone.
+	DaysOnFarmSoFar *int `json:"days_on_farm_so_far,omitempty"`
 	// The load's AGE: whole days since it was bought, at today's business date. A different clock
 	// from fattening_days, which starts on arrival and stops at sale.
 	DaysSincePurchase *int `json:"days_since_purchase,omitempty"`
@@ -204,6 +208,7 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			SoldWeighedAnimals:  l.SoldWeighedAnimals,
 			ArrivedOn:           l.ArrivedOn,
 			FatteningDays:       l.FatteningDays,
+			DaysOnFarmSoFar:     l.DaysOnFarmSoFar,
 			DaysSincePurchase:   l.DaysSincePurchase,
 
 			SoldValue:      l.SoldValue,
