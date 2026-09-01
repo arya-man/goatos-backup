@@ -446,11 +446,11 @@ lump_composition AS (
 shed_type AS (
   SELECT DISTINCT src.location_id, src.partition_label,
          CASE
-           WHEN lower(loc.name) ~ '\m(gandhi|castro|ho chi minh|yashoda old)\M'
-             OR lower(coalesce(parent_loc.name, '')) ~ '\m(gandhi|castro|ho chi minh|yashoda old)\M'
+           WHEN lower(loc.name) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
+             OR lower(coalesce(parent_loc.name, '')) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
              THEN 'ground'
-           WHEN lower(loc.name) ~ '\m(mandela|godel|sumathi|yashoda|yashoda new)\M'
-             OR lower(coalesce(parent_loc.name, '')) ~ '\m(mandela|godel|sumathi|yashoda|yashoda new)\M'
+           WHEN lower(loc.name) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
+             OR lower(coalesce(parent_loc.name, '')) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
              THEN 'elevated'
            WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
                       coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
