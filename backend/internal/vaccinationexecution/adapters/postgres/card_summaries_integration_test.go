@@ -85,6 +85,76 @@ func TestVaccinationExecutionCardSummariesCoversAllCardsRegardlessOfPageLimit(t 
 	}
 }
 
+func TestVaccinationExecutionCardSummariesCountsMixedVaccineLabelsAtObligationGrain(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	const (
+		mixedBatch = "70000000-0000-4000-8000-000000000a01"
+		pprRule    = "70000000-0000-4000-8000-000000000a02"
+		hsRule     = "70000000-0000-4000-8000-000000000a03"
+		fmdRule    = "70000000-0000-4000-8000-000000000a04"
+		goat1      = "70000000-0000-4000-8000-000000000a11"
+		goat2      = "70000000-0000-4000-8000-000000000a12"
+		goat3      = "70000000-0000-4000-8000-000000000a13"
+	)
+	execProjectionSQL(t, ctx, pool, "mixed card rules", `
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy)
+VALUES
+  ($1,$4,$5,'PPR',1,'birth_age','{}'::jsonb,'{}'::jsonb),
+  ($2,$4,$5,'HS',2,'birth_age','{}'::jsonb,'{}'::jsonb),
+  ($3,$4,$5,'FMD',3,'birth_age','{}'::jsonb,'{}'::jsonb)`,
+		pprRule, hsRule, fmdRule, testTenant, testVersion)
+	for _, goatID := range []string{goat1, goat2, goat3} {
+		insertProjectionGoat(t, ctx, pool, goatID, testShed, testPark)
+	}
+	insertProjectionBatch(t, ctx, pool, mixedBatch, "planned")
+	execProjectionSQL(t, ctx, pool, "mixed card obligations", `
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+VALUES
+  ('70000000-0000-4000-8000-000000000a21',$1,$2,$3,$4,'goat',$7,'shed',$10,TIMESTAMPTZ '2026-06-24 00:00:00+00','scheduled','mixed-chip-ppr-1',1),
+  ('70000000-0000-4000-8000-000000000a22',$1,$2,$3,$4,'goat',$8,'shed',$10,TIMESTAMPTZ '2026-06-24 00:00:00+00','scheduled','mixed-chip-ppr-2',1),
+  ('70000000-0000-4000-8000-000000000a23',$1,$2,$3,$4,'goat',$9,'shed',$10,TIMESTAMPTZ '2026-06-24 00:00:00+00','scheduled','mixed-chip-ppr-3',1),
+  ('70000000-0000-4000-8000-000000000a24',$1,$2,$5,$4,'goat',$7,'shed',$10,TIMESTAMPTZ '2026-06-24 00:00:00+00','scheduled','mixed-chip-hs-1',2),
+  ('70000000-0000-4000-8000-000000000a25',$1,$2,$5,$4,'goat',$8,'shed',$10,TIMESTAMPTZ '2026-06-24 00:00:00+00','scheduled','mixed-chip-hs-2',2),
+  ('70000000-0000-4000-8000-000000000a26',$1,$2,$6,$4,'goat',$7,'shed',$10,TIMESTAMPTZ '2026-06-24 00:00:00+00','scheduled','mixed-chip-fmd-1',3)`,
+		testTenant, testVersion, pprRule, mixedBatch, hsRule, fmdRule, goat1, goat2, goat3, testShed)
+	execProjectionSQL(t, ctx, pool, "mixed card assignment", `
+INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+VALUES ($1,$2,DATE '2026-06-24',$3,$4,$5,'Mixed Chip Shed','whole',3)`,
+		testTenant, mixedBatch, testOperator, testPark, testShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	summaries, err := repo.VaccinationExecutionCardSummaries(ctx, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecutionCardSummaries() error = %v", err)
+	}
+	cardID := domain.BuildCardID(testShed, "whole", "", mixedBatch, "")
+	summary := summaries[cardID]
+	if summary == nil {
+		t.Fatalf("missing mixed card summary %s in %#v", cardID, summaries)
+	}
+	got := map[string]string{}
+	for _, group := range summary.VaccineGroups {
+		got[group.Label] = group.CountLabel
+	}
+	want := map[string]string{"FMD": "1 doses", "HS": "2 doses", "PPR": "3 doses"}
+	for label, countLabel := range want {
+		if got[label] != countLabel {
+			t.Fatalf("vaccine %s count label = %q, want %q; all groups=%#v", label, got[label], countLabel, summary.VaccineGroups)
+		}
+	}
+}
+
 // TestVaccinationExecutionCardSummariesMatchesPageClassificationForBlockedAndRejected is case (b):
 // the summary's work_state filter must reach the SAME card-grain classification the page itself
 // computes in stateful/classified -- including work_state values ('blocked', 'rejected') the old

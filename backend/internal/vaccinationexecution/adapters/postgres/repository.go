@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -2012,7 +2013,23 @@ SELECT
     FROM UNNEST(STRING_TO_ARRAY(STRING_AGG(ARRAY_TO_STRING(classified.vaccine_labels, E'\x1f'), E'\x1f'), E'\x1f')) AS label
     WHERE NULLIF(label, '') IS NOT NULL
     ORDER BY label
-  ) AS vaccine_labels
+  ) AS vaccine_labels,
+  STRING_TO_ARRAY(
+    (
+      SELECT STRING_AGG(vaccine_counts.label || E'\x1f' || vaccine_counts.dose_count::text, E'\x1e' ORDER BY vaccine_counts.label)
+      FROM (
+        SELECT located.dose_code AS label, COUNT(*)::bigint AS dose_count
+        FROM located
+        WHERE located.shed_uuid = classified.shed_uuid
+          AND located.partition_key = classified.partition_key
+          AND located.sop_task_id::text IS NOT DISTINCT FROM classified.sop_task_id
+          AND located.batch_id IS NOT DISTINCT FROM classified.batch_id
+          AND NULLIF(located.dose_code, '') IS NOT NULL
+        GROUP BY located.dose_code
+      ) vaccine_counts
+    ),
+    E'\x1e'
+  ) AS vaccine_label_counts
 FROM classified
 WHERE ($6::text = '' OR classified.work_state = $6::text)
   AND ($9::text = '' OR classified.severity = $9::text)
@@ -2037,7 +2054,7 @@ WHERE ($6::text = '' OR classified.work_state = $6::text)
     NOT $10::boolean
     OR classified.display_open_count > 0
   )
-GROUP BY classified.shed_uuid, classified.partition_label, classified.sop_task_id, classified.batch_id
+GROUP BY classified.shed_uuid, classified.partition_label, classified.partition_key, classified.sop_task_id, classified.batch_id
 ORDER BY classified.shed_uuid, classified.partition_label, classified.sop_task_id, classified.batch_id
 `
 
@@ -4403,9 +4420,10 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 		var obligationCount, doneCount, openCount int64
 		var hasMissed, hasDeferred, hasOverdue, hasRejected bool
 		var vaccineLabels []string
+		var vaccineLabelCounts []string
 
 		if err := rows.Scan(&shedID, &partLabel, &taskID, &batchID, &driveID, &obligationCount, &doneCount, &openCount,
-			&hasMissed, &hasDeferred, &hasOverdue, &hasRejected, &vaccineLabels); err != nil {
+			&hasMissed, &hasDeferred, &hasOverdue, &hasRejected, &vaccineLabels, &vaccineLabelCounts); err != nil {
 			return nil, fmt.Errorf("vaccination execution: card summaries scan: %w", err)
 		}
 
@@ -4422,11 +4440,28 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 		}
 
 		// Build vaccine group summaries
+		countByLabel := make(map[string]int64, len(vaccineLabelCounts))
+		for _, entry := range vaccineLabelCounts {
+			label, countText, ok := strings.Cut(entry, "\x1f")
+			if !ok || label == "" {
+				continue
+			}
+			count, err := strconv.ParseInt(countText, 10, 64)
+			if err != nil {
+				continue
+			}
+			countByLabel[label] = count
+		}
 		vaccineGroups := make([]domain.VaccineGroupSummary, 0, len(vaccineLabels))
 		for _, label := range vaccineLabels {
+			countLabel := ""
+			if count := countByLabel[label]; count > 0 {
+				countLabel = fmt.Sprintf("%d doses", count)
+			}
 			vaccineGroups = append(vaccineGroups, domain.VaccineGroupSummary{
-				Label: label,
-				Full:  openCount == 0,
+				Label:      label,
+				CountLabel: countLabel,
+				Full:       openCount == 0,
 			})
 		}
 		sort.Slice(vaccineGroups, func(i, j int) bool {

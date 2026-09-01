@@ -434,7 +434,7 @@ class ShedsViewModel @Inject constructor(
                 vaccineGroups = cardSummary.vaccineGroups.map { summary ->
                     VaccineGroup(
                         label = summary.label,
-                        countLabel = "", // Backend summary doesn't include per-vaccine counts; client computes if needed
+                        countLabel = summary.countLabel,
                         full = summary.full,
                     )
                 }
@@ -522,10 +522,9 @@ class ShedsViewModel @Inject constructor(
             .size
         val carry = carrySummary?.carryByDay?.firstOrNull { it.date == selectedKey }?.let { day ->
             DayCarry(
-                totalRemaining = day.totalRemaining,
+                totalRemaining = day.vaccineBreakdown.sumOf { it.totalDoses },
                 vaccines = day.vaccineBreakdown
-                    .filter { it.remainingDoses > 0 }
-                    .map { CarryVaccine(label = it.vaccineLabel, remaining = it.remainingDoses) },
+                    .map { CarryVaccine(label = it.vaccineLabel, remaining = it.totalDoses) },
             )
         }
         return base.copy(

@@ -29,6 +29,8 @@ class DefaultRfidInputTransform @Inject constructor() : RfidInputTransform {
             "9c000000-0000-4000-8000-000000000302" to "G2-", // Gandhi 2 (CBE)
             "91000000-0000-4000-8000-000000000202" to "M2-", // Mandela 2 (CPT)
             "92000000-0000-4000-8000-000000000203" to "C1-", // Castro 1 (CPT)
+            "cbd67ce0-ef0f-44eb-bf80-18fa8a36c44a" to "C2-", // Castro 2 (CPT, OCI QA)
+            "72c34504-2488-45ed-9bb1-8c97168f72c4" to "C2-", // Castro 2 (CPT, OCI QA)
             "9c000000-0000-4000-8000-000000000303" to "C2-", // Castro 2 (CPT)
             "9c000000-0000-4000-8000-000000000304" to "C3-", // Castro 3 (CPT)
         )

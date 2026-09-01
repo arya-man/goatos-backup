@@ -184,8 +184,9 @@ type CarrySummary struct {
 // VaccineGroupSummary is the server-computed status of one vaccine group within a shed card.
 // grain=shed + partition + vaccine_label; membership=all rows with matching (shed_id, partition_label, vaccine label)
 type VaccineGroupSummary struct {
-	Label string `json:"label"` // display label for the vaccine group
-	Full  bool   `json:"full"`  // true if all animals done and none pending redo
+	Label      string `json:"label"`                // display label for the vaccine group
+	CountLabel string `json:"countLabel,omitempty"` // backend-owned display count, e.g. "3 doses"
+	Full       bool   `json:"full"`                 // true if all animals done and none pending redo
 }
 
 // ShedCardSummary is the authoritative, page-independent status of one shed card, computed from

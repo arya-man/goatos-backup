@@ -1620,8 +1620,8 @@ func (r *Repository) ListRecordedCompletionsByTask(ctx context.Context, tenantID
 	return ids, nil
 }
 
-// RecordCompletionsFromSubmission records one completion per per-goat SOP submission item for a
-// vaccination task. The matching obligation comes from the generic obligation batch/task linkage.
+// RecordCompletionsFromSubmission records one completion per matching vaccine obligation for each
+// per-goat SOP submission item. One scanned animal can satisfy multiple vaccine obligations.
 func (r *Repository) RecordCompletionsFromSubmission(ctx context.Context, tenantID, taskID, submissionID, recordedBy string) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -1706,7 +1706,7 @@ SELECT
     END
   ),
   nullif($4, '')::uuid,
-  'vaccination:sop_submission_item:' || si.item_id::text
+  'vaccination:sop_submission_item:' || si.item_id::text || ':obligation:' || oi.obligation_id::text
 FROM sop_submission_items si
 JOIN sop_submissions ss
   ON ss.tenant_id = si.tenant_id
@@ -1800,7 +1800,7 @@ WHERE vc.tenant_id = $1
 		return 0, err
 	}
 	if materializedItems < eligibleItems {
-		return materializedItems, fmt.Errorf("vaccination: materialized %d of %d eligible submission items", materializedItems, eligibleItems)
+		return materializedItems, fmt.Errorf("vaccination: materialized %d of %d eligible vaccine obligations", materializedItems, eligibleItems)
 	}
 	if materializedItems > 0 {
 		return materializedItems, nil
@@ -2527,9 +2527,10 @@ LIMIT 5000`, tenant, task)
 	return out, nil
 }
 
-// submissionFanoutCounts compares how many submission items are expected to end up backed by an
+// submissionFanoutCounts compares how many vaccine obligations are expected to end up backed by an
 // ACTIVE vaccination_completions row against how many actually are, so RecordCompletionsFromSubmission
-// can fail closed on a genuine short-materialization instead of silently dropping goats.
+// can fail closed on a genuine short-materialization instead of silently dropping a vaccine for a
+// scanned goat.
 //
 // Root cause of the false "materialized N of M eligible submission items" failure this replaces:
 // the INSERT above uses a BARE `ON CONFLICT DO NOTHING` (no conflict target), so it silently no-ops
@@ -2560,39 +2561,52 @@ LIMIT 5000`, tenant, task)
 // count and is reported.
 func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, submission pgtype.UUID) (eligibleItems, materializedItems int, err error) {
 	err = r.pool.QueryRow(ctx, `
+	WITH eligible AS (
+	  SELECT si.tenant_id, si.goat_id, oi.obligation_id
+	  FROM sop_submission_items si
+	  JOIN sop_submissions ss
+	    ON ss.tenant_id = si.tenant_id
+	   AND ss.submission_id = si.submission_id
+	  JOIN sop_tasks st
+	    ON st.tenant_id = si.tenant_id
+	   AND st.task_id = si.task_id
+	  JOIN sop_definitions sd
+	    ON sd.tenant_id = st.tenant_id
+	   AND sd.sop_id = st.sop_id
+	  LEFT JOIN obligation_batches ob
+	    ON ob.tenant_id = st.tenant_id
+	   AND ob.sop_task_id = st.task_id
+	  JOIN obligation_instances oi
+	    ON oi.tenant_id = si.tenant_id
+	   AND oi.target_type = 'goat'
+	   AND oi.target_id = si.goat_id
+	   AND (
+	        oi.sop_task_id = st.task_id
+	        OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
+	   )
+	  WHERE si.tenant_id = $1
+	    AND si.task_id = $2
+	    AND si.submission_id = $3
+	    AND si.goat_id IS NOT NULL
+	    AND si.state IN ('accepted', 'needs_review')
+	    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+	    AND (
+	      sd.code IN ('vaccination.drive', 'vaccination.session')
+	      OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
+	    )
+	)
 	SELECT count(*)::int,
 	       count(*) FILTER (
 	         WHERE EXISTS (
 	           SELECT 1
 	           FROM vaccination_completions vc2
-	           WHERE vc2.tenant_id = si.tenant_id
-	             AND vc2.goat_id = si.goat_id
+	           WHERE vc2.tenant_id = eligible.tenant_id
+	             AND vc2.goat_id = eligible.goat_id
+	             AND vc2.obligation_id = eligible.obligation_id
 	             AND vc2.status IN ('recorded', 'accepted')
-	             AND vc2.obligation_id IN (
-	               SELECT oi.obligation_id
-	               FROM obligation_instances oi
-	               WHERE oi.tenant_id = si.tenant_id
-	                 AND oi.target_type = 'goat'
-	                 AND oi.target_id = si.goat_id
-	                 AND (
-	                      oi.sop_task_id = st.task_id
-	                      OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
-	                 )
-	             )
 	         )
 	       )::int
-	FROM sop_submission_items si
-	JOIN sop_tasks st
-	  ON st.tenant_id = si.tenant_id
-	 AND st.task_id = si.task_id
-	LEFT JOIN obligation_batches ob
-	  ON ob.tenant_id = st.tenant_id
-	 AND ob.sop_task_id = st.task_id
-	WHERE si.tenant_id = $1
-	  AND si.task_id = $2
-	  AND si.submission_id = $3
-	  AND si.goat_id IS NOT NULL
-	  AND si.state IN ('accepted', 'needs_review')`,
+	FROM eligible`,
 		tenant, task, submission).Scan(&eligibleItems, &materializedItems)
 	if err != nil {
 		return 0, 0, fmt.Errorf("vaccination: count submission fanout rows: %w", err)

@@ -375,6 +375,116 @@ func TestRecordCompletionsFromSubmissionSkipsTerminalObligation(t *testing.T) {
 	}
 }
 
+func TestRecordCompletionsFromSubmissionRecordsEveryObligationForOneScannedGoat(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.multi.fanout", Name: "Multi Fanout", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	mkRule := func(doseCode string, seq int32) string {
+		ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+			TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: doseCode, Sequence: seq,
+			TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
+			EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		})
+		if err != nil {
+			t.Fatalf("rule %s: %v", doseCode, err)
+		}
+		return ruleID
+	}
+	ruleA := mkRule("fmd", 1)
+	ruleB := mkRule("hs", 2)
+	ruleC := mkRule("ppr", 3)
+
+	const goatID = "30000000-0000-4000-8000-0000000000f8"
+	seedGenGoat(t, ctx, pool, goatID, "alive")
+
+	sopID := scanText(t, ctx, pool,
+		`INSERT INTO sop_definitions (tenant_id, code, name, description, status)
+		 VALUES ($1, 'vaccination.drive', 'Vaccination Drive', 'Multi obligation fanout', 'active')
+		 RETURNING sop_id::text`, impTenant)
+	sopVersionID := scanText(t, ctx, pool,
+		`INSERT INTO sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1, $2, 1, 'drive v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":false,"subject_scope":"batch","types":["video"],"minimum_count":0}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)
+		 RETURNING sop_version_id::text`, impTenant, sopID)
+	taskID := scanText(t, ctx, pool,
+		`INSERT INTO sop_tasks (tenant_id, sop_id, sop_version_id, task_type, title, scope_type, scope_id)
+		 VALUES ($1, $2, $3, 'vaccination_drive', 'Multi Drive', 'park', $4)
+		 RETURNING task_id::text`, impTenant, sopID, sopVersionID, impCbe)
+
+	for i, ruleID := range []string{ruleA, ruleB, ruleC} {
+		obligationID, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+			TenantID: impTenant, ProtocolVersionID: versionID, RuleID: ruleID,
+			TargetType: "goat", TargetID: goatID, ScopeType: "tenant", ScopeID: impTenant,
+			DueAt: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled",
+			IdempotencyKey: "multi-fanout-obligation-" + string(rune('a'+i)), Sequence: int32(i + 1),
+		})
+		if err != nil || !applied {
+			t.Fatalf("obligation %d: applied=%v err=%v", i, applied, err)
+		}
+		if _, err := pool.Exec(ctx,
+			`UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND obligation_id=$3`,
+			taskID, impTenant, obligationID); err != nil {
+			t.Fatalf("link obligation task: %v", err)
+		}
+	}
+
+	submissionID := scanText(t, ctx, pool,
+		`INSERT INTO sop_submissions (tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state)
+		 VALUES ($1, $2, $3, $4, 'multi-fanout-submission',
+		   '{"administered_at":"2026-06-23T00:00:00Z"}'::jsonb,
+		   'accepted')
+		 RETURNING submission_id::text`, impTenant, taskID, sopVersionID, impParty)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO sop_submission_items (tenant_id, submission_id, task_id, goat_id, item_key, state, result)
+		 VALUES ($1, $2, $3, $4, 'dose', 'accepted', '{"administered_at":"2026-06-24T04:35:12.345Z"}'::jsonb)`,
+		impTenant, submissionID, taskID, goatID); err != nil {
+		t.Fatalf("submission item: %v", err)
+	}
+
+	count, err := vacc.RecordCompletionsFromSubmission(ctx, impTenant, taskID, submissionID, impParty)
+	if err != nil {
+		t.Fatalf("RecordCompletionsFromSubmission() error = %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("materialized count = %d, want 3 obligations for one scanned goat", count)
+	}
+	if got := countRowsVacc(t, ctx, pool,
+		`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND sop_submission_item_id IN (
+		   SELECT item_id FROM sop_submission_items WHERE tenant_id=$1 AND submission_id=$2
+		 )`, impTenant, submissionID); got != 3 {
+		t.Fatalf("completion rows = %d, want 3", got)
+	}
+
+	replay, err := vacc.RecordCompletionsFromSubmission(ctx, impTenant, taskID, submissionID, impParty)
+	if err != nil {
+		t.Fatalf("RecordCompletionsFromSubmission() replay error = %v", err)
+	}
+	if replay != 3 {
+		t.Fatalf("replay materialized count = %d, want existing 3", replay)
+	}
+}
+
 func TestRecordCompletionsFromSubmissionFailsPartialMaterialization(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

@@ -85,6 +85,7 @@ val VaccinationExecutionRowDto.currentScheduleDate: String?
 @Serializable
 data class VaccineGroupSummaryDto(
     @SerialName("label") val label: String = "",
+    @SerialName("countLabel") val countLabel: String = "",
     @SerialName("full") val full: Boolean = false,
 )
 
@@ -141,6 +142,7 @@ data class ExecutionParkOptionDto(
 data class VaccineCarrySummaryDto(
     @SerialName("vaccineLabel") val vaccineLabel: String = "",
     @SerialName("remainingDoses") val remainingDoses: Int = 0,
+    @SerialName("totalDoses") val totalDoses: Int = 0,
 )
 
 @Serializable
