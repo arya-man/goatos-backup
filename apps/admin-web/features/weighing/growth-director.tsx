@@ -68,13 +68,30 @@ export function GrowthDirectorSection({
         <h2 className="h">{gd(pageContract, "road.title")}</h2>
         <p className="muted small">{gd(pageContract, "road.caption")}</p>
         <section className="grid g3 kpi-row" aria-label={gd(pageContract, "road.title")}>
+          {/* TOTAL ANIMALS, not total identities. Whole-shed pens joined this board on
+              2026-09-01 and most of this farm's kids are weighed that way, so a headline built
+              from scanned tags alone answered "where is every kid" from a minority of them. */}
           <div className="kpi">
-            <div className="val">{nf(road.total_identities)}</div>
+            <div className="val">{nf(road.total_animals)}</div>
             <div className="dl">{gd(pageContract, "road.identities.sub")}</div>
           </div>
+          {/* How much of that total is the coarser measure. This tile replaced "matched to the
+              herd register", which had become the least informative number here -- every scanned
+              tag matches on this farm's data, so it restated the tile beside it. The unmatched
+              fact is not lost: it is the note under the bars, where it belongs once it is the
+              exception rather than a headline. */}
           <div className="kpi">
-            <div className="val">{nf(road.matched_identities)}</div>
-            <div className="dl">{gd(pageContract, "road.matched.sub")}</div>
+            <div className="val">{nf(road.lump_sum_animals)}</div>
+            <div className="dl">{gd(pageContract, "road.lump.sub")}</div>
+          </div>
+          {/* The DENOMINATOR the three tiles after it are counted from. Band movement needs a
+              previous weigh to compare against, so it speaks about a strictly smaller population
+              than "kids weighed in this period" — and without this tile on screen, moved up + held
+              + slipped back added up to a number the card never showed, which reads as an error.
+              With it, the three figures visibly sum to this one. */}
+          <div className="kpi">
+            <div className="val">{nf(road.movement.pair_animals)}</div>
+            <div className="dl">{gd(pageContract, "road.pairs.sub")}</div>
           </div>
           <div className="kpi">
             <div className="val">{nf(road.movement.moved_up)}</div>
@@ -95,15 +112,23 @@ export function GrowthDirectorSection({
           data={road.bands.map((band) => ({
             key: band.band,
             label: band.band,
-            value: band.identity_count,
+            value: band.animal_count,
           }))}
           emptyLabel={copy(pageContract, "empty.no_data.body")}
           unit={gd(pageContract, "fair_fight.pair_noun")}
           chartLabel={gd(pageContract, "road.title")}
-          size="short"
+          // SIZED TO ITS ROWS. This chart has a FIXED SIX bands and they are the whole point: the
+          // bands are a distribution and a reader judges it by its shape. `short` is a 150px scroll
+          // box that fits four, which was survivable while the top two bands were empty and stopped
+          // being so the moment whole-shed pens joined the board (2026-09-01) and put 218 kids in
+          // 30-35 and 35+ — bars a reader has to scroll to find no longer visibly add up to the
+          // head count above them. `tall` showed all six but is a 300px box, which left dead space
+          // under the last bar. A fixed row count needs neither.
+          size="bands"
         />
         <p className="muted small">
-          {gd(pageContract, "road.note.pairs")} {gd(pageContract, "road.note.unmatched")}
+          {gd(pageContract, "road.note.pairs")} {gd(pageContract, "road.note.lump")}{" "}
+          {gd(pageContract, "road.note.unmatched")}
         </p>
         <p className="muted small">{gd(pageContract, "period.note")}</p>
       </section>

@@ -90,7 +90,7 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 
 	from := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "")
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -240,7 +240,7 @@ SET shed_id=EXCLUDED.shed_id, partition_label=EXCLUDED.partition_label, source_s
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC), "")
+		time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC), "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -302,7 +302,7 @@ SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, management_stage=EXCLUDED.management
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "")
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -406,7 +406,7 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 	seedShedWeightScan(t, ctx, pool, "chip-slow", 21.5, time.Date(2026, 7, 29, 6, 10, 0, 0, time.UTC))
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
-		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "")
+		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -480,7 +480,7 @@ ON CONFLICT (tenant_id, normalized_value) DO UPDATE SET goat_id=EXCLUDED.goat_id
 	seedShedWeightScan(t, ctx, pool, tag, 23.0, time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC))
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
-		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "")
+		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -592,7 +592,7 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-slow'`, re
 
 	windowFrom := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	windowTo := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, windowFrom, windowTo, "")
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, windowFrom, windowTo, "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -615,7 +615,7 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-slow'`, re
 
 	// PARK SCOPE. The same window under a park these kids are not in returns nothing for this
 	// breed — the park filter is a real predicate, not a label on an unscoped aggregate.
-	otherPark, err := repo.GetWeightDemographics(ctx, repoTenant, []string{weightDemoGodelShed}, windowFrom, windowTo, "")
+	otherPark, err := repo.GetWeightDemographics(ctx, repoTenant, []string{weightDemoGodelShed}, windowFrom, windowTo, "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(other park): %v", err)
 	}
@@ -714,7 +714,7 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "")
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -797,11 +797,11 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 
-	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
-	growth, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	growth, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -905,7 +905,7 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 
-	base, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	base, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -929,7 +929,7 @@ INSERT INTO weighing_shed_observations (
   $4::uuid, $5::uuid, 'gain-aggregate-withdrawn', $6::timestamptz, 'rework', $6::timestamptz)`,
 		repoTenant, loadCampaignPartB, loadPartANew, repoShedProofTwo, repoOperator,
 		time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC))
-	withWithdrawn, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	withWithdrawn, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG after a withdrawn weigh: %v", err)
 	}
@@ -944,7 +944,7 @@ INSERT INTO weighing_shed_observations (
 	// PARK SCOPE: these pens hang off repoPark. Asking about a park that owns none of them must
 	// return nothing rather than the tenant's rows -- the scope predicate carrying, not the caller.
 	otherPark := "00000000-0000-4000-8000-0000000030ff"
-	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, from, to, "female")
+	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, from, to, "female", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG for another park: %v", err)
 	}
@@ -956,7 +956,7 @@ INSERT INTO weighing_shed_observations (
 	// PAGE BOUNDARY: the headline is a WHOLE-FILTER aggregate. The shed table paginates; this number
 	// must not. Asking for a single-row page of the table must leave the gain untouched -- recomputing
 	// a summary from the visible slice is the capped read-time rollup this repo bans outright.
-	table, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "female")
+	table, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "female", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -980,5 +980,131 @@ INSERT INTO weighing_shed_observations (
 	if base.Headline.HeadlineAnimals > table.Summary.AnimalsWeighed {
 		t.Fatalf("the gain cannot speak for more kids than were weighed: gain=%d, weighed=%d",
 			base.Headline.HeadlineAnimals, table.Summary.AnimalsWeighed)
+	}
+}
+
+// THE ORIGIN FILTER SPLITS THIS AGGREGATE WITHOUT CHANGING ITS GRAIN.
+//
+// The adversarial shape, and why each dimension is here: ONE shed of ONE breed holding TWO
+// partitions (cardinality — the one-to-many the aggregate must not fan out on), each weighed on
+// TWO dates across TWO campaign weeks (page boundary and date shift), scoped to one park (park
+// scope), with only accepted weighs counted (status buckets). It is the same fixture the
+// unfiltered sibling test above asserts on, so the two are directly comparable.
+//
+// Part A is tagged to a purchase load through its ALIAS location; Part B is not. So the filter has
+// to divide two partitions of the SAME shed, the same breed and the same window between the two
+// cohorts — the case where a rule keyed on the shed rather than the pen puts both halves on one
+// side, and a rule that fans out reports each partition's kids twice.
+//
+// The arithmetic is chosen so a blend cannot masquerade as a split:
+//
+//	Part A  20.0 -> 27.0 kg over 7 days = 1000.0 g/day, 10 kids   (purchased)
+//	Part B  30.0 -> 31.0 kg over 7 days =  142.9 g/day, 10 kids   (farm born)
+//	blended (the unfiltered page)        =  571.4 g/day, 20 kids
+//
+// A filter that leaked the other partition in would report 571.4 and 20 kids on both sides.
+func TestWeightDemographicsOriginOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartB, "2026-07-17")
+	for _, proofID := range []string{repoShedProofTwo, repoShedProofThree, repoShedProofFour} {
+		insertProof(t, ctx, pool, proofID, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		partALoad = "00000000-0000-4000-8000-0000000094a1"
+		partBGoat = "00000000-0000-4000-8000-0000000094a2"
+	)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'Partition Demo Shed', $3::uuid, 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`,
+		weightDemoPartitionShed, repoTenant, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-940001', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO UPDATE
+SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, management_stage=EXCLUDED.management_stage,
+    current_location_id=EXCLUDED.current_location_id, park_id=EXCLUDED.park_id, shed_id=EXCLUDED.shed_id`,
+		weightDemoGoat, repoTenant, repoParty, weightDemoPartitionShed, repoPark)
+	// One resident per PEN, so each partition resolves to its own single-breed cohort. A lump-sum
+	// weigh has no tags and is attributed through the pen's residents; without a row here the pen
+	// resolves to no breed and drops out of the breed aggregate entirely.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-940002', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET shed_id = EXCLUDED.shed_id`,
+		partBGoat, repoTenant, repoParty, weightDemoPartitionShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $4::uuid, 'Part A', 'Partition Demo Shed - Part A'),
+       ($1::uuid, $3::uuid, $4::uuid, 'Part B', 'Partition Demo Shed - Part B')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
+		repoTenant, weightDemoGoat, partBGoat, weightDemoPartitionShed)
+
+	// Part A's resident came off a purchase load; Part B's did not. Origin is resolved PER ANIMAL
+	// (maintainer correction 2026-09-01), and a whole-shed pen is claimed only when every live
+	// resident agrees — so this is what makes Part A a purchased pen and Part B a farm-born one.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO procurement_loads (load_id, tenant_id, source_party_id, idempotency_key)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'weightdemo:load:940')
+ON CONFLICT (load_id) DO NOTHING`, partALoad, repoTenant, repoParty)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO procurement_load_goats (load_goat_id, tenant_id, load_id, goat_id)
+VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid)
+ON CONFLICT DO NOTHING`, repoTenant, partALoad, weightDemoGoat)
+
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, weightDemoPartitionShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartANew, loadCampaignPartB, weightDemoPartitionShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBOld, loadCampaignPartA, weightDemoPartitionShed, "Part B", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBNew, loadCampaignPartB, weightDemoPartitionShed, "Part B", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartANew, loadCampaignPartB, repoShedProofTwo, 27.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoShedProofThree, 30.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBNew, loadCampaignPartB, repoShedProofFour, 31.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+
+	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+
+	gainFor := func(t *testing.T, origin string) (float64, int) {
+		t.Helper()
+		out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", origin)
+		if err != nil {
+			t.Fatalf("GetWeightDemographics(origin=%q): %v", origin, err)
+		}
+		for _, bucket := range out.GainByBreed {
+			if bucket.Label == "Partition Breed" {
+				return bucket.MedianGainGPerDay, bucket.Animals
+			}
+		}
+		t.Fatalf("missing Partition Breed gain bucket for origin=%q in %#v", origin, out.GainByBreed)
+		return 0, 0
+	}
+
+	// Unfiltered: both partitions, blended, each kid counted ONCE.
+	if gain, animals := gainFor(t, ""); animals != 20 || fmt.Sprintf("%.1f", gain) != "571.4" {
+		t.Fatalf("unfiltered must blend both partitions over 20 kids, got %.1f over %d", gain, animals)
+	}
+
+	// Purchased: Part A alone. 20 kids here would mean the untagged partition leaked in; 571.4
+	// would mean the filter selected nothing and the page fell back to the blend.
+	if gain, animals := gainFor(t, OriginPurchased); animals != 10 || fmt.Sprintf("%.1f", gain) != "1000.0" {
+		t.Fatalf("purchased must report Part A alone: want 1000.0 over 10, got %.1f over %d", gain, animals)
+	}
+
+	// Farm born: Part B alone, from the SAME shed, breed and window.
+	if gain, animals := gainFor(t, OriginFarmBorn); animals != 10 || fmt.Sprintf("%.1f", gain) != "142.9" {
+		t.Fatalf("farm born must report Part B alone: want 142.9 over 10, got %.1f over %d", gain, animals)
 	}
 }

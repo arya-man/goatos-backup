@@ -459,7 +459,7 @@ type Repository interface {
 	// weighing cadence rule -- and why lump-sum totals never feed per-animal ADG). parkIDs must
 	// be non-empty and every id must already be authorization-checked by the caller: this method
 	// does no scoping of its own.
-	GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.GrowthADG, error)
+	GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin string) (domain.GrowthADG, error)
 
 	// GetShedWeights returns one row per SHED (not per campaign bucket) carrying that
 	// shed's most recent weigh inside the half-open period [periodStart, periodEnd),
@@ -474,12 +474,12 @@ type Repository interface {
 	// rows are narrowed by the SELECTION. Building both from one filtered slice collapsed the park
 	// dropdown to whichever park was already chosen, so a reader who picked CPT could not get back
 	// to CBE without clearing the filter by hand.
-	GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex string) (domain.ShedWeights, error)
+	GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin string) (domain.ShedWeights, error)
 
 	// GetWeightDemographics returns average weight by breed, sex and management stage.
 	// This is the ONE weighing read permitted to resolve a scanned tag to its animal
 	// (maintainer decision 2026-08-07); see domain.WeightDemographics for the scope.
-	GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.WeightDemographics, error)
+	GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin string) (domain.WeightDemographics, error)
 
 	// ExportCampaignCSV exports weighing observations for a campaign as CSV.
 	// It streams CSV-formatted rows to the provided writer, including both individual

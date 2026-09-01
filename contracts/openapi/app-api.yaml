@@ -1369,6 +1369,30 @@ paths:
           schema:
             type: string
             format: date
+        - name: sex
+          in: query
+          required: false
+          description: >-
+            `male` or `female` to report on that half of the herd only; omitted means every kid.
+            An unknown value is REJECTED rather than ignored, because silently widening a filter
+            shows a reader more kids than the heading they are reading says. An individual weigh
+            is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no
+            tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
+            shed is claimed by neither side rather than split.
+          schema: {type: string, enum: [male, female]}
+        - name: origin
+          in: query
+          required: false
+          description: >-
+            `farm_born` or `purchased` to report on kids of that origin only; omitted means every
+            kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
+            The farm both breeds its own kids and buys them in loads, and the two grow differently
+            enough that reading them together answers nothing. Origin is a fact about the PEN a
+            load was put into, not about the animal: a pen carrying a procurement load tag is
+            purchased and every weigh taken in it -- whole-shed or individually scanned -- counts
+            as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin`
+            together reports the kids in BOTH.
+          schema: {type: string, enum: [farm_born, purchased]}
       responses:
         "200":
           description: Growth/ADG read model for the requested park or herd-wide scope.
@@ -1487,6 +1511,30 @@ paths:
           schema:
             type: string
             format: date
+        - name: sex
+          in: query
+          required: false
+          description: >-
+            `male` or `female` to report on that half of the herd only; omitted means every kid.
+            An unknown value is REJECTED rather than ignored, because silently widening a filter
+            shows a reader more kids than the heading they are reading says. An individual weigh
+            is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no
+            tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
+            shed is claimed by neither side rather than split.
+          schema: {type: string, enum: [male, female]}
+        - name: origin
+          in: query
+          required: false
+          description: >-
+            `farm_born` or `purchased` to report on kids of that origin only; omitted means every
+            kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
+            The farm both breeds its own kids and buys them in loads, and the two grow differently
+            enough that reading them together answers nothing. Origin is a fact about the PEN a
+            load was put into, not about the animal: a pen carrying a procurement load tag is
+            purchased and every weigh taken in it -- whole-shed or individually scanned -- counts
+            as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin`
+            together reports the kids in BOTH.
+          schema: {type: string, enum: [farm_born, purchased]}
       responses:
         "200":
           description: Per-shed weights and the whole-filter summary.
@@ -1585,6 +1633,19 @@ paths:
             tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
             shed is claimed by neither side rather than split.
           schema: {type: string, enum: [male, female]}
+        - name: origin
+          in: query
+          required: false
+          description: >-
+            `farm_born` or `purchased` to report on kids of that origin only; omitted means every
+            kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
+            The farm both breeds its own kids and buys them in loads, and the two grow differently
+            enough that reading them together answers nothing. Origin is a fact about the PEN a
+            load was put into, not about the animal: a pen carrying a procurement load tag is
+            purchased and every weigh taken in it -- whole-shed or individually scanned -- counts
+            as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin`
+            together reports the kids in BOTH.
+          schema: {type: string, enum: [farm_born, purchased]}
       responses:
         "200":
           description: Weight broken down by breed, sex and stage.
@@ -1642,6 +1703,19 @@ paths:
             tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
             shed is claimed by neither side rather than split.
           schema: {type: string, enum: [male, female]}
+        - name: origin
+          in: query
+          required: false
+          description: >-
+            `farm_born` or `purchased` to report on kids of that origin only; omitted means every
+            kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
+            The farm both breeds its own kids and buys them in loads, and the two grow differently
+            enough that reading them together answers nothing. Origin is a fact about the PEN a
+            load was put into, not about the animal: a pen carrying a procurement load tag is
+            purchased and every weigh taken in it -- whole-shed or individually scanned -- counts
+            as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin`
+            together reports the kids in BOTH.
+          schema: {type: string, enum: [farm_born, purchased]}
       responses:
         "200":
           description: The six Growth Director widgets plus the period/park envelope.
@@ -14676,6 +14750,17 @@ components:
             The day the animals REACHED THE FARM. Not the purchase date: the farm warms animals up
             at the source, so a load is bought a day or more before it lands here, and the
             fattening clock starts on arrival.
+        days_on_farm_so_far:
+          type: integer
+          nullable: true
+          description: >-
+            The RUNNING fattening clock: whole days from arrived_on to today's Asia/Kolkata
+            business date, for a load that has NOT SOLD. Same start as fattening_days, which is
+            why the two may be shown on one axis -- but they are MUTUALLY EXCLUSIVE: a load that
+            has sold anything answers with its finished fattening_days alone, because its
+            stragglers would otherwise tell a few animals' story at the scale of the whole load.
+            Absent once anything has sold, once the load holds nothing, and when the arrival date
+            is unknown.
         days_since_purchase:
           type: integer
           nullable: true
@@ -27118,25 +27203,47 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        Where every kid sits on the way to sale weight, counted from each tag
-        identity's latest weigh. Unmatched identities stay in the bands — a scale
-        reading is a scale reading — but are counted separately. Rework-status
-        captures are excluded.
+        Where every kid sits on the way to sale weight, counted from its latest weigh.
+        Two arms, disjoint by construction because a bucket's weighing_category is fixed
+        at creation: a SCANNED kid contributes itself at its own weight, and a WHOLE-SHED
+        pen contributes all of its animals at the pen's average, which is the only weight
+        the pen has (maintainer decision 2026-09-01). Unmatched identities stay in the
+        bands — a scale reading is a scale reading — but are counted separately.
+        Rework-status captures are excluded.
       required:
         - total_identities
         - matched_identities
         - unmatched_identities
+        - lump_sum_animals
+        - lump_sum_pens
+        - total_animals
         - bands
         - movement
       properties:
         total_identities:
           type: integer
-          description: Distinct tag identities weighed in the period. The denominator for the bands.
+          description: >-
+            Distinct tag identities weighed in the period. NOT the denominator for the
+            bands — see `total_animals`; this counts scanned tags only, because the
+            tag-matching counts beside it are questions a pen cannot be asked.
         matched_identities:
           type: integer
-          description: Identities whose tag resolves in the herd register.
+          description: Scanned identities whose tag resolves in the herd register.
         unmatched_identities:
           type: integer
+        lump_sum_animals:
+          type: integer
+          description: >-
+            Animals counted through a whole-shed weigh, each sitting in the band its
+            pen's average falls in. Disclosed so a reader can tell how much of the board
+            is that coarser measure.
+        lump_sum_pens:
+          type: integer
+          description: How many pens those animals came from.
+        total_animals:
+          type: integer
+          description: >-
+            What the bands add up to: `total_identities` + `lump_sum_animals`.
         bands:
           type: array
           description: Always all six bands (<15, 15-20, 20-25, 25-30, 30-35, 35+), ascending.
@@ -27147,23 +27254,31 @@ components:
     GrowthDirectorWeightBand:
       type: object
       additionalProperties: false
-      required: [band, identity_count]
+      required: [band, animal_count]
       properties:
         band:
           type: string
           enum: ["<15", "15-20", "20-25", "25-30", "30-35", "35+"]
-        identity_count:
+        animal_count:
           type: integer
+          description: >-
+            Animals whose latest weight sits in this band: one per scanned identity, plus
+            every animal of a pen whose average falls here. Named for animals rather than
+            identities because that is what it now counts.
     GrowthDirectorBandMovement:
       type: object
       additionalProperties: false
       description: >-
-        Band movement between an identity's previous and latest campaign rounds.
-        `pair_identities` is the honest denominator: a kid has to be weighed in two
-        rounds before it can move a band.
-      required: [pair_identities, moved_up, held, moved_down]
+        Band movement between a previous and latest campaign round, counted in ANIMALS.
+        `pair_animals` is the honest denominator: a kid has to be weighed in two rounds
+        before it can move a band. A whole-shed pen weighed twice contributes all of its
+        animals to the bucket its AVERAGE moved into, so a pen creeping across a boundary
+        moves every kid in it, and a pen's average also moves when animals enter or leave.
+        That coarseness is accepted deliberately (maintainer decision 2026-09-01) rather
+        than describe the herd from the third of it weighed one by one.
+      required: [pair_animals, moved_up, held, moved_down]
       properties:
-        pair_identities:
+        pair_animals:
           type: integer
         moved_up:
           type: integer

@@ -40,47 +40,10 @@ import (
 // Widening this exemption — another file, another table, or ANY write path — is a MAINTAINER
 // decision, never a developer convenience.
 
-// sexScope is the resolved answer to "which weighing rows belong to this sex", in terms a
-// weighing query can apply without knowing what an animal is.
-//
-// The two halves cover the two kinds of weigh, and they are deliberately different shapes
-// because the evidence is different: an individual weigh carries a scanned tag that resolves
-// to one animal, while a whole-shed weigh carries no tag at all and can only be attributed
-// through the cohort its shed holds.
-// SexScope is exported because the Growth Director read lives in its own package and must apply
-// the SAME rule from the SAME implementation. Two copies of "which kids are male" would drift,
-// and one of the two would be the one a reader is looking at.
-type SexScope struct {
-	// Tags are normalized scanned identifiers (lower(btrim(...))) whose animal carries the
-	// requested sex. Bounded by the tags actually weighed in the window plus the 90-day gain
-	// lookback, not by the herd — a park with 50,000 animals and 300 weighs yields 300 tags.
-	Tags []string
-	// AllTimeTags is the same set with NO time bound, for the one read that is deliberately not
-	// windowed: sale readiness reports each animal's LATEST-EVER weight, so a kid heavy enough to
-	// sell but not weighed this fortnight must still be counted. Filtering that read with Tags
-	// above silently redefined its denominator from "every animal of this sex ever weighed" to
-	// "every animal of this sex weighed recently". Use Tags for a windowed read; use this ONLY
-	// where the read itself spans all time, or the two will disagree about who exists.
-	AllTimeTags []string
-	// allTimeResolved records whether AllTimeTags was actually asked for. It exists so that reading
-	// it when it was never resolved is a LOUD failure rather than a silent one: an unresolved list
-	// is empty, and an empty tag list filters every animal out, so a caller that forgot to ask
-	// would quietly report zero sale-ready kids instead of erroring.
-	allTimeResolved bool
-	// LocationIDs and PartitionLabels are PARALLEL arrays naming whole-shed buckets whose
-	// resident cohort is entirely the requested sex. Parallel arrays rather than a struct
-	// slice because they are passed straight into SQL as two binds and zipped there; they are
-	// built in ONE pass so an index can never pair a location with another's partition.
-	LocationIDs     []string
-	PartitionLabels []string
-}
-
-// empty reports whether no filter is in force, which is the shape every caller checks before
-// applying a predicate. Distinguishing it from "resolved to nothing" is the point: a sex that
-// matches no animal returns a scope that is NOT empty and correctly yields an empty page.
-func (s SexScope) Empty() bool {
-	return len(s.Tags) == 0 && len(s.LocationIDs) == 0
-}
+// The resolved scope lives in report_scope.go as ReportScope, shared with origin_scope.go: both
+// filters answer a different question about the same weighing rows and hand every downstream read
+// the identical opaque shape, so a read consumes "which rows did the reader ask for" without
+// knowing which filters produced the answer.
 
 // normalizeSexFilter accepts the two values the herd register carries and rejects everything
 // else, rather than passing an arbitrary string into a predicate. An unknown value is an
@@ -282,8 +245,8 @@ SELECT
 		return SexScope{}, err
 	}
 	out.allTimeResolved = includeAllTime
-	if len(out.LocationIDs) != len(out.PartitionLabels) {
-		return SexScope{}, fmt.Errorf("weighing: sex scope bucket arrays disagree (%d locations, %d partitions)", len(out.LocationIDs), len(out.PartitionLabels))
+	if err := assertBucketArraysAgree("sex scope", out); err != nil {
+		return SexScope{}, err
 	}
 	return out, nil
 }

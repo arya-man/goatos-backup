@@ -396,6 +396,53 @@ between two cohorts. A tag that resolves to nothing is still recorded and still 
 unfiltered view; it simply cannot answer a question about sex, so the filtered halves do not add
 up to the unfiltered total, and that gap is honest rather than missing data.
 
+FOURTH RECORDED EXCEPTION (maintainer decision 2026-09-01): the WEIGHTS ORIGIN FILTER, FARM BORN
+vs PURCHASED. Beside Weighing and Sex, and governing the WHOLE page on the same terms: the farm
+both breeds its own kids and buys them in loads, and the two grow differently enough that reading
+them together answers nothing. Exactly one more file may resolve identity,
+`backend/internal/weighing/adapters/postgres/origin_scope.go`, allowlisted BY NAME in
+`check-weighing-free-flow-guard.mjs`.
+
+IT DID NOT NEED AN EXCEPTION AT FIRST, and why it does now is the whole rule. Origin looked like a
+fact about a PEN -- the farm buys a load and puts it in a shed -- and weighing already owns that
+mapping in `weighing_shed_load_tags` (000131), so the first version read no herd table at all. That
+is correct for the seven pens whose every resident came off a load (CBE Castro 1/2/3, CPT Castro
+1/2, CPT Godel 2 - Part 1/2). It is WRONG for a MIXED pen: CPT Mandela 1 - Part 1 holds 13 kids of
+which only FOUR were bought, and judging a scanned weigh by its pen filed all 12 of that pen's
+scanned kids as purchased. The maintainer caught it on the first run.
+
+So the rule is PER ANIMAL where the evidence allows it. A SCANNED weigh carries a tag, so it is
+claimed through the animal that tag resolves to, and `procurement_load_goats` -- allowlisted for
+THIS FILE ONLY -- is the only table that says which animal came off which load. A WHOLE-SHED weigh
+carries no tag, so it is claimed through its pen and ONLY when every live resident agrees: all
+bought, or none. A mixed pen is claimed by NEITHER side, because one average weight cannot be
+divided between two cohorts and claiming it whole is the same defect one grain up. This is the
+identical agree-or-neither shape the Sex filter uses for a shed holding both sexes.
+
+The guard's table allowlist is now keyed PER FILE, precisely so this cannot leak: a procurement
+table is legal in `origin_scope.go` and still a finding in `sex_scope.go`, `weight_demographics.go`
+and `lump_sum_census.go`, none of which has any business asking where an animal was bought. That
+per-file scoping has its own adversarial self-test.
+
+It is READ-ONLY and REPORTING-ONLY: no capture, submit, close or verdict path calls it, NO scan is
+gated on origin, and an empty origin resolves to an empty scope every caller reads as "no filter",
+so the unfiltered page runs the query it ran before this file existed. A tag that resolves to
+NOTHING is claimed by neither side -- it is still recorded and still counted unfiltered, it simply
+cannot answer where the animal came from -- so the filtered halves need not add up to the
+unfiltered total, and that gap is honest rather than missing data.
+
+ROAD TO SALE COUNTS WHOLE-SHED PENS TOO (maintainer decision 2026-09-01, same day): the Growth
+Director's band board read `weighing_observations` alone and so answered "where does every kid sit"
+from scanned tags only -- 501 kids while 555 more sat in nine pens. A pen now contributes ALL its
+animals at the pen's average, in the bands AND in moved-up/held/slipped-back, the same trade the
+daily-gain headline already takes: a pen creeping 24.9 -> 25.1 kg moves every kid in it, and a pen
+average also moves when animals enter or leave. The losing-animals list stays scanned-only, because
+it NAMES individual animals and a shed average cannot name one. Wire fields renamed with the
+meaning (`identity_count` -> `animal_count`, `BandMovement.pair_identities` -> `pair_animals`),
+leaving the tag-matching counts untouched since a pen carries no tag to match. Canonical prose:
+`docs/decisions/weights-origin-filter.md`.
+
+
 ONE DAILY-GAIN NUMBER, AND WHOLE-SHED PENS ARE IN IT (maintainer decision 2026-08-26, same day,
 SUPERSEDING the individual-only headline). The farm's daily gain is the ANIMAL-WEIGHTED MEAN over
 every kid weighed twice (each kid once, at the median of its own pairs) PLUS every whole-shed pen

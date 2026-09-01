@@ -2537,6 +2537,13 @@ select:disabled { opacity: .45; }
 .wbars{list-style:none;margin:0;padding:0 8px 0 0;display:flex;flex-direction:column;gap:6px;overflow-y:auto}
 .wbars-tall{height:300px}
 .wbars-short{height:150px}
+/* A FIXED-ROW list sizes to its content. The six weight bands never change in number and the card
+   has no chart toggle, so a fixed box only ever left dead space under the last bar. max-height
+   keeps the scroll safety if the band set ever grows. */
+.wbars-bands{height:auto;max-height:320px}
+/* The empty state has no rows to size to, so height:auto would collapse it to nothing and the
+   "No data available" note would sit on top of the caption. Keep a box. */
+.wbars-empty.wbars-bands{min-height:150px}
 .wbars::-webkit-scrollbar{width:8px}
 .wbars::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 /* The label track carries a REAL floor (88px), not minmax(0,...). With a 0 minimum the

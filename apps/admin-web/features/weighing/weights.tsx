@@ -70,6 +70,11 @@ const SHED_VIEW_PARAM = "shed_view";
 // Which kids the WHOLE PAGE counts (maintainer, 2026-08-26). Absent means all of them, so a link
 // that predates the Sex filter keeps meaning what it showed when it was written.
 const SEX_PARAM = "sex";
+// Farm born or purchased (maintainer, 2026-09-01). Absent means both, so a link that predates this
+// filter keeps meaning what it showed when it was written -- deliberately UNLIKE the Sex filter
+// beside it, which defaults to male: there is no "the number the farm cares about" side here, and
+// defaulting to one would hide half the herd from a reader who never chose.
+const ORIGIN_PARAM = "origin";
 const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -307,6 +312,12 @@ export async function WeighingWeightsPage({
   // What the CONTROL shows. The reads take "" for every kid; the control cannot, or its All
   // option would be the blank one and would read back as the male default on the next request.
   const sexChoice = sexFilter === "" ? "all" : sexFilter;
+  // Origin takes the opposite default: absent means EVERY kid, so "all" is the blank value and no
+  // separate control spelling is needed. An unrecognised value falls back to every kid rather than
+  // emptying the page, for the same reason the sex fallback does -- a hand-edited URL must not take
+  // the screen down.
+  const rawOrigin = one(params, ORIGIN_PARAM);
+  const originFilter = rawOrigin === "farm_born" || rawOrigin === "purchased" ? rawOrigin : "";
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
   const losingOffset = boundedOffset(one(params, "losing_offset"));
@@ -329,10 +340,10 @@ export async function WeighingWeightsPage({
   // has no true number on it. That is also why this filter lives in the URL like Park and Period
   // and costs a server render — unlike the grain switch it replaced, it changes what is fetched.
   const [weights, growth, demographics, growthDirector] = await Promise.all([
-    getShedWeights({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
-    getWeighingGrowth({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
-    getWeightDemographics({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
-    getGrowthDirector({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
+    getShedWeights({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined, origin: originFilter || undefined }),
+    getWeighingGrowth({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined, origin: originFilter || undefined }),
+    getWeightDemographics({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined, origin: originFilter || undefined }),
+    getGrowthDirector({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined, origin: originFilter || undefined }),
   ]);
 
   if (firstAuthRequiredError(weights, growth, demographics, growthDirector))
@@ -377,7 +388,7 @@ export async function WeighingWeightsPage({
             // The per-park gain cards carry the filter too. They were the one read that did not,
             // and the page then showed a filtered headline above two unfiltered park cards — three
             // numbers about three different populations, side by side, with nothing saying so.
-            const result = await getWeighingGrowth({ park_id: park.park_id, ...window, sex: sexFilter || undefined });
+            const result = await getWeighingGrowth({ park_id: park.park_id, ...window, sex: sexFilter || undefined, origin: originFilter || undefined });
             const headline = result.ok ? result.data.headline : null;
             return {
               name: park.name,
@@ -477,6 +488,29 @@ export async function WeighingWeightsPage({
         { value: "all", label: copy(pageContract, "filter.all_option") },
         { value: "male", label: copy(pageContract, "view.sex.male") },
         { value: "female", label: copy(pageContract, "view.sex.female") },
+      ],
+    },
+    {
+      // Origin governs the WHOLE page for the same reason Sex does: the farm breeds its own kids
+      // and buys them in loads, and a page where the shed table counts both while the gain card
+      // counts one has no true number on it.
+      //
+      // The backend decides which pens were bought, from the purchase-load tag the pen carries --
+      // the same mapping the load chart further down this page reads. A pen's whole-shed weighs
+      // and its scanned weighs therefore always land on the same side of this filter.
+      kind: "select",
+      param: ORIGIN_PARAM,
+      label: copy(pageContract, "filter.origin.label"),
+      // allowAll:true, and this is the ONE place this page's two cohort filters differ. Sex carries
+      // its own "all" as a real value because an absent `sex` means MALE; origin has no default
+      // side, so absent already means every kid and the bar's own blank option IS the All. Giving
+      // it a second, explicit spelling would put two Alls in one list again -- the defect the
+      // Weighing and Sex filters both carry a comment about.
+      allowAll: true,
+      value: originFilter,
+      options: [
+        { value: "farm_born", label: copy(pageContract, "view.origin.farm_born") },
+        { value: "purchased", label: copy(pageContract, "view.origin.purchased") },
       ],
     },
   ];

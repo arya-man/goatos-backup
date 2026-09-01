@@ -783,6 +783,12 @@ export async function getShedWeights(params: {
   to?: string;
   /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
   sex?: string;
+  /**
+   * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
+   * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
+   * scanned weigh taken in the same pen are on the same side of it.
+   */
+  origin?: string;
 }): Promise<ApiResult<ShedWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -824,6 +830,12 @@ export async function getWeightDemographics(params: {
   to?: string;
   /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
   sex?: string;
+  /**
+   * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
+   * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
+   * scanned weigh taken in the same pen are on the same side of it.
+   */
+  origin?: string;
 }): Promise<ApiResult<WeightDemographicsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -845,6 +857,12 @@ export async function getWeighingGrowth(params: {
   to?: string;
   /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
   sex?: string;
+  /**
+   * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
+   * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
+   * scanned weigh taken in the same pen are on the same side of it.
+   */
+  origin?: string;
 }): Promise<ApiResult<WeighingGrowthResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -869,6 +887,12 @@ export async function getGrowthDirector(params: {
   to?: string;
   /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
   sex?: string;
+  /**
+   * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
+   * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
+   * scanned weigh taken in the same pen are on the same side of it.
+   */
+  origin?: string;
 }): Promise<ApiResult<GrowthDirectorWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

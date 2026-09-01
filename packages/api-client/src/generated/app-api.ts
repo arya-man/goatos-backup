@@ -5981,6 +5981,8 @@ export interface components {
              * @description The day the animals REACHED THE FARM. Not the purchase date: the farm warms animals up at the source, so a load is bought a day or more before it lands here, and the fattening clock starts on arrival.
              */
             arrived_on?: string | null;
+            /** @description The RUNNING fattening clock: whole days from arrived_on to today's Asia/Kolkata business date, for a load that has NOT SOLD. Same start as fattening_days, which is why the two may be shown on one axis -- but they are MUTUALLY EXCLUSIVE: a load that has sold anything answers with its finished fattening_days alone, because its stragglers would otherwise tell a few animals' story at the scale of the whole load. Absent once anything has sold, once the load holds nothing, and when the arrival date is unknown. */
+            days_on_farm_so_far?: number | null;
             /** @description The load's AGE: whole days from its purchase date to today's Asia/Kolkata business date. A DIFFERENT clock from fattening_days -- that one starts on arrival and stops at sale, this one starts at purchase and keeps running while the load is open. A load past 90 days still holding animals raises the daily CXO alert. Absent when the purchase date is unknown. */
             days_since_purchase?: number | null;
             /** @description Days between arrival and sale, ANIMAL-WEIGHTED across the load's sales -- a load that leaves in four batches over four months has no single sale date, and weighting by how many animals left on each answers "how long was the average animal fattened". */
@@ -11086,13 +11088,19 @@ export interface components {
             /** @description Currently always `campaign_week`. */
             resolution: string;
         };
-        /** @description Where every kid sits on the way to sale weight, counted from each tag identity's latest weigh. Unmatched identities stay in the bands — a scale reading is a scale reading — but are counted separately. Rework-status captures are excluded. */
+        /** @description Where every kid sits on the way to sale weight, counted from its latest weigh. Two arms, disjoint by construction because a bucket's weighing_category is fixed at creation: a SCANNED kid contributes itself at its own weight, and a WHOLE-SHED pen contributes all of its animals at the pen's average, which is the only weight the pen has (maintainer decision 2026-09-01). Unmatched identities stay in the bands — a scale reading is a scale reading — but are counted separately. Rework-status captures are excluded. */
         GrowthDirectorRoadToSale: {
-            /** @description Distinct tag identities weighed in the period. The denominator for the bands. */
+            /** @description Distinct tag identities weighed in the period. NOT the denominator for the bands — see `total_animals`; this counts scanned tags only, because the tag-matching counts beside it are questions a pen cannot be asked. */
             total_identities: number;
-            /** @description Identities whose tag resolves in the herd register. */
+            /** @description Scanned identities whose tag resolves in the herd register. */
             matched_identities: number;
             unmatched_identities: number;
+            /** @description Animals counted through a whole-shed weigh, each sitting in the band its pen's average falls in. Disclosed so a reader can tell how much of the board is that coarser measure. */
+            lump_sum_animals: number;
+            /** @description How many pens those animals came from. */
+            lump_sum_pens: number;
+            /** @description What the bands add up to: `total_identities` + `lump_sum_animals`. */
+            total_animals: number;
             /** @description Always all six bands (<15, 15-20, 20-25, 25-30, 30-35, 35+), ascending. */
             bands: components["schemas"]["GrowthDirectorWeightBand"][];
             movement: components["schemas"]["GrowthDirectorBandMovement"];
@@ -11100,11 +11108,12 @@ export interface components {
         GrowthDirectorWeightBand: {
             /** @enum {string} */
             band: "<15" | "15-20" | "20-25" | "25-30" | "30-35" | "35+";
-            identity_count: number;
+            /** @description Animals whose latest weight sits in this band: one per scanned identity, plus every animal of a pen whose average falls here. Named for animals rather than identities because that is what it now counts. */
+            animal_count: number;
         };
-        /** @description Band movement between an identity's previous and latest campaign rounds. `pair_identities` is the honest denominator: a kid has to be weighed in two rounds before it can move a band. */
+        /** @description Band movement between a previous and latest campaign round, counted in ANIMALS. `pair_animals` is the honest denominator: a kid has to be weighed in two rounds before it can move a band. A whole-shed pen weighed twice contributes all of its animals to the bucket its AVERAGE moved into, so a pen creeping across a boundary moves every kid in it, and a pen's average also moves when animals enter or leave. That coarseness is accepted deliberately (maintainer decision 2026-09-01) rather than describe the herd from the third of it weighed one by one. */
         GrowthDirectorBandMovement: {
-            pair_identities: number;
+            pair_animals: number;
             moved_up: number;
             held: number;
             moved_down: number;
@@ -15758,6 +15767,10 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                /** @description `male` or `female` to report on that half of the herd only; omitted means every kid. An unknown value is REJECTED rather than ignored, because silently widening a filter shows a reader more kids than the heading they are reading says. An individual weigh is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed shed is claimed by neither side rather than split. */
+                sex?: "male" | "female";
+                /** @description `farm_born` or `purchased` to report on kids of that origin only; omitted means every kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is. The farm both breeds its own kids and buys them in loads, and the two grow differently enough that reading them together answers nothing. Origin is a fact about the PEN a load was put into, not about the animal: a pen carrying a procurement load tag is purchased and every weigh taken in it -- whole-shed or individually scanned -- counts as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin` together reports the kids in BOTH. */
+                origin?: "farm_born" | "purchased";
             };
             header?: never;
             path?: never;
@@ -15818,6 +15831,10 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                /** @description `male` or `female` to report on that half of the herd only; omitted means every kid. An unknown value is REJECTED rather than ignored, because silently widening a filter shows a reader more kids than the heading they are reading says. An individual weigh is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed shed is claimed by neither side rather than split. */
+                sex?: "male" | "female";
+                /** @description `farm_born` or `purchased` to report on kids of that origin only; omitted means every kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is. The farm both breeds its own kids and buys them in loads, and the two grow differently enough that reading them together answers nothing. Origin is a fact about the PEN a load was put into, not about the animal: a pen carrying a procurement load tag is purchased and every weigh taken in it -- whole-shed or individually scanned -- counts as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin` together reports the kids in BOTH. */
+                origin?: "farm_born" | "purchased";
             };
             header?: never;
             path?: never;
@@ -15849,6 +15866,8 @@ export interface operations {
                 to?: string;
                 /** @description `male` or `female` to report on that half of the herd only; omitted means every kid. An unknown value is REJECTED rather than ignored, because silently widening a filter shows a reader more kids than the heading they are reading says. An individual weigh is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed shed is claimed by neither side rather than split. */
                 sex?: "male" | "female";
+                /** @description `farm_born` or `purchased` to report on kids of that origin only; omitted means every kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is. The farm both breeds its own kids and buys them in loads, and the two grow differently enough that reading them together answers nothing. Origin is a fact about the PEN a load was put into, not about the animal: a pen carrying a procurement load tag is purchased and every weigh taken in it -- whole-shed or individually scanned -- counts as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin` together reports the kids in BOTH. */
+                origin?: "farm_born" | "purchased";
             };
             header?: never;
             path?: never;
@@ -15881,6 +15900,8 @@ export interface operations {
                 to?: string;
                 /** @description `male` or `female` to report on that half of the herd only; omitted means every kid. An unknown value is REJECTED rather than ignored, because silently widening a filter shows a reader more kids than the heading they are reading says. An individual weigh is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed shed is claimed by neither side rather than split. */
                 sex?: "male" | "female";
+                /** @description `farm_born` or `purchased` to report on kids of that origin only; omitted means every kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is. The farm both breeds its own kids and buys them in loads, and the two grow differently enough that reading them together answers nothing. Origin is a fact about the PEN a load was put into, not about the animal: a pen carrying a procurement load tag is purchased and every weigh taken in it -- whole-shed or individually scanned -- counts as purchased, and a pen with no load tag is farm born. Selecting `sex` and `origin` together reports the kids in BOTH. */
+                origin?: "farm_born" | "purchased";
             };
             header?: never;
             path?: never;

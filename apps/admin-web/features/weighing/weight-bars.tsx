@@ -50,8 +50,14 @@ export function WeightBars({
   unit: string;
   /** Resolved from the page contract by the caller; the list's accessible name. */
   chartLabel: string;
-  /** "tall" for the shed/breed row, "short" for the sex/stage row. */
-  size?: "tall" | "short";
+  /**
+   * "tall" for the shed/breed row, "short" for the sex/stage row, "bands" for a list whose row
+   * count is FIXED and known — the six weight bands. The first two are fixed-height boxes so a
+   * chart with a weight/gain toggle never makes the row jump as the series changes length; a band
+   * list has no toggle and always renders exactly six rows, so a fixed box only ever leaves dead
+   * space under the last bar.
+   */
+  size?: "tall" | "short" | "bands";
   /**
    * Widen the label column. For a full-width card whose labels carry two facts —
    * the load number AND its supplier — the half-width column clips the supplier off,
@@ -77,7 +83,7 @@ export function WeightBars({
     // Same fixed box as the populated list, so toggling a chart between weight and
     // gain never makes the row jump.
     return (
-      <div className={`wbars-empty ${size === "short" ? "wbars-short" : "wbars-tall"}`} role="note">
+      <div className={`wbars-empty wbars-${size}`} role="note">
         <span className="muted small">{emptyLabel}</span>
       </div>
     );
@@ -102,7 +108,7 @@ export function WeightBars({
 
   return (
     <ul
-      className={`wbars ${size === "short" ? "wbars-short" : "wbars-tall"}${wide ? " wbars-wide" : ""}`}
+      className={`wbars wbars-${size}${wide ? " wbars-wide" : ""}`}
       aria-label={chartLabel}
     >
       {bars.map((bar) => (
