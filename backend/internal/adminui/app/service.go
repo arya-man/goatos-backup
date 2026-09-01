@@ -2726,16 +2726,20 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.series.landing_price_per_kg": "Landing price",
 			"chart.series.sale_price_per_kg":    "Sale price",
 				"chart.loadwise_fattening.title":    "Fattening days on farm",
-				"chart.loadwise_fattening.empty":    "No load has sold, and none is still holding animals.",
-				"chart.series.fattening_days":       "Days from arrival to sale",
-				// The SAME clock still running, for a load that has not sold. Those loads had a blank
-				// bar here, which read as "nothing to say" about animals that have been eating on this
-				// farm for months; this states the elapsed span instead (maintainer decision
+				// Says only what the CHART cannot show, never why. A load holding animals whose
+				// arrival date is unknown -- or that landed today, which the chart reads as no value
+				// -- yields an all-null series too, so copy claiming nothing is in the sheds would
+			// deny stock that is really there.
+			"chart.loadwise_fattening.empty": "No load has a fattening span to show yet.",
+			"chart.series.fattening_days":    "Days from arrival to sale",
+			// The SAME clock still running, for a load that has not sold. Those loads had a blank
+			// bar here, which read as "nothing to say" about animals that have been eating on this
+			// farm for months; this states the elapsed span instead (maintainer decision
 				// 2026-09-01). It is arrival-to-today, NOT the purchase-date age clock, so both series
 				// on this axis start on the day the animals landed -- and they are mutually exclusive,
 				// so a load shows one bar or the other, never both.
 				"chart.series.days_on_farm_so_far": "Days on farm so far",
-			"value.still_on_farm":              "still on farm",
+				"value.still_on_farm":              "still on farm",
 			// The load's AGE has no chart and no column -- the maintainer removed both -- but the
 			// 90-day clock still runs: it is what raises the daily CXO alert, from
 			// procurement/domain.LoadAgeAlertDays. Average sale weight likewise stays a CHART
