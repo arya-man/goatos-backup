@@ -460,9 +460,9 @@ deploy() {
     --image="$ADMIN_WEB_IMAGE" \
     --ingress=all \
     --min=1 \
-    --max=4 \
+    --max=2 \
     --min-instances=1 \
-    --max-instances=4 \
+    --max-instances=2 \
     --update-env-vars="GOATOS_CANONICAL_DASHBOARD_HOST=${GOATOS_CANONICAL_DASHBOARD_HOST},GOATOS_API_BASE_URL=${GOATOS_API_BASE_URL}" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
