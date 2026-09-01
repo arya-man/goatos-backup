@@ -9,7 +9,7 @@
     <string name="timetable_empty">No positions configured</string>
     <string name="timetable_unassigned">Unassigned</string>
     <string name="timetable_label_holder">Holder</string>
-    <string name="timetable_label_week_off">Week OFF</string>
+    <string name="timetable_label_week_off">Week off</string>
     <string name="timetable_label_backup">Backup</string>
     <string name="timetable_error_no_center">No center assigned — timetable unavailable.</string>
     <string name="timetable_error_load">Couldn\'t load the timetable right now.</string>

@@ -99,6 +99,13 @@ test("weights analytics sends the weighing mode through every tab read", () => {
   assert.match(analyticsSource, /weighingCategory=\{modeFilter !== "all" \? modeFilter : undefined\}/);
 });
 
+test("weights analytics fails selected tabs instead of rendering API failures as empty data", () => {
+  assert.match(analyticsSource, /if \(growth && !growth\.ok\) \{\s*return <WeightsAnalyticsLoadError pageContract=\{pageContract\} \/>;\s*\}/);
+  assert.match(analyticsSource, /if \(demographics && !demographics\.ok\) \{\s*return <WeightsAnalyticsLoadError pageContract=\{pageContract\} \/>;\s*\}/);
+  assert.match(analyticsSource, /function WeightsAnalyticsLoadError/);
+  assert.match(analyticsSource, /const demo = demographics\?\.ok \? demographics\.data : null;/);
+});
+
 test("weights page sends the weighing mode through every backend read", () => {
   assert.match(source, /function weighingModeFilter\(raw: string \| undefined\): string/);
   assert.match(source, /const modeFilter = weighingModeFilter\(one\(params, "weighing"\)\);/);

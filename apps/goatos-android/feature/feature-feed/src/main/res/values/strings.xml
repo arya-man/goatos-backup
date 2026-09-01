@@ -93,7 +93,7 @@
     <string name="feed_dist_proof_failed">Upload failed. Try again</string>
     <string name="feed_dist_play_preview">Play</string>
     <string name="feed_dist_pause_preview">Pause</string>
-    <string name="feed_transport_title">Feed Transport</string>
+    <string name="feed_transport_title">Feed transport</string>
     <string name="feed_transport_today">Today · %1$s · Starts 15:30</string>
     <string name="feed_transport_date">%1$s · Starts 15:30</string>
     <string name="feed_transport_empty">No feed transport tasks for today</string>
@@ -111,7 +111,7 @@
     <string name="feed_transport_submitted">Sent for verification.</string>
     <string name="feed_transport_retry_submit">Retry sending for verification</string>
     <string name="feed_pack_complete_caption">Record the packing video. A verifier reviews it before this packing is counted as done.</string>
-    <string name="feed_packing_title">Feed Packing</string>
+    <string name="feed_packing_title">Feed packing</string>
     <string name="feed_pack_complete_video_title">Packing video (required)</string>
     <string name="feed_pack_complete_record_video">Record packing video</string>
     <string name="feed_pack_complete_upload_video">Upload from gallery</string>
@@ -130,7 +130,7 @@
     <string name="feed_complete_already_submitted_title">Already submitted</string>
     <string name="feed_complete_already_submitted_body">This video has gone to the verifier. Nothing more to record here — you will see the result once it is reviewed.</string>
     <string name="feed_dist_session_submitted_body">This session\'s proofs have gone to the verifier. Nothing more to record here — you will see the result once it is reviewed.</string>
-    <string name="feed_wastage_title">Feed Wastage</string>
+    <string name="feed_wastage_title">Feed wastage</string>
     <string name="feed_wastage_caption">Leftover feed to record for each experiment pen today</string>
     <string name="feed_wastage_summary_title">Pens (whole farm)</string>
     <string name="feed_wastage_stat_pens">Pens</string>

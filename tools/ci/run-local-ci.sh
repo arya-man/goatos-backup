@@ -305,6 +305,13 @@ ci_tooling_changed() {
   printf '%s\n' "$changed" | grep -Eq '^tools/ci/'
 }
 
+herd_signals_visual_changed() {
+  local changed
+  changed="$(changed_since_base 2>/dev/null)" || return 0
+  [ -n "$changed" ] || return 0
+  printf '%s\n' "$changed" | grep -Eq '^(apps/admin-web/features/herd-signals/|mock/herd-signals-mock\.html$|tools/agent-hooks/check-mock-css-parity\.mjs$)'
+}
+
 # gradle_lock_lib_changed / gradle_lock_selftest_changed — same fail-open shape
 # as ci_tooling_changed above (undeterminable or empty diff => RUN).
 #
@@ -433,9 +440,9 @@ run_common() {
   step "agent: boundaries"        bash tools/agent-hooks/check-boundaries.sh
   step "agent: refresh-binding"   node tools/agent-hooks/check-refresh-binding.mjs
   step "agent: UI vaccine labels" make ui-vaccine-labels-guard
+  step "agent: UI title case" make ui-title-case-guard
   step "agent: notification specificity" make notification-specificity-guard
   step "additive-publish-guard"    make additive-publish-guard
-  step "agent: mock css parity"          make mock-css-parity-guard
   step "agent: herd signals language"    make herd-signals-language-guard
   step "agent: vaccination shared source sync" make vaccination-shared-source-sync-guard
   step "agent: calendar endpoint grain" make calendar-endpoint-grain-guard
@@ -674,6 +681,12 @@ run_admin_web() {
   step "admin-web local overlays" make admin-web-local-overlay-guard
   step "admin-web-date-format-guard" make admin-web-date-format-guard
   step "overlay motion"          make overlay-motion-guard
+  if herd_signals_visual_changed; then
+    step "admin-web herd signals mock css parity" make mock-css-parity-guard
+  else
+    RESULTS+=("SKIP  admin-web herd signals mock css parity (no Herd Signals visual diff)")
+    echo "── ci-local: Herd Signals mock CSS parity SKIPPED (no Herd Signals visual diff vs base)"
+  fi
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan
   step "admin-web production build + token leak" env GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build

@@ -167,12 +167,13 @@ export async function WeighingWeightsAnalyticsPage({
   if (firstAuthRequiredError(weights, growth, demographics)) redirect(INTERNAL_LOGIN_PATH);
 
   if (!weights.ok) {
-    return (
-      <section className="card">
-        <h2 className="h">{copy(pageContract, "error.load.title")}</h2>
-        <p className="muted small">{copy(pageContract, "error.load.body")}</p>
-      </section>
-    );
+    return <WeightsAnalyticsLoadError pageContract={pageContract} />;
+  }
+  if (growth && !growth.ok) {
+    return <WeightsAnalyticsLoadError pageContract={pageContract} />;
+  }
+  if (demographics && !demographics.ok) {
+    return <WeightsAnalyticsLoadError pageContract={pageContract} />;
   }
 
   const { rows, summary, parks, period_start: periodStart, period_end: periodEnd } = weights.data;
@@ -368,6 +369,15 @@ export async function WeighingWeightsAnalyticsPage({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function WeightsAnalyticsLoadError({ pageContract }: { pageContract: AdminUiPageContract }) {
+  return (
+    <section className="card">
+      <h2 className="h">{copy(pageContract, "error.load.title")}</h2>
+      <p className="muted small">{copy(pageContract, "error.load.body")}</p>
+    </section>
   );
 }
 

@@ -29,6 +29,32 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 	if resp.Navigation.Primary[0].Label != "Control Tower" {
 		t.Fatalf("first primary nav = %#v", resp.Navigation.Primary[0])
 	}
+	for _, group := range resp.Navigation.Groups {
+		if group.ID == "pc" && group.Label != "Preventive Care" {
+			t.Fatalf("preventive care group label = %q, want %q", group.Label, "Preventive Care")
+		}
+	}
+	wantGroups := []struct {
+		id    string
+		label string
+	}{
+		{"counts", "Counts"},
+		{"weighing", "Weight"},
+		{"sales", "Sales"},
+		{"feed", "Feed"},
+		{"pc", "Preventive Care"},
+		{"procurement", "Procurement"},
+		{"others", "Others"},
+	}
+	if len(resp.Navigation.Groups) != len(wantGroups) {
+		t.Fatalf("navigation groups = %#v, want %#v", resp.Navigation.Groups, wantGroups)
+	}
+	for i, want := range wantGroups {
+		got := resp.Navigation.Groups[i]
+		if got.ID != want.id || got.Label != want.label {
+			t.Fatalf("navigation group %d = %s/%q, want %s/%q", i, got.ID, got.Label, want.id, want.label)
+		}
+	}
 }
 
 func TestBootstrapJSONDoesNotPublishNullCollections(t *testing.T) {
@@ -120,9 +146,10 @@ func TestMilkPreparationPageContractAndMilkNavigation(t *testing.T) {
 		}
 	}
 
-	// Milk Preparation sits under its OWN "Milk" group, never under Counts (maintainer request
-	// 2026-08-11, mirroring the phone's Counts -> Milk module split). The href is deliberately
-	// unchanged: this is a nav regrouping, not a route change.
+	// Milk Preparation stays out of Counts. It is now filed under the catch-all Others menu group
+	// so the top-level order remains Counts, Weight, Sales, Feed, Preventive Care, Procurement,
+	// Others (maintainer request 2026-09-02). The href is deliberately unchanged: this is a nav
+	// regrouping, not a route change.
 	found := false
 	for _, group := range bootstrap.Navigation.Groups {
 		for _, leaf := range group.Leaves {
@@ -132,11 +159,11 @@ func TestMilkPreparationPageContractAndMilkNavigation(t *testing.T) {
 			if group.ID == "counts" {
 				t.Fatalf("Milk Preparation must not appear under the Counts group (leaf %q)", leaf.ID)
 			}
-			if group.ID != "milk" {
-				t.Fatalf("Milk Preparation leaf %q is under group %q, want group \"milk\"", leaf.ID, group.ID)
+			if group.ID != "others" {
+				t.Fatalf("Milk Preparation leaf %q is under group %q, want group \"others\"", leaf.ID, group.ID)
 			}
-			if group.Label != "Milk" {
-				t.Fatalf("milk group label=%q, want \"Milk\"", group.Label)
+			if group.Label != "Others" {
+				t.Fatalf("others group label=%q, want \"Others\"", group.Label)
 			}
 			found = true
 		}

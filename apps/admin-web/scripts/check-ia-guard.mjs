@@ -276,20 +276,21 @@ if (existsSync(visibleIaFile)) {
       );
     }
 
-    // Audit Log is a business surface under Admin / Data Ops — NOT its own "Operations" vertical. The
-    // `/operations/audit` route is an implementation detail; the visible IA must place Audit Log beside
-    // Config and SOP Library, and must not surface a separate Operations sidebar group.
+    // Audit Log is a business surface under Others — NOT its own "Operations" vertical. The
+    // `/operations/audit` route is an implementation detail; the visible IA must place Audit Log
+    // in the catch-all group requested by maintainers, and must not surface a separate Operations
+    // sidebar group.
     if (/\bLabel:\s*["'`]Operations["'`]|\blabel:\s*["'`]Operations["'`]/.test(visibleIaText)) {
       findings.push(
-        `${visibleIaFile} defines an "Operations" sidebar group. Audit Log belongs under Admin / Data Ops; ` +
+        `${visibleIaFile} defines an "Operations" sidebar group. Audit Log belongs under Others; ` +
           "do not surface a separate Operations vertical.",
       );
     }
-    const adminLeaves = navLeavesForGroup(visibleIaFile, visibleIaText, "admin-data");
-    const adminLabels = adminLeaves?.map((leaf) => leaf.label) ?? [];
-    if (!adminLabels.includes("Audit Log")) {
+    const othersLeaves = navLeavesForGroup(visibleIaFile, visibleIaText, "others");
+    const othersLabels = othersLeaves?.map((leaf) => leaf.label) ?? [];
+    if (!othersLabels.includes("Audit Log")) {
       findings.push(
-        `${visibleIaFile} must list "Audit Log" under the Admin / Data Ops group (beside Config and SOP Library).`,
+        `${visibleIaFile} must list "Audit Log" under the Others group.`,
       );
     }
   }

@@ -20,17 +20,17 @@
     <string name="counts_offline_note">Works offline. Your entry is saved on the phone and syncs automatically when there is a connection.</string>
 
     <!-- Read screen -->
-    <string name="counts_totals_title">HERD TOTALS</string>
+    <string name="counts_totals_title">Herd totals</string>
     <string name="counts_stat_total">Total</string>
     <string name="counts_stat_adults">Adults</string>
     <string name="counts_stat_kids">Kids</string>
     <string name="counts_grain_fmt">%1$d grouped rows across the full filtered herd</string>
-    <string name="counts_breakdown_caption">BREAKDOWN · farm · stage · breed · sex · shed</string>
+    <string name="counts_breakdown_caption">Breakdown · farm · stage · breed · sex · shed</string>
     <string name="counts_stage_unknown">Unspecified stage</string>
 
     <!-- Census filter bar. Only the CHROME lives here: every option vocabulary (park, shed, breed)
          comes from the backend `facets` and is never hardcoded on device. -->
-    <string name="counts_filters_title">FILTERS</string>
+    <string name="counts_filters_title">Filters</string>
     <string name="counts_filters_clear">Clear</string>
     <string name="counts_filter_park">Park</string>
     <string name="counts_filter_shed">Shed</string>
@@ -117,25 +117,25 @@
     <string name="counts_approval_failed">Couldn\'t save that decision. Try again.</string>
 
     <!-- Field group headings -->
-    <string name="counts_group_identity">IDENTITY</string>
-    <string name="counts_group_dates">DATES</string>
-    <string name="counts_group_placement">PLACEMENT</string>
-    <string name="counts_group_animal">ANIMALS</string>
-    <string name="counts_group_account_of_death">ACCOUNT OF DEATH</string>
-    <string name="counts_group_recording_death_for">RECORDING DEATH FOR</string>
-    <string name="counts_group_to">MOVE TO</string>
-    <string name="counts_group_current_location">CURRENT LOCATION</string>
+    <string name="counts_group_identity">Identity</string>
+    <string name="counts_group_dates">Dates</string>
+    <string name="counts_group_placement">Placement</string>
+    <string name="counts_group_animal">Animals</string>
+    <string name="counts_group_account_of_death">Account of death</string>
+    <string name="counts_group_recording_death_for">Recording death for</string>
+    <string name="counts_group_to">Move to</string>
+    <string name="counts_group_current_location">Current location</string>
     <!--
       The shifting raise form's tag toggle. Farm words only: an operator reads "tag", never
       "management stage" or "cohort". The pen's own tag and the reason it cannot be used are
       backend-composed and rendered verbatim, so they are deliberately NOT string resources here.
     -->
-    <string name="counts_group_stage_mode">TAG FOR THIS ANIMAL</string>
+    <string name="counts_group_stage_mode">Tag for this animal</string>
     <string name="counts_stage_mode_keep_current">Keep current tag</string>
     <string name="counts_stage_mode_destination">Use destination tag</string>
-    <string name="counts_group_priority">PRIORITY</string>
-    <string name="counts_group_category">CATEGORY</string>
-    <string name="counts_group_comment">COMMENT</string>
+    <string name="counts_group_priority">Priority</string>
+    <string name="counts_group_category">Category</string>
+    <string name="counts_group_comment">Comment</string>
     <string name="counts_field_comment">Why is this animal being moved?</string>
     <string name="counts_hint_comment">Optional. The farm head approving this move and the reviewer checking your video will read it.</string>
 
@@ -247,7 +247,7 @@
 
     <!-- Add-birth form (server generates the provisional tag; DOB locked to today) -->
     <string name="counts_add_birth_subtitle">Record a newborn</string>
-    <string name="counts_group_born">BORN</string>
+    <string name="counts_group_born">Born</string>
     <string name="counts_add_birth_tag_note">The kid gets a provisional tag automatically. Attach the permanent RFID later with the \"Tag the kid\" step.</string>
     <string name="counts_add_birth_more">＋ Add details (breed)</string>
     <string name="counts_field_time_of_birth">Time of birth (HH:MM)</string>

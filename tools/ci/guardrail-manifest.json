@@ -1074,6 +1074,17 @@
       "notes": "Raw vaccination config/protocol tokens are allowed in config/contracts/DTOs/tests only. User-facing admin-web/mobile UI must render human labels."
     },
     {
+      "id": "ui-title-case",
+      "script": "tools/agent-hooks/check-ui-title-case.mjs",
+      "makeTarget": "ui-title-case-guard",
+      "realCheck": "node tools/agent-hooks/check-ui-title-case.mjs",
+      "selfTest": "node tools/agent-hooks/check-ui-title-case.mjs --self-test",
+      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
+      "requiredInCI": true,
+      "ciStep": "ui-title-case-guard",
+      "notes": "Frontend and mobile visible navigation/module/title labels use caption case, not title case or all caps. Internal short forms such as PC must not appear in visible module titles; use Preventive Care."
+    },
+    {
       "id": "vaccination-adult-drive-contract",
       "script": "tools/agent-hooks/check-vaccination-adult-drive-contract.mjs",
       "makeTarget": "vaccination-adult-drive-contract-guard",

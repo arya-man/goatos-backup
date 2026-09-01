@@ -172,6 +172,7 @@ guardrails:
 	$(MAKE) atomic-readmodel-sync-guard
 	$(MAKE) config-validate-guard
 	$(MAKE) ui-vaccine-labels-guard
+	$(MAKE) ui-title-case-guard
 	$(MAKE) notification-specificity-guard
 	$(MAKE) herd-signals-language-guard
 	$(MAKE) no-mismatch-review-queue-guard
@@ -654,6 +655,10 @@ config-validate-guard:
 ui-vaccine-labels-guard:
 	node tools/agent-hooks/check-ui-vaccine-labels.mjs --self-test
 	node tools/agent-hooks/check-ui-vaccine-labels.mjs
+
+ui-title-case-guard:
+	node tools/agent-hooks/check-ui-title-case.mjs --self-test
+	node tools/agent-hooks/check-ui-title-case.mjs
 
 # notification-specificity-guard: maintainer decision 2026-08-02. Every user-facing notification
 # must be MEANINGFUL (park, shed/partition, human vaccine/work-item name, count, farm-readable

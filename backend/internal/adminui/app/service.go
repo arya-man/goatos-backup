@@ -121,17 +121,45 @@ func navigation() domain.NavigationContract {
 		},
 		Groups: []domain.NavigationGroup{
 			{
-				ID: "pc", Label: "Preventive Care (PC)", Icon: "heart-pulse", DefaultOpen: true,
+				ID: "counts", Label: "Counts", Icon: "bar-chart-3", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeaf("counts-herd-analytics", "Herd Analytics", "/counts/analytics", nil),
+					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
+					navLeaf("counts-sops", "Herd Operations SOP", "/counts/sops", nil),
+					// Herd Register is parked from the sidebar for now; keep the restore line so
+					// scope guards can tell it is withheld deliberately, not lost.
+					// navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
+				},
+			},
+			{
+				ID: "weighing", Label: "Weight", Icon: "scale", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeafDomain("weighing-weights", "Weights", "/weighing/weights", "weighing.weights", nil),
+					navLeafDomain("weighing-analytics", "Weights analytics", "/weighing/analytics", "weighing.analytics", nil),
+					navLeaf("weighing-sops", "Weighing SOP", "/weighing/sops", nil),
+				},
+			},
+			{
+				ID: "sales", Label: "Sales", Icon: "banknote", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeaf("sales-board", "Sales", "/sales", nil),
+					navLeaf("sales-loads", "Purchase & born", "/sales/loads", nil),
+					navLeaf("sales-config", "Sales Config", "/sales/config", nil),
+				},
+			},
+			{
+				ID: "feed", Label: "Feed", Icon: "wheat", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeaf("feed-config", "Feed Config", "/feed/config", nil),
+					navLeaf("feed-analytics", "Feed Analytics", "/feed/analytics", nil),
+					navLeaf("feed-sops", "Feed SOP", "/feed/sops", nil),
+				},
+			},
+			{
+				ID: "pc", Label: "Preventive Care", Icon: "heart-pulse", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("preventive-care-vaccination", "Vaccination", "/vaccination", "pc.vaccination", nil),
 					navLeafDomain("vaccination-live-tracker", "Live Drive Tracker", "/vaccination/live-tracker", "pc.vaccination", nil),
-					// SOP SPLIT (maintainer decision 2026-08-18): the top-level Admin/Data Ops
-					// SOP Library (/sops) is RETIRED. Each module owns its SOP page as a
-					// The vaccination plan lives here, not under Admin / Data Ops: it is a
-					// vaccination-only authority screen and the person who owns the decision
-					// (CEO/COO) looks under Preventive Care. It absorbs the former
-					// /vaccination/sops surface -- proof method is now one field on the plan,
-					// so a separate SOP screen with a single record is no longer warranted.
 					navLeafDomain("vaccination-plan", "Vaccination plan", "/vaccination/plan", "pc.vaccination", nil),
 				},
 			},
@@ -140,178 +168,19 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("procurement-source-entry", "Source Entry", "/procurement/source-entry", nil),
 					navLeaf("procurement-vendors", "Vendors", "/procurement/vendors", nil),
-					// Feed Purchases — the BUYING side of the feed chain. It sits in Procurement,
-					// not under Feed, because migration 000174 recorded that purchase entry
-					// belongs to this vertical; /feed/analytics keeps the stock cards these loads
-					// feed.
 					navLeaf("procurement-feed-purchases", "Feed Purchases", "/procurement/feed-purchases", nil),
 				},
 			},
-			// Sales is its OWN VERTICAL, split out of Procurement (maintainer decision 2026-08-27),
-			// the same regrouping Milk got out of Counts. Procurement is the BUYING desk -- source
-			// entry, the vendor register, feed purchases -- and selling is not one of its
-			// workflows: it has its own permissions (sales.read / sales.write, deliberately not a
-			// reuse of ProcurementRead or VendorRead per permissions.go), its own tables
-			// (000173_sales_ledger.sql) and its own backend module.
-			//
-			// Unlike the Milk split, the ROUTE MOVED TOO: /procurement/sales -> /sales. Sales is
-			// no longer inside Procurement in any sense, so a URL that says it would be the last
-			// place still claiming otherwise.
-			//
-			// It sits directly after Procurement because buying and selling are read together.
-			// The `banknote` icon must stay registered in admin-web's iconByToken map or the group
-			// silently renders the Control Tower icon.
 			{
-				ID: "sales", Label: "Sales", Icon: "banknote", DefaultOpen: false,
-				Leaves: []domain.NavigationItem{
-					navLeaf("sales-board", "Sales", "/sales", nil),
-					// Load by load — its own page rather than a block on the board (maintainer
-					// decision 2026-08-31). The board answers "how are sales going"; this answers
-					// "how did each batch of animals do", which is a different question read at a
-					// different time, and it carries its own tabs and its own write.
-					navLeaf("sales-loads", "Purchase & born", "/sales/loads", nil),
-					// Sales Config -- the ONE place a sales fact is entered or changed
-					// (maintainer decision 2026-09-01). The two leaves above became
-					// read-only the same day: recording a sale, tagging its animals,
-					// entering leads, quotes, tag lists and weight checks, and costing a
-					// load all happen here. It sits LAST because it is the desk you go to
-					// after reading the board, not the thing you open first.
-					navLeaf("sales-config", "Sales Config", "/sales/config", nil),
-				},
-			},
-			{
-				ID: "counts", Label: "Counts", Icon: "bar-chart-3", DefaultOpen: false,
-				Leaves: []domain.NavigationItem{
-					// Herd Analytics is the Counts leadership read: what the herd IS
-					// (breed, pen tag, sex, kid/adult) beside what MOVED it (births in,
-					// deaths and sales out, pen movements within), month by month.
-					navLeaf("counts-herd-analytics", "Herd Analytics", "/counts/analytics", nil),
-					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
-					// Herd Operations SOP: birth / death / shifting documents (SOP split,
-					// maintainer decision 2026-08-18 — see the PC group note).
-					navLeaf("counts-sops", "Herd Operations SOP", "/counts/sops", nil),
-					// Herd Register is HIDDEN from admin-web for now (maintainer decision
-					// 2026-08-20), the same way Feed Packing is hidden above: the
-					// /counts/herd page route stays reachable and its page contract is
-					// still compiled, so a deep link and every existing test keep working
-					// — only the left-bar leaf is withheld. Uncomment to restore it.
-					// navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
-				},
-			},
-			// Milk is its own vertical, split out of Counts here the same way it was split out of the
-			// phone's Counts module (maintainer decision 2026-07-31, bootstrap_copy.go "milk"): Counts
-			// owns the herd-register events (birth, death, shifting) while the kid-milk round is a daily
-			// operational routine sharing neither their grain nor their read models.
-			//
-			// The page KEEPS its /counts/milk-preparation href. This is a nav regrouping, not a route
-			// change — exactly as the mobile split did — so existing deep links, the page contract's
-			// route id, and the live-smoke route list all keep working.
-			{
-				ID: "milk", Label: "Milk", Icon: "milk", DefaultOpen: false,
+				ID: "others", Label: "Others", Icon: "edit-3", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeaf("milk-preparation", "Milk Preparation", "/counts/milk-preparation", nil),
-					// Milk SOP: preparation / feeding documents (SOP split extension,
-					// maintainer decision 2026-08-22 — same shape as the three 2026-08-18 routes).
 					navLeaf("milk-sops", "Milk SOP", "/milk/sops", nil),
-				},
-			},
-			// Weighing is its own vertical, owned by the Growth Director. Its icon must
-			// not be the syringe token (Vaccination) or bar-chart-3 (Counts): weights are
-			// a distinct operating domain, and Counts already owns the census chart token.
-			//
-			// Only the Weights read-out lives on admin-web. Planning, execution, proof
-			// capture and the verifier queue are phone surfaces and are deliberately NOT
-			// mirrored here — this is the oversight lens, not a second console.
-			// Herd Signals is a VERTICAL: BLE ear-tag telemetry from gateways, plus the
-			// gateway/coverage view. Live Monitor is its only admin-web leaf today.
-			// The tag reports a cumulative motion counter and radio/battery/tag-temperature
-			// readings -- never a behaviour, posture or clinical state.
-			{
-				ID: "herd-signals", Label: "Herd Signals", Icon: "radio-tower", DefaultOpen: false,
-				Leaves: []domain.NavigationItem{
 					navLeafDomain("herd-signals", "Live Monitor", "/herd-signals", "herd_signals.live", nil),
-				},
-			},
-			{
-				ID: "weighing", Label: "Weighing", Icon: "scale", DefaultOpen: false,
-				Leaves: []domain.NavigationItem{
-					navLeafDomain("weighing-weights", "Weights", "/weighing/weights", "weighing.weights", nil),
-					// Weights analytics: the same weighing facts cut six ways -- overall, by breed,
-					// by farm-born/purchased, by shed type, by weight band and by week. A SEPARATE leaf from Weights
-					// above rather than more cards on it: that page answers "what does the estate
-					// weigh today", this one answers "what is growing faster than what", and the
-					// second question wants the whole screen.
-					navLeafDomain("weighing-analytics", "Weights analytics", "/weighing/analytics", "weighing.analytics", nil),
-					// Weighing SOP: the scan-and-submit session document (SOP split extension,
-					// maintainer decision 2026-08-22 — same shape as the three 2026-08-18 routes).
-					navLeaf("weighing-sops", "Weighing SOP", "/weighing/sops", nil),
-				},
-			},
-			// Feed is a VERTICAL (business operating domain), alongside Preventive Care (PC),
-			// Procurement and Counts. Its icon must not be the syringe/injection token — that
-			// belongs to the Vaccination module under Preventive Care (PC).
-			//
-			// SCOPE NOTE — Feed Config is a Feed-owned authority screen. AGENTS.md forbids a
-			// vertical from nesting a duplicate of the top-level Admin/Data Ops Config screen
-			// (`/config`). `/feed/config` is NOT that duplicate and is approved by explicit
-			// maintainer decision: it authors the ration grid, shed factors, session template and
-			// schedule that ONLY Feed consumes, and `/config` stays the single generic
-			// protocol-rule authority screen. No other command lens (Control Tower, Action Center,
-			// Calendar, Protocol Adherence, Workflows) is duplicated under /feed.
-			{
-				ID: "feed", Label: "Feed", Icon: "wheat", DefaultOpen: false,
-				Leaves: []domain.NavigationItem{
-					navLeaf("feed-config", "Feed Config", "/feed/config", nil),
-					// Feed Analytics is the leadership read of the feed chain: directed
-					// quantities off the frozen sheet, execution adherence off the proof
-					// gates, and the trial arms. DIRECTED, never "consumed" — completions
-					// carry proofs, not weights (maintainer scope decision 2026-08-17).
-					navLeaf("feed-analytics", "Feed Analytics", "/feed/analytics", nil),
-					// Feed SOP: distribution / packing / transport documents (SOP split,
-					// maintainer decision 2026-08-18 — see the PC group note).
-					navLeaf("feed-sops", "Feed SOP", "/feed/sops", nil),
-					// Feed Direction is an app-only (operator + verifier) workflow — the operator
-					// captures the mandatory feed-distribution video + water proof per shed-session
-					// and a verifier approves it in the mobile verifier queue. It is deliberately not
-					// a web surface, so no "/feed/direction" left-bar leaf. The /feed/config
-					// authoring screen remains a web surface.
-					// Feed Packing is hidden from admin-web for everyone (maintainer decision
-					// 2026-07-27) — the /feed/packing page route stays reachable but is no longer
-					// surfaced in the left-bar nav. Uncomment to restore the leaf.
-					// navLeaf("feed-packing", "Feed Packing", "/feed/packing", nil),
-				},
-			},
-			// Health is a VERTICAL (diagnosis, treatment and veterinary care), and a DISTINCT
-			// department from Preventive Care -- merging the two is prohibited. Its icon must not
-			// be the syringe/injection token, which belongs to the Vaccination module under
-			// Preventive Care.
-			//
-			// SCOPE NOTE — Health Config is a Health-owned authority screen, approved by explicit
-			// maintainer decision 2026-08-06 (docs/decisions/health-config-authoring.md) as the
-			// SECOND entry in the module-surface exception list, alongside /feed/config. It is not
-			// a duplicate of the top-level Admin/Data Ops `/config`: a treatment protocol is a
-			// day-by-day medication document owned by the Health module and served by
-			// /health-config/*, not a protocol `rule_dsl` row, and `/config?category=health`
-			// cannot render a per-day medicine/dosage/route grid. `/config` stays the single
-			// generic protocol-rule authority screen, and no command lens (Control Tower, Action
-			// Center, Calendar, Protocol Adherence, Workflows) is duplicated under /health.
-			{
-				ID: "health", Label: "Health", Icon: "stethoscope", DefaultOpen: false,
-				Leaves: []domain.NavigationItem{
 					navLeaf("health-config", "Health Config", "/health/config", nil),
-					// Health treatment EXECUTION is an app-only (operator) workflow — the operator
-					// works the day's treatment sessions on the phone. It is deliberately not a web
-					// surface, so there is no "/health/work" leaf. The authoring screen is web.
-				},
-			},
-			{
-				ID: "admin-data", Label: "Admin / Data Ops", Icon: "edit-3", DefaultOpen: true,
-				Leaves: []domain.NavigationItem{
 					navLeafDomain("audit-log", "Audit Log", "/operations/audit", "admin.audit", nil),
 					navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
 					navLeafDomain("people", "People / HRMS", "/people", "admin.people", nil),
-					// The SOP Library leaf is gone: SOPs split to per-module pages (see the PC
-					// group note, maintainer decision 2026-08-18).
 				},
 			},
 		},

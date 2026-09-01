@@ -59,12 +59,6 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 	// sidebar page at all (Protocols & SOPs, Herd Register, Parks & Sheds). They add nothing
 	// visible, they carry reads he has always held, and Feed SOP opens instead of 403ing.
 	want := []string{
-		"/procurement/source-entry",
-		"/procurement/vendors",
-		"/procurement/feed-purchases",
-		// Sales moved to its own top-level vertical at /sales (maintainer decision
-		// 2026-08-27, landed on main while this branch was open), so it now sorts after
-		// the Procurement group rather than inside it.
 		"/sales",
 		// Purchase & born (maintainer decision 2026-08-31). It rides SalesRead, which this
 		// director already holds, and he is precisely the desk that records a load's landed
@@ -76,6 +70,12 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 		"/sales/config",
 		"/feed/analytics",
 		"/feed/sops",
+		// The role lens preserves the global top-level menu order (maintainer decision
+		// 2026-09-02): Counts, Weight, Sales, Feed, Preventive Care, Procurement, Others.
+		// This director has only Sales, Feed, and Procurement leaves from that sequence.
+		"/procurement/source-entry",
+		"/procurement/vendors",
+		"/procurement/feed-purchases",
 	}
 	got := leafHrefs(resp)
 	if len(got) != len(want) {
