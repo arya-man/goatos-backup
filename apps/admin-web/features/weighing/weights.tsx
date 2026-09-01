@@ -10,7 +10,7 @@ import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
+import { fmtDate, todayIso } from "@/lib/format";
 import { sharesOfWhole } from "@/lib/shares";
 import {
   firstAuthRequiredError,
@@ -259,21 +259,33 @@ export async function WeighingWeightsPage({
   const sexMetric = metric("sex_metric");
   const stageMetric = metric("stage_metric");
   const loadMetric = metric("load_metric");
+  const weighingCategoryFilter = modeFilter !== "all" ? modeFilter : "";
 
   // The window is business DAYS, not a clock offset: a weigh belongs to the Asia/Kolkata day it
   // happened on.
   const today = todayIso();
-  const window = await landingWindow(params, today, parkFilter, sexFilter);
+  const window = await landingWindow(
+    params,
+    today,
+    parkFilter,
+    sexFilter,
+    originFilter,
+    weighingCategoryFilter,
+  );
 
-  // EVERY read carries the Sex filter (maintainer, 2026-08-26). It is a page filter, not a card
-  // one: a page where the shed table counts every kid while the breed card counts the male half
-  // has no true number on it. That is also why this filter lives in the URL like Park and Period
-  // and costs a server render — unlike the grain switch it replaced, it changes what is fetched.
+  // EVERY read carries the same page scope. A page where the shed table counts one population
+  // while the KPI cards count another has no true number on it.
+  const scope = {
+    park_id: parkFilter || undefined,
+    sex: sexFilter || undefined,
+    origin: originFilter || undefined,
+    weighing_category: weighingCategoryFilter || undefined,
+  };
   const [weights, growth, demographics, growthDirector] = await Promise.all([
-    getShedWeights({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined, origin: originFilter || undefined }),
-    getWeighingGrowth({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined, origin: originFilter || undefined }),
-    getWeightDemographics({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined, origin: originFilter || undefined }),
-    getGrowthDirector({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined, origin: originFilter || undefined }),
+    getShedWeights({ ...scope, ...window }),
+    getWeighingGrowth({ ...scope, ...window }),
+    getWeightDemographics({ ...scope, ...window }),
+    getGrowthDirector({ ...scope, ...window }),
   ]);
 
   if (firstAuthRequiredError(weights, growth, demographics, growthDirector))
@@ -296,9 +308,8 @@ export async function WeighingWeightsPage({
     period_end: periodEnd,
   } = weights.data;
 
-  // Mode narrowing changes the TABLE and CHART only. The KPI cards keep reporting the backend's
-  // whole-filter truth — recomputing a card from the visible slice is the capped read-time rollup
-  // anti-pattern and would make the cards disagree with the table.
+  // The backend owns the mode filter for every aggregate. This defensive row narrowing keeps the
+  // bounded table aligned if an older backend ever returns a broader row set.
   const weighedRows = rows.filter((row) => row.animals_weighed > 0);
   const visibleRows =
     modeFilter === "all" ? weighedRows : weighedRows.filter((row) => row.weighing_category === modeFilter);
@@ -318,7 +329,7 @@ export async function WeighingWeightsPage({
             // The per-park gain cards carry the filter too. They were the one read that did not,
             // and the page then showed a filtered headline above two unfiltered park cards — three
             // numbers about three different populations, side by side, with nothing saying so.
-            const result = await getWeighingGrowth({ park_id: park.park_id, ...window, sex: sexFilter || undefined, origin: originFilter || undefined });
+            const result = await getWeighingGrowth({ ...scope, ...window, park_id: park.park_id });
             const headline = result.ok ? result.data.headline : null;
             return {
               name: park.name,

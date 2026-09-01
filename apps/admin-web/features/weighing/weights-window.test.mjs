@@ -32,6 +32,8 @@ test("the page lands on 2026-08-03 through the latest weighing when no period is
   assert.match(landingSource, /export async function landingWindow/);
   assert.match(landingSource, /getWeighingDates\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*\.\.\.lookback,/);
   assert.match(landingSource, /sex: sexFilter \|\| undefined,/);
+  assert.match(landingSource, /origin: originFilter \|\| undefined,/);
+  assert.match(landingSource, /weighing_category: weighingCategoryFilter \|\| undefined,/);
   assert.doesNotMatch(landingSource, /dates\[dates\.length - 2\]/);
   assert.match(landingSource, /from: DEFAULT_WINDOW_FROM > today \? today : DEFAULT_WINDOW_FROM,/);
   // THE END IS NOT A LUMP DATE. On 25 Aug 2026 the farm scanned 199 kids across 17 sheds and weighed
@@ -73,7 +75,7 @@ test("analytics tab changes expose a visible pending state", () => {
   assert.doesNotMatch(segmentedLinksSource, /metricseg-status/);
   assert.match(segmentedLinksSource, /metricseg:navigate/);
   assert.match(segmentedLinksSource, /aria-busy=\{isPending\}/);
-  assert.match(analyticsSource, /<WeightsAnalyticsTabLoading currentTab=\{tab\} \/>/);
+  assert.match(analyticsSource, /<WeightsAnalyticsTabLoading[\s\S]*currentTab=\{tab\}[\s\S]*tabLabels=\{/);
   assert.match(analyticsSource, /className="wt-tab-live"/);
   assert.match(analyticsTabLoadingSource, /window\.addEventListener\("metricseg:navigate"/);
   assert.match(analyticsTabLoadingSource, /classList\.add\("wt-tab-switching"\)/);
@@ -86,11 +88,24 @@ test("analytics tab changes expose a visible pending state", () => {
 
 test("weights analytics sends the weighing mode through every tab read", () => {
   assert.doesNotMatch(analyticsSource, /WEIGHING_FILTER_TABS/);
-  assert.match(analyticsSource, /weighing_category: modeFilter !== "all" \? modeFilter : undefined/);
+  assert.match(analyticsSource, /const weighingCategoryFilter = modeFilter !== "all" \? modeFilter : "";/);
+  assert.match(analyticsSource, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
+  assert.match(analyticsSource, /weighing_category: weighingCategoryFilter \|\| undefined/);
   assert.match(analyticsSource, /getShedWeights\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
   assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
   assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
   assert.match(analyticsSource, /weighingCategory=\{modeFilter !== "all" \? modeFilter : undefined\}/);
+});
+
+test("weights page sends the weighing mode through every backend read", () => {
+  assert.match(source, /const weighingCategoryFilter = modeFilter !== "all" \? modeFilter : "";/);
+  assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
+  assert.match(source, /weighing_category: weighingCategoryFilter \|\| undefined/);
+  assert.match(source, /getShedWeights\(\{ \.\.\.scope, \.\.\.window \}\)/);
+  assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window \}\)/);
+  assert.match(source, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.window \}\)/);
+  assert.match(source, /getGrowthDirector\(\{ \.\.\.scope, \.\.\.window \}\)/);
+  assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, park_id: park\.park_id \}\)/);
 });
 
 test("the default window is passed as NAMED fields, never spread", () => {

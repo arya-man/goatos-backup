@@ -56,6 +56,8 @@ export async function landingWindow(
   today: string,
   parkID: string,
   sexFilter: string,
+  originFilter = "",
+  weighingCategoryFilter = "",
 ): Promise<Window> {
   const selected = explicitWindow(params, today);
   if (selected) return selected;
@@ -64,9 +66,8 @@ export async function landingWindow(
     from: istDayPlus(today, -(LATEST_LUMP_LOOKBACK_DAYS - 1)),
     to: today,
   };
-  // Same sex scope as the page reads below. Now that an absent `sex` means Male, the default
-  // landing window must be chosen from the male herd too; explicit `sex=all` still reaches this
-  // helper as "", which preserves the old all-kid lookup.
+  // Same page-level scope as the reads below. Now that absent filters can have meaning, the
+  // default landing window must be chosen from the exact herd slice the page will render.
   // The NARROW read, not getShedWeights. This lookback spans 400 days, and the full shed read runs
   // four queries over it -- the shed table, per-load growth, the summary -- of which this function
   // uses exactly two date fields. Locally that was ~570ms against ~140ms for the real windowed
@@ -77,6 +78,8 @@ export async function landingWindow(
     park_id: parkID || undefined,
     ...lookback,
     sex: sexFilter || undefined,
+    origin: originFilter || undefined,
+    weighing_category: weighingCategoryFilter || undefined,
   });
   if (!result.ok) return defaultWindow(today);
 

@@ -18,11 +18,11 @@ test("weights page fetches growth director inside the existing Promise.all", () 
   assert.ok(promiseAll, "weights.tsx must keep a single Promise.all request plan");
   assert.match(
     promiseAll[0],
-    /getGrowthDirector\(\{ park_id: parkFilter \|\| undefined, \.\.\.window, sex: sexFilter \|\| undefined, origin: originFilter \|\| undefined \}\)/,
-    // The Sex and Origin filters ride along too. They govern the WHOLE page, so a Growth Director
+    /getGrowthDirector\(\{ \.\.\.scope, \.\.\.window \}\)/,
+    // Sex, Origin and weighing mode ride along too. They govern the WHOLE page, so a Growth Director
     // block reporting a different cohort would put two populations side by side with nothing
     // saying so -- the same defect the headline and the gain charts had.
-    "getGrowthDirector must ride the same park/period/sex/origin filter as the other reads, inside Promise.all",
+    "getGrowthDirector must ride the same park/period/sex/origin/weighing filter as the other reads, inside Promise.all",
   );
 });
 

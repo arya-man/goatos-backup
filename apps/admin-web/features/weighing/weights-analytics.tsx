@@ -123,7 +123,15 @@ export async function WeighingWeightsAnalyticsPage({
   const offset = boundedOffset(one(params, "offset"));
 
   const today = todayIso();
-  const window = await landingWindow(params, today, parkFilter, sexFilter);
+  const weighingCategoryFilter = modeFilter !== "all" ? modeFilter : "";
+  const window = await landingWindow(
+    params,
+    today,
+    parkFilter,
+    sexFilter,
+    originFilter,
+    weighingCategoryFilter,
+  );
   // Every tab reads the same selected/default period, including Time-wise. That keeps the tab strip
   // as slices of one population instead of silently changing the date range under the reader.
   const readWindow = window;
@@ -132,7 +140,7 @@ export async function WeighingWeightsAnalyticsPage({
     park_id: parkFilter || undefined,
     sex: sexFilter || undefined,
     origin: originFilter || undefined,
-    weighing_category: modeFilter !== "all" ? modeFilter : undefined,
+    weighing_category: weighingCategoryFilter || undefined,
   };
 
   // Every tab needs the shed read: it carries the park vocabulary the filter bar renders, plus
@@ -315,7 +323,10 @@ export async function WeighingWeightsAnalyticsPage({
           }))}
         />
       </div>
-      <WeightsAnalyticsTabLoading currentTab={tab} />
+      <WeightsAnalyticsTabLoading
+        currentTab={tab}
+        tabLabels={Object.fromEntries(TABS.map((name) => [name, copy(pageContract, `tab.${name}`)]))}
+      />
 
       <p className="muted small" style={{ margin: "0 0 -4px" }}>
         {copy(pageContract, "kpi.sheds.label")}: {summary.sheds_weighed} / {summary.sheds_in_scope}

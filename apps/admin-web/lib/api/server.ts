@@ -928,6 +928,7 @@ export async function getGrowthDirector(params: {
    * scanned weigh taken in the same pen are on the same side of it.
    */
   origin?: string;
+  weighing_category?: string;
 }): Promise<ApiResult<GrowthDirectorWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
