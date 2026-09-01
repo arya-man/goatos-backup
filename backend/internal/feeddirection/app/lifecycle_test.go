@@ -793,7 +793,7 @@ func TestAfternoonCorrectionNeverReopensExperimentPacking(t *testing.T) {
 	// below passes for the wrong reason -- it would pass with the exemption deleted.
 	svc.config.(*fakeConfigRepo).snapshot.ExperimentByLocation = map[string][]domain.ExperimentCell{
 		domain.ExperimentLocationKey(shedB, ""): {
-			{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "12.000"},
+			{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: domain.ExperimentBasisAbsoluteKg, AbsoluteKg: "12.000"},
 		},
 	}
 	ctx := context.Background()

@@ -565,15 +565,20 @@ func (r *Repository) ListExperimentConfig(ctx context.Context, q domain.Experime
             SELECT feed_config_norm(item) FROM unnest($7::text[]) AS t(item)))
       AND ($8::text IS NULL OR feed_config_norm(c.experiment_category) = feed_config_norm($8))
       AND ($9::text IS NULL OR CASE $9::text
-            WHEN 'gt'  THEN c.absolute_kg >  $10::numeric
-            WHEN 'gte' THEN c.absolute_kg >= $10::numeric
-            WHEN 'eq'  THEN c.absolute_kg =  $10::numeric
-            WHEN 'lte' THEN c.absolute_kg <= $10::numeric
-            WHEN 'lt'  THEN c.absolute_kg <  $10::numeric
-            WHEN 'neq' THEN c.absolute_kg <> $10::numeric
+            WHEN 'gt'  THEN c.grams_per_head >  $10::numeric
+            WHEN 'gte' THEN c.grams_per_head >= $10::numeric
+            WHEN 'eq'  THEN c.grams_per_head =  $10::numeric
+            WHEN 'lte' THEN c.grams_per_head <= $10::numeric
+            WHEN 'lt'  THEN c.grams_per_head <  $10::numeric
+            WHEN 'neq' THEN c.grams_per_head <> $10::numeric
           END)`
+	// The quantity filter asks a question in GRAMS PER ANIMAL, so a legacy pen-total cell (whose
+	// grams_per_head is NULL) is claimed by neither side of it and drops out while the filter is on.
+	// That is deliberate: its authored number is kg for a whole pen, and comparing it against a
+	// per-animal figure would put two different units in one predicate. It is still listed, and still
+	// counted, in the unfiltered view. See ExperimentConfigQuery.GramsCompare.
 
-	// projection-review: membership=distinct authored tenant/park/shed/partition keys matching the requested park, shed, status, feed-item, arm and absolute-kg filters; group_key=(park_id,shed_id,partition_key) operational pen; join_cardinality=each ranked pen joins 1:N authored feed-item cells through the complete natural pen key and each location join is 0:1; pagination=rank and page complete pens before joining their cells so limit/offset are pen units and has_more comes from the full filtered pen count; scope=tenant is mandatory with optional exact park/shed/status filters and cell-level feed-item/arm/kg filters applied IDENTICALLY (one shared const predicate) to the pen membership set and to the returned cells, so the paged pen count and the returned rows range over the same key set
+	// projection-review: membership=distinct authored tenant/park/shed/partition keys matching the requested park, shed, status, feed-item, arm and grams filters, plus a live pen census joined for display only; group_key=(park_id,shed_id,partition_key) operational pen for the page and (tenant_id,shed_id,COALESCE(partition_label,'')) for the census, which is that same pen identity so every cell of a pen reads one count; join_cardinality=each ranked pen joins 1:N authored feed-item cells through the complete natural pen key, each location join is 0:1, goats to goat_shed_partitions is 0:1 on its (tenant_id,goat_id) PK so no animal is counted twice, and the census is LEFT JOINed so an empty pen reports 0 rather than dropping; pagination=rank and page complete pens before joining their cells so limit/offset are pen units and has_more comes from the full filtered pen count, with the census outside the ranking so it can never change which pens a page holds; scope=tenant is mandatory with optional exact park/shed/status filters and cell-level feed-item/arm/grams filters applied IDENTICALLY (one shared const predicate) to the pen membership set and to the returned cells, so the paged pen count and the returned rows range over the same key set
 	query := `
 WITH ranked_pens AS (
   SELECT p.*,
@@ -612,8 +617,10 @@ SELECT c.experiment_config_id::text,
        COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
        COALESCE(c.partition_label, '') AS partition_label,
        c.feed_item_label,
-       c.absolute_kg::text,
-       c.head_count,
+       c.quantity_basis,
+       COALESCE(c.grams_per_head::text, ''),
+       COALESCE(c.absolute_kg::text, ''),
+       COALESCE(live.live_head_count, 0) AS live_head_count,
        c.experiment_category,
        c.status,
        p.has_more
@@ -625,6 +632,32 @@ JOIN feed_experiment_config c
 LEFT JOIN locations shed
        ON shed.tenant_id = c.tenant_id
       AND shed.location_id = c.shed_id
+-- THE PEN'S LIVE POPULATION, which is the only count this screen shows (maintainer instruction
+-- 2026-09-01: "use live only, forget recorded"). It is the same fact the feed sheet multiplies the
+-- authored rate by, read here so the screen and the sheet cannot disagree about how many animals a
+-- pen holds; the stored head_count is a stale typed figure and is no longer read.
+--
+-- LEFT JOIN with COALESCE(...,0): a pen with no live residents is a real, empty pen -- an experiment
+-- can be configured before the animals arrive -- so it reports 0 rather than dropping off the
+-- author's screen.
+--
+-- Grouped ONCE over the herd rather than counted per cell: this page lists up to 200 cells across
+-- ~35 pens, and a correlated count would re-scan the same animals for every one of them.
+LEFT JOIN (
+    SELECT g.tenant_id,
+           g.shed_id,
+           COALESCE(gp.partition_label, '') AS partition_label,
+           count(*) AS live_head_count
+    FROM goats g
+    LEFT JOIN goat_shed_partitions gp
+           ON gp.tenant_id = g.tenant_id AND gp.goat_id = g.goat_id
+    WHERE g.tenant_id = $1::uuid
+      AND g.lifecycle_status = 'alive'
+    GROUP BY 1, 2, 3
+) live
+       ON live.tenant_id = c.tenant_id
+      AND live.shed_id = c.shed_id
+      AND live.partition_label = COALESCE(c.partition_label, '')
 WHERE c.tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
   AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
@@ -633,9 +666,9 @@ WHERE c.tenant_id = $1::uuid
 ORDER BY p.pen_number, c.feed_item_key, c.experiment_config_id`
 
 	var kgOp, kgValue *string
-	if q.KgCompare != nil {
-		op := string(q.KgCompare.Op)
-		value := q.KgCompare.Value
+	if q.GramsCompare != nil {
+		op := string(q.GramsCompare.Op)
+		value := q.GramsCompare.Value
 		kgOp, kgValue = &op, &value
 	}
 	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID),
@@ -653,15 +686,12 @@ ORDER BY p.pen_number, c.feed_item_key, c.experiment_config_id`
 	for rows.Next() {
 		var item domain.ExperimentConfig
 		var hasMore bool
-		// head_count stays a pointer all the way to the wire: NULL means the population was not
-		// recorded alongside the quantity, and rendering that as 0 would state the shed is empty.
-		var headCount *int32
 		if err := rows.Scan(&item.ExperimentConfigID, &item.ParkID, &item.ParkName, &item.ShedID,
 			&item.ShedName, &item.PartitionLabel, &item.FeedItemLabel,
-			&item.AbsoluteKg, &headCount, &item.ExperimentCategory, &item.Status, &hasMore); err != nil {
+			&item.QuantityBasis, &item.GramsPerHead, &item.AbsoluteKg,
+			&item.LiveHeadCount, &item.ExperimentCategory, &item.Status, &hasMore); err != nil {
 			return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: scan experiment config: %w", err)
 		}
-		item.HeadCount = headCount
 		// Compose through oploc so this screen reads identically to every other surface, and so the
 		// 'whole' sentinel can never reach a client. Constructed from the row's OWN authored label
 		// rather than ResolveShedLocation, whose agree-or-go-bare rule is for inferring a shed's
@@ -724,10 +754,10 @@ SELECT EXISTS (
 		}
 
 		items := make([]string, 0, len(cmd.Cells))
-		kgs := make([]string, 0, len(cmd.Cells))
+		grams := make([]string, 0, len(cmd.Cells))
 		for _, cell := range cmd.Cells {
 			items = append(items, cell.FeedItemLabel)
-			kgs = append(kgs, cell.AbsoluteKg)
+			grams = append(grams, cell.GramsPerHead)
 		}
 
 		// RETURNING every affected row id, ordered by the generated feed_item_key so the ledger's
@@ -735,13 +765,14 @@ SELECT EXISTS (
 		// happened to touch first.
 		rows, err := tx.Query(ctx, `
 INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label, feed_item_label,
-                                    absolute_kg, head_count, experiment_category, status, created_by)
+                                    quantity_basis, grams_per_head, experiment_category,
+                                    status, source, created_by)
 SELECT $1::uuid, $2::uuid, $3::uuid, nullif(btrim($4),''), cell.item,
-       cell.kg::numeric, $5, $6, 'active', nullif($7,'')::uuid
-FROM unnest($8::text[], $9::text[]) AS cell(item, kg)
+       'grams_per_head', cell.grams::numeric, $5, 'active', 'app', nullif($6,'')::uuid
+FROM unnest($7::text[], $8::text[]) AS cell(item, grams)
 RETURNING experiment_config_id::text, feed_item_key`,
 			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel,
-			cmd.HeadCount, cmd.ExperimentCategory, actorUUID(cmd.ActorRef), items, kgs)
+			cmd.ExperimentCategory, actorUUID(cmd.ActorRef), items, grams)
 		if err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: batch upsert experiment config: %w", err)
 		}
@@ -1486,7 +1517,13 @@ RETURNING feed_schedule_config_id::text`,
 	})
 }
 
-// UpsertExperimentConfig authors one experiment shed's ABSOLUTE kg of one feed item.
+// UpsertExperimentConfig authors one experiment pen's GRAMS PER ANIMAL of one feed item.
+//
+// AN EDIT MOVES THE ROW ONTO THE PER-ANIMAL BASIS, and that is the point of it. A cell authored
+// before 2026-09-01 holds an absolute pen total; the author who opens it is typing grams per animal,
+// so the update writes grams_per_head, clears absolute_kg and stamps the basis in ONE statement. The
+// table's pairing CHECK is what makes that atomic in the strict sense -- a half-applied edit leaving
+// both figures present cannot commit at all, so the row can never carry two answers.
 //
 // TWO-WAY, NOT THREE-WAY. feed_experiment_config has no valid_from/valid_to (see migration 000006),
 // so there is no close-and-open branch here and no 'superseded' outcome: an existing row is
@@ -1535,16 +1572,16 @@ SELECT EXISTS (
 		// partitionKeyMatch renders the generated column's OWN expression rather than a Go twin of
 		// it, so the predicate and the index cannot disagree; see that function for the drift this
 		// replaced, which made 130 of 175 authored cells un-editable.
-		var openID, openKg, openCategory, openStatus string
+		var openID, openBasis, openGrams, openCategory, openStatus string
 		var openHeadCount *int32
 		err := tx.QueryRow(ctx, `
-SELECT experiment_config_id::text, absolute_kg::text, head_count, experiment_category, status
+SELECT experiment_config_id::text, quantity_basis, COALESCE(grams_per_head::text, ''), head_count, experiment_category, status
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = `+partitionKeyMatch("$5")+`
   AND feed_item_key = feed_config_norm($4)
 FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.PartitionLabel).
-			Scan(&openID, &openKg, &openHeadCount, &openCategory, &openStatus)
+			Scan(&openID, &openBasis, &openGrams, &openHeadCount, &openCategory, &openStatus)
 
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
@@ -1556,11 +1593,12 @@ FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.Partit
 			// to the 'whole' sentinel, quietly creating a shed-wide row beside the real pens.
 			if err := tx.QueryRow(ctx, `
 INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label, feed_item_label,
-                                    absolute_kg, head_count, experiment_category, status, created_by)
-VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($9,''), $4, $5::numeric, $6, $7, 'active', nullif($8,'')::uuid)
+                                    quantity_basis, grams_per_head, experiment_category,
+                                    status, source, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($8,''), $4, 'grams_per_head', $5::numeric, $6, 'active', 'app', nullif($7,'')::uuid)
 RETURNING experiment_config_id::text`,
-				cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.AbsoluteKg,
-				cmd.HeadCount, cmd.ExperimentCategory, actorUUID(cmd.ActorRef),
+				cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.GramsPerHead,
+				cmd.ExperimentCategory, actorUUID(cmd.ActorRef),
 				strings.TrimSpace(cmd.PartitionLabel)).Scan(&newID); err != nil {
 				return writeEffect{}, fmt.Errorf("feedconfig: insert experiment config: %w", err)
 			}
@@ -1570,10 +1608,10 @@ RETURNING experiment_config_id::text`,
 			if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel); err != nil {
 				return writeEffect{}, err
 			}
-			// CR-07: sync shed-level metadata to every OTHER row of this shed. head_count and
-			// experiment_category are shed-level facts (see syncExperimentShedMetadata), not
-			// per-item ones, even though this table stores one row per (shed, feed item).
-			if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel, newID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
+			// CR-07: sync the shed-level fact to every OTHER row of this shed. The arm describes the
+			// PEN (see syncExperimentShedMetadata), not the item, even though this table stores one
+			// row per (shed, feed item).
+			if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel, newID, cmd.ExperimentCategory); err != nil {
 				return writeEffect{}, err
 			}
 			return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: newID}, nil
@@ -1581,27 +1619,38 @@ RETURNING experiment_config_id::text`,
 			return writeEffect{}, fmt.Errorf("feedconfig: lock experiment config: %w", err)
 		}
 
-		// EVERY field is compared, status included. Comparing only the quantity would report
+		// EVERY field is compared, status and BASIS included. Comparing only the quantity would report
 		// "unchanged" for an edit that re-enrolled a withdrawn shed — which is a change of workflow,
-		// the largest change this screen can make.
-		if openKg == cmd.AbsoluteKg && openCategory == cmd.ExperimentCategory &&
-			openStatus == domain.ExperimentStatusActive && int32PtrEqual(openHeadCount, cmd.HeadCount) {
+		// the largest change this screen can make. The basis carries the same weight: a legacy cell
+		// re-authored as the same NUMBER in grams per animal is a completely different instruction
+		// (350 kg for the pen versus 350 g for each animal in it), so "12.000 == 12.000" must not
+		// short-circuit an edit that is changing what the figure MEANS.
+		if openBasis == domain.ExperimentBasisGramsPerHead && openGrams == cmd.GramsPerHead &&
+			openCategory == cmd.ExperimentCategory &&
+			openStatus == domain.ExperimentStatusActive {
 			return writeEffect{Outcome: domain.OutcomeUnchanged, ResultRowID: openID}, nil
 		}
 		if _, err := tx.Exec(ctx, `
 UPDATE feed_experiment_config
-SET absolute_kg = $2::numeric,
-    head_count = $3,
-    experiment_category = $4,
+SET quantity_basis = 'grams_per_head',
+    grams_per_head = $2::numeric,
+    absolute_kg = NULL,
+    -- head_count is deliberately NOT written. It is now provenance for what migration 000238
+    -- divided by; the count anything reads is the pen's LIVE population, and blanking the stored
+    -- one on an ordinary quantity edit would destroy that record for nothing.
+    experiment_category = $3,
     status = 'active',
+    -- A hand edit CLAIMS the row. The workbook seeder re-asserts its own rows on every run, so
+    -- leaving this 'workbook' would let the next seed quietly discard the rate the farm just typed.
+    source = 'app',
     updated_at = now()
 WHERE experiment_config_id = $1::uuid`,
-			openID, cmd.AbsoluteKg, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
+			openID, cmd.GramsPerHead, cmd.ExperimentCategory); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: correct experiment config: %w", err)
 		}
 		// CR-07: sync shed-level metadata to every OTHER row of this shed (see
 		// syncExperimentShedMetadata and the insert branch above).
-		if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel, openID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
+		if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel, openID, cmd.ExperimentCategory); err != nil {
 			return writeEffect{}, err
 		}
 		// ROOT-CAUSE FIX (P1 follow-up): editing ONE cell of a retired shed must not leave the
@@ -1645,21 +1694,20 @@ WHERE experiment_config_id = $1::uuid`,
 // Called from the SAME transaction as the per-cell insert/update, immediately after it, so the
 // pen's rows are consistent by the time the transaction commits -- there is never a window where a
 // reader sees the edited cell's new metadata beside a sibling's old metadata.
-func syncExperimentShedMetadata(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, partitionLabel, editedRowID string, headCount *int32, category string) error {
+func syncExperimentShedMetadata(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, partitionLabel, editedRowID, category string) error {
 	// Takes the raw authored LABEL and normalizes in SQL, for the reason given on
 	// partitionKeyMatch: the Go twin this used to be handed disagreed with the generated column for
 	// any pen whose label carries a separator, so this sync silently updated NO sibling rows on
 	// exactly the pens that have them.
 	if _, err := tx.Exec(ctx, `
 UPDATE feed_experiment_config
-SET head_count = $5,
-    experiment_category = $6,
+SET experiment_category = $5,
     updated_at = now()
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
-  AND partition_key = `+partitionKeyMatch("$7")+`
+  AND partition_key = `+partitionKeyMatch("$6")+`
   AND experiment_config_id <> $4::uuid
-  AND (head_count IS DISTINCT FROM $5 OR experiment_category IS DISTINCT FROM $6)`,
-		tenantID, parkID, shedID, editedRowID, headCount, category, partitionLabel); err != nil {
+  AND experiment_category IS DISTINCT FROM $5`,
+		tenantID, parkID, shedID, editedRowID, category, partitionLabel); err != nil {
 		return fmt.Errorf("feedconfig: sync experiment pen metadata: %w", err)
 	}
 	return nil

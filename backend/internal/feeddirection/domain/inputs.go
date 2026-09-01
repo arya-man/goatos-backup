@@ -58,17 +58,40 @@ type SessionTemplate struct {
 	Items []FeedItem
 }
 
-// ExperimentCell is one hand-authored absolute quantity for an experiment shed.
+// ExperimentCell is one hand-authored quantity for an experiment pen.
 //
-// AbsoluteKg is a SHED TOTAL in kg, already covering every animal in the shed. It is NOT a
-// per-head rate and must never be multiplied by head count -- doing so would overfeed the shed by
-// a factor of its population. See the experiment planner.
+// TWO BASES LIVE HERE AND THEY MEAN OPPOSITE THINGS ABOUT HEAD COUNT. Basis names which:
+//
+//	ExperimentBasisGramsPerHead  GramsPerHead is a PER-ANIMAL rate, multiplied by the pen's live
+//	                             projected head count (maintainer decision 2026-09-01, the basis
+//	                             every newly authored cell uses).
+//	ExperimentBasisAbsoluteKg    AbsoluteKg is a PEN TOTAL in kg, already covering every animal, and
+//	                             must never be multiplied by head count -- doing so would overfeed
+//	                             the pen by a factor of its population.
+//
+// Exactly one of the two figures is populated, which the table's own pairing CHECK guarantees, so
+// the planner reads Basis and never has to guess from an empty string. A pen may hold cells of both
+// bases while it is being re-authored; the basis is per cell precisely so that re-entering one item
+// cannot reinterpret the others.
 type ExperimentCell struct {
 	FeedItemLabel string
 	FeedItemKey   string
-	AbsoluteKg    string
-	Category      string
+	// Basis is one of the ExperimentBasis* constants. An unrecognized value BLOCKS the cell rather
+	// than falling back to either reading: the two are off by the pen's whole population, so a
+	// default here is a feeding error whichever one is chosen.
+	Basis        string
+	AbsoluteKg   string
+	GramsPerHead string
+	Category     string
 }
+
+// Experiment quantity bases, mirroring feed_experiment_config.quantity_basis.
+const (
+	// ExperimentBasisGramsPerHead is the current authoring basis: grams per animal per day.
+	ExperimentBasisGramsPerHead = "grams_per_head"
+	// ExperimentBasisAbsoluteKg is the legacy basis: an absolute pen total in kg, never scaled.
+	ExperimentBasisAbsoluteKg = "absolute_kg"
+)
 
 // ConfigSnapshot is everything authored that one park's generation needs, read once.
 //

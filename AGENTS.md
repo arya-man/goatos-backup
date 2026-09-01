@@ -1272,6 +1272,59 @@ migration `000206_feed_purchases_app_entry.sql`. Pinned by
 holds every feed permission there is, so enabling the control from a broader key turns it red),
 `TestFeedPurchaseRolePermissions` and `TestFeedPurchaseRoutesAreGatedOnTheDedicatedPermissions`.
 
+Confirmed EXPERIMENT FEED IS AUTHORED PER ANIMAL (maintainer decision 2026-09-01,
+SUPERSEDING the "absolute_kg is a shed total and head_count is never a multiplier"
+rule for every NEWLY authored cell, and only for those): an experiment pen is still
+hand-entered cell by cell with no ration grid involved — only the question each cell
+answers changed. `grams_per_head` is what ONE animal gets, and the feed sheet
+multiplies it by the pen's LIVE projected head count, the same count the ration grid
+uses. The pen's shed factor is deliberately NOT applied: an experiment quantity is
+grams x head count and nothing else.
+
+`feed_experiment_config.head_count` STAYS INFORMATIONAL and is still never a
+multiplier — it records the population the author had in mind, and scaling by it would
+freeze a pen's quantity at the count typed on the day it was authored.
+
+THE EXISTING VALUES ARE SEEDED ACROSS (maintainer instruction the same day, REPLACING
+an earlier "no previously authored data changes" answer in the same conversation):
+migration `000238` converts every legacy cell in place as
+`grams = trunc(kg x 1000 / the pen's LIVE resident count, 3)`.
+
+USE LIVE ONLY, FORGET RECORDED (maintainer instruction, same day, and it governs the
+whole module). `feed_experiment_config.head_count` — a figure an author once typed beside
+the quantity — is no longer read, written, asked for or shown; it disagreed with the
+actual population on 15 of 34 pens and nothing maintained it. It survives only as
+provenance for what the conversion divided by. Every count anything shows or multiplies
+by is the pen's LIVE population: the sheet's, and the Feed Config screen's `live_head_count`,
+resolved per request from the herd register. Dividing the conversion by the live count is
+also what makes it SAFE — the rate back-multiplies by the number it was divided by, so no
+pen's feed moves on conversion day; from tomorrow the total follows the animals. A pen with
+NO live animals has no denominator and stays on the legacy basis. The rate is TRUNCATED,
+never rounded to nearest: the generator rounds a session quantity UP to a packable 0.1 kg,
+so a rate a hair above exact lifts an unchanged pen's sheet by a notch.
+`feed_experiment_basis_conversions` keeps every conversion's inputs — including the live
+count, which nobody could reconstruct later — so the arithmetic is auditable and the Down
+path exact.
+
+The table still carries two figures and a `quantity_basis` naming which one a row holds:
+a row with NO usable count cannot be converted and stays legacy, and the basis is per
+CELL. The two readings differ by the pen's ENTIRE POPULATION, so a cell whose basis
+cannot be read BLOCKS rather than resolving to either number. Every write authors the
+per-animal basis; there is no route that writes a pen total any more. The workbook seeder
+converts on the way in with the SAME truncated arithmetic and the SAME live denominator (a
+migrated database and a seeded one must land on identical rates), falling back to the
+workbook's own count only for a pen with no live animals — otherwise the ORDER of two seed
+commands would decide whether feed config lands at all. It skips any cell stamped
+`source = 'app'`, so a re-seed cannot discard a rate the farm corrected on screen.
+
+Canonical prose: `docs/decisions/feed-experiment-per-animal.md`; schema: migration
+`000237_feed_experiment_grams_per_head.sql`; rulebook:
+`feeddirection/domain.ExperimentPlanner`. Pinned by
+`TestExperimentStrategyMultipliesGramsPerHeadByTheLiveHeadCount`,
+`TestExperimentPenMixingBothBasesReadsEachCellOnItsOwnBasis` and
+`TestExperimentCellWithUnknownBasisBlocksRatherThanGuessing`, with the legacy
+`TestExperimentStrategyUsesAbsoluteKgAndIgnoresHeadCount` kept unchanged beside them.
+
 Confirmed feed-PACKING SHED-SESSION grain (maintainer decision 2026-08-11,
 REVERTING the 2026-08-10 PEN-DAY grain in full and restoring the shed-SESSION grain
 of the packing gate below): a pen's morning and evening shares are TWO SEPARATE
@@ -1785,10 +1838,15 @@ Three parts, and each narrowing is load-bearing:
    so a partial reopen would leave one bag packed for a head count the farm no
    longer has. `ReopenPackingForFeedChange` names pens WITHOUT a session and applies
    no session predicate.
-3. **Two narrowings that must not be widened.** *Experiment is EXEMPT* — its
-   rations are authored as absolute kg per pen, so a head-count change moves no
-   quantity there and reopening one would discard a good video for a sheet that
-   did not change. *HEAD COUNT ONLY, PER PEN* — `AffectedShedIDs` also fires for a
+3. **Two narrowings that must not be widened.** *Experiment is EXEMPT* — and as of
+   the 2026-09-01 per-animal decision below, that is a KEPT TRADE rather than an
+   arithmetic fact. Its rations used to be absolute kg per pen, so a head-count
+   change moved no quantity there and reopening one would have discarded a good
+   video for a sheet that did not change. Experiment cells are now authored as
+   grams per animal and DO move with the head count; the maintainer was shown that
+   consequence and kept the exemption, accepting that an experiment pen whose count
+   moves between packing and the correction keeps a video proving the
+   pre-correction quantity. *HEAD COUNT ONLY, PER PEN* — `AffectedShedIDs` also fires for a
    relabelled ration group and is shed-wide, so driving the reopen from it would
    make the packers of Castro 1 and Castro 3 refilm because Castro 2 gained
    animals. Making an operator refilm is expensive; it is spent only where the

@@ -525,16 +525,21 @@ LIMIT $4`, tenantID, parkID, asOfDate, MaxSessionItemRows+1)
 	return nil
 }
 
-// loadExperiments reads the park's hand-authored experiment sheds.
+// loadExperiments reads the park's hand-authored experiment pens.
 //
-// absolute_kg is a SHED TOTAL in kg and head_count is informational -- see
-// domain.ExperimentPlanner. head_count is not even read here, so it cannot be multiplied in by
-// accident: the projected count from the counts module is the only head figure the generator sees,
-// and the experiment planner flags it informational.
+// BOTH BASES ARE READ AND THE BASIS COMES WITH THEM. grams_per_head is a per-animal rate the
+// planner multiplies by the pen's live projected count; absolute_kg is a legacy PEN TOTAL that is
+// never multiplied. Which is which is a stored fact, never inferred from whichever column happens
+// to be non-null, so a row that somehow carried both could not silently read as the cheaper one.
+//
+// head_count is still not read here, so it cannot become a multiplier by accident: the projected
+// count from the counts module remains the only head figure the generator sees. See
+// domain.ExperimentPlanner.
 func (r *Repository) loadExperiments(ctx context.Context, snapshot *domain.ConfigSnapshot, tenantID, parkID string) error {
 	// scale-guard:ignore: bounded set-based read of ONE park's hand-authored experiment sheds (an operator-entered list, tens of rows). Covered by feed_experiment_config_shed_lookup_idx (tenant_id, park_id, shed_id) WHERE status = 'active'.
 	rows, err := r.pool.Query(ctx, `
-SELECT shed_id::text, COALESCE(partition_label, ''), feed_item_key, feed_item_label, absolute_kg::text, experiment_category
+SELECT shed_id::text, COALESCE(partition_label, ''), feed_item_key, feed_item_label,
+       quantity_basis, COALESCE(absolute_kg::text, ''), COALESCE(grams_per_head::text, ''), experiment_category
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND status = 'active'
 ORDER BY shed_id, partition_key, feed_item_key`, tenantID, parkID)
@@ -545,7 +550,8 @@ ORDER BY shed_id, partition_key, feed_item_key`, tenantID, parkID)
 	for rows.Next() {
 		var shedID, partitionLabel string
 		var cell domain.ExperimentCell
-		if err := rows.Scan(&shedID, &partitionLabel, &cell.FeedItemKey, &cell.FeedItemLabel, &cell.AbsoluteKg, &cell.Category); err != nil {
+		if err := rows.Scan(&shedID, &partitionLabel, &cell.FeedItemKey, &cell.FeedItemLabel,
+			&cell.Basis, &cell.AbsoluteKg, &cell.GramsPerHead, &cell.Category); err != nil {
 			return fmt.Errorf("feeddirection: scan experiment config: %w", err)
 		}
 		// Keyed by operational location. A row authored with no partition keys on 'whole' and keeps

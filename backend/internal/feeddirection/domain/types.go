@@ -222,8 +222,10 @@ type ItemQuantity struct {
 	// QuantityKg is the rounded, packable quantity in kg. Nil iff blocked.
 	QuantityKg *string `json:"quantity_kg"`
 	// GramsPerHead is the authored rate this quantity came from, echoed so an operator can see the
-	// input without opening the config screen. Nil for blocked rows and for the experiment
-	// workflow, which authors absolute kg and has no per-head rate at all.
+	// input without opening the config screen. Nil for blocked rows, and nil for a LEGACY experiment
+	// cell, which authors an absolute pen total and has no per-head rate at all. A current experiment
+	// cell DOES carry one -- it is authored per animal like the grid's (maintainer decision
+	// 2026-09-01) -- and reports it here.
 	GramsPerHead *string `json:"grams_per_head,omitempty"`
 	// ShedFactor is the multiplier applied. Nil for blocked and experiment rows.
 	ShedFactor *string `json:"shed_factor,omitempty"`

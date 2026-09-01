@@ -690,25 +690,24 @@ func (h *Handler) UpsertScheduleConfig(w http.ResponseWriter, r *http.Request) {
 
 // upsertExperimentBatchRequest authors every feed item of ONE pen in one atomic write.
 //
-// The pen's arm and head count sit at the TOP LEVEL, not on each item: they describe the pen, and
-// per-item copies would let one pen carry two arms with the display picking whichever row sorted
-// first. Each item carries only what varies -- the feed item and its absolute kg.
+// The pen's arm sits at the TOP LEVEL, not on each item: it describes the pen, and per-item copies
+// would let one pen carry two arms with the display picking whichever row sorted first. There is no
+// head count -- the pen's population is read live. Each item carries only what varies -- the feed item and its grams per animal.
 //
-// AbsoluteKg stays a *json.Number per item for the same absent-vs-zero reason as the single-cell
-// write. A field the author cleared must be OMITTED FROM items entirely; sending it with a null kg
-// is a rejected request, never an instruction to feed nothing.
+// GramsPerHead stays a *json.Number per item for the same absent-vs-zero reason as the single-cell
+// write. A field the author cleared must be OMITTED FROM items entirely; sending it with a null
+// figure is a rejected request, never an instruction to feed nothing.
 type upsertExperimentBatchRequest struct {
 	ParkID             string                     `json:"park_id"`
 	ShedID             string                     `json:"shed_id"`
 	PartitionLabel     string                     `json:"partition_label"`
 	ExperimentCategory string                     `json:"experiment_category"`
-	HeadCount          *int32                     `json:"head_count"`
 	Items              []upsertExperimentBatchRow `json:"items"`
 }
 
 type upsertExperimentBatchRow struct {
-	FeedItem   string       `json:"feed_item"`
-	AbsoluteKg *json.Number `json:"absolute_kg"`
+	FeedItem     string       `json:"feed_item"`
+	GramsPerHead *json.Number `json:"grams_per_head"`
 }
 
 func (h *Handler) UpsertExperimentConfigBatch(w http.ResponseWriter, r *http.Request) {
@@ -733,7 +732,7 @@ func (h *Handler) UpsertExperimentConfigBatch(w http.ResponseWriter, r *http.Req
 	}
 
 	// Fingerprinted AFTER trimming and over the whole body including the item slice, so a retry of
-	// the same enrolment replays and a retry that changed ONE cell's kg is correctly a conflict
+	// the same enrolment replays and a retry that changed ONE cell's rate is correctly a conflict
 	// rather than a silent second authoring.
 	fingerprint, err := requestFingerprint(tenantID, upsertExperimentBatchCmd, experimentBatchRoute, req)
 	if err != nil {
@@ -744,9 +743,9 @@ func (h *Handler) UpsertExperimentConfigBatch(w http.ResponseWriter, r *http.Req
 	cells := make([]feedconfigapp.ExperimentBatchCellInput, 0, len(req.Items))
 	for _, item := range req.Items {
 		cell := feedconfigapp.ExperimentBatchCellInput{FeedItemLabel: item.FeedItem}
-		if item.AbsoluteKg != nil {
-			kg := item.AbsoluteKg.String()
-			cell.AbsoluteKg = &kg
+		if item.GramsPerHead != nil {
+			grams := item.GramsPerHead.String()
+			cell.GramsPerHead = &grams
 		}
 		cells = append(cells, cell)
 	}
@@ -758,7 +757,6 @@ func (h *Handler) UpsertExperimentConfigBatch(w http.ResponseWriter, r *http.Req
 		ShedID:             req.ShedID,
 		PartitionLabel:     req.PartitionLabel,
 		ExperimentCategory: req.ExperimentCategory,
-		HeadCount:          req.HeadCount,
 		Cells:              cells,
 		IdempotencyKey:     key,
 		RequestFingerprint: fingerprint,
@@ -772,15 +770,18 @@ func (h *Handler) UpsertExperimentConfigBatch(w http.ResponseWriter, r *http.Req
 
 // upsertExperimentRequest is the experiment-cell body.
 //
-// AbsoluteKg is a *json.Number for BOTH halves of the same reason grams_per_head is: the pointer
-// keeps a cleared field distinguishable from an authored 0, and json.Number keeps the authored
-// decimal exact. The failure mode differs from the ration grid and is arguably worse — a missing
-// ration rate BLOCKS the shed loudly, while a missing experiment row silently drops the shed back
-// onto the per-head grid and prints a complete-looking sheet with about twice the right quantity.
+// GramsPerHead is a *json.Number for BOTH halves of the same reason the ration grid's is: the
+// pointer keeps a cleared field distinguishable from an authored 0, and json.Number keeps the
+// authored decimal exact. The failure mode differs from the ration grid and is arguably worse -- a
+// missing ration rate BLOCKS the pen loudly, while a missing experiment row silently drops the pen
+// back onto the ration grid and prints a complete-looking sheet.
 //
-// HeadCount is a *int32 (not *json.Number) because it is a whole population count, and it is a
-// pointer so "not recorded" stays distinct from an authored 0. It is INFORMATIONAL: nothing
-// multiplies it into absolute_kg.
+// THE FIGURE IS PER ANIMAL (maintainer decision 2026-09-01); the generator multiplies it by the
+// pen's live projected head count. There is no route that authors an absolute pen total any more.
+//
+// THERE IS NO HEAD COUNT ON THIS BODY (maintainer instruction 2026-09-01, "use live only, forget
+// recorded"). The pen's population is read live wherever it is needed -- the sheet multiplies the
+// rate by it, the config screen shows it -- so no client restates it and no stale copy can go wrong.
 type upsertExperimentRequest struct {
 	ParkID string `json:"park_id"`
 	ShedID string `json:"shed_id"`
@@ -789,8 +790,7 @@ type upsertExperimentRequest struct {
 	// the partition_label it rendered. Absent means the undivided-shed row.
 	PartitionLabel     string       `json:"partition_label"`
 	FeedItem           string       `json:"feed_item"`
-	AbsoluteKg         *json.Number `json:"absolute_kg"`
-	HeadCount          *int32       `json:"head_count"`
+	GramsPerHead       *json.Number `json:"grams_per_head"`
 	ExperimentCategory string       `json:"experiment_category"`
 }
 
@@ -825,8 +825,7 @@ func (h *Handler) UpsertExperimentConfig(w http.ResponseWriter, r *http.Request)
 		ShedID:             req.ShedID,
 		PartitionLabel:     req.PartitionLabel,
 		FeedItemLabel:      req.FeedItem,
-		AbsoluteKg:         numberPtr(req.AbsoluteKg),
-		HeadCount:          req.HeadCount,
+		GramsPerHead:       numberPtr(req.GramsPerHead),
 		ExperimentCategory: req.ExperimentCategory,
 		IdempotencyKey:     key,
 		RequestFingerprint: fingerprint,

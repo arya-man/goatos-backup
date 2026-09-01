@@ -702,7 +702,7 @@ func TestExperimentStrategyUsesAbsoluteKgAndIgnoresHeadCount(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
-		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "12.000", Category: "Trial A"},
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "12.000", Category: "Trial A"},
 	}
 	// A ration rate for the same grain exists and must be IGNORED: this shed is not on the grid.
 	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Concentrate", "200.000")
@@ -734,6 +734,116 @@ func TestExperimentStrategyUsesAbsoluteKgAndIgnoresHeadCount(t *testing.T) {
 	}
 }
 
+// THE CURRENT AUTHORING BASIS: grams per animal, scaled by the pen's LIVE projected head count
+// (maintainer decision 2026-09-01). This is the exact inverse of the legacy property above, which is
+// why the two tests sit side by side: the same stored number means two different feedings, and the
+// basis on the cell is the only thing that tells them apart.
+func TestExperimentStrategyMultipliesGramsPerHeadByTheLiveHeadCount(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisGramsPerHead, GramsPerHead: "350.000", Category: "Trial A"},
+	}
+	// A ration rate for the same grain exists and must still be IGNORED: the pen is hand-authored,
+	// it is simply hand-authored as a RATE now.
+	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Concentrate", "200.000")
+	// A shed factor for this pen exists and must NOT apply: an experiment quantity is grams x head
+	// count and nothing else (maintainer decision, same day).
+	cfg.ShedFactorsByKey[ShedFactorKey(testShedID, "Concentrate")] = "2.0000"
+
+	// 350 g x head x 0.5 (the session's share of the day), then the shared pipeline's packable
+	// rounding -- LINEAR in head count, unlike the legacy basis, and unaffected by the factor above.
+	for _, tc := range []struct {
+		head int64
+		want string
+	}{
+		{head: 7, want: "1.300"}, // 1.225 kg rounded up to a packable figure
+		{head: 700, want: "122.500"},
+		{head: 0, want: "0.000"},
+	} {
+		rows := generate(cfg, shed(ShedGrain{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: tc.head}), 1)
+		if len(rows) != 1 {
+			t.Fatalf("head=%d rows = %d, want 1 row for the whole pen", tc.head, len(rows))
+		}
+		row := rows[0]
+		if row.Workflow != WorkflowExperiment {
+			t.Fatalf("workflow = %q, want %q", row.Workflow, WorkflowExperiment)
+		}
+		// The count DID drive the quantity, so the row must not claim otherwise -- anything
+		// downstream reading this flag as "informational" would be reading a lie.
+		if row.HeadCountInformational {
+			t.Fatal("head_count_informational is true on a per-animal cell; the count is the multiplier here")
+		}
+		item := itemOf(t, row, "Concentrate")
+		if item.BlockedReason != nil {
+			t.Fatalf("head=%d blocked = %+v, want a resolved quantity", tc.head, item.BlockedReason)
+		}
+		if got := *item.QuantityKg; got != tc.want {
+			t.Fatalf("head=%d quantity = %q, want %q -- grams per animal must scale with the live count", tc.head, got, tc.want)
+		}
+		if item.GramsPerHead == nil || *item.GramsPerHead != "350.000" {
+			t.Fatalf("head=%d grams_per_head = %v, want the authored rate reported alongside the quantity", tc.head, item.GramsPerHead)
+		}
+		if item.ShedFactor != nil {
+			t.Fatalf("head=%d shed_factor = %q; an experiment quantity applies no factor", tc.head, *item.ShedFactor)
+		}
+	}
+}
+
+// A PEN MID-RE-AUTHORING HOLDS BOTH BASES, and each cell must be read on its own terms.
+//
+// This is the state every existing experiment pen passes through: one item re-entered in grams while
+// the rest still carry the pen totals they were authored with. Reading the pen on one basis -- either
+// one -- is off by the pen's whole population for half its items.
+func TestExperimentPenMixingBothBasesReadsEachCellOnItsOwnBasis(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisGramsPerHead, GramsPerHead: "350.000", Category: "Trial A"},
+		{FeedItemLabel: "Dry Masoor Bhusa", FeedItemKey: "dry_masoor_bhusa", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "12.000", Category: "Trial A"},
+	}
+
+	rows := generate(cfg, shed(ShedGrain{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 63}), 1)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	row := rows[0]
+	// 350 g x 63 x 0.5 = 11.025 kg, rounded up to a packable 11.1.
+	if got := *itemOf(t, row, "Concentrate").QuantityKg; got != "11.100" {
+		t.Fatalf("per-animal cell = %q, want \"11.100\"", got)
+	}
+	// 12 kg x 0.5 = 6 kg, head count untouched.
+	if got := *itemOf(t, row, "Dry Masoor Bhusa").QuantityKg; got != "6.000" {
+		t.Fatalf("legacy pen-total cell = %q, want \"6.000\" -- it must not be scaled by head count", got)
+	}
+	// ONE cell using the count is enough: the row can no longer say the count is informational.
+	if row.HeadCountInformational {
+		t.Fatal("head_count_informational is true on a pen whose concentrate is authored per animal")
+	}
+}
+
+// AN UNREADABLE BASIS BLOCKS. The two readings differ by the pen's entire population, so there is no
+// safe default to fall back to -- a guess is a feeding error either way.
+func TestExperimentCellWithUnknownBasisBlocksRatherThanGuessing(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: "kilograms_maybe", AbsoluteKg: "12.000", GramsPerHead: "350.000", Category: "Trial A"},
+	}
+
+	rows := generate(cfg, shed(ShedGrain{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 63}), 1)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	item := itemOf(t, rows[0], "Concentrate")
+	if item.BlockedReason == nil {
+		t.Fatal("an unrecognized quantity basis resolved to a number; it must block")
+	}
+	if item.QuantityKg != nil {
+		t.Fatalf("blocked cell still carried quantity %q", *item.QuantityKg)
+	}
+}
+
 // An experiment shed is still a shed FULL OF ANIMALS, and the operator has to be told which ones.
 //
 // The shipped defect: an experiment row reported breed "" and put the trial ARM in the SHED TAG
@@ -745,7 +855,7 @@ func TestExperimentRowCarriesTheLiveBreedAndShedTagOfTheAnimalsInTheShed(t *test
 	t.Parallel()
 	cfg := testConfig()
 	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
-		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "39.000", Category: "Sheep M NEW"},
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "39.000", Category: "Sheep M NEW"},
 	}
 
 	rows := generate(cfg, shed(ShedGrain{
@@ -799,7 +909,7 @@ func TestExperimentShedTagNormalizesButNeverBlocksOnAnUnknownStage(t *testing.T)
 			t.Parallel()
 			cfg := testConfig()
 			cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
-				{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "10.000", Category: "Trial A"},
+				{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "10.000", Category: "Trial A"},
 			}
 			rows := generate(cfg, shed(ShedGrain{ManagementStage: tc.stage, Breed: "Beetal", HeadCount: 4}), 1)
 			if len(rows) != 1 {
@@ -830,7 +940,7 @@ func TestExperimentRowNamesEveryBreedAndStageInAMixedShed(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
-		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "20.000", Category: "Sheep M NEW"},
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "20.000", Category: "Sheep M NEW"},
 	}
 
 	rows := generate(cfg, shed(
@@ -867,7 +977,7 @@ func TestExperimentQuantityIsUnaffectedByBreedAndTagReporting(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
-		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "78.000", Category: "Sheep M NEW"},
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "78.000", Category: "Sheep M NEW"},
 	}
 
 	// Three sheds that differ in every descriptive way and in head count, and must not differ by one
@@ -906,7 +1016,7 @@ func TestPackingLineCarriesTheExperimentArm(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
-		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "78.000", Category: "Sheep M NEW"},
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "78.000", Category: "Sheep M NEW"},
 	}
 
 	rows := generate(cfg, shed(ShedGrain{ManagementStage: "F2-Male", Breed: "Anantapur Sheep", HeadCount: 63}), 1)
@@ -962,7 +1072,7 @@ func TestExperimentPlannerTakesPrecedenceOverTheGrid(t *testing.T) {
 	}
 
 	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
-		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "9.000", Category: "Trial B"},
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "9.000", Category: "Trial B"},
 	}
 	experiment := NewPlannerSet().PlannerFor(in, cfg)
 	if experiment.Workflow() != WorkflowExperiment {
@@ -1347,7 +1457,7 @@ func TestExperimentShedIgnoresTheSessionSlotRecipe(t *testing.T) {
 	cfg := testConfig()
 	// The park's sessions declare Concentrate and Hybrid; the experiment shed is fed neither.
 	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
-		{FeedItemLabel: "RGS Concentrate", FeedItemKey: "rgs_concentrate", AbsoluteKg: "12.000", Category: "Trial A"},
+		{FeedItemLabel: "RGS Concentrate", FeedItemKey: "rgs_concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "12.000", Category: "Trial A"},
 	}
 
 	rows := generate(cfg, shed(ShedGrain{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 10}), 1)
@@ -1420,10 +1530,10 @@ func TestMixedShedRunsExperimentAndGridPartitionsSideBySide(t *testing.T) {
 	cfg := testConfig()
 	// Parts 3 and 4 are authored experiments. Part 1 is not, and must stay on the grid.
 	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "Part 3")] = []ExperimentCell{
-		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "12.000", Category: "Trial A"},
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "12.000", Category: "Trial A"},
 	}
 	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "Part 4")] = []ExperimentCell{
-		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "8.000", Category: "Trial B"},
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "8.000", Category: "Trial B"},
 	}
 	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Concentrate", "1000.000")
 
@@ -1490,7 +1600,7 @@ func TestNonPartitionedShedIsUnchangedByThePartitionSplit(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
-		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "10.000", Category: "Trial A"},
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", Basis: ExperimentBasisAbsoluteKg, AbsoluteKg: "10.000", Category: "Trial A"},
 	}
 	grains := []ShedGrain{{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 30}}
 

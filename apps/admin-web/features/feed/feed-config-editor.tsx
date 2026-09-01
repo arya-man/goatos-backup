@@ -193,7 +193,7 @@ function Outcome({
         lineHeight: 1.5,
         // These messages are SENTENCES, and they render inside the feed tables, whose cells are
         // `nowrap` (failure mode 4b — short business values must never shred into character
-        // columns). Left at the table's default, "Saved. This pen is fed the absolute kg authored
+        // columns). Left at the table's default, "Saved. Each animal in this pen gets the grams authored
         // here…" ran one line off the right edge and was clipped. A sentence-shaped message wraps;
         // the width cap is what keeps it from widening the column instead.
         whiteSpace: "normal",
@@ -329,7 +329,8 @@ export function ShedFactorEditor({
  * The head count input is separate and OPTIONAL. It carries no `required`, and a cleared box is sent
  * as null ("not recorded") rather than 0 ("this shed is empty") — see feed-config-actions.ts. It is
  * labelled as informational at the input, not only in the section note, because this is the exact
- * spot where someone would otherwise assume it multiplies the kg.
+ * spot where someone would otherwise assume it is the multiplier. It is not: the feed sheet scales
+ * the authored per-animal figure by the pen's LIVE head count on the day.
  */
 export function ExperimentCellEditor({
   pageContract,
@@ -339,8 +340,7 @@ export function ExperimentCellEditor({
   partitionLabel,
   feedItem,
   experimentCategory,
-  absoluteKg,
-  headCount,
+  gramsPerHead,
 }: {
   pageContract: AdminUiPageContract;
   action: SaveAction;
@@ -350,10 +350,13 @@ export function ExperimentCellEditor({
   partitionLabel: string;
   feedItem: string;
   experimentCategory: string;
-  /** The currently authored kg, or undefined when this item has no row for the shed. */
-  absoluteKg?: string;
-  /** Absent means the population was not recorded — never rendered or sent as 0. */
-  headCount?: number | null;
+  /**
+   * The currently authored grams per animal, or undefined when this item has no row for the pen —
+   * which is also what a LEGACY pen-total cell renders as: it is deliberately NOT pre-filled with
+   * its kg, because that number in this box would mean grams per animal and be off by the pen's
+   * whole population. The author re-enters the rate; the row moves onto the per-animal basis.
+   */
+  gramsPerHead?: string;
 }) {
   // The pen is in the field id for the same reason it is in the form body: ten pens of one shed
   // render ten copies of this editor, and without it every copy shares one id -- so a <label
@@ -364,21 +367,21 @@ export function ExperimentCellEditor({
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, "action.edit_experiment_cell")}
-      openLabel={copy(pageContract, "label.experiment_absolute_kg_note")}
+      openLabel={copy(pageContract, "label.experiment_grams_per_head_note")}
     >
       <input type="hidden" name="park_id" value={parkId} />
       <input type="hidden" name="shed_id" value={shedId} />
       <input type="hidden" name="partition_label" value={partitionLabel} />
       <input type="hidden" name="feed_item" value={feedItem} />
       <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`${fieldId}-kg`}>{copy(pageContract, "label.experiment_absolute_kg")}</label>
+        <label htmlFor={`${fieldId}-kg`}>{copy(pageContract, "label.experiment_grams_per_head")}</label>
         <input
           id={`${fieldId}-kg`}
-          name="absolute_kg"
+          name="grams_per_head"
           type="text"
           inputMode="decimal"
           // Uncontrolled: a cleared box stays cleared and is rejected server-side, never sent as 0.
-          defaultValue={absoluteKg ?? ""}
+          defaultValue={gramsPerHead ?? ""}
           aria-describedby={`${fieldId}-kg-hint`}
         />
         <div id={`${fieldId}-kg-hint`} className="small muted" style={{ marginTop: 4 }}>
@@ -396,22 +399,6 @@ export function ExperimentCellEditor({
         />
         <div id={`${fieldId}-arm-hint`} className="small muted" style={{ marginTop: 4 }}>
           {copy(pageContract, "label.experiment_category_note")}
-        </div>
-      </div>
-      <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`${fieldId}-count`}>{copy(pageContract, "label.experiment_head_count")}</label>
-        <input
-          id={`${fieldId}-count`}
-          name="head_count"
-          type="text"
-          inputMode="numeric"
-          // `?? ""` and not `?? 0`: a shed whose population was not recorded must not be shown as
-          // empty, and must not be saved as empty either.
-          defaultValue={headCount ?? ""}
-          aria-describedby={`${fieldId}-count-hint`}
-        />
-        <div id={`${fieldId}-count-hint`} className="small muted" style={{ marginTop: 4 }}>
-          {copy(pageContract, "label.experiment_head_count_note")}
         </div>
       </div>
     </FeedConfigFormShell>
@@ -447,7 +434,6 @@ export function ExperimentCellAdder({
   shedId,
   partitionLabel,
   experimentCategory,
-  headCount,
   availableItems,
 }: {
   pageContract: AdminUiPageContract;
@@ -458,8 +444,6 @@ export function ExperimentCellAdder({
   partitionLabel: string;
   /** Carried from the pen's existing rows so the new cell joins the same arm. */
   experimentCategory: string;
-  /** Absent means the population was not recorded — never rendered or sent as 0. */
-  headCount?: number | null;
   /** Catalog items with no authored cell on THIS pen. Empty means there is nothing to add. */
   availableItems: string[];
 }) {
@@ -474,7 +458,7 @@ export function ExperimentCellAdder({
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, "action.add_experiment_item")}
-      openLabel={copy(pageContract, "label.experiment_absolute_kg_note")}
+      openLabel={copy(pageContract, "label.experiment_grams_per_head_note")}
     >
       <input type="hidden" name="park_id" value={parkId} />
       <input type="hidden" name="shed_id" value={shedId} />
@@ -490,14 +474,14 @@ export function ExperimentCellAdder({
         </select>
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`${fieldId}-kg`}>{copy(pageContract, "label.experiment_absolute_kg")}</label>
+        <label htmlFor={`${fieldId}-kg`}>{copy(pageContract, "label.experiment_grams_per_head")}</label>
         <input
           id={`${fieldId}-kg`}
-          name="absolute_kg"
+          name="grams_per_head"
           type="text"
           inputMode="decimal"
           // Uncontrolled and blank: a new cell has no prior value, and a cleared box must stay
-          // cleared so the server rejects it rather than authoring 0 kg for a pen nobody costed.
+          // cleared so the server rejects it rather than authoring 0 for a pen nobody costed.
           defaultValue=""
           aria-describedby={`${fieldId}-kg-hint`}
         />
@@ -516,20 +500,6 @@ export function ExperimentCellAdder({
         />
         <div id={`${fieldId}-arm-hint`} className="small muted" style={{ marginTop: 4 }}>
           {copy(pageContract, "label.experiment_category_note")}
-        </div>
-      </div>
-      <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`${fieldId}-count`}>{copy(pageContract, "label.experiment_head_count")}</label>
-        <input
-          id={`${fieldId}-count`}
-          name="head_count"
-          type="text"
-          inputMode="numeric"
-          defaultValue={headCount ?? ""}
-          aria-describedby={`${fieldId}-count-hint`}
-        />
-        <div id={`${fieldId}-count-hint`} className="small muted" style={{ marginTop: 4 }}>
-          {copy(pageContract, "label.experiment_head_count_note")}
         </div>
       </div>
     </FeedConfigFormShell>
@@ -570,7 +540,7 @@ export function ExperimentShedSwitch({
    * captioned with one pen's name, so retiring "Godel 1 - Part 3" retired all ten Godel 1 pens.
    */
   partitionLabel: string;
-  /** "active" enrols the pen onto absolute kg; "retired" returns it to the per-head grid. */
+  /** "active" enrols the pen onto its hand-authored quantities; "retired" returns it to the grid. */
   targetStatus: "active" | "retired";
 }) {
   const labelKey =
@@ -697,20 +667,6 @@ export function ExperimentPenEnroller({
         <input id="exp-new-arm" name="experiment_category" type="text" defaultValue="" />
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor="exp-new-count">{copy(pageContract, "label.experiment_head_count")}</label>
-        <input
-          id="exp-new-count"
-          name="head_count"
-          type="text"
-          inputMode="numeric"
-          defaultValue=""
-          aria-describedby="exp-new-count-hint"
-        />
-        <div id="exp-new-count-hint" className="small muted" style={{ marginTop: 4 }}>
-          {copy(pageContract, "label.experiment_head_count_note")}
-        </div>
-      </div>
-      <div className="fld" style={{ marginBottom: 0 }}>
         <div className="small" style={{ fontWeight: 600 }}>
           {copy(pageContract, "label.experiment_enrol_items")}
         </div>
@@ -732,7 +688,7 @@ export function ExperimentPenEnroller({
             </label>
             <input
               id={`exp-new-kg-${index}`}
-              name={`item_kg_${index}`}
+              name={`item_grams_${index}`}
               type="text"
               inputMode="decimal"
               defaultValue=""

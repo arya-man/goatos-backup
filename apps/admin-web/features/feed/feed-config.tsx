@@ -146,8 +146,11 @@ type ExperimentShedGroup = {
   locationDisplay: string | null | undefined;
   /** The experiment ARM. Taken from the pen's rows, which the writer keeps consistent. */
   category: string;
-  /** INFORMATIONAL population. Null means not recorded — never rendered or sent as 0. */
-  headCount: number | null;
+  /**
+   * The pen's LIVE population, resolved by the backend from the herd register -- the same count the
+   * feed sheet multiplies the authored rate by. 0 is a real answer (an empty pen), not "unknown".
+   */
+  liveHeadCount: number;
   /**
    * True when ANY of the pen's rows is active, which is exactly ExperimentPlanner.Applies' rule.
    * The complete-pen status write keeps the rows in step, so a mixed pen is not a state this UI can
@@ -191,7 +194,7 @@ function groupExperimentRowsByShed(rows: FeedConfigExperiment[]): ExperimentShed
         partitionLabel,
         locationDisplay: row.operational_location_display,
         category: row.experiment_category,
-        headCount: row.head_count ?? null,
+        liveHeadCount: row.live_head_count,
         active: row.status === "active",
         rows: [row],
       });
@@ -199,9 +202,8 @@ function groupExperimentRowsByShed(rows: FeedConfigExperiment[]): ExperimentShed
     }
     existing.rows.push(row);
     existing.active = existing.active || row.status === "active";
-    // `??` and not `||`: a recorded 0 is a real head count and must not be replaced by a later row's
-    // value just because it is falsy.
-    existing.headCount = existing.headCount ?? row.head_count ?? null;
+    // Every cell of a pen carries the same live count -- it is a fact about the PEN, resolved once
+    // per request by the backend -- so the first row's value stands for the group.
   }
   return Array.from(byPen.values());
 }
@@ -1013,11 +1015,11 @@ export async function FeedConfigPage({
                           style={{ fontVariantNumeric: "tabular-nums" }}
                           title={copy(pageContract, "label.experiment_head_count_note")}
                         >
-                          {/* `?? placeholder` and never `?? 0`: an unrecorded population must not be
-                              printed as an empty shed. */}
-                          {shed.headCount ?? copy(pageContract, "label.placeholder")}
+                          {/* A LIVE census, so 0 is printed as 0: an experiment pen the animals have
+                              left is exactly what an author needs to see. */}
+                          {shed.liveHeadCount}
                         </td>
-                        {/* Spans feed_item + absolute_kg + status. Those three are per-CELL values
+                        {/* Spans feed_item + quantity + status. Those three are per-CELL values
                             and are blank on a shed header row, so the span reads as a shed-level
                             banner rather than as a value of any one column — and it reaches the
                             status column, which is the one it is the heading for. Spanning also
@@ -1058,7 +1060,6 @@ export async function FeedConfigPage({
                               shedId={shed.shedId}
                               partitionLabel={shed.partitionLabel}
                               experimentCategory={shed.category}
-                              headCount={shed.headCount}
                               availableItems={catalogItems.filter(
                                 (item) => !authoredItemKeys(shed).has(normalizeFeedItemKey(item)),
                               )}
@@ -1067,10 +1068,24 @@ export async function FeedConfigPage({
                         </td>
                       </tr>
                       {shed.rows.map((row) => {
-                        // An authored 0 kg is real configuration here exactly as it is on the grid:
-                        // an arm that deliberately gets none of an item. It is tagged so it cannot
-                        // be read as an unauthored cell.
-                        const authoredZero = isConfiguredZero(row.absolute_kg);
+                        // TWO BASES RENDER IN ONE COLUMN, so each cell states its own unit. A
+                        // per-animal rate and a legacy pen total differ by the pen's whole
+                        // population, and a bare number under a shared heading is exactly how the
+                        // two get read as each other. The basis is a stored fact on the row and is
+                        // never inferred from which field happens to be filled.
+                        const perAnimal = row.quantity_basis === "grams_per_head";
+                        const quantity = perAnimal ? (row.grams_per_head ?? "") : (row.absolute_kg ?? "");
+                        const unit = copy(
+                          pageContract,
+                          perAnimal ? "label.experiment_basis_grams" : "label.experiment_basis_kg",
+                        );
+                        // An authored 0 is real configuration here exactly as it is on the grid: an
+                        // arm that deliberately gets none of an item. It carries NO chip (maintainer
+                        // request 2026-09-01) -- unlike the ration grid, where a cell can be missing
+                        // entirely, a row in this table only exists because someone authored it, so
+                        // the printed 0.000 already says "authored zero" without a badge beside it.
+                        // The muted weight still sets it apart from a quantity that is actually fed.
+                        const authoredZero = isConfiguredZero(quantity);
                         return (
                           <tr key={row.experiment_config_id}>
                             <td />
@@ -1078,7 +1093,14 @@ export async function FeedConfigPage({
                             <td />
                             <td />
                             <td>{row.feed_item}</td>
-                            <td title={copy(pageContract, "label.experiment_absolute_kg_note")}>
+                            <td
+                              title={copy(
+                                pageContract,
+                                perAnimal
+                                  ? "label.experiment_grams_per_head_note"
+                                  : "label.experiment_absolute_kg_note",
+                              )}
+                            >
                               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
                                 <span
                                   style={{
@@ -1087,13 +1109,11 @@ export async function FeedConfigPage({
                                     color: authoredZero ? "var(--muted)" : "var(--brand-d)",
                                   }}
                                 >
-                                  {row.absolute_kg}
+                                  {quantity}
                                 </span>
-                                {authoredZero ? (
-                                  <span className="tag t-info" title={copy(pageContract, "label.configured_zero_note")}>
-                                    {copy(pageContract, "label.configured_zero")}
-                                  </span>
-                                ) : null}
+                                <span className="small muted" style={{ whiteSpace: "nowrap" }}>
+                                  {unit}
+                                </span>
                               </span>
                             </td>
                             <td>
@@ -1108,8 +1128,7 @@ export async function FeedConfigPage({
                                 partitionLabel={row.partition_label ?? ""}
                                 feedItem={row.feed_item}
                                 experimentCategory={row.experiment_category}
-                                absoluteKg={row.absolute_kg}
-                                headCount={row.head_count}
+                                gramsPerHead={row.grams_per_head}
                               />
                             </td>
                           </tr>
