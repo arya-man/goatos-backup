@@ -97,6 +97,9 @@ export type ShedView = "chart" | "table";
 export type ShedTableColumns = {
   park: string;
   shed: string;
+  breed: string;
+  sex: string;
+  count: string;
   basis: string;
   value: Record<Metric, string>;
 };
@@ -177,6 +180,9 @@ function ShedMetricTable({
           <tr>
             <th className="wsg-park">{columns.park}</th>
             <th>{columns.shed}</th>
+            <th className="wsg-breed">{columns.breed}</th>
+            <th className="wsg-sex">{columns.sex}</th>
+            <th className="num wsg-count">{columns.count}</th>
             <th className="wsg-basis">{columns.basis}</th>
             <th className="num wsg-val">{columns.value[metric]}</th>
           </tr>
@@ -186,7 +192,33 @@ function ShedMetricTable({
             <tr key={row.key}>
               <td className="wsg-park">{park}</td>
               <td className="wsg-shed">
-                <b>{row.label}</b>
+                <b>{row.shedName ?? row.label}</b>
+              </td>
+              {/* A pen holding more than one cohort lists each on its own line, aligned across
+                  the three cells, so a reader can pair a breed with its sex and head count.
+                  The GAIN stays on the row and is never repeated per cohort: a whole-shed
+                  average cannot be split across breed or sex, and a per-animal shed's figure
+                  is the pen's, not any one breed's. */}
+              <td className="wsg-breed">
+                {(row.cohorts ?? []).map((cohort, index) => (
+                  <span className="wsg-line" key={`${row.key}|breed|${index}`}>
+                    {cohort.breed}
+                  </span>
+                ))}
+              </td>
+              <td className="wsg-sex">
+                {(row.cohorts ?? []).map((cohort, index) => (
+                  <span className="wsg-line" key={`${row.key}|sex|${index}`}>
+                    {cohort.sex}
+                  </span>
+                ))}
+              </td>
+              <td className="num wsg-count">
+                {(row.cohorts ?? []).map((cohort, index) => (
+                  <span className="wsg-line" key={`${row.key}|count|${index}`}>
+                    {cohort.animals.toLocaleString("en-IN")}
+                  </span>
+                ))}
               </td>
               <td className="wsg-basis">
                 {row.modeLabel ? <Tag tone={row.modeTone ?? "mut"}>{row.modeLabel}</Tag> : null}

@@ -3662,10 +3662,20 @@ func pageSpecificCopy(id string) map[string]string {
 			// lives in the URL like every other toggle on this page, so it survives a reload and
 			// travels in a shared link. Column headers are the card's own copy: this card is a
 			// chart-first surface with no table contract to draw them from.
-			"section.shed_gain.view_aria":  "Show the shed figures as a chart or a table",
-			"table.shed_gain.park":         "Park",
-			"table.shed_gain.shed":         "Shed",
-			"table.shed_gain.basis":        "Basis",
+			"section.shed_gain.view_aria": "Show the shed figures as a chart or a table",
+			"table.shed_gain.park":        "Park",
+			"table.shed_gain.shed":        "Shed",
+			"table.shed_gain.basis":       "Basis",
+			// Breed, sex and head count were read out of the shed label, where a mixed pen
+			// pushed them past a hundred characters (maintainer request 2026-09-01). They are
+			// their own columns now; the shed cell carries only the pen name. A pen holding
+			// more than one cohort lists each on its own line across the three columns, and
+			// the gain stays on the ROW -- a shed average is never split across breed or sex.
+			// Chips under the pen name were tried instead and turned down: this card is read
+			// column by column, and a chip list cannot be scanned down for one breed.
+			"table.shed_gain.breed":        "Breed",
+			"table.shed_gain.sex":          "Gender",
+			"table.shed_gain.count":        "Count",
 			"table.shed_gain.gain":         "Daily gain",
 			"table.shed_gain.weight":       "Average weight",
 			"section.demographics.title":   "Breed, sex and stage",

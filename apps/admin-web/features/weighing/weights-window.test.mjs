@@ -140,16 +140,41 @@ test("small shed charts do not reserve the tall empty panel height", () => {
 test("both shed-chart metrics use ONE order, so the toggle only changes the bars", () => {
   // The gain view has been alphabetical since 2026-08-22 so an operator can find a pen by
   // name. The weight view was heaviest-first, so switching metric reshuffled every row on a
-  // control the reader expects to change only the measure. Both now sort by the composed
-  // label with numeric collation ("Castro 2" before "Castro 10").
+  // control the reader expects to change only the measure. Both now sort by the PEN NAME with
+  // numeric collation ("Castro 2" before "Castro 10") -- the composed label carried the pen's
+  // breed/sex composition too, and since 2026-09-01 the table shows that as its own columns,
+  // so keying the order off the label would tie A→Z to a string the table no longer prints.
   // Counted, not matched once: the two call sites are formatted differently (one wraps),
   // so this asserts BOTH series carry the same comparator rather than that one exists.
-  const alphabetical = /a\.label\.localeCompare\(b\.label, undefined, \{ numeric: true \}\)/g;
-  assert.equal((source.match(alphabetical) ?? []).length, 2, "both chart series must sort A→Z by label");
+  const alphabetical = /a\.shedName\.localeCompare\(b\.shedName, undefined, \{ numeric: true \}\)/g;
+  assert.equal((source.match(alphabetical) ?? []).length, 2, "both chart series must sort A→Z by shed name");
   assert.match(source, /const gainChartData = \[[\s\S]{0,120}\.sort\(/);
-  assert.match(source, /const chartData = visibleRows[\s\S]{0,1400}\.sort\(\(a, b\) => a\.label\.localeCompare/);
+  assert.match(source, /const chartData = visibleRows[\s\S]{0,1800}\.sort\(\(a, b\) => a\.shedName\.localeCompare/);
   // The weight ranking must not come back: it is the specific behaviour being replaced.
   assert.doesNotMatch(source, /sort\(\(a, b\) => b\.average_weight_kg - a\.average_weight_kg\)[\s\S]{0,400}chartData/);
+});
+
+test("the shed table reads breed, gender and count as columns, not out of the pen name", () => {
+  // Maintainer request 2026-09-01. The composition used to ride inside the shed label, where a
+  // mixed pen ran past a hundred characters; it is three columns now and the shed cell is the
+  // pen name alone. Chips under the name -- the Sheds table's shape -- were tried and turned
+  // down, so this also pins that they do not come back. The CHART still draws the composed
+  // label, which is what keeps the two views naming the same pen.
+  const client = readFileSync(new URL("./metric-chart.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  for (const key of ["breed", "sex", "count"]) {
+    assert.match(source, new RegExp(`copy\\(pageContract, "table\\.shed_gain\\.${key}"\\)`));
+    assert.match(contract, new RegExp(`"table\\.shed_gain\\.${key}":`));
+    assert.match(client, new RegExp(`columns\\.${key}`));
+  }
+  // The pen name alone in the shed cell, and the composed label still fed to the bars.
+  assert.match(client, /row\.shedName \?\? row\.label/);
+  assert.doesNotMatch(client, /wcomp-chip/);
+  // The gain stays on the ROW: a shed average is never repeated per cohort, which would read
+  // as a per-breed figure nobody measured.
+  assert.doesNotMatch(client, /cohorts[\s\S]{0,200}wsg-val/);
+  assert.match(css, /table\.wsgtable th\.wsg-sex,/);
+  assert.match(css, /table\.wsgtable \.wsg-line\{/);
 });
 
 test("chart metric switches are local state, not route reloads", () => {

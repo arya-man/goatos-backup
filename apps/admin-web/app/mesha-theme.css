@@ -2692,6 +2692,23 @@ select:disabled { opacity: .45; }
 .weights-page table.wsgtable th.wsg-val,
 .weights-page table.wsgtable td.wsg-val{width:132px;font-variant-numeric:tabular-nums}
 .weights-page table.wsgtable td.wsg-shed{white-space:normal;overflow-wrap:anywhere}
+/* Breed / gender / count are their own columns (maintainer request 2026-09-01), so the shed cell
+   is back to a plain pen name. A pen holding several cohorts stacks one line per cohort in each
+   of the three, and they stay index-aligned because every cell renders the same list in the same
+   order — the count column is tabular so those lines read as a column of numbers. */
+/* Breed / gender / count are their own columns (maintainer request 2026-09-01), so the shed cell
+   is a plain pen name. Chips under the name — the Sheds table's shape — were tried and turned
+   down: this card is read column by column, and a chip list cannot be scanned down for a breed.
+   Breed is deliberately the one column with NO width: the fixed layout then splits the card's
+   slack between the pen name and the breed list instead of parking it all in one empty gap.
+   Gender is wide enough for "unknown sex" on ONE line — the three cells pair up by line index,
+   so a cell that wraps shifts every count below it against the wrong breed. That is also why
+   each line is `nowrap` + ellipsis rather than wrapping: one cohort is always one line. */
+.weights-page table.wsgtable th.wsg-sex,
+.weights-page table.wsgtable td.wsg-sex{width:104px}
+.weights-page table.wsgtable th.wsg-count,
+.weights-page table.wsgtable td.wsg-count{width:70px;font-variant-numeric:tabular-nums}
+.weights-page table.wsgtable .wsg-line{display:block;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* A loss reads as a loss in both views: the same `--danger` the bar list paints a negative bar
    and its value with (`.wbar .wbv.neg`), so switching to the table cannot quietly turn a losing
    pen into an ordinary black number. */

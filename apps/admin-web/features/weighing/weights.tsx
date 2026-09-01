@@ -189,6 +189,29 @@ function compositionLabel(
   return `${breed} · ${sex}`;
 }
 
+type ShedComposition =
+  | { source?: string; chips: readonly { breed?: string; sex?: string; animals: number }[] }
+  | undefined;
+
+/**
+ * The pen's cohorts as TABLE CELLS rather than a label suffix (maintainer request 2026-09-01).
+ *
+ * Same chips, same backend `animals` figure and the same unknown-breed/unknown-sex copy the
+ * label composer uses, so the chart's parenthesised suffix and the table's three columns can
+ * never name a different herd. The order is the backend's, and every cell renders it, which is
+ * what keeps breed, gender and count aligned line for line on a mixed pen.
+ */
+function shedCohorts(
+  composition: ShedComposition,
+  pageContract: AdminUiPageContract,
+): readonly { breed: string; sex: string; animals: number }[] {
+  return (composition?.chips ?? []).map((chip) => ({
+    breed: chip.breed?.trim() || copy(pageContract, "composition.unknown_breed"),
+    sex: chip.sex?.trim() || copy(pageContract, "composition.unknown_sex"),
+    animals: chip.animals,
+  }));
+}
+
 function shedLabelWithComposition(
   shedName: string,
   composition:
@@ -471,12 +494,18 @@ export async function WeighingWeightsPage({
         // the park must still travel with the row as data.
         park_name: row.park_name,
         label: shedLabelWithComposition(shedName, compositionByShed.get(key), pageContract),
+        // The table reads these two instead of `label`: the pen name on its own, and the
+        // composition as data for the breed/gender/count columns.
+        shedName,
+        cohorts: shedCohorts(compositionByShed.get(key), pageContract),
         value: Number(row.average_weight_kg.toFixed(1)),
         ...modeBarTag(row, pageContract),
       };
     })
-    // `numeric` keeps "Castro 2" ahead of "Castro 10", same as the gain view.
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+    // Sorted on the PEN NAME, not the composed label: the two agree today because the
+    // composition trails the name, but a label-keyed sort makes the table's A→Z order depend on
+    // a string the table no longer shows. `numeric` keeps "Castro 2" ahead of "Castro 10".
+    .sort((a, b) => a.shedName.localeCompare(b.shedName, undefined, { numeric: true }));
   // The headline is the backend's park-level same-animal median. Do not average
   // shed medians here: the median of medians is not the herd median and produced
   // a visible 38 g card while the API/SQL truth was 120.8 g.
@@ -525,6 +554,11 @@ export async function WeighingWeightsPage({
           compositionByShed.get(shedKey(shed.location_id, shed.partition_label)),
           pageContract,
         ),
+        shedName: shed.operational_location_display || shed.display_name,
+        cohorts: shedCohorts(
+          compositionByShed.get(shedKey(shed.location_id, shed.partition_label)),
+          pageContract,
+        ),
         value: Math.round(shed.median_adg_g_per_day),
         modeLabel: copy(pageContract, "value.weighing.individual"),
         modeTone: "info" as const,
@@ -536,6 +570,11 @@ export async function WeighingWeightsPage({
         park_name: row.park_name,
         label: shedLabelWithComposition(
           row.operational_location_display || row.shed_display_name,
+          compositionByShed.get(shedKey(row.location_id, row.partition_label)),
+          pageContract,
+        ),
+        shedName: row.operational_location_display || row.shed_display_name,
+        cohorts: shedCohorts(
           compositionByShed.get(shedKey(row.location_id, row.partition_label)),
           pageContract,
         ),
@@ -553,7 +592,7 @@ export async function WeighingWeightsPage({
   // column keeps the same stable A→Z order so an operator can find a specific pen by name.
   // `numeric` keeps "Castro 2" ahead of "Castro 10".
   const gainChartData = [...perAnimalGainRows, ...shedAverageGainRows].sort(
-    (a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }),
+    (a, b) => a.shedName.localeCompare(b.shedName, undefined, { numeric: true }),
   );
 
   const hasAnyData = summary.animals_weighed > 0;
@@ -959,6 +998,9 @@ export async function WeighingWeightsPage({
         tableColumns={{
           park: copy(pageContract, "table.shed_gain.park"),
           shed: copy(pageContract, "table.shed_gain.shed"),
+          breed: copy(pageContract, "table.shed_gain.breed"),
+          sex: copy(pageContract, "table.shed_gain.sex"),
+          count: copy(pageContract, "table.shed_gain.count"),
           basis: copy(pageContract, "table.shed_gain.basis"),
           value: {
             adg: copy(pageContract, "table.shed_gain.gain"),
