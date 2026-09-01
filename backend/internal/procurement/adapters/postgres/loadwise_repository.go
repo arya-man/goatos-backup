@@ -240,7 +240,11 @@ func (r *Repository) attachCostLines(ctx context.Context, tenantID string, loads
 		return fmt.Errorf("procurement: loadwise cost lines rows: %w", err)
 	}
 	for i := range loads {
-		loads[i].CostLines = byLoad[loads[i].LoadID]
+		lines := byLoad[loads[i].LoadID]
+		loads[i].CostLines = lines
+		if len(lines) > 0 {
+			loads[i].AnimalCost, loads[i].TransportCost, loads[i].OtherCost = domain.RollUpCostLines(lines)
+		}
 	}
 	return nil
 }

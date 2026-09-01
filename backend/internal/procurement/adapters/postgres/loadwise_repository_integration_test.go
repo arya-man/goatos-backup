@@ -276,6 +276,34 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 		}
 	})
 
+	t.Run("CostLinesRollUpOverStoredColumns", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, `
+UPDATE procurement_loads
+SET animal_cost = 1000, transport_cost = NULL, other_cost = NULL
+WHERE tenant_id = $1 AND load_id = $2::uuid;
+
+INSERT INTO procurement_load_cost_lines (tenant_id, load_id, kind, amount, source)
+VALUES ($1, $2::uuid, 'animal', 2000, 'sheet_import'),
+       ($1, $2::uuid, 'transport', 300, 'sheet_import'),
+       ($1, $2::uuid, 'booking', 25, 'sheet_import'),
+       ($1, $2::uuid, 'labour', 75, 'sheet_import')`, testTenant, fx.loadA); err != nil {
+			t.Fatalf("seed cost lines: %v", err)
+		}
+		nextA, _, _ := read()
+		if nextA.AnimalCost == nil || *nextA.AnimalCost != 2000 {
+			t.Fatalf("animal cost = %v, want line roll-up 2000", nextA.AnimalCost)
+		}
+		if nextA.TransportCost == nil || *nextA.TransportCost != 300 {
+			t.Fatalf("transport cost = %v, want line roll-up 300", nextA.TransportCost)
+		}
+		if nextA.OtherCost == nil || *nextA.OtherCost != 100 {
+			t.Fatalf("other cost = %v, want booking+labour roll-up 100", nextA.OtherCost)
+		}
+		if nextA.PurchaseValue == nil || *nextA.PurchaseValue != 2400 {
+			t.Fatalf("purchase value = %v, want landed cost from lines 2400", nextA.PurchaseValue)
+		}
+	})
+
 	t.Run("ParkScopeAgreeOrGoBareFarmLabel", func(t *testing.T) {
 		if loadA.Farm != "CPT" {
 			t.Fatalf("load A farm = %q, want CPT (every accepted animal agrees)", loadA.Farm)

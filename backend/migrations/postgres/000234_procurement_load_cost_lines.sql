@@ -42,7 +42,7 @@ CREATE TABLE public.procurement_load_cost_lines (
     recorded_at timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT procurement_load_cost_lines_pkey PRIMARY KEY (tenant_id, line_id),
     CONSTRAINT procurement_load_cost_lines_load_fkey
-        FOREIGN KEY (load_id) REFERENCES public.procurement_loads (load_id) ON DELETE CASCADE,
+        FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads (tenant_id, load_id) ON DELETE CASCADE,
     -- A cost line is money that was actually spent. Zero is allowed (the sheet carries recorded
     -- zero-value Unloaded/Vaccination rows and dropping them would lose the fact that the step
     -- happened at no charge); negative is not -- a refund is a business event nobody has defined.
