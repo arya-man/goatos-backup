@@ -1085,13 +1085,11 @@ type CommandBoardCohortCell struct {
 	// for that split, so the board carries it instead of forcing a second query per cell.
 	// Ordered by date ascending. Empty when nothing is verified.
 	AdministeredDays []CommandBoardCohortDay `json:"administeredDays,omitempty"`
-	// MissingPriorDoseCount is the dose-sequence EXCEPTION for this cell: animals of this cohort
-	// that hold an accepted LATER dose of the same vaccine course while this dose has no accepted
-	// completion. "324 verified" and "321 verified with 3 animals whose Dose 1 was never accepted"
-	// are different medical facts and must not render identically.
+	// MissingPriorDoseCount is deprecated compatibility JSON for older clients. The CEO cohort
+	// board no longer surfaces missing-prior-dose "exceptions"; corrected anchor history is shown as
+	// accepted dose history and future revac work.
 	MissingPriorDoseCount int `json:"missingPriorDoseCount"`
-	// MissingPriorDoseGoats names those animals, capped so a cell can never return an unbounded
-	// list. MissingPriorDoseCount stays the whole-cohort truth when the list is capped.
+	// MissingPriorDoseGoats is deprecated compatibility JSON for older clients.
 	MissingPriorDoseGoats []CommandBoardCohortAnimal `json:"missingPriorDoseGoats,omitempty"`
 	// DoseCodes are the raw dose codes that fold into this cell's single displayed VaccineLabel.
 	//

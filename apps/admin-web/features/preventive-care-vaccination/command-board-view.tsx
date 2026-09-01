@@ -19,7 +19,6 @@ import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import {
-  commonDriveName,
   driveSelectionValue,
   executedDriveCampaigns,
   formatDateSpan,
@@ -97,16 +96,11 @@ interface CohortPivotRow {
   submitted: Record<string, number>;
   verified: Record<string, number>;
   administeredDates: Record<string, AdministeredDateRange>;
-  // Per-vaccine day split and dose-sequence exceptions, both backend-owned. The grid shows the
-  // exception COUNT (a clean 324 and a 321-with-3-missing must not read alike) and the drilldown
-  // shows the days and the animals.
-  exceptions: Record<string, { count: number }>;
   // The BACKEND cells that fold into each displayed vaccine column of this row.
   //
   // A row is a display bucket: it can roll several (stage, sex) cohorts and several parks together.
-  // The day split and the exception animals are now fetched per cell, so the drawer needs to know
-  // which cells it is made of — one page per contributing cell, merged the way the summary numbers
-  // above were merged.
+  // The day split is fetched per cell, so the drawer needs to know which cells it is made of —
+  // one page per contributing cell, merged the way the summary numbers above were merged.
   cellRefs: Record<string, CohortCellRef[]>;
   // The real management stages that fold into this rung. They are CEO-level noise in the grid, so
   // they live in the drilldown only — the grid stays one row per cohort.
@@ -120,19 +114,6 @@ interface CohortMember {
   submitted: Record<string, number>;
   verified: Record<string, number>;
   administeredDates: Record<string, AdministeredDateRange>;
-  exceptions: Record<string, { count: number }>;
-}
-
-type CohortDay = { date: string; animalCount: number };
-type CohortAnimal = { goatId: string; displayId: string; tag?: string };
-
-function visibleAnimalTag(tag?: string | null) {
-  const value = (tag ?? "").trim();
-  return value;
-}
-
-function isRfidTag(tag?: string | null) {
-  return /^\d{12,}$/.test((tag ?? "").trim());
 }
 
 interface CohortCellInput {
@@ -143,7 +124,6 @@ interface CohortCellInput {
   verifiedCount: number;
   minAdministeredDate?: string | null;
   maxAdministeredDate?: string | null;
-  missingPriorDoseCount?: number;
   // The raw dose codes behind this cell's single displayed vaccineLabel. They ADDRESS the cell in
   // the drilldown endpoints: the board collapses several codes onto one column, so the label alone
   // cannot identify it, and re-deriving the mapping here would put a second, drifting copy of the
@@ -159,16 +139,6 @@ interface CohortCellInput {
 // sub-cohorts are DIFFERENT animals dosed on the same day and must sum; repeated dates from the
 // same sub-cohort would double it. The backend already emits one day list per cohort x dose, so
 // the caller must not merge two dose codes into one call.
-// Exception COUNTS from several sub-cohorts land on the same displayed column and add. The ANIMALS
-// behind them are fetched per cell when the drawer opens (command-board-drilldowns.ts), so only the
-// number is merged here.
-function mergeExceptions(target: Record<string, { count: number }>, vaccine: string, count?: number) {
-  if (!count) return;
-  const current = target[vaccine] ?? { count: 0 };
-  current.count += count;
-  target[vaccine] = current;
-}
-
 function buildCohortFarms(
   matrix: CohortCellInput[],
   ladder: string[],
@@ -207,7 +177,6 @@ function buildCohortPivot(
     const submitted: Record<string, number> = {};
     const verified: Record<string, number> = {};
     const administeredDates: Record<string, AdministeredDateRange> = {};
-    const exceptions: Record<string, { count: number }> = {};
     const cellRefs: Record<string, CohortCellRef[]> = {};
     const members = new Map<string, CohortMember>();
     // Animals are per (stage, sex) cohort and the source repeats a cohort once per vaccine, so
@@ -227,8 +196,7 @@ function buildCohortPivot(
         cell.minAdministeredDate,
         cell.maxAdministeredDate,
       );
-      mergeExceptions(exceptions, cell.vaccineLabel, cell.missingPriorDoseCount);
-      // Record the backend cell so the drawer can fetch this column's days and exception animals.
+      // Record the backend cell so the drawer can fetch this column's actual vaccination days.
       const refs = cellRefs[cell.vaccineLabel] ?? [];
       refs.push({
         cohortParkId: cell.cohort.parkId ?? "",
@@ -247,11 +215,9 @@ function buildCohortPivot(
           submitted: {},
           verified: {},
           administeredDates: {},
-          exceptions: {},
         };
         members.set(key, member);
       }
-      mergeExceptions(member.exceptions, cell.vaccineLabel, cell.missingPriorDoseCount);
       member.pending[cell.vaccineLabel] = (member.pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
       member.submitted[cell.vaccineLabel] =
         (member.submitted[cell.vaccineLabel] ?? 0) + (cell.submittedCount ?? 0);
@@ -276,7 +242,6 @@ function buildCohortPivot(
       submitted,
       verified,
       administeredDates,
-      exceptions,
       cellRefs,
       members: Array.from(members.values()).sort((a, b) => b.animals - a.animals),
     };
@@ -494,10 +459,7 @@ interface SelectedCohortCell {
   submitted: number;
   verified: number;
   dateSpan: string;
-  exceptionCount: number;
-  // The BACKEND cells this display cell is made of. The drawer fetches its day split and its
-  // exception animals from these; both used to ride on the board payload, computed tenant-wide for
-  // every cell on every render.
+  // The BACKEND cells this display cell is made of. The drawer fetches its day split from these.
   cellRefs: CohortCellRef[];
   members: Array<{
     label: string;
@@ -505,7 +467,6 @@ interface SelectedCohortCell {
     pending: number;
     submitted: number;
     verified: number;
-    exceptions: number;
     dateSpan: string;
   }>;
 }
@@ -1300,14 +1261,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                   : done > 0
                                     ? ` · ${copy(pageContract, "command_board.cohort_matrix.date_unavailable")}`
                                     : "";
-                                const exception = row.exceptions[v];
-                                const exceptionCount = exception?.count ?? 0;
-                                const exceptionWord = copy(
-                                  pageContract,
-                                  exceptionCount === 1
-                                    ? "command_board.cohort_matrix.exception_word_one"
-                                    : "command_board.cohort_matrix.exception_word",
-                                );
                                 // Only the buckets that carry work are spelled out. A CEO cell that
                                 // prints "0 pending · 0 submitted · 324 verified" makes the reader
                                 // subtract zeroes to find the one fact that matters.
@@ -1326,7 +1279,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                   submitted: awaiting,
                                   verified: done,
                                   dateSpan: administeredDate,
-                                  exceptionCount,
                                   cellRefs: row.cellRefs[v] ?? [],
                                   members: row.members.map((member) => ({
                                     label: member.label,
@@ -1334,23 +1286,15 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                     pending: member.pending[v] ?? 0,
                                     submitted: member.submitted[v] ?? 0,
                                     verified: member.verified[v] ?? 0,
-                                    exceptions: member.exceptions[v]?.count ?? 0,
                                     dateSpan: formatDateSpan(member.administeredDates[v]?.min, member.administeredDates[v]?.max),
                                   })),
                                 };
-                                // Colour follows who owes the next move; an exception rides ON TOP of
-                                // that colour as its own chip, because "324 verified" and "321
-                                // verified with 3 animals missing this dose" are different medical
-                                // facts that must not render as the same green block.
+                                // Colour follows who owes the next move.
                                 return (
                                   <td
                                     key={v}
-                                    className={`cbm-cell cbm-cohort-cell ${pending > 0 ? "cbm-pending" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}${
-                                      exceptionCount > 0 ? " cbm-cell-exception" : ""
-                                    }${selectedCell?.key === cellKey ? " cbm-cell-on" : ""}`}
-                                    title={`${label} · ${v} · ${pending} ${pendingWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateSuffix}${
-                                      exceptionCount > 0 ? ` · ${exceptionCount} ${exceptionWord}` : ""
-                                    }`}
+                                    className={`cbm-cell cbm-cohort-cell ${pending > 0 ? "cbm-pending" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}${selectedCell?.key === cellKey ? " cbm-cell-on" : ""}`}
+                                    title={`${label} · ${v} · ${pending} ${pendingWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateSuffix}`}
                                     role="button"
                                     tabIndex={0}
                                     aria-pressed={selectedCell?.key === cellKey}
@@ -1378,11 +1322,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                       <small className="cbm-cell-date">{administeredDate}</small>
                                     ) : done > 0 ? (
                                       <small className="cbm-cell-date">{copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</small>
-                                    ) : null}
-                                    {exceptionCount > 0 ? (
-                                      <span className="cbm-cell-exception-chip">
-                                        {exceptionCount} {exceptionWord}
-                                      </span>
                                     ) : null}
                                   </td>
                                 );
@@ -1733,44 +1672,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 )}
               </div>
 
-              {/* The exception story: animals whose later dose is accepted while THIS dose is
-                  not. Named, so the CEO can hand the list to a park head. */}
-              <div className="cbm-drawer-section">
-                <b>{copy(pageContract, "command_board.cohort_matrix.detail.exceptions")}</b>
-                {selectedCell.exceptionCount > 0 ? (
-                  <>
-                    <span className="cbm-cohort-detail-exception-count">{selectedCell.exceptionCount}</span>
-                    <ul className="cbm-goatlist">
-                      {cohortDrilldown.data.exceptionGoats.map((goat) => {
-                        const tag = visibleAnimalTag(goat.tag);
-                        return (
-                          <li
-                            key={goat.goatId}
-                            className={tag ? (isRfidTag(tag) ? "rfid-tag" : "local-tag") : "missing-rfid"}
-                            title={goat.displayId}
-                            aria-label={tag ? `${tag} for ${goat.displayId}` : `No tag for ${goat.displayId}`}
-                          >
-                            <span className="rfid">{tag || "No tag"}</span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    {/* Driven by a REMAINING CURSOR, not by count-vs-length. The list is
-                        de-duplicated across the cell's dose codes while the count is a per-cell
-                        total, so comparing them labelled a complete list as truncated. */}
-                    {cohortDrilldown.data.truncated ? (
-                      <span className="cbm-cohort-detail-muted">
-                        {copy(pageContract, "command_board.cohort_matrix.detail.capped")} {selectedCell.exceptionCount}
-                      </span>
-                    ) : null}
-                  </>
-                ) : (
-                  <span className="cbm-cohort-detail-muted">
-                    {copy(pageContract, "command_board.cohort_matrix.detail.clean")}
-                  </span>
-                )}
-              </div>
-
               {/* Sub-cohorts breakdown table */}
               {selectedCell.members.length > 0 ? (
                 <table className="cbm-cohort-detail-table">
@@ -1781,7 +1682,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                       <th>{copy(pageContract, "command_board.cohort_matrix.pending_word")}</th>
                       <th>{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</th>
                       <th>{copy(pageContract, "command_board.cohort_matrix.verified_word")}</th>
-                      <th>{copy(pageContract, "command_board.cohort_matrix.exception_word")}</th>
                       <th>{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</th>
                     </tr>
                   </thead>
@@ -1793,7 +1693,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                         <td>{member.pending}</td>
                         <td>{member.submitted}</td>
                         <td>{member.verified}</td>
-                        <td>{member.exceptions}</td>
                         <td>{member.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</td>
                       </tr>
                     ))}

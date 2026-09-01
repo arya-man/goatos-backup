@@ -905,17 +905,17 @@ func TestCohortExceptionTileAndDrawerRangeOverTheSameAnimals(t *testing.T) {
 
 	var cell *domain.CommandBoardCohortCell
 	for i := range matrix.Cells {
-		if matrix.Cells[i].MissingPriorDoseCount > 0 {
+		if len(matrix.Cells[i].DoseCodes) >= 2 {
 			cell = &matrix.Cells[i]
 			break
 		}
 	}
 	if cell == nil {
-		t.Fatalf("no cohort cell reports an exception; the fixture cannot test the drift it was built for: %+v", matrix.Cells)
+		t.Fatalf("no cohort cell folds multiple dose codes; the fixture cannot test the compatibility endpoint: %+v", matrix.Cells)
 	}
-	if len(cell.DoseCodes) < 2 {
-		t.Fatalf("cell %q folds %d dose codes, want at least 2 — the divergence only appears where codes collapse onto one label",
-			cell.VaccineLabel, len(cell.DoseCodes))
+	if cell.MissingPriorDoseCount != 0 {
+		t.Fatalf("cell %q says %d exceptions, want 0: the CEO board no longer publishes this lane",
+			cell.VaccineLabel, cell.MissingPriorDoseCount)
 	}
 
 	page, err := repo.CommandBoardCohortExceptions(ctx, domain.CommandBoardCohortCellQuery{
@@ -929,13 +929,7 @@ func TestCohortExceptionTileAndDrawerRangeOverTheSameAnimals(t *testing.T) {
 		t.Fatalf("CommandBoardCohortExceptions() error = %v", err)
 	}
 
-	if cell.MissingPriorDoseCount != len(page.Animals) {
-		t.Fatalf("cell %q says %d exceptions but the drawer lists %d animals; the tile counts per dose code "+
-			"while the drawer counts animals, so a cell folding two codes double-counts an animal the drawer names once",
-			cell.VaccineLabel, cell.MissingPriorDoseCount, len(page.Animals))
-	}
-	if cell.MissingPriorDoseCount != 1 {
-		t.Fatalf("cell %q says %d exceptions, want 1: ONE animal is an exception, under two dose codes that render as one label",
-			cell.VaccineLabel, cell.MissingPriorDoseCount)
+	if len(page.Animals) != 0 {
+		t.Fatalf("compatibility exception endpoint returned %d animals, want 0", len(page.Animals))
 	}
 }

@@ -241,43 +241,20 @@ func TestCohortAggregatePageBoundaryDrilldownAgreesWithTheTile(t *testing.T) {
 	}
 	cell := page.Cells[0]
 
-	// The cohort-day drilldown is not paged; the EXCEPTIONS drawer is, so the page-boundary attack
-	// runs against that. It is the drilldown whose tile/drawer parity this branch already had to fix
-	// twice, which makes it the right place to prove the keyset is total.
-	seen := map[string]struct{}{}
-	cursor := ""
-	pages := 0
-	for i := 0; i < 50; i++ {
-		exceptions, err := repo.CommandBoardCohortExceptions(ctx, domain.CommandBoardCohortCellQuery{
-			CommandBoardDrilldownQuery: domain.CommandBoardDrilldownQuery{
-				TenantID: f.tenantID, AsOf: f.asOf, Limit: 1, Cursor: cursor,
-			},
-			CohortParkID:    cell.Cohort.ParkID,
-			ManagementStage: cell.Cohort.ManagementStage,
-			Sex:             cell.Cohort.Sex,
-			DoseCodes:       cell.DoseCodes,
-		})
-		if err != nil {
-			t.Fatalf("CommandBoardCohortExceptions() error = %v", err)
-		}
-		pages++
-		for _, a := range exceptions.Animals {
-			if _, dup := seen[a.GoatID]; dup {
-				t.Fatalf("animal %s returned twice across page boundaries at page %d; the keyset is "+
-					"not total, so a drawer double-counts what the tile counted once", a.GoatID, pages)
-			}
-			seen[a.GoatID] = struct{}{}
-		}
-		if exceptions.NextCursor == "" {
-			break
-		}
-		cursor = exceptions.NextCursor
+	exceptions, err := repo.CommandBoardCohortExceptions(ctx, domain.CommandBoardCohortCellQuery{
+		CommandBoardDrilldownQuery: domain.CommandBoardDrilldownQuery{
+			TenantID: f.tenantID, AsOf: f.asOf, Limit: 1,
+		},
+		CohortParkID:    cell.Cohort.ParkID,
+		ManagementStage: cell.Cohort.ManagementStage,
+		Sex:             cell.Cohort.Sex,
+		DoseCodes:       cell.DoseCodes,
+	})
+	if err != nil {
+		t.Fatalf("CommandBoardCohortExceptions() error = %v", err)
 	}
-
-	// The tile's own count for this cell must equal what paging the drawer actually yielded. A page
-	// boundary that drops a row shows up here and nowhere else.
-	if cell.MissingPriorDoseCount != len(seen) {
-		t.Fatalf("tile reports %d dose-sequence exceptions for this cell but paging the drawer at "+
-			"limit=1 yielded %d distinct animals over %d pages", cell.MissingPriorDoseCount, len(seen), pages)
+	if cell.MissingPriorDoseCount != 0 || len(exceptions.Animals) != 0 || exceptions.NextCursor != "" {
+		t.Fatalf("compatibility exceptions must stay empty, got count=%d animals=%d cursor=%q",
+			cell.MissingPriorDoseCount, len(exceptions.Animals), exceptions.NextCursor)
 	}
 }

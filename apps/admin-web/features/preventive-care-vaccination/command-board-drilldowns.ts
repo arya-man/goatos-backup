@@ -366,9 +366,8 @@ export function useShedVaccineAnimals(
   );
 }
 
-// useCohortCellDetail fetches the administered-day split and the dose-sequence exceptions for every
-// backend cell that rolls into the open drawer, then merges them the way the board's row builder
-// merges the summary numbers: days with the same date add, exception animals concatenate.
+// useCohortCellDetail fetches the administered-day split for every backend cell that rolls into the
+// open drawer, then merges it the way the board's row builder merges the summary numbers.
 export function useCohortCellDetail(
   refs: CohortCellRef[] | null,
   scope: DrilldownScope,
@@ -389,43 +388,24 @@ export function useCohortCellDetail(
           params.set("sex", ref.sex);
           params.set("dose_codes", ref.doseCodes.join(","));
           params.set("limit", "200");
-          const [days, exceptions] = await Promise.all([
-            fetchJson<{ days: CohortDayRow[] }>(
-              `/api/vaccination/command/cohort-days?${params.toString()}`,
-              signal,
-            ),
-            fetchAllPages<CohortAnimalRow, { animals: CohortAnimalRow[]; nextCursor?: string }>(
-              "/api/vaccination/command/cohort-exceptions",
-              params,
-              (page) => page.animals ?? [],
-              signal,
-            ),
-          ]);
-          return { days: days.days ?? [], exceptions: exceptions.items, truncated: exceptions.truncated };
+          const days = await fetchJson<{ days: CohortDayRow[] }>(
+            `/api/vaccination/command/cohort-days?${params.toString()}`,
+            signal,
+          );
+          return { days: days.days ?? [] };
         }),
       );
 
       const byDate = new Map<string, number>();
-      const exceptionGoats: CohortAnimalRow[] = [];
-      const seenGoat = new Set<string>();
-      let truncated = false;
       for (const result of results) {
-        truncated = truncated || result.truncated;
         for (const day of result.days) {
           byDate.set(day.date, (byDate.get(day.date) ?? 0) + day.animalCount);
-        }
-        for (const goat of result.exceptions) {
-          // One animal can hold the missing dose in more than one contributing cell; the drawer
-          // names ANIMALS, so it must not list the same one twice.
-          if (seenGoat.has(goat.goatId)) continue;
-          seenGoat.add(goat.goatId);
-          exceptionGoats.push(goat);
         }
       }
       const days = [...byDate.entries()]
         .map(([date, animalCount]) => ({ date, animalCount }))
         .sort((a, b) => a.date.localeCompare(b.date));
-      return { days, exceptionGoats, truncated };
+      return { days, exceptionGoats: [], truncated: false };
     },
     NO_COHORT,
   );

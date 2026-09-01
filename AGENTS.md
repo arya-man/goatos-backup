@@ -3916,3 +3916,13 @@ pre-existing debt unless it is paired with a whole-tree ratchet like this
 one** — an adversarial audit found ~150 `exception-guard` FAILs and 51
 `telemetry-guard` FAILs sitting in this tree with a permanently green
 `ci-local` before this ratchet existed.
+
+## Mesha / Goat OS RFID Language
+
+When a maintainer asks for "RFID", "tag", or "tag IDs" for animals in Goat OS,
+return the actual animal tag columns from `goat_identifiers`:
+`animal_identifier_1` and `animal_identifier_2`. Do not answer with
+`goats.display_id` (`G-...`) unless the user explicitly asks for display IDs or
+both display ID and RFID. At least one of the two animal identifier columns is
+expected to be present for active goat records; treat a missing RFID answer as a
+data-quality finding, not as permission to substitute display IDs.

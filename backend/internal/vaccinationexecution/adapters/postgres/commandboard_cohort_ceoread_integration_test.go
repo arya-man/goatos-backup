@@ -223,17 +223,14 @@ func TestVaccinationCommandBoardCohortCEOReadHeadCountDaySplitAndDoseSequenceExc
 			"cell's verified bucket, not a different set of animals", total, dose1.VerifiedCount)
 	}
 
-	// (3) DOSE-SEQUENCE EXCEPTION lands on the MISSING dose's cell, names its animals, and stays
-	// off the cell that is actually complete.
-	if dose1.MissingPriorDoseCount != exceptions {
-		t.Errorf("Dose 1 missingPriorDoseCount = %d, want %d -- %d animals hold an accepted Dose 2 while "+
-			"their Dose 1 was never accepted, and a cohort with that gap must not read as cleanly closed",
-			dose1.MissingPriorDoseCount, exceptions, exceptions)
+	// (3) The CEO board no longer presents accepted Dose 2 history as a Dose 1 "exception".
+	if dose1.MissingPriorDoseCount != 0 {
+		t.Errorf("Dose 1 missingPriorDoseCount = %d, want 0 -- accepted Dose 2 history must render as "+
+			"accepted anchor history, not as a CEO dashboard exception", dose1.MissingPriorDoseCount)
 	}
 	dose1Exceptions := cohortExceptionAnimals(t, ctx, pool, tenantID, dose1)
-	if got := len(dose1Exceptions); got != exceptions {
-		t.Errorf("Dose 1 missingPriorDoseGoats length = %d, want %d -- the CEO must be able to hand the "+
-			"named animals to a park head", got, exceptions)
+	if got := len(dose1Exceptions); got != 0 {
+		t.Errorf("Dose 1 compatibility exception list length = %d, want 0", got)
 	}
 	for _, animal := range dose1Exceptions {
 		if animal.GoatID == "" || animal.DisplayID == "" {
@@ -253,18 +250,9 @@ func TestVaccinationCommandBoardCohortCEOReadHeadCountDaySplitAndDoseSequenceExc
 	}
 }
 
-// TestVaccinationCommandBoardCohortExceptionListPaginationPageBoundaryMultiPageKeepsWholeCohortCount
-// pins the ONE bounded-list boundary the new CEO read has: the exception list is capped per cell
-// (CommandBoardCohortExceptionListCap) while missingPriorDoseCount stays whole-cohort truth.
-//
-// The failure this blocks is the classic capped-rollup-presented-as-truth defect: cap the list at
-// 25, then report 25 as the count. A cohort with 30 animals missing an accepted Dose 1 would tell
-// the CEO 25, and the five animals past the page boundary would never be chased. Summaries are
-// whole-filter aggregates; only the LIST is a page.
-//
-// Fixture: 30 animals, every one holding an accepted Dose 2 and NO accepted Dose 1 -- five past the
-// cap. Pagination / PageBoundary / MultiPage / OneToMany.
-func TestVaccinationCommandBoardCohortExceptionListPaginationPageBoundaryMultiPageKeepsWholeCohortCount(t *testing.T) {
+// TestVaccinationCommandBoardCohortExceptionCompatibilityEndpointStaysEmpty pins the current CEO
+// contract: accepted later-dose history is not exposed as a command-board "exceptions" lane.
+func TestVaccinationCommandBoardCohortExceptionCompatibilityEndpointStaysEmpty(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -286,7 +274,6 @@ func TestVaccinationCommandBoardCohortExceptionListPaginationPageBoundaryMultiPa
 		batchID           = "70000000-0000-4000-8000-000004000ac1"
 		custodianPartyID  = "70000000-0000-4000-8000-000009000ac1"
 	)
-	// Deliberately past the cap so the boundary is exercised, not approached.
 	overCap := domain.CommandBoardCohortExceptionListCap + 5
 
 	dose1Day := time.Date(2026, 6, 30, 0, 0, 0, 0, ist)
@@ -346,24 +333,13 @@ func TestVaccinationCommandBoardCohortExceptionListPaginationPageBoundaryMultiPa
 		t.Fatalf("cohort matrix missing the ET+TT Dose 1 cell: %+v", cohortMatrix)
 	}
 
-	if dose1.MissingPriorDoseCount != overCap {
-		t.Errorf("missingPriorDoseCount = %d, want %d -- the COUNT is a whole-cohort aggregate and must "+
-			"not collapse to the list cap. Reporting the cap as the count is the capped-rollup-as-truth "+
-			"defect: %d animals past the page boundary would never be chased",
-			dose1.MissingPriorDoseCount, overCap, overCap-domain.CommandBoardCohortExceptionListCap)
+	if dose1.MissingPriorDoseCount != 0 {
+		t.Errorf("missingPriorDoseCount = %d, want 0 -- the CEO board no longer renders this as an exception",
+			dose1.MissingPriorDoseCount)
 	}
 	dose1Exceptions := cohortExceptionAnimals(t, ctx, pool, tenantID, dose1)
-	if got := len(dose1Exceptions); got != domain.CommandBoardCohortExceptionListCap {
-		t.Errorf("missingPriorDoseGoats length = %d, want the cap %d -- the LIST is bounded so one cell can "+
-			"never return an unbounded page", got, domain.CommandBoardCohortExceptionListCap)
-	}
-	seen := map[string]bool{}
-	for _, animal := range dose1Exceptions {
-		if seen[animal.GoatID] {
-			t.Errorf("animal %s appears twice in the capped list -- the exception probe must contribute one "+
-				"row per animal regardless of how many later doses it holds", animal.GoatID)
-		}
-		seen[animal.GoatID] = true
+	if got := len(dose1Exceptions); got != 0 {
+		t.Errorf("compatibility exception list length = %d, want 0", got)
 	}
 }
 

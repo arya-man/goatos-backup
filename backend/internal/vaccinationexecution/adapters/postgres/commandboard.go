@@ -340,13 +340,13 @@ func (r *Repository) commandBoardCohortExceptionCounts(ctx context.Context, tena
 }
 
 // commandBoardFoldCohortCells folds dose-code rows onto their displayed vaccine label and applies
-// the true herd head count and the exception counts.
+// the true herd head count.
 //
 // Head count is a HERD fact, not an obligation fact. The cohort query can only see animals that
 // carry an obligation for that dose, so the "Animals" column reported 229 for a cohort of 324 live
 // adults -- every animal whose Dose 1 obligation had been closed out of the window vanished from
 // its own head count.
-func commandBoardFoldCohortCells(rows []commandBoardCohortRow, headCounts map[commandBoardHeadKey]int, exceptions map[commandBoardCohortKey]int) []domain.CommandBoardCohortCell {
+func commandBoardFoldCohortCells(rows []commandBoardCohortRow, headCounts map[commandBoardHeadKey]int) []domain.CommandBoardCohortCell {
 	agg := map[commandBoardCohortKey]*domain.CommandBoardCohortCell{}
 	order := []commandBoardCohortKey{}
 	for _, row := range rows {
@@ -391,7 +391,6 @@ func commandBoardFoldCohortCells(rows []commandBoardCohortRow, headCounts map[co
 		if head, ok := headCounts[commandBoardHeadKey{cell.Cohort.ParkID, cell.Cohort.ManagementStage, cell.Cohort.Sex}]; ok {
 			cell.Cohort.AnimalCount = head
 		}
-		cell.MissingPriorDoseCount = exceptions[key]
 		// Sorted so one cell renders one request shape every time.
 		slices.Sort(cell.DoseCodes)
 		cells = append(cells, *cell)
@@ -908,7 +907,6 @@ func (r *Repository) CommandBoardCohortMatrix(ctx context.Context, q domain.Comm
 	var (
 		rows       []commandBoardCohortRow
 		headCounts = map[commandBoardHeadKey]int{}
-		exceptions = map[commandBoardCohortKey]int{}
 	)
 
 	group, gctx := errgroup.WithContext(ctx)
@@ -929,18 +927,10 @@ func (r *Repository) CommandBoardCohortMatrix(ctx context.Context, q domain.Comm
 		headCounts = result
 		return nil
 	}))
-	group.Go(r.commandBoardSection(gctx, func() error {
-		result, err := r.commandBoardCohortExceptionCounts(gctx, q.TenantID, q.DriveBatchID, q.ParkID)
-		if err != nil {
-			return err
-		}
-		exceptions = result
-		return nil
-	}))
 	if err := group.Wait(); err != nil {
 		return page, err
 	}
 
-	page.Cells = commandBoardFoldCohortCells(rows, headCounts, exceptions)
+	page.Cells = commandBoardFoldCohortCells(rows, headCounts)
 	return page, nil
 }

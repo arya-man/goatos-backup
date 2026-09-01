@@ -1187,8 +1187,6 @@
   .cbm-cohort-heat .cbm-cell.cbm-cohort-cell .cbm-cell-date{opacity:.72;font-variant-numeric:tabular-nums}
   /* An exception rides ON TOP of the state colour: a clean cohort and a cohort with animals whose
      earlier dose was never accepted must never read as the same block of green. */
-  .cbm-cell-exception-chip{display:inline-block;margin-top:4px;padding:1px 7px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;white-space:nowrap}
-  .cbm-cell.cbm-cell-exception{box-shadow:inset 0 0 0 1.5px var(--danger)}
   .cbm-cell.cbm-cell-on{outline:2px solid var(--brand);outline-offset:-2px}
   .cbm-rowh-note{display:block;font-size:10px;font-weight:500;color:var(--faint);letter-spacing:0;text-transform:none;margin-top:2px}
   /* First column stays readable while the vaccine columns scroll horizontally. */
@@ -1202,9 +1200,6 @@
   .cbm-goatlist li{border:1px solid var(--line2);border-radius:8px;padding:2px 8px;font-size:11.5px;font-variant-numeric:tabular-nums}
   .cbm-goatlist .rfid{font-weight:650;color:var(--ink)}
   .cbm-goatlist .t{color:var(--faint);margin-left:6px}
-  .cbm-goatlist li.local-tag .rfid{color:var(--muted)}
-  .cbm-goatlist li.missing-rfid .rfid{color:var(--danger)}
-  .cbm-cohort-detail-exception-count{display:block;font-size:20px;font-weight:700;color:var(--danger);margin-bottom:6px}
   .cbm-cohort-detail-muted{color:var(--faint);font-size:11.5px}
   /* Drilldown sections inside the record drawer. The inline panel's block styles were removed
      with the panel, but the drawer still renders these sections -- without them the heading ran

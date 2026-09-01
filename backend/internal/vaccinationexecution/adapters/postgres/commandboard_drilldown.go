@@ -285,62 +285,15 @@ func (r *Repository) commandBoardShedVideos(ctx context.Context, tenantID string
 	return videos, nil
 }
 
-// CommandBoardCohortExceptions returns one page of a cohort cell's dose-sequence exceptions: the
-// animals behind the cell's MissingPriorDoseCount.
+// CommandBoardCohortExceptions is kept as a compatibility endpoint for older clients. The CEO
+// cohort board no longer surfaces dose-sequence "exceptions"; corrected anchor history is shown as
+// ordinary accepted dose history and future revac work.
 func (r *Repository) CommandBoardCohortExceptions(ctx context.Context, q domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortExceptionsPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
 	q.CommandBoardDrilldownQuery = q.CommandBoardDrilldownQuery.Normalized()
 	page := domain.CommandBoardCohortExceptionsPage{Animals: []domain.CommandBoardCohortAnimal{}}
-
-	var cursorDisplay, cursorGoat *string
-	if q.Cursor != "" {
-		cursor, err := domain.DecodeCommandBoardAnimalCursor(q.Cursor)
-		if err != nil {
-			return page, fmt.Errorf("vaccination command board: cohort exception cursor: %w", err)
-		}
-		display := cursor.DisplayID
-		cursorDisplay = &display
-		cursorGoat = &cursor.GoatID
-	}
-
-	rows, err := r.pool.Query(ctx, commandBoardCohortExceptionListSQL,
-		q.TenantID, q.DriveBatchID, q.ParkID,
-		q.CohortParkID, q.ManagementStage, q.Sex, q.DoseCodes,
-		cursorDisplay, cursorGoat, q.Limit+1)
-	if err != nil {
-		return page, fmt.Errorf("vaccination command board: cohort exception query: %w", err)
-	}
-	defer rows.Close()
-
-	overflow := false
-	for rows.Next() {
-		if len(page.Animals) >= q.Limit {
-			overflow = true
-			break
-		}
-		var animal domain.CommandBoardCohortAnimal
-		if err := rows.Scan(&animal.GoatID, &animal.DisplayID, &animal.Tag); err != nil {
-			return page, fmt.Errorf("vaccination command board: cohort exception scan: %w", err)
-		}
-		page.Animals = append(page.Animals, animal)
-	}
-	if err := rows.Err(); err != nil {
-		return page, fmt.Errorf("vaccination command board: cohort exception rows: %w", err)
-	}
-
-	if overflow && len(page.Animals) > 0 {
-		last := page.Animals[len(page.Animals)-1]
-		cursor, err := domain.EncodeCommandBoardAnimalCursor(domain.CommandBoardAnimalCursor{
-			DisplayID: last.DisplayID,
-			GoatID:    last.GoatID,
-		})
-		if err != nil {
-			return page, fmt.Errorf("vaccination command board: cohort exception cursor: %w", err)
-		}
-		page.NextCursor = cursor
-	}
 	return page, nil
 }
 
