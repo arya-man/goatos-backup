@@ -167,6 +167,22 @@ func TestStockVerdictIsIdempotentOnAReplayAndConflictsOtherwise(t *testing.T) {
 		t.Fatalf("conflicting reject err = %v, want ErrStockVerdictNotPending", err)
 	}
 
+	// Replayed reject is idempotent only when it is the same decision, including the reason.
+	store = &stockVerdictFakeStore{task: stockTask(domain.StatusRework), bounceResult: false}
+	store.task.ReworkReason = "The clip does not show the FMD shelf"
+	svc = NewService(store)
+	task, err = svc.RecordStockVerdict(context.Background(), directorActor(), StockVerdictInput{
+		TaskID: testTask, Verdict: domain.StockVerdictReject, Reason: "The clip does not show the FMD shelf",
+	})
+	if err != nil || task.Status != domain.StatusRework {
+		t.Fatalf("replayed reject = (%+v, %v), want idempotent rework echo", task, err)
+	}
+	if _, err := svc.RecordStockVerdict(context.Background(), directorActor(), StockVerdictInput{
+		TaskID: testTask, Verdict: domain.StockVerdictReject, Reason: "different reason",
+	}); !errors.Is(err, domain.ErrStockVerdictNotPending) {
+		t.Fatalf("conflicting reject reason err = %v, want ErrStockVerdictNotPending", err)
+	}
+
 	// A verdict on a never-submitted task conflicts the same way.
 	store = &stockVerdictFakeStore{task: stockTask(domain.StatusOpen), applyResult: false}
 	svc = NewService(store)

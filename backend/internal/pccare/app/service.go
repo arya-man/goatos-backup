@@ -731,7 +731,7 @@ func (s *Service) RecordStockVerdict(ctx context.Context, actor domain.Actor, in
 	switch {
 	case verdict == domain.StockVerdictApprove && refreshed.Status == domain.StatusCompleted:
 		return refreshed, nil
-	case verdict == domain.StockVerdictReject && refreshed.Status == domain.StatusRework:
+	case verdict == domain.StockVerdictReject && refreshed.Status == domain.StatusRework && strings.TrimSpace(refreshed.ReworkReason) == reason:
 		return refreshed, nil
 	}
 	return ports.TaskRow{}, domain.ErrStockVerdictNotPending

@@ -13,7 +13,8 @@
 --    pending_verification and simply wait for the PC Director's verdict instead.
 --    verification_items is a hot table: bound the lock wait so a busy verifier queue makes
 --    this cutover retry rather than queue behind row locks indefinitely.
-SET lock_timeout = '5s';
+SET LOCAL lock_timeout = '5s';
+-- seed-migration-guard:ignore owner=Ravi issue=PR-169 reason=one-way-verifier-queue-withdrawal-for-existing-production-stock-tasks expiry=2026-10-02
 UPDATE public.verification_items
 SET status = 'withdrawn',
     row_version = row_version + 1,
@@ -26,6 +27,7 @@ WHERE module = 'pc_care'
 --    the videos and must not be offered a camera; an already-submitted or completed task keeps
 --    its assignee history untouched. The kernel reconciler repeats this on every pass and
 --    inserts the park's own vaccination operators as the new assignees.
+-- seed-migration-guard:ignore owner=Ravi issue=PR-169 reason=one-way-director-assignee-cutover-for-existing-production-stock-tasks expiry=2026-10-02
 DELETE FROM public.pc_care_task_assignees a
 USING public.pc_care_tasks t, public.workforce_members dm
 WHERE t.tenant_id = a.tenant_id
