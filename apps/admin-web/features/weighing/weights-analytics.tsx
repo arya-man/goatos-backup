@@ -15,6 +15,7 @@ import {
   getShedWeights,
   getWeighingGrowth,
   getWeightDemographics,
+  type ApiResult,
   type ShedWeightsResponse,
   type ShedWeightsRow,
   type ShedWeightsSummary,
@@ -188,20 +189,27 @@ export async function WeighingWeightsAnalyticsPage({
   // Each card carries the SAME filters as the rest of the page. They were the one read on the
   // Weights page that once did not, and it showed a filtered headline above two unfiltered park
   // cards -- three numbers about three different populations, side by side, with nothing saying so.
-  const perParkGain =
-    tab === "general" && parkFilter === "" && parks.length > 1
-      ? await Promise.all(
-          parks.map(async (park) => {
-            const result = await getWeighingGrowth({ ...scope, ...readWindow, park_id: park.park_id });
-            const headline = result.ok ? result.data.headline : null;
-            return {
-              name: park.name,
-              gain: headline?.average_adg_g_per_day ?? null,
-              animals: headline?.headline_animals ?? 0,
-            };
-          }),
-        )
-      : [];
+  let perParkGain: Array<{ name: string; gain: number | null; animals: number }> = [];
+  if (tab === "general" && parkFilter === "" && parks.length > 1) {
+    const perParkResults = await Promise.all(
+      parks.map(async (park) => ({
+        park,
+        result: await getWeighingGrowth({ ...scope, ...readWindow, park_id: park.park_id }),
+      })),
+    );
+    if (firstAuthRequiredError(...perParkResults.map(({ result }) => result))) redirect(INTERNAL_LOGIN_PATH);
+    if (perParkResults.some(({ result }) => !result.ok)) {
+      return <WeightsAnalyticsLoadError pageContract={pageContract} />;
+    }
+    perParkGain = perParkResults.map(({ park, result }) => {
+      const headline = mustHaveData(result).headline;
+      return {
+        name: park.name,
+        gain: headline.average_adg_g_per_day ?? null,
+        animals: headline.headline_animals,
+      };
+    });
+  }
 
   const modeOptions = optionGroup(pageContract, "weighing_mode");
   const parkIdByName = new Map(parks.map((park) => [park.name, park.park_id]));
@@ -379,6 +387,11 @@ function WeightsAnalyticsLoadError({ pageContract }: { pageContract: AdminUiPage
       <p className="muted small">{copy(pageContract, "error.load.body")}</p>
     </section>
   );
+}
+
+function mustHaveData<T>(result: ApiResult<T>): T {
+  if (!result.ok) throw new Error("unreachable API failure after load-error guard");
+  return result.data;
 }
 
 

@@ -102,7 +102,9 @@ test("weights analytics sends the weighing mode through every tab read", () => {
 test("weights analytics fails selected tabs instead of rendering API failures as empty data", () => {
   assert.match(analyticsSource, /if \(growth && !growth\.ok\) \{\s*return <WeightsAnalyticsLoadError pageContract=\{pageContract\} \/>;\s*\}/);
   assert.match(analyticsSource, /if \(demographics && !demographics\.ok\) \{\s*return <WeightsAnalyticsLoadError pageContract=\{pageContract\} \/>;\s*\}/);
+  assert.match(analyticsSource, /if \(perParkResults\.some\(\(\{ result \}\) => !result\.ok\)\) \{\s*return <WeightsAnalyticsLoadError pageContract=\{pageContract\} \/>;\s*\}/);
   assert.match(analyticsSource, /function WeightsAnalyticsLoadError/);
+  assert.match(analyticsSource, /function mustHaveData<T>\(result: ApiResult<T>\): T/);
   assert.match(analyticsSource, /const demo = demographics\?\.ok \? demographics\.data : null;/);
 });
 
