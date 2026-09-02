@@ -128,9 +128,12 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		if vaccination == nil {
 			t.Fatalf("%s vaccination module missing; got %+v", role, modules)
 		}
+		// Maintainer decision 2026-09-02: the PC Director does not scan. His vaccination bar is
+		// Calendar (scheduled-shed oversight, like the CXO) + Stock (his approver face) + Alerts.
+		// Videos (the proof-video log) is dropped for him.
 		wantVaccinationItems := []domain.BootstrapNavigationItem{
-			{Key: "vaccination", Label: "Stock", Href: "/pc/vaccine-stock"},
-			{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
+			{Key: "vaccination", Label: "Calendar", Href: "/calendar"},
+			{Key: "vaccine_stock", Label: "Stock", Href: "/pc/vaccine-stock"},
 			{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}

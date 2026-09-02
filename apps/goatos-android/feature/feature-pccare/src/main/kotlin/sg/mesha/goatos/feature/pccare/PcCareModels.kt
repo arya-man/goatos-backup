@@ -144,6 +144,12 @@ data class PcCareTaskUiState(
     val scanNotice: String = "",
     val animals: List<PcCareAnimalUi> = emptyList(),
     val inventoryRequirements: List<PcCareInventoryRequirementUi> = emptyList(),
+    /**
+     * True for the task-level fridge-stock proof face (inventory_vaccine). Backend-owned and, on
+     * the way in, resolved from the route category so the scan-and-record row never flashes
+     * before the task detail loads.
+     */
+    val taskProofMode: Boolean = false,
     val taskProofSlot: PcCareSlotChipUi? = null,
     val taskProofPhotoSlot: PcCareSlotChipUi? = null,
     val taskProofVideoSlot: PcCareSlotChipUi? = null,

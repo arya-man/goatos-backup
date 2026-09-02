@@ -629,16 +629,12 @@ func TestVisibleNavigationFor(t *testing.T) {
 				grantWithRole(permissions.RoleVerifier),
 			},
 			modules: []string{"vaccination"},
+			// Maintainer decision 2026-09-02: the PC Director does not scan. His bar is Calendar
+			// (scheduled-shed oversight, like the CXO) + Stock (approver face) + Alerts. Videos
+			// (the proof-video log) is dropped for him even though he holds VerificationAct.
 			want: []domain.BootstrapNavigationItem{
-				{Key: "vaccination", Label: "Stock", Href: "/pc/vaccine-stock"},
-				{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
-				// MAINTAINER DECISION 2026-08-06: leadership and verifier are SEPARATE SURFACES.
-				// Leadership videos nav points to /vaccination/videos (leadership-owned),
-				// NEVER to /verify (verifier-owned). The verifier bar is [Verify, Alerts, You].
-				// "You" carries shared_key "you" so it dedupes across modules like the
-				// leadership entries -- the objection was the per-feature REPETITION, not its
-				// presence. The alerts tab label never names the feature; the href's category
-				// still scopes it. This registry bar always carried its own "you" entry.
+				{Key: "vaccination", Label: "Calendar", Href: "/calendar"},
+				{Key: "vaccine_stock", Label: "Stock", Href: "/pc/vaccine-stock"},
 				{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},

@@ -107,6 +107,13 @@ class PcCareTaskViewModel @Inject constructor(
      */
     private val approveView: Boolean = savedStateHandle.get<String>(ARG_APPROVE) == "1"
 
+    /**
+     * The category the launching tab carried on the route (e.g. inventory_vaccine). Known
+     * BEFORE the task detail loads, so the screen can pick the task-proof (fridge stock) face
+     * immediately instead of flashing the scan-and-record row while the detail is in flight.
+     */
+    private val routeCategory: String = savedStateHandle.get<String>(ARG_CATEGORY).orEmpty()
+
     private val json = Json { ignoreUnknownKeys = true }
 
     private data class LocalBits(
@@ -1053,7 +1060,11 @@ class PcCareTaskViewModel @Inject constructor(
     // ---- State assembly ----------------------------------------------------------------------
 
     private fun pcCareIsTaskProofMode(detail: PcCareTaskDto?): Boolean =
-        detail?.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF || detail?.category == PC_CARE_CATEGORY_INVENTORY_VACCINE
+        // The route category settles the fridge-stock face before the detail arrives, so the
+        // scan-and-record row never flashes on the way in.
+        routeCategory == PC_CARE_CATEGORY_INVENTORY_VACCINE ||
+            detail?.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF ||
+            detail?.category == PC_CARE_CATEGORY_INVENTORY_VACCINE
 
     private fun pcCareEffectiveExpectedSlots(detail: PcCareTaskDto?): List<PcCareSlotDto> {
         if (detail == null) return emptyList()
@@ -1200,6 +1211,7 @@ class PcCareTaskViewModel @Inject constructor(
                     requiredDosesLabel = if (it.requiredDoses == 1) "1 dose" else "${it.requiredDoses} doses",
                 )
             },
+            taskProofMode = taskProofMode,
             taskProofSlot = if (taskProofMode) {
                 expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO }?.let { slot ->
                     pcCareBuildTaskProofSlot(slot, proofs, detail?.taskProofs.orEmpty(), bits.capturingSlotKey, bits.taskProofPreviewUrls)
