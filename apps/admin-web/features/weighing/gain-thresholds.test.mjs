@@ -174,11 +174,11 @@ test("the contract states each kid is counted once, in both the caption and the 
   // caption has to say THAT instead — a stale overlap warning would tell a reader the
   // columns cannot be added when now they must add to the denominator.
   // The caption also has to name the WHOLE population the bands cover. It used to say the bands add
-  // up to "the kids weighed twice", which stopped being true once whole-shed pens joined this
+  // up to "the kids weighed twice", which stopped being true once whole pens joined this
   // aggregate -- and a caption that under-describes its own denominator is how the page came to
-  // claim daily gain used only scanned kids while most of the number was whole-shed movement.
+  // claim daily gain used only scanned kids while most of the number was whole-pen movement.
   assert.match(contract, /Each kid is counted in one band only/);
-  assert.match(contract, /sheds weighed as one total/);
+  assert.match(contract, /pens weighed as one total/);
   assert.doesNotMatch(contract, /so the columns overlap and do not add up/);
   assert.match(openapi, /The four counts are DISJOINT/);
   // The slowest band is a real column with its own label, not an unlabelled remainder.
