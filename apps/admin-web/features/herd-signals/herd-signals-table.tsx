@@ -255,7 +255,7 @@ export function HerdSignalsTable({
             <tr>
               <th>Animal</th>
               <th>Smart tag</th>
-              <th>Shed</th>
+              <th>Pen</th>
               <th>Gateway</th>
               <th>Signal</th>
               <th className="num">Motion count</th>

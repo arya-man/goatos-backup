@@ -442,7 +442,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                                 "No recorded farm activity in this window"
                               )}
                             </h4>
-                            {!activity.data.reason && <p>No vaccination, feed, weighing, treatment, hoof trimming, or shed move records found.</p>}
+                            {!activity.data.reason && <p>No vaccination, feed, weighing, treatment, hoof trimming, or pen move records found.</p>}
                           </div>
                         </td>
                       </tr>
@@ -537,7 +537,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                   {fmtBleMac(item.tag_mac)}
                   <span className="srcl direct">Direct</span>
                 </dd>
-                <dt>Park / shed</dt>
+                <dt>Park / pen</dt>
                 <dd>
                   {item.park_name && item.shed_name ? `${item.park_name} · ${item.shed_name}` : "—"}
                   <span className="srcl correlated">Correlated</span>
