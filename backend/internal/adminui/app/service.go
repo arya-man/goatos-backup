@@ -4195,7 +4195,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"crumb": "Feed",
 			// The one word this page lives or dies on: DIRECTED. The sheet's
 			// instruction, never a measured weight — leftovers are not captured.
-			"banner.basis":                   "Figures show feed as DIRECTED on the daily sheet, up to yesterday. Leftovers are not measured yet, so read quantities as instructions, not consumption.",
+			"banner.basis":                   "Figures show feed as DIRECTED on the daily sheet, plus the milk the crew prepared. The two daily charts run through today, whose sheet is already issued; the tiles and the execution figures describe yesterday, the last finished day. Leftovers are not measured yet, so read quantities as instructions, not consumption.",
 			"tab.overview":                   "Overview",
 			"tab.items":                      "Stock",
 			"tab.peranimal":                  "Per Animal",
@@ -4274,9 +4274,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.adherence.label":            "Execution verified",
 			"kpi.adherence.sub":              "Packing + distribution approved by the verifier",
 			"chart.daily.title":              "Daily directed feed",
-			"chart.daily.hint":               "Total kg on the issued sheet per day, stacked by feed item",
+			"chart.daily.hint":               "Total kg fed per day, stacked by feed item — the issued sheet plus the milk the crew prepared",
 			"chart.mix.title":                "Feed mix",
-			"chart.mix.hint":                 "Share of directed kg over the window",
+			"chart.mix.hint":                 "Share of the fed kg over the window, sheet and milk together",
 			"chart.item.hint":                "Directed kg per day",
 			"chart.perhead.title":            "Ration per animal",
 			"chart.perhead.hint":             "Grams per head per day by feed item",

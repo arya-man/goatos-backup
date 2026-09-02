@@ -10026,6 +10026,13 @@ components:
         tag_number:
           type: string
           description: The identifier a person reads off the animal -- active RFID first, then a visible tag.
+        secondary_tag_number:
+          type: string
+          description: >-
+            The animal's OTHER active identifier, absent when it carries one tag. Shown
+            beside tag_number because the picker's search matches every active identifier:
+            a row showing only the primary answered a search for the secondary with a
+            number the person could not recognise as the animal they typed.
         park_id:
           type: string
           format: uuid

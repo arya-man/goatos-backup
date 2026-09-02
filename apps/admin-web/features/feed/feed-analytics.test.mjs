@@ -72,3 +72,48 @@ test("the tag says in words what its colour means", () => {
   assert.match(contract, /"variance\.within_tolerance":/);
   assert.match(contract, /"variance\.beyond_tolerance":/);
 });
+
+// ---------------------------------------------------------------------------
+// Today's frozen sheet (maintainer decision 2026-09-02).
+test("the daily charts run through today while the rest of the page stays on yesterday", () => {
+  // Today's sheet is already issued and frozen, so the kg it directs is settled fact and
+  // the charts show it. The execution arm keeps the yesterday-ending window on purpose:
+  // today's packing and distribution are still being worked, and counting them would read
+  // as a verification failure rather than as work in progress.
+  assert.match(source, /const chartWindow = rangeDates\(range, todayIso\(\)\);/);
+  assert.match(source, /const chartParams = \{ park_id: parkId, \.\.\.chartWindow \};/);
+  assert.match(source, /wantDirected\s*\?\s*getFeedAnalyticsDirected\(chartParams\)/s);
+  assert.match(source, /wantStock\s*\?\s*getFeedAnalyticsStock\(chartParams\)/s);
+  assert.match(source, /wantExecution\s*\?\s*getFeedAnalyticsExecution\(\{\s*\.\.\.params,/s);
+});
+
+test("the KPI tiles name the settled day rather than the last day drawn", () => {
+  // The tiles say "Directed yesterday" / "Animals fed yesterday". Taking the array's last
+  // element now points them at today — a day the farm is still feeding, whose second park's
+  // sheet may not even be issued yet.
+  assert.match(directedViewBlock, /latestDay: data\.days\.find\(\(d\) => d\.feed_day === settledDay\)/);
+  assert.doesNotMatch(directedViewBlock, /data\.days\[data\.days\.length - 1\]/);
+  assert.match(source, /buildDirectedView\(data, fa\(pageContract, "series\.other"\), istDayPlus\(todayIso\(\), -1\)\)/);
+});
+
+test("milk-only item days stay on the chart axis", () => {
+  // Day totals are sheet-only by design, but item rows now include UHT Milk. A
+  // milk-only day must still get an x-axis slot instead of being dropped by
+  // buildDirectedView before the chart renderer ever sees it.
+  assert.match(directedViewBlock, /\.\.\.data\.days\.map\(\(d\) => d\.feed_day\)/);
+  assert.match(directedViewBlock, /\.\.\.data\.items\.map\(\(item\) => item\.feed_day\)/);
+  assert.match(directedViewBlock, /new Set\(/);
+  assert.match(directedViewBlock, /\.sort\(\)/);
+  assert.doesNotMatch(directedViewBlock, /const dayKeys = data\.days\.map\(\(d\) => d\.feed_day\);/);
+});
+
+test("the stacked chart's own copy says the milk is in it", () => {
+  // Backend-owned copy: the bars now carry UHT Milk alongside the sheet's feeds, so the
+  // hint may no longer describe them as the issued sheet alone.
+  const contract = readFileSync(
+    new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url),
+    "utf8",
+  );
+  assert.match(contract, /"chart\.daily\.hint":\s*"Total kg fed per day, stacked by feed item — the issued sheet plus the milk the crew prepared"/);
+  assert.doesNotMatch(contract, /"chart\.daily\.hint":\s*"Total kg on the issued sheet per day/);
+});

@@ -137,13 +137,13 @@ function hrefWith(sp: RouteSearchParams | undefined, next: Record<string, string
   return query ? `${PAGE_PATH}?${query}` : PAGE_PATH;
 }
 
-function rangeDates(range: Range): { date_from: string; date_to: string } {
+function rangeDates(range: Range, endDay?: string): { date_from: string; date_to: string } {
   // Asia/Kolkata calendar arithmetic via the shared IST helpers — the same
   // business-day rule the backend applies to its own defaults. The previous
   // Date/toISOString version ran on the server's UTC clock and dropped
   // yesterday for any request between 00:00 and 05:29 IST (review, PR #64).
   const days = Number(range);
-  const to = istDayPlus(todayIso(), -1);
+  const to = endDay ?? istDayPlus(todayIso(), -1);
   return { date_from: istDayPlus(to, -(days - 1)), date_to: to };
 }
 
@@ -162,8 +162,16 @@ type DirectedView = {
   latestDay?: FeedAnalyticsDirectedResponse["days"][number];
 };
 
-function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: string): DirectedView {
-  const dayKeys = data.days.map((d) => d.feed_day);
+function buildDirectedView(
+  data: FeedAnalyticsDirectedResponse,
+  otherLabel: string,
+  settledDay: string,
+): DirectedView {
+  // Day totals are intentionally sheet-only because the KPI tiles read them as
+  // "on the issued sheet", but item rows can now include milk-only days from
+  // feed_effective_external_consumption. The chart axis must carry both sets or
+  // it silently drops those milk rows before rendering.
+  const dayKeys = [...new Set([...data.days.map((d) => d.feed_day), ...data.items.map((item) => item.feed_day)])].sort();
   const totalsByItem = new Map<string, { label: string; total: number }>();
   for (const item of data.items) {
     const existing = totalsByItem.get(item.feed_item_key);
@@ -211,14 +219,22 @@ function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: stri
     }),
   );
 
-  const perHeadSeries: LineSeries[] = ranked.map(([key, v], s) => ({
-    label: v.label,
-    colorVar: seriesColorVar(s),
-    points: dayKeys.map((day) => {
-      const row = rowFor(day, key);
-      return row && row.per_head_grams !== "" ? num(row.per_head_grams) : null;
-    }),
-  }));
+  // A ration card per feed item — but ONLY for items that have a per-head figure at
+  // all. The milk ledger records a park's litres for a day, not which pens drank them,
+  // so its per-head points are all empty; rendering its card anyway put a "—" beside
+  // "No issued feed direction covers the selected dates", which blames the sheet for a
+  // question this feed cannot answer. The colour comes from the item's ranked position,
+  // so dropping a card leaves every other item the colour it has on the other charts.
+  const perHeadSeries: LineSeries[] = ranked
+    .map(([key, v], s) => ({
+      label: v.label,
+      colorVar: seriesColorVar(s),
+      points: dayKeys.map((day) => {
+        const row = rowFor(day, key);
+        return row && row.per_head_grams !== "" ? num(row.per_head_grams) : null;
+      }),
+    }))
+    .filter((series) => series.points.some((point) => point !== null));
 
   return {
     dayLabels: dayKeys,
@@ -231,7 +247,12 @@ function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: stri
     mix: ranked.map(([key, v]) => ({ key, label: v.label, value: Math.round(v.total) })),
     itemSeries,
     perHead: perHeadSeries,
-    latestDay: data.days.length > 0 ? data.days[data.days.length - 1] : undefined,
+    // The tiles describe the last SETTLED business day — yesterday — not the last day the
+    // charts draw. Since the series now runs through today, taking the array's last element
+    // would have pointed "Directed yesterday" at a day the farm is still feeding, and at a
+    // sheet whose second park may not be issued yet. Named explicitly rather than taken
+    // positionally, so the number under the label is the day the label says.
+    latestDay: data.days.find((d) => d.feed_day === settledDay),
   };
 }
 
@@ -249,6 +270,17 @@ export async function FeedAnalyticsPage({
   const { parkId } = backendScope(parseScope(searchParams));
   const window = rangeDates(range);
   const params = { park_id: parkId, ...window };
+  // The two DAILY SERIES run through TODAY (maintainer decision 2026-09-02): today's sheet
+  // is already issued and frozen, so the kg it directs is settled fact and holding the
+  // charts back a day showed the reader an empty space where a known day belongs.
+  //
+  // The rest of the page stays on the window ending YESTERDAY, and that is the point of
+  // keeping two windows rather than moving one: the execution arm counts verified packing
+  // and distribution, and today's work is still being done — folding it in would read as a
+  // verification failure rather than as work in progress. The KPI tiles likewise keep
+  // naming yesterday (see settledDay below).
+  const chartWindow = rangeDates(range, todayIso());
+  const chartParams = { park_id: parkId, ...chartWindow };
 
   // Overview needs directed + execution (for the adherence KPI); every other
   // tab reads exactly its own endpoint.
@@ -292,7 +324,7 @@ export async function FeedAnalyticsPage({
   const shedFeedWindow = { date_from: istDayPlus(shedFeedTo, -6), date_to: shedFeedTo };
   const [directed, execution, experiment, stock, shedFeed] = await Promise.all([
     wantDirected
-      ? getFeedAnalyticsDirected(params)
+      ? getFeedAnalyticsDirected(chartParams)
       : Promise.resolve<ApiResult<FeedAnalyticsDirectedResponse> | null>(null),
     wantExecution
       ? getFeedAnalyticsExecution({
@@ -316,7 +348,7 @@ export async function FeedAnalyticsPage({
       ? getFeedAnalyticsExperiment({ ...params, park_id: experimentParkId, wastage_day: readWastageDay(searchParams) })
       : Promise.resolve<ApiResult<FeedAnalyticsExperimentResponse> | null>(null),
     wantStock
-      ? getFeedAnalyticsStock(params)
+      ? getFeedAnalyticsStock(chartParams)
       : Promise.resolve<ApiResult<FeedAnalyticsStockResponse> | null>(null),
     wantShedFeed
       ? getFeedAnalyticsShedFeed({ park_id: parkId, ...shedFeedWindow })
@@ -477,7 +509,7 @@ function DirectedTabs({
   stock: FeedAnalyticsStockResponse | null;
   pageContract: AdminUiPageContract;
 }) {
-  const view = buildDirectedView(data, fa(pageContract, "series.other"));
+  const view = buildDirectedView(data, fa(pageContract, "series.other"), istDayPlus(todayIso(), -1));
   const empty = data.days.length === 0;
   const noData = fa(pageContract, "empty.title");
 

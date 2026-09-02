@@ -904,6 +904,156 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	}
 }
 
+// TestDirectedItemsCarryTheMilkTheSheetNeverDirects pins the 2026-09-02 maintainer
+// decision that the overview's stacked "Daily directed feed" chart shows UHT Milk
+// beside the sheet's own feeds. The animals drink it every day, so a chart of what
+// the farm feeds that omitted it drew the herd's ration with one real feed missing.
+//
+// Two halves, and the second is the one a later change will break by accident:
+// the milk arrives as an ITEM row (the chart's bands come from the item series),
+// while the DAY totals stay sheet-only, because those are what the "Directed
+// yesterday" and "Avg ration per animal" tiles read and both say "on the issued
+// sheet". Milk also carries NO head count -- the ledger records a park's litres for
+// a day, not which pens drank them -- so its per-head figure must come back EMPTY
+// rather than dividing by a herd nobody counted for it.
+func TestDirectedItemsCarryTheMilkTheSheetNeverDirects(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	cmd := ports.PersistIssueCommand{
+		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-07-30", Workflow: domain.WorkflowNormal,
+		IssuedAt: issuedAt, Fingerprint: "fp-milk",
+		IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":2026-07-30:normal",
+		GeneratedBy:    "test", Cells: analyticsCells(),
+	}
+	if _, err := repo.PersistIssue(ctx, cmd); err != nil {
+		t.Fatalf("persist sheet: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_external_consumption (tenant_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg, source_ref)
+VALUES ($1, $2, 'CBE', 'UHT Milk', DATE '2026-07-30', 42.000, 'test')`,
+		fdiTenant, fdiPark); err != nil {
+		t.Fatalf("insert milk consumption: %v", err)
+	}
+
+	day := time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation())
+	got, err := repo.DirectedAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
+	if err != nil {
+		t.Fatalf("DirectedAnalytics: %v", err)
+	}
+
+	var milk *domain.DirectedDayItem
+	for i := range got.Items {
+		if got.Items[i].FeedItemKey == "uht_milk" {
+			milk = &got.Items[i]
+		}
+	}
+	if milk == nil {
+		t.Fatalf("UHT Milk missing from the item series: %+v", got.Items)
+	}
+	if milk.DirectedKg != "42.000" {
+		t.Errorf("milk kg = %q, want 42.000", milk.DirectedKg)
+	}
+	if milk.HeadDays != 0 || milk.PerHeadGrams != "" {
+		t.Errorf("milk head-days = %d / per-head = %q, want 0 and empty: the ledger knows litres, not pens",
+			milk.HeadDays, milk.PerHeadGrams)
+	}
+
+	// The day total is the SHEET, unchanged: 1.0 + 1.0 + 0.5 + an authored zero.
+	// Adding the milk here would move a tile whose own copy says "on the issued sheet".
+	if len(got.Days) != 1 || got.Days[0].DirectedKg != "2.500" {
+		t.Errorf("day totals = %+v, want one 2026-07-30 row of 2.500 (sheet only)", got.Days)
+	}
+	if got.Days[0].HeadDays != 23 {
+		t.Errorf("day head-days = %d, want 23 — milk must not add or dilute heads", got.Days[0].HeadDays)
+	}
+
+	// A park-less ledger row belongs to no farm's store and must not reach the chart,
+	// the same exclusion the stock cards make.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_external_consumption (tenant_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg, source_ref)
+VALUES ($1, NULL, 'XYZ', 'UHT Milk', DATE '2026-07-30', 999, 'test')`,
+		fdiTenant); err != nil {
+		t.Fatalf("insert park-less consumption: %v", err)
+	}
+	after, err := repo.DirectedAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
+	if err != nil {
+		t.Fatalf("DirectedAnalytics after park-less row: %v", err)
+	}
+	for _, item := range after.Items {
+		if item.FeedItemKey == "uht_milk" && item.DirectedKg != "42.000" {
+			t.Errorf("milk kg = %q after a park-less row, want 42.000", item.DirectedKg)
+		}
+	}
+
+	milkOn := func(t *testing.T, got domain.DirectedAnalytics) []domain.DirectedDayItem {
+		t.Helper()
+		var out []domain.DirectedDayItem
+		for _, item := range got.Items {
+			if item.FeedItemKey == "uht_milk" {
+				out = append(out, item)
+			}
+		}
+		return out
+	}
+
+	// OneToMany: the ledger can hold several rows for one park-day — its unique key is
+	// per FARM LABEL, and a park can be written under more than one. They must COLLAPSE
+	// to one chart band whose kg is their sum, never one row per ledger row, which would
+	// draw the same feed twice in one stack.
+	t.Run("OneToManyLedgerRowsCollapseToOneItemRow", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_external_consumption (tenant_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg, source_ref)
+VALUES ($1, $2, 'CBE-DAIRY', 'UHT Milk', DATE '2026-07-30', 8.000, 'test')`,
+			fdiTenant, fdiPark); err != nil {
+			t.Fatalf("insert second ledger row: %v", err)
+		}
+		got, err := repo.DirectedAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
+		if err != nil {
+			t.Fatalf("DirectedAnalytics: %v", err)
+		}
+		milk := milkOn(t, got)
+		if len(milk) != 1 || milk[0].DirectedKg != "50.000" {
+			t.Errorf("milk rows = %+v, want exactly one row of 50.000 (42 + 8)", milk)
+		}
+	})
+
+	// PageBoundary: the window is a closed range, and a day one step outside it must not
+	// leak in. The rollup has no limit/offset, so the WINDOW EDGE is its only boundary.
+	t.Run("PageBoundaryKeepsTheDayOutsideTheWindowOut", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_external_consumption (tenant_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg, source_ref)
+VALUES ($1, $2, 'CBE', 'UHT Milk', DATE '2026-07-31', 99.000, 'test')`,
+			fdiTenant, fdiPark); err != nil {
+			t.Fatalf("insert next-day consumption: %v", err)
+		}
+		got, err := repo.DirectedAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
+		if err != nil {
+			t.Fatalf("DirectedAnalytics: %v", err)
+		}
+		for _, item := range milkOn(t, got) {
+			if item.FeedDay != "2026-07-30" {
+				t.Errorf("milk row for %s leaked into a single-day window", item.FeedDay)
+			}
+		}
+	})
+
+	// ParkScope: a caller authorized for another park must not be shown this park's milk.
+	// The scope predicate sits on the ledger read itself, not on the sheet side alone.
+	t.Run("ParkScopeHidesAnotherParksMilk", func(t *testing.T) {
+		foreign, err := repo.DirectedAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+			ParkIDs: []uuid.UUID{uuid.New()}, DateFrom: day, DateTo: day,
+		})
+		if err != nil {
+			t.Fatalf("DirectedAnalytics foreign park: %v", err)
+		}
+		if milk := milkOn(t, foreign); len(milk) != 0 {
+			t.Errorf("another park's caller saw milk rows: %+v", milk)
+		}
+	})
+}
+
 // TestStockItemsIncludeExternalConsumptionFeeds pins the 2026-08-22 maintainer
 // decision that sheet-tracked feeds GoatOS never directs (UHT Milk) get the
 // same stock treatment as directed feeds: balance depletes from the
