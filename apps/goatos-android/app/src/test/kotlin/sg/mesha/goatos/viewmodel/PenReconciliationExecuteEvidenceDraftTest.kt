@@ -165,6 +165,33 @@ class PenReconciliationExecuteEvidenceDraftTest {
         assertEquals(listOf(CARD_ID), repo.forgotten)
     }
 
+    @Test
+    fun `rework card clears rejected evidence before enabling submit`() = runTest(dispatcher) {
+        val repo = FakePenReconciliationCardRepository(status = "rework")
+        val drafts = PenReconciliationDraftFake().apply {
+            rows[CARD_ID] = CaptureDraft(
+                proofs = mapOf("return" to "old-rejected-proof"),
+                submitIdempotencyKey = "old-submit-key",
+                submitOutboxItemId = "old-submit-outbox",
+            )
+        }
+        val sync = FakePenReconciliationSyncRepository()
+
+        val vm = newViewModel(repo, drafts, sync)
+        advanceUntilIdle()
+
+        assertFalse("rework must not reuse the rejected video", vm.state.value.videoCaptured)
+        assertFalse("rework must require a fresh recording before submit", vm.state.value.canComplete)
+        assertNull("the rejected submit key is discarded", drafts.rows[CARD_ID]?.submitIdempotencyKey)
+        assertNull("the rejected submit row is discarded", drafts.rows[CARD_ID]?.submitOutboxItemId)
+        assertFalse("the rejected proof is discarded", drafts.rows[CARD_ID]?.hasProof("return") == true)
+
+        vm.onEvent(PenReconciliationExecuteEvent.MarkDone)
+        advanceUntilIdle()
+
+        assertTrue("no completion can be queued from stale rework evidence", sync.completeKeys.isEmpty())
+    }
+
     private fun newViewModel(
         repo: FakePenReconciliationCardRepository,
         drafts: PenReconciliationDraftFake,
@@ -191,7 +218,9 @@ class PenReconciliationExecuteEvidenceDraftTest {
 private const val REGISTERED_SHED_ID = "22222222-2222-4222-8222-222222222222"
 
 /** In-memory stand-in for the Room-backed Reconcile cache. */
-private class FakePenReconciliationCardRepository : PenReconciliationRepository {
+private class FakePenReconciliationCardRepository(
+    private val status: String = "open",
+) : PenReconciliationRepository {
     val forgotten = mutableListOf<String>()
     override val meta: StateFlow<PenReconciliationMeta> = MutableStateFlow(PenReconciliationMeta())
 
@@ -204,7 +233,7 @@ private class FakePenReconciliationCardRepository : PenReconciliationRepository 
 
     override suspend fun findCached(cardId: String) = CountsPenReconciliationCardDto(
         cardId = cardId,
-        status = "open",
+        status = status,
         primaryActionKey = "execute",
         goatId = "goat-1",
         goatDisplayId = "G-77",

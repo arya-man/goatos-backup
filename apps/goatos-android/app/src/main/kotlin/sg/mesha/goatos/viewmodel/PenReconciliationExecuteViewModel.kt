@@ -112,8 +112,6 @@ class PenReconciliationExecuteViewModel @Inject constructor(
             // Rehydrate the durable draft FIRST: everything below reads the evidence this card
             // already has.
             draft = drafts.find(CaptureFlow.PEN_RECONCILIATION, cardId)
-            draft.submitOutboxItemId?.let(::observeOutboxItem)
-            observeProofOutbox()
             val cached = repo.findCached(cardId)
             if (cached == null) {
                 _state.update { it.copy(loading = false, notFound = true, canComplete = false) }
@@ -124,6 +122,8 @@ class PenReconciliationExecuteViewModel @Inject constructor(
             if (cached.status == "rework" && (draft.hasProof(STEP_RETURN) || draft.submitIdempotencyKey != null)) {
                 resetEvidenceForRework()
             }
+            draft.submitOutboxItemId?.let(::observeOutboxItem)
+            observeProofOutbox()
             registeredShedId = cached.registeredShedId
             parkLabel = cached.parkName.orEmpty()
             belongsLabel = cached.registeredOperationalLocationDisplay.ifBlank { cached.registeredShedName }
@@ -298,16 +298,15 @@ class PenReconciliationExecuteViewModel @Inject constructor(
         }
     }
 
-    private fun resetEvidenceForRework() {
+    private suspend fun resetEvidenceForRework() {
         proofKey.invalidate()
         statusJob?.cancel()
         statusJob = null
-        viewModelScope.launch {
-            drafts.clearProof(CaptureFlow.PEN_RECONCILIATION, cardId, STEP_RETURN)
-            drafts.putSubmit(CaptureFlow.PEN_RECONCILIATION, cardId, null, null)
-            draft = drafts.find(CaptureFlow.PEN_RECONCILIATION, cardId)
-            observeProofOutbox()
-        }
+        proofStatusJob?.cancel()
+        proofStatusJob = null
+        drafts.clearProof(CaptureFlow.PEN_RECONCILIATION, cardId, STEP_RETURN)
+        drafts.putSubmit(CaptureFlow.PEN_RECONCILIATION, cardId, null, null)
+        draft = drafts.find(CaptureFlow.PEN_RECONCILIATION, cardId)
         _state.update {
             it.copy(
                 videoCaptured = false,
