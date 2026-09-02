@@ -114,7 +114,7 @@ export function HerdSignalsAnimalsRow({
           </>
         ) : null}
       </td>
-      <td data-l="Shed">
+      <td data-l="Pen">
         {location || "—"}
         {item.park_name ? (
           <>

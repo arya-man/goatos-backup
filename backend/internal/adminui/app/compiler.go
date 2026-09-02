@@ -1145,7 +1145,7 @@ func compileConfigControls(controls []domain.Control, input BootstrapInput, copy
 //
 // The control is DECLARED for every principal who reaches the page and disabled with a reason for
 // those who may not use it, rather than omitted. A missing button reads as "this screen cannot do
-// that"; a disabled one carrying "Only the CEO can change a whole shed's stage" tells a park head
+// that"; a disabled one carrying "Only the CEO can change a whole pen's stage" tells a park head
 // the truth, which is that the capability exists and is not theirs.
 //
 // Enablement follows permissions.GoatReclassifyShedStage -- held by ceo_internal alone -- and NOT
@@ -1160,7 +1160,7 @@ func compileCountsBreakdownControls(controls []domain.Control, input BootstrapIn
 
 	reason := ""
 	if !mayChange {
-		reason = controlCopy(copy, "stage_change.disabled_no_access", "Only the CEO can change a whole shed's stage.")
+		reason = controlCopy(copy, "stage_change.disabled_no_access", "Only the CEO can change a whole pen's stage.")
 	}
 	return upsertControl(controls, domain.Control{
 		ID:             "change_shed_stage",
@@ -1168,7 +1168,7 @@ func compileCountsBreakdownControls(controls []domain.Control, input BootstrapIn
 		Kind:           "primary_action",
 		Enabled:        mayChange,
 		DisabledReason: reason,
-		Action:         "POST /admin/goats/shed-stage/commit",
+		Action:         "POST /admin/goats/pen-stage/commit",
 	})
 }
 

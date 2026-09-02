@@ -458,7 +458,7 @@ func TestWeighingCampaignClosedOperatorBodyUsesBoundedLabelSample(t *testing.T) 
 	if operatorBody == "" {
 		t.Fatal("operator notification was not queued")
 	}
-	if !strings.Contains(operatorBody, "10 sheds") {
+	if !strings.Contains(operatorBody, "10 pens") {
 		t.Fatalf("operator body %q must include exact bucket count", operatorBody)
 	}
 	if !strings.Contains(operatorBody, "Shed 05") {

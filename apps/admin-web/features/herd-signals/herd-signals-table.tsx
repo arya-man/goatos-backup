@@ -322,7 +322,7 @@ export function HerdSignalsTable({
                     <br />
                     <span className="mono faint">{fmtBleMac(item.tag_mac)}</span>
                   </td>
-                  <td data-l="Shed">
+                  <td data-l="Pen">
                     {location || "—"}
                     {parkName ? (
                       <>

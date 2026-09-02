@@ -1079,7 +1079,7 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	eventKey := EventVerificationItemPending + ":" + eventKeySubject
 	animalSummary := strings.TrimSpace(p.SubjectLabel)
 	if animalSummary == "" {
-		animalSummary = "A shed"
+		animalSummary = "A pen"
 	}
 	verifierBody := animalSummary + profile.verifierBodySuffix
 	leadershipBody := animalSummary + profile.leadershipBodySuffix

@@ -1092,8 +1092,14 @@ func normalizeHeader(value string) string {
 		return "animal_identifier_2"
 	case "management_stage", "managementstage", "animal_stage", "animalstage", "stage":
 		return "management_stage"
-	case "partition", "partition_label", "partitionlabel", "pen", "pen_label", "penlabel":
+	case "partition", "partition_label", "partitionlabel", "pen_label", "penlabel":
 		return "partition_label"
+	// "pen" is the label the downloaded template now carries for the location column ("Shed" before
+	// the rename). It maps to the LOCATION, not the partition: the partition column is "Partition".
+	// It used to alias partition_label, but the template never emitted it, so no sheet in the wild
+	// carries "pen" meaning a partition.
+	case "pen", "shed":
+		return "shed"
 	case "reproductive_status", "reproductivestatus", "repro_status", "reprostatus":
 		return "reproductive_status"
 	case "weightkg", "weight_kg":

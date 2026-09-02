@@ -140,7 +140,7 @@ func (r *Repository) ListFarmActivity(ctx context.Context, tenantID string, scop
 			if name != nil && strings.TrimSpace(*name) != "" {
 				return "Moved to " + *name
 			}
-			return "Shed move recorded"
+			return "Pen move recorded"
 		}, `
 		SELECT glh.occurred_at, to_loc.name
 		FROM public.goat_location_history glh
@@ -159,9 +159,9 @@ func (r *Repository) ListFarmActivity(ctx context.Context, tenantID string, scop
 	// render it as one.
 	// Index: feed_direction_completions_shed_history_idx (tenant_id, shed_id, fed_at DESC).
 	if scope.ShedID != "" {
-		shedLabel := "Feed given to this shed"
+		shedLabel := "Feed given to this pen"
 		if strings.TrimSpace(scope.ShedName) != "" {
-			shedLabel = "Feed given to shed " + scope.ShedName
+			shedLabel = "Feed given to pen " + scope.ShedName
 		}
 		if err := collect(domain.ActivityKindFeedGiven, domain.GrainShed,
 			func(*string) string { return shedLabel }, `

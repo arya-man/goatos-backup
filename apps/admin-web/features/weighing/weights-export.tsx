@@ -93,7 +93,7 @@ export function WeightsExportControl({
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   const [parkId, setParkId] = useState(initialParkId);
-  // Empty set = every shed ("All sheds"), which is also what the backend receives.
+  // Empty set = every shed ("All pens"), which is also what the backend receives.
   const [selectedSheds, setSelectedSheds] = useState<ReadonlySet<string>>(new Set());
   const [failed, setFailed] = useState(false);
   const [pending, startTransition] = useTransition();

@@ -745,11 +745,11 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 	case errors.Is(err, ports.ErrImmutable):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "invalid_state", Message: "weighing resource is not editable in its current state", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrVerificationPending):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "verification_pending", Message: "This shed still has videos waiting to be checked.", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "verification_pending", Message: "This pen still has videos waiting to be checked.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrReworkNotRecaptured):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "rework_not_recaptured", Message: reworkNotRecapturedMessage(err), TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrScopeIncomplete):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "scope_incomplete", Message: "submitted scan list omits already-captured observations for this shed", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "scope_incomplete", Message: "submitted scan list omits already-captured observations for this pen", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrCaptureIncomplete):
 		// One animal = one (weight, video) pair. The app renders code/message and
 		// walks field_errors to mark the rows to go back and fix, so this must name
@@ -776,7 +776,7 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		}
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, shedScheduleConflictEnvelope{
 			Code:        "weighing_capture_incomplete",
-			Message:     "Some animals still need a weight and a video. Every animal needs both before this shed can be submitted.",
+			Message:     "Some animals still need a weight and a video. Every animal needs both before this pen can be submitted.",
 			FieldErrors: fieldErrors,
 			TraceID:     traceID(r),
 		}, nil)
@@ -784,11 +784,11 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		// 422, not 409: the request is well-formed but the herd register holds no
 		// animals for this shed/pen, so there is no head count to snapshot. The
 		// remedy is a register fix, never a retry of the same submit.
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "shed_count_unavailable", Message: "No animals are recorded in this shed right now, so the weight can't be submitted. Update the herd register, then submit again.", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "shed_count_unavailable", Message: "No animals are recorded in this pen right now, so the weight can't be submitted. Update the herd register, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrProofNotReady):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_video_missing", Message: "This shed's video is not ready yet. Wait for the video to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_video_missing", Message: "This pen's video is not ready yet. Wait for the video to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrRejectedProofReuse):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_rejected_proof_reuse", Message: "This video was sent back. Record a new video for this shed, then submit again.", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_rejected_proof_reuse", Message: "This video was sent back. Record a new video for this pen, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrOperatorOutsidePark):
 		// Farm language, not a rule name: the planner picked someone who does not work that park.
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "operator_outside_park", Message: "One of the people chosen does not work in this park. Pick someone from this park, or a director who covers both.", TraceID: traceID(r)}, nil)
@@ -809,7 +809,7 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		}
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, shedScheduleConflictEnvelope{
 			Code:        "weighing_shed_already_scheduled",
-			Message:     "Some of these sheds are already scheduled on this date.",
+			Message:     "Some of these pens are already scheduled on this date.",
 			FieldErrors: fieldErrors,
 			TraceID:     traceID(r),
 		}, nil)
@@ -833,7 +833,7 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		}
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, shedScheduleConflictEnvelope{
 			Code:        "weighing_shed_already_weighed",
-			Message:     "This task already has weighed sheds, so it cannot be moved to another date or park. Remove those sheds from it, or leave this task and plan the new date as its own.",
+			Message:     "This task already has weighed pens, so it cannot be moved to another date or park. Remove those pens from it, or leave this task and plan the new date as its own.",
 			FieldErrors: fieldErrors,
 			TraceID:     traceID(r),
 		}, nil)
@@ -854,14 +854,14 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		}
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, shedScheduleConflictEnvelope{
 			Code:        "weighing_shed_already_captured",
-			Message:     "These sheds already have weighing recorded, so how they are weighed cannot be changed. Remove them from this task, or leave them as they are.",
+			Message:     "These pens already have weighing recorded, so how they are weighed cannot be changed. Remove them from this task, or leave them as they are.",
 			FieldErrors: fieldErrors,
 			TraceID:     traceID(r),
 		}, nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different request", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrDuplicateScan):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "duplicate_scan", Message: "this tag was already captured and submitted earlier today for this shed", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "duplicate_scan", Message: "this tag was already captured and submitted earlier today for this pen", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrWriteConflict):
 		// Every ErrWriteConflict is retried internally inside
 		// RecordAnimalObservation before it can ever reach this handler (see

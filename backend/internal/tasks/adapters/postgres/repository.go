@@ -619,7 +619,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 		facts = append(facts, domain.WorkflowFact{Label: "Park", Value: card.ParkLabel})
 	}
 	if card.ShedLabel != "" {
-		facts = append(facts, domain.WorkflowFact{Label: "Shed", Value: card.ShedLabel})
+		facts = append(facts, domain.WorkflowFact{Label: "Pen", Value: card.ShedLabel})
 	}
 	if card.TemplateKey == domain.TemplateKeyBirthKid && damRFID != nil && *damRFID != "" {
 		facts = append(facts, domain.WorkflowFact{Label: "Mother RFID", Value: *damRFID})

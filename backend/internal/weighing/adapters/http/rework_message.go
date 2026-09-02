@@ -18,17 +18,17 @@ const maxNamedReworkTags = 3
 func reworkNotRecapturedMessage(err error) string {
 	var tagged *ports.ReworkNotRecapturedTags
 	if !asReworkTags(err, &tagged) || len(tagged.Tags) == 0 {
-		return "A video was sent back. Re-record that animal before submitting this shed again."
+		return "A video was sent back. Re-record that animal before submitting this pen again."
 	}
 	tags := tagged.Tags
 	if len(tags) == 1 {
-		return fmt.Sprintf("Video sent back for %s. Re-record it before submitting this shed again.", tags[0])
+		return fmt.Sprintf("Video sent back for %s. Re-record it before submitting this pen again.", tags[0])
 	}
 	if len(tags) <= maxNamedReworkTags {
-		return fmt.Sprintf("Videos sent back for %s. Re-record them before submitting this shed again.", strings.Join(tags, ", "))
+		return fmt.Sprintf("Videos sent back for %s. Re-record them before submitting this pen again.", strings.Join(tags, ", "))
 	}
 	return fmt.Sprintf(
-		"Videos sent back for %s and %d more. Re-record them before submitting this shed again.",
+		"Videos sent back for %s and %d more. Re-record them before submitting this pen again.",
 		strings.Join(tags[:maxNamedReworkTags], ", "), len(tags)-maxNamedReworkTags,
 	)
 }

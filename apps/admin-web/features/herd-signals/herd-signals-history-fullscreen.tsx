@@ -65,7 +65,7 @@ const KIND_META: Record<HerdSignalActivityResponse["events"][number]["kind"], { 
   weighing: { label: "Weighing", color: "#5B9BE8" },
   treatment: { label: "Treatment", color: "#F0635F" },
   hoof_trimming: { label: "Hoof trimming", color: "#E0A53A" },
-  shed_move: { label: "Shed move", color: "#94A89A" },
+  shed_move: { label: "Pen move", color: "#94A89A" },
 };
 const OVERLAY_KINDS = Object.keys(KIND_META) as (keyof typeof KIND_META)[];
 
@@ -487,7 +487,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                           else if (event.motion_change_percent <= -40) tone = "t-warn";
                         }
 
-                        const grainLabel = event.grain === "animal" ? "" : event.grain === "shed" ? " (shed)" : " (scanned)";
+                        const grainLabel = event.grain === "animal" ? "" : event.grain === "shed" ? " (pen)" : " (scanned)";
                         return (
                           <tr key={`${event.at}${idx}`}>
                             <td>
@@ -499,7 +499,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                             <td className="num small" title={event.after_window_incomplete ? "Window contains gaps or reconnect delta" : undefined}>{afterDelta}</td>
                             <td className={`num small ${tone}`} title={event.before_window_incomplete || event.after_window_incomplete ? "Change computed from incomplete windows" : undefined}>{changePercent}</td>
                             <td className="small">
-                              <span className="tag">{event.grain === "animal" ? "Animal" : event.grain === "shed" ? "Shed" : "ID"}</span>
+                              <span className="tag">{event.grain === "animal" ? "Animal" : event.grain === "shed" ? "Pen" : "ID"}</span>
                             </td>
                           </tr>
                         );

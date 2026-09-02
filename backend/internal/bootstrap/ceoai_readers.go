@@ -402,7 +402,7 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 				continue
 			}
 			facts = append(facts, ceodomain.Fact{
-				Label: "Vaccination shed",
+				Label: "Vaccination pen",
 				Value: fmt.Sprintf("Animals: %d, Due: %d, Done: %d, Sessions: %d, Status: %s",
 					row.Animals, row.Due, row.Done, row.Sessions, row.Status),
 				Scope: scope,
@@ -410,7 +410,7 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 		}
 		facts = append([]ceodomain.Fact{{
 			Label: "Vaccination summary",
-			Value: fmt.Sprintf("Sheds: %d, Animals: %d, Due: %d, Done: %d, Sessions: %d",
+			Value: fmt.Sprintf("Pens: %d, Animals: %d, Due: %d, Done: %d, Sessions: %d",
 				len(result.Rows), totalAnimals, totalDue, totalDone, totalSessions),
 		}}, facts...)
 		if metricLabel != "" && aggregateTotal {

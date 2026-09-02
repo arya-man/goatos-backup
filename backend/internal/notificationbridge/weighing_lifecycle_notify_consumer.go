@@ -446,7 +446,7 @@ func (c *WeighingLifecycleEventConsumer) handleVerdict(ctx context.Context, even
 
 	shedLabel := strings.TrimSpace(payload.ShedLabel)
 	if shedLabel == "" {
-		shedLabel = "A weighing shed"
+		shedLabel = "A weighing pen"
 	}
 	title := "Weighing proof approved"
 	body := shedLabel + " weighing proof was approved."
@@ -542,7 +542,7 @@ func (c *WeighingLifecycleEventConsumer) handleShedClosed(ctx context.Context, e
 
 	shedLabel := strings.TrimSpace(payload.ShedLabel)
 	if shedLabel == "" {
-		shedLabel = "A weighing shed"
+		shedLabel = "A weighing pen"
 	}
 	body := shedLabel + " weighing was closed."
 	if payload.NotAcceptedCount > 0 {
@@ -552,7 +552,7 @@ func (c *WeighingLifecycleEventConsumer) handleShedClosed(ctx context.Context, e
 		body += " Reason: " + reason
 	}
 	const (
-		title       = "Weighing shed closed"
+		title       = "Weighing pen closed"
 		contextType = "weighing_shed_closed"
 		messageKey  = "weighing.shed_closed"
 	)
@@ -639,9 +639,9 @@ func (c *WeighingLifecycleEventConsumer) handleVerifiedClosure(ctx context.Conte
 
 	shedLabel := strings.TrimSpace(payload.ShedLabel)
 	if shedLabel == "" {
-		shedLabel = "A weighing shed"
+		shedLabel = "A weighing pen"
 	}
-	title := "Weighing shed complete"
+	title := "Weighing pen complete"
 	body := shedLabel + " weighing is complete — all submitted work was verified."
 	contextType := "weighing_shed_verified_closed"
 	messageKey := "weighing.shed_verified_closed"
@@ -649,7 +649,7 @@ func (c *WeighingLifecycleEventConsumer) handleVerifiedClosure(ctx context.Conte
 	targetID := campaignShedID
 	if taskGrain {
 		title = "Weighing task complete"
-		body = "Weighing task is complete — every shed was verified and closed."
+		body = "Weighing task is complete — every pen was verified and closed."
 		contextType = "weighing_campaign_verified_closed"
 		messageKey = "weighing.campaign_verified_closed"
 		targetType = "weighing_campaign"
@@ -742,10 +742,10 @@ func campaignClosedOperatorBody(bucketCount int, labels []string) string {
 		return "Weighing was closed before you finished."
 	}
 	if len(labels) == 0 {
-		return fmt.Sprintf("Weighing was closed before you finished %d sheds.", bucketCount)
+		return fmt.Sprintf("Weighing was closed before you finished %d pens.", bucketCount)
 	}
 	if bucketCount > len(labels) {
-		return fmt.Sprintf("Weighing was closed before you finished %d sheds, including %s.", bucketCount, strings.Join(labels, ", "))
+		return fmt.Sprintf("Weighing was closed before you finished %d pens, including %s.", bucketCount, strings.Join(labels, ", "))
 	}
 	return "Weighing was closed before you finished: " + strings.Join(labels, ", ") + "."
 }
@@ -826,7 +826,7 @@ func (c *WeighingLifecycleEventConsumer) handleCampaignClosed(ctx context.Contex
 	c.warnIfNoRecipients(ctx, leadership, "weighing_campaign_close_notification_no_leadership_recipients", tenantID, campaignID)
 	body := "A weighing task was closed."
 	if payload.NotAcceptedCount > 0 {
-		body = fmt.Sprintf("A weighing task was closed with %d sheds not completed.", payload.NotAcceptedCount)
+		body = fmt.Sprintf("A weighing task was closed with %d pens not completed.", payload.NotAcceptedCount)
 	}
 	if reason := strings.TrimSpace(payload.Reason); reason != "" {
 		body += " Reason: " + reason
@@ -1019,7 +1019,7 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 		// the shed was simply already covered by the task planned for that day. What
 		// this operator needs to know is that the shed left THEIR list and who has it
 		// now, so they do not walk to a shed somebody else is standing at.
-		title = "Shed already covered today"
+		title = "Pen already covered today"
 		body = "Carried-over weighing closed — another task already covers " + shedList + " today."
 		notificationType = "reminder"
 		contextType = "weighing_work_item_merged_on_carry_over"
@@ -1168,7 +1168,7 @@ func (c *WeighingLifecycleEventConsumer) handleReworkDigest(ctx context.Context,
 
 	shedLabel := strings.TrimSpace(payload.ShedLabel)
 	if shedLabel == "" {
-		shedLabel = "A weighing shed"
+		shedLabel = "A weighing pen"
 	}
 	body := weighingReworkDigestBody(shedLabel, payload)
 	reworkReason := strings.TrimSpace(payload.Reason)
@@ -1263,7 +1263,7 @@ func weighingReworkDigestBody(shedLabel string, payload weighingReworkDigestPayl
 func weighingReworkSubject(payload weighingObservationVerdictPayload) string {
 	shedLabel := strings.TrimSpace(payload.ShedLabel)
 	if shedLabel == "" {
-		shedLabel = "A weighing shed"
+		shedLabel = "A weighing pen"
 	}
 	weight := strconv.FormatFloat(payload.WeightKg, 'f', 1, 64) + " kg"
 	if tag := strings.TrimSpace(payload.ScannedIdentifier); tag != "" {

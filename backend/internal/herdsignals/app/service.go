@@ -300,7 +300,7 @@ func (s *Service) ListGateways(ctx context.Context, actor domain.Actor) (domain.
 	}
 	locations, err := s.repo.GetShedLocations(ctx, actor.TenantID, shedIDs)
 	if err != nil {
-		s.log.Warn("failed to resolve gateway shed locations", "error", err)
+		s.log.Warn("failed to resolve gateway pen locations", "error", err)
 		locations = map[string]ports.ShedLocation{}
 	}
 
@@ -411,18 +411,18 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "low_movement_watch", Label: "Low Movement Watch", Value: fmt.Sprintf("%d", d.LowMovementWatchCount), Unit: "tags",
-			SignalType: "inferred", Formula: "60 min motion delta below shed baseline",
+			SignalType: "inferred", Formula: "60 min motion delta below pen baseline",
 			Caveat: "Duration-based pattern over history, not a single reading. Not a health or behavior diagnosis.",
 		},
 		{
 			Key: "high_movement_spike", Label: "High Movement Spike", Value: fmt.Sprintf("%d", d.HighMovementSpikeCount), Unit: "tags",
-			SignalType: "inferred", Formula: "15m delta far above the animal/shed baseline",
+			SignalType: "inferred", Formula: "15m delta far above the animal/pen baseline",
 			Caveat: "Baseline is per-animal; a naturally active animal's spike threshold is higher than a naturally quiet animal's.",
 		},
 		{
-			Key: "shed_signal_coverage", Label: "Shed Signal Coverage", Value: fmt.Sprintf("%d/%d", d.ShedsWithCoverage, d.ShedsTotal), Unit: "sheds",
-			SignalType: "correlated", Formula: "live mapped tags / smart-tag mapped animals per shed",
-			Caveat: "A shed with no gateway deployed yet is excluded from the denominator, not counted as zero coverage.",
+			Key: "shed_signal_coverage", Label: "Pen Signal Coverage", Value: fmt.Sprintf("%d/%d", d.ShedsWithCoverage, d.ShedsTotal), Unit: "sheds",
+			SignalType: "correlated", Formula: "live mapped tags / smart-tag mapped animals per pen",
+			Caveat: "A pen with no gateway deployed yet is excluded from the denominator, not counted as zero coverage.",
 		},
 		{
 			Key: "weak_signal_tags", Label: "Weak Signal Tags", Value: fmt.Sprintf("%d", d.WeakSignalTagsCount), Unit: "tags",
@@ -446,8 +446,8 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "feed_activity", Label: "Feed × Activity", Value: fmt.Sprintf("%d", d.FeedActivityShedsCount), Unit: "sheds",
-			SignalType: "correlated", Formula: "shed activity 2h before vs 2h after fed_at",
-			Caveat: "Shed-grain only: this cannot attribute a single tag's motion to feeding.",
+			SignalType: "correlated", Formula: "pen activity 2h before vs 2h after fed_at",
+			Caveat: "Pen-grain only: this cannot attribute a single tag's motion to feeding.",
 		},
 		{
 			Key: "weight_activity", Label: "Weight × Activity", Value: fmt.Sprintf("%d", d.WeightActivityTagsCount), Unit: "tags",
@@ -523,7 +523,7 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 	}
 	shedLocations, err := s.repo.GetShedLocations(ctx, tenantID, shedIDs)
 	if err != nil {
-		s.log.Warn("failed to batch-fetch shed locations", "error", err)
+		s.log.Warn("failed to batch-fetch pen locations", "error", err)
 		shedLocations = map[string]ports.ShedLocation{}
 	}
 

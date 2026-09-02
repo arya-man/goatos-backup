@@ -434,8 +434,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "locations",
-		Label:    "Parks & Sheds",
-		Blurb:    "The park, shed and pen directory.",
+		Label:    "Parks & Pens",
+		Blurb:    "The park and pen directory.",
 		Surfaces: []string{SurfaceWeb},
 		Levels: map[string][]string{
 			LevelView: {LocationsRead},

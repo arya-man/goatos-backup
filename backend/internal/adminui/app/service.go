@@ -242,7 +242,7 @@ func topBar() domain.TopBarContract {
 		},
 		ParkSelector: domain.TopBarControl{
 			Label: "Park scope", Enabled: true,
-			Hint:    "Shed scope: all sheds — per-shed filtering is intentionally not wired in this slice yet.",
+			Hint:    "Pen scope: all pens — per-pen filtering is intentionally not wired in this slice yet.",
 			Options: []domain.TopBarOption{},
 		},
 		DateRangeSelector: domain.TopBarControl{
@@ -282,7 +282,7 @@ func chromeCopy() map[string]string {
 		// A disabled control must say WHY, and naming the page (the previous behaviour) did not:
 		// on a route with no label rule it fell through to "Route unavailable", which is both
 		// wrong -- the route is available -- and internal wording on a CEO screen.
-		"scope.all_sheds":           "all sheds",
+		"scope.all_sheds":           "all pens",
 		"scope.all_parks":           "All parks",
 		"scope.selected_park":       "Selected park",
 		"scope.company_wide":        "company-wide",
@@ -311,8 +311,8 @@ func chromeCopy() map[string]string {
 		"ceo_ai.open":               "Open Ask Mesha",
 		"ceo_ai.close":              "Close Ask Mesha",
 		"ceo_ai.send":               "Send question",
-		"ceo_ai.starter_due":        "today vaccination due by shed",
-		"ceo_ai.starter_overdue":    "which sheds are overdue?",
+		"ceo_ai.starter_due":        "today vaccination due by pen",
+		"ceo_ai.starter_overdue":    "which pens are overdue?",
 		"ceo_ai.starter_counts":     "show current animal count summary",
 		"ceo_ai.starter_help":       "what can you answer right now?",
 		"state.fresh":               "fresh",
@@ -330,7 +330,7 @@ func pages() []domain.PageContract {
 				table("work-board", "Vaccination work board", "/vaccination/action-center", []string{"work_state", "owner", "due", "task", "next_action"}, "ac_row"),
 				table("verification-queue", "Awaiting verification", "/vaccination/verification-queue", []string{"goat", "administered", "doses", "verify"}, "completion_id"),
 			}),
-		page("calendar", "/calendar", "/calendar", "Calendar", "Vaccination due work and accepted completion history by time, owner lane, park, shed, and date.", "command-lens",
+		page("calendar", "/calendar", "/calendar", "Calendar", "Vaccination due work and accepted completion history by time, owner lane, park, pen, and date.", "command-lens",
 			[]domain.TableContract{
 				table("calendar-events", "Due work", "/calendar/vaccination/events", []string{"due_at", "owner", "title", "status", "severity"}, "cal_event"),
 				table("vaccination-open-obligations", "Open obligations", "/goats/{goat_id}/passport", []string{"scheduled_for", "vaccine", "status", "workflow"}, "obligation_id"),
@@ -352,7 +352,7 @@ func pages() []domain.PageContract {
 			// (verifier + CEO/director oversight alike) -- unlike oversight_analytics above, table
 			// enrichment is not capability-gated: it is queue-row detail, not cross-module chrome.
 			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "subject", "captured", "in_queue", "reviewed", "review_took", "status", "reason", "watch"}, "vi_row", []int{20, 50, 100})}),
-		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Adult vaccination history, future campaigns, and current shed status.", "module-surface",
+		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Adult vaccination history, future campaigns, and current pen status.", "module-surface",
 			[]domain.TableContract{
 				// Shed-wise summary is the MAIN vaccination table (one row per shed, animal-level Due/Done,
 				// planned Sessions, capacity, merged Status). 10 columns; default 25 rows.
@@ -364,23 +364,23 @@ func pages() []domain.PageContract {
 		// question (what is landing RIGHT NOW, per operator and per shed) at administration grain,
 		// where /vaccination answers current status at animal grain.
 		page("vaccination-live-tracker", "/vaccination/live-tracker", "/vaccination/live-tracker", "Live Drive Tracker",
-			"Field proof arriving in real time — videos, scan captures and per-animal submissions per operator and per shed.",
+			"Field proof arriving in real time — videos, scan captures and per-animal submissions per operator and per pen.",
 			"module-surface", []domain.TableContract{
 				table("live-operators", "Operators — live", "/vaccination/live-tracker",
 					// `closed` sits beside `videos` on purpose: videos is a PHYSICAL upload count and closed
 					// is the obligation-grain figure remaining is derived from. Collapsing them into one
 					// column is what let a finished combo-day operator read as half done.
 					[]string{"operator", "park", "now_at", "scheduled", "videos", "scans", "closed", "remaining", "progress", "status"}, "lt_operator"),
-				tableP("live-sheds", "Sheds — proof progress", "/vaccination/live-tracker",
+				tableP("live-sheds", "Pens — proof progress", "/vaccination/live-tracker",
 					[]string{"shed", "vaccine", "operator", "scheduled", "received", "closed", "remaining", "progress", "last_proof", "status"}, "lt_shed", []int{25, 50, 100}),
 				table("live-combo", "Combo doses", "/vaccination/live-tracker",
 					[]string{"animal", "shed", "proof", "doses"}, "goat_id"),
 			}),
-		page("shed-execution", "/vaccination/execution/sheds/{shed_id}", "/vaccination/execution/sheds/{shed_id}", "Vaccination shed detail", "Shed-wise vaccination detail: planned sessions, per-vaccine breakdown, and the shed's animal roster.", "record-drilldown",
+		page("shed-execution", "/vaccination/execution/sheds/{shed_id}", "/vaccination/execution/sheds/{shed_id}", "Vaccination pen detail", "Pen-wise vaccination detail: planned sessions, per-vaccine breakdown, and the pen's animal roster.", "record-drilldown",
 			[]domain.TableContract{
 				table("planned-sessions", "Planned sessions", "/vaccination/sheds/{shed_id}", []string{"session_date", "vaccinations", "daily_limit", "capacity"}, "session"),
 				table("shed-vaccines", "Vaccine breakdown", "/vaccination/sheds/{shed_id}", []string{"vaccine", "status", "last_dose", "next_due", "counts"}, "vaccine"),
-				table("shed-animals", "Animals in shed", "/vaccination/sheds/{shed_id}/animals", []string{"display_id", "tag_1", "tag_2", "breed", "sex", "age", "lifecycle", "health", "last_vaccination_date", "next_vaccination_date", "vaccination_work"}, "goat_id"),
+				table("shed-animals", "Animals in pen", "/vaccination/sheds/{shed_id}/animals", []string{"display_id", "tag_1", "tag_2", "breed", "sex", "age", "lifecycle", "health", "last_vaccination_date", "next_vaccination_date", "vaccination_work"}, "goat_id"),
 				table("shed-drive-rows", "Drive rows", "/vaccination/execution/sheds/{shed_id}", []string{"animal_stage", "drive", "due_date", "work_state", "proof_status", "next_action"}, "drive_row"),
 			}),
 		page("source-entry", "/procurement/source-entry", "/procurement/source-entry", "Source Entry Board", "Supplier warmup and accepted-intake bridge into Preventive Care (PC) vaccination.", "module-surface",
@@ -448,7 +448,7 @@ func pages() []domain.PageContract {
 		// changed it. Every figure is backend-owned: the page derives no count of its own,
 		// and the flow table's columns come from this table contract.
 		page("herd-analytics", "/counts/analytics", "/counts/analytics", "Herd Analytics", "Herd composition by breed, pen tag, sex and age, beside month-by-month births, deaths and sales over a chosen window. Composition is the live herd right now; flow is counted off the canonical row that recorded each event.", "module-surface", nil),
-		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head counts grouped by farm, stage, breed, gender and shed, with distribution charts.", "module-surface",
+		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head counts grouped by farm, stage, breed, gender and pen, with distribution charts.", "module-surface",
 			[]domain.TableContract{sortable(
 				// Every dimension sorts, including the count. Ordering applies to the PAGE the
 				// operator is looking at, not to the whole filtered result — the pager states
@@ -483,9 +483,9 @@ func pages() []domain.PageContract {
 					[]string{"gateway", "location", "network", "status", "last_seen",
 						"tags_seen", "weak_tags", "unmapped_tags"}, "gateway_id", []int{25, 50}),
 			}),
-		page("weighing-weights", "/weighing/weights", "/weighing/weights", "Kids — Weights", "Latest weight per shed across both capture modes, with park and period filters.", "module-surface",
+		page("weighing-weights", "/weighing/weights", "/weighing/weights", "Kids — Weights", "Latest weight per pen across both capture modes, with park and period filters.", "module-surface",
 			[]domain.TableContract{
-				tableP("shed-weights", "Sheds", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "total_weight", "last_weighed", "workflow"}, "location_id", []int{10, 25, 50}),
+				tableP("shed-weights", "Pens", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "total_weight", "last_weighed", "workflow"}, "location_id", []int{10, 25, 50}),
 				tableP("losing-kids", "Kids losing weight", "/weighing/leadership/growth", []string{"tag", "shed", "previous", "latest", "change", "days_apart", "last_weighed"}, "scanned_identifier", []int{10, 25, 50}),
 				// Where each purchase load's weighed animals actually sit. It rides on the
 				// SAME /weighing/shed-weights response as the load chart above (the
@@ -502,7 +502,7 @@ func pages() []domain.PageContract {
 		// Weights analytics -- six tabs over the SAME reads the Weights page uses, so the two
 		// screens can never disagree about a number. It declares ONE table (the shed-wise tab's
 		// figures); every other tab is a chart, and a chart is not a TableContract.
-		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — Weights analytics", "Growth cut six ways: overall, by breed, by farm-born vs purchased, by shed type, by weight band and by week.", "module-surface",
+		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — Weights analytics", "Growth cut six ways: overall, by breed, by farm-born vs purchased, by pen type, by weight band and by week.", "module-surface",
 			// The shed table on the General tab, which is the Weights page's own table read from
 			// the same endpoint -- so the two screens cannot disagree about a shed's figures.
 			//
@@ -515,9 +515,9 @@ func pages() []domain.PageContract {
 			// The four analysis tabs declare NOTHING here on purpose: every one of them is a
 			// CHART, and a TableContract for a chart would be a contract nothing can honour.
 			[]domain.TableContract{
-				tableP("shed-weights", "Sheds", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "daily_gain", "total_weight", "last_weighed", "workflow"}, "location_id", []int{10, 25, 50}),
+				tableP("shed-weights", "Pens", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "daily_gain", "total_weight", "last_weighed", "workflow"}, "location_id", []int{10, 25, 50}),
 			}),
-		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-shed milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
+		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-pen milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
 			[]domain.TableContract{tableP("milk-preparation", "Milk preparation worklist", "/counts/milk-preparation", []string{"park", "shed", "cohort", "head_count", "session_1", "session_2", "session_3", "session_4", "daily_total", "status"}, "milk_preparation_row", []int{10, 25, 50})}),
 		// ---------------------------------------------------------------------------
 		// Feed vertical — three module surfaces.
@@ -540,7 +540,7 @@ func pages() []domain.PageContract {
 		// a genuinely multi-park read, that endpoint gets its own contract; do not re-add a
 		// constant column here.
 		// ---------------------------------------------------------------------------
-		page("feed-direction", "/feed/direction", "/feed/direction", "Feed Direction", "Generated per-shed feed sheet for the selected day: projected head count x authored ration, split across the park's sessions.", "module-surface",
+		page("feed-direction", "/feed/direction", "/feed/direction", "Feed Direction", "Generated per-pen feed sheet for the selected day: projected head count x authored ration, split across the park's sessions.", "module-surface",
 			// shed_tag and breed report the ANIMALS on every workflow. The experiment arm
 			// is deliberately NOT a column: it names which trial a shed is enrolled in,
 			// which is authoring context rather than anything that changes what gets
@@ -552,7 +552,7 @@ func pages() []domain.PageContract {
 			// ones. Dropping the column does not reinstate that: the API still returns
 			// experiment_arm as its own field, it is simply not rendered here.
 			[]domain.TableContract{tableP("direction-rows", "Feed Direction rows", "/feed-direction/generation-preview", []string{"shed", "shed_tag", "breed", "session", "head_count", "feed_item", "quantity_kg", "session_total_kg", "status"}, "direction_row", []int{10, 25, 50})}),
-		page("feed-packing", "/feed/packing", "/feed/packing", "Feed Packing", "Per-shed packing worklist for the selected day: what the store weighs out per shed, session and feed item.", "module-surface",
+		page("feed-packing", "/feed/packing", "/feed/packing", "Feed Packing", "Per-pen packing worklist for the selected day: what the store weighs out per pen, session and feed item.", "module-surface",
 			[]domain.TableContract{tableP("packing-worklist", "Packing worklist", "/feed-direction/generation-preview", []string{"shed", "session", "feed_item", "expected_kg", "status"}, "packing_row", []int{10, 25, 50})}),
 		page("feed-analytics", "/feed/analytics", "/feed/analytics", "Feed Analytics", "Directed feed, ration per animal and execution adherence across the farms — served from the frozen daily sheet and the proof-gated completions. Figures run up to yesterday and state what the sheet DIRECTED, not what was eaten.", "module-surface",
 			[]domain.TableContract{
@@ -566,9 +566,9 @@ func pages() []domain.PageContract {
 				// The overview's per-pen feed-mix table pages at TEN by default and
 				// states its own last-7-days basis; farm / shed / feed-item narrowing
 				// runs over the served bounded pen set, like the completion table above.
-				tableP("shed-feed-mix", "Feed by shed", "/feed-analytics/shed-feed", []string{"park", "pen", "items"}, "fsf_row", []int{10, 25, 50}),
+				tableP("shed-feed-mix", "Feed by pen", "/feed-analytics/shed-feed", []string{"park", "pen", "items"}, "fsf_row", []int{10, 25, 50}),
 			}),
-		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, per-shed factors, session template and feeding schedule.", "module-surface",
+		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, per-feed factors, session template and feeding schedule.", "module-surface",
 			[]domain.TableContract{
 				// Every table below EXCEPT feed-items is read through a /feed-config/* endpoint that
 				// requires park_id and filters on it, and they share ONE Park filter on the page — so
@@ -603,7 +603,7 @@ func pages() []domain.PageContract {
 					table("feed-items", "Feed items", "/feed-config/feed-items", []string{"feed_item", "energy_kcal_per_kg", "dry_matter_factor", "wastage_factor", "display_order", "status"}, "feed_item_id"),
 					"feed_item", "energy_kcal_per_kg", "dry_matter_factor", "wastage_factor", "display_order", "status",
 				),
-				table("shed-factors", "Shed factors", "/feed-config/shed-factors", []string{"shed", "feed_item", "multiplier", "valid_from", "valid_to"}, "shed_factor_id"),
+				table("shed-factors", "Feed factors", "/feed-config/shed-factors", []string{"shed", "feed_item", "multiplier", "valid_from", "valid_to"}, "shed_factor_id"),
 				// The EXPERIMENT sheds, deliberately its OWN table rather than extra rows or a
 				// column on the ration grid above. The two are not two views of one thing: a
 				// grid row's rate comes from the authored grid for a (group, tag, item), and an
@@ -623,7 +623,7 @@ func pages() []domain.PageContract {
 				// (~20 pens at five items); 200 is the backend's own cap and exists because a pen may
 				// now carry as many cells as the catalog has items, so the row count grows with the
 				// feed vocabulary rather than with the shed count.
-				tableP("experiment-config", "Experiment sheds", "/feed-config/experiment", []string{"park", "shed", "experiment_category", "live_head_count", "feed_item", "experiment_quantity", "status"}, "experiment_config_id", []int{10, 25, 50}),
+				tableP("experiment-config", "Experiment pens", "/feed-config/experiment", []string{"park", "shed", "experiment_category", "live_head_count", "feed_item", "experiment_quantity", "status"}, "experiment_config_id", []int{10, 25, 50}),
 				// `feeds` is the session's RECIPE, and it is the column that answers whether a feed
 				// reaches an animal at all: generation walks these slots and looks each one up in the
 				// ration grid, so a feed with a grid quantity but no slot is silently absent from the
@@ -835,7 +835,7 @@ func weightsGainThresholdTable() domain.TableContract {
 }
 
 func vaccinationShedTable() domain.TableContract {
-	t := tableP("shed-summary", "Vaccination by shed", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "backup", "status"}, "shed", []int{25, 50, 100})
+	t := tableP("shed-summary", "Vaccination by pen", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "backup", "status"}, "shed", []int{25, 50, 100})
 	for i := range t.Columns {
 		switch t.Columns[i].Key {
 		case "due":
@@ -905,12 +905,12 @@ func weighingWeightsCopy() map[string]string {
 		"export.button":        "Download",
 		"export.eyebrow":       "Weights",
 		"export.title":         "Download weights",
-		"export.hint":          "Pick the days, park and sheds to include. The file follows the Weight check sheet, without the video column.",
+		"export.hint":          "Pick the days, park and pens to include. The file follows the Weight check sheet, without the video column.",
 		"export.period.label":  "Period",
 		"export.park.label":    "Park",
 		"export.park.all":      "All parks",
-		"export.sheds.label":   "Sheds",
-		"export.sheds.all":     "All sheds",
+		"export.sheds.label":   "Pens",
+		"export.sheds.all":     "All pens",
 		"export.download":      "Download CSV",
 		"export.preparing":     "Preparing the file…",
 		"export.error":         "The file could not be prepared. Try again in a moment.",
@@ -929,22 +929,22 @@ func weighingWeightsCopy() map[string]string {
 		"kpi.total.label":           "Total weight",
 		"kpi.total.sub":             "of the kids actually weighed",
 		"kpi.average.label":         "Average weight",
-		"kpi.average.sub":           "per kid, across every shed",
+		"kpi.average.sub":           "per kid, across every pen",
 		"kpi.over30.label":          "Over 30 kg",
 		"kpi.over35.label":          "Over 35 kg",
 		"kpi.threshold.basis":       "weighed one by one",
-		"kpi.sheds.label":           "Sheds weighed",
-		"chart.average.title":       "Average weight by shed",
+		"kpi.sheds.label":           "Pens weighed",
+		"chart.average.title":       "Average weight by pen",
 		"chart.average.caption":     "Heaviest first. Scroll for the rest.",
-		"chart.average.aria":        "Average weight for each shed",
-		"section.sheds.title":       "Sheds",
-		"section.sheds.aria":        "Weight by shed",
+		"chart.average.aria":        "Average weight for each pen",
+		"section.sheds.title":       "Pens",
+		"section.sheds.aria":        "Weight by pen",
 		"composition.unknown_breed": "Unknown breed",
 		"composition.unknown_sex":   "unknown sex",
 		// Column headers come from the table contract's own columns via tableLabels(),
 		// so they are deliberately NOT duplicated here.
 		"filter.all_option":          "All",
-		"filter.bar_aria":            "Filter sheds",
+		"filter.bar_aria":            "Filter pens",
 		"filter.clear_all":           "Clear filters",
 		"pager.noun":                 "shed",
 		"value.weighing.individual":  "Per animal",
@@ -958,11 +958,11 @@ func weighingWeightsCopy() map[string]string {
 		"value.workflow.rejected":    "Rejected",
 		"value.never_weighed":        "Not weighed yet",
 		"empty.no_data.title":        "No data available",
-		"empty.no_data.body":         "No shed was weighed in this period. Try a longer period or another park.",
+		"empty.no_data.body":         "No pen was weighed in this period. Try a longer period or another park.",
 		"empty.filtered.title":       "No data available",
-		"empty.filtered.body":        "No shed matches these filters.",
-		"note.total_weight":          "Total weight covers the kids actually weighed. Weighing is free flow, so it is not the whole shed.",
-		"note.threshold_basis":       "Counted from kids weighed one by one. A shed weighed as one total reports an average, so it cannot say how many of its kids cleared the mark.",
+		"empty.filtered.body":        "No pen matches these filters.",
+		"note.total_weight":          "Total weight covers the kids actually weighed. Weighing is free flow, so it is not the whole pen.",
+		"note.threshold_basis":       "Counted from kids weighed one by one. A pen weighed as one total reports an average, so it cannot say how many of its kids cleared the mark.",
 		"section.losing.title":       "Kids losing weight",
 		"section.losing.aria":        "Kids losing weight",
 		"section.losing.caption":     "Latest weigh lower than the one before it.",
@@ -976,22 +976,22 @@ func weighingWeightsCopy() map[string]string {
 		"kpi.park_gain.suffix":   "— daily gain",
 		"kpi.park_gain.all":      "All parks",
 		"section.park_gain.aria": "Daily gain by park",
-		"chart.gain.title":       "Daily gain and shed average change",
-		"chart.gain.caption":     "Kids weighed one by one, and sheds weighed as one total shown by how fast their average is moving.",
-		"chart.gain.aria":        "Daily gain and shed average change",
+		"chart.gain.title":       "Daily gain and pen average change",
+		"chart.gain.caption":     "Kids weighed one by one, and pens weighed as one total shown by how fast their average is moving.",
+		"chart.gain.aria":        "Daily gain and pen average change",
 		"empty.gain.body":        "A kid has to be weighed twice before a gain can be worked out.",
 		// Distinct from the above: these sheds DO have a second weigh, they are just all
 		// losing. Reusing the "needs a second weigh" line there would be a lie.
-		"empty.gain.all_losing":   "Every shed with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
-		"chart.gain.caption_shed": "Same-animal rows show daily gain. Lump-sum rows show average weight change for that exact shed or partition; shifts, sales, deaths, or new animals can also move it.",
+		"empty.gain.all_losing":   "Every pen with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
+		"chart.gain.caption_shed": "Same-animal rows show daily gain. Lump-sum rows show average weight change for that exact pen or partition; shifts, sales, deaths, or new animals can also move it.",
 		// The same card reads as a CHART or as the exact figures (maintainer request
 		// 2026-09-01), the same shape the breed-wise gain card already carries. The choice
 		// lives in the URL like every other toggle on this page, so it survives a reload and
 		// travels in a shared link. Column headers are the card's own copy: this card is a
 		// chart-first surface with no table contract to draw them from.
-		"section.shed_gain.view_aria": "Show the shed figures as a chart or a table",
+		"section.shed_gain.view_aria": "Show the pen figures as a chart or a table",
 		"table.shed_gain.park":        "Park",
-		"table.shed_gain.shed":        "Shed",
+		"table.shed_gain.shed":        "Pen",
 		"table.shed_gain.basis":       "Basis",
 		// Breed, sex and head count were read out of the shed label, where a mixed pen
 		// pushed them past a hundred characters (maintainer request 2026-09-01). They are
@@ -1007,7 +1007,7 @@ func weighingWeightsCopy() map[string]string {
 		"table.shed_gain.weight":       "Average weight",
 		"section.demographics.title":   "Breed, sex and stage",
 		"section.demographics.aria":    "Weight by breed, sex and stage",
-		"section.demographics.caption": "Daily gain counts kids weighed twice and sheds weighed as one total. Weight uses the latest weighed animals.",
+		"section.demographics.caption": "Daily gain counts kids weighed twice and pens weighed as one total. Weight uses the latest weighed animals.",
 		"chart.breed.title":            "Average weight by breed",
 		"chart.breed.title_gain":       "Daily gain by breed",
 		"chart.breed.aria":             "Average weight for each breed",
@@ -1018,7 +1018,7 @@ func weighingWeightsCopy() map[string]string {
 		"chart.stage.title_gain":       "Daily gain by stage",
 		"chart.stage.aria":             "Average weight for each management stage",
 		"empty.demographics.body":      "No weighed kid could be matched to the herd register in this period.",
-		"note.demographics.coverage":   "Daily gain by breed, sex and stage counts animals weighed one by one, plus whole-shed weighs: every animal of a shed weighed as one total is counted at that shed's own average change.",
+		"note.demographics.coverage":   "Daily gain by breed, sex and stage counts animals weighed one by one, plus whole-pen weighs: every animal of a pen weighed as one total is counted at that pen's own average change.",
 		// Row 2b -- how many kids of each breed are actually growing well, which a breed
 		// median cannot say. The bands are DISJOINT (maintainer, 2026-08-24): a kid at
 		// 260 g/day is counted in the top band ONLY, so the four columns add up to the
@@ -1035,7 +1035,7 @@ func weighingWeightsCopy() map[string]string {
 		"value.gain_thresholds.kids":      "kids",
 		"value.gain_thresholds.of":        "of",
 		"section.gain_thresholds.aria":    "Breed-wise daily gain",
-		"section.gain_thresholds.caption": "Counted from kids weighed twice, at each kid's own daily gain, plus sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
+		"section.gain_thresholds.caption": "Counted from kids weighed twice, at each kid's own daily gain, plus pens weighed as one total, whose kids all sit in the band that pen's average movement falls in. Each kid is counted in one band only.",
 		"empty.gain_thresholds.body":      "No kid matched to a breed has a second weigh in this period yet.",
 		// The page carries a SEX filter in its own filter bar, beside Weighing (maintainer,
 		// 2026-08-26). It auto-selects every kid, and picking a side re-reads the WHOLE page at
@@ -1057,8 +1057,8 @@ func weighingWeightsCopy() map[string]string {
 		// actually counted. Reusing the combined caption under the male view would tell a
 		// reader the bands add up to the kids weighed twice when they add up to the MALE kids
 		// weighed twice.
-		"section.gain_thresholds.caption_male":   "Counted from male kids weighed twice, at each kid's own daily gain, plus all-male sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
-		"section.gain_thresholds.caption_female": "Counted from female kids weighed twice, at each kid's own daily gain, plus all-female sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
+		"section.gain_thresholds.caption_male":   "Counted from male kids weighed twice, at each kid's own daily gain, plus all-male pens weighed as one total, whose kids all sit in the band that pen's average movement falls in. Each kid is counted in one band only.",
+		"section.gain_thresholds.caption_female": "Counted from female kids weighed twice, at each kid's own daily gain, plus all-female pens weighed as one total, whose kids all sit in the band that pen's average movement falls in. Each kid is counted in one band only.",
 		"value.gain_thresholds.kids_male":        "male kids",
 		"value.gain_thresholds.kids_female":      "female kids",
 		"empty.gain_thresholds.male":             "No male kid matched to a breed has a second weigh in this period yet.",
@@ -1072,21 +1072,21 @@ func weighingWeightsCopy() map[string]string {
 		"chart.load.title":                       "Daily gain by load",
 		"chart.load.title_weight":                "Average weight by load",
 		"chart.load.aria":                        "Growth for each purchase load",
-		"chart.load.caption":                     "Kids are bought in loads from a supplier and put into sheds. This is how each load's sheds are moving, so a supplier's stock can be judged on how it grows.",
-		"empty.load.body":                        "No load has a weighed shed yet. A load shows up here once the sheds it went into have been weighed.",
-		"note.load.unmapped":                     "sheds are not counted here — they have no load recorded, or they hold more than one load and a single shed average cannot be split between two suppliers.",
+		"chart.load.caption":                     "Kids are bought in loads from a supplier and put into pens. This is how each load's pens are moving, so a supplier's stock can be judged on how it grows.",
+		"empty.load.body":                        "No load has a weighed pen yet. A load shows up here once the pens it went into have been weighed.",
+		"note.load.unmapped":                     "pens are not counted here — they have no load recorded, or they hold more than one load and a single pen average cannot be split between two suppliers.",
 		// The load chart says a supplier's stock is growing; this says WHERE. Without
 		// it a reader cannot walk from a load bar to the shed table below it.
 		"section.load_placements.title":   "Where each load sits",
-		"section.load_placements.aria":    "Parks and sheds each purchase load was placed into",
-		"section.load_placements.caption": "The park and shed each load's weighed animals are in, with the head count at that shed's latest weigh. The counts add up to the load's own animal total, so this and the chart above always agree.",
-		"empty.load_placements.body":      "No load has a weighed shed yet, so there is nowhere to point to.",
+		"section.load_placements.aria":    "Parks and pens each purchase load was placed into",
+		"section.load_placements.caption": "The park and pen each load's weighed animals are in, with the head count at that pen's latest weigh. The counts add up to the load's own animal total, so this and the chart above always agree.",
+		"empty.load_placements.body":      "No load has a weighed pen yet, so there is nowhere to point to.",
 		"metric.weight":                   "Weight",
 		"metric.gain":                     "Daily gain",
 		"empty.metric.no_gain":            "No daily gain here yet — a kid has to be weighed twice before a gain exists.",
 		"empty.losing.title":              "No data available",
 		"empty.losing.body":               "A kid has to be weighed twice before a loss can be seen. Only a handful have a second weigh so far.",
-		"note.no_cadence":                 "There is no weighing schedule, so a shed with no recent weigh is not late.",
+		"note.no_cadence":                 "There is no weighing schedule, so a pen with no recent weigh is not late.",
 		"error.load.title":                "Weights could not be loaded",
 		"error.load.body":                 "Try again in a moment.",
 		// Growth Director section. Same copy firewall as the rest of this
@@ -1121,11 +1121,11 @@ func weighingWeightsCopy() map[string]string {
 		// The caption has to say what a penned kid's weight actually is, because the bars do not
 		// look any different for one. A pen gives one average for every animal in it, so those
 		// kids all sit in the same band and all move together.
-		"growth_director.road.note.lump":       "A shed weighed as one total gives every kid in it the same weight — the shed average — so those kids share a band and move bands together.",
+		"growth_director.road.note.lump":       "A pen weighed as one total gives every kid in it the same weight — the pen average — so those kids share a band and move bands together.",
 		"growth_director.fair_fight.title":     "Fair fight — same breed, same sex",
-		"growth_director.fair_fight.caption":   "Same breed, same sex, different sheds — a fairer comparison that points at shed-level causes.",
-		"growth_director.fair_fight.note":      "A cohort shows once the same kind of kid, weighed twice, lives in two sheds. Sex comes from the herd register, never from the shed name.",
-		"growth_director.fair_fight.empty":     "No cohort yet — it takes two sheds each holding three kids of the same breed and sex with a second weigh.",
+		"growth_director.fair_fight.caption":   "Same breed, same sex, different pens — a fairer comparison that points at pen-level causes.",
+		"growth_director.fair_fight.note":      "A cohort shows once the same kind of kid, weighed twice, lives in two pens. Sex comes from the herd register, never from the pen name.",
+		"growth_director.fair_fight.empty":     "No cohort yet — it takes two pens each holding three kids of the same breed and sex with a second weigh.",
 		"growth_director.fair_fight.pair_noun": "kids",
 		// The board reads as a standings table, so it needs the words a standings table
 		// uses. `spread` is the one that carries the decision: a cohort whose sheds are
@@ -1138,9 +1138,9 @@ func weighingWeightsCopy() map[string]string {
 		"growth_director.fair_fight.shed_noun":     "sheds",
 		"growth_director.fair_fight.rank_label":    "Position in cohort",
 		"growth_director.slow.title":               "Slow-growth watchlist",
-		"growth_director.slow.caption":             "Groups of kids that are not gaining — worth a walk to the shed. Same breed and sex grouped together, so it points at a shed problem, not one sick kid.",
+		"growth_director.slow.caption":             "Groups of kids that are not gaining — worth a walk to the pen. Same breed and sex grouped together, so it points at a pen problem, not one sick kid.",
 		"growth_director.slow.note":                "Target ~200 g/day is the ops rule of thumb, not a contract. Changes within 3% of body weight count as gut fill; losses over 0.30 kg/day are treated as bad scans, not slow growth. Small groups stay hidden until 3 kids have a second weigh.",
-		"growth_director.slow.col.shed":            "Shed",
+		"growth_director.slow.col.shed":            "Pen",
 		"growth_director.slow.col.breed":           "Breed",
 		"growth_director.slow.col.sex":             "Sex",
 		"growth_director.slow.col.pairs":           "Kids weighed twice",
@@ -1164,21 +1164,21 @@ func weighingWeightsCopy() map[string]string {
 		"growth_director.feed_growth.filter.aria":      "Filter the feed and growth rows",
 		"growth_director.feed_growth.filter.empty":     "No pens match this filter in the selected window.",
 		"growth_director.feed_growth.showing":          "pens shown",
-		"growth_director.feed_growth.col.shed":         "Shed",
+		"growth_director.feed_growth.col.shed":         "Pen",
 		"growth_director.feed_growth.col.feed":         "Feed directed",
 		"growth_director.feed_growth.col.gain":         "Daily gain",
 		"growth_director.feed_growth.col.ratio":        "Feed kg / kg gained",
 		"growth_director.feed_growth.feed_unit":        "g per head per day",
 		"growth_director.feed_growth.basis.per_animal": "per kid, own weighs",
-		"growth_director.feed_growth.basis.whole_shed": "shed average movement",
+		"growth_director.feed_growth.basis.whole_shed": "pen average movement",
 		"growth_director.feed_growth.experiment":       "trial",
 		"growth_director.feed_growth.experiment.note":  "Runs the experiment sheet (its own hand-entered quantities, not the ration grid), so its ratio is not comparable.",
 		"growth_director.feed_growth.no_gain":          "needs a second weigh",
-		"growth_director.feed_growth.note":             "High feed with low gain is a ration, waste, or health question for that shed this week. Growth is counted by each kid's herd-register shed — the shed the feed sheet was written for — so kids whose tag matches nothing are left out here and counted in the trust panel.",
-		"growth_director.feed_growth.empty":            "No feed sheet covered these sheds in this period.",
+		"growth_director.feed_growth.note":             "High feed with low gain is a ration, waste, or health question for that pen this week. Growth is counted by each kid's herd-register pen — the pen the feed sheet was written for — so kids whose tag matches nothing are left out here and counted in the trust panel.",
+		"growth_director.feed_growth.empty":            "No feed sheet covered these pens in this period.",
 		"growth_director.feed_problems.title":          "Feed sheet problems",
-		"growth_director.feed_problems.caption":        "Lines the feed sheet could not fill in — the shed may have been fed by guesswork.",
-		"growth_director.feed_problems.col.shed":       "Shed",
+		"growth_director.feed_problems.caption":        "Lines the feed sheet could not fill in — the pen may have been fed by guesswork.",
+		"growth_director.feed_problems.col.shed":       "Pen",
 		"growth_director.feed_problems.col.item":       "Feed item",
 		"growth_director.feed_problems.col.days":       "Days blocked",
 		"growth_director.feed_problems.col.reason":     "Reason",
@@ -1194,7 +1194,7 @@ func weighingWeightsCopy() map[string]string {
 		"growth_director.trust.pairs.sub":              "growth can only be worked out for these — a tag is only a named kid once it matches the herd register",
 		"growth_director.trust.once_only":              "Tags weighed once only",
 		"growth_director.trust.once_only.sub":          "a second weigh unlocks their gain",
-		"growth_director.trust.whole_shed":             "Whole-shed weighings",
+		"growth_director.trust.whole_shed":             "Whole-pen weighings",
 		"growth_director.trust.whole_shed.sub":         "no per-kid, breed or sex view",
 		"growth_director.trust.pending":                "Awaiting verification",
 		"growth_director.trust.pending.sub":            "still counted — a weigh is a weigh until a verifier bounces it",
@@ -1263,7 +1263,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.open_gaps.aria":             "Open exceptions",
 			"table.open_gaps.noun":             "alert",
 			"filter.drawer.title":              "Filter — Control Tower",
-			"filter.search_reason":             "Search gap, severity, owner, shed, next action, evidence...",
+			"filter.search_reason":             "Search gap, severity, owner, pen, next action, evidence...",
 			"filter.reason":                    "Use severity and gap-state chips for the Control Tower exception list; drawer search narrows visible rows.",
 			"filter.search_label":              "Search Control Tower alerts",
 			"filter.rows_suffix":               "alerts · severity, owner, next action",
@@ -1280,7 +1280,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"link.protocol_adherence":          "Protocol Adherence ledger →",
 			"link.workflows":                   "Workflows →",
 			"link.vaccination_ops":             "Preventive Care (PC) · Vaccination ops →",
-			"link.park_shed_execution":         "Park/shed execution →",
+			"link.park_shed_execution":         "Park/pen execution →",
 			"alert.config_sop.singular":        "plan blocker",
 			"alert.config_sop.plural":          "plan blockers",
 			"alert.config_sop.action_required": "— action required.",
@@ -1386,7 +1386,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.priority_disabled":            "Priority is derived from computed severity — not manually set",
 			"drawer.protocol_label":               "Protocol",
 			"drawer.dose_label":                   "Dose",
-			"drawer.park_shed_label":              "Park · Shed",
+			"drawer.park_shed_label":              "Park · Pen",
 			"drawer.cohort_progress_label":        "Cohort · Progress",
 			"drawer.sop_checklist.note":           "SOP checklist is rendered as field-task progress, not as the obligation lifecycle chain.",
 			"drawer.sop_checklist.title":          "Checklist · SOP — Vaccination Drive SOP",
@@ -1543,9 +1543,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.domains.aria":              "Workflow domains",
 			"filter.search_label":              "Search workflow rows",
 			"filter.drawer.title":              "Filter — Workflows",
-			"filter.search_reason":             "Search workflow, park, shed, state...",
+			"filter.search_reason":             "Search workflow, park, pen, state...",
 			"filter.reason":                    "Use visible-row search and quick facets on this workflow catalog.",
-			"filter.rows_suffix":               "workflow, park, shed, state",
+			"filter.rows_suffix":               "workflow, park, pen, state",
 			"action.open_record":               "Open workflow detail",
 			"action.open_action_center":        "Open Action Center",
 			"action.back_to_list":              "Back to list",
@@ -1612,7 +1612,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.back_control":              "Back to Control Tower",
 			"action.back_action":               "Back to Action Center",
 			"action.goat_passport":             "Goat passport",
-			"action.shed_execution":            "Shed execution detail",
+			"action.shed_execution":            "Pen execution detail",
 			"action.action_center":             "Action Center",
 			"action.protocol_adherence":        "Protocol Adherence",
 			"action.assign_owner_chain":        "Assign operator",
@@ -1642,8 +1642,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// string here: the frontend previously carried them as local fallbacks, which is the
 			// hardcoded-visible-literal defect the contract rule exists to prevent.
 			"board.title":      "Verification Board",
-			"filter.shed":      "Shed (optional)",
-			"filter.all_sheds": "All sheds",
+			"filter.shed":      "Pen (optional)",
+			"filter.all_sheds": "All pens",
 			// The module filter row (maintainer request 2026-08-11). The module NAMES are not here:
 			// they come from the verification type registry on the queue response
 			// (filter_options.modules), which is the only place that knows which modules exist and
@@ -1702,7 +1702,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.meta.verified_at":       "Verified at",
 			"drawer.meta.captured":          "Captured at",
 			"drawer.meta.operator":          "Operator",
-			"drawer.meta.shed":              "Shed",
+			"drawer.meta.shed":              "Pen",
 			"drawer.meta.park":              "Park",
 			"drawer.meta.source_module":     "Source module",
 			"drawer.meta.source_task":       "Source task",
@@ -1741,7 +1741,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// automatically from the herd register at submit and frozen, so the one
 			// count refusal left says exactly that.
 			"feedback.animal_count_not_applicable": "The goat count is recorded automatically and can't be changed. Correct the weight only.",
-			"feedback.weighing_bucket_closed":      "This shed's weighing is already closed. Ask a manager to reopen it before correcting the weight.",
+			"feedback.weighing_bucket_closed":      "This pen's weighing is already closed. Ask a manager to reopen it before correcting the weight.",
 			// The VERIFIER's feed-wastage measurement (maintainer decision 2026-08-18). Same shape
 			// as the weight correction above: the control's own copy travels on the item; these are
 			// only the outcome sentences.
@@ -1883,25 +1883,25 @@ func pageSpecificCopy(id string) map[string]string {
 			"video_log.open":                "Video Log",
 			"video_log.close":               "Close video log",
 			"video_log.title":               "Video Log",
-			"video_log.hint":                "When each video arrived, shed by shed",
+			"video_log.hint":                "When each video arrived, pen by pen",
 			"video_log.disabled_no_access":  "The video log is limited to the verification team and leadership.",
 			"video_log.unavailable":         "The video log is unavailable right now.",
 			"video_log.day":                 "Day",
-			"video_log.all_sheds":           "All sheds",
-			"video_log.back_to_sheds":       "Back to all sheds",
+			"video_log.all_sheds":           "All pens",
+			"video_log.back_to_sheds":       "Back to all pens",
 			"video_log.empty_day":           "No videos arrived on this day.",
-			"video_log.empty_shed":          "No videos arrived from this shed on this day.",
+			"video_log.empty_shed":          "No videos arrived from this pen on this day.",
 			"video_log.filter.park":         "Park",
-			"video_log.filter.shed":         "Shed",
+			"video_log.filter.shed":         "Pen",
 			"video_log.filter.search":       "Search",
-			"video_log.filter.search_hint":  "Shed, work, person or video",
+			"video_log.filter.search_hint":  "Pen, work, person or video",
 			"video_log.filter.all_parks":    "All parks",
-			"video_log.filter.all_sheds":    "All sheds",
+			"video_log.filter.all_sheds":    "All pens",
 			"video_log.filter.apply":        "Apply",
 			"video_log.filter.clear":        "Clear",
 			"video_log.no_match":            "Nothing on this day matches those filters.",
 			"video_log.col.park":            "Park",
-			"video_log.col.shed":            "Shed",
+			"video_log.col.shed":            "Pen",
 			"video_log.col.work":            "Work",
 			"video_log.col.video":           "Video",
 			"video_log.col.uploaded":        "Uploaded",
@@ -1915,9 +1915,9 @@ func pageSpecificCopy(id string) map[string]string {
 			// Without it a reader sees a time with no date and assumes same-day.
 			"video_log.arrived_later":    "arrived",
 			"video_log.captured_label":   "Recorded",
-			"video_log.truncated":        "This shed has more work than fits here. Narrow the day or the park to see the rest.",
+			"video_log.truncated":        "This pen has more work than fits here. Narrow the day or the park to see the rest.",
 			"video_log.grain.animal":     "Animal",
-			"video_log.grain.shed":       "Shed",
+			"video_log.grain.shed":       "Pen",
 			"video_log.open_in_queue":    "Open this queue",
 			"video_log.download":         "Download CSV",
 			"video_log.export_truncated": "This day had more videos than one file holds. Narrow the park and download again.",
@@ -2024,7 +2024,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.picker.due_hint":             "due work",
 			"calendar.picker.deferred_hint":        "deferred work",
 			"calendar.drive.all_day":               "All day",
-			"calendar.drive.sheds":                 "Sheds",
+			"calendar.drive.sheds":                 "Pens",
 			"calendar.drive.vaccines":              "Vaccines",
 			"calendar.drive.name":                  "Drive name",
 			"calendar.drive.total":                 "Drive total",
@@ -2032,7 +2032,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.drive.doses":                 "Doses",
 			"calendar.drive.packets":               "Drive packets",
 			"calendar.drive.vaccine_mix":           "Vaccine mix",
-			"calendar.drive.shed_coverage":         "Shed coverage",
+			"calendar.drive.shed_coverage":         "Pen coverage",
 			// DRV-006: these keys replace hardcoded fallback strings that lived in
 			// apps/admin-web/lib/admin-ui-contract.ts (calendar-drive-card.tsx metagrid labels/suffixes).
 			"calendar.drive.done_suffix":     "done",
@@ -2041,14 +2041,14 @@ func pageSpecificCopy(id string) map[string]string {
 			// caption text, and the footer CTA (calendar-drive-card.tsx).
 			"calendar.drive.vaccines_suffix":      "vaccines",
 			"calendar.drive.of":                   "of",
-			"calendar.drive.sheds_done_suffix":    "sheds done",
+			"calendar.drive.sheds_done_suffix":    "pens done",
 			"calendar.drive.verification_pending": "Verification pending",
 			"calendar.drive.owner":                "Owner",
 			"calendar.drive.open":                 "Open drive",
 			// DRV-008: full-screen drive detail roster labels and breadcrumbs (calendar-drive-detail.tsx).
 			"calendar.drive.animal_roster":       "Animal roster",
 			"calendar.drive.display_id_header":   "Display ID",
-			"calendar.drive.shed_header":         "Shed",
+			"calendar.drive.shed_header":         "Pen",
 			"calendar.drive.tag_1_header":        "Tag 1",
 			"calendar.drive.tag_2_header":        "Tag 2",
 			"calendar.drive.stage_header":        "Stage",
@@ -2058,7 +2058,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.drive.status_header":       "Status",
 			"calendar.drive.no_animals":          "No animals in this drive",
 			"calendar.drive.load_more":           "Load more",
-			"calendar.drive.search_placeholder":  "Search animal, tag, shed, status...",
+			"calendar.drive.search_placeholder":  "Search animal, tag, pen, status...",
 			"calendar.drive.search_action":       "Search",
 			"calendar.drive.clear_search":        "Clear",
 			"calendar.drive.previous_page":       "Previous",
@@ -2088,11 +2088,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.not_configured":               "not configured",
 			"label.channels":                     "Channels",
 			"label.scope":                        "Scope",
-			"label.park_shed":                    "Park · Shed",
+			"label.park_shed":                    "Park · Pen",
 			"label.cohort_target":                "Cohort · Target",
 			"label.vaccine_dose":                 "Vaccine · Dose",
 			"label.owner":                        "Owner",
-			"label.all_sheds":                    "all sheds",
+			"label.all_sheds":                    "all pens",
 			"label.source_backed_rule":           "Rule / version",
 			"label.source_backed":                "versioned",
 			"label.not_source_backed":            "manual row",
@@ -2137,7 +2137,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.attention.detail":                  "extra attempts · idle operator",
 			"kpi.live_tick":                         "▲ live",
 			"kpi.cross_filter_disabled":             "Tile cross-filtering is not wired. Use the filter bar above to narrow every section at once.",
-			"kpi.truncated_note":                    "This drive day exceeds the tracker's per-read row budget. The totals above are still exact — they are aggregated over the whole day, not over the visible rows — but the tables below list only part of it. Narrow by park, shed or vaccine to see every row.",
+			"kpi.truncated_note":                    "This drive day exceeds the tracker's per-read row budget. The totals above are still exact — they are aggregated over the whole day, not over the visible rows — but the tables below list only part of it. Narrow by park, pen or vaccine to see every row.",
 			"live.badge_live":                       "LIVE",
 			"live.badge_paused":                     "PAUSED",
 			"live.toggle_title":                     "Click to pause or resume live updates",
@@ -2150,18 +2150,18 @@ func pageSpecificCopy(id string) map[string]string {
 			"live.feed_rate_suffix":                 "/min",
 			"live.feed_rate_unavailable":            "rate pending",
 			"live.feed_aria":                        "Live vaccination activity",
-			"filter.apply_note":                     "Park, vaccine, operator and shed narrow the tiles, both tables, the combo card and the live feed. The Verification queue carries no vaccine or operator column, so it follows park and shed only. Status narrows the tiles, both tables and Attention; the combo card and the feed always show the whole drive day.",
+			"filter.apply_note":                     "Park, vaccine, operator and pen narrow the tiles, both tables, the combo card and the live feed. The Verification queue carries no vaccine or operator column, so it follows park and pen only. Status narrows the tiles, both tables and Attention; the combo card and the feed always show the whole drive day.",
 			"filter.unlisted_selection":             "current filter — no drive work on this day",
 			"filter.truncated_note":                 "The filter lists are capped server-side and this drive day exceeds one of them, so some options are not offered.",
 			"filter.all_parks":                      "All parks",
 			"filter.all_vaccines":                   "All vaccines",
 			"filter.all_operators":                  "All operators",
-			"filter.all_sheds":                      "All sheds",
+			"filter.all_sheds":                      "All pens",
 			"filter.all_statuses":                   "All statuses",
 			"filter.park_label":                     "Park",
 			"filter.vaccine_label":                  "Vaccine",
 			"filter.operator_label":                 "Operator",
-			"filter.shed_label":                     "Shed",
+			"filter.shed_label":                     "Pen",
 			"filter.status_label":                   "Status",
 			"filter.clear_all":                      "clear all",
 			"filter.remove_one":                     "Remove filter",
@@ -2170,33 +2170,33 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.operators.count_suffix":        "operators",
 			"section.operators.park_suffix_one":     "park",
 			"section.operators.park_suffix":         "parks",
-			"section.operators.drilldown_note":      "Shed drill-down opens from the Sheds table below",
+			"section.operators.drilldown_note":      "Pen drill-down opens from the Pens table below",
 			"section.operators.empty_title":         "No operator has drive work on this day",
-			"section.operators.empty_body":          "Operator rows appear once the day's vaccination drive assignments exist for a shed in scope.",
+			"section.operators.empty_body":          "Operator rows appear once the day's vaccination drive assignments exist for a pen in scope.",
 			"section.operators.filtered_title":      "No operator matches these filters",
 			"section.operators.filtered_body":       "Clear a filter to see the other operators on this drive day.",
 			"section.operators.unavailable":         "Operator display code is not seeded in this environment.",
 			"section.operators.truncated_note":      "Operator rows are capped server-side, so this table sums lower than the tiles above. When the rollup itself is capped the tiles say so in their own note.",
-			"section.operators.unassigned_note":     "administrations on this drive day resolved to no operator assignment. They are counted in the tiles and listed under Sheds below, but they have no operator to be attributed to and appear in no row here.",
+			"section.operators.unassigned_note":     "administrations on this drive day resolved to no operator assignment. They are counted in the tiles and listed under Pens below, but they have no operator to be attributed to and appear in no row here.",
 			"section.operators.now_at_prefix":       "last activity",
 			"section.operators.idle_prefix":         "idle",
 			"section.operators.idle_suffix":         "min",
-			"section.sheds.title":                   "Sheds — proof progress",
-			"section.sheds.empty_title":             "No shed has drive work on this day",
-			"section.sheds.empty_body":              "Shed rows appear once the day's obligations resolve to a shed and partition in scope.",
-			"section.sheds.filtered_title":          "No shed matches these filters",
-			"section.sheds.filtered_body":           "Clear a filter to see the other sheds on this drive day.",
-			"section.sheds.truncated_note":          "Shed rows are capped server-side, so this table sums lower than the tiles above. When the rollup itself is capped the tiles say so in their own note.",
+			"section.sheds.title":                   "Pens — proof progress",
+			"section.sheds.empty_title":             "No pen has drive work on this day",
+			"section.sheds.empty_body":              "Pen rows appear once the day's obligations resolve to a pen and partition in scope.",
+			"section.sheds.filtered_title":          "No pen matches these filters",
+			"section.sheds.filtered_body":           "Clear a filter to see the other pens on this drive day.",
+			"section.sheds.truncated_note":          "Pen rows are capped server-side, so this table sums lower than the tiles above. When the rollup itself is capped the tiles say so in their own note.",
 			"section.combo.title":                   "Combo doses — one proof, two obligations",
 			"section.combo.count_suffix_one":        "animal today",
 			"section.combo.count_suffix":            "animals today",
-			"section.combo.note":                    "When a shed gets a combo day, each animal receives 2 administrations in one handling. The operator scans once and uploads one video proof per animal, so that proof stands as evidence for both obligations — but an obligation is only closed when its own record reaches completed, which is what Remaining counts. Tiles above are at administration grain: a combo animal contributes 2 to Scheduled and 2 to Proofs received when its single proof lands. Animals and administrations are never mixed in one number.",
+			"section.combo.note":                    "When a pen gets a combo day, each animal receives 2 administrations in one handling. The operator scans once and uploads one video proof per animal, so that proof stands as evidence for both obligations — but an obligation is only closed when its own record reaches completed, which is what Remaining counts. Tiles above are at administration grain: a combo animal contributes 2 to Scheduled and 2 to Proofs received when its single proof lands. Animals and administrations are never mixed in one number.",
 			"section.combo.empty_title":             "No combo animal on this drive day",
 			"section.combo.empty_body":              "A row appears when one animal carries two or more distinct vaccination obligations on the same day.",
 			"section.combo.all_listed":              "Every combo animal on this drive day is already listed.",
 			"section.combo.truncated_reason":        "Only the first 200 combo animals are listed. A full combo-animal list is not built on this surface yet, so this control cannot open one.",
 			"section.combo.header_animal":           "Animal",
-			"section.combo.header_shed":             "Shed",
+			"section.combo.header_shed":             "Pen",
 			"section.combo.header_proof":            "Proof",
 			"section.combo.header_doses":            "Doses",
 			"section.activity.title":                "Live activity",
@@ -2209,7 +2209,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.attention.elapsed_suffix":      "min idle",
 			"section.attention.nudge":               "Nudge dispatch is not recorded against drive operators.",
 			"section.attention.escalation":          "An idle-escalation deadline is not configured for drive operators.",
-			"section.attention.pace":                "Shed close time is not configured, so a finish estimate cannot be computed.",
+			"section.attention.pace":                "Pen close time is not configured, so a finish estimate cannot be computed.",
 			"section.attention.nudge_label":         "Nudge — not recorded",
 			"section.attention.escalate_label":      "Escalation — not configured",
 			"section.attention.pace_label":          "Finish estimate — not configured",
@@ -2224,7 +2224,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.passport.close_label":           "Close Goat Passport",
 			"drawer.passport.tag_1":                 "Tag 1",
 			"drawer.passport.tag_2":                 "Tag 2",
-			"drawer.passport.shed":                  "Shed",
+			"drawer.passport.shed":                  "Pen",
 			"drawer.passport.next_due":              "Next due",
 			"drawer.passport.no_upcoming":           "No upcoming dose",
 			"drawer.passport.open_obligations":      "Open obligations",
@@ -2243,7 +2243,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"state.empty_title":                     "No vaccination drive work on this day",
 			"state.empty_body":                      "Every section is shown at zero. Rows appear once the day's obligations, drive assignments and field evidence exist.",
 			"state.empty_filtered_title":            "No vaccination drive work matches the current scope and filters",
-			"state.empty_filtered_body":             "This is not a statement about the whole drive day — a park, shed, vaccine, operator or status narrowing is active. Clear it to see the rest of the day.",
+			"state.empty_filtered_body":             "This is not a statement about the whole drive day — a park, pen, vaccine, operator or status narrowing is active. Clear it to see the rest of the day.",
 		}
 	case "vaccination":
 		return map[string]string{
@@ -2255,7 +2255,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.status_matrix.note":                  "Cells are keyed on each cohort's open obligations; last dose is the latest accepted administered dose. Overdue cells escalate via Protocol Adherence; act on individual drives in the Action Center.",
 			"section.status_matrix.empty_title":           "No cohort × vaccine status yet",
 			"section.status_matrix.unavailable_title":     "Status matrix is unavailable",
-			"section.status_matrix.empty_body":            "Columns are the published vaccination protocols; rows are park/shed cohorts. Publish a plan in Preventive Care / Vaccination plan — obligations then generate against cohorts and fill this grid.",
+			"section.status_matrix.empty_body":            "Columns are the published vaccination protocols; rows are park/pen cohorts. Publish a plan in Preventive Care / Vaccination plan — obligations then generate against cohorts and fill this grid.",
 			"section.status_matrix.unavailable_body":      "Operations are unavailable until the service responds; resolve the error above and reload.",
 			"section.status_matrix.row_hint":              "click a cell → work context",
 			"section.cohort_detail.title":                 "Per-cohort vaccination detail",
@@ -2263,18 +2263,18 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.cohort_detail.note":                  "Status is keyed on the cohort's open obligations + interval. Last dose is the latest accepted administered dose for the cohort; animal counts drive dose quantities and FEFO stock reserves on verify.",
 			"section.cohort_detail.badge":                 "animals · age band · last dose · next due",
 			"section.cohort_detail.row_hint":              "click a row → work context",
-			"section.cohort_detail.empty":                 "No cohorts with vaccination obligations yet. Rows appear per park/shed cohort once a protocol is published and drives generate.",
+			"section.cohort_detail.empty":                 "No cohorts with vaccination obligations yet. Rows appear per park/pen cohort once a protocol is published and drives generate.",
 			"section.cohort_detail.unavailable":           "Cohort detail is unavailable until the service responds; resolve the error above and reload.",
-			"section.shed_events.title":                   "Drive — shed events",
-			"section.shed_events.aria":                    "Vaccination shed events",
-			"section.shed_events.note":                    "park → shed → drive · stock · proof · verify",
-			"section.shed_events.row_hint":                "click a row → shed execution detail",
-			"section.shed_events.empty_unavailable_title": "Park/shed execution is unavailable",
+			"section.shed_events.title":                   "Drive — pen events",
+			"section.shed_events.aria":                    "Vaccination pen events",
+			"section.shed_events.note":                    "park → pen → drive · stock · proof · verify",
+			"section.shed_events.row_hint":                "click a row → pen execution detail",
+			"section.shed_events.empty_unavailable_title": "Park/pen execution is unavailable",
 			"section.shed_events.empty_unavailable_body":  "The vaccination execution service did not return data. Resolve the error above, then reload.",
-			"section.shed_events.empty_none_title":        "No park/shed execution rows yet",
-			"section.shed_events.empty_none_body":         "Rows appear once a published vaccination drive generates obligations against a park / shed cohort.",
-			"section.shed_events.empty_filtered_title":    "No shed work matches these filters",
-			"section.shed_events.empty_filtered_body":     "Clear a filter to see other parks and sheds.",
+			"section.shed_events.empty_none_title":        "No park/pen execution rows yet",
+			"section.shed_events.empty_none_body":         "Rows appear once a published vaccination drive generates obligations against a park / pen cohort.",
+			"section.shed_events.empty_filtered_title":    "No pen work matches these filters",
+			"section.shed_events.empty_filtered_body":     "Clear a filter to see other parks and pens.",
 			"section.supplier_warmup.title":               "Supplier warmup — Holding Farm",
 			"section.supplier_warmup.auth_tag":            "source-entry auth required",
 			"section.supplier_warmup.auth_body":           "Sign in again to view Holding-Farm vaccination evidence.",
@@ -2298,23 +2298,23 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.supplier.reason":                      "Search holding farm, supplier, purpose, status...",
 			"filter.supplier.filter_reason":               "Use visible-row search and quick facets here; open Source Entry for the full load workflow.",
 			"filter.supplier.rows_suffix":                 "source loads and HF evidence",
-			"filter.shed_events.title":                    "Filter — Vaccination shed events",
-			"filter.shed_events.search":                   "Search vaccination shed events",
-			"filter.shed_events.reason":                   "Search shed, owner, proof, status...",
+			"filter.shed_events.title":                    "Filter — Vaccination pen events",
+			"filter.shed_events.search":                   "Search vaccination pen events",
+			"filter.shed_events.reason":                   "Search pen, owner, proof, status...",
 			"filter.shed_events.filter_reason":            "Use visible-row search, quick facets, severity chips, and work-state chips on this board.",
-			"filter.shed_events.rows_suffix":              "park, shed, owner, proof, verify",
-			"section.sheds.title":                         "Vaccination by shed",
-			"section.sheds.note":                          "Current adult vaccination status by shed",
-			"section.sheds.empty_none_title":              "No sheds with vaccination work yet",
-			"section.sheds.empty_none_body":               "Rows appear per shed once a published vaccination protocol generates obligations against the shed's animals.",
-			"section.sheds.empty_filtered_title":          "No sheds match these filters",
-			"section.sheds.empty_filtered_body":           "Clear a filter to see other parks, sheds, statuses, and capacity states.",
-			"section.sheds.unavailable_title":             "Shed-wise vaccination is unavailable",
-			"section.sheds.unavailable_body":              "The shed summary service did not return data. Resolve the error above, then reload.",
+			"filter.shed_events.rows_suffix":              "park, pen, owner, proof, verify",
+			"section.sheds.title":                         "Vaccination by pen",
+			"section.sheds.note":                          "Current adult vaccination status by pen",
+			"section.sheds.empty_none_title":              "No pens with vaccination work yet",
+			"section.sheds.empty_none_body":               "Rows appear per pen once a published vaccination protocol generates obligations against the pen's animals.",
+			"section.sheds.empty_filtered_title":          "No pens match these filters",
+			"section.sheds.empty_filtered_body":           "Clear a filter to see other parks, pens, statuses, and capacity states.",
+			"section.sheds.unavailable_title":             "Pen-wise vaccination is unavailable",
+			"section.sheds.unavailable_body":              "The pen summary service did not return data. Resolve the error above, then reload.",
 			"section.full_schedule.title":                 "Full vaccine schedule",
 			"section.full_schedule.note":                  "Planned vaccination drives for the selected month.",
 			"section.full_schedule.operator_title":        "Operator drive schedule",
-			"section.full_schedule.operator_note":         "Planned vaccination drives split by operator capacity and grouped by physical shed totals.",
+			"section.full_schedule.operator_note":         "Planned vaccination drives split by operator capacity and grouped by physical pen totals.",
 			"section.full_schedule.loading_operator_note": "Loading planned operator assignments.",
 			"section.full_schedule.empty_title":           "No schedule rows for this month",
 			"section.full_schedule.empty_body":            "Rows appear once due work is clubbed into vaccination drives for the selected month.",
@@ -2336,7 +2336,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.full_schedule.next_rows":                    "Next rows",
 			"schedule.legend.aria":                               "Full vaccine schedule status legend",
 			"schedule.kpi.parks":                                 "Parks covered",
-			"schedule.kpi.sheds":                                 "Sheds in drives",
+			"schedule.kpi.sheds":                                 "Pens in drives",
 			"schedule.kpi.animals":                               "Animals in drives",
 			"schedule.kpi.animals_assigned":                      "Animals assigned",
 			"schedule.kpi.drive_rows":                            "Operator days",
@@ -2344,8 +2344,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"schedule.column.date":                               "Date",
 			"schedule.column.operator":                           "Operator",
 			"schedule.column.park":                               "Park",
-			"schedule.column.shed":                               "Shed",
-			"schedule.column.sheds":                              "Sheds",
+			"schedule.column.shed":                               "Pen",
+			"schedule.column.sheds":                              "Pens",
 			"schedule.column.partition":                          "Partition",
 			"schedule.column.animals":                            "Animals",
 			"schedule.column.vaccines":                           "Vaccines",
@@ -2363,28 +2363,28 @@ func pageSpecificCopy(id string) map[string]string {
 			"command_board.kpi.targets_dl":                   "Distinct animals in program",
 			"command_board.kpi.missed":                       "Missed",
 			"command_board.kpi.missed_dl":                    "Dose window closed unvaccinated",
-			"command_board.shed_vaccine.title":               "Shed × Vaccine",
+			"command_board.shed_vaccine.title":               "Pen × Vaccine",
 			"command_board.shed_vaccine.meta":                "Red = goats not vaccinated yet, past their due date. All doses of that vaccine counted together. Click a red box to see which goats.",
-			"command_board.shed_vaccine.column.shed":         "Shed",
+			"command_board.shed_vaccine.column.shed":         "Pen",
 			"command_board.shed_vaccine.state.behind":        "Goats not done",
 			"command_board.shed_vaccine.cell.behind_unit":    "goats",
 			"command_board.shed_vaccine.state.ok":            "All done",
-			"command_board.shed_vaccine.state.not_planned":   "Not given in this shed",
-			"command_board.shed_vaccine.summary_behind":      "sheds have goats pending",
-			"command_board.shed_vaccine.summary_clean":       "Every shed is up to date on every vaccine",
+			"command_board.shed_vaccine.state.not_planned":   "Not given in this pen",
+			"command_board.shed_vaccine.summary_behind":      "pens have goats pending",
+			"command_board.shed_vaccine.summary_clean":       "Every pen is up to date on every vaccine",
 			"command_board.shed_vaccine.drawer.behind_of":    "behind, of",
 			"command_board.shed_vaccine.drawer.column.due":   "Was due",
 			"command_board.shed_vaccine.cell.verifying_unit": "pending",
 			"command_board.shed_vaccine.state.verifying":     "Video check pending",
 			"command_board.shed_vaccine.drawer.verifying_of": "given and waiting for video check, of",
 			"command_board.shed_vaccine.drawer.no_video":     "No video uploaded",
-			"command_board.shed_vaccine.drawer.shed_videos":  "Shed video",
+			"command_board.shed_vaccine.drawer.shed_videos":  "Pen video",
 			"command_board.shed_vaccine.drawer.clip":         "Clip",
 			"command_board.shed_vaccine.drawer.truncated":    "Showing the longest-waiting animals only — the count above is the full figure.",
-			"command_board.pending_sheds.title":              "Pending vaccines by shed",
-			"command_board.pending_sheds.meta":               "Only missed and verification-pending vaccines, grouped by shed.",
-			"command_board.pending_sheds.empty":              "No shed has a pending vaccine in this scope.",
-			"command_board.pending_sheds.column.shed":        "Shed",
+			"command_board.pending_sheds.title":              "Pending vaccines by pen",
+			"command_board.pending_sheds.meta":               "Only missed and verification-pending vaccines, grouped by pen.",
+			"command_board.pending_sheds.empty":              "No pen has a pending vaccine in this scope.",
+			"command_board.pending_sheds.column.shed":        "Pen",
 			"command_board.pending_sheds.column.park":        "Park",
 			"command_board.pending_sheds.column.vaccines":    "Pending vaccines",
 			"command_board.pending_sheds.state.behind":       "missed",
@@ -2405,9 +2405,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"command_board.cohort_matrix.loading": "Loading cohort matrix…",
 			// The shed grid is likewise loaded after first paint. Interning its payload cut it from
 			// 408KB to 155KB and the board's p90 barely moved, so the section itself had to move.
-			"command_board.shed_dose_matrix.loading":           "Loading shed matrix…",
-			"command_board.shed_dose_matrix.unavailable":       "Shed matrix is unavailable right now. The rest of the board is up to date.",
-			"command_board.shed_dose_matrix.empty":             "No shed obligations in this scope",
+			"command_board.shed_dose_matrix.loading":           "Loading pen matrix…",
+			"command_board.shed_dose_matrix.unavailable":       "Pen matrix is unavailable right now. The rest of the board is up to date.",
+			"command_board.shed_dose_matrix.empty":             "No pen obligations in this scope",
 			"command_board.cohort_matrix.unavailable":          "Cohort matrix is unavailable right now. The rest of the board is up to date.",
 			"command_board.cohort_matrix.column.stage":         "Stage",
 			"command_board.cohort_matrix.column.sex":           "Sex",
@@ -2455,15 +2455,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"command_board.future_drives.column.campaign":      "Common drive",
 			"command_board.future_drives.column.drive":         "Vaccination",
 			"command_board.future_drives.column.dates":         "Operator dates",
-			"command_board.future_drives.column.sheds":         "Whole sheds",
+			"command_board.future_drives.column.sheds":         "Whole pens",
 			"command_board.future_drives.column.animals":       "Animals",
 			"command_board.future_drives.column.doses":         "Vaccinations",
 			"command_board.future_drives.campaign_animals":     "animals",
 			"command_board.future_drives.campaign_doses":       "vaccinations",
-			"command_board.shed_matrix.title":                  "Vaccine × Shed Status",
+			"command_board.shed_matrix.title":                  "Vaccine × Pen Status",
 			"command_board.shed_matrix.meta":                   "Count of animals · per dose · waiting days on amber",
 			"command_board.shed_matrix.waiting_suffix":         "d waiting",
-			"command_board.shed_matrix.column.shed":            "Shed",
+			"command_board.shed_matrix.column.shed":            "Pen",
 			"command_board.shed_matrix.column.dose":            "Dose",
 			"command_board.shed_matrix.column.state":           "Status",
 			"command_board.shed_matrix.column.animals":         "Animals",
@@ -2479,7 +2479,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"command_board.shed_matrix.legend.not_scoped":      "Not in protocol scope",
 			"command_board.verification_queue.title":           "Verification Queue — Pending Closures",
 			"command_board.verification_queue.meta":            "Given by operator · proof uploaded",
-			"command_board.verification_queue.column.shed":     "Shed",
+			"command_board.verification_queue.column.shed":     "Pen",
 			"command_board.verification_queue.column.dose":     "Dose",
 			"command_board.verification_queue.column.awaiting": "Awaiting Verify",
 			"command_board.verification_queue.column.total":    "Total",
@@ -2487,7 +2487,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"command_board.verification_queue.column.days":     "In Queue",
 			"command_board.verification_queue.status.awaiting": "Awaiting verification",
 			"schedule.partition.prefix":                        "Part",
-			"schedule.partition.whole_shed":                    "Whole shed",
+			"schedule.partition.whole_shed":                    "Whole pen",
 			"schedule.unit.animal":                             "animal",
 			"schedule.unit.animals":                            "animals",
 			"schedule.unit.dose":                               "dose",
@@ -2498,19 +2498,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"schedule.load.deferred_short":                     "def.",
 			"schedule.load.scheduled_short":                    "sched.",
 			"schedule.load.single_drive":                       "single drive",
-			"schedule.drawer.title":                            "Drive sheds",
-			"schedule.drawer.open_sheds":                       "Open shed list",
+			"schedule.drawer.title":                            "Drive pens",
+			"schedule.drawer.open_sheds":                       "Open pen list",
 			"schedule.drawer.open_roster":                      "Open roster",
 			"schedule.drawer.more":                             "more",
 			"schedule.drawer.less":                             "Show less",
-			"schedule.drawer.close":                            "Close shed list",
-			"schedule.drawer.search":                           "Search sheds...",
+			"schedule.drawer.close":                            "Close pen list",
+			"schedule.drawer.search":                           "Search pens...",
 			"schedule.drawer.search_action":                    "Search",
 			"schedule.drawer.previous_page":                    "Previous",
 			"schedule.drawer.next_page":                        "Next",
 			"schedule.drawer.page_label":                       "Page",
 			"schedule.drawer.rows_label":                       "rows",
-			"schedule.drawer.empty":                            "No sheds match this search.",
+			"schedule.drawer.empty":                            "No pens match this search.",
 			"schedule.move.open":                               "Move",
 			"schedule.move.title":                              "Move vaccine date",
 			"schedule.move.close":                              "Close move date",
@@ -2529,22 +2529,22 @@ func pageSpecificCopy(id string) map[string]string {
 			"schedule.state.due_title":                         "Drive has due work.",
 			"schedule.state.completed_title":                   "Drive is fully completed.",
 			"schedule.state.scheduled_title":                   "Drive is scheduled.",
-			"schedule.row.open_title":                          "Open shed schedule detail",
+			"schedule.row.open_title":                          "Open pen schedule detail",
 			"schedule.row_type.adult":                          "Adult course",
 			"schedule.row_type.kid":                            "Kid course",
 			"schedule.row_type.fallback":                       "Cohort",
 			"schedule.cell.no_record":                          "—",
-			"schedule.cell.no_record_title":                    "No vaccine record for this shed/type in the selected month.",
+			"schedule.cell.no_record_title":                    "No vaccine record for this pen/type in the selected month.",
 			"schedule.cell.outside_year_title":                 "The next due or last dose date is outside the selected month.",
 			"schedule.cell.overdue_title":                      "Overdue, missed, or rejected vaccination work.",
 			"schedule.cell.due_title":                          "Due soon or waiting for proof / verification.",
 			"schedule.cell.scheduled_title":                    "Drive scheduled or in progress.",
 			"schedule.cell.up_to_date_title":                   "Accepted or completed vaccination record.",
-			"filter.sheds.search":                              "Search park or shed",
-			"filter.sheds.title":                               "Filter — Vaccination by shed",
-			"filter.sheds.reason":                              "Search park or shed name...",
-			"filter.sheds.filter_reason":                       "Park, shed, status, and capacity filters apply server-side; search matches park or shed name.",
-			"filter.sheds.rows_suffix":                         "sheds, animal counts, sessions, capacity",
+			"filter.sheds.search":                              "Search park or pen",
+			"filter.sheds.title":                               "Filter — Vaccination by pen",
+			"filter.sheds.reason":                              "Search park or pen name...",
+			"filter.sheds.filter_reason":                       "Park, pen, status, and capacity filters apply server-side; search matches park or pen name.",
+			"filter.sheds.rows_suffix":                         "pens, animal counts, sessions, capacity",
 			"label.done":                                       "done",
 			"label.all_status":                                 "All status",
 			"label.all_capacity":                               "All capacity",
@@ -2555,11 +2555,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.manager_unassigned":                         "Manager: unassigned",
 			"label.backup_unassigned":                          "Backup: unassigned",
 			"action.open_full_schedule":                        "Full Schedule",
-			"action.open_shed_board":                           "Shed board",
+			"action.open_shed_board":                           "Pen board",
 			"action.next_year":                                 "Next year",
 			"tooltip.sessions.label":                           "About planned sessions",
-			"tooltip.sessions.body":                            "Mesha splits a shed's vaccination work across multiple days when the daily limit is reached. Sessions is the number of planned visit days (usually 1). One animal getting two vaccines (e.g. FMD + HS) counts as two vaccinations, not one.",
-			"note.sheds_counts":                                "Current status by shed. Up to date means no vaccination is currently due; actual and future vaccination dates are shown above.",
+			"tooltip.sessions.body":                            "Mesha splits a pen's vaccination work across multiple days when the daily limit is reached. Sessions is the number of planned visit days (usually 1). One animal getting two vaccines (e.g. FMD + HS) counts as two vaccinations, not one.",
+			"note.sheds_counts":                                "Current status by pen. Up to date means no vaccination is currently due; actual and future vaccination dates are shown above.",
 			"drawer.record_verify.title":                       "Vaccination work context",
 			"drawer.record_verify.aria":                        "Vaccination work context",
 			"drawer.record_verify.close_label":                 "Close record / verify drawer",
@@ -2570,7 +2570,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.record_verify.proof_reason":                "Uploaded by the field worker in the SOP task — no camera capture on web. Not attachable here: this surface has no task_id for /app/proofs/* + /app/tasks/{task_id}/submissions.",
 			"drawer.record_verify.no_obligations":              "No open obligations for this cohort.",
 			"drawer.record_verify.all_protocols":               "All cohort protocols",
-			"drawer.record_verify.form.cohort_shed":            "Cohort / shed",
+			"drawer.record_verify.form.cohort_shed":            "Cohort / pen",
 			"drawer.record_verify.form.vaccine":                "Vaccine",
 			"drawer.record_verify.form.batch":                  "Batch (FEFO) · lot",
 			"drawer.record_verify.form.batch_placeholder":      "lot...",
@@ -2594,18 +2594,18 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.warmup.warmup":                             "Warmup",
 			"drawer.warmup.hf_vaccination":                     "HF vaccination",
 			"drawer.warmup.actions_label":                      "Action",
-			"drawer.shed_event.aria":                           "Vaccination shed event",
-			"drawer.shed_event.close_label":                    "Close shed event drawer",
+			"drawer.shed_event.aria":                           "Vaccination pen event",
+			"drawer.shed_event.close_label":                    "Close pen event drawer",
 			"drawer.shed_event.eyebrow":                        "WORK CONTEXT",
-			"drawer.shed_event.shed_event":                     "Shed event",
-			"drawer.shed_event.shed":                           "Shed",
+			"drawer.shed_event.shed_event":                     "Pen event",
+			"drawer.shed_event.shed":                           "Pen",
 			"drawer.shed_event.owner_assist":                   "Owner → assist",
 			"drawer.shed_event.stock":                          "Stock (FEFO)",
 			"drawer.shed_event.status":                         "Status",
 			"form.proof_upload.label":                          "Upload vaccination proof",
 			"form.proof_upload.select":                         "Select a video or image file",
 			"form.proof_upload.disabled":                       "Proof upload disabled",
-			"form.proof_upload.reason":                         "No SOP task on this shed-drive rollup yet (sopTaskId null) — proof is uploaded per-goat in the operator SOP task once the drive is assigned/advanced.",
+			"form.proof_upload.reason":                         "No SOP task on this pen-drive rollup yet (sopTaskId null) — proof is uploaded per-goat in the operator SOP task once the drive is assigned/advanced.",
 			"form.completion.reason":                           "No single recorded completion on this rollup (completionId null) — verify a recorded dose from the verification queue.",
 			"form.actions.unavailable":                         "This row is a generated rollup. Dose recording and proof happen on the operator SOP task; open the Action Center or workflow record for the live handle.",
 			"form.reject.placeholder":                          "Reason for rejection (required)",
@@ -2621,12 +2621,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.open_source_entry":                         "Open Source Entry",
 			"action.open_action_center":                        "Open Action Center",
 			"action.open_park_action_center":                   "Open park in the Action Center",
-			"action.open_shed_event_for":                       "Open vaccination shed event for",
+			"action.open_shed_event_for":                       "Open vaccination pen event for",
 			"action.open_protocol_rules":                       "Protocol Rules",
 			"action.open_sop_library":                          "Open the vaccination plan",
 			"action.open_protocol_adherence":                   "Protocol Adherence",
 			"action.reset_filters":                             "Reset filters",
-			"action.shed_detail":                               "Shed detail",
+			"action.shed_detail":                               "Pen detail",
 			"action.assign_owner_chain":                        "Assign operator",
 			"action.capture_vaccination_proof":                 "Capture vaccination proof",
 			"action.verify_vaccination_proof":                  "Verify vaccination proof",
@@ -2654,7 +2654,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.import.subtitle":                           "Where vaccination drives and dose history actually enter Mesha.",
 			"drawer.import.note":                               "There is no in-app bulk drive importer on this surface — admin-web never writes vaccination state directly. Drives are generated from config, and supplier dose history is imported under Source Entry. Use the real paths below; nothing on this drawer submits.",
 			"drawer.import.new_drives_title":                   "New drives",
-			"drawer.import.new_drives_body":                    "Publish a protocol rule in Config → obligations generate → the sweeper batches a shed drive.",
+			"drawer.import.new_drives_body":                    "Publish a protocol rule in Config → obligations generate → the sweeper batches a pen drive.",
 			"drawer.import.hf_history_title":                   "Supplier / HF dose history",
 			"drawer.import.hf_history_body":                    "Import & review Holding-Farm vaccination evidence under Procurement · Source Entry.",
 			"drawer.import.columns_label":                      "Drive sheet columns (reference)",
@@ -2666,7 +2666,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.new_drive.publish_rule_title":              "1 · Publish rule",
 			"drawer.new_drive.publish_rule_body":               "Config → vaccination category → publish a protocol version.",
 			"drawer.new_drive.generation_title":                "2 · Generation",
-			"drawer.new_drive.generation_body":                 "Obligations materialize per eligible goat; the sweeper batches them into a per-shed drive + SOP task.",
+			"drawer.new_drive.generation_body":                 "Obligations materialize per eligible goat; the sweeper batches them into a per-pen drive + SOP task.",
 			"drawer.new_drive.assign_title":                    "3 · Assign / act",
 			"drawer.new_drive.assign_body":                     "Assignment gaps and execution work surface in the Action Center.",
 			"drawer.sop.button_title":                          "Vaccination SOP policy",
@@ -2705,7 +2705,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.verifier_default":                           "Video Verification Team",
 			"label.owner_chain_to_assign":                      "operator to assign",
 			"label.stock_resolved_action_center":               "resolved in Action Center",
-			"label.shed_event_noun":                            "shed event",
+			"label.shed_event_noun":                            "pen event",
 			"label.last_dose":                                  "last dose",
 			"label.days_suffix":                                "d",
 			"label.from_date_prefix":                           "from",
@@ -2714,7 +2714,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.holding_not_set":                            "Holding not set",
 			"label.mixed":                                      "mixed",
 			"label.placeholder":                                "—",
-			"reason.no_operator":                               "No operator assigned to this shed drive",
+			"reason.no_operator":                               "No operator assigned to this pen drive",
 			"note.execution_counts":                            "Counts reflect the returned result set (max 500 rows), scoped by the top bar and filters",
 			"note.execution_counts_capped":                     "— result is capped; narrow with Filters",
 			"note.execution_counts_filtered":                   "Work-state filters are applied server-side; counts are hidden while filtered. Severity narrows the returned rows in this view.",
@@ -2723,18 +2723,18 @@ func pageSpecificCopy(id string) map[string]string {
 		return map[string]string{
 			"action.open_passport":           "Open Animal Passport",
 			"crumb":                          "Preventive Care (PC) · Vaccination · Execution",
-			"fallback.title":                 "Shed unavailable",
-			"fallback.body":                  "Shed returned no vaccination execution context. It may be outside the current drive scope, or the service is unavailable.",
-			"section.overview.title":         "Shed overview",
+			"fallback.title":                 "Pen unavailable",
+			"fallback.body":                  "Pen returned no vaccination execution context. It may be outside the current drive scope, or the service is unavailable.",
+			"section.overview.title":         "Pen overview",
 			"section.planned_sessions.title": "Operator-day plan",
-			"section.planned_sessions.note":  "How this shed's open animal work is assigned across available operator days.",
-			"section.planned_sessions.empty": "No planned sessions — no open vaccination work at this shed.",
+			"section.planned_sessions.note":  "How this pen's open animal work is assigned across available operator days.",
+			"section.planned_sessions.empty": "No planned sessions — no open vaccination work at this pen.",
 			"section.vaccines.title":         "Vaccine breakdown",
-			"section.vaccines.note":          "Per-vaccine obligation counts for this shed — the only place vaccine-level counts appear.",
-			"section.vaccines.empty":         "No vaccines with open obligations at this shed.",
-			"section.animals.title":          "Animals in shed",
+			"section.vaccines.note":          "Per-vaccine obligation counts for this pen — the only place vaccine-level counts appear.",
+			"section.vaccines.empty":         "No vaccines with open obligations at this pen.",
+			"section.animals.title":          "Animals in pen",
 			"section.animals.note":           "Display ID, health/lifecycle, last vaccination date, next vaccination date, and current vaccination work.",
-			"section.animals.empty":          "No animals in this shed.",
+			"section.animals.empty":          "No animals in this pen.",
 			"animals.column.display_id":      "Display ID",
 			"animals.column.tag_1":           "Tag 1",
 			"animals.column.tag_2":           "Tag 2",
@@ -2770,7 +2770,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"tooltip.capacity.label":         "About capacity",
 			"tooltip.capacity.body":          "Capacity counts unique animals per available operator per business date. One animal with multiple same-day vaccines still consumes one operator slot. Spillover dates recompute timetable, leave, role, and scope.",
 			"section.work_state.title":       "Work state",
-			"section.drives.title":           "Drives at this shed",
+			"section.drives.title":           "Drives at this pen",
 			"section.owner_chain.title":      "Operator assignment",
 			"section.blocked.title":          "Blocked / deferred",
 			"section.drive_rows.title":       "Drive rows",
@@ -2778,8 +2778,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.action.aria":             "Vaccination execution action",
 			"action.open_workflow":           "Open Workflow",
 			"action.close":                   "Close",
-			"empty.drives":                   "No drives scheduled at this shed.",
-			"empty.drive_rows":               "No drive rows for this shed.",
+			"empty.drives":                   "No drives scheduled at this pen.",
+			"empty.drive_rows":               "No drive rows for this pen.",
 			"label.animal_stages":            "Animal stages",
 			"label.drive_rows":               "drive rows",
 			"label.done":                     "done",
@@ -2794,7 +2794,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"form.proof_upload.label":        "Upload vaccination proof",
 			"form.proof_upload.select":       "Select a video or image file",
 			"form.proof_upload.disabled":     "Proof upload disabled",
-			"form.proof_upload.reason":       "No SOP task on this shed-drive rollup yet (sopTaskId null) — proof is uploaded per-goat in the operator SOP task once the drive is assigned/advanced.",
+			"form.proof_upload.reason":       "No SOP task on this pen-drive rollup yet (sopTaskId null) — proof is uploaded per-goat in the operator SOP task once the drive is assigned/advanced.",
 			"form.completion.reason":         "No single recorded completion on this rollup (completionId null) — verify a recorded dose from the verification queue.",
 			"form.actions.unavailable":       "This row is a generated rollup. Dose recording and proof happen on the operator SOP task; open the Action Center or workflow record for the live handle.",
 			"form.reject.placeholder":        "Reason for rejection (required)",
@@ -3334,11 +3334,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.load_more":          "Show more animals",
 			"field.sale":                "Sale",
 			"field.park":                "Park",
-			"field.shed":                "Shed",
+			"field.shed":                "Pen",
 			"field.search_tag":          "Find a tag",
 			"value.choose_park":         "Choose a park",
 			"value.search_tag_hint":     "RFID or animal ID",
-			"value.all_sheds":           "All sheds",
+			"value.all_sheds":           "All pens",
 			"label.selected":            "selected",
 			"label.still_to_pick":       "still to pick",
 			"label.all_picked":          "All picked",
@@ -3648,7 +3648,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.park_location_id":            "Park (required)",
 			"field.review_status":               "Review status",
 			"field.arrival_rows":                "Per-goat arrival rows (one per line: goat_id, arrival_state)",
-			"field.shed_location_id":            "Shed (required)",
+			"field.shed_location_id":            "Pen (required)",
 			"field.entry_date":                  "Entry date",
 			"field.intake_health_signal":        "Intake health signal",
 			"field.count_expected":              "Expected",
@@ -3680,15 +3680,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"placeholder.arrival_rows":          "goat_id, accepted\ngoat_id, rejected",
 			"placeholder.goat_ids_intake":       "only arrival-accepted, eligible goats",
 			"placeholder.park_id":               "park location uuid",
-			"placeholder.shed_id":               "shed location uuid",
+			"placeholder.shed_id":               "pen location uuid",
 			"location.select_park":              "select park...",
-			"location.select_shed":              "select shed...",
+			"location.select_shed":              "select pen...",
 			"location.select_park_first":        "select a park first",
 			"location.select_optional_location": "select location...",
 			"location.no_parks":                 "No active parks are available from Location master.",
 			"location.no_origins":               "No active source locations are available from Location master.",
-			"location.no_sheds":                 "No vaccination-usable sheds are available from Location master.",
-			"location.no_sheds_for_park":        "No vaccination-usable sheds are available for the selected park.",
+			"location.no_sheds":                 "No vaccination-usable pens are available from Location master.",
+			"location.no_sheds_for_park":        "No vaccination-usable pens are available for the selected park.",
 			"location.locations_unavailable":    "Location master could not be loaded, so dispatch, arrival, and intake location writes are disabled until it reloads.",
 			"action.add_source_goat":            "Add source animal",
 			"action.import_hf_evidence":         "Import HF dose evidence",
@@ -3748,7 +3748,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.low_battery":          "Low battery",
 			"table.live.animal":        "Animal",
 			"table.live.smart_tag":     "Smart tag",
-			"table.live.shed":          "Shed",
+			"table.live.shed":          "Pen",
 			"table.live.gateway":       "Gateway",
 			"table.live.signal":        "Signal",
 			"table.live.motion_count":  "Motion count",
@@ -3774,21 +3774,21 @@ func pageSpecificCopy(id string) map[string]string {
 			"state.gateway_offline":    "Gateway offline",
 			"disabled.mapping_write":   "Tag mapping writes are not built yet.",
 			"disabled.export":          "Export is not built yet.",
-			"note.correlation":         "Overlaid markers are other recorded farm activity for the same animal or its shed. Read them as correlation, never as behaviour, cause, or a clinical finding.",
+			"note.correlation":         "Overlaid markers are other recorded farm activity for the same animal or its pen. Read them as correlation, never as behaviour, cause, or a clinical finding.",
 			"note.activity_basis":      "Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained patterns.",
 		}
 	case "weighing-weights":
 		// Every visible string on /weighing/weights. The renderer owns layout only.
 		//
 		// COPY FIREWALL: farm language throughout. No "bucket", "observation",
-		// "campaign shed" or "per_shed_partition" reaches a screen — those are storage words.
+		// "campaign pen" or "per_shed_partition" reaches a screen — those are storage words.
 		// The operator-facing words are "Lump sum" and "Per animal".
 		//
-		// "Lump sum" was previously banned here as a storage word and rendered "Whole shed".
+		// "Lump sum" was previously banned here as a storage word and rendered "Whole pen".
 		// The maintainer reversed that on 2026-08-17: lump-sum is what the farm calls this
 		// capture mode, and it is the term the top-level workspace context uses for it
-		// ("lump-sum -> total weight, animal count, video(s) -- per shed"). Do not revert it
-		// to "Whole shed" on the strength of the older comment.
+		// ("lump-sum -> total weight, animal count, video(s) -- per pen"). Do not revert it
+		// to "Whole pen" on the strength of the older comment.
 		return weighingWeightsCopy()
 	// -------------------------------------------------------------------------------
 	// WEIGHING -> WEIGHTS ANALYTICS. The same weighing facts as /weighing/weights, cut five
@@ -3825,7 +3825,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"tab.general": "General",
 			"tab.breed":   "Breed-wise",
 			"tab.birth":   "Birth-wise",
-			"tab.shed":    "Shed-wise",
+			"tab.shed":    "Pen-wise",
 			"tab.weight":  "Weight-wise",
 			"tab.time":    "Time-wise",
 
@@ -3836,7 +3836,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// weight covers every kid weighed, gain only those weighed twice. The caption has to
 			// say so, or the two bars read as one fact about one set of animals.
 			"section.breed.title":   "Breed-wise growth",
-			"section.breed.caption": "Daily gain and average weight for each breed, under the selected weighing mode. The two bars count different kids: weight covers every kid weighed, gain only those with a second weigh or a whole-shed pen that moved.",
+			"section.breed.caption": "Daily gain and average weight for each breed, under the selected weighing mode. The two bars count different kids: weight covers every kid weighed, gain only those with a second weigh or a whole pen that moved.",
 			"section.breed.aria":    "Daily gain and average weight by breed",
 			"series.gain":           "Daily gain",
 			"series.weight":         "Average weight",
@@ -3849,20 +3849,20 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.birth.aria":    "Daily gain by breed and origin",
 			"empty.birth.body":      "No breed has a farm-born or purchased kid with a second weigh in this period.",
 
-			// Shed-wise. Exactly the comparison requested in the voice note: elevated sheds
-			// against ground sheds within every breed.
-			"section.shed.title":      "Elevated vs ground sheds",
-			"section.shed.caption":    "Daily gain for each breed, split by physical shed type: elevated shed against ground shed. A shed without that profile is left out rather than guessed.",
-			"section.shed.aria":       "Daily gain by breed and shed type",
-			"empty.shed.body":         "No shed-type profile has daily gain in this period. Add elevated or ground shed profiles, then weigh twice.",
-			"view.shed_type.elevated": "Elevated shed",
-			"view.shed_type.ground":   "Ground shed",
+			// Pen-wise. Exactly the comparison requested in the voice note: elevated pens
+			// against ground pens within every breed.
+			"section.shed.title":      "Elevated vs ground pens",
+			"section.shed.caption":    "Daily gain for each breed, split by physical pen type: elevated pen against ground pen. A pen without that profile is left out rather than guessed.",
+			"section.shed.aria":       "Daily gain by breed and pen type",
+			"empty.shed.body":         "No pen-type profile has daily gain in this period. Add elevated or ground pen profiles, then weigh twice.",
+			"view.shed_type.elevated": "Elevated pen",
+			"view.shed_type.ground":   "Ground pen",
 			// The two bars come out of a classification the reader cannot see on the chart, so each
-			// legend entry carries an info affordance naming the sheds behind it. Backend-owned
+			// legend entry carries an info affordance naming the pens behind it. Backend-owned
 			// copy, rendered verbatim -- the client composes no part of this sentence.
-			"section.shed.members_hint":  "Which sheds count as this",
-			"section.shed.members_title": "Sheds counted here",
-			"empty.shed.members":         "No shed of this type had a second weigh in this period.",
+			"section.shed.members_hint":  "Which pens count as this",
+			"section.shed.members_title": "Pens counted here",
+			"empty.shed.members":         "No pen of this type had a second weigh in this period.",
 			"value.shed.mixed":           "Mixed breeds",
 			"value.shed.unknown":         "Breed not recorded",
 
@@ -3871,7 +3871,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// in it. The caption states the two things a reader would otherwise assume wrongly:
 			// that a whole pen sits in one bracket, and that the gain is drawn from a smaller set.
 			"section.weight.title":   "Weight-wise",
-			"section.weight.caption": "How many animals stand in each weight bracket under the selected weighing mode, and how fast each bracket is growing. A whole-shed pen sits entirely in the bracket its average weight falls into. The daily gain beside each bracket comes only from the animals in it weighed twice, so its head count is the smaller one.",
+			"section.weight.caption": "How many animals stand in each weight bracket under the selected weighing mode, and how fast each bracket is growing. A whole pen sits entirely in the bracket its average weight falls into. The daily gain beside each bracket comes only from the animals in it weighed twice, so its head count is the smaller one.",
 			"section.weight.aria":    "Animals and daily gain by weight bracket",
 			"empty.weight.body":      "No kid was weighed in this period.",
 			"series.animals":         "Animals",
@@ -3890,12 +3890,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.time.title":         "Weekly growth",
 			"section.time.caption":       "Daily gain by week inside the selected period under the selected weighing mode. The default period starts on 03 Aug 2026, where the reliable weighing run begins. Park, sex and origin filters still apply.",
 			"section.time.aria":          "Daily gain by week",
-			"empty.time.body":            "No week in this period has a kid or a shed weighed twice.",
+			"empty.time.body":            "No week in this period has a kid or a pen weighed twice.",
 			"value.time.animals":         "kids",
 			"section.time.breed.title":   "Weekly growth by breed",
-			"section.time.breed.caption": "The same selected period and weighing mode, one row per breed. A shed holding more than one breed is counted in the overall trend above but in no breed here, so the breed rows need not add up to it.",
+			"section.time.breed.caption": "The same selected period and weighing mode, one row per breed. A pen holding more than one breed is counted in the overall trend above but in no breed here, so the breed rows need not add up to it.",
 			"section.time.breed.aria":    "Daily gain by breed and week",
-			"empty.time.breed.body":      "No breed has a kid or a single-breed shed weighed twice in this period.",
+			"empty.time.breed.body":      "No breed has a kid or a single-breed pen weighed twice in this period.",
 			"note.time.gaps":             "A week nobody weighed in has no bar. It is left out rather than drawn as zero, which would read as a week the kids stopped growing.",
 		} {
 			analytics[key] = value
@@ -4005,7 +4005,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"crumb":                     "Counts",
 			"section.breakdown.title":   "Detail Breakdown",
 			"section.breakdown.aria":    "Counts breakdown",
-			"section.breakdown.caption": "Farm × stage × breed × gender × shed for every matching combination",
+			"section.breakdown.caption": "Farm × stage × breed × gender × pen for every matching combination",
 			"section.breakdown.note":    "Counts live animals only (lifecycle status alive), matching Herd Register. Stage is the raw source value recorded against each animal — near-duplicate labels are shown exactly as stored rather than merged, so source data issues stay visible.",
 			"section.charts.title":      "Distribution",
 			"section.charts.aria":       "Count distribution charts",
@@ -4055,7 +4055,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.farm_label":       "Farm",
 			"filter.stage_label":      "Stage",
 			"filter.breed_label":      "Breed",
-			"filter.shed_label":       "Shed",
+			"filter.shed_label":       "Pen",
 			"filter.gender_label":     "Gender",
 			"filter.all_option":       "All",
 			"filter.clear_all":        "Clear all",
@@ -4066,7 +4066,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.stage.caption":     "where they are",
 			"chart.gender.title":      "Gender split",
 			"chart.gender.caption":    "animals by sex",
-			"chart.shed.title":        "Shed occupancy",
+			"chart.shed.title":        "Pen occupancy",
 			// PENS, not sheds (maintainer decision 2026-08-12): each bar is one pen, named with its
 			// park because 66 of 154 shed names exist in both. The caption has to say so — a reader
 			// counting twelve bars against a 44-shed estate would otherwise draw the wrong conclusion
@@ -4080,7 +4080,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.value_aria":            "animals",
 			"label.animals_noun":          "animals",
 			"label.unassigned_farm":       "No farm",
-			"label.unassigned_shed":       "No shed",
+			"label.unassigned_shed":       "No pen",
 			"label.unassigned_stage":      "No stage",
 			"label.unassigned_breed":      "No breed",
 			"empty.breakdown":             "No animals registered in this scope yet.",
@@ -4091,10 +4091,10 @@ func pageSpecificCopy(id string) map[string]string {
 			// Whole-pen stage change (maintainer decision 2026-08-12). Copy is deliberately plain
 			// farm language: the operator is retagging a pen, not "reclassifying a cohort".
 			"stage_change.title":              "Change stage",
-			"stage_change.heading":            "Change stage for a shed",
+			"stage_change.heading":            "Change stage for a pen",
 			"stage_change.caption":            "Every animal in the selected pen moves to the stage you pick. Kid or adult follows the stage.",
-			"stage_change.shed_label":         "Shed",
-			"stage_change.shed_hint":          "Pick the pen. Sheds split into pens list each pen separately.",
+			"stage_change.shed_label":         "Pen",
+			"stage_change.shed_hint":          "Pick the pen. A location split into pens lists each pen separately.",
 			"stage_change.stage_label":        "New stage",
 			"stage_change.reason_label":       "Reason",
 			"stage_change.reason_hint":        "Recorded against every animal that changes.",
@@ -4113,20 +4113,20 @@ func pageSpecificCopy(id string) map[string]string {
 			"stage_change.applies_now":        "This applies straight away. There is no approval step.",
 			"stage_change.no_change":          "Every animal in this pen is already on that stage. Nothing to change.",
 			"stage_change.done":               "Stage changed.",
-			"stage_change.disabled_no_access": "Only the CEO can change a whole shed's stage.",
+			"stage_change.disabled_no_access": "Only the CEO can change a whole pen's stage.",
 		}
 	case "milk-preparation":
 		return map[string]string{
 			"crumb":                             "Counts",
 			"section.preparation.title":         "Milk preparation worklist",
-			"section.preparation.aria":          "Per-shed milk preparation worklist",
+			"section.preparation.aria":          "Per-pen milk preparation worklist",
 			"section.preparation.caption":       "Current K1, K2 and K3 head count × approved per-session milk quantity",
 			"section.preparation.note":          "This direction reads the live herd now. K0 colostrum and clinical or ICU feeding are not treated as zero; they remain outside this preparation calculation until their own quantity rules are approved.",
 			"section.summary.aria":              "Milk preparation summary",
 			"section.summary.note":              "Totals cover every K1, K2 and K3 cohort in the selected park, not only the visible page.",
 			"section.verification.label":        "Park-day verification",
-			"kpi.sheds.label":                   "Sheds",
-			"kpi.sheds.sub":                     "Physical sheds with milk-fed cohorts",
+			"kpi.sheds.label":                   "Pens",
+			"kpi.sheds.sub":                     "Physical pens with milk-fed cohorts",
 			"kpi.kids.label":                    "Kids",
 			"kpi.kids.sub":                      "K1, K2 and K3 kids in the live herd",
 			"kpi.milk.label":                    "Milk required",
@@ -4149,9 +4149,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.pending_verification":        "Pending verification",
 			"label.verified":                    "Verified",
 			"label.rework":                      "Rework",
-			"label.missing_shed":                "No physical shed is recorded for this cohort.",
+			"label.missing_shed":                "No physical pen is recorded for this cohort.",
 			"label.unassigned_park":             "No park",
-			"label.unassigned_shed":             "No shed",
+			"label.unassigned_shed":             "No pen",
 			"label.inactive_session":            "—",
 			"empty.preparation":                 "No K1, K2 or K3 kids are currently present in this scope.",
 			"state.preparation_unavailable":     "Milk preparation direction unavailable",
@@ -4173,7 +4173,7 @@ func pageSpecificCopy(id string) map[string]string {
 	//
 	//   BLOCKED vs CONFIGURED ZERO. An authored rate of 0 (K0/K1 kids on milk) means
 	//   "feed nothing, this is correct". A MISSING rate means "we do not know what to
-	//   feed this shed". The migration keeps these structurally distinct (grams_per_head
+	//   feed this pen". The migration keeps these structurally distinct (grams_per_head
 	//   is NOT NULL with no default; absence of a row is the only encoding of
 	//   not-configured) precisely because collapsing them is a starvation path. The UI
 	//   words must keep them distinct too — a blocked row must never read as "0 kg".
@@ -4207,7 +4207,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.distribution.label":         "Distribution verified",
 			"kpi.distribution.sub":           "Pen-sessions approved in the window",
 			"kpi.transport.label":            "Transport completed",
-			"kpi.transport.sub":              "Daily shed transport tasks done",
+			"kpi.transport.sub":              "Daily pen transport tasks done",
 			"kpi.latency.label":              "Verify latency",
 			"kpi.latency.sub":                "Median submit → verdict, latest day with verdicts",
 			"stock.title":                    "Feed stock",
@@ -4299,7 +4299,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"variance.empty":            "No bag has been measured in this window yet.",
 			"col.variance.day":          "Packing day",
 			"col.variance.park":         "Farm",
-			"col.variance.pen":          "Shed",
+			"col.variance.pen":          "Pen",
 			"col.variance.session":      "Session",
 			"col.variance.item":         "Feed item",
 			"col.variance.planned":      "Directed kg",
@@ -4314,7 +4314,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"completion.empty_filtered":     "No pens match these filters on this day.",
 			"completion.date.label":         "Feed day",
 			"completion.date.aria":          "Choose which day's feeding the table shows",
-			"completion.filter.shed":        "Shed",
+			"completion.filter.shed":        "Pen",
 			"completion.filter.status":      "Status",
 			"col.completion.park":           "Farm",
 			"col.completion.pen":            "Pen",
@@ -4344,15 +4344,15 @@ func pageSpecificCopy(id string) map[string]string {
 			// The overview's per-pen feed-mix table: every shed and pen across the
 			// farms, with the feed items and kg the sheet directed there over the
 			// LAST 7 DAYS (its own window, independent of the page's range chips).
-			"shedfeed.title":                 "Feed by shed — last 7 days",
+			"shedfeed.title":                 "Feed by pen — last 7 days",
 			"shedfeed.hint":                  "What each pen was directed over the last 7 days, by feed item — directed kg, up to yesterday",
 			"shedfeed.empty":                 "No feed sheet was issued in the last 7 days, so there is nothing to show.",
 			"shedfeed.empty_filtered":        "No pens match these filters.",
 			"shedfeed.filter.item":           "Feed item",
-			"shedfeed.filter.shed":           "Shed",
+			"shedfeed.filter.shed":           "Pen",
 			"shedfeed.pager.noun":            "pen",
 			"col.shedfeed.park":              "Farm",
-			"col.shedfeed.pen":               "Shed / pen",
+			"col.shedfeed.pen":               "Pen",
 			"col.shedfeed.items":             "Feed given (kg, 7 days)",
 			"drawer.completion.aria":         "Feeding detail",
 			"drawer.completion.close_label":  "Close feeding detail",
@@ -4427,8 +4427,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"crumb":                      "Feed",
 			"section.direction.title":    "Feed Direction",
 			"section.direction.aria":     "Generated feed direction rows",
-			"section.direction.caption":  "Park × shed × shed tag × breed × session for the selected feed day",
-			"section.direction.note":     "Each row is projected head count × authored grams per head × shed factor, split across the park's sessions. Rows are generated for one feed day; changing the day regenerates them.",
+			"section.direction.caption":  "Park × pen × pen tag × breed × session for the selected feed day",
+			"section.direction.note":     "Each row is projected head count × authored grams per head × feed factor, split across the park's sessions. Rows are generated for one feed day; changing the day regenerates them.",
 			"section.summary.title":      "Day summary",
 			"section.summary.aria":       "Feed day summary",
 			"section.summary.note":       "Totals cover every row matching the current filters, not only the visible page.",
@@ -4436,10 +4436,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.projected_head.sub":     "Live herd plus approved movements already feed-effective for this day",
 			"kpi.total_kg.label":         "Total feed",
 			"kpi.total_kg.sub":           "kg as-fed across all sessions for the matching rows",
-			"kpi.sheds.label":            "Sheds fed",
-			"kpi.sheds.sub":              "Sheds with at least one generated row",
+			"kpi.sheds.label":            "Pens fed",
+			"kpi.sheds.sub":              "Pens with at least one generated row",
 			"kpi.blocked.label":          "Blocked rows",
-			"kpi.blocked.sub":            "Sheds that cannot be fed until a ration is configured",
+			"kpi.blocked.sub":            "Pens that cannot be fed until a ration is configured",
 			"table.direction.aria":       "Feed direction rows",
 			"table.direction.noun":       "row",
 			"table.direction.total_row":  "Total (rows)",
@@ -4447,8 +4447,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.drawer.title":        "Filter — Feed Direction",
 			"filter.date_label":          "Feed day",
 			"filter.park_label":          "Park",
-			"filter.shed_label":          "Shed",
-			"filter.shed_tag_label":      "Shed tag",
+			"filter.shed_label":          "Pen",
+			"filter.shed_tag_label":      "Pen tag",
 			"filter.breed_label":         "Breed",
 			"filter.ration_group_label":  "Ration group",
 			"filter.session_label":       "Session",
@@ -4460,41 +4460,41 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.scope_readonly":      "Park scope is set in the top bar.",
 			"label.animals_noun":         "animals",
 			"label.kg_noun":              "kg",
-			"label.formula":              "head count × grams per head × shed factor, split by session",
+			"label.formula":              "head count × grams per head × feed factor, split by session",
 			"label.projected_count":      "Projected count",
-			"label.projected_count_note": "This is the head count this shed is PLANNED to hold on the selected feed day — today's live herd plus approved movements that are already feed-effective. It is not today's exact census, and it is not a physical count.",
+			"label.projected_count_note": "This is the head count this pen is PLANNED to hold on the selected feed day — today's live herd plus approved movements that are already feed-effective. It is not today's exact census, and it is not a physical count.",
 			"label.current_count":        "Current count",
-			"label.current_count_note":   "Animals standing in the shed today, before any approved movement is applied.",
+			"label.current_count_note":   "Animals standing in the pen today, before any approved movement is applied.",
 			"label.pending_delta":        "Pending movement",
-			"label.pending_delta_note":   "Net animals this shed is due to gain or lose from approved-but-unexecuted movements that are feed-effective by the selected day.",
+			"label.pending_delta_note":   "Net animals this pen is due to gain or lose from approved-but-unexecuted movements that are feed-effective by the selected day.",
 			"label.blocked":              "Blocked — no ration configured",
-			"label.blocked_note":         "This shed's (ration group, shed tag, feed item) has NO authored rate. That is not a quantity of zero — it means we do not know what to feed these animals, so nothing is planned and this shed will not be fed until a rate is configured in Feed Config. Do not read the blank quantity as 0 kg.",
+			"label.blocked_note":         "This pen's (ration group, pen tag, feed item) has NO authored rate. That is not a quantity of zero — it means we do not know what to feed these animals, so nothing is planned and this pen will not be fed until a rate is configured in Feed Config. Do not read the blank quantity as 0 kg.",
 			"label.blocked_short":        "No ration configured",
 			"label.configured_zero":      "Configured zero",
-			"label.configured_zero_note": "An authored rate of 0 g/head — correct and deliberate, for example K0 and K1 kids that are on milk and are fed none of this solid item. This shed IS configured; it is simply fed nothing of this item.",
+			"label.configured_zero_note": "An authored rate of 0 g/head — correct and deliberate, for example K0 and K1 kids that are on milk and are fed none of this solid item. This pen IS configured; it is simply fed nothing of this item.",
 			// Configured-zero lines are HIDDEN on this sheet (see feed-quantity-state.ts). This is the
 			// disclosure that keeps the omission honest: a reader who expects RGS Concentrate on a row
 			// and does not find it must be able to tell "authored as 0" from "we dropped it". The
 			// second sentence is the load-bearing half — it promises that a MISSING rate is never
 			// hidden, so an absent line can always be read as a deliberate zero and never as a gap.
 			"label.zero_items_omitted":           "Items authored at 0 g/head are not listed — those animals are fed none of that item, so there is nothing to weigh out. Items with NO authored rate are never hidden: they always appear as “No ration configured”.",
-			"empty.nothing_to_feed":              "Nothing to feed this session — every item for this shed is authored at 0 g/head.",
+			"empty.nothing_to_feed":              "Nothing to feed this session — every item for this pen is authored at 0 g/head.",
 			"label.overdue_shifting":             "Overdue movement",
-			"label.overdue_shifting_note":        "This projected count includes an approved movement that has been standing open since before today’s packing day without the animals physically being moved. A movement counts toward the feed plan from the day it is authorized, so the plan already assumes the animals are here. Execute or cancel the movement — it will keep counting toward this shed every day until you do.",
+			"label.overdue_shifting_note":        "This projected count includes an approved movement that has been standing open since before today’s packing day without the animals physically being moved. A movement counts toward the feed plan from the day it is authorized, so the plan already assumes the animals are here. Execute or cancel the movement — it will keep counting toward this pen every day until you do.",
 			"label.overdue_shifting_chip":        "movement overdue",
 			"label.clamped":                      "Negative projection floored",
 			"label.clamped_note":                 "Recorded movements remove more animals than this grain holds, so the projection was floored at zero. That is a data problem to investigate, not a real count.",
 			"label.workflow_normal":              "Per-head (normal)",
-			"label.workflow_normal_note":         "Quantity is DERIVED: projected head count × the authored grams per head for this shed's ration group and tag × the shed factor. Change the ration grid to change what this shed is fed.",
+			"label.workflow_normal_note":         "Quantity is DERIVED: projected head count × the authored grams per head for this pen's ration group and tag × the feed factor. Change the ration grid to change what this pen is fed.",
 			"label.workflow_experiment":          "Experiment",
-			"label.workflow_experiment_note":     "An experiment pen. Its quantities are HAND-ENTERED for that pen rather than read from the ration grid: as grams per animal, multiplied by the pen's head count, or — on a cell authored before this changed — as an absolute total for the whole pen. An undivided shed is its single pen.",
+			"label.workflow_experiment_note":     "An experiment pen. Its quantities are HAND-ENTERED for that pen rather than read from the ration grid: as grams per animal, multiplied by the pen's head count, or — on a cell authored before this changed — as an absolute total for the whole pen.",
 			"label.session_split":                "Session split",
-			"label.session_split_note":           "The day's quantity for this shed is divided across the park's sessions by the authored split; the session splits for a park add up to the whole day.",
+			"label.session_split_note":           "The day's quantity for this pen is divided across the park's sessions by the authored split; the session splits for a park add up to the whole day.",
 			"label.ok":                           "Planned",
 			"label.ok_note":                      "A rate is configured and a quantity was computed for this row.",
 			"empty.direction":                    "No feed rows generated for this day and scope yet.",
 			"empty.direction_filtered":           "No feed rows match these filters.",
-			"empty.blocked":                      "No blocked rows — every shed in scope has a configured ration.",
+			"empty.blocked":                      "No blocked rows — every pen in scope has a configured ration.",
 			"state.direction_unavailable":        "Feed direction unavailable",
 			"state.generation_blocked":           "Feed direction could not be generated for this day: the underlying counts projection is carrying unresolved blockers. Resolve them, then regenerate — a partial feed sheet is not published.",
 			"state.generation_pending":           "The counts projection for this day is still being built. Feed rows appear once it settles.",
@@ -4536,9 +4536,9 @@ func pageSpecificCopy(id string) map[string]string {
 		return map[string]string{
 			"crumb":                   "Feed",
 			"section.packing.title":   "Packing worklist",
-			"section.packing.aria":    "Per-shed feed packing worklist",
-			"section.packing.caption": "What the store weighs out per shed, session and feed item",
-			"section.packing.note":    "This is the same generated day as Feed Direction, rolled up to what actually gets packed: one line per shed × session × feed item. It is not a second generation run.",
+			"section.packing.aria":    "Per-pen feed packing worklist",
+			"section.packing.caption": "What the store weighs out per pen, session and feed item",
+			"section.packing.note":    "This is the same generated day as Feed Direction, rolled up to what actually gets packed: one line per pen × session × feed item. It is not a second generation run.",
 			// The picker axis is the PACKING day; this caption states the feed day it is for (packing
 			// day + 1). {date} is filled in by the renderer with the formatted feed day.
 			"caption.feed_for":        "This feed is for {date}",
@@ -4547,12 +4547,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.summary.note":    "Totals cover every line matching the current filters, not only the visible page.",
 			"kpi.total_kg.label":      "Total to pack",
 			"kpi.total_kg.sub":        "kg as-fed across all sessions for the matching lines",
-			"kpi.sheds.label":         "Sheds to pack",
-			"kpi.sheds.sub":           "Sheds with at least one line to weigh out",
+			"kpi.sheds.label":         "Pens to pack",
+			"kpi.sheds.sub":           "Pens with at least one line to weigh out",
 			"kpi.items.label":         "Feed items",
 			"kpi.items.sub":           "Distinct items in this day's pack",
-			"kpi.blocked.label":       "Blocked sheds",
-			"kpi.blocked.sub":         "Sheds with nothing to pack because no ration is configured",
+			"kpi.blocked.label":       "Blocked pens",
+			"kpi.blocked.sub":         "Pens with nothing to pack because no ration is configured",
 			"table.packing.aria":      "Feed packing lines",
 			"table.packing.noun":      "line",
 			"table.packing.total_row": "Total (lines)",
@@ -4562,7 +4562,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// feed day; the caption above states which feed day it is for.
 			"filter.date_label":          "Packing day",
 			"filter.park_label":          "Park",
-			"filter.shed_label":          "Shed",
+			"filter.shed_label":          "Pen",
 			"filter.session_label":       "Session",
 			"filter.feed_item_label":     "Feed item",
 			"filter.workflow_label":      "Workflow",
@@ -4572,28 +4572,28 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.scope_readonly":      "Park scope is set in the top bar.",
 			"label.kg_noun":              "kg",
 			"label.expected_kg":          "Expected",
-			"label.expected_kg_note":     "The quantity to weigh out for this shed, session and item. Derived from the day's feed direction — it is not entered here.",
+			"label.expected_kg_note":     "The quantity to weigh out for this pen, session and item. Derived from the day's feed direction — it is not entered here.",
 			"label.blocked":              "Blocked — no ration configured",
-			"label.blocked_note":         "Nothing is packed for this shed because its (ration group, shed tag, feed item) has NO authored rate. This is not a pack quantity of zero — the shed will not be fed at all until a rate is configured in Feed Config. Do not substitute a guess.",
+			"label.blocked_note":         "Nothing is packed for this pen because its (ration group, pen tag, feed item) has NO authored rate. This is not a pack quantity of zero — the pen will not be fed at all until a rate is configured in Feed Config. Do not substitute a guess.",
 			"label.blocked_short":        "No ration configured",
 			"label.configured_zero":      "Configured zero",
-			"label.configured_zero_note": "An authored rate of 0 g/head — nothing to pack for this item, and that is correct (for example K0 and K1 kids on milk). Distinct from blocked: this shed IS configured.",
+			"label.configured_zero_note": "An authored rate of 0 g/head — nothing to pack for this item, and that is correct (for example K0 and K1 kids on milk). Distinct from blocked: this pen IS configured.",
 			// See the twin note on feed-direction. A packer must never be handed a line telling them to
 			// weigh out 0.000 kg, and must equally never have a blocked line quietly disappear — the
 			// second sentence is the promise that makes an absent line safe to interpret.
 			"label.zero_items_omitted":       "Items authored at 0 g/head are not listed — there is nothing to weigh out for them. Items with NO authored rate are never hidden: they always appear as “No ration configured”.",
-			"empty.nothing_to_feed":          "Nothing to pack for this session — every item for this shed is authored at 0 g/head.",
+			"empty.nothing_to_feed":          "Nothing to pack for this session — every item for this pen is authored at 0 g/head.",
 			"label.overdue_shifting":         "Overdue movement",
-			"label.overdue_shifting_note":    "This shed's pack quantity is based on a projected count that includes an approved movement standing open since before today’s packing day without the animals being moved. A movement counts toward the feed plan from the day it is authorized. Pack to the plan, and get the movement executed or cancelled.",
+			"label.overdue_shifting_note":    "This pen's pack quantity is based on a projected count that includes an approved movement standing open since before today’s packing day without the animals being moved. A movement counts toward the feed plan from the day it is authorized. Pack to the plan, and get the movement executed or cancelled.",
 			"label.overdue_shifting_chip":    "movement overdue",
 			"label.workflow_normal":          "Per-head (normal)",
-			"label.workflow_normal_note":     "Quantity derived from projected head count × the authored ration for this shed.",
+			"label.workflow_normal_note":     "Quantity derived from projected head count × the authored ration for this pen.",
 			"label.workflow_experiment":      "Experiment",
-			"label.workflow_experiment_note": "Experiment pen: these quantities were hand-entered for this pen rather than read from the ration grid. An undivided shed is its single pen. Pack exactly the amount shown — it is already worked out for the animals in this pen.",
+			"label.workflow_experiment_note": "Experiment pen: these quantities were hand-entered for this pen rather than read from the ration grid. Pack exactly the amount shown — it is already worked out for the animals in this pen.",
 			"label.session_noun":             "session",
 			"label.ok":                       "Ready to pack",
 			"label.ok_note":                  "A quantity was computed and this line can be weighed out.",
-			"empty.blocked":                  "No blocked sheds — every shed in scope has a configured ration.",
+			"empty.blocked":                  "No blocked pens — every pen in scope has a configured ration.",
 			"empty.packing":                  "Nothing to pack for this day and scope yet.",
 			"empty.packing_filtered":         "No packing lines match these filters.",
 			"state.packing_unavailable":      "Packing worklist unavailable",
@@ -4738,12 +4738,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"crumb":                        "Feed",
 			"section.ration_grid.title":    "Ration grid",
 			"section.ration_grid.aria":     "Authored ration rates",
-			"section.ration_grid.caption":  "Ration group × shed tag × feed item → grams per head per day",
+			"section.ration_grid.caption":  "Ration group × pen tag × feed item → grams per head per day",
 			"section.ration_grid.note":     "The standing rule the daily feed sheet is computed from. Rates are park-scoped because parks genuinely differ, and effective-dated: an edit closes the current rate and opens a new one rather than overwriting it, so past feed sheets stay explainable.",
-			"section.shed_factors.title":   "Shed factors",
-			"section.shed_factors.aria":    "Per-shed feed multipliers",
-			"section.shed_factors.caption": "Per shed and feed item multiplier applied on top of the ration grid",
-			"section.shed_factors.note":    "The third term of head count × grams per head × shed factor. A shed with no factor row is treated as 1.0; a factor of 0 must be authored deliberately.",
+			"section.shed_factors.title":   "Feed factors",
+			"section.shed_factors.aria":    "Feed multipliers",
+			"section.shed_factors.caption": "Per location and feed item multiplier applied on top of the ration grid",
+			"section.shed_factors.note":    "The third term of head count × grams per head × feed factor. A location with no factor row is treated as 1.0; a factor of 0 must be authored deliberately.",
 			// ---- experiment sheds -------------------------------------------------------------
 			// Copy for the one section on this page that is NOT the ration grid's world. Its job is
 			// to keep two facts un-missable: absolute_kg is a pen TOTAL (never per head), and
@@ -4751,22 +4751,22 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.experiment.title":             "Experiment pens",
 			"section.experiment.aria":              "Hand-authored experiment pens",
 			"section.experiment.caption":           "Pens fed hand-entered quantities instead of the ration grid above",
-			"section.experiment.note":              "These pens are NOT computed from the ration grid. An operator hand-enters the grams each animal in the pen gets of each item, and the feed sheet multiplies that by the number of animals in the pen on the day. The count shown here is that live number, straight from the herd register — nobody types it. An undivided shed is its single pen. While a pen is listed here, the rates and shed factors above have no effect on it.",
-			"section.experiment.switch_note":       "A pen is on the experiment workflow because it is listed here, and for no other reason — there is no separate flag. Adding a pen switches it off the per-head grid; returning it switches it straight back, and only that pen: a shed's other pens are untouched. Returning a pen keeps its authored quantities, so restoring it later does not mean re-entering them.",
+			"section.experiment.note":              "These pens are NOT computed from the ration grid. An operator hand-enters the grams each animal in the pen gets of each item, and the feed sheet multiplies that by the number of animals in the pen on the day. The count shown here is that live number, straight from the herd register — nobody types it. While a pen is listed here, the rates and feed factors above have no effect on it.",
+			"section.experiment.switch_note":       "A pen is on the experiment workflow because it is listed here, and for no other reason — there is no separate flag. Adding a pen switches it off the per-head grid; returning it switches it straight back, and only that pen: the other pens are untouched. Returning a pen keeps its authored quantities, so restoring it later does not mean re-entering them.",
 			"table.experiment.aria":                "Experiment pen rows",
 			"table.experiment.noun":                "experiment row",
 			"label.experiment_grams_per_head":      "Grams per animal (per day)",
-			"label.experiment_grams_per_head_note": "What ONE animal in this pen gets of this item each day. The feed sheet multiplies it by the number of animals in the pen that day, so the quantity follows animals in and out without anyone re-authoring it. Enter an explicit 0 to feed none of this item; a blank field is not zero. The shed factors above do not apply to an experiment pen.",
+			"label.experiment_grams_per_head_note": "What ONE animal in this pen gets of this item each day. The feed sheet multiplies it by the number of animals in the pen that day, so the quantity follows animals in and out without anyone re-authoring it. Enter an explicit 0 to feed none of this item; a blank field is not zero. The feed factors above do not apply to an experiment pen.",
 			"label.experiment_absolute_kg":         "Absolute kg (whole pen)",
 			"label.experiment_absolute_kg_note":    "An older cell: a total for the WHOLE pen, already inclusive of every animal in it, and never multiplied by any head count. Cells are now authored as grams per animal — editing this one asks for grams and moves it over.",
 			"label.experiment_head_count":          "Animals in this pen",
 			"label.experiment_head_count_note":     "How many animals are in this pen right now, from the herd register — the same count the feed sheet multiplies the grams by, so what you see here is what the pen is fed against. Nobody types it: it follows the animals as they move, and 0 means the pen is currently empty. An older whole-pen cell is not multiplied by it at all.",
 			"label.experiment_category":            "Experiment arm",
-			"label.experiment_category_note":       "Which arm of the trial this pen is on. It appears in the shed-tag column of the direction sheet, where it is the operator's cue that these numbers were hand-entered rather than computed.",
+			"label.experiment_category_note":       "Which arm of the trial this pen is on. It appears in the pen-tag column of the direction sheet, where it is the operator's cue that these numbers were hand-entered rather than computed.",
 			"label.experiment_active":              "On experiment (hand-entered)",
-			"label.experiment_active_note":         "This pen is fed the quantities authored here — grams per animal times the pen's head count, or the whole-pen total on an older cell. The ration grid and its shed factors do not affect it.",
+			"label.experiment_active_note":         "This pen is fed the quantities authored here — grams per animal times the pen's head count, or the whole-pen total on an older cell. The ration grid and its feed factors do not affect it.",
 			"label.experiment_retired":             "On the normal grid (per head)",
-			"label.experiment_retired_note":        "This pen has been returned to the ration grid and is fed projected head count × grams per head × shed factor again. Its authored experiment quantities are kept, so restoring it does not mean re-entering them.",
+			"label.experiment_retired_note":        "This pen has been returned to the ration grid and is fed projected head count × grams per head × feed factor again. Its authored experiment quantities are kept, so restoring it does not mean re-entering them.",
 			"label.experiment_basis_grams":         "grams per animal",
 			"label.experiment_basis_kg":            "kg for the whole pen",
 			"label.experiment_not_dated_note":      "Unlike the rates above, experiment quantities are not effective-dated: an edit corrects the figure in place. They are hand-entered numbers for a running trial, not a standing rule a past feed sheet has to be explained against. Who changed what is still recorded.",
@@ -4781,7 +4781,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.experiment_saved":              "Saved. Each animal in this pen gets the grams authored here; the sheet multiplies by however many animals are in the pen that day.",
 			"action.experiment_switched":           "Workflow switched. What this pen is fed has changed — check the next Feed Direction for this park.",
 			"reason.experiment_blank_is_not_zero":  "Leave the field blank only if you do not intend to author this item for this pen. To feed none of it, enter an explicit 0. A cleared field is not zero.",
-			"reason.experiment_switch_consequence": "Switching a pen changes what its animals eat; it is not a display setting. Only the pen named here changes; the shed's other pens are untouched.",
+			"reason.experiment_switch_consequence": "Switching a pen changes what its animals eat; it is not a display setting. Only the pen named here changes; the other pens are untouched.",
 			"empty.experiment":                     "No experiment pens authored for this park. Every operational pen in it is fed from the ration grid above.",
 			"empty.experiment_filtered":            "No experiment pens match these filters.",
 			"empty.experiment_candidates":          "Every pen in this park already has authored experiment quantities.",
@@ -4792,7 +4792,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// construction -- a ration grid, a session split and a dispatch clock are all park-scoped
 			// -- so a company-wide top-bar scope cannot be honoured here and one park is shown instead.
 			// Without this the screen silently reads the alphabetically first park and says nothing.
-			"notice.park_scope_fallback": "Experiment sheds below show BOTH parks. The ration grid, shed factors, session template and feeding schedule are authored per park and cannot be shown for all parks at once, so those four are reading the park named here — use the Park filter to change it.",
+			"notice.park_scope_fallback": "Experiment pens below show BOTH parks. The ration grid, feed factors, session template and feeding schedule are authored per park and cannot be shown for all parks at once, so those four are reading the park named here — use the Park filter to change it.",
 			// The enroller. It authors a PEN and every feed item of it in ONE atomic write, so its copy
 			// has to say both things: which pen, and that a blank kg authors nothing rather than zero.
 			"filter.pen_label":                  "Pen",
@@ -4802,23 +4802,23 @@ func pageSpecificCopy(id string) map[string]string {
 			// genuinely spans both parks in that mode, so naming one park above it would be a lie.
 			"label.all_parks":              "All parks",
 			"reason.experiment_enrol_park": "Choose the park first: a pen belongs to one park, and the pens offered below are that park's.",
-			"state.experiment_unavailable": "Experiment sheds unavailable",
+			"state.experiment_unavailable": "Experiment pens unavailable",
 			// ---- feed items (the catalog) -----------------------------------------------------
 			// Copy for the vocabulary section. Its job is to keep ONE fact un-missable: adding an
 			// item authors no quantity, so a new item feeds nothing until a rate names it. Someone
 			// who adds "RGS Concentrate" and expects it on tomorrow's sheet has to be told here.
 			"section.feed_items.title":   "Feed items",
 			"section.feed_items.aria":    "Feed item catalog",
-			"section.feed_items.caption": "The feed vocabulary every rate, shed factor and experiment quantity is authored against",
-			"section.feed_items.note":    "Shared by every park. Adding an item does NOT feed it to anything: the new name becomes selectable on the ration grid above, and each ration group and shed tag using it stays unconfigured — and therefore blocked — until a rate is authored for it. Adding an item never creates a rate, not even a zero.",
+			"section.feed_items.caption": "The feed vocabulary every rate, feed factor and experiment quantity is authored against",
+			"section.feed_items.note":    "Shared by every park. Adding an item does NOT feed it to anything: the new name becomes selectable on the ration grid above, and each ration group and pen tag using it stays unconfigured — and therefore blocked — until a rate is authored for it. Adding an item never creates a rate, not even a zero.",
 			"table.feed_items.aria":      "Feed item catalog rows",
 			"table.feed_items.noun":      "feed item",
 			"label.feed_item_name":       "Feed item name",
-			"label.feed_item_name_note":  "The name that appears on the ration grid, the shed factors, the experiment sheds and the generated feed sheet. Case and surrounding spaces do not make a second item: a name the catalog already holds is refused rather than added twice.",
+			"label.feed_item_name_note":  "The name that appears on the ration grid, the feed factors, the experiment pens and the generated feed sheet. Case and surrounding spaces do not make a second item: a name the catalog already holds is refused rather than added twice.",
 			// Changing a feed item's status. Worded as ACTIVE / INACTIVE (maintainer decision
 			// 2026-08-13), replacing the earlier "In feeding" / "Not fed" chip and its
 			// "Remove" / "Restore" controls. The old wording read as a deletion, which this has
-			// never been: an inactive item keeps every authored rate, shed factor and experiment
+			// never been: an inactive item keeps every authored rate, feed factor and experiment
 			// cell exactly as it was, and reactivating returns them without re-entering anything.
 			// "Remove" beside a Restore button invited the opposite reading.
 			//
@@ -4833,7 +4833,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.retire_feed_item":         "Deactivate",
 			"action.restore_feed_item":        "Activate",
 			"action.feed_item_status_changed": "Saved. What is fed has changed — check the next Feed Direction for every park.",
-			"reason.retire_feed_item":         "Takes this item off every future feed sheet, and hides its authored rates on the ration grid above. Nothing is deleted: the rates, shed factors and experiment quantities are kept exactly as they are, so reactivating the item restores them without re-entering anything.",
+			"reason.retire_feed_item":         "Takes this item off every future feed sheet, and hides its authored rates on the ration grid above. Nothing is deleted: the rates, feed factors and experiment quantities are kept exactly as they are, so reactivating the item restores them without re-entering anything.",
 			"reason.restore_feed_item":        "Puts this item back into feeding. Its authored rates return to the ration grid above exactly as they were.",
 			"label.feed_item_active":          "Active",
 			"label.feed_item_active_note":     "This item is part of the feed vocabulary. It appears on the ration grid above and is packed and served wherever a rate is authored for it.",
@@ -4869,7 +4869,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.session_template.title":    "Session template",
 			"section.session_template.aria":     "Per-park session split",
 			"section.session_template.caption":  "How each park's daily quantity is divided across its feeding sessions",
-			"section.session_template.note":     "The session splits for a park must add up to the whole day. A park whose splits do not add up would under- or over-feed every shed in it, so the writer rejects it.",
+			"section.session_template.note":     "The session splits for a park must add up to the whole day. A park whose splits do not add up would under- or over-feed every pen in it, so the writer rejects it.",
 			"section.session_template.caption2": "Each session lists the feeds it serves. A feed is only served if it is on a session here — a quantity in the ration grid on its own feeds nobody.",
 			// The split warning is stated wherever a feed is added, because it is the single most
 			// likely way to author this wrong. The grid quantity is a DAILY figure and each session
@@ -4883,10 +4883,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.remove_session_feed_open": "Stop serving this feed in this session. Sheets already issued are not changed.",
 			"action.session_feed_saved":       "Session updated. The next sheet issued for this park serves the feeds listed here.",
 			"action.session_feed_rejected":    "The session was not changed. Correct the problem and try again.",
-			"reason.slot_rates_incomplete":    "This feed has no quantity set in every part of the ration grid for this park. Serving it would stop those sheds getting a sheet at all, so set its quantities first — zero is a valid answer.",
+			"reason.slot_rates_incomplete":    "This feed has no quantity set in every part of the ration grid for this park. Serving it would stop those pens getting a sheet at all, so set its quantities first — zero is a valid answer.",
 			"reason.slot_not_declared":        "This session does not serve that feed, so there was nothing to remove. Check whether you meant the other session.",
 			"reason.session_feed_required":    "Choose a feed to add.",
-			"empty.session_feeds":             "No feeds — this session serves nothing and its sheds will not be fed. Add a feed to start serving it.",
+			"empty.session_feeds":             "No feeds — this session serves nothing and its pens will not be fed. Add a feed to start serving it.",
 			"section.schedule.title":          "Feed day clock",
 			"section.schedule.aria":           "Per-park feed day dispatch clock",
 			"section.schedule.caption":        "When tomorrow's direction is issued, amended and cut off — per park and workflow",
@@ -4901,7 +4901,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.gaps.sub":                    "In-use group and tag combinations with no authored rate",
 			"table.ration_grid.aria":          "Ration grid rows",
 			"table.ration_grid.noun":          "rate",
-			"table.shed_factors.aria":         "Shed factor rows",
+			"table.shed_factors.aria":         "Feed factor rows",
 			"table.shed_factors.noun":         "factor",
 			"table.session_template.aria":     "Session template rows",
 			"table.session_template.noun":     "session",
@@ -4910,13 +4910,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.bar_aria":                 "Filter feed configuration",
 			"filter.drawer.title":             "Filter — Feed Config",
 			"filter.park_label":               "Park",
-			"filter.shed_label":               "Shed",
+			"filter.shed_label":               "Pen",
 			"filter.ration_group_label":       "Ration group",
 			"filter.breed_label":              "Breed",
 			// Said out loud on the control, because the grid's own column keeps showing the GROUP a
 			// row belongs to and the two vocabularies would otherwise look inconsistent.
 			"filter.breed_note":      "Breeds are grouped for feeding: Beetal and Sirohi share one rate, so either breed shows the Beetal/Sirohi rows. Kid rates are not breed-specific and are excluded when a breed is picked.",
-			"filter.shed_tag_label":  "Shed tag",
+			"filter.shed_tag_label":  "Pen tag",
 			"filter.feed_item_label": "Feed item",
 			"filter.feed_item_note":  "Pick more than one to compare items side by side.",
 			// The multi-select panel STAGES its ticks and commits them on this button, so the page
@@ -4944,7 +4944,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.configured_zero":          "Configured zero",
 			"label.configured_zero_note":     "0 g/head is a real authored rate, not a missing one. K0 and K1 kids are on milk and are correctly fed 0 g of every solid item. Saving 0 configures the combination; clearing the field does not.",
 			"label.blocked":                  "Not configured",
-			"label.blocked_note":             "No rate has ever been authored for this ration group, shed tag and feed item. Any shed that resolves to it is BLOCKED and will not be fed — it is not fed zero. Author a rate (including an explicit 0 if the animals should get none of this item) to unblock it.",
+			"label.blocked_note":             "No rate has ever been authored for this ration group, pen tag and feed item. Any pen that resolves to it is BLOCKED and will not be fed — it is not fed zero. Author a rate (including an explicit 0 if the animals should get none of this item) to unblock it.",
 			"label.blocked_short":            "No ration configured",
 			"label.effective_open":           "In force",
 			"label.effective_open_note":      "No end date — this is the rate currently being applied.",
@@ -4953,36 +4953,36 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.kid_group_note":           "Kids resolve to a single ration group by age band and their breed is deliberately ignored, so one kid rate covers every breed.",
 			"label.park_scoped_note":         "Rates are authored per park. A rate configured for one park is never applied to another.",
 			"label.workflow_normal":          "Per-head (normal)",
-			"label.workflow_normal_note":     "Sheds fed from this grid: quantity = projected head count × grams per head × shed factor.",
+			"label.workflow_normal_note":     "Pens fed from this grid: quantity = projected head count × grams per head × feed factor.",
 			"label.workflow_experiment":      "Experiment (hand-entered)",
-			"label.workflow_experiment_note": "Experiment pens bypass this grid entirely. An operator hand-enters the grams each animal in the pen gets, and the sheet multiplies by the pen's head count; an undivided shed is its single pen. Older cells hold a whole-pen total instead and are multiplied by nothing.",
+			"label.workflow_experiment_note": "Experiment pens bypass this grid entirely. An operator hand-enters the grams each animal in the pen gets, and the sheet multiplies by the pen's head count. Older cells hold a whole-pen total instead and are multiplied by nothing.",
 			"label.applies_to_kid":           "Kid course",
 			"label.applies_to_adult":         "Adult course",
 			"label.session_split_note":       "Share of the day's quantity this session carries.",
 			// Hover explanations for the feed day clock. Each says what the time DOES, so no column
 			// can be read as a feeding time.
-			"label.direction_time_note":          "When this workflow's packing direction is issued for the NEXT feed day. Normal parks issue in the morning; experiment sheds issue in the afternoon.",
-			"label.correction_time_note":         "When approved emergency-shifting corrections are batched and an amended direction is reissued. Corrections are deliberately batched rather than sent on approval, so a shed receives at most one amended sheet per day.",
-			"label.transport_time_note":          "The cutoff after which a correction can no longer reach the shed — the load has left. Anything approved after this lands on the following day's direction.",
+			"label.direction_time_note":          "When this workflow's packing direction is issued for the NEXT feed day. Normal parks issue in the morning; experiment pens issue in the afternoon.",
+			"label.correction_time_note":         "When approved emergency-shifting corrections are batched and an amended direction is reissued. Corrections are deliberately batched rather than sent on approval, so a pen receives at most one amended sheet per day.",
+			"label.transport_time_note":          "The cutoff after which a correction can no longer reach the pen — the load has left. Anything approved after this lands on the following day's direction.",
 			"action.add_rate":                    "Add rate",
 			"action.edit_rate":                   "Edit rate",
-			"action.add_shed_factor":             "Add shed factor",
-			"action.edit_shed_factor":            "Edit shed factor",
+			"action.add_shed_factor":             "Add feed factor",
+			"action.edit_shed_factor":            "Edit feed factor",
 			"action.edit_schedule":               "Edit schedule",
 			"action.rate_saved":                  "Rate saved. It takes effect from its effective-from date; the previous rate was closed, not overwritten.",
 			"action.rate_rejected":               "Rate rejected. Correct the values and try again.",
 			"reason.blank_is_not_zero":           "Leave the field blank only if you intend the combination to stay unconfigured (and therefore blocked). To feed nothing, enter an explicit 0.",
 			"reason.no_write_permission":         "Your current role can read the ration grid but cannot author or change rates.",
-			"empty.ration_grid":                  "No ration rates authored for this scope yet. Every shed resolving to this scope is blocked until at least one rate exists.",
+			"empty.ration_grid":                  "No ration rates authored for this scope yet. Every pen resolving to this scope is blocked until at least one rate exists.",
 			"empty.ration_grid_filtered":         "No ration rates match these filters.",
-			"empty.shed_factors":                 "No shed factors authored. Every shed is treated as a factor of 1.0.",
-			"empty.shed_factors_filtered":        "No shed factors match these filters.",
+			"empty.shed_factors":                 "No feed factors authored. Every location is treated as a factor of 1.0.",
+			"empty.shed_factors_filtered":        "No feed factors match these filters.",
 			"empty.session_template":             "No session template authored for this park, so the daily quantity cannot be split across sessions.",
 			"empty.session_template_filtered":    "No sessions match these filters.",
 			"empty.schedule":                     "No feeding schedule authored for this park yet.",
 			"empty.schedule_filtered":            "No schedule rows match these filters.",
 			"state.ration_grid_unavailable":      "Ration grid unavailable",
-			"state.shed_factors_unavailable":     "Shed factors unavailable",
+			"state.shed_factors_unavailable":     "Feed factors unavailable",
 			"state.session_template_unavailable": "Session template unavailable",
 			"state.schedule_unavailable":         "Feeding schedule unavailable",
 			"state.split_mismatch":               "This park's session splits do not add up to a whole day. Feed sheets for the park stay blocked until the template is corrected.",
@@ -5011,8 +5011,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.rows_per_page_aria":                "Rows per page",
 			"filter.active_badge":                      "on",
 			"action.register_goat":                     "Register animal",
-			"action.register_shed":                     "Register shed",
-			"action.import_sheds":                      "Import sheds",
+			"action.register_shed":                     "Register pen",
+			"action.import_sheds":                      "Import pens",
 			"action.import_sheet":                      "Import sheet",
 			"action.new_report":                        "New report",
 			"action.full_change_history":               "Full change history",
@@ -5023,9 +5023,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.creating_records":                  "Creating...",
 			"action.done":                              "Done",
 			"action.download_template":                 "herd-register-template.csv",
-			"action.download_shed_template":            "vaccination-sheds-template.csv",
+			"action.download_shed_template":            "vaccination-pens-template.csv",
 			"action.download_failed_goat_rows":         "herd-register-failed-rows.csv",
-			"action.download_failed_shed_rows":         "vaccination-sheds-failed-rows.csv",
+			"action.download_failed_shed_rows":         "vaccination-pens-failed-rows.csv",
 			"action.export_failed_rows":                "Export failed rows",
 			"action.commit_failed":                     "Commit failed",
 			"action.preview_failed":                    "Preview failed",
@@ -5034,12 +5034,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.xlsx_empty":                         "XLSX import must include at least one non-empty worksheet.",
 			"error.xlsx_parse_failed":                  "XLSX import could not be read. Export the first worksheet as CSV and try again.",
 			"action.working":                           "Working...",
-			"action.create_sheds":                      "Create sheds",
+			"action.create_sheds":                      "Create pens",
 			"action.goat_registered_generation_queued": "Herd animal registered; vaccination generation queued.",
 			"action.goat_registered_rejected":          "Herd animal rejected for creation; correct the source row and retry.",
 			"action.goat_registered_ineligible":        "Herd animal registered; no vaccination obligations generated because the animal is ineligible by published rules.",
 			"action.goat_registered_no_generation":     "Herd animal registered; no vaccination generation applicable.",
-			"action.shed_registered":                   "Vaccination shed registered; it is now available for goat registration.",
+			"action.shed_registered":                   "Vaccination pen registered; it is now available for goat registration.",
 			"reason.report_pending":                    "No herd report API exists in this slice. New report stays disabled.",
 			"action.edit_reproductive":                 "Edit",
 			"action.save_reproductive":                 "Save status",
@@ -5055,12 +5055,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"placeholder.reproductive_reason":          "e.g. ultrasound-confirmed pregnant on 12 Jun",
 			"note.reproductive_dates_optional":         "Breeding and last-delivery dates are optional pregnancy-timing facts; leave blank to keep the stored value.",
 			"reason.reproductive_unavailable":          "Reproductive status options are not configured for this tenant yet. Seed reproductive status definitions before editing.",
-			"drawer.shed_register.title":               "Register shed",
-			"drawer.shed_register.subtitle":            "Creates one active vaccination-usable shed under a real park.",
+			"drawer.shed_register.title":               "Register pen",
+			"drawer.shed_register.subtitle":            "Creates one active vaccination-usable pen under a real park.",
 			"drawer.register.title":                    "Register animal",
 			"drawer.register.subtitle":                 "Creates one canonical herd animal with two IDs → vaccination obligations generate.",
-			"drawer.shed_import.title":                 "Import sheds",
-			"drawer.shed_import.subtitle":              "Bulk register vaccination-usable sheds before goat entry.",
+			"drawer.shed_import.title":                 "Import pens",
+			"drawer.shed_import.subtitle":              "Bulk register vaccination-usable pens before goat entry.",
 			"drawer.import.title":                      "Import sheet",
 			"drawer.import.subtitle":                   "Bulk register herd animals — download template, paste/upload CSV, preview, then commit.",
 			"drawer.passport.aria":                     "Animal Passport",
@@ -5068,8 +5068,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.animal_identifier_1":                "Tag 1",
 			"label.animal_identifier_2":                "Tag 2",
 			"alert.locations.title":                    "Locations unavailable",
-			"alert.locations.body":                     "Animal creation needs a real park and vaccination-usable shed from the locations master. Configure locations (or check the backend) before registering — no animal is created without a valid park/shed.",
-			"alert.shed_locations.body":                "Shed creation needs a real active park from the locations master. Configure or seed parks before adding vaccination sheds.",
+			"alert.locations.body":                     "Animal creation needs a real park and vaccination-usable pen from the locations master. Configure locations (or check the backend) before registering — no animal is created without a valid park/pen.",
+			"alert.shed_locations.body":                "Pen creation needs a real active park from the locations master. Configure or seed parks before adding vaccination pens.",
 			"alert.stages.title":                       "Animal stages unavailable",
 			"alert.stages.body":                        "A vaccination trigger needs a real active animal stage from animal_stage_lookup. Seed or restore stages before registering animals.",
 			"empty.herd":                               "No herd animals for this scope yet. Use Register animal or Import sheet to add the first animals — each valid row generates vaccination obligations.",
@@ -5079,10 +5079,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.animal_identifier_2":                "Tag 2",
 			"field.species":                            "Species",
 			"field.park_required":                      "Park (required)",
-			"field.shed_required":                      "Shed (required)",
-			"field.shed":                               "Shed",
-			"field.shed_code":                          "Shed code",
-			"field.shed_name_required":                 "Shed name (required)",
+			"field.shed_required":                      "Pen (required)",
+			"field.shed":                               "Pen",
+			"field.shed_code":                          "Pen code",
+			"field.shed_name_required":                 "Pen name (required)",
 			"field.display_order":                      "Display order",
 			"field.notes":                              "Notes",
 			"field.farm":                               "Farm",
@@ -5109,7 +5109,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"placeholder.animal_identifier_1":          "scan or enter first physical ID",
 			"placeholder.animal_identifier_2":          "scan or enter second physical ID",
 			"placeholder.shed_code":                    "e.g. K1-A",
-			"placeholder.shed_name":                    "e.g. Kid Shed K1-A",
+			"placeholder.shed_name":                    "e.g. Kid Pen K1-A",
 			"placeholder.shed_notes":                   "vaccination operating note",
 			"placeholder.breed":                        "e.g. Beetal",
 			"placeholder.weight_kg":                    "e.g. 22.0",
@@ -5117,19 +5117,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"placeholder.sire_or_lot":                  "e.g. BUCK-07",
 			"placeholder.evidence_ref":                 "source doc / sheet row id (defaults to this registration's reference)",
 			"option.no_parks":                          "No parks available",
-			"option.no_vaccination_sheds":              "No vaccination-usable sheds",
+			"option.no_vaccination_sheds":              "No vaccination-usable pens",
 			"option.optional":                          "— optional —",
 			"option.select_species":                    "Select species",
 			"option.select_sex":                        "Select sex",
 			"option.select_origin":                     "Select origin",
 			"note.identifier_required":                 "Tag 1 is required now; Tag 2 is optional until double tagging is live. Tag values are never reused, even after death, sale, transfer, tag loss, or tag breakage.",
 			"note.media_capture":                       "Media capture is not in this slice. Provenance is recorded as a source-record evidence ref; photo upload happens via the field app / proof API.",
-			"note.shed_create":                         "The shed is created active, usable for counts, vaccination, and SOP execution, and not usable for feed/holding/quarantine/ICU in this vaccination-only entry path.",
-			"note.shed_bulk_template":                  "Each row needs Park plus Shed name. Park may be an active park id, code, or name. Imported sheds are created active and vaccination-usable; bad rows return per-row errors below.",
-			"note.bulk_template":                       "Each row needs Tag 1, Species, Park, Shed, DOB, Sex, Origin, and Entry date. Tag 2 is optional until double tagging is live. Bad rows return per-row errors below; they are never silently dropped.",
+			"note.shed_create":                         "The pen is created active, usable for counts, vaccination, and SOP execution, and not usable for feed/holding/quarantine/ICU in this vaccination-only entry path.",
+			"note.shed_bulk_template":                  "Each row needs Park plus Pen name. Park may be an active park id, code, or name. Imported pens are created active and vaccination-usable; bad rows return per-row errors below.",
+			"note.bulk_template":                       "Each row needs Tag 1, Species, Park, Pen, DOB, Sex, Origin, and Entry date. Tag 2 is optional until double tagging is live. Bad rows return per-row errors below; they are never silently dropped.",
 			"note.preview_ready":                       "Previewed — review decisions below, then commit.",
 			"note.committed_suffix":                    "The herd table has been refreshed.",
-			"note.shed_committed_suffix":               "The location master has been refreshed; newly created sheds appear in the goat registration shed selector after refresh.",
+			"note.shed_committed_suffix":               "The location master has been refreshed; newly created pens appear in the goat registration pen selector after refresh.",
 			"label.active":                             "Active",
 			"label.adults":                             "Adults",
 			"label.kids":                               "Kids",
@@ -5146,7 +5146,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.first_live_rows_prefix":             "first",
 			"label.live_rows":                          "live rows",
 			"label.all_parks":                          "all parks",
-			"label.all_sheds":                          "all sheds",
+			"label.all_sheds":                          "all pens",
 			"label.identifiers":                        "Identifiers",
 			"label.goat_id":                            "goat_id",
 			"label.display_id":                         "Display ID",
@@ -5355,7 +5355,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.stages_load":                                         "Could not load animal stages from the backend. This is a real error, not no stages seeded — authoring is blocked until the stage reference read succeeds, so an outage is never mistaken for missing config. Fix the API/connection and reload.",
 			"error.sops_load":                                           "Could not load SOP versions from the backend. This is a real error, not no published SOP version — authoring is blocked until the SOP read succeeds, so an outage is never mistaken for an empty SOP Library. Fix the API/connection and reload.",
 			"pager.rules_noun":                                          "rules",
-			"process_map.text":                                          "published rule → obligations (per goat / dose) → shed-drive SOP task → proof + verify → adherence gap",
+			"process_map.text":                                          "published rule → obligations (per goat / dose) → pen-drive SOP task → proof + verify → adherence gap",
 			"process_map.note":                                          "After publish, every obligation, SOP task, and adherence gap is generated from this config. Review the effect in",
 			"breadcrumb.config_rule_editor":                             "Config breadcrumb",
 			"modal.rule_editor.aria":                                    "Protocol rule editor",
@@ -5438,7 +5438,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.title.add_blank_matrix_row":              "Add a blank matrix row; schedule note and dose rows stay empty until you choose or copy a matrix preset",
 			"modal.rule_editor.title.copy_selected_matrix_row":          "Create an intentional copy of the selected row, including schedule note and dose rows",
 			"modal.rule_editor.title.keep_one_matrix_row":               "At least one matrix row is required",
-			"modal.rule_editor.field.vaccination_eligibility":           "Vaccination eligibility - animal / shed stage + sex",
+			"modal.rule_editor.field.vaccination_eligibility":           "Vaccination eligibility - animal / pen stage + sex",
 			"modal.rule_editor.option.all_stages":                       "all (every stage)",
 			"modal.rule_editor.hint.no_stages":                          "Stage bands (for example K1, K2) are backend reference data from animal_stage_lookup — until they are seeded you can only author an all-stages rule, not target a specific band.",
 			"modal.rule_editor.field.lifecycle":                         "Lifecycle / reproductive",
@@ -5533,9 +5533,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.guided.fact_priority":                    "Priority",
 			"modal.rule_editor.guided.no_selected":                      "Select a vaccine to edit its timing.",
 			"modal.rule_editor.guided.who_qualifies":                    "Who qualifies",
-			"modal.rule_editor.guided.qualifies_hint":                   "Tags/stages come from the shed/tag lookup. Species, sex, and breed stay as selectors so this one plan can cover all valid animal groups.",
+			"modal.rule_editor.guided.qualifies_hint":                   "Tags/stages come from the pen/tag lookup. Species, sex, and breed stay as selectors so this one plan can cover all valid animal groups.",
 			"modal.rule_editor.guided.who_qualifies_info_title":         "Who qualifies",
-			"modal.rule_editor.guided.who_qualifies_info_body":          "A vaccine row targets species, shed/tag stage, sex, and breed. Safety rules still run after this selector, so sick, ICU, quarantine, and pregnancy-month blocks are automatic.",
+			"modal.rule_editor.guided.who_qualifies_info_body":          "A vaccine row targets species, pen/tag stage, sex, and breed. Safety rules still run after this selector, so sick, ICU, quarantine, and pregnancy-month blocks are automatic.",
 			"modal.rule_editor.guided.set_below":                        "Set below",
 			"modal.rule_editor.guided.safety_title":                     "Automatic safety rules",
 			"modal.rule_editor.guided.read_only":                        "read-only",
@@ -5550,7 +5550,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.guided.procurement_title":                "Procurement holding",
 			"modal.rule_editor.guided.procurement_hint":                 "Trusted history only means vaccines given by us in our parks or supervised procurement holding parks under SOP/video/physical validation.",
 			"modal.rule_editor.guided.procurement_info_title":           "Procurement holding",
-			"modal.rule_editor.guided.procurement_info_body":            "Only vaccines given by us in our parks or supervised procurement holding parks count as trusted history. Other outside claims start the normal schedule after the animal reaches our sheds.",
+			"modal.rule_editor.guided.procurement_info_body":            "Only vaccines given by us in our parks or supervised procurement holding parks count as trusted history. Other outside claims start the normal schedule after the animal reaches our pens.",
 			"modal.rule_editor.guided.procurement_second_visit_note":    "Pox/live second visit happens after the live-to-live spacing window; ET+TT dose 2 uses the 21-day course gap on the ET+TT matrix row.",
 			"modal.rule_editor.guided.proof_title":                      "Proof required",
 			"modal.rule_editor.guided.proof_hint":                       "Choose the proof fields doctors must capture during vaccination. Publish stays blocked if proof is empty.",
@@ -5607,7 +5607,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.impact_title_vaccination":                "Impact preview - selected dose row",
 			"modal.rule_editor.kpi.eligible_animals":                    "Eligible animals",
 			"modal.rule_editor.kpi.vaccination_cells":                   "Dose rows",
-			"modal.rule_editor.kpi.affected_sheds":                      "Affected sheds",
+			"modal.rule_editor.kpi.affected_sheds":                      "Affected pens",
 			"modal.rule_editor.kpi.estimated_days":                      "Estimated days",
 			"modal.rule_editor.label.daily_cap_suffix":                  "animals/operator/day cap",
 			"modal.rule_editor.label.doses_available":                   "doses available",
@@ -5623,7 +5623,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.impact_plan_capacity":                    "Capacity",
 			"modal.rule_editor.impact_method_title":                     "How the numbers are calculated",
 			"modal.rule_editor.impact_method_body":                      "Read-only aggregate estimate for the selected combo, read from the precomputed vaccination eligibility rollup (never a live goat scan). Eligible animals = usable in-care animals matching species, stage, sex, breed, health, and park scope. Dose rows show vaccine work volume for stock planning. Operator capacity uses eligible animals per available operator per day, so one animal with multiple same-day vaccines still consumes one operator slot. Stock appears only when the row has a vaccine inventory item.",
-			"modal.rule_editor.impact_scale_note":                       "Even across a 5,000-50,000-animal herd, this panel reads a precomputed eligibility rollup and does not scan goats or load them into the browser. It is a quick planning estimate; per-animal operator/date/shed/partition assignment happens after publish.",
+			"modal.rule_editor.impact_scale_note":                       "Even across a 5,000-50,000-animal herd, this panel reads a precomputed eligibility rollup and does not scan goats or load them into the browser. It is a quick planning estimate; per-animal operator/date/pen/partition assignment happens after publish.",
 			"modal.rule_editor.label.draft_saved":                       "draft saved",
 			"modal.rule_editor.message.preview_failed":                  "preview failed",
 			"modal.rule_editor.label.rule_singular":                     "rule",
@@ -5932,9 +5932,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"builder.scan.note":                 "Operators scan the Animal ID; unreadable scans are rejected.",
 			"builder.scan.mode_label":           "Scan mode",
 			"builder.scan.single_hint":          "Operator scans / selects one goat.",
-			"builder.scan.multi_hint":           "Operator scans every goat in the shed — one batched session.",
+			"builder.scan.multi_hint":           "Operator scans every goat in the pen — one batched session.",
 			"builder.preview.scan_add":          "Scan goat",
-			"builder.gates.subject_hint":        "Batch = one proof for the whole shed session. Per-goat = a proof per animal.",
+			"builder.gates.subject_hint":        "Batch = one proof for the whole pen session. Per-goat = a proof per animal.",
 			"builder.boolean.note":              "Yes / No answer.",
 			"builder.logic.title":               "Conditional logic",
 			"builder.logic.add":                 "Only show this question when…",
@@ -6315,7 +6315,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			Options: []domain.Option{
 				option("config", "Config rule published", "protocol version goes live", "ok"),
 				option("obligation", "Obligation generated", "per goat / dose against eligible cohorts", "ok"),
-				option("drive", "Drive / session opened", "shed-drive batch for the cohort", "info"),
+				option("drive", "Drive / session opened", "pen-drive batch for the cohort", "info"),
 				option("sop", "SOP task started", "step template expands into field tasks", "info"),
 				option("proof", "Proof uploaded", "one live in-app camera video set per goat", "info"),
 				option("verify", "Verification", "accept / reject / request rework", "warn"),
@@ -6416,8 +6416,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				ID: "drive_steps",
 				Options: []domain.Option{
 					option("target", "Target", "Drive target|matching goats by stage · age · park — never random individuals", "ok"),
-					option("group", "Group", "drive batches|matching goats grouped by park/date, with shed drilldown", "info"),
-					option("route", "Route", "PC + shed owners|park/PC owner coordinates; shed Manager/Backup executes shed list", "info"),
+					option("group", "Group", "drive batches|matching goats grouped by park/date, with pen drilldown", "info"),
+					option("route", "Route", "PC + pen owners|park/PC owner coordinates; pen Manager/Backup executes pen list", "info"),
 					option("execute", "Execute", "proof per goat|FEFO dose consumed, posted on verify", "warn"),
 				},
 			},
@@ -6440,8 +6440,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				ID: "new_drive_steps",
 				Options: []domain.Option{
 					option("target", "Target", "Drive target|stage · age · park", "ok"),
-					option("group", "Group", "drive batches|park/date batch with shed drilldown", "info"),
-					option("route", "Route", "PC + shed owners|manager / backup assignment", "info"),
+					option("group", "Group", "drive batches|park/date batch with pen drilldown", "info"),
+					option("route", "Route", "PC + pen owners|manager / backup assignment", "info"),
 					option("execute", "Execute", "proof per goat|proof gates before consume", "warn"),
 				},
 			},
@@ -6761,7 +6761,7 @@ func configOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("tenant", "Whole tenant (all parks)", "One daily cap for the whole tenant", "ok"),
 				{Key: "center", Label: "Per center", Enabled: false, DisabledReason: "Per-center caps are not available yet — planning uses the tenant-wide cap."},
-				{Key: "shed", Label: "Per shed", Enabled: false, DisabledReason: "Per-shed caps are not available yet — planning uses the tenant-wide cap."},
+				{Key: "shed", Label: "Per pen", Enabled: false, DisabledReason: "Per-pen caps are not available yet — planning uses the tenant-wide cap."},
 			},
 		},
 		{
@@ -6774,7 +6774,7 @@ func configOptionGroups() []domain.OptionGroup {
 			ID: "rule_categories",
 			Options: []domain.Option{
 				option("vaccination", "vaccination", "", ""),
-				option("feed_direction", "feed_direction", "Protocol-rule parameter templates for Feed Direction. The ration grid, shed factors, session template and dispatch clock are authored in Feed Config, not here.", "info"),
+				option("feed_direction", "feed_direction", "Protocol-rule parameter templates for Feed Direction. The ration grid, feed factors, session template and dispatch clock are authored in Feed Config, not here.", "info"),
 			},
 		},
 		{
@@ -6909,7 +6909,7 @@ func configOptionGroups() []domain.OptionGroup {
 		{
 			ID: "proof_requirement_tokens",
 			Options: []domain.Option{
-				option("shed", "Shed proof", "capture the shed/tag where the animal was vaccinated", "info"),
+				option("shed", "Pen proof", "capture the pen/tag where the animal was vaccinated", "info"),
 				option("vial", "Vial number", "record the vial used for the dose", "info"),
 				option("dose", "Dose given", "record the administered dose", "info"),
 				option("lot", "Lot number", "record the vaccine batch/lot", "info"),
@@ -6999,7 +6999,7 @@ func configOptionGroups() []domain.OptionGroup {
 			ID: "feed_classes",
 			Options: []domain.Option{
 				option("all_reviewed_cohorts", "all reviewed cohorts", "Resolver covers every approved feed cohort selected by source rows.", ""),
-				option("adult_breed_stage", "adult: breed + shed tag/stage", "Adult ration keys come from reviewed breed plus tag/stage dimensions.", ""),
+				option("adult_breed_stage", "adult: breed + pen tag/stage", "Adult ration keys come from reviewed breed plus tag/stage dimensions.", ""),
 				option("kid_weight_adg", "kid: weight band + ADG", "Kid ration keys use weight band and target growth, not raw age alone.", ""),
 			},
 		},
@@ -7013,7 +7013,7 @@ func configOptionGroups() []domain.OptionGroup {
 			ID: "feed_units",
 			Options: []domain.Option{
 				option("kg_as_fed", "kg as-fed", "Field packing/distribution quantity; nutrient conversions stay internal.", ""),
-				option("g_per_day", "g/day as-fed", "Per-cohort ration-table quantity before shed/session aggregation.", ""),
+				option("g_per_day", "g/day as-fed", "Per-cohort ration-table quantity before pen/session aggregation.", ""),
 				option("percent", "percent", "Validation threshold or factor; never promoted from example without review.", ""),
 				option("slot_weight_percent", "slot weight %", "Serving slot split weight; active slots must cover the full daily quantity.", ""),
 			},
@@ -7029,10 +7029,10 @@ func configOptionGroups() []domain.OptionGroup {
 		{
 			ID: "feed_source_tables",
 			Options: []domain.Option{
-				option("counting_db_counts", "Counting DB count tabs", "Date/Farm/Shed/Shed Tag/Breed/Age/Count source grain.", ""),
+				option("counting_db_counts", "Counting DB count tabs", "Date/Farm/Pen/Pen Tag/Breed/Age/Count source grain.", ""),
 				option("feed_validation_tables", "CPT/CBE Validation + Validation-BW", "Feed vectors, energy, DM, wastage, breed/tag requirements, and BW thresholds.", ""),
 				option("feed_energy_protein", "Feed-Energy-Protein", "Breed and pregnancy/non-pregnancy/mother/milking energy/protein rows.", ""),
-				option("supply_planning", "CPT/CBE Supply Planning", "Per-feed quantity planning by date, farm, shed, tag, breed, age, count.", ""),
+				option("supply_planning", "CPT/CBE Supply Planning", "Per-feed quantity planning by date, farm, pen, tag, breed, age, count.", ""),
 				option("session_template", "Template", "Per-farm sessions and feed sets; default slots are not code constants.", ""),
 				option("execution_forms", "Packing, transport, consumption/wastage forms", "Proof, processed, and reconciliation evidence for stage obligations.", ""),
 			},
@@ -7050,8 +7050,8 @@ func configOptionGroups() []domain.OptionGroup {
 		{
 			ID: "feed_dimension_keys",
 			Options: []domain.Option{
-				option("park_shed_breed_horizon", "park + shed + breed + horizon", "Physical count/projection grain from Counts/Shifting.", ""),
-				option("shed_tag_stage", "shed tag / stage", "Resolver evidence; do not infer from workbook text alone.", ""),
+				option("park_shed_breed_horizon", "park + pen + breed + horizon", "Physical count/projection grain from Counts/Shifting.", ""),
+				option("shed_tag_stage", "pen tag / stage", "Resolver evidence; do not infer from workbook text alone.", ""),
 				option("breed_alias", "breed alias", "Normalize source labels before count matching and ration lookup.", ""),
 				option("age_stage", "age / stage", "Normalize Age through reference data; raw age buckets are not ration keys.", ""),
 				option("sex_tag", "sex tag", "Includes F2-Male/F2-Female style tag contamination that must be resolved.", ""),
@@ -7071,7 +7071,7 @@ func configOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("source_hash_required", "source hash required", "Every import/config row carries source checksum and reviewer metadata.", ""),
 				option("alias_reference_match", "alias/reference match", "Unresolved breed, tag, age/stage, sex, feed item, or unit blocks.", ""),
-				option("resolver_coverage", "resolver coverage", "Every shed+breed projection row must resolve to approved ration cohort context.", ""),
+				option("resolver_coverage", "resolver coverage", "Every pen+breed projection row must resolve to approved ration cohort context.", ""),
 				option("ratio_not_global", "ratio is not global", "80/20 and similar values remain row-level reviewed data, not code constants.", ""),
 				option("slot_weights_sum", "slot weights cover 100%", "Active slot weights must sum to the full daily as-fed quantity.", ""),
 				option("quantity_numeric_asfed", "quantity is numeric as-fed", "Field instructions use as-fed quantity; DM/wastage are internal calculations.", ""),
@@ -7084,7 +7084,7 @@ func configOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("ration_per_cohort", "ration per cohort", "Per approved cohort and feed item.", ""),
 				option("projected_count_join", "projected count join", "Join count projection to ration context through reviewed resolver.", ""),
-				option("daily_asfed_shed_total", "daily as-fed shed total", "Daily shed/feed totals before slot split.", ""),
+				option("daily_asfed_shed_total", "daily as-fed pen total", "Daily pen/feed totals before slot split.", ""),
 				option("session_split_quantities", "session split quantities", "Per slot and feed item, using published slot weights.", ""),
 				option("stage_obligations", "stage obligations", "Packing, transport, consumption/wastage, bridge, proof, verification, rework.", ""),
 				option("reconciliation_state", "reconciliation state", "Generated, packed, transported, consumed, wasted, proofed, reconciled.", ""),
@@ -7134,7 +7134,7 @@ func sopOptionGroups() []domain.OptionGroup {
 				option("select", "select", "", ""),
 				option("multiselect", "multiselect", "", ""),
 				option("goat_scan", "Animal ID scan", "", ""),
-				option("shed_picker", "shed picker", "", ""),
+				option("shed_picker", "pen picker", "", ""),
 				option("vaccine_batch_picker", "vaccine batch picker", "", ""),
 				option("medicine_picker", "medicine picker", "", ""),
 				option("photo_proof", "photo proof", "", ""),
@@ -7187,7 +7187,7 @@ func sopOptionGroups() []domain.OptionGroup {
 			ID: "sop_scan_modes",
 			Options: []domain.Option{
 				option("single", "Single goat", "", ""),
-				option("multi", "Multiple goats (whole shed / batch)", "", ""),
+				option("multi", "Multiple goats (whole pen / batch)", "", ""),
 			},
 		},
 	}
@@ -7298,7 +7298,7 @@ func liveTrackerOptionGroups() []domain.OptionGroup {
 				option("scan_duplicate", "duplicate scan attempt", "", "warn"),
 				option("scan_unknown", "unrecognised scan attempt", "", "warn"),
 				option("administration", "dose recorded", "", "pur"),
-				// obligation_status_events is per-ANIMAL closure. Calling it "shed submitted" named a
+				// obligation_status_events is per-ANIMAL closure. Calling it "pen submitted" named a
 				// shed-level action on an animal-grain count; a real shed submission lives in
 				// sop_submissions and is not read by this feed at all.
 				option("obligation_closed", "obligation closed", "", "info"),
@@ -7309,7 +7309,7 @@ func liveTrackerOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("extra_attempts", "extra attempts", "same animals re-scanned; duplicates ignored, flagged for verifier note", "warn"),
 				option("idle_operator", "idle operator", "no field activity for over 90 minutes with work remaining", "dng"),
-				option("slow_shed", "slow shed", "well under a quarter done this far into the drive", "warn"),
+				option("slow_shed", "slow pen", "well under a quarter done this far into the drive", "warn"),
 			},
 		},
 		{
@@ -7387,8 +7387,8 @@ func feedOptionGroups() []domain.OptionGroup {
 			// third path, and the distinction changes what the number means.
 			ID: "feed_workflow",
 			Options: []domain.Option{
-				option("normal", "Per-head (normal)", "Quantity derived: projected head count × grams per head × shed factor", "ok"),
-				option("experiment", "Experiment (hand-entered)", "Hand-entered grams per animal for the operational pen, multiplied by its live head count; an undivided shed is its single pen; an older cell holds a whole-pen total that is multiplied by nothing", "pur"),
+				option("normal", "Per-head (normal)", "Quantity derived: projected head count × grams per head × feed factor", "ok"),
+				option("experiment", "Experiment (hand-entered)", "Hand-entered grams per animal for the operational pen, multiplied by its live head count; an older cell holds a whole-pen total that is multiplied by nothing", "pur"),
 			},
 		},
 		{
@@ -7399,7 +7399,7 @@ func feedOptionGroups() []domain.OptionGroup {
 			ID: "feed_row_status",
 			Options: []domain.Option{
 				option("ok", "Planned", "A rate is configured and a quantity was computed", "ok"),
-				option("blocked", "Blocked", "No authored ration for this group/tag/item — this shed will NOT be fed until one exists. Not zero kg.", "dng"),
+				option("blocked", "Blocked", "No authored ration for this group/tag/item — this pen will NOT be fed until one exists. Not zero kg.", "dng"),
 			},
 		},
 		{
@@ -7409,7 +7409,7 @@ func feedOptionGroups() []domain.OptionGroup {
 			ID: "feed_quantity_states",
 			Options: []domain.Option{
 				option("planned", "Planned", "Authored rate greater than zero", "ok"),
-				option("configured_zero", "Configured zero", "Authored 0 g/head — correct and deliberate (K0/K1 kids on milk). The shed IS configured.", "info"),
+				option("configured_zero", "Configured zero", "Authored 0 g/head — correct and deliberate (K0/K1 kids on milk). The pen IS configured.", "info"),
 				option("not_configured", "No ration configured", "No authored rate at all. Blocking, not zero.", "dng"),
 			},
 		},
@@ -7477,8 +7477,8 @@ func feedOptionGroups() []domain.OptionGroup {
 			// (feed_experiment_config.absolute_kg), and the sheet is served in kg as-fed.
 			ID: "feed_quantity_units",
 			Options: []domain.Option{
-				option("g_per_head_per_day", "g/head/day", "Authored ration rate, before the shed factor and session split", ""),
-				option("kg", "kg as-fed", "Computed shed/session quantity, and the unit experiment sheds are authored in", ""),
+				option("g_per_head_per_day", "g/head/day", "Authored ration rate, before the feed factor and session split", ""),
+				option("kg", "kg as-fed", "Computed pen/session quantity, and the unit experiment pens are authored in", ""),
 			},
 		},
 		{
@@ -7542,7 +7542,7 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 			ID: "herd_filter_extra_facets",
 			Options: []domain.Option{
 				option("age_cohort", "Age Cohort", "K0 / K1 / K2", ""),
-				option("shed", "Shed", "ICU-1 / K3 / Mother", ""),
+				option("shed", "Pen", "ICU-1 / K3 / Mother", ""),
 				option("repro_stage", "Pregnancy / Lactation Stage", "pregnant / milking / open", ""),
 				option("lifecycle", "Status", "active / under_treatment / sold", ""),
 				option("source_entry", "Source Entry State", "pending / accepted / blocked", ""),
@@ -7560,7 +7560,7 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 				option("animal_identifier_2", "Tag 2", "", ""),
 				option("species", "Species", "", ""),
 				option("park", "Park", "", ""),
-				option("shed", "Shed", "", ""),
+				option("shed", "Pen", "", ""),
 				option("partition_label", "Partition", "", ""),
 				option("breed", "Breed", "", ""),
 				option("sex", "Sex", "", ""),
@@ -7578,8 +7578,8 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 			ID: "shed_import_columns",
 			Options: []domain.Option{
 				option("park", "Park", "", ""),
-				option("shed_code", "Shed code", "", ""),
-				option("shed_name", "Shed name", "", ""),
+				option("shed_code", "Pen code", "", ""),
+				option("shed_name", "Pen name", "", ""),
 				option("display_order", "Display order", "", ""),
 				option("notes", "Notes", "", ""),
 			},
@@ -7735,7 +7735,7 @@ func calendarOptionGroups() []domain.OptionGroup {
 			ID: "calendar_event_types",
 			Options: []domain.Option{
 				option("vaccination_dose_due", "Dose due", "", ""),
-				option("vaccination_drive", "Shed / cohort drive", "", ""),
+				option("vaccination_drive", "Pen / cohort drive", "", ""),
 				option("vaccination_history", "Completed vaccination history", "", ""),
 				option("vaccination_campaign", "Campaign / catch-up", "", ""),
 				option("vaccination_booster_due", "Booster due", "", ""),
@@ -8165,7 +8165,7 @@ func weighingWeightsOptionGroups() []domain.OptionGroup {
 			ID: "weighing_mode", Options: []domain.Option{
 				option("all", "All", "Both ways of weighing", ""),
 				option("individual_animal", "Per animal", "Each kid scanned and weighed on its own", "info"),
-				option("per_shed_partition", "Lump sum", "One total for the shed, with a head count", ""),
+				option("per_shed_partition", "Lump sum", "One total for the pen, with a head count", ""),
 			},
 		},
 		// `weighing_period` (28 / 84 days) is deliberately GONE, not left as an unused vocabulary: the
@@ -8248,7 +8248,7 @@ func humanLabel(key string) string {
 	case "health_selection":
 		return "Health / Selection"
 	case "shed_stage":
-		return "Shed · stage"
+		return "Pen · stage"
 	case "drive_due":
 		return "Drive · due"
 	case "work_state":
@@ -8269,8 +8269,22 @@ func humanLabel(key string) string {
 		return "Arrival state"
 	case "entry_date":
 		return "Entry date"
+	// The operational location is called a PEN on every screen. The COLUMN KEYS stay
+	// shed_* -- they are the data contract every read model already emits -- so the label
+	// is named here rather than left to the default de-underscoring, which would render
+	// "Shed".
+	case "shed":
+		return "Pen"
+	case "sheds":
+		return "Pens"
+	case "shed_tag":
+		return "Pen tag"
+	case "shed_name":
+		return "Pen name"
+	case "shed_code":
+		return "Pen code"
 	// Feed vertical. Only keys whose default de-underscored form would be wrong or
-	// ambiguous are listed; park/shed/shed_tag/breed/session/head_count/feed_item/status
+	// ambiguous are listed; park/breed/session/head_count/feed_item/status
 	// already derive correctly.
 	case "quantity_kg":
 		return "Quantity (kg)"
@@ -8290,7 +8304,7 @@ func humanLabel(key string) string {
 		// Unit AND period: the stored value is grams per head per DAY, before the session split.
 		return "Grams / head / day"
 	case "multiplier":
-		return "Shed factor"
+		return "Feed factor"
 	// The experiment sheds' columns. Both need naming because their default de-underscored forms
 	// ("Experiment category", "Head count") are ambiguous in exactly the place it matters.
 	case "experiment_category":

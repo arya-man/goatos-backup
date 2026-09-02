@@ -30,7 +30,7 @@ func (e *countsBreakdownExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
 		Name:        "counts_breakdown",
 		Route:       domain.RouteAPI,
-		Description: "Animal counts broken down by park, shed, partition, breed, sex, stage, or other dimensions",
+		Description: "Animal counts broken down by park, pen, partition, breed, sex, stage, or other dimensions",
 		// partition_label is advertised and honored: buildCountsReader
 		// (backend/internal/bootstrap/ceoai_readers.go) filters returned rows
 		// to the named partition and renders every scope through
@@ -81,7 +81,7 @@ func (e *vaccinationShedSummaryExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
 		Name:        "vaccination_shed_summary",
 		Route:       domain.RouteAPI,
-		Description: "Vaccination status summary by shed (due, completed, overdue)",
+		Description: "Vaccination status summary by pen (due, completed, overdue)",
 		Params:      []string{"park_label", "shed_id"},
 	}
 }
@@ -171,7 +171,7 @@ func (e *feedDirectionTodayExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
 		Name:        "feed_direction_today",
 		Route:       domain.RouteAPI,
-		Description: "Feed direction for today by shed",
+		Description: "Feed direction for today by pen",
 		Params:      []string{"park_label", "shed_id", "as_of"},
 	}
 }
@@ -260,7 +260,7 @@ func (e *workforceExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
 		Name:        "admin_roster_coverage",
 		Route:       domain.RouteAPI,
-		Description: "Roster coverage by scope (position/shed)",
+		Description: "Roster coverage by scope (position/pen)",
 		// position_id/start_date/end_date were previously advertised but
 		// workforceports.ListCoverageParams has none of those fields -- the
 		// pipeline could never honor them. scope_type/scope_id ARE real

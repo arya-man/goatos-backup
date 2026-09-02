@@ -138,7 +138,7 @@ func (h *Handler) respondWeightCorrection(w nethttp.ResponseWriter, r *nethttp.R
 		// editable in its current state" would leave her with no next step.
 		httpresponse.WriteError(w, r, h.log, nethttp.StatusConflict, errorEnvelope{
 			Code:    "weighing_bucket_closed",
-			Message: "This shed's weighing is already closed. Ask a manager to reopen it before correcting the weight.",
+			Message: "This pen's weighing is already closed. Ask a manager to reopen it before correcting the weight.",
 			TraceID: traceID(r),
 		}, nil)
 		return

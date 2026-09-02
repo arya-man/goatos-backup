@@ -1083,6 +1083,11 @@ func (s *RosterService) enrichPositions(ctx context.Context, tenantID string, po
 func formatPositionCode(code string) string {
 	words := strings.Split(code, "_")
 	for i, word := range words {
+		// The operational location is called a PEN on every screen; the position CODE
+		// (shed_manager, shed_backup_manager) is the stored contract and stays as it is.
+		if word == "shed" {
+			word = "pen"
+		}
 		words[i] = strings.ToUpper(word[:1]) + word[1:]
 	}
 	return strings.Join(words, " ")

@@ -798,7 +798,7 @@ function subjectCell(item: VerificationQueueItem): React.ReactNode {
 
   // The headline prefers the label's own descriptive segment when it carries MORE than the shed
   // name ("Godel 1 - Part 2" beats "Godel 1"); otherwise the resolved location leads and the
-  // remaining segments ("Whole shed", "Session 2") drop to the meta line.
+  // remaining segments ("Whole pen", "Session 2") drop to the meta line.
   const descriptive = rest.find((segment) => location && segment.startsWith(location)) || "";
   const headline = descriptive || location || rest[0] || item.subject_label?.trim() || "—";
   const meta = rest.filter((segment) => segment !== headline && segment !== descriptive);

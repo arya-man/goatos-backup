@@ -2311,7 +2311,7 @@ func shedLevelRoundSubmitted(state string) bool {
 // stray animal to the operator instead of losing it.
 func shedCompletionReadiness(expected, handled, proofReady int64) (bool, *string) {
 	if expected <= 0 {
-		reason := "No animals are expected in this shed for this drive yet."
+		reason := "No animals are expected in this pen for this drive yet."
 		return false, &reason
 	}
 	if handled < expected {
@@ -2319,7 +2319,7 @@ func shedCompletionReadiness(expected, handled, proofReady int64) (bool, *string
 		return false, &reason
 	}
 	if handled > expected {
-		reason := fmt.Sprintf("%d scanned animals are not expected in this shed for this drive.", handled-expected)
+		reason := fmt.Sprintf("%d scanned animals are not expected in this pen for this drive.", handled-expected)
 		return false, &reason
 	}
 	if proofReady < expected {
@@ -2327,7 +2327,7 @@ func shedCompletionReadiness(expected, handled, proofReady int64) (bool, *string
 		return false, &reason
 	}
 	if proofReady > expected {
-		reason := fmt.Sprintf("%d proof clips belong to animals not expected in this shed for this drive.", proofReady-expected)
+		reason := fmt.Sprintf("%d proof clips belong to animals not expected in this pen for this drive.", proofReady-expected)
 		return false, &reason
 	}
 	return true, nil
@@ -2338,7 +2338,7 @@ func shedCompletionReadinessForMode(expected, handled, proofReady int64, proofMo
 		return shedCompletionReadiness(expected, handled, proofReady)
 	}
 	if expected <= 0 {
-		reason := "No animals are expected in this shed for this drive yet."
+		reason := "No animals are expected in this pen for this drive yet."
 		return false, &reason
 	}
 	if handled < expected {
@@ -2346,7 +2346,7 @@ func shedCompletionReadinessForMode(expected, handled, proofReady int64, proofMo
 		return false, &reason
 	}
 	if handled > expected {
-		reason := fmt.Sprintf("%d scanned animals are not expected in this shed for this drive.", handled-expected)
+		reason := fmt.Sprintf("%d scanned animals are not expected in this pen for this drive.", handled-expected)
 		return false, &reason
 	}
 	if minProofs <= 0 {
@@ -2356,11 +2356,11 @@ func shedCompletionReadinessForMode(expected, handled, proofReady int64, proofMo
 		maxProofs = 5
 	}
 	if proofReady < minProofs {
-		reason := fmt.Sprintf("%d shed video(s) still need proof.", minProofs-proofReady)
+		reason := fmt.Sprintf("%d pen video(s) still need proof.", minProofs-proofReady)
 		return false, &reason
 	}
 	if proofReady > maxProofs {
-		reason := fmt.Sprintf("At most %d shed video(s) can be submitted.", maxProofs)
+		reason := fmt.Sprintf("At most %d pen video(s) can be submitted.", maxProofs)
 		return false, &reason
 	}
 	return true, nil

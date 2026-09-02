@@ -64,7 +64,7 @@ export function HerdSignalsFilters({
         </svg>
         <input
           type="search"
-          placeholder="Search animal, tag ID, BLE MAC, shed or gateway"
+          placeholder="Search animal, tag ID, BLE MAC, pen or gateway"
           value={q}
           onChange={(event) => onSearchChange(event.target.value)}
           autoComplete="off"
@@ -92,7 +92,7 @@ export function HerdSignalsFilters({
       <span className="fsel">
         Shed
         <select
-          aria-label="Shed"
+          aria-label="Pen"
           value={params.shedId ?? ""}
           onChange={(event) => go(herdSignalsHref(params, { hs_shed: event.target.value || undefined }))}
         >
