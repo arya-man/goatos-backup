@@ -12,6 +12,8 @@
     <string name="proof_camera_shifting_instruction">पशु और गंतव्य शेड साफ़ दिखाई देने चाहिए</string>
     <string name="proof_camera_shifting_feed_given_title">चारा देते हुए रिकॉर्ड करें</string>
     <string name="proof_camera_shifting_feed_given_instruction">चारा देते समय निर्धारित चारा और स्थानांतरित पशु साफ़ दिखाई देने चाहिए</string>
+    <string name="proof_camera_pen_return_title">बाड़े में वापसी का वीडियो रिकॉर्ड करें</string>
+    <string name="proof_camera_pen_return_instruction">पशु, उसका कान टैग और पंजीकृत बाड़ा साफ़ दिखाई देने चाहिए</string>
     <string name="proof_camera_feed_distribution_title">चारा वितरण रिकॉर्ड करें</string>
     <string name="proof_camera_feed_distribution_instruction">चारा वितरण का काम साफ़ दिखाई देना चाहिए</string>
     <string name="proof_camera_water_distribution_title">पानी वितरण रिकॉर्ड करें</string>

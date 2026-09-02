@@ -691,3 +691,96 @@ data class CountsPromoteIdentifierResponseDto(
     @SerialName("goat_id") val goatId: String = "",
     @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
 )
+
+// ---------------------------------------------------------------------------
+// READ — GET /app/counts/pen-reconciliation/cards  (the Reconcile tab)
+// ---------------------------------------------------------------------------
+
+/**
+ * One "wrong pen" card raised by a weighing submit (`CountsPenReconciliationCard`). The herd
+ * register is TRUTH: the animal was scanned in a pen that disagrees with its registered pen, and
+ * the operator physically returns it. Every field carries a default so a contract addition never
+ * breaks decode of an already-cached Room row.
+ *
+ * [foundOperationalLocationDisplay] and [registeredOperationalLocationDisplay] are BACKEND-COMPOSED
+ * pen labels; render them verbatim and never rebuild them from shed name + partition.
+ */
+@Serializable
+data class CountsPenReconciliationCardDto(
+    @SerialName("card_id") val cardId: String = "",
+    /** Backend-owned workflow state: open / pending_verification / rework / completed. */
+    @SerialName("status") val status: String = "",
+    /** Backend-owned row action. Only `execute` rows open the return flow. */
+    @SerialName("primary_action_key") val primaryActionKey: String = "none",
+    @SerialName("goat_id") val goatId: String = "",
+    @SerialName("goat_display_id") val goatDisplayId: String = "",
+    /** The tag exactly as the weighing operator scanned it — what the field operator reads. */
+    @SerialName("scanned_identifier") val scannedIdentifier: String = "",
+    @SerialName("found_location_id") val foundLocationId: String = "",
+    @SerialName("found_partition_label") val foundPartitionLabel: String? = null,
+    @SerialName("found_operational_location_display") val foundOperationalLocationDisplay: String = "",
+    @SerialName("registered_shed_id") val registeredShedId: String = "",
+    @SerialName("registered_shed_name") val registeredShedName: String = "",
+    @SerialName("registered_partition_label") val registeredPartitionLabel: String? = null,
+    @SerialName("registered_operational_location_display") val registeredOperationalLocationDisplay: String = "",
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("park_name") val parkName: String? = null,
+    @SerialName("raised_at") val raisedAt: String = "",
+    @SerialName("raised_at_ist") val raisedAtIst: String = "",
+    @SerialName("proof_ref") val proofRef: String? = null,
+    @SerialName("completed_at") val completedAt: String? = null,
+    @SerialName("verified_at") val verifiedAt: String? = null,
+    /** The verifier's reason when evidence was rejected; render verbatim. */
+    @SerialName("rework_reason") val reworkReason: String? = null,
+)
+
+/** Whole-filter truth for the Reconcile status chips — never re-derived from the fetched page. */
+@Serializable
+data class CountsPenReconciliationStatusCountsDto(
+    val all: Int = 0,
+    val open: Int = 0,
+    @SerialName("pending_verification") val pendingVerification: Int = 0,
+    val rework: Int = 0,
+    val completed: Int = 0,
+)
+
+/**
+ * One keyset page of Reconcile cards. [nextCursor] is absent on the last page. Keyset, not offset:
+ * the queue changes as weighing submits raise cards and operators clear them.
+ */
+@Serializable
+data class CountsPenReconciliationListResponseDto(
+    @SerialName("items") val items: List<CountsPenReconciliationCardDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+    @SerialName("status_counts") val statusCounts: CountsPenReconciliationStatusCountsDto = CountsPenReconciliationStatusCountsDto(),
+)
+
+// ---------------------------------------------------------------------------
+// WRITE — POST /app/counts/pen-reconciliation/cards/{card_id}/complete
+// ---------------------------------------------------------------------------
+
+/**
+ * The Reconcile "Mark done" body. [proofRef] is MANDATORY: the proof_artifact id of the video
+ * proving the animal was returned to its registered pen. A blank/absent value is rejected 422
+ * proof_required. This write never rewrites the herd register — the register is already truth.
+ */
+@Serializable
+data class CountsPenReconciliationCompleteRequestDto(
+    @SerialName("proof_ref") val proofRef: String,
+)
+
+/**
+ * The complete outcome. [idempotentReplay] is true when the result came from a previous identical
+ * completion rather than a new submission — the outbox replays under one stable key on every retry,
+ * so this is the normal outcome of a resend, not an error.
+ */
+@Serializable
+data class CountsPenReconciliationCompleteResponseDto(
+    @SerialName("card_id") val cardId: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("scanned_identifier") val scannedIdentifier: String = "",
+    @SerialName("registered_operational_location_display") val registeredOperationalLocationDisplay: String = "",
+    @SerialName("completed_at") val completedAt: String? = null,
+    @SerialName("completed_at_ist") val completedAtIst: String? = null,
+    @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
+)

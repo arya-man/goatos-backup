@@ -12,6 +12,8 @@
     <string name="proof_camera_shifting_instruction">ಪ್ರಾಣಿಗಳು ಮತ್ತು ತಲುಪುವ ಶೆಡ್ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_shifting_feed_given_title">ಮೇವು ನೀಡುವುದನ್ನು ದಾಖಲಿಸಿ</string>
     <string name="proof_camera_shifting_feed_given_instruction">ಮೇವು ನೀಡುವಾಗ ನಿಗದಿತ ಮೇವು ಮತ್ತು ಸ್ಥಳಾಂತರಿಸಿದ ಪ್ರಾಣಿಗಳು ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_pen_return_title">ಪೆನ್‌ಗೆ ಮರಳಿಸುವ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_pen_return_instruction">ಪ್ರಾಣಿ, ಅದರ ಕಿವಿ ಟ್ಯಾಗ್ ಮತ್ತು ನೋಂದಾಯಿತ ಪೆನ್ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_feed_distribution_title">ಮೇವು ವಿತರಣೆಯನ್ನು ದಾಖಲಿಸಿ</string>
     <string name="proof_camera_feed_distribution_instruction">ಮೇವು ವಿತರಣೆಯ ಕಾರ್ಯ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_water_distribution_title">ನೀರು ವಿತರಣೆಯನ್ನು ದಾಖಲಿಸಿ</string>

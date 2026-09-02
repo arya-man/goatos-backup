@@ -14,6 +14,7 @@ import sg.mesha.goatos.core.data.cache.CaptureEvidenceDraftEntity.Companion.SUBM
 /** The capture flows that keep durable drafts. One key per work-item family. */
 object CaptureFlow {
     const val SHIFTING = "shifting"
+    const val PEN_RECONCILIATION = "pen_reconciliation"
     const val FEED_DISTRIBUTION = "feed_distribution"
     const val FEED_PACKING = "feed_packing"
     const val FEED_WASTAGE = "feed_wastage"

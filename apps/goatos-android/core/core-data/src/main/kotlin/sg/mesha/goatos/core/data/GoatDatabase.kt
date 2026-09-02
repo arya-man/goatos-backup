@@ -109,6 +109,10 @@ import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.CaptureEvidenceDraftDao
 import sg.mesha.goatos.core.data.cache.CaptureEvidenceDraftEntity
+import sg.mesha.goatos.core.data.cache.PenReconciliationItemDao
+import sg.mesha.goatos.core.data.cache.PenReconciliationItemEntity
+import sg.mesha.goatos.core.data.cache.PenReconciliationRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.PenReconciliationRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ShiftingPendingItemDao
 import sg.mesha.goatos.core.data.cache.ShiftingPendingItemEntity
 import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyDao
@@ -257,6 +261,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         FeedWastageRemoteKeyEntity::class,
         ShiftingPendingItemEntity::class,
         ShiftingPendingRemoteKeyEntity::class,
+        PenReconciliationItemEntity::class,
+        PenReconciliationRemoteKeyEntity::class,
         AwaitingRfidItemEntity::class,
         AwaitingRfidRemoteKeyEntity::class,
         WorkflowCardEntity::class,
@@ -311,7 +317,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // a refresh of a paged list must not evict a detail cache that shares its rows.
     // (Authored as v47->48 on health-v1-development; renumbered on the 2026-08-29 rebase because
     // main had its own MIGRATION_47_48..50_51 by then.)
-    version = 52,
+    // v53 (see [MIGRATION_52_53]) adds the Herd Operations Reconcile pair
+    // (`pen_reconciliation_items` + `pen_reconciliation_remote_keys`): the keyset-paginated cache
+    // of "wrong pen" cards raised by weighing submits, shaped exactly like the shifting pending
+    // pair (docs/decisions/pen-reconciliation.md).
+    version = 53,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -462,6 +472,8 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun feedWastageRemoteKeyDao(): FeedWastageRemoteKeyDao
     abstract fun shiftingPendingItemDao(): ShiftingPendingItemDao
     abstract fun shiftingPendingRemoteKeyDao(): ShiftingPendingRemoteKeyDao
+    abstract fun penReconciliationItemDao(): PenReconciliationItemDao
+    abstract fun penReconciliationRemoteKeyDao(): PenReconciliationRemoteKeyDao
     abstract fun awaitingRfidItemDao(): AwaitingRfidItemDao
     abstract fun awaitingRfidRemoteKeyDao(): AwaitingRfidRemoteKeyDao
     abstract fun workflowCardDao(): WorkflowCardDao

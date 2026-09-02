@@ -91,6 +91,9 @@ import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
+import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.CountsPenReconciliationListResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
@@ -670,6 +673,20 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: CountsShiftingCancelRequestDto,
     ): CountsShiftingExecutionResponseDto
+
+    @GET("app/counts/pen-reconciliation/cards")
+    suspend fun listCountsPenReconciliationCards(
+        @Query("status") status: String?,
+        @Query("page_size") pageSize: Int?,
+        @Query("cursor") cursor: String?,
+    ): CountsPenReconciliationListResponseDto
+
+    @POST("app/counts/pen-reconciliation/cards/{card_id}/complete")
+    suspend fun completeCountsPenReconciliationCard(
+        @Path("card_id") cardId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsPenReconciliationCompleteRequestDto,
+    ): CountsPenReconciliationCompleteResponseDto
 
     @GET("feed-direction/preview")
     suspend fun getFeedDirectionPreview(
@@ -1607,6 +1624,24 @@ class RetrofitAppApi(
             shiftingEventId,
             idempotencyKey,
             CountsShiftingCancelRequestDto(reason = reason),
+        )
+
+    override suspend fun listCountsPenReconciliationCards(
+        status: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): CountsPenReconciliationListResponseDto =
+        service.listCountsPenReconciliationCards(status, pageSize, cursor)
+
+    override suspend fun completeCountsPenReconciliationCard(
+        cardId: String,
+        idempotencyKey: String,
+        proofRef: String,
+    ): CountsPenReconciliationCompleteResponseDto =
+        service.completeCountsPenReconciliationCard(
+            cardId,
+            idempotencyKey,
+            CountsPenReconciliationCompleteRequestDto(proofRef = proofRef),
         )
 
     override suspend fun getFeedDirectionPreview(

@@ -625,6 +625,10 @@ internal fun recorderCopyResources(prompt: ProofCapturePrompt): RecorderCopyReso
         R.string.proof_camera_shifting_feed_given_title,
         R.string.proof_camera_shifting_feed_given_instruction,
     )
+    ProofCapturePrompt.PEN_RECONCILIATION -> RecorderCopyResources(
+        R.string.proof_camera_pen_return_title,
+        R.string.proof_camera_pen_return_instruction,
+    )
     ProofCapturePrompt.FEED_DISTRIBUTION -> RecorderCopyResources(
         R.string.proof_camera_feed_distribution_title,
         R.string.proof_camera_feed_distribution_instruction,

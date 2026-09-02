@@ -1411,3 +1411,34 @@ val MIGRATION_51_52: Migration = object : Migration(51, 52) {
         )
     }
 }
+
+/**
+ * v52 -> v53: the Herd Operations Reconcile pair (docs/decisions/pen-reconciliation.md) — the
+ * keyset-paginated cache of "wrong pen" cards raised by weighing submits
+ * ([sg.mesha.goatos.core.data.cache.PenReconciliationItemEntity]) plus its opaque keyset remote
+ * key, shaped exactly like the shifting Pending pair ([MIGRATION_17_18]). Additive and
+ * non-destructive: no existing table is touched, so an installed APK carrying an unsynced write
+ * outbox upgrades in place without data loss.
+ *
+ * CREATE, not ALTER: an @Entity added to the @Database with no migration to create its table works
+ * on a fresh install and crashes every upgrade on open.
+ */
+val MIGRATION_52_53: Migration = object : Migration(52, 53) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pen_reconciliation_items` " +
+                "(`queryKey` TEXT NOT NULL, `cardId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`raisedAt` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `cardId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pen_reconciliation_items_queryKey_sortIndex` " +
+                "ON `pen_reconciliation_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pen_reconciliation_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+    }
+}

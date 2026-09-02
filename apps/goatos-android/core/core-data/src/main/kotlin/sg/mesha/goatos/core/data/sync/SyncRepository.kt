@@ -370,6 +370,26 @@ interface SyncRepository {
     ): AppResult<String> = AppResult.Err("shifting completion sync is not configured")
 
     /**
+     * Enqueues a Pen Reconciliation "Mark done"
+     * (`POST /app/counts/pen-reconciliation/cards/{card_id}/complete`) — the operator returned a
+     * strayed animal to its registered pen with the MANDATORY video
+     * (docs/decisions/pen-reconciliation.md).
+     *
+     * [groupKey] is the CARD ID, so the coupled video's PROOF_UPLOAD (same group) drains strictly
+     * BEFORE this completion and two actions on the same card never race. [proofOutboxItemId]
+     * names that PROOF_UPLOAD row; the dispatcher resolves its uploaded proof_id into `proof_ref`.
+     *
+     * [idempotencyKey] must be a STABLE caller-persisted key, never a timestamp-suffixed one: a
+     * resend collapses onto the original submission (idempotent_replay=true) instead of queueing a
+     * second verification.
+     */
+    suspend fun enqueuePenReconciliationComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("pen reconciliation completion sync is not configured")
+
+    /**
      * Enqueue a feed-direction shed-session completion. [groupKey] is the shed-session key so two
      * completions of the same shed-session drain strictly oldest-first. The optional video is a
      * SEPARATE [enqueueProofUpload], not carried here.
@@ -1241,6 +1261,24 @@ class DefaultSyncRepository(
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(
             ShiftingCancelPayload(shiftingEventId = groupKey, reason = reason),
+        ),
+    )
+
+    override suspend fun enqueuePenReconciliationComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.PEN_RECONCILIATION_COMPLETE,
+        // The card id partitions ordering: the mandatory video's PROOF_UPLOAD (same group) drains
+        // before this completion, and two actions on the same card never race.
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            PenReconciliationCompletePayload(
+                cardId = groupKey,
+                proofOutboxItemId = proofOutboxItemId,
+            ),
         ),
     )
 

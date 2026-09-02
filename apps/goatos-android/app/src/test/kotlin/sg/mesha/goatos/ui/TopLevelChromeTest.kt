@@ -146,6 +146,8 @@ class TopLevelChromeTest {
             NavItem(key = "birth", label = "Birth", href = "/counts/birth"),
             NavItem(key = "death", label = "Death", href = "/counts/death"),
             NavItem(key = "shifting", label = "Shifting", href = "/counts/shifting"),
+            // The Reconcile tab (maintainer decision 2026-09-02): wrong-pen cards from weighing.
+            NavItem(key = "reconcile", label = "Reconcile", href = "/counts/reconcile"),
             // Milk Prep/Feeding moved to the "milk" module (maintainer decision 2026-07-31).
             // Approvals were removed from mobile (maintainer decision 2026-07-21): the Counts bar is
             // capture-only now, with no trailing Approval tab.
@@ -212,7 +214,7 @@ class TopLevelChromeTest {
         // capture-only (no You, and no Approval since approvals were removed from mobile). This is
         // the assertion that would fail if the client ever went back to appending a fixed tab.
         assertEquals(
-            listOf("/counts/birth", "/counts/death", "/counts/shifting"),
+            listOf("/counts/birth", "/counts/death", "/counts/shifting", "/counts/reconcile"),
             twoModules.barItems("counts", "/counts/birth").map { it.href },
         )
     }
@@ -434,6 +436,7 @@ class TopLevelChromeTest {
                 NavItem(key = "birth", label = "Birth", href = "/counts/birth"),
             NavItem(key = "death", label = "Death", href = "/counts/death"),
                 NavItem(key = "shifting", label = "Shifting", href = "/counts/shifting"),
+                NavItem(key = "reconcile", label = "Reconcile", href = "/counts/reconcile"),
                 // Milk Prep/Feeding now belong to the "milk" module, not Counts.
             ),
         )
@@ -443,7 +446,7 @@ class TopLevelChromeTest {
             modules = listOf(operatorCounts),
         )
         assertEquals(
-            listOf("/counts/birth", "/counts/death", "/counts/shifting"),
+            listOf("/counts/birth", "/counts/death", "/counts/shifting", "/counts/reconcile"),
             operatorState.barItems("counts", "/counts/birth").map { it.href },
         )
         // ...and no You route sneaks into the operator's L0 set.
