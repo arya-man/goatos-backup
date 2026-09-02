@@ -2675,8 +2675,22 @@ wrong location on every animal. It is labelled **"Pen name"**; bare `pen` keeps 
 Generalise: a template header label IS a parser input. Add the new name as an ALIAS and keep
 the old one, or every sheet already saved stops importing.
 
+**THREE SHAPES A SWEEP MISSES, all found by RENDERING the pages rather than re-reading the
+source.** (1) BARE LOWERCASE NOUNS -- `"pager.noun": "shed"`, `"schedule.unit.sheds": "sheds"` --
+which a sweep keyed on "has a space or starts with a capital" skips entirely, leaving pages
+reading "1-25 of 104 sheds" while the contract scan comes back clean. (2) JSX TEXT NODES --
+`<option>All sheds</option>`, a bare `Shed` label line -- which are not quoted, so a
+string-literal sweep cannot see them at all. (3) FARM DATA -- `procurement_vendor_catalog` holds
+the vendor category "Sheds Contractor", someone who BUILDS sheds; that is the farm's word about
+the outside world, not the product's word for a pen, and changing it is a maintainer decision.
+The rule that follows: decide by POSITION, never by spelling. The guard skips a named set of
+machine leaves (key, id, href, icon, data_source, param, columns) and treats everything else as
+copy, so an unanticipated copy shape fails closed instead of slipping through.
+
 Enforced by `adminui/app.TestBootstrapContractSaysPenNeverShed` (walks the whole served
-bootstrap JSON; mutation-tested), `TestColumnLabelsSpeakPenWhileTheKeysStayShed`,
+bootstrap JSON, keyed on PATH not spelling; mutation-tested),
+`admin-web features/counts/pen-vocabulary.test.mjs` (JSX text nodes; mutation-tested),
+`TestColumnLabelsSpeakPenWhileTheKeysStayShed`,
 `identity/app.TestImportHeaderAliasesSurviveThePenRename`,
 `workforce/app.TestPositionTitlesSayPenWhileTheCodesStayShed`, and admin-web
 `features/counts/pen-import-headers.test.mjs`. NOT yet done: the Android app's ~471 own

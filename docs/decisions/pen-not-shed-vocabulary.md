@@ -102,6 +102,28 @@ every sheet already saved. Add the new name as an **alias** and keep the old one
 
 ---
 
+## 4b. The three shapes a sweep misses, found by rendering the pages
+
+Reading the source found most of this. Rendering the pages found the rest, and all three
+misses were the same mistake: deciding whether a string is copy by looking at the string.
+
+1. **Bare lowercase nouns.** `"pager.noun": "shed"`, `"schedule.unit.sheds": "sheds"`,
+   `"label.shed_fallback": "shed"` -- eleven of them. A sweep that rewrites values containing
+   a space or starting with a capital skips every one, and the pages read
+   *"1-25 of 104 sheds"* while the contract scan came back clean.
+2. **JSX text nodes.** `<option>All sheds</option>` and a bare `Shed` label line are not
+   quoted, so a string-literal sweep cannot see them at all. Live Monitor kept its "Shed"
+   filter for exactly this reason.
+3. **Farm data.** `procurement_vendor_catalog` holds a vendor category **"Sheds Contractor"**
+   -- someone who builds sheds, a real trade. That is the farm's word about the outside
+   world, not the product's word for a pen, so it is a maintainer decision and is left as it
+   is.
+
+**The rule that follows:** decide by POSITION, not by spelling. The bootstrap guard skips a
+named set of machine leaves (`key`, `id`, `href`, `icon`, `data_source`, `param`, `columns`)
+and treats everything else as copy, so a copy shape nobody anticipated fails closed instead
+of slipping through. The JSX guard scans text between tags for the same reason.
+
 ## 5. How this is enforced
 
 | Check | What it catches |
@@ -111,11 +133,18 @@ every sheet already saved. Add the new name as an **alias** and keep the old one
 | `identity/app.TestImportHeaderAliasesSurviveThePenRename` | Every legacy import header still resolves to the same field, and the `pen`/`pen_name` collision stays resolved. |
 | `workforce/app.TestPositionTitlesSayPenWhileTheCodesStayShed` | Titles say pen, `position_code` does not move. |
 | `admin-web features/counts/pen-import-headers.test.mjs` | The downloaded template's own headers are the ones its parser accepts, and old sheets still import. |
+| `admin-web features/counts/pen-vocabulary.test.mjs` | JSX TEXT nodes, which no string-literal sweep can see. Mutation-tested. |
 
-`TestBootstrapContractSaysPenNeverShed` carries exactly **one** named exception:
-`modal.rule_editor.default_proof_policy`, a copy key no admin-web code reads, so its token list
-never reaches a screen. It is listed by name so removing the key fails the test loudly rather
-than quietly widening the exception.
+`TestBootstrapContractSaysPenNeverShed` carries exactly **two** named exceptions, both dead
+copy no screen renders: `modal.rule_editor.default_proof_policy` (a token list no admin-web
+code reads) and `vaccination_import_columns` (an option group with no consumer, whose labels
+are raw snake_case column names because it describes a CSV contract). They are listed by name
+so removing either key fails the test loudly rather than quietly widening the exception.
+
+**Verified on the running stack, 2026-09-02:** the served `/admin-web/bootstrap` contract, all
+42 page data-source endpoints it declares, and the rendered HTML of all **40** dashboard routes
+-- zero user-visible "shed" on any of them. The only occurrence anywhere is the vendor-category
+row named above.
 
 ---
 
