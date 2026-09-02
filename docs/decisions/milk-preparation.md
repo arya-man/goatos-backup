@@ -128,3 +128,40 @@ answers, proof state, watchlists, or completion state after cutover.
 RT-012 clinical escalation remains a separate Health-owned handoff. Milk Feeding preserves the
 refusal facts and durable watchlist needed by that future consumer but does not invent clinical
 diagnosis or treatment state.
+
+## UHT feed stock depletes from the preparation, exactly once
+
+Maintainer decisions 2026-08-27 (migration `000216`) and 2026-09-02 (migration `000241`).
+
+The UHT-milk quantity the operator enters and films IS the consumption measurement, so the feed
+stock card moves **on SUBMIT**, not on the verifier's approve — `pending_verification` and `rework`
+deplete exactly like `completed`, because a rework re-shoots the proof, it does not un-drink the
+milk. `feed_effective_external_consumption` reads `milk_preparation_completions` joined to the
+CURRENT attempt and books the litres as kilograms 1:1 on the **feeding date**. The
+`feed_external_consumption` ledger (`000185`, history-bootstrapped by
+`cmd/import-feed-external-consumption`) is the fallback for days no preparation covers.
+
+**There is exactly one writer of that number, and that is the rule.** The original 2026-08-22
+design also forwarded the accepted litres into the ledger when a verifier approved, through the
+`countsapp.MilkPreparationUHTRecorder` seam composed in `eventwiring`. That row was keyed at
+`preparation_date` while the view books the same milk at `feeding_date` (`feeding_date =
+preparation_date + 1` is a DB CHECK), so it was never suppressed by its own preparation and the
+litres came off the store TWICE. It read as correct only because a farm that prepares milk every
+day has yesterday's preparation masking today's ledger date by coincidence; the module's first live
+day, any skipped day, and any retired preparation exposed it. The seam, its port, its repository
+method and its domain type are deleted (2026-09-02).
+
+Two controls keep it dead, and they are deliberately independent:
+
+1. `000241` suppresses a ledger row on **either** of a preparation's two dates. This also fixes the
+   legacy-sheet handover, where the sheet's prep-date row and the workflow's feeding-date row are
+   the same milk one day apart.
+2. `TestKernelStory_UhtMilkStockDepletesOnce` asserts, on a real database through the production
+   submit → verification-item → verdict → outbox → appliers path, that the balance moves on submit,
+   does not move on approve or on a redelivered approve, and that the approve writes **no** ledger
+   row of its own. Both controls were mutation-tested when written: reverting the predicate turns
+   the story and the feed analytics stock test red, and reattaching the recorder turns the story
+   red on the ledger-row assertion.
+
+Do not reattach a feed-stock fan-out to the milk-preparation verdict handler. The workflow already
+owns the fact, and a second writer can only disagree with it.
