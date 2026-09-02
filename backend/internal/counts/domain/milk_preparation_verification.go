@@ -135,26 +135,6 @@ type MilkPreparationSubmissionResult struct {
 	NeedsEnqueue bool   `json:"-"`
 }
 
-// MilkPreparationUHTConsumption is the verified UHT-milk fact a COMPLETED
-// preparation carries: how many litres of UHT the farm opened preparing that
-// day's milk. It exists so the feed stock ledger can consume the operator's
-// own verified answer instead of the legacy sheet copy (maintainer decision
-// 2026-08-22: purchases arrive later via Procurement; consumption comes from
-// the app). The day the store depletes is the PREPARATION date — that is when
-// the packets are physically opened; feeding happens the next day.
-type MilkPreparationUHTConsumption struct {
-	TenantID     string
-	ParkID       string
-	CompletionID string
-	// PreparationDate is the ISO business date the milk was prepared (and the
-	// UHT consumed).
-	PreparationDate string
-	AttemptNo       int32
-	// UHTMilkQuantityLitres is the accepted attempt's answer; always > 0 on a
-	// completed preparation because submission validation rejects otherwise.
-	UHTMilkQuantityLitres float64
-}
-
 type MilkPreparationVerdictCommand struct {
 	TenantID     string
 	CompletionID string

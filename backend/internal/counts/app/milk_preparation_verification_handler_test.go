@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -11,9 +12,6 @@ import (
 
 type verdictStoreStub struct {
 	approved, reworked domain.MilkPreparationVerdictCommand
-	consumption        domain.MilkPreparationUHTConsumption
-	consumptionOK      bool
-	consumptionReads   int
 }
 
 func (*verdictStoreStub) SubmitMilkPreparation(context.Context, domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error) {
@@ -27,24 +25,6 @@ func (s *verdictStoreStub) BounceMilkPreparationForRework(_ context.Context, in 
 	s.reworked = in
 	return true, nil
 }
-func (s *verdictStoreStub) VerifiedUHTConsumption(context.Context, string, string) (domain.MilkPreparationUHTConsumption, bool, error) {
-	s.consumptionReads++
-	return s.consumption, s.consumptionOK, nil
-}
-
-type uhtRecorderStub struct {
-	recorded []domain.MilkPreparationUHTConsumption
-	fail     error
-}
-
-func (r *uhtRecorderStub) RecordVerifiedUHTConsumption(_ context.Context, in domain.MilkPreparationUHTConsumption) error {
-	if r.fail != nil {
-		return r.fail
-	}
-	r.recorded = append(r.recorded, in)
-	return nil
-}
-
 func TestMilkPreparationVerdictApprovesOnlyItsOwnRefType(t *testing.T) {
 	store := &verdictStoreStub{}
 	handler := NewMilkPreparationVerificationHandler(store)
@@ -64,76 +44,29 @@ func TestMilkPreparationVerdictApprovesOnlyItsOwnRefType(t *testing.T) {
 	}
 }
 
-// TestMilkPreparationApproveForwardsUHTConsumptionToFeedStock pins the
-// 2026-08-22 decision that the app's verified UHT answer is the feed stock
-// ledger's consumption source: an APPROVE forwards the litres (duplicates
-// included, so at-least-once delivery converges), a REWORK forwards nothing,
-// and a recorder failure fails the handler so the bus redelivers.
-func TestMilkPreparationApproveForwardsUHTConsumptionToFeedStock(t *testing.T) {
-	approvedPayload := []byte(`{"verified_by":"verifier","source":{"module":"milk_preparation","ref_type":"milk_preparation_completion","ref_id":"completion-1"}}`)
-	fact := domain.MilkPreparationUHTConsumption{
-		TenantID: "tenant", ParkID: "park-1", CompletionID: "completion-1",
-		PreparationDate: "2026-08-22", AttemptNo: 2, UHTMilkQuantityLitres: 28,
+// TestMilkPreparationVerdictHasNoFeedStockFanOut pins the 2026-09-02 removal of the 2026-08-22
+// recorder seam. UHT stock depletes from the preparation itself, on SUBMIT, through the
+// feed_effective_external_consumption view (maintainer decision 2026-08-27, migration 000216), so
+// this handler must apply the verdict and NOTHING else. The retired seam wrote a second
+// feed_external_consumption row on approve, keyed at preparation_date while the view books the
+// same milk at feeding_date, and double-deducted it. This test is the structural half -- the
+// handler's dependency surface is exactly the completion store -- and
+// TestKernelStory_UhtMilkStockDepletesOnce is the behavioural half on a real database.
+func TestMilkPreparationVerdictHasNoFeedStockFanOut(t *testing.T) {
+	handlerType := reflect.TypeOf(MilkPreparationVerificationHandler{})
+	if handlerType.NumField() != 1 || handlerType.Field(0).Name != "store" {
+		t.Fatalf("handler fields = %+v, want exactly the completion store: a second dependency here "+
+			"is a feed-stock (or other) fan-out, and the workflow already owns the UHT fact", handlerType)
 	}
-
-	t.Run("ApproveRecordsEvenOnDuplicateDelivery", func(t *testing.T) {
-		store := &verdictStoreStub{consumption: fact, consumptionOK: true}
-		recorder := &uhtRecorderStub{}
-		handler := NewMilkPreparationVerificationHandler(store).WithUHTRecorder(recorder)
-		event := eventbus.Event{ID: "event-1", Type: eventMilkPreparationVerdictApproved, TenantID: "tenant", OccurredAt: time.Now(), Payload: approvedPayload}
-		if err := handler.HandleEvent(context.Background(), event); err != nil {
-			t.Fatal(err)
-		}
-		if err := handler.HandleEvent(context.Background(), event); err != nil {
-			t.Fatal(err)
-		}
-		if len(recorder.recorded) != 2 || recorder.recorded[0] != fact {
-			t.Fatalf("recorded=%+v, want the fact forwarded on both deliveries", recorder.recorded)
-		}
-	})
-
-	t.Run("NotCompletedRecordsNothing", func(t *testing.T) {
-		store := &verdictStoreStub{consumptionOK: false}
-		recorder := &uhtRecorderStub{}
-		handler := NewMilkPreparationVerificationHandler(store).WithUHTRecorder(recorder)
-		if err := handler.HandleEvent(context.Background(), eventbus.Event{ID: "event-2", Type: eventMilkPreparationVerdictApproved, TenantID: "tenant", OccurredAt: time.Now(), Payload: approvedPayload}); err != nil {
-			t.Fatal(err)
-		}
-		if len(recorder.recorded) != 0 {
-			t.Fatalf("recorded=%+v, want nothing for a not-completed row", recorder.recorded)
-		}
-	})
-
-	t.Run("ReworkNeverTouchesTheRecorder", func(t *testing.T) {
-		store := &verdictStoreStub{consumption: fact, consumptionOK: true}
-		recorder := &uhtRecorderStub{}
-		handler := NewMilkPreparationVerificationHandler(store).WithUHTRecorder(recorder)
-		reworkPayload := []byte(`{"verified_by":"verifier","reason":"blurry","source":{"module":"milk_preparation","ref_type":"milk_preparation_completion","ref_id":"completion-1"}}`)
-		if err := handler.HandleEvent(context.Background(), eventbus.Event{ID: "event-3", Type: eventMilkPreparationVerdictRework, TenantID: "tenant", OccurredAt: time.Now(), Payload: reworkPayload}); err != nil {
-			t.Fatal(err)
-		}
-		if len(recorder.recorded) != 0 || store.consumptionReads != 0 {
-			t.Fatalf("rework must not read or record consumption (recorded=%+v reads=%d)", recorder.recorded, store.consumptionReads)
-		}
-	})
-
-	t.Run("RecorderFailureFailsTheHandlerForRedelivery", func(t *testing.T) {
-		store := &verdictStoreStub{consumption: fact, consumptionOK: true}
-		recorder := &uhtRecorderStub{fail: context.DeadlineExceeded}
-		handler := NewMilkPreparationVerificationHandler(store).WithUHTRecorder(recorder)
-		if err := handler.HandleEvent(context.Background(), eventbus.Event{ID: "event-4", Type: eventMilkPreparationVerdictApproved, TenantID: "tenant", OccurredAt: time.Now(), Payload: approvedPayload}); err == nil {
-			t.Fatal("recorder failure must surface so the bus redelivers")
-		}
-	})
-
-	t.Run("NilRecorderKeepsVerdictWorking", func(t *testing.T) {
-		store := &verdictStoreStub{consumption: fact, consumptionOK: true}
-		handler := NewMilkPreparationVerificationHandler(store)
-		if err := handler.HandleEvent(context.Background(), eventbus.Event{ID: "event-5", Type: eventMilkPreparationVerdictApproved, TenantID: "tenant", OccurredAt: time.Now(), Payload: approvedPayload}); err != nil {
-			t.Fatal(err)
-		}
-		if store.approved.CompletionID != "completion-1" {
-			t.Fatalf("verdict must still apply without a recorder: %+v", store.approved)
-		}
-	})
+	// An approve applies the verdict through the store and returns; nothing else is reachable.
+	store := &verdictStoreStub{}
+	handler := NewMilkPreparationVerificationHandler(store)
+	event := eventbus.Event{ID: "event-1", Type: eventMilkPreparationVerdictApproved, TenantID: "tenant", OccurredAt: time.Now(),
+		Payload: []byte(`{"verified_by":"verifier","source":{"module":"milk_preparation","ref_type":"milk_preparation_completion","ref_id":"completion-1"}}`)}
+	if err := handler.HandleEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if store.approved.CompletionID != "completion-1" {
+		t.Fatalf("approve must still apply: %+v", store.approved)
+	}
 }
