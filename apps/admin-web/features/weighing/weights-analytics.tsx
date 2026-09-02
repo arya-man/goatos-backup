@@ -28,12 +28,10 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 // weigh against the one before it, so a reader moving between them is looking at one period rather
 // than two that merely look alike. See landing-window.ts.
 import {
-  WINDOW_FROM_PARAM,
-  WINDOW_MIN_DATE,
-  WINDOW_TO_PARAM,
   defaultWindow,
   landingWindow,
 } from "./landing-window";
+import { WINDOW_FROM_PARAM, WINDOW_MIN_DATE, WINDOW_TO_PARAM } from "./landing-window-constants";
 import { WeightsAnalyticsTabLoading } from "./weights-analytics-tab-loading";
 
 const PAGE_PATH = "/weighing/analytics";

@@ -11,7 +11,7 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { WINDOW_MIN_DATE } from "./landing-window";
+import { WINDOW_MIN_DATE } from "./landing-window-constants";
 import { exportWeightsCsvAction } from "./weights-export-action";
 
 export type WeightsExportPark = { park_id: string; name: string };

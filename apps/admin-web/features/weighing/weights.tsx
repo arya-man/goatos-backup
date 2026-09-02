@@ -25,12 +25,10 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 // The landing window is SHARED with /weighing/analytics so the two screens can never disagree
 // about which weighing period they are describing. See landing-window.ts for why it is one module.
 import {
-  WINDOW_FROM_PARAM,
-  WINDOW_MIN_DATE,
-  WINDOW_TO_PARAM,
   defaultWindow,
   landingWindow,
 } from "./landing-window";
+import { WINDOW_FROM_PARAM, WINDOW_MIN_DATE, WINDOW_TO_PARAM } from "./landing-window-constants";
 
 const PAGE_PATH = "/weighing/weights";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
