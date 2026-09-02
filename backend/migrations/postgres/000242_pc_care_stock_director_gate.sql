@@ -13,7 +13,7 @@
 --    pending_verification and simply wait for the PC Director's verdict instead.
 --    verification_items is a hot table: bound the lock wait so a busy verifier queue makes
 --    this cutover retry rather than queue behind row locks indefinitely.
-SET LOCAL lock_timeout = '5s';
+SET lock_timeout = '5s';
 -- seed-migration-guard:ignore owner=Ravi issue=PR-169 reason=one-way-verifier-queue-withdrawal-for-existing-production-stock-tasks expiry=2026-10-02
 UPDATE public.verification_items
 SET status = 'withdrawn',
@@ -39,6 +39,8 @@ WHERE t.tenant_id = a.tenant_id
   AND dm.tenant_id = a.tenant_id
   AND dm.user_id = a.operator_user_id
   AND dm.primary_role_hint = 'pc_director';
+
+RESET lock_timeout;
 
 -- +goose Down
 -- Intentionally no-op: the withdrawn verifier items and removed director assignees are a
