@@ -27,7 +27,7 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
 }
 
 /**
- * Purchase & born — every batch of animals reconciled against what it cost and what it returned.
+ * Purchase and Born — every batch of animals reconciled against what it cost and what it returned.
  *
  * Its own page under Sales rather than a block on the board (maintainer decision 2026-08-31): the
  * board answers how sales are going, this answers how each batch did, which is read at a different
@@ -65,7 +65,7 @@ export async function SalesLoadsPage({
 
   return (
     // `sales-loads-page` is not decoration: the global `.crumb` rule uppercases every breadcrumb,
-    // which rendered this page's own name as "PURCHASE & BORN". A load is bought or born -- those
+    // which rendered this page's own name as "PURCHASE AND BORN". A load is bought or born -- those
     // are ordinary words, not a code -- so the page scopes the transform off (maintainer,
     // 2026-09-02).
     <div className="screen on sales-loads-page">

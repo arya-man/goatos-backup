@@ -209,7 +209,7 @@ ORDER BY l.load_id, COALESCE(array_position($3::text[], l.kind), 999), l.recorde
 // A failure here is NOT fatal to the page: the three bucket figures are already scanned and they
 // are what the list renders. Losing the breakdown costs the reader the detail behind a number,
 // while failing the whole read costs them the number itself -- so this degrades rather than takes
-// Purchase & barn down.
+// Purchase and Born down.
 func (r *Repository) attachCostLines(ctx context.Context, tenantID string, loads []domain.LoadwiseLoad) error {
 	if len(loads) == 0 {
 		return nil

@@ -415,6 +415,48 @@ export async function recordSalesDealPayment(
   );
 }
 
+export async function updateSalesDealPayment(
+  dealId: string,
+  paymentId: string,
+  body: SalesDealPaymentWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>(
+      `/sales/deals/${encodeURIComponent(dealId)}/payments/${encodeURIComponent(paymentId)}` as keyof AppApiPaths & string,
+      {
+        method: "PUT",
+        cache: "no-store",
+        headers: idempotentHeaders(idempotencyKey),
+        body,
+      },
+    ),
+  );
+}
+
+export async function deleteSalesDealPayment(
+  dealId: string,
+  paymentId: string,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>(
+      `/sales/deals/${encodeURIComponent(dealId)}/payments/${encodeURIComponent(paymentId)}` as keyof AppApiPaths & string,
+      {
+        method: "DELETE",
+        cache: "no-store",
+        headers: idempotentHeaders(idempotencyKey),
+      },
+    ),
+  );
+}
+
 export async function setSalesDealStatus(
   dealId: string,
   body: SalesDealStatusWrite,

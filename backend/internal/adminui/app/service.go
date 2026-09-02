@@ -143,7 +143,7 @@ func navigation() domain.NavigationContract {
 				ID: "sales", Label: "Sales", Icon: "banknote", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeaf("sales-board", "Sales", "/sales", nil),
-					navLeaf("sales-loads", "Purchase & born", "/sales/loads", nil),
+					navLeaf("sales-loads", "Purchase and Born", "/sales/loads", nil),
 					navLeaf("sales-config", "Sales Config", "/sales/config", nil),
 				},
 			},
@@ -406,7 +406,7 @@ func pages() []domain.PageContract {
 		// counts on one side, money on the other. Its OWN page under Sales, with the
 		// Purchased / Farm born tabs at the top. Served whole (newest 60 loads) by the
 		// procurement read; a row click opens the load-cost drawer, so the row key is the load id.
-		page("sales-loads", "/sales/loads", "/sales/loads", "Purchase & born", "Every purchased load reconciled — bought, sold, died, still on farm — and the money on each side.", "module-surface",
+		page("sales-loads", "/sales/loads", "/sales/loads", "Purchase and Born", "Every purchased load reconciled — bought, sold, died, still on farm — and the money on each side.", "module-surface",
 			[]domain.TableContract{
 				withoutRowClick(loadwiseTable()),
 			}),
@@ -417,7 +417,7 @@ func pages() []domain.PageContract {
 		// ledger (row click opens the deal, which carries the payment and status edits) and the
 		// load list (row click opens the cost drawer) -- because a row that opens a form must
 		// declare the param that form opens on.
-		page("sales-config", "/sales/config", "/sales/config", "Sales Config", "Record a sale, tag its animals, enter buyer leads, quotes, tag lists and weight checks, and cost a purchased load. Sales and Purchase & born show these facts; this is where they are entered and changed.", "module-surface",
+		page("sales-config", "/sales/config", "/sales/config", "Sales Config", "Record a sale, tag its animals, enter buyer leads, quotes, tag lists and weight checks, and cost a purchased load. The sales board and Purchase and Born show these facts; this is where they are entered and changed.", "module-surface",
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				loadwiseTable(),
@@ -776,7 +776,7 @@ func sortable(t domain.TableContract, keys ...string) domain.TableContract {
 	return t
 }
 
-// loadwiseTable builds the load-wise reconciliation table, shared by Purchase & born and Sales
+// loadwiseTable builds the load-wise reconciliation table, shared by Purchase and Born and Sales
 // Config (both render the same rows for different reasons -- one to read them, one to open the
 // cost form).
 //
@@ -3078,7 +3078,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.sales_entry.subtitle":    "Record a sale, then tag the animals it is made of. Click any sale below to add a payment or change its status.",
 			"section.pipeline_entry.title":    "Pipeline and evidence",
 			"section.pipeline_entry.subtitle": "Buyer and farmer-group leads, market quotes, sold-animal tag lists and weight checks.",
-			"section.load_entry.title":        "Purchase and born",
+			"section.load_entry.title":        "Purchase and Born",
 			"section.load_entry.subtitle":     "What each purchased load cost to buy and bring in. Click a load to record or change its cost.",
 			"section.load_entry.row_hint":     "click a load to record its cost",
 			"section.sales_entry.row_hint":    "click a sale to add a payment or change its status",
@@ -3086,7 +3086,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Where the entered facts are READ back. Named so the person who just recorded
 			// something knows where it shows up, without guessing from the sidebar.
 			"link.sales_board": "See the sales board",
-			"link.sales_loads": "See purchase and born",
+			"link.sales_loads": "See Purchase and Born",
 			// A short lead-in for the two links, NOT a second copy of the subtitle: the header
 			// already says what this page is for, and repeating that sentence four lines later
 			// reads as a mistake.
@@ -3337,18 +3337,23 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.shed":                "Pen",
 			"field.search_tag":          "Find a tag",
 			"value.choose_park":         "Choose a park",
-			"value.search_tag_hint":     "RFID or animal ID",
-			"value.all_sheds":           "All pens",
-			"label.selected":            "selected",
-			"label.still_to_pick":       "still to pick",
-			"label.all_picked":          "All picked",
-			"label.cannot_sell":         "Cannot be sold yet",
-			"label.marked_sold":         "animals are tagged to this sale and marked sold.",
-			"hint.review":               "Check the animals below before confirming. Once confirmed they leave the herd.",
-			"hint.pick_all_prefix":      "Pick all",
-			"hint.pick_all_suffix":      "animals for this sale before confirming.",
-			"hint.too_many":             "That is more animals than this sale is for.",
-			"hint.sale_no_count":        "This sale does not say how many animals it is for, so animals cannot be tagged to it.",
+			// An empty park list must say WHY. "Cannot be read" is a grant/plumbing fact a
+			// person can act on; "no pens" is a farm fact. One sentence for both would
+			// leave the reader guessing which of the two they are looking at.
+			"empty.parks":             "No parks with pens to sell from.",
+			"empty.parks_unavailable": "Parks could not be loaded. Tagging animals needs herd allocation access.",
+			"value.search_tag_hint":   "RFID or animal ID",
+			"value.all_sheds":         "All pens",
+			"label.selected":          "selected",
+			"label.still_to_pick":     "still to pick",
+			"label.all_picked":        "All picked",
+			"label.cannot_sell":       "Cannot be sold yet",
+			"label.marked_sold":       "animals are tagged to this sale and marked sold.",
+			"hint.review":             "Check the animals below before confirming. Once confirmed they leave the herd.",
+			"hint.pick_all_prefix":    "Pick all",
+			"hint.pick_all_suffix":    "animals for this sale before confirming.",
+			"hint.too_many":           "That is more animals than this sale is for.",
+			"hint.sale_no_count":      "This sale does not say how many animals it is for, so animals cannot be tagged to it.",
 
 			// Filters.
 			"filter.farm":  "Farm",
@@ -3371,13 +3376,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.note":                       "Note",
 			"hint.record_payment":              "Record each amount as the buyer hands it over — the balance updates itself.",
 			"action.record_deal_payment.label": "Add payment",
+			"action.update_deal_payment.label": "Save payment",
+			"action.delete_deal_payment.label": "Remove payment",
 			"field.status":                     "Deal status",
 			"hint.status":                      "Leave as Deal Closed for a finished sale. Pick Advance Paid or In Discussion to record an expected sale — close it on the day the animals leave.",
 			"action.update_deal_status.label":  "Update status",
 			"action.deal_status_updated":       "Deal status updated.",
 			"action.deal_status_update_failed": "Could not update the deal status. Try again.",
 			"action.payment_recorded":          "Payment recorded.",
+			"action.payment_updated":           "Payment updated.",
+			"action.payment_deleted":           "Payment removed.",
 			"action.payment_record_failed":     "Could not record this payment. Check the fields and try again.",
+			"action.payment_update_failed":     "Could not update this payment. Check the fields and try again.",
+			"action.payment_delete_failed":     "Could not remove this payment. Try again.",
 			"drawer.record_sale.title":         "Record a sale",
 			"drawer.detail.title":              "Sale details",
 			"field.sale_date":                  "Sale date",

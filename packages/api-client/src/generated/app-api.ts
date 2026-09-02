@@ -3054,6 +3054,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/deals/{deal_id}/payments/{payment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Edit one payment receipt on a sales deal.
+         * @description Replaces the receipt's business date, amount and note, then adjusts the deal's `payment_received` by the old/new amount delta inside the same transaction. The `Idempotency-Key` header is REQUIRED so a retry of the edit cannot apply the delta twice.
+         */
+        put: operations["updateSalesDealPayment"];
+        post?: never;
+        /**
+         * Remove one payment receipt from a sales deal.
+         * @description Deletes one receipt and subtracts its amount from the deal's `payment_received` inside the same transaction. The `Idempotency-Key` header is REQUIRED so a retry returns the already updated deal rather than trying to remove the receipt twice.
+         */
+        delete: operations["deleteSalesDealPayment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/deals/{deal_id}/status": {
         parameters: {
             query?: never;
@@ -20256,6 +20280,72 @@ export interface operations {
         };
         responses: {
             /** @description The deal after the receipt, with its full payment history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateSalesDealPayment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                deal_id: string;
+                payment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDealPaymentWrite"];
+            };
+        };
+        responses: {
+            /** @description The deal after the receipt edit, with its full payment history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    deleteSalesDealPayment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                deal_id: string;
+                payment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deal after the receipt removal, with its full payment history. */
             200: {
                 headers: {
                     [name: string]: unknown;

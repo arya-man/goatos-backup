@@ -56,7 +56,11 @@ export function SaleAllocationDrawer({
 }: {
   /** The rendered ledger page; the drawer names the sale from it and issues no fetch for it. */
   deals: SalesDeal[];
-  locations: SaleLocationCatalog;
+  /**
+   * null means the catalog could NOT be read -- a different fact from a farm with no sheds,
+   * and the two are given different copy. A silent empty here reads as a broken picker.
+   */
+  locations: SaleLocationCatalog | null;
   pageContract: AdminUiPageContract;
   listHref: string;
 }) {
@@ -124,7 +128,7 @@ export function SaleAllocationDrawer({
   const loadCandidates = useCallback(
     (nextCursor?: string) => {
       if (!parkId) return;
-      const chosen = locations.locations.find((l) => locationEntryKey(l) === locationKey);
+      const chosen = (locations?.locations ?? []).find((l) => locationEntryKey(l) === locationKey);
       setError("");
       startTransition(async () => {
         const result = await fetchSaleCandidatesAction({
@@ -159,7 +163,7 @@ export function SaleAllocationDrawer({
 
   if (!open || !deal) return null;
 
-  const locationsInPark = locations.locations.filter((l) => !parkId || l.park_id === parkId);
+  const locationsInPark = (locations?.locations ?? []).filter((l) => !parkId || l.park_id === parkId);
   const pickedList = [...picked.values()];
   // How many animals this sale is FOR. Read from the ledger row already on the page, so
   // the count is visible while picking rather than only after Done. The server enforces
@@ -270,10 +274,21 @@ export function SaleAllocationDrawer({
                       onChange={(e) => { setParkId(e.target.value); setLocationKey(""); }}
                     >
                       <option value="">{copy(pageContract, "value.choose_park")}</option>
-                      {locations.parks.map((p) => (
+                      {(locations?.parks ?? []).map((p) => (
                         <option key={p.park_id} value={p.park_id}>{p.label}</option>
                       ))}
                     </select>
+                    {/*
+                      A picker with nothing in it must SAY why. The two reasons are
+                      different facts and carry different backend copy: the catalog read
+                      failed (usually a missing grant, which a person can get fixed), or
+                      the farm genuinely has no shed to sell out of.
+                    */}
+                    {locations === null ? (
+                      <div className="hint err">{copy(pageContract, "empty.parks_unavailable")}</div>
+                    ) : locations.parks.length === 0 ? (
+                      <div className="hint">{copy(pageContract, "empty.parks")}</div>
+                    ) : null}
                   </div>
                   <div className="fld">
                     <label htmlFor="tag-loc">{copy(pageContract, "field.shed")}</label>

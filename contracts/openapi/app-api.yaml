@@ -7939,6 +7939,95 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /sales/deals/{deal_id}/payments/{payment_id}:
+    put:
+      tags:
+        - Sales
+      operationId: updateSalesDealPayment
+      summary: Edit one payment receipt on a sales deal.
+      description: >-
+        Replaces the receipt's business date, amount and note, then adjusts the deal's
+        `payment_received` by the old/new amount delta inside the same transaction. The
+        `Idempotency-Key` header is REQUIRED so a retry of the edit cannot apply the delta twice.
+      parameters:
+        - name: deal_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: payment_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesDealPaymentWrite"
+      responses:
+        "200":
+          description: The deal after the receipt edit, with its full payment history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    delete:
+      tags:
+        - Sales
+      operationId: deleteSalesDealPayment
+      summary: Remove one payment receipt from a sales deal.
+      description: >-
+        Deletes one receipt and subtracts its amount from the deal's `payment_received` inside the
+        same transaction. The `Idempotency-Key` header is REQUIRED so a retry returns the already
+        updated deal rather than trying to remove the receipt twice.
+      parameters:
+        - name: deal_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: payment_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The deal after the receipt removal, with its full payment history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/deals/{deal_id}/status:
     post:
       tags:

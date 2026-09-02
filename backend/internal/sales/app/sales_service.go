@@ -120,6 +120,41 @@ func (s *SalesService) RecordDealPayment(ctx context.Context, tenantID, dealID s
 	return s.repo.RecordDealPayment(ctx, tenantID, dealID, normalized, actorID, strings.TrimSpace(idempotencyKey))
 }
 
+// UpdateDealPayment edits a receipt against a deal.
+//
+// The edited amount is an absolute replacement, not another receipt, so the repository applies the
+// old/new delta under the deal lock.
+func (s *SalesService) UpdateDealPayment(ctx context.Context, tenantID, dealID, paymentID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error) {
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return domain.Deal{}, ErrSalesIdempotencyKeyRequired
+	}
+	if strings.TrimSpace(dealID) == "" {
+		return domain.Deal{}, ports.ErrDealNotFound
+	}
+	if strings.TrimSpace(paymentID) == "" {
+		return domain.Deal{}, ports.ErrDealPaymentNotFound
+	}
+	normalized := write.Normalize()
+	if err := normalized.Validate(biztime.BusinessDayStart(s.now())); err != nil {
+		return domain.Deal{}, err
+	}
+	return s.repo.UpdateDealPayment(ctx, tenantID, strings.TrimSpace(dealID), strings.TrimSpace(paymentID), normalized, actorID, strings.TrimSpace(idempotencyKey))
+}
+
+// DeleteDealPayment removes a receipt from a deal.
+func (s *SalesService) DeleteDealPayment(ctx context.Context, tenantID, dealID, paymentID string, actorID, idempotencyKey string) (domain.Deal, error) {
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return domain.Deal{}, ErrSalesIdempotencyKeyRequired
+	}
+	if strings.TrimSpace(dealID) == "" {
+		return domain.Deal{}, ports.ErrDealNotFound
+	}
+	if strings.TrimSpace(paymentID) == "" {
+		return domain.Deal{}, ports.ErrDealPaymentNotFound
+	}
+	return s.repo.DeleteDealPayment(ctx, tenantID, strings.TrimSpace(dealID), strings.TrimSpace(paymentID), actorID, strings.TrimSpace(idempotencyKey))
+}
+
 // LeadListQuery is one page request against a pipeline list.
 type LeadListQuery struct {
 	Limit  int

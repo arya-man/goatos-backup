@@ -973,6 +973,22 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 		DisabledReason: reason,
 		Action:         "POST /sales/deals/{deal_id}/payments",
 	})
+	controls = upsertControl(controls, domain.Control{
+		ID:             "update_sales_deal_payment",
+		Label:          controlCopy(copy, "action.update_deal_payment.label", "Save payment"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /sales/deals/{deal_id}/payments/{payment_id}",
+	})
+	controls = upsertControl(controls, domain.Control{
+		ID:             "delete_sales_deal_payment",
+		Label:          controlCopy(copy, "action.delete_deal_payment.label", "Remove payment"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "DELETE /sales/deals/{deal_id}/payments/{payment_id}",
+	})
 	// The lifecycle edit that closes an expected sale on the day it happens. Same authority as
 	// recording the deal.
 	controls = upsertControl(controls, domain.Control{
@@ -1712,7 +1728,7 @@ func permissionsForNav(id string) []string {
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.
 		//
-		// Purchase & born reads the same commercial facts per load, so it rides the same
+		// Purchase and Born reads the same commercial facts per load, so it rides the same
 		// permission. Sales Config rides it too rather than SalesWrite: a sales reader who cannot
 		// record still reaches the page and sees each control DISABLED with its reason, which is
 		// the health-config shape -- a missing leaf reads as a broken product, a disabled button

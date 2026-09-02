@@ -123,13 +123,13 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	if salesGroup.Icon != "banknote" {
 		t.Fatalf("sales group icon = %q, want banknote", salesGroup.Icon)
 	}
-	// Three leaves now: the board, Purchase & born beside it (maintainer decision 2026-08-31),
+	// Three leaves now: the board, Purchase and Born beside it (maintainer decision 2026-08-31),
 	// and Sales Config last (maintainer decision 2026-09-01) -- the one place a sales fact is
 	// entered or changed, which is why the two read leaves come first.
 	if len(salesGroup.Leaves) != 3 ||
 		salesGroup.Leaves[0].Href != "/sales" ||
 		salesGroup.Leaves[1].Href != "/sales/loads" ||
-		salesGroup.Leaves[1].Label != "Purchase & born" ||
+		salesGroup.Leaves[1].Label != "Purchase and Born" ||
 		salesGroup.Leaves[2].Href != "/sales/config" ||
 		salesGroup.Leaves[2].Label != "Sales Config" {
 		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
@@ -203,6 +203,20 @@ func TestSalesRecordSaleControlIsCapabilityGated(t *testing.T) {
 			if payment.Action != "POST /sales/deals/{deal_id}/payments" {
 				t.Fatalf("record_sales_deal_payment.action = %q want the receipt write", payment.Action)
 			}
+			editPayment := controlByID(t, pageControls, "update_sales_deal_payment")
+			if editPayment.Enabled != tc.enabled {
+				t.Fatalf("%s update_sales_deal_payment.enabled = %v want %v", tc.name, editPayment.Enabled, tc.enabled)
+			}
+			if editPayment.Action != "PUT /sales/deals/{deal_id}/payments/{payment_id}" {
+				t.Fatalf("update_sales_deal_payment.action = %q want the receipt edit write", editPayment.Action)
+			}
+			deletePayment := controlByID(t, pageControls, "delete_sales_deal_payment")
+			if deletePayment.Enabled != tc.enabled {
+				t.Fatalf("%s delete_sales_deal_payment.enabled = %v want %v", tc.name, deletePayment.Enabled, tc.enabled)
+			}
+			if deletePayment.Action != "DELETE /sales/deals/{deal_id}/payments/{payment_id}" {
+				t.Fatalf("delete_sales_deal_payment.action = %q want the receipt delete write", deletePayment.Action)
+			}
 			status := controlByID(t, pageControls, "update_sales_deal_status")
 			if status.Enabled != tc.enabled {
 				t.Fatalf("%s update_sales_deal_status.enabled = %v want %v", tc.name, status.Enabled, tc.enabled)
@@ -264,7 +278,7 @@ func TestRecordLoadCostControlIsCapabilityGated(t *testing.T) {
 	}
 }
 
-// TestSalesLoadsPageContract pins the Purchase & born page: its own route under Sales, the
+// TestSalesLoadsPageContract pins the Purchase and Born page: its own route under Sales, the
 // load-wise table it serves, its two tabs with Purchased first, and the backend-owned copy the
 // client renders verbatim.
 //
@@ -280,7 +294,7 @@ func TestSalesLoadsPageContract(t *testing.T) {
 	if page.Href != "/sales/loads" || page.SurfaceKind != "module-surface" {
 		t.Fatalf("page href/kind = %q/%q", page.Href, page.SurfaceKind)
 	}
-	if page.Title != "Purchase & born" {
+	if page.Title != "Purchase and Born" {
 		t.Fatalf("page title = %q, want the maintainer-chosen name", page.Title)
 	}
 	if len(page.Tables) != 1 || page.Tables[0].ID != "sales-loadwise" {
@@ -376,6 +390,8 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 		"record_pipeline",
 		"allocate_sale_animals",
 		"record_sales_deal_payment",
+		"update_sales_deal_payment",
+		"delete_sales_deal_payment",
 		"update_sales_deal_status",
 		"record_load_cost",
 	}
@@ -453,7 +469,7 @@ func TestSalesConfigPageContract(t *testing.T) {
 		"action.record_deal_payment.label", "field.status", "action.update_deal_status.label",
 		"action.tag_animals.label", "action.tag_animals.hint", "action.confirm_sold",
 		"disabled.write", "disabled.allocate_animals",
-		// Inherited from Purchase & born: the load-cost drawer.
+		// Inherited from Purchase and Born: the load-cost drawer.
 		"drawer.load_cost.title", "field.animal_cost", "field.transport_cost", "field.other_cost",
 		"hint.load_cost", "action.record_load_cost.label", "disabled.load_cost",
 		"column.load", "column.purchased", "column.sold", "column.remaining",

@@ -12,6 +12,7 @@ import {
   createSalesBenchmark,
   createSalesBuyerLead,
   createSalesDeal,
+  deleteSalesDealPayment,
   recordSalesDealPayment,
   setSalesDealStatus,
   createSalesFpoLead,
@@ -20,6 +21,7 @@ import {
   setSalesBuyerLeadStatus,
   setSalesFpoLeadStatus,
   setLoadCost,
+  updateSalesDealPayment,
 } from "@/lib/api/procurement-server";
 import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite, SalesDealStatusWrite } from "@/lib/api/procurement";
 
@@ -276,6 +278,44 @@ export async function recordSalesDealPaymentAction(formData: FormData): Promise<
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.payment_recorded");
+}
+
+export async function updateSalesDealPaymentAction(formData: FormData): Promise<void> {
+  const dealId = requiredString(formData, "deal_id");
+  const paymentId = requiredString(formData, "payment_id");
+  const note = (formData.get("note")?.toString() ?? "").trim();
+  const receivedOn = requiredString(formData, "received_on");
+  const amountRupees = Number(requiredString(formData, "amount_rupees"));
+  const result = await updateSalesDealPayment(
+    dealId,
+    paymentId,
+    {
+      received_on: receivedOn,
+      amount_rupees: amountRupees,
+      note,
+    },
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.payment_update_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.payment_updated");
+}
+
+export async function deleteSalesDealPaymentAction(formData: FormData): Promise<void> {
+  const dealId = requiredString(formData, "deal_id");
+  const paymentId = requiredString(formData, "payment_id");
+  const result = await deleteSalesDealPayment(
+    dealId,
+    paymentId,
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.payment_delete_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.payment_deleted");
 }
 
 /** Sets a deal's lifecycle status — the edit that closes an expected sale on the day it happens. */
