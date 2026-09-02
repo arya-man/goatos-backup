@@ -30,7 +30,7 @@ func (e *countsBreakdownExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
 		Name:        "counts_breakdown",
 		Route:       domain.RouteAPI,
-		Description: "Animal counts broken down by park, pen, partition, breed, sex, stage, or other dimensions",
+		Description: "Animal counts broken down by park, pen, breed, sex, stage, or other dimensions",
 		// partition_label is advertised and honored: buildCountsReader
 		// (backend/internal/bootstrap/ceoai_readers.go) filters returned rows
 		// to the named partition and renders every scope through

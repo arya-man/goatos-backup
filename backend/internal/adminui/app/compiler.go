@@ -961,7 +961,7 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 		Kind:           "secondary_action",
 		Enabled:        allocateAllowed,
 		DisabledReason: allocateReason,
-		Action:         "POST /goats/sale-allocations/confirm",
+		Action:         "POST /admin/goats/sale-allocations/confirm",
 	})
 	// A buyer receipt is a money write on the same ledger, so it rides the same permission as
 	// recording the deal. Declared-and-disabled for read-only principals, like every write here.
@@ -1168,7 +1168,7 @@ func compileCountsBreakdownControls(controls []domain.Control, input BootstrapIn
 		Kind:           "primary_action",
 		Enabled:        mayChange,
 		DisabledReason: reason,
-		Action:         "POST /admin/goats/pen-stage/commit",
+		Action:         "POST /admin/goats/shed-stage/commit",
 	})
 }
 

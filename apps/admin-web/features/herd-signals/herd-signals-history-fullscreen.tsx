@@ -378,7 +378,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
             </div>
             <p className="chartnote">
               Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained
-              patterns. Overlaid markers are other recorded farm activity for the same animal or its shed — read them as
+              patterns. Overlaid markers are other recorded farm activity for the same animal or its pen — read them as
               correlation, never as behaviour, cause, or a clinical finding.
             </p>
           </div>
@@ -510,7 +510,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
               </div>
               <p className="chartnote">
                 Change compares the summed motion-count delta in the two hours before and after the recorded activity. A
-                feed correlation is a shed-level response to feeding — it is not eating detection. A post-vaccination or
+                feed correlation is a pen-level response to feeding — it is not eating detection. A post-vaccination or
                 post-treatment change is a watch signal, never a diagnosis or an adverse-event finding.
               </p>
             </div>

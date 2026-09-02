@@ -1,4 +1,5 @@
 -- +goose Up
+-- seed-migration-guard:ignore owner=ravi issue=pen-vocabulary-2026-09-02 reason=reviewed-copy-only-forward-migration-for-seeded-SOP-and-stored-verification-labels expiry=2027-09-02
 -- seed-fixture-guard:ignore: rewrites seeded SOP display COPY only. No schema change, no
 -- HRMS/source fixture change, no read-model change, and no sop_code / field_key / step
 -- identity is touched -- an executing task keys on those, never on the sentence beside them.

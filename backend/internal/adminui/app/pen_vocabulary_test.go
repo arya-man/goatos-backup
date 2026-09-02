@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
 // shedWord matches the noun on a word boundary, so it does NOT fire on shed_id, shed_tag,
@@ -28,8 +30,17 @@ var machineFields = map[string]bool{
 	"pattern": true, "source": true, "page_key": true, "control_id": true,
 	"permission": true, "module": true, "category": true, "route_id": true,
 	"columns": true, "summary_fields": true, "shared_key": true, "kind": true,
-	"param": true, // row_click.param is a query-string name, not a word on screen
+	"param":  true, // row_click.param is a query-string name, not a word on screen
+	"action": true, // a Control's action is "POST /some/route", not a word on screen
 }
+
+// "action" is on that list because leaving it off makes the guard actively DANGEROUS. A
+// control's action is a method plus a real registered path, and the first sweep of this rename
+// rewrote one -- "POST /admin/goats/shed-stage/commit" became ".../pen-stage/commit", a 404
+// behind the Herd Register's Change-stage button. With "action" treated as copy the guard was
+// GREEN on the broken route and RED on the correct one, so it would have pushed the next author
+// into re-breaking it. A guard that cannot tell a route from a sentence does not merely miss the
+// bug; it argues for it.
 
 // deadCopy is the copy no screen renders. Each entry is named rather than pattern-matched, so
 // deleting one of these keys fails the test loudly instead of quietly widening the exception --
@@ -119,5 +130,38 @@ func TestColumnLabelsSpeakPenWhileTheKeysStayShed(t *testing.T) {
 	// for everything else -- these cases are an override, not a new humanisation rule.
 	if got := humanLabel("feed_item"); got != "Feed item" {
 		t.Errorf("humanLabel(%q) = %q, want the default humanisation", "feed_item", got)
+	}
+}
+
+// Every action a control declares must be a route the backend actually serves. This is the
+// regression for the one thing the pen rename really did break: a copy sweep that could not tell
+// a sentence from an endpoint turned "POST /admin/goats/shed-stage/commit" into
+// ".../pen-stage/commit", so the Herd Register's Change-stage button posted to a 404. Nothing
+// else in the branch was structural, and nothing else should be -- the rename is meant to move
+// words, never addresses.
+func TestEveryControlActionIsARealRoute(t *testing.T) {
+	registered := map[string]bool{}
+	for _, r := range permissions.ProtectedRoutes() {
+		registered[r.Method+" "+r.Pattern] = true
+	}
+	if len(registered) == 0 {
+		t.Fatal("no routes registered; the route table is the whole point of this check")
+	}
+	seen := 0
+	for _, page := range NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages {
+		for _, control := range page.Controls {
+			action := strings.TrimSpace(control.Action)
+			if action == "" || !strings.Contains(action, " /") {
+				continue
+			}
+			seen++
+			if !registered[action] {
+				t.Errorf("page %q control %q declares action %q, which no route serves",
+					page.RouteID, control.ID, action)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no control declared a method+path action; this check proved nothing")
 	}
 }

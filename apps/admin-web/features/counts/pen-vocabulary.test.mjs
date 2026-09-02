@@ -5,6 +5,7 @@ import test from "node:test";
 
 const ADMIN_WEB = new URL("../../", import.meta.url).pathname;
 const SHED = /\b[Ss]heds?\b/;
+const TEXT_LINE = /^[A-Za-z0-9][A-Za-z0-9 /·.,;:'()&!?—-]*$/;
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
@@ -30,6 +31,13 @@ test("no admin-web JSX text node says shed", () => {
   for (const file of walk(ADMIN_WEB)) {
     const lines = readFileSync(file, "utf8").split("\n");
     let inBlockComment = false;
+    let textRun = null;
+    const flushTextRun = () => {
+      if (!textRun) return;
+      const text = textRun.parts.join(" ").replace(/\s+/g, " ").trim();
+      if (text && SHED.test(text)) offences.push(`${file}:${textRun.line}  ${text}`);
+      textRun = null;
+    };
     lines.forEach((line, i) => {
       const trimmed = line.trim();
       // Skip comments: `//`, `/* */`, and JSX `{/* */}` blocks, which carry prose about the
@@ -47,11 +55,22 @@ test("no admin-web JSX text node says shed", () => {
         const text = match[1].trim();
         if (text && SHED.test(text)) offences.push(`${file}:${i + 1}  ${text}`);
       }
-      // A label on its own line between tags, e.g. `<span className="fsel">\n  Shed\n  <select`
-      if (/^[A-Za-z][A-Za-z /·—-]*$/.test(trimmed) && SHED.test(trimmed)) {
-        offences.push(`${file}:${i + 1}  ${trimmed}`);
+
+      // Text nodes often wrap across physical source lines. Only enter this mode after a JSX
+      // opening tag that occupies the line, so TypeScript expressions containing ">" stay out.
+      if (/^<[\w.][^>]*>$/.test(trimmed) && !trimmed.endsWith("/>")) {
+        flushTextRun();
+        textRun = { line: i + 1, parts: [] };
+        return;
       }
+      if (textRun && TEXT_LINE.test(trimmed)) {
+        if (textRun.parts.length === 0) textRun.line = i + 1;
+        textRun.parts.push(trimmed);
+        return;
+      }
+      flushTextRun();
     });
+    flushTextRun();
   }
   assert.deepEqual(offences, [], `admin-web JSX text still says "shed":\n  ${offences.join("\n  ")}`);
 });

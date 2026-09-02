@@ -983,7 +983,7 @@ func weighingWeightsCopy() map[string]string {
 		// Distinct from the above: these sheds DO have a second weigh, they are just all
 		// losing. Reusing the "needs a second weigh" line there would be a lie.
 		"empty.gain.all_losing":   "Every pen with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
-		"chart.gain.caption_shed": "Same-animal rows show daily gain. Lump-sum rows show average weight change for that exact pen or partition; shifts, sales, deaths, or new animals can also move it.",
+		"chart.gain.caption_shed": "Same-animal rows show daily gain. Lump-sum rows show average weight change for that exact pen; shifts, sales, deaths, or new animals can also move it.",
 		// The same card reads as a CHART or as the exact figures (maintainer request
 		// 2026-09-01), the same shape the breed-wise gain card already carries. The choice
 		// lives in the URL like every other toggle on this page, so it survives a reload and
@@ -2183,7 +2183,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.operators.idle_suffix":         "min",
 			"section.sheds.title":                   "Pens — proof progress",
 			"section.sheds.empty_title":             "No pen has drive work on this day",
-			"section.sheds.empty_body":              "Pen rows appear once the day's obligations resolve to a pen and partition in scope.",
+			"section.sheds.empty_body":              "Pen rows appear once the day's obligations resolve to a pen in scope.",
 			"section.sheds.filtered_title":          "No pen matches these filters",
 			"section.sheds.filtered_body":           "Clear a filter to see the other pens on this drive day.",
 			"section.sheds.truncated_note":          "Pen rows are capped server-side, so this table sums lower than the tiles above. When the rollup itself is capped the tiles say so in their own note.",
@@ -5623,7 +5623,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.impact_plan_capacity":                    "Capacity",
 			"modal.rule_editor.impact_method_title":                     "How the numbers are calculated",
 			"modal.rule_editor.impact_method_body":                      "Read-only aggregate estimate for the selected combo, read from the precomputed vaccination eligibility rollup (never a live goat scan). Eligible animals = usable in-care animals matching species, stage, sex, breed, health, and park scope. Dose rows show vaccine work volume for stock planning. Operator capacity uses eligible animals per available operator per day, so one animal with multiple same-day vaccines still consumes one operator slot. Stock appears only when the row has a vaccine inventory item.",
-			"modal.rule_editor.impact_scale_note":                       "Even across a 5,000-50,000-animal herd, this panel reads a precomputed eligibility rollup and does not scan goats or load them into the browser. It is a quick planning estimate; per-animal operator/date/pen/partition assignment happens after publish.",
+			"modal.rule_editor.impact_scale_note":                       "Even across a 5,000-50,000-animal herd, this panel reads a precomputed eligibility rollup and does not scan goats or load them into the browser. It is a quick planning estimate; per-animal operator, date and pen assignment happens after publish.",
 			"modal.rule_editor.label.draft_saved":                       "draft saved",
 			"modal.rule_editor.message.preview_failed":                  "preview failed",
 			"modal.rule_editor.label.rule_singular":                     "rule",
@@ -6417,7 +6417,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				Options: []domain.Option{
 					option("target", "Target", "Drive target|matching goats by stage · age · park — never random individuals", "ok"),
 					option("group", "Group", "drive batches|matching goats grouped by park/date, with pen drilldown", "info"),
-					option("route", "Route", "PC + pen owners|park/PC owner coordinates; pen Manager/Backup executes pen list", "info"),
+					option("route", "Route", "PC + pen owners|park/PC owner coordinates; Pen Manager/Backup executes pen list", "info"),
 					option("execute", "Execute", "proof per goat|FEFO dose consumed, posted on verify", "warn"),
 				},
 			},
