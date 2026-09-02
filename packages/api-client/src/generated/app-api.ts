@@ -4514,6 +4514,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/counts/pen-reconciliation/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the wrong-pen Reconcile cards raised by weighing submits.
+         * @description The Herd Operations Reconcile tab (maintainer decision 2026-09-02). The herd register is TRUTH: when an individual weighing bucket is submitted, every scanned animal whose registered pen disagrees with the pen it was weighed in gets ONE card here, and the operator physically returns the animal to its registered pen. One open card per animal; lump-sum buckets and tags that resolve to no live animal raise nothing. Each card names the animal (scanned tag, display id), where it was FOUND (the weighing bucket's pen label) and where it BELONGS (the registered pen, backend-composed display). There is NO approval step anywhere on this surface: open/rework rows are actionable (primary_action_key=execute), submitted evidence waits on the verifier, completed rows are history. Keyset-paginated with a maximum page size of 20; status_counts are whole-filter truth, never page-local.
+         */
+        get: operations["listAppCountsPenReconciliationCards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/pen-reconciliation/cards/{card_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit the mandatory video proving the animal was returned to its registered pen.
+         * @description Records that the operator physically returned the strayed animal to the pen the herd register names, with the MANDATORY live-camera video. The register is truth and this request NEVER rewrites it — no goat location changes here. The card flips to pending_verification and the video goes to the tenant verifier: approve completes the card, reject sends it back to rework for a re-shoot. There is deliberately NO approver step (unlike shifting). Valid from status open or rework. A submitted or completed card is refused with 400 pen_reconciliation_not_actionable. A completion with no video is 422 proof_required. Requires the Idempotency-Key header. Re-submitting returns the ORIGINAL result with idempotent_replay=true and queues nothing new; a same-key request carrying a different video is a 409 idempotency_conflict.
+         */
+        post: operations["completeAppCountsPenReconciliationCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/health/cases": {
         parameters: {
             query?: never;
@@ -14465,6 +14505,74 @@ export interface components {
              */
             row_version: number;
         };
+        CountsPenReconciliationListResponse: {
+            items: components["schemas"]["CountsPenReconciliationCard"][];
+            /** @description Present only when another page exists. Opaque; pass back as ?cursor=. */
+            next_cursor?: string;
+            status_counts: components["schemas"]["CountsPenReconciliationStatusCounts"];
+        };
+        CountsPenReconciliationStatusCounts: {
+            all: number;
+            open: number;
+            pending_verification: number;
+            rework: number;
+            completed: number;
+        };
+        CountsPenReconciliationCard: {
+            /** Format: uuid */
+            card_id: string;
+            /**
+             * @description Backend-owned workflow state; buckets are disjoint at the card grain.
+             * @enum {string}
+             */
+            status: "open" | "pending_verification" | "rework" | "completed";
+            /**
+             * @description Backend-owned row action. Only open/rework rows open the return flow.
+             * @enum {string}
+             */
+            primary_action_key: "execute" | "none";
+            /** Format: uuid */
+            goat_id: string;
+            goat_display_id?: string;
+            /** @description The tag exactly as the weighing operator scanned it — what the field operator reads on the animal's ear. */
+            scanned_identifier: string;
+            /** Format: uuid */
+            found_location_id: string;
+            found_partition_label?: string;
+            /** @description Where the animal was actually scanned — the weighing bucket's operator-facing pen label. */
+            found_operational_location_display: string;
+            /** Format: uuid */
+            registered_shed_id: string;
+            registered_shed_name: string;
+            registered_partition_label?: string;
+            /** @description The pen the register says the animal lives in — where to return it. Backend-composed; render verbatim. */
+            registered_operational_location_display: string;
+            /** Format: uuid */
+            park_id?: string;
+            park_name?: string;
+            /** Format: date-time */
+            raised_at: string;
+            raised_at_ist: string;
+            proof_ref?: string;
+            /** Format: date-time */
+            completed_at?: string;
+            /** Format: date-time */
+            verified_at?: string;
+            /** @description The verifier's reason when evidence was rejected; render verbatim. */
+            rework_reason?: string;
+        };
+        CountsPenReconciliationCompleteResponse: {
+            /** Format: uuid */
+            card_id: string;
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "rework" | "completed";
+            scanned_identifier: string;
+            registered_operational_location_display: string;
+            /** Format: date-time */
+            completed_at?: string;
+            completed_at_ist?: string;
+            idempotent_replay: boolean;
+        };
         CountsShiftingPendingExecutionResponse: {
             items: components["schemas"]["CountsShiftingPendingExecutionItem"][];
             /** @description Present only when another page exists. Opaque; pass back as ?cursor=. */
@@ -22937,6 +23045,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CountsShiftingExecutionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppCountsPenReconciliationCards: {
+        parameters: {
+            query?: {
+                /** @description Disjoint workflow bucket. Defaults to all. */
+                status?: "all" | "open" | "pending_verification" | "rework" | "completed";
+                /** @description Server-capped at 20. */
+                page_size?: number;
+                /** @description Opaque keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of status-filtered Reconcile cards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsPenReconciliationListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeAppCountsPenReconciliationCard: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description MANDATORY. The proof_artifact id of the video proving the animal was returned to its registered pen. */
+                    proof_ref: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Card submitted for verification (or replayed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsPenReconciliationCompleteResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

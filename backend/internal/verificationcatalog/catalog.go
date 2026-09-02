@@ -87,6 +87,17 @@ var Shifting = domain.CategoryDefinition{
 	PageKey: "shifting", PageLabel: "Shifting", PageOrder: 3,
 }
 
+var PenReconciliation = domain.CategoryDefinition{
+	Vertical: countsdomain.VerificationVerticalPenReconciliation, Module: countsdomain.VerificationModulePenReconciliation,
+	Category: countsdomain.VerificationCategoryPenReconciliation, ExpectedMedia: []string{"video"},
+	MediaLabels: []string{"Pen return video"},
+	// Reviewed under Counts beside shifting/birth/death: a wrong-pen return is herd-operations
+	// field work, and the verifier's verdict is the ONLY gate (no approver, maintainer decision
+	// 2026-09-02). The register is truth and the verdict consumer never rewrites it.
+	NavigationModule: "counts", NavigationModuleLabel: "Counts",
+	PageKey: "pen_reconciliation", PageLabel: "Reconcile", PageOrder: 4,
+}
+
 var MilkPreparation = domain.CategoryDefinition{
 	Vertical: countsdomain.VerificationVerticalMilkPreparation, Module: countsdomain.VerificationModuleMilkPreparation,
 	Category:      countsdomain.VerificationCategoryMilkPreparation,
@@ -211,6 +222,7 @@ func All() []domain.CategoryDefinition {
 		HealthAdults,
 		HealthKids,
 		Shifting,
+		PenReconciliation,
 		MilkPreparation,
 		MilkFeeding,
 		FeedDistribution,
