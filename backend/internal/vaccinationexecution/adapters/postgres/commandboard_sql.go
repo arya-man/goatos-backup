@@ -57,10 +57,10 @@ package postgres
 //	"GET /vaccination/command — Grain and Buckets (disjoint unless noted)" + Bucket
 //	Invariant): the FIVE numerator buckets are a DISJOINT and EXHAUSTIVE partition of
 //	targets, evaluated as a priority chain —
-//	  missed     = status 'missed', regardless of what else the animal holds
-//	  verified   = has_accepted
+//	  missed     = status 'missed' with no completion, regardless of what else the animal holds
 //	  awaiting   = has_recorded_unverified AND NOT has_accepted
 //	  overdue    = no completion AND OPEN AND due business date <  as_of business date
+//	  verified   = has_accepted and no awaiting/overdue work
 //	  scheduled  = no completion AND OPEN AND due business date >= as_of business date
 //	  closed_without_dose = the residual: none of the above
 //	so missed+verified+awaiting+overdue+scheduled+closed_without_dose = targets.
@@ -78,17 +78,15 @@ package postgres
 //	animal's obligations into four booleans, then the priority chain picks exactly one),
 //	so the buckets are disjoint at the SAME grain targets uses and the sum is restored.
 //
-//	PRECEDENCE: missed > verified > awaiting > overdue > scheduled, i.e. a missed dose wins
-//	outright and otherwise the most-progressed dose wins. Below missed this is the same order
-//	the per-obligation chain already used, so no tile changes meaning for a single-dose
-//	animal; extending it unchanged to the animal grain keeps the contract one rule instead of
-//	two. The consequence is stated rather than hidden: an animal with one accepted dose and
-//	one overdue dose still reports as verified, so the tiles answer "how far has this animal
-//	got" and NOT "how much work is outstanding" — the outstanding-work question is answered at
-//	dose grain by the shed dose matrix and the verification queue below, which stay
-//	per-obligation.
+//	PRECEDENCE: missed > awaiting > overdue > verified > scheduled. Future scheduled work does
+//	not demote an animal that already has accepted protection, but overdue unvaccinated work must:
+//	on the live STG board Blue Tongue Dose 2 had overdue shed-matrix cells while the summary
+//	overdue tile read 0, because every overdue animal also had some earlier accepted dose and
+//	therefore landed green. That is not a harmless grain distinction on a command board: the
+//	headline must surface closed/due work before progress, while still partitioning each animal
+//	exactly once.
 //
-//	MISSED LEADS THE CHAIN, and it is the one exception to "most-progressed wins", because
+//	MISSED LEADS THE CHAIN, and overdue also outranks verified, because
 //	letting verified lead made the board report the opposite of the truth. Folding to one row
 //	per animal via bool_or means a single accepted dose anywhere in an animal's history sets
 //	any_verified for good. On the live stg board 137 animals held a MISSED ET+TT dose; every
@@ -204,9 +202,9 @@ per_animal AS (
 SELECT
   COUNT(*) AS targets,
   COUNT(*) FILTER (WHERE any_missed) AS missed_not_given,
-  COUNT(*) FILTER (WHERE any_verified AND NOT any_awaiting AND NOT any_missed) AS doses_verified,
+  COUNT(*) FILTER (WHERE any_verified AND NOT any_awaiting AND NOT any_overdue AND NOT any_missed) AS doses_verified,
   COUNT(*) FILTER (WHERE any_awaiting AND NOT any_missed) AS awaiting_verification,
-  COUNT(*) FILTER (WHERE any_overdue AND NOT any_awaiting AND NOT any_verified AND NOT any_missed) AS overdue_not_given,
+  COUNT(*) FILTER (WHERE any_overdue AND NOT any_awaiting AND NOT any_missed) AS overdue_not_given,
   COUNT(*) FILTER (WHERE any_scheduled AND NOT any_overdue AND NOT any_awaiting AND NOT any_verified AND NOT any_missed) AS scheduled_ahead,
   COUNT(*) FILTER (WHERE NOT any_missed AND NOT any_verified AND NOT any_awaiting AND NOT any_overdue AND NOT any_scheduled) AS closed_without_dose
 FROM per_animal
@@ -504,6 +502,7 @@ shed_dose_obligations AS (
   SELECT
     oi.scope_id as shed_id,
     loc.name as shed_name,
+    COALESCE(park.name, '') AS park_name,
     CASE
       WHEN sp.shed_id IS NULL OR lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
       ELSE btrim(sp.partition_label)
@@ -531,6 +530,7 @@ shed_dose_obligations AS (
    AND sp.status = 'active'
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
+  LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.scope_type = 'shed'
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
@@ -538,7 +538,7 @@ shed_dose_obligations AS (
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $4::uuid)
 )
-SELECT shed_id, shed_name, partition_label, dose_code, state,
+SELECT shed_id, shed_name, park_name, partition_label, dose_code, state,
   COUNT(DISTINCT target_id) as animal_count,
   MIN(min_administered_at) as min_administered_at,
   MAX(max_administered_at) as max_administered_at,
@@ -546,8 +546,8 @@ SELECT shed_id, shed_name, partition_label, dose_code, state,
   MAX(due_at) as max_due_at
 FROM shed_dose_obligations
 WHERE state != 'other'
-GROUP BY shed_id, shed_name, partition_label, dose_code, state
-ORDER BY shed_name, partition_label, dose_code, state
+GROUP BY shed_id, shed_name, park_name, partition_label, dose_code, state
+ORDER BY park_name, shed_name, partition_label, shed_id, dose_code, state
 `
 
 // 3b. Shed × VACCINE matrix, dose collapsed, reported as a flag.

@@ -60,6 +60,7 @@ export function MonthColumns({
         const tooltip = `${datum.label}: ${datum.value.toLocaleString("en-IN")} ${valueNoun}${
           datum.subDisplay && subValueNoun ? ` · ${datum.subDisplay} ${subValueNoun}` : ""
         }`;
+        const [axisMonth, axisYear] = datum.axisLabel.split(" ");
         return (
           <div className="mcol" key={datum.key} title={tooltip}>
             <span className="mcarea">
@@ -70,7 +71,10 @@ export function MonthColumns({
                 </span>
               ) : null}
             </span>
-            <span className="mclab">{datum.axisLabel}</span>
+            <span className="mclab">
+              <span>{axisMonth}</span>
+              {axisYear ? <span>{axisYear}</span> : null}
+            </span>
             {datum.subDisplay ? <span className="mcsub">{datum.subDisplay}</span> : null}
           </div>
         );

@@ -9793,7 +9793,7 @@ export interface components {
             next_cursor?: string;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
         };
-        /** @description The board's headline row, at ANIMAL grain. targets counts DISTINCT animals in scope, and the six counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so missedNotGiven + dosesVerified + awaitingVerification + overdueNotGiven + scheduledAhead + closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the priority chain missed > verified > awaiting > overdue > scheduled > closedWithoutDose: a missed dose wins outright, and below that its most-progressed dose wins. Apart from missed the tiles therefore answer "how far has this animal got", not "how much work is outstanding"; the outstanding-work question is answered at dose grain by cohortMatrix and verificationQueue. Every due-date comparison is on the Asia/Kolkata BUSINESS DATE, never an instant, so a dose due today never reads overdue merely because as-of is later the same day. */
+        /** @description The board's headline row, at ANIMAL grain. targets counts DISTINCT animals in scope, and the six counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so missedNotGiven + dosesVerified + awaitingVerification + overdueNotGiven + scheduledAhead + closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the priority chain missed > awaiting > overdue > verified > scheduled > closedWithoutDose: a missed dose wins outright; below that, actionable recorded-unverified and overdue obligations outrank earlier accepted doses so the headline row cannot hide animals that still need operator or verifier work. Future scheduled work does not demote an animal that already has accepted protection. Dose-grain outstanding work is still answered by cohortMatrix and verificationQueue. Every due-date comparison is on the Asia/Kolkata BUSINESS DATE, never an instant, so a dose due today never reads overdue merely because as-of is later the same day. */
         VaccinationCommandBoardKPI: {
             /** @description Distinct ANIMALS in scope (the selected drive, or all history when no drive is selected). This is the roster size the tiles below partition — not an obligation count, so a multi-dose animal counts once. */
             targets: number;
@@ -9938,6 +9938,8 @@ export interface components {
             partition_label?: string;
             /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". This is NOT redundant with shedName: on a live tenant it differed from shedName on 1282 of 1318 cells, because most sheds carry a partition. */
             operational_location_display?: string;
+            /** @description Farm/park display name for the shed row. The pen label alone is not unique enough for the command board, so clients render this under operational_location_display. */
+            parkName?: string;
         };
         ShedDoseMatrixCell: {
             /** @description Index into ShedDoseMatrix.sheds. */

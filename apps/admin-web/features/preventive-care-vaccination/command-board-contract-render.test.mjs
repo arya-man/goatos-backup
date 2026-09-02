@@ -41,3 +41,11 @@ test("command-board payload types are derived from the generated contract client
     );
   }
 });
+
+test("shed dose matrix renders park context under each pen", () => {
+  // The red/blue Vaccine x Pen Status table is the one a park head acts on. A pen label without
+  // its park is not enough on the live tenant because same-looking operational pens exist across
+  // farms, and the screenshot regression was exactly that missing context.
+  assert.match(viewSource, /parkName: cell\.parkName \?\? null/);
+  assert.match(viewSource, /row\.parkName \? <span className="cbm-rowh-note">\{row\.parkName\}<\/span> : null/);
+});

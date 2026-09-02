@@ -416,10 +416,10 @@ func (r *Repository) commandBoardShedDoseCells(ctx context.Context, tenantID str
 	doseIndex := map[string]int{}
 
 	for rows.Next() {
-		var shedID, shedName, partitionLabel, doseCode, state string
+		var shedID, shedName, parkName, partitionLabel, doseCode, state string
 		var animalCount int
 		var minAdministeredAt, maxAdministeredAt, minDueAt, maxDueAt pgtype.Timestamptz
-		if err := rows.Scan(&shedID, &shedName, &partitionLabel, &doseCode, &state, &animalCount,
+		if err := rows.Scan(&shedID, &shedName, &parkName, &partitionLabel, &doseCode, &state, &animalCount,
 			&minAdministeredAt, &maxAdministeredAt, &minDueAt, &maxDueAt); err != nil {
 			return matrix, fmt.Errorf("vaccination command board: shed dose scan: %w", err)
 		}
@@ -434,6 +434,7 @@ func (r *Repository) commandBoardShedDoseCells(ctx context.Context, tenantID str
 				ShedName:        shedName,
 				PartitionLabel:  partitionLabel,
 				LocationDisplay: oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display(),
+				ParkName:        parkName,
 			})
 		}
 

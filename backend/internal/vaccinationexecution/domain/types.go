@@ -867,13 +867,12 @@ type ShedAnimalQuery struct {
 // tell a bug from real outstanding work. It names that residual rather than removing those
 // animals from Targets, so Targets stays the roster the operator was handed and the withdrawal
 // stays visible instead of being quietly deducted.
-// MissedNotGiven is evaluated FIRST in the partition chain, ahead of DosesVerified. It has to be:
-// the chain folds to one row per ANIMAL via bool_or, so while verified led the chain a single
-// accepted dose anywhere in an animal's history swallowed every missed dose it also held. On the
-// live stg board that hid 137 animals carrying a missed ET+TT dose inside DosesVerified and left
-// OverdueNotGiven reading 0 -- the board reported animals with a missed dose as green. A missed dose
-// is the one fact a preventive-care board exists to surface, so it outranks every other state an
-// animal can also be in. The partition stays disjoint and exhaustive:
+// MissedNotGiven is evaluated first in the partition chain; awaiting verification and overdue
+// unvaccinated work also outrank DosesVerified. The chain folds to one row per ANIMAL via bool_or,
+// so a single accepted dose anywhere in an animal's history would otherwise swallow a later dose
+// that is overdue or missed. A preventive-care command board must surface that red work in the
+// headline row instead of reporting the animal as green. The partition stays disjoint and
+// exhaustive:
 // missed + verified + awaiting + overdue + scheduled + closedWithoutDose = targets.
 type CommandBoardKPI struct {
 	Targets              int `json:"targets"`
@@ -1146,6 +1145,7 @@ type ShedDoseMatrixShed struct {
 	ShedName        string `json:"shedName"`
 	PartitionLabel  string `json:"partition_label,omitempty"`
 	LocationDisplay string `json:"operational_location_display,omitempty"`
+	ParkName        string `json:"parkName,omitempty"`
 }
 
 // ShedDoseMatrixCell represents state of a shed × dose rule combination. Shed and Dose are indexes
@@ -1170,6 +1170,7 @@ type ShedDoseMatrixFlatCell struct {
 	ShedName            string
 	PartitionLabel      string
 	LocationDisplay     string
+	ParkName            string
 	DoseRule            string
 	State               string
 	AnimalCount         int
@@ -1195,6 +1196,7 @@ func (m ShedDoseMatrix) Flatten() []ShedDoseMatrixFlatCell {
 			ShedName:            shed.ShedName,
 			PartitionLabel:      shed.PartitionLabel,
 			LocationDisplay:     shed.LocationDisplay,
+			ParkName:            shed.ParkName,
 			DoseRule:            m.DoseRules[cell.Dose],
 			State:               cell.State,
 			AnimalCount:         cell.AnimalCount,
