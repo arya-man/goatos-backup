@@ -497,7 +497,7 @@
       "owningDoc": "docs/decisions/android-offline-first.md",
       "requiredInCI": true,
       "ciStep": "feed-submitted-overlay-wiring-guard",
-      "notes": "Keeps the queued-submit badge overlay wired end to end (bug 254.mp4: submit a shed-session, return to the worklist, row still reads Pending because the write is only in the outbox). Every Feed worklist renders its chip from lifecycleStatus, so three parts must all survive: the submit ViewModel calls markSubmittedForReview on ENQUEUE SUCCESS; the list ViewModel combines feedCompletionStore.submittedForReviewKeys; and its row mapping runs the status through overlayFeedLifecycleStatus. Deleting any one silently restores the bug while every unit test still passes, because the rule's own tests call the pure function directly and cannot see a severed call site. Also pins overlayFeedLifecycleStatus to exactly ONE definition: Feed Packing and Feed Direction previously drifted apart with per-flow copies. A paging-level test was tried first and rejected \u2014 `rows` ends in cachedIn(viewModelScope) and asSnapshot() never settles under runTest (UncompletedCoroutinesError), so a structural guard is deterministic where that test was flaky."
+      "notes": "Keeps the queued-submit badge overlay wired end to end (bug 254.mp4: submit a shed-session, return to the worklist, row still reads Pending because the write is only in the outbox). Every Feed worklist renders its chip from lifecycleStatus, so three parts must all survive: the submit ViewModel calls markSubmittedForReview on ENQUEUE SUCCESS; the list ViewModel combines feedCompletionStore.submittedForReviewKeys; and its row mapping runs the status through overlayFeedLifecycleStatus. Deleting any one silently restores the bug while every unit test still passes, because the rule's own tests call the pure function directly and cannot see a severed call site. Also pins overlayFeedLifecycleStatus to exactly ONE definition: Feed Packing and Feed Direction previously drifted apart with per-flow copies. A paging-level test was tried first and rejected — `rows` ends in cachedIn(viewModelScope) and asSnapshot() never settles under runTest (UncompletedCoroutinesError), so a structural guard is deterministic where that test was flaky."
     },
     {
       "id": "firebase-analytics-param-budget",
@@ -1010,6 +1010,17 @@
       "ciStep": "local-stack-service-guard"
     },
     {
+      "id": "sidebar-typography",
+      "script": "tools/agent-hooks/check-sidebar-typography.mjs",
+      "makeTarget": "sidebar-typography-guard",
+      "realCheck": "node tools/agent-hooks/check-sidebar-typography.mjs",
+      "selfTest": "node tools/agent-hooks/check-sidebar-typography.mjs --self-test",
+      "owningDoc": "apps/admin-web/AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "sidebar-typography-guard",
+      "notes": "Two navigation-copy rules (maintainer, 2026-09-02). (1) The sidebar's three kinds of row -- flat lens links .nav, group headers .ggrp, leaves .leaf -- are all navigation labels and all render at ONE size, the size of `Verify`; they had drifted to 14/11/13px, which made one list read as three stacked. Only SIZE is unified; weight and colour stay per-row. (2) The generic .crumb rule uppercases every breadcrumb, which shouted the Sales load page's own name as 'PURCHASE & BORN'; the page scopes the transform off. Both halves of that second rule are checked, because a CSS override with no rendered class, or a rendered class with no override, is inert and reads as done. Self-test covers drifted size, absent size, a descendant-only rule mistaken for the base, and each deceptive half of the crumb fix."
+    },
+    {
       "id": "stg-disposable-topology",
       "script": "tools/agent-hooks/check-stg-disposable-topology.mjs",
       "makeTarget": "stg-disposable-topology-guard",
@@ -1063,17 +1074,6 @@
       "notes": "Detects Go test files with stray build constraints (// +build pgtest, //go:build pgtest, etc.) that cause them to be silently excluded from CI runs. Postgres tests must gate at runtime via GOATOS_RUN_POSTGRES_TESTS=1 + pgtest.SkipIfNoDocker(), not via build tags."
     },
     {
-      "id": "ui-vaccine-labels",
-      "script": "tools/agent-hooks/check-ui-vaccine-labels.mjs",
-      "makeTarget": "ui-vaccine-labels-guard",
-      "realCheck": "node tools/agent-hooks/check-ui-vaccine-labels.mjs",
-      "selfTest": "node tools/agent-hooks/check-ui-vaccine-labels.mjs --self-test",
-      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
-      "requiredInCI": true,
-      "ciStep": "ui-vaccine-labels-guard",
-      "notes": "Raw vaccination config/protocol tokens are allowed in config/contracts/DTOs/tests only. User-facing admin-web/mobile UI must render human labels."
-    },
-    {
       "id": "ui-title-case",
       "script": "tools/agent-hooks/check-ui-title-case.mjs",
       "makeTarget": "ui-title-case-guard",
@@ -1083,6 +1083,17 @@
       "requiredInCI": true,
       "ciStep": "ui-title-case-guard",
       "notes": "Frontend and mobile visible navigation/module/title labels use caption case, not title case or all caps. Internal short forms such as PC must not appear in visible module titles; use Preventive Care."
+    },
+    {
+      "id": "ui-vaccine-labels",
+      "script": "tools/agent-hooks/check-ui-vaccine-labels.mjs",
+      "makeTarget": "ui-vaccine-labels-guard",
+      "realCheck": "node tools/agent-hooks/check-ui-vaccine-labels.mjs",
+      "selfTest": "node tools/agent-hooks/check-ui-vaccine-labels.mjs --self-test",
+      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
+      "requiredInCI": true,
+      "ciStep": "ui-vaccine-labels-guard",
+      "notes": "Raw vaccination config/protocol tokens are allowed in config/contracts/DTOs/tests only. User-facing admin-web/mobile UI must render human labels."
     },
     {
       "id": "vaccination-adult-drive-contract",
@@ -1167,7 +1178,7 @@
       "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
       "requiredInCI": true,
       "ciStep": "weighing-free-flow-guard",
-      "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field \u2014 scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
+      "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field — scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
     },
     {
       "id": "weighing-isolation-on-edit",

@@ -680,6 +680,7 @@ run_admin_web() {
   step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web local overlays" make admin-web-local-overlay-guard
   step "admin-web-date-format-guard" make admin-web-date-format-guard
+  step "sidebar-typography-guard" make sidebar-typography-guard
   step "overlay motion"          make overlay-motion-guard
   if herd_signals_visual_changed; then
     step "admin-web herd signals mock css parity" make mock-css-parity-guard

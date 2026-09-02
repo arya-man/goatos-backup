@@ -64,7 +64,11 @@ export async function SalesLoadsPage({
   const canRecordCost = controlEnabled(pageContract, "record_load_cost", false);
 
   return (
-    <div className="screen on">
+    // `sales-loads-page` is not decoration: the global `.crumb` rule uppercases every breadcrumb,
+    // which rendered this page's own name as "PURCHASE & BORN". A load is bought or born -- those
+    // are ordinary words, not a code -- so the page scopes the transform off (maintainer,
+    // 2026-09-02).
+    <div className="screen on sales-loads-page">
       {/* The toggle is CENTRED and lifted onto the title line rather than sharing the subtitle's
           row. Measured: the subtitle needs 596px unwrapped, while a centred toggle leaves only
           533px beside it at 1600px -- so on one row the subtitle is forced to wrap. Lifting the

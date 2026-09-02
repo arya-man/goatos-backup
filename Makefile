@@ -194,6 +194,7 @@ guardrails:
 	$(MAKE) admin-web-prefetch-guard
 	$(MAKE) admin-web-local-overlay-guard
 	$(MAKE) admin-web-date-format-guard
+	$(MAKE) sidebar-typography-guard
 	$(MAKE) overlay-motion-guard
 	$(MAKE) android-bounded-memory-guard
 	$(MAKE) telemetry-guard
@@ -1013,6 +1014,14 @@ admin-web-local-overlay-guard:
 admin-web-date-format-guard:
 	node tools/agent-hooks/check-admin-web-date-format.mjs --self-test
 	node tools/agent-hooks/check-admin-web-date-format.mjs
+
+# sidebar-typography-guard: one font size for every admin-web sidebar label
+# (.nav / .ggrp / .leaf), and the Purchase & born crumb kept out of capitals
+# (maintainer, 2026-09-02).
+.PHONY: sidebar-typography-guard
+sidebar-typography-guard:
+	node tools/agent-hooks/check-sidebar-typography.mjs --self-test
+	node tools/agent-hooks/check-sidebar-typography.mjs
 
 # android-bounded-memory-guard: block unbounded in-memory growth in the Android data layer
 # (an in-heap cache/accumulator with no cap/TTL/eviction, or a DAO reading a whole table into
