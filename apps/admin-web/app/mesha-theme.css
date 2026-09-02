@@ -3056,7 +3056,10 @@ select:disabled { opacity: .45; }
 .hbval{font-size:12.5px;font-weight:700;color:var(--ink);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 @media(max-width:700px){.hbrow{grid-template-columns:minmax(96px,140px) 1fr 60px}.hblab,.hbval{font-size:11.5px}}
 
-.mcols{display:flex;align-items:stretch;gap:4px;padding:6px 14px 2px}
+.mcols{display:flex;align-items:stretch;gap:4px;padding:6px 14px 2px;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.mcols::-webkit-scrollbar{height:8px}
+.mcols::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+.mcols::-webkit-scrollbar-track{background:transparent}
 .mcol{flex:1 1 0;display:flex;flex-direction:column;align-items:center;min-width:0}
 .mcarea{display:flex;align-items:flex-end;justify-content:center;height:138px;width:100%;border-bottom:1px solid var(--line)}
 .mcstack{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;width:100%;height:100%;box-sizing:border-box;padding-top:17px}
@@ -3064,7 +3067,23 @@ select:disabled { opacity: .45; }
 .mcbar{display:block;flex:0 0 auto;width:min(62%,30px);background:var(--brand);border-radius:4px 4px 0 0}
 .mclab{font-size:11px;color:var(--muted);margin-top:5px;white-space:nowrap;line-height:1.2}
 .mcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;white-space:nowrap;line-height:1.2;font-variant-numeric:tabular-nums}
-@media(max-width:1080px){.mcv{display:none}.mclab{font-size:9px}.mcsub{font-size:9px}.mcarea{height:90px}}
+@media(max-width:1080px){
+  .mcols{gap:3px;padding:8px 10px 6px}
+  .mcol{flex:0 0 52px}
+  .mcarea{height:112px}
+  .mcstack{padding-top:14px}
+  .mcv{font-size:9px;max-width:50px;overflow:hidden;text-overflow:ellipsis}
+  .mcbar{width:min(70%,24px)}
+  .mclab{font-size:9px;max-width:50px;overflow:hidden;text-overflow:clip}
+  .mcsub{font-size:9px;max-width:50px;overflow:hidden;text-overflow:ellipsis}
+}
+@media(max-width:520px){
+  .mcols{gap:2px;padding-left:8px;padding-right:8px}
+  .mcarea{height:104px}
+  .mcol{flex-basis:48px}
+  .mcv{font-size:8.5px;max-width:46px}
+  .mclab,.mcsub{font-size:8.5px;max-width:46px}
+}
 
 /* Grouped (multi-series) columns — the sales board's load-wise charts (grouped-columns.tsx). */
 .gleg{display:flex;gap:14px;flex-wrap:wrap;padding:10px 18px 0;font-size:11px;color:var(--muted)}
