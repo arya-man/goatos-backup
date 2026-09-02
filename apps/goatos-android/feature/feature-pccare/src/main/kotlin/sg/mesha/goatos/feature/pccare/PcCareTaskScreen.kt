@@ -236,6 +236,13 @@ fun PcCareTaskScreen(
         if (!state.isLocked) {
             PcCareSubmitBar(state = state, onEvent = onEvent)
         }
+
+        // PC Director's stock verdict bar (maintainer decision 2026-09-02): rendered ONLY when
+        // the backend says this viewer may judge the submitted fridge proof. Approve completes
+        // the task; Reject asks for a reason and returns the work to the operators.
+        if (state.verdictOffered) {
+            PcCareStockVerdictBar(state = state, onEvent = onEvent)
+        }
     }
 
     if (state.showSubmitConfirmation) {
@@ -245,6 +252,103 @@ fun PcCareTaskScreen(
             onDismiss = { onEvent(PcCareTaskEvent.DismissSubmitConfirmation) },
         )
     }
+
+    if (state.showRejectDialog) {
+        PcCareStockRejectDialog(
+            reason = state.rejectReasonInput,
+            sending = state.verdictInFlight,
+            onReasonChange = { onEvent(PcCareTaskEvent.RejectStockReasonChanged(it)) },
+            onConfirm = { onEvent(PcCareTaskEvent.ConfirmRejectStock) },
+            onDismiss = { onEvent(PcCareTaskEvent.DismissRejectStock) },
+        )
+    }
+}
+
+@Composable
+private fun PcCareStockVerdictBar(
+    state: PcCareTaskUiState,
+    onEvent: (PcCareTaskEvent) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MeshaColors.Surf)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            OutlinedButton(
+                onClick = { onEvent(PcCareTaskEvent.OpenRejectStock) },
+                enabled = !state.verdictInFlight,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(text = "Send back", color = MeshaColors.Danger, style = MeshaType.pillStrong)
+            }
+            PcCarePrimaryButton(
+                label = if (state.verdictInFlight) "Saving…" else "Approve",
+                enabled = !state.verdictInFlight,
+                onClick = { onEvent(PcCareTaskEvent.ApproveStock) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PcCareStockRejectDialog(
+    reason: String,
+    sending: Boolean,
+    onReasonChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Send this back?", color = MeshaColors.Ink, style = MeshaType.cardTitle) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "The operators will record the fridge again. Say what was wrong.",
+                    color = MeshaColors.Muted,
+                    style = MeshaType.cardSubtitle,
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = onReasonChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(text = "What needs to change", color = MeshaColors.Faint) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MeshaColors.Ink,
+                        unfocusedTextColor = MeshaColors.Ink,
+                        focusedBorderColor = MeshaColors.BrandD,
+                        unfocusedBorderColor = MeshaColors.Hair,
+                        cursorColor = MeshaColors.BrandD,
+                    ),
+                )
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss, enabled = !sending) {
+                Text(text = "Keep reviewing", color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                onClick = onConfirm,
+                enabled = !sending && reason.isNotBlank(),
+            ) {
+                Text(
+                    text = if (sending) "Sending…" else "Send back",
+                    color = if (reason.isNotBlank()) MeshaColors.Danger else MeshaColors.Faint,
+                    style = MeshaType.cardSubtitle,
+                )
+            }
+        },
+        containerColor = MeshaColors.Surf,
+    )
 }
 
 @Composable

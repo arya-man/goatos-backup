@@ -81,3 +81,12 @@ verifier reject  -> rework (re-record on the SAME animal rows, resubmit)
   lifecycle vs the real schema incl. outbox parity), `pccare/app/service_test.go` (assignee
   gate, fail-closed enqueuer, row_version-keyed enqueue, verdict filtering),
   `eventwiring/appliers_test.go` (eight appliers), workforce bootstrap nav tests.
+
+## Superseded in part (2026-09-02): vaccine stock is director-approved
+
+The `inventory_vaccine` stock check no longer travels to the tenant verifier and is no longer
+recorded by the PC Director. Park operators record the fridge proof and the PC Director
+approves/rejects it on the module's own stock-verdict route (`pc_care.stock_approve`,
+pc_director only — the toxin approval-gate shape). The four work categories above are
+unchanged. Canonical prose: `docs/decisions/pc-care-vaccine-stock-director-gate.md`;
+migration `000242_pc_care_stock_director_gate.sql`.

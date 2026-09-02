@@ -41,13 +41,22 @@ func (s *PcCareInventoryVaccineStage) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if s.logger != nil && (result.TasksCreated > 0 || result.AssigneesInserted > 0 || result.RequirementsUpserted > 0 || result.DirectorAssigneeCount == 0) {
+	// A park that needs a stock task but has no vaccination operator is a park-config gap:
+	// its task is deliberately NOT created (never a fallback assignee), so shout about it on
+	// every pass until someone fixes the roster/duty config.
+	if s.logger != nil && result.ParksMissingOperators > 0 {
+		s.logger.Error("pc_care_inventory_vaccine_parks_missing_operators",
+			"tenant_id", s.tenantID,
+			"parks_missing_operators", result.ParksMissingOperators,
+		)
+	}
+	if s.logger != nil && (result.TasksCreated > 0 || result.AssigneesInserted > 0 || result.RequirementsUpserted > 0 || result.DirectorAssigneesRemoved > 0) {
 		s.logger.Info("pc_care_inventory_vaccine_stage_complete",
 			"tenant_id", s.tenantID,
 			"tasks_created", result.TasksCreated,
 			"assignees_inserted", result.AssigneesInserted,
 			"requirements_upserted", result.RequirementsUpserted,
-			"director_assignee_count", result.DirectorAssigneeCount,
+			"director_assignees_removed", result.DirectorAssigneesRemoved,
 		)
 	}
 	return nil

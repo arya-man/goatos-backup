@@ -139,6 +139,17 @@ data class PcCareSlotProofRequestDto(
     @SerialName("proof_ref") val proofRef: String,
 )
 
+/**
+ * The PC Director's decision on a submitted vaccine-stock task (maintainer decision 2026-09-02).
+ * `verdict` is "approve" or "reject"; `reason` is mandatory on reject and is shown verbatim to
+ * the operators who must re-record the fridge.
+ */
+@Serializable
+data class PcCareStockVerdictRequestDto(
+    @SerialName("verdict") val verdict: String,
+    @SerialName("reason") val reason: String = "",
+)
+
 @Serializable
 data class PcCareSubmitResponseDto(
     @SerialName("task_id") val taskId: String,

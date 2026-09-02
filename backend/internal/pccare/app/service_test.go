@@ -352,7 +352,10 @@ func TestPendingVerificationHandlerEnqueuesKeyedByRowVersion(t *testing.T) {
 	}
 }
 
-func TestPendingVerificationHandlerCarriesInventoryVaccineFridgeProof(t *testing.T) {
+func TestPendingVerificationHandlerSkipsInventoryVaccine(t *testing.T) {
+	// Maintainer decision 2026-09-02: a submitted vaccine-stock task is judged by the PC
+	// Director on the stock-verdict route — the pending_verification event still fires, but
+	// no verifier item may be enqueued for it.
 	enq := &fakeEnqueuer{}
 	handler := NewPCCarePendingVerificationHandler(enq, nil)
 	occurredAt := time.Unix(123, 0)
@@ -360,9 +363,7 @@ func TestPendingVerificationHandlerCarriesInventoryVaccineFridgeProof(t *testing
 		"task_id":               testTask,
 		"category":              domain.CategoryInventoryVaccine,
 		"park_id":               "9c000000-0000-4000-8000-00000000f001",
-		"shed_id":               "9c000000-0000-4000-8000-00000000f002",
-		"shed_name":             "Mandela",
-		"partition_label":       "7",
+		"vaccine_label":         "FMD",
 		"planned_business_date": "2026-08-26",
 		"row_version":           8,
 		"animal_count":          0,
@@ -380,27 +381,8 @@ func TestPendingVerificationHandlerCarriesInventoryVaccineFridgeProof(t *testing
 	}); err != nil {
 		t.Fatalf("pending inventory verification: %v", err)
 	}
-	if enq.calls != 1 {
-		t.Fatalf("enqueue calls = %d, want 1", enq.calls)
-	}
-	got := enq.last
-	if got.TenantID != testTenant || got.TaskID != testTask || got.Category != domain.CategoryInventoryVaccine {
-		t.Fatalf("enqueue identity = tenant %q task %q category %q, want inventory task", got.TenantID, got.TaskID, got.Category)
-	}
-	if got.AnimalCount != 0 {
-		t.Fatalf("inventory animal count = %d, want 0", got.AnimalCount)
-	}
-	if len(got.MediaRefs) != 1 || got.MediaRefs[0].ProofRef != "proof-fridge-stock" || got.MediaRefs[0].Label != "Fridge stock proof" {
-		t.Fatalf("inventory media refs = %+v, want fridge stock proof", got.MediaRefs)
-	}
-	if got.ShedName != "Mandela" || got.PartitionLabel != "7" || got.PlannedBusinessDate != "2026-08-26" {
-		t.Fatalf("inventory context = shed %q partition %q planned %q", got.ShedName, got.PartitionLabel, got.PlannedBusinessDate)
-	}
-	if got.OperatorID != testAssignee || !got.CapturedAt.Equal(occurredAt.UTC()) {
-		t.Fatalf("operator/captured_at = %q/%s, want event values", got.OperatorID, got.CapturedAt)
-	}
-	if got.IdempotencyKey != "pc-care-verification:"+testTask+":8" {
-		t.Fatalf("idempotency key = %q, want task row-version key", got.IdempotencyKey)
+	if enq.calls != 0 {
+		t.Fatalf("enqueue calls = %d, want 0 — stock work is the PC Director's, never the verifier's", enq.calls)
 	}
 }
 

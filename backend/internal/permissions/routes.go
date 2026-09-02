@@ -658,6 +658,12 @@ var protectedRoutes = []Route{
 	{OperationID: "appRegisterPCCareSlotProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
 	{OperationID: "appRegisterPCCareTaskProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
 	{OperationID: "appSubmitPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/submit", Permissions: []string{PCCareExecute}},
+	// Vaccine-stock verdict (maintainer decision 2026-09-02): the PC Director alone approves or
+	// rejects a submitted inventory_vaccine stock task. Deliberately NOT verification.verdict —
+	// stock work never reaches the tenant verifier (the toxin-module approval-gate shape), and
+	// deliberately NOT PCCareExecute — the operators who filmed the fridge must not accept
+	// their own evidence.
+	{OperationID: "appRecordPCCareStockVerdict", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/stock-verdict", Permissions: []string{PCCareStockApprove}},
 
 	// Authored feed configuration (/feed-config/*), the surface behind the Feed Config screen.
 	//

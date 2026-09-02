@@ -29,7 +29,10 @@ func (f *fakeVerificationCreator) CreateItem(_ context.Context, in verificationd
 	return verificationdomain.CreateItemResult{Created: true}, nil
 }
 
-func TestRegisterCategoriesIncludesInventoryVaccine(t *testing.T) {
+// Maintainer decision 2026-09-02: the vaccine-stock check is approved by the PC Director on
+// the module's own stock-verdict route — the verifier queue must not offer an inventory page,
+// and the four verifier-reviewed categories must all stay registered.
+func TestRegisterCategoriesExcludesInventoryVaccine(t *testing.T) {
 	reg := &fakeCategoryRegistry{}
 	if err := RegisterCategories(reg); err != nil {
 		t.Fatalf("RegisterCategories: %v", err)
@@ -38,20 +41,23 @@ func TestRegisterCategoriesIncludesInventoryVaccine(t *testing.T) {
 	for _, def := range reg.defs {
 		got[def.Category] = def
 	}
-	def, ok := got[pccaredomain.VerificationCategoryInventoryVaccine]
-	if !ok {
-		t.Fatalf("inventory_vaccine category missing from registered categories: %#v", got)
+	if _, ok := got[pccaredomain.VerificationCategoryInventoryVaccine]; ok {
+		t.Fatalf("inventory_vaccine must NOT be a verifier category (director-approved since 2026-09-02): %#v", got)
 	}
-	if def.Vertical != pccaredomain.VerificationVerticalPreventiveCare ||
-		def.Module != pccaredomain.VerificationModulePCCare ||
-		def.NavigationModule != pccaredomain.VerificationModulePCCare ||
-		def.PageKey != pccaredomain.VerificationCategoryInventoryVaccine ||
-		def.PageLabel != "Vaccine Inventory" {
-		t.Fatalf("inventory category def = %+v, want PC Care Vaccine Inventory verifier page", def)
+	for _, workCategory := range pccaredomain.VerifierReviewedCategories {
+		if _, ok := got[pccaredomain.VerificationCategoryFor(workCategory)]; !ok {
+			t.Fatalf("verifier-reviewed category %q missing from registered categories: %#v", workCategory, got)
+		}
+	}
+	if len(got) != len(pccaredomain.VerifierReviewedCategories) {
+		t.Fatalf("registered %d categories, want exactly the %d verifier-reviewed ones: %#v",
+			len(got), len(pccaredomain.VerifierReviewedCategories), got)
 	}
 }
 
-func TestEnqueueInventoryVaccineCreatesVerifierItemWithFridgeProof(t *testing.T) {
+// The bridge itself refuses a director-approved category, even when called directly — the
+// defense-in-depth twin of the pending-verification consumer's skip.
+func TestEnqueueInventoryVaccineNeverCreatesAVerifierItem(t *testing.T) {
 	creator := &fakeVerificationCreator{}
 	enq := New(creator)
 	capturedAt := time.Date(2026, time.August, 26, 7, 30, 0, 0, time.UTC)
@@ -60,52 +66,19 @@ func TestEnqueueInventoryVaccineCreatesVerifierItemWithFridgeProof(t *testing.T)
 		TaskID:              "task-1",
 		Category:            pccaredomain.CategoryInventoryVaccine,
 		ParkID:              "park-1",
-		ShedID:              "shed-1",
-		ShedName:            "Mandela",
-		PartitionLabel:      "7",
+		VaccineLabel:        "FMD",
 		PlannedBusinessDate: "2026-08-26",
 		MediaRefs: []ports.LabeledRef{{
 			ProofRef: "proof-fridge-stock",
 			Label:    "Fridge stock proof",
 		}},
-		AnimalCount:    0,
-		OperatorID:     "director-1",
+		OperatorID:     "operator-1",
 		CapturedAt:     capturedAt,
 		IdempotencyKey: "pc-care-verification:task-1:8",
 	}); err != nil {
 		t.Fatalf("EnqueuePCCareVerification: %v", err)
 	}
-	if len(creator.calls) != 1 {
-		t.Fatalf("CreateItem calls = %d, want 1", len(creator.calls))
-	}
-	item := creator.calls[0]
-	if item.Vertical != pccaredomain.VerificationVerticalPreventiveCare ||
-		item.Module != pccaredomain.VerificationModulePCCare ||
-		item.Category != pccaredomain.VerificationCategoryInventoryVaccine {
-		t.Fatalf("item route = %s/%s/%s, want preventive_care/pc_care/inventory_vaccine", item.Vertical, item.Module, item.Category)
-	}
-	if item.SubjectLabel == nil || *item.SubjectLabel != "Vaccine Inventory · Mandela 7" {
-		t.Fatalf("subject label = %v, want Vaccine Inventory · Mandela 7", item.SubjectLabel)
-	}
-	if len(item.MediaRefs) != 1 || item.MediaRefs[0] != "proof-fridge-stock" {
-		t.Fatalf("media refs = %v, want fridge proof", item.MediaRefs)
-	}
-	if item.Source.Module != pccaredomain.VerificationModulePCCare ||
-		item.Source.RefType != pccaredomain.VerificationRefTypeTask ||
-		item.Source.RefID != "task-1" {
-		t.Fatalf("source = %+v, want PC Care task source", item.Source)
-	}
-	if len(item.ContextRows) != 2 ||
-		item.ContextRows[0].Label != "Work" || item.ContextRows[0].Value != "Vaccine Inventory" ||
-		item.ContextRows[1].Label != "Planned for" || item.ContextRows[1].Value != "2026-08-26" {
-		t.Fatalf("context rows = %+v, want work and planned date with no animal-count row", item.ContextRows)
-	}
-	if item.OperatorID == nil || *item.OperatorID != "director-1" ||
-		item.ShedID == nil || *item.ShedID != "shed-1" ||
-		item.ParkID == nil || *item.ParkID != "park-1" ||
-		item.PartitionLabel == nil || *item.PartitionLabel != "7" ||
-		!item.CapturedAt.Equal(capturedAt) ||
-		item.IdempotencyKey != "pc-care-verification:task-1:8" {
-		t.Fatalf("item metadata = %+v, want inventory task metadata preserved", item)
+	if len(creator.calls) != 0 {
+		t.Fatalf("CreateItem calls = %d, want 0 — stock work is the PC Director's, never the verifier's", len(creator.calls))
 	}
 }

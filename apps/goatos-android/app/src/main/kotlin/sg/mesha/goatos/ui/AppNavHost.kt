@@ -456,9 +456,12 @@ object Routes {
     // prefix reuse of the L0 tabs above.
     const val PC_TASK_MONITOR_ARG = "monitor"
 
+    /** "1" opens the task with the PC Director's stock verdict bar armed (approve capability). */
+    const val PC_TASK_APPROVE_ARG = "approve"
+
     /** SavedStateHandle key: the plan wizard hands its planned date back to the monitor list. */
     const val PC_CARE_CREATED_DATE_KEY = "pc_care_created_date"
-    const val PC_TASK = "/pc/task/{$PC_TASK_ID_ARG}?$PC_TASK_CATEGORY_ARG={$PC_TASK_CATEGORY_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}&$PC_TASK_MONITOR_ARG={$PC_TASK_MONITOR_ARG}"
+    const val PC_TASK = "/pc/task/{$PC_TASK_ID_ARG}?$PC_TASK_CATEGORY_ARG={$PC_TASK_CATEGORY_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}&$PC_TASK_MONITOR_ARG={$PC_TASK_MONITOR_ARG}&$PC_TASK_APPROVE_ARG={$PC_TASK_APPROVE_ARG}"
 
     const val PC_TAG_KEY_ARG = "tag_key"
     const val PC_TAG_VERBATIM_ARG = "tag_verbatim"
@@ -498,11 +501,18 @@ object Routes {
     fun clockPersonRoute(memberId: String, date: String): String =
         "/clock/team/person/${Uri.encode(memberId)}?$CLOCK_PERSON_DATE_ARG=${Uri.encode(date)}"
 
-    fun pcTaskRoute(taskId: String, category: String, title: String, monitor: Boolean = false): String =
+    fun pcTaskRoute(
+        taskId: String,
+        category: String,
+        title: String,
+        monitor: Boolean = false,
+        approve: Boolean = false,
+    ): String =
         "/pc/task/${Uri.encode(taskId)}" +
             "?$PC_TASK_CATEGORY_ARG=${Uri.encode(category)}" +
             "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}" +
-            "&$PC_TASK_MONITOR_ARG=${if (monitor) "1" else ""}"
+            "&$PC_TASK_MONITOR_ARG=${if (monitor) "1" else ""}" +
+            "&$PC_TASK_APPROVE_ARG=${if (approve) "1" else ""}"
 
     // The L1 plan-wizard drill (maintainer feedback 2026-08-21): "Plan a care task" opens as its
     // own hosted destination with Up/Back and NO root chrome, launched from a category tab's plan
@@ -1118,6 +1128,7 @@ fun AppNavHost(
     canExecuteWeighing: Boolean = false,
     canExecutePcCare: Boolean = false,
     canPlanPcCare: Boolean = false,
+    canApproveVaccineStock: Boolean = false,
     /**
      * Whether the backend's nav answer has ARRIVED. Every `canExecute*` flag above is read off the
      * nav feature flags, which are empty until bootstrap resolves -- so before this is true they
@@ -3135,6 +3146,10 @@ fun AppNavHost(
             canPlanPcCare,
             moduleLabel = "Vaccination",
             showDateBar = false,
+            // Vaccine-stock approver face (maintainer decision 2026-09-02): the PC Director sees
+            // the stock cards read-only and judges submitted fridge proof; the backend's
+            // pc_care_stock_approve capability decides, never a role label.
+            canApproveStock = canApproveVaccineStock,
         )
         pcCareCategoryComposable(Routes.PC_TICKS, "ticks_removal", "Ticks Removal", navController, canExecutePcCare, canPlanPcCare)
         pcCareCategoryComposable(Routes.PC_HOOF_TRIMMING, "hoof_trimming", "Hoof Trimming", navController, canExecutePcCare, canPlanPcCare)
@@ -3196,10 +3211,15 @@ fun AppNavHost(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument(Routes.PC_TASK_APPROVE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
         ) {
             val monitor = it.arguments?.getString(Routes.PC_TASK_MONITOR_ARG) == "1" ||
                 pcCareTaskRouteUsesMonitorMode(canExecutePcCare, canPlanPcCare)
+            val approver = it.arguments?.getString(Routes.PC_TASK_APPROVE_ARG) == "1" && canApproveVaccineStock
             val vm: PcCareTaskViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             // Hardware reader capture only while this capture screen is active.
@@ -3215,7 +3235,7 @@ fun AppNavHost(
                 PcCareTaskScreen(
                     state = state,
                     onEvent = { event ->
-                        if (monitor && !pcCareMonitorEventAllowed(event)) return@PcCareTaskScreen
+                        if (monitor && !pcCareMonitorEventAllowed(event, approver)) return@PcCareTaskScreen
                         when (event) {
                             sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
                             sg.mesha.goatos.feature.pccare.PcCareTaskEvent.ReconnectReader ->
@@ -3753,9 +3773,10 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
     canPlanPcCare: Boolean,
     moduleLabel: String = "Preventive Care",
     showDateBar: Boolean = true,
+    canApproveStock: Boolean = false,
 ) {
     composable(route) { entry ->
-        if (pcCareShowsExecutorFace(canExecutePcCare, canPlanPcCare)) {
+        if (pcCareShowsExecutorFace(canExecutePcCare, canPlanPcCare) && !canApproveStock) {
             // Executor face: the scan worklist for tasks assigned to this person.
             val vm: PcCareWorklistViewModel = hiltViewModel()
             LaunchedEffect(vm) { vm.bind(category, title, moduleLabel = moduleLabel, showDateBar = showDateBar) }
@@ -3824,7 +3845,7 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
                 // and status, with no scan/record/submit controls (monitor=1 locks the screen).
                 onOpenTask = { card ->
                     navController.navigate(
-                        Routes.pcTaskRoute(card.taskId, card.category, title, monitor = true),
+                        Routes.pcTaskRoute(card.taskId, card.category, title, monitor = true, approve = canApproveStock),
                     ) { launchSingleTop = true }
                 },
                 onEvent = { event ->
@@ -3849,9 +3870,22 @@ internal fun pcCareTaskRouteUsesMonitorMode(canExecutePcCare: Boolean, canPlanPc
 
 internal fun pcCareMonitorEventAllowed(
     event: sg.mesha.goatos.feature.pccare.PcCareTaskEvent,
+    approver: Boolean = false,
 ): Boolean =
     event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back ||
-        event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Refresh
+        event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Refresh ||
+        // The PC Director's stock verdict (maintainer decision 2026-09-02): the read-only
+        // monitor lock stays for every capture event; ONLY the verdict family passes, and only
+        // for the approve-capable viewer. The server independently gates the route.
+        (
+            approver && (
+                event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.ApproveStock ||
+                    event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.OpenRejectStock ||
+                    event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.DismissRejectStock ||
+                    event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.RejectStockReasonChanged ||
+                    event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.ConfirmRejectStock
+                )
+            )
 
 private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
 

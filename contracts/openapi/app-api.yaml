@@ -6663,9 +6663,11 @@ paths:
         Refused until every scanned animal carries its full slot set (422 proof_incomplete) and
         while no animal is scanned (422 no_animals). For inventory_vaccine, refused until the
         task-level stock_fridge_photo and stock_fridge_video proofs are present; the task has no animal rows. On success
-        the task flips to pending_verification, locks for every assignee, and ONE verification
-        item carries the animal clips or fridge stock proof. Verifier approve completes the task;
-        reject returns it for rework.
+        the task flips to pending_verification and locks for every assignee. For the four
+        verifier-reviewed categories ONE verification item carries the animal clips and the
+        verifier's approve completes the task / reject returns it for rework. An inventory_vaccine
+        stock task never reaches the verifier: the PC DIRECTOR judges the fridge proof on
+        /app/pc-care/tasks/{task_id}/stock-verdict (maintainer decision 2026-09-02).
       parameters:
         - in: path
           name: task_id
@@ -6684,6 +6686,57 @@ paths:
           description: >-
             Some animals still miss required videos (proof_incomplete) or none are scanned
             (no_animals).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/stock-verdict:
+    post:
+      tags: [PC Care]
+      operationId: appRecordPCCareStockVerdict
+      summary: The PC Director's approve/reject on a submitted vaccine-stock task.
+      description: >-
+        Maintainer decision 2026-09-02. The vaccine-stock fridge check is recorded by the park's
+        own vaccination operators and judged by the PC DIRECTOR here — never by the tenant
+        verifier (the toxin-module approval-gate shape; verification.verdict stays
+        verifier-only). Gated on pc_care.stock_approve, held by pc_director alone, so the
+        operators who filmed the fridge cannot accept their own evidence. Approve completes the
+        task (both state columns, pc_care.task.completed emitted); reject requires a reason and
+        returns the task to the operators as rework. State-guarded and idempotent — repeating a
+        verdict the task already carries echoes the task; a conflicting verdict is 409
+        verdict_not_pending.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verdict]
+              properties:
+                verdict:
+                  type: string
+                  enum: [approve, reject]
+                reason:
+                  type: string
+                  description: Mandatory on reject — shown verbatim to the operators re-recording.
+      responses:
+        "200":
+          description: The task after the verdict.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareTask" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409":
+          description: The task is not awaiting approval (verdict_not_pending).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "422":
+          description: >-
+            Not a vaccine stock task (not_stock_task), unknown verdict (invalid_verdict), or a
+            reject without a reason (reason_required).
           content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
         "500": { $ref: "#/components/responses/ServerError" }
   /feed-config/ration-rates:

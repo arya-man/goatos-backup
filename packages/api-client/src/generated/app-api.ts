@@ -2546,9 +2546,29 @@ export interface paths {
         put?: never;
         /**
          * Submit the whole task for verifier review (any assignee).
-         * @description Refused until every scanned animal carries its full slot set (422 proof_incomplete) and while no animal is scanned (422 no_animals). For inventory_vaccine, refused until the task-level stock_fridge_photo and stock_fridge_video proofs are present; the task has no animal rows. On success the task flips to pending_verification, locks for every assignee, and ONE verification item carries the animal clips or fridge stock proof. Verifier approve completes the task; reject returns it for rework.
+         * @description Refused until every scanned animal carries its full slot set (422 proof_incomplete) and while no animal is scanned (422 no_animals). For inventory_vaccine, refused until the task-level stock_fridge_photo and stock_fridge_video proofs are present; the task has no animal rows. On success the task flips to pending_verification and locks for every assignee. For the four verifier-reviewed categories ONE verification item carries the animal clips and the verifier's approve completes the task / reject returns it for rework. An inventory_vaccine stock task never reaches the verifier: the PC DIRECTOR judges the fridge proof on /app/pc-care/tasks/{task_id}/stock-verdict (maintainer decision 2026-09-02).
          */
         post: operations["appSubmitPCCareTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/stock-verdict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The PC Director's approve/reject on a submitted vaccine-stock task.
+         * @description Maintainer decision 2026-09-02. The vaccine-stock fridge check is recorded by the park's own vaccination operators and judged by the PC DIRECTOR here — never by the tenant verifier (the toxin-module approval-gate shape; verification.verdict stays verifier-only). Gated on pc_care.stock_approve, held by pc_director alone, so the operators who filmed the fridge cannot accept their own evidence. Approve completes the task (both state columns, pc_care.task.completed emitted); reject requires a reason and returns the task to the operators as rework. State-guarded and idempotent — repeating a verdict the task already carries echoes the task; a conflicting verdict is 409 verdict_not_pending.
+         */
+        post: operations["appRecordPCCareStockVerdict"];
         delete?: never;
         options?: never;
         head?: never;
@@ -19404,6 +19424,60 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             /** @description Some animals still miss required videos (proof_incomplete) or none are scanned (no_animals). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appRecordPCCareStockVerdict: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    verdict: "approve" | "reject";
+                    /** @description Mandatory on reject — shown verbatim to the operators re-recording. */
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The task after the verdict. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTask"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The task is not awaiting approval (verdict_not_pending). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Not a vaccine stock task (not_stock_task), unknown verdict (invalid_verdict), or a reject without a reason (reason_required). */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -533,6 +533,7 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"weighing_oversee_operators":  canOverseeWeighingOperatorsFrom(grants, grantedModules, fromTicks),
 			"pc_care_execute":             canExecutePCCareFrom(grants, grantedModules, fromTicks),
 			"pc_care_plan":                canPlanPCCareFrom(grants, grantedModules, fromTicks),
+			"pc_care_stock_approve":       canApproveVaccineStockFrom(grants),
 			"verification_video_controls": canUseVerificationVideoControls(grants),
 		},
 		VisibleNavigation:       visibleNav,

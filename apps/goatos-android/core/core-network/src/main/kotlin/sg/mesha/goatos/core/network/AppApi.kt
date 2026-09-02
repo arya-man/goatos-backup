@@ -53,6 +53,7 @@ import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
 import sg.mesha.goatos.core.network.dto.PcCareScanRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareScanResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareStockVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
@@ -1249,6 +1250,16 @@ interface AppApi {
 
     suspend fun cancelPcCareTask(taskId: String)
 
+    /**
+     * POST /app/pc-care/tasks/{task_id}/stock-verdict — the PC Director's approve/reject on a
+     * submitted vaccine-stock task (maintainer decision 2026-09-02). Server-gated on
+     * pc_care.stock_approve; never the verifier's route.
+     */
+    suspend fun recordPcCareStockVerdict(
+        taskId: String,
+        request: PcCareStockVerdictRequestDto,
+    ): PcCareTaskDto
+
     // ------------------------------------------------------------------
     // Toxin (aflatoxin strip test, maintainer decision 2026-08-25)
     // ------------------------------------------------------------------
@@ -2366,6 +2377,23 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     )
 
     override suspend fun cancelPcCareTask(taskId: String) = Unit
+
+    override suspend fun recordPcCareStockVerdict(
+        taskId: String,
+        request: PcCareStockVerdictRequestDto,
+    ): PcCareTaskDto = PcCareTaskDto(
+        taskId = taskId,
+        category = "inventory_vaccine",
+        parkId = "park-1",
+        parkLabel = "CPT",
+        shedId = "",
+        shedLabel = "",
+        plannedBusinessDate = "2026-09-02",
+        dueBusinessDate = "2026-09-02",
+        workState = if (request.verdict == "approve") "completed" else "scheduled",
+        status = if (request.verdict == "approve") "completed" else "rework",
+        rowVersion = 2,
+    )
 
     override suspend fun getToxinTasks(
         filter: String?,

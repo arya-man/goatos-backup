@@ -287,9 +287,11 @@ var moduleCapabilities = []ModuleCapability{
 		Blurb:    "Deworming, hoof and hair trimming, tick control.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
-			LevelView:    {PCCareMonitor},
-			LevelDo:      {PCCareMonitor, PCCareExecute},
-			LevelOversee: {PCCareMonitor, PCCareOverseeOperators},
+			LevelView: {PCCareMonitor},
+			LevelDo:   {PCCareMonitor, PCCareExecute},
+			// Oversee carries the vaccine-stock approval (maintainer decision 2026-09-02):
+			// the overseer tier is the PC Director, who judges the operators' fridge videos.
+			LevelOversee: {PCCareMonitor, PCCareOverseeOperators, PCCareStockApprove},
 			// Planning without executing, exactly as weighing above.
 			LevelConfigure: {PCCareMonitor, PCCarePlan},
 		},

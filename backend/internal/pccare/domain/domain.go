@@ -55,6 +55,26 @@ func IsKernelOwnedCategory(c string) bool {
 	return c == CategoryInventoryVaccine
 }
 
+// VerifierReviewedCategories are the categories whose submitted proof travels to the tenant
+// VERIFIER's queue. inventory_vaccine is deliberately absent (maintainer decision 2026-09-02):
+// the vaccine-stock check is recorded by park operators and approved by the PC DIRECTOR on the
+// module's own stock-verdict route — the toxin-module approval-gate shape — so the verifier
+// never sees stock work and no verification item is enqueued for it.
+var VerifierReviewedCategories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
+
+// IsDirectorApprovedCategory reports whether a category's submitted proof is judged by the PC
+// Director instead of the tenant verifier.
+func IsDirectorApprovedCategory(c string) bool {
+	return c == CategoryInventoryVaccine
+}
+
+// Stock verdict tokens carried on POST /app/pc-care/tasks/{task_id}/stock-verdict. These are
+// CONTRACT tokens, never user-facing copy.
+const (
+	StockVerdictApprove = "approve"
+	StockVerdictReject  = "reject"
+)
+
 // Slot field keys. The 1-video categories use SlotVideo; the trimming categories use the
 // before/during/after triple. These keys ARE the wire contract (expected_slots[].field_key and
 // the animal proof-registration path segment) and the Android capture slot identity — one
@@ -275,4 +295,15 @@ var (
 	// ErrKernelOwnedCategory is returned when a planner/API write tries to create work whose
 	// source of truth is a kernel reconciliation path.
 	ErrKernelOwnedCategory = errors.New("pccare: category is created by the kernel")
+	// ErrNotStockTask is returned when a stock verdict names a task that is not an
+	// inventory_vaccine stock task. Surfaces as 422 not_stock_task.
+	ErrNotStockTask = errors.New("pccare: this task is not a vaccine stock task")
+	// ErrStockVerdictNotPending is returned when a stock verdict arrives while the task is not
+	// awaiting the director's decision. Surfaces as 409 verdict_not_pending.
+	ErrStockVerdictNotPending = errors.New("pccare: this task is not awaiting approval")
+	// ErrInvalidStockVerdict is returned for an unknown verdict token. Surfaces as 422.
+	ErrInvalidStockVerdict = errors.New("pccare: unknown verdict")
+	// ErrStockRejectReasonRequired is returned when a reject carries no reason — the operators
+	// re-recording the fridge are owed a sentence saying why. Surfaces as 422 reason_required.
+	ErrStockRejectReasonRequired = errors.New("pccare: a reason is required to reject")
 )

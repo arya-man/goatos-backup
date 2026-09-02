@@ -92,6 +92,13 @@ func (h *PCCarePendingVerificationHandler) HandleEvent(ctx context.Context, e ev
 			return err
 		}
 	}
+	// A submitted vaccine-stock task is judged by the PC DIRECTOR on the module's own
+	// stock-verdict route, never by the tenant verifier (maintainer decision 2026-09-02) — so
+	// no verification item is enqueued for it. The event itself still fires: it is the durable
+	// record that the task entered pending_verification.
+	if domain.IsDirectorApprovedCategory(strings.TrimSpace(p.Category)) {
+		return nil
+	}
 	refs := make([]ports.LabeledRef, 0, len(p.MediaRefs))
 	for _, ref := range p.MediaRefs {
 		if strings.TrimSpace(ref.ProofRef) == "" {

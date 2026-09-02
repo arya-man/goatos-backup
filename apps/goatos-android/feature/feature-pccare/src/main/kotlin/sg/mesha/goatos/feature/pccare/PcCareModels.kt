@@ -176,6 +176,15 @@ data class PcCareTaskUiState(
      * card set; null on the task screen itself.
      */
     val focusAnimal: PcCareAnimalUi? = null,
+    /**
+     * PC Director's stock approval face (maintainer decision 2026-09-02): true when THIS viewer
+     * may approve/reject the submitted fridge proof — the verdict bar renders below the
+     * read-only proof previews. Only ever true on a vaccine-stock task in review.
+     */
+    val verdictOffered: Boolean = false,
+    val verdictInFlight: Boolean = false,
+    val showRejectDialog: Boolean = false,
+    val rejectReasonInput: String = "",
 )
 
 @Immutable
@@ -215,6 +224,20 @@ sealed interface PcCareTaskEvent {
 
     /** Tap on a pen-roster row (roster mode): record this animal's video. */
     data class RosterTapped(val tagKey: String) : PcCareTaskEvent
+
+    // -- PC Director's stock verdict (maintainer decision 2026-09-02) ------------------------
+    /** Approve the submitted fridge proof — the task completes. */
+    data object ApproveStock : PcCareTaskEvent
+
+    /** Open the reject dialog (a reject always carries a reason). */
+    data object OpenRejectStock : PcCareTaskEvent
+
+    data object DismissRejectStock : PcCareTaskEvent
+
+    data class RejectStockReasonChanged(val value: String) : PcCareTaskEvent
+
+    /** Send the reject with the typed reason — the task returns to the operators as rework. */
+    data object ConfirmRejectStock : PcCareTaskEvent
 }
 
 // ---------------------------------------------------------------------------
