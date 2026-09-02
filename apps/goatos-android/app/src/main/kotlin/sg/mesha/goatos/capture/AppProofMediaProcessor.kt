@@ -371,7 +371,7 @@ class AppProofMediaProcessor @Inject constructor(
     private fun drawAuditOverlay(canvas: Canvas, layout: OverlayLayout) {
         val textPaint = overlayTextPaint(layout.textSize)
         val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(90, 0, 0, 0)
+            color = Color.argb(60, 0, 0, 0)
         }
         canvas.drawRoundRect(RectF(0f, 0f, layout.width.toFloat(), layout.height.toFloat()), 10f, 10f, bgPaint)
         var y = layout.padding - textPaint.fontMetrics.ascent
