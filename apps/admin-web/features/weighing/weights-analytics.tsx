@@ -29,6 +29,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 // than two that merely look alike. See landing-window.ts.
 import {
   WINDOW_FROM_PARAM,
+  WINDOW_MIN_DATE,
   WINDOW_TO_PARAM,
   defaultWindow,
   landingWindow,
@@ -240,6 +241,7 @@ export async function WeighingWeightsAnalyticsPage({
       from: window.from,
       to: window.to,
       today,
+      minDate: WINDOW_MIN_DATE,
       defaultFrom: defaultWindow(today).from,
       defaultTo: defaultWindow(today).to,
       labels: {

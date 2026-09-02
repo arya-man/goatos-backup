@@ -26,6 +26,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 // about which weighing period they are describing. See landing-window.ts for why it is one module.
 import {
   WINDOW_FROM_PARAM,
+  WINDOW_MIN_DATE,
   WINDOW_TO_PARAM,
   defaultWindow,
   landingWindow,
@@ -377,6 +378,7 @@ export async function WeighingWeightsPage({
       from: window.from,
       to: window.to,
       today,
+      minDate: WINDOW_MIN_DATE,
       // Landing on this window clears both parameters, so a shared link keeps meaning "the last 15
       // days" rather than freezing on the fortnight it was copied in. Named fields, never a spread of
       // defaultWindow(): `{...{from,to}}` would silently overwrite the SELECTED window above with

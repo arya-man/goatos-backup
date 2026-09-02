@@ -124,6 +124,7 @@ export function DateRangePicker({
   busy = false,
   markerDates = [],
   markerFetchPath,
+  minDate,
   singleDayOnly = false,
   onChange,
 }: {
@@ -144,6 +145,13 @@ export function DateRangePicker({
    * dashboard is currently reporting 15 Aug -> 25 Aug.
    */
   markerFetchPath?: string;
+  /**
+   * Earliest selectable business day, inclusive, "YYYY-MM-DD". Days before it render
+   * disabled exactly like future days do — for a host whose read has a hard history
+   * floor (Herd Analytics starts 2026-08-01), a request the server would answer with
+   * empty padding is as much of a trap as one it refuses.
+   */
+  minDate?: string;
   /**
    * Hides the single/range tabs and pins the calendar to ONE day.
    *
@@ -228,6 +236,7 @@ export function DateRangePicker({
 
   function pickDay(key: string): void {
     if (key > today) return;
+    if (minDate && key < minDate) return;
     if (mode === "single") {
       commit(key, key);
       return;
@@ -333,6 +342,7 @@ export function DateRangePicker({
           {days.map((day) => {
             const key = dateKey(day);
             const future = key > today;
+            const beforeFloor = minDate ? key < minDate : false;
             const isEdge = key === previewFrom || key === previewTo;
             const inRange = strictlyBetween(key, previewFrom, previewTo);
             const marked = markerDateSet.has(key);
@@ -340,7 +350,7 @@ export function DateRangePicker({
               <button
                 key={key}
                 type="button"
-                disabled={future}
+                disabled={future || beforeFloor}
                 className={[
                   "top-date-day",
                   sameMonth(day, cursor) ? "" : "outside",

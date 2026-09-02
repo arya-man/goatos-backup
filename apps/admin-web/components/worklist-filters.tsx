@@ -126,6 +126,11 @@ export type WorklistFilterField =
       /** Today's business day (Asia/Kolkata), resolved on the server. Future days are unpickable. */
       today: string;
       /**
+       * Earliest selectable day, inclusive — for a host whose read has a hard history floor
+       * (weighing history starts Aug 2026). Days before it are unpickable, like future days.
+       */
+      minDate?: string;
+      /**
        * The window the page falls back to when neither parameter is present. Selecting exactly this
        * span CLEARS both parameters, so a bookmark keeps meaning "the last 30 days" rather than
        * freezing on the span it was taken in.
@@ -429,6 +434,7 @@ export function WorklistFilters({
                 from={shownValue(field.param, field.from, true) || field.defaultFrom}
                 to={shownValue(field.toParam, field.to, true) || field.defaultTo}
                 today={field.today}
+                minDate={field.minDate}
                 busy={busy}
                 markerDates={field.markerDates}
                 markerFetchPath={field.markerFetchPath}

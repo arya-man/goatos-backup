@@ -26,8 +26,16 @@ test("a future day cannot be requested", () => {
   // The reads behind both hosts reject a future business date, so a control able to ask for one is
   // a trap.
   assert.match(pickerSource, /const future = key > today;/);
-  assert.match(pickerSource, /disabled=\{future\}/);
+  assert.match(pickerSource, /disabled=\{future \|\| beforeFloor\}/);
   assert.match(pickerSource, /if \(key > today\) return;/);
+});
+
+test("a day before the host's history floor cannot be requested either", () => {
+  // Optional per host: Herd Analytics' history starts 2026-08-01, so its calendar disables the
+  // days before that the same way every calendar disables the days after today. Hosts that pass
+  // no minDate keep every past day selectable.
+  assert.match(pickerSource, /const beforeFloor = minDate \? key < minDate : false;/);
+  assert.match(pickerSource, /if \(minDate && key < minDate\) return;/);
 });
 
 test("hosts can mark domain-specific days without giving the picker routing knowledge", () => {

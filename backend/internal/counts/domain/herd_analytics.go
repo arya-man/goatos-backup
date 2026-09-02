@@ -134,6 +134,14 @@ const (
 	// three years. A longer one is REJECTED rather than silently trimmed — a
 	// leader who asked for five years must not be shown three and told nothing.
 	HerdAnalyticsMaxDays = 1150
+	// HerdAnalyticsFloorDate is the earliest day the DEFAULT window opens on:
+	// the herd's flow history in Goat OS starts in August 2026, so a default
+	// reaching further back pads the charts with empty months that read as a
+	// herd that had nothing happening. The floor binds the default only — a
+	// leader who NAMES an earlier window still gets exactly that window, and
+	// the honest empty months with it. The admin-web calendar mirrors this
+	// value as its earliest selectable day.
+	HerdAnalyticsFloorDate = "2026-08-01"
 )
 
 // ParseHerdAnalyticsDate parses an inclusive "YYYY-MM-DD" bound into the first
@@ -147,18 +155,25 @@ func ParseHerdAnalyticsDate(raw string) (time.Time, error) {
 }
 
 // HerdAnalyticsDefaultWindow returns the default inclusive bounds: the first day
-// of the month eleven back, through today.
+// of the month eleven back, through today — never earlier than
+// HerdAnalyticsFloorDate.
 //
 // It starts on a month BOUNDARY rather than exactly 365 days back because the
 // flow chart buckets by business month — an arbitrary start day would open the
 // default view with a half-empty first column that looks like a collapse in
-// births rather than a window edge.
+// births rather than a window edge. The floor keeps the default off the months
+// before the herd's history begins; once twelve months of real history exist
+// the floor stops binding on its own.
 func HerdAnalyticsDefaultWindow(now time.Time) (from string, to string) {
 	ist := biztime.DefaultLocation()
 	today := now.In(ist)
 	firstOfMonth := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, ist)
-	return firstOfMonth.AddDate(0, -(HerdAnalyticsDefaultMonths - 1), 0).Format(HerdAnalyticsDateLayout),
-		today.Format(HerdAnalyticsDateLayout)
+	from = firstOfMonth.AddDate(0, -(HerdAnalyticsDefaultMonths - 1), 0).Format(HerdAnalyticsDateLayout)
+	// "YYYY-MM-DD" orders lexicographically, so the clamp is a string compare.
+	if from < HerdAnalyticsFloorDate {
+		from = HerdAnalyticsFloorDate
+	}
+	return from, today.Format(HerdAnalyticsDateLayout)
 }
 
 // ResolveHerdAnalyticsWindow validates and resolves the inclusive window.

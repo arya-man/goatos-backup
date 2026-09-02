@@ -11,6 +11,7 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { WINDOW_MIN_DATE } from "./landing-window";
 import { exportWeightsCsvAction } from "./weights-export-action";
 
 export type WeightsExportPark = { park_id: string; name: string };
@@ -210,6 +211,7 @@ export function WeightsExportControl({
               from={from}
               to={to}
               today={today}
+              minDate={WINDOW_MIN_DATE}
               busy={pending}
               onChange={(nextFrom, nextTo) => {
                 setFrom(nextFrom);

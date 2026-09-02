@@ -23,6 +23,7 @@ export function HerdAnalyticsDateFilter({
   from,
   to,
   today,
+  minDate,
   defaultFrom,
   defaultTo,
 }: {
@@ -32,6 +33,8 @@ export function HerdAnalyticsDateFilter({
   from: string;
   to: string;
   today: string;
+  /** Earliest selectable day — the herd's history floor, mirrored from the backend. */
+  minDate: string;
   /** The backend's no-param default window, expressed by ABSENCE in the URL. */
   defaultFrom: string;
   defaultTo: string;
@@ -80,6 +83,7 @@ export function HerdAnalyticsDateFilter({
       from={live?.from ?? from}
       to={live?.to ?? to}
       today={today}
+      minDate={minDate}
       busy={pending}
       onChange={apply}
     />

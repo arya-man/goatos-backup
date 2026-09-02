@@ -46,6 +46,13 @@ const PAGE_PATH = "/counts/analytics";
 const MAX_WINDOW_DAYS = 1150;
 /** Mirrors counts/domain.HerdAnalyticsDefaultMonths. */
 const HERD_ANALYTICS_DEFAULT_MONTHS = 12;
+/**
+ * Mirrors counts/domain.HerdAnalyticsFloorDate — the herd's flow history in Goat OS
+ * starts in August 2026. The default window never opens earlier, and the calendar
+ * disables the days before it so the control cannot ask for months that would come
+ * back as empty padding.
+ */
+const HERD_ANALYTICS_FLOOR_DATE = "2026-08-01";
 
 /**
  * Type size on the composition bars, relative to the shared chart's base.
@@ -64,9 +71,10 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
  * whether a selection should be written into the URL or expressed by its absence.
  *
  * Mirrors counts/domain.HerdAnalyticsDefaultWindow — the first of the month eleven
- * back, through today, in IST. It opens on a month boundary because the chart buckets
- * by month, and an arbitrary start day would put a half-empty first column on the
- * default view that reads as a collapse in births rather than the edge of the window.
+ * back, through today, in IST, never earlier than the history floor. It opens on a
+ * month boundary because the chart buckets by month, and an arbitrary start day would
+ * put a half-empty first column on the default view that reads as a collapse in
+ * births rather than the edge of the window.
  */
 function defaultWindow(): { from: string; to: string } {
   const today = todayIso();
@@ -77,6 +85,8 @@ function defaultWindow(): { from: string; to: string } {
   for (let i = 0; i < HERD_ANALYTICS_DEFAULT_MONTHS - 1; i += 1) {
     cursor = `${istDayPlus(cursor, -1).slice(0, 7)}-01`;
   }
+  // "YYYY-MM-DD" orders lexicographically, so the floor clamp is a string compare.
+  if (cursor < HERD_ANALYTICS_FLOOR_DATE) cursor = HERD_ANALYTICS_FLOOR_DATE;
   return { from: cursor, to: today };
 }
 
@@ -235,6 +245,7 @@ export async function HerdAnalyticsPage({
           from={servedFrom}
           to={servedTo}
           today={todayIso()}
+          minDate={HERD_ANALYTICS_FLOOR_DATE}
           defaultFrom={fallback.from}
           defaultTo={fallback.to}
         />

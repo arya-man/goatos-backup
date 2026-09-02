@@ -30,9 +30,10 @@ func TestResolveHerdAnalyticsWindowKeepsANamedWindowExactly(t *testing.T) {
 	}
 }
 
-// Absent is the ONE case that defaults, and it starts on a MONTH BOUNDARY. A rolling
-// 365 days would open the default view with a half-empty first column that reads as a
-// collapse in births rather than the edge of the window.
+// Absent is the ONE case that defaults, and it starts on a MONTH BOUNDARY —
+// clamped to the floor while the month eleven back predates the herd's history.
+// A rolling 365 days would open the default view with a half-empty first column
+// that reads as a collapse in births rather than the edge of the window.
 func TestResolveHerdAnalyticsWindowDefaultsOnlyWhenBothBoundsAreAbsent(t *testing.T) {
 	now := time.Date(2026, 8, 20, 14, 30, 0, 0, biztime.DefaultLocation())
 	from, to, err := ResolveHerdAnalyticsWindow("", "", now)
@@ -42,8 +43,32 @@ func TestResolveHerdAnalyticsWindowDefaultsOnlyWhenBothBoundsAreAbsent(t *testin
 	if to != "2026-08-20" {
 		t.Fatalf("to=%s, want today", to)
 	}
-	if from != "2025-09-01" {
-		t.Fatalf("from=%s, want the first of the month eleven back", from)
+	if from != HerdAnalyticsFloorDate {
+		t.Fatalf("from=%s, want the floor while twelve months back predates it", from)
+	}
+}
+
+// Once twelve months of real history exist the floor stops binding: the default
+// goes back to the first of the month eleven back on its own.
+func TestHerdAnalyticsDefaultWindowFloorStopsBindingAfterAYear(t *testing.T) {
+	now := time.Date(2027, 12, 20, 14, 30, 0, 0, biztime.DefaultLocation())
+	from, to := HerdAnalyticsDefaultWindow(now)
+	if from != "2027-01-01" || to != "2027-12-20" {
+		t.Fatalf("window=%s..%s, want 2027-01-01..2027-12-20", from, to)
+	}
+}
+
+// The floor binds the DEFAULT only. A leader who names an earlier window still
+// gets exactly that window — rejecting or clamping it would show a different
+// window under the label they chose.
+func TestHerdAnalyticsFloorDoesNotRewriteANamedWindow(t *testing.T) {
+	now := istDay(t, "2026-08-20")
+	from, to, err := ResolveHerdAnalyticsWindow("2026-03-15", "2026-08-04", now)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if from != "2026-03-15" || to != "2026-08-04" {
+		t.Fatalf("window=%s..%s, want 2026-03-15..2026-08-04", from, to)
 	}
 }
 
