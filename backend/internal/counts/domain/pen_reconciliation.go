@@ -167,6 +167,24 @@ type PenReconciliationCompletionResult struct {
 	NeedsVerificationEnqueue bool
 }
 
+// PenReconciliationVerificationEnqueueDebt is one submitted card whose verifier item has not
+// yet been confirmed created. The kernel worker drains this durable marker so recovery does not
+// depend on the original phone retry still being available.
+type PenReconciliationVerificationEnqueueDebt struct {
+	CardID string
+
+	ScannedIdentifier string
+
+	RegisteredShedID         string
+	RegisteredShedName       string
+	RegisteredPartitionLabel string
+	ParkID                   *string
+
+	ProofRef    string
+	CompletedBy string
+	CompletedAt time.Time
+}
+
 // PenReconciliationQuery is the keyset-paginated Reconcile list read.
 type PenReconciliationQuery struct {
 	TenantID string

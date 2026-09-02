@@ -30,6 +30,7 @@ class PenReconciliationCacheTest {
                         raisedAt = "2026-09-02T10:00:00Z",
                         dtoJson = """{"card_id":"card-1","status":"open"}""",
                         updatedAt = 100,
+                        statusRank = 1,
                     ),
                     PenReconciliationItemEntity(
                         queryKey = cacheKey("pen-reconciliation", "rework"),
@@ -38,6 +39,7 @@ class PenReconciliationCacheTest {
                         raisedAt = "2026-09-02T10:00:00Z",
                         dtoJson = """{"card_id":"card-1","status":"rework"}""",
                         updatedAt = 200,
+                        statusRank = 2,
                     ),
                 ),
             )

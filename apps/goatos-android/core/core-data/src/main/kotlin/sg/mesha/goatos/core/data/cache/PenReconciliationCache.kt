@@ -41,6 +41,7 @@ data class PenReconciliationItemEntity(
     val raisedAt: String,
     val dtoJson: String,
     val updatedAt: Long,
+    val statusRank: Int,
 )
 
 /** The opaque backend keyset cursor for the next page of one status scope. */
@@ -74,11 +75,12 @@ interface PenReconciliationItemDao {
      * offline-first open: the operator taps a row already in Room, so the detail renders from
      * cache with no refetch. The same card may be cached under more than one status scope; prefer
      * the newest monotonic refresh snapshot so a freshly refreshed `completed`/`all` row cannot be
-     * masked by an older `open`/`rework` copy from another chip.
+     * masked by an older `open`/`rework` copy from another chip. If legacy/concurrent rows still
+     * tie on freshness, prefer the furthest-forward workflow state rather than lexicographic scope.
      */
     @Query(
         "SELECT * FROM pen_reconciliation_items WHERE cardId = :cardId " +
-            "ORDER BY updatedAt DESC LIMIT 1",
+            "ORDER BY updatedAt DESC, statusRank DESC, queryKey ASC LIMIT 1",
     )
     suspend fun findById(cardId: String): PenReconciliationItemEntity?
 

@@ -108,8 +108,12 @@ type PenReconciliationRepository interface {
 
 	// MarkPenReconciliationVerificationEnqueued clears the durable retry marker after the
 	// verifier item has been created or idempotently replayed. If this write fails, a later exact
-	// completion replay sees the marker and retries the enqueue.
+	// completion replay or kernel recovery tick sees the marker and retries the enqueue.
 	MarkPenReconciliationVerificationEnqueued(ctx context.Context, tenantID, cardID string) error
+
+	// ListPenReconciliationVerificationEnqueueDebt returns bounded submitted cards whose verifier
+	// item still needs an idempotent enqueue retry.
+	ListPenReconciliationVerificationEnqueueDebt(ctx context.Context, tenantID string, limit int) ([]domain.PenReconciliationVerificationEnqueueDebt, error)
 
 	// ApplyVerifiedPenReconciliation flips a submitted card to completed on verifier approve.
 	ApplyVerifiedPenReconciliation(ctx context.Context, in domain.PenReconciliationVerdictCommand) error

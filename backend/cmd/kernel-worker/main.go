@@ -197,6 +197,10 @@ func run(ctx context.Context, args []string) error {
 			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 			kernelstages.NewSopSubmissionFanoutRetryStage(deps, tenantID),
 			kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),
+			// Pen reconciliation enqueue recovery: if the card transition committed but the
+			// verifier item enqueue failed, drain the durable marker through the same idempotent
+			// verifier bridge. This keeps pending_verification cards from depending on phone retry.
+			kernelstages.NewPenReconciliationEnqueueRecoveryStage(deps, tenantID),
 			// RANDOMIZATION closeout (maintainer decision 2026-08-26): approve the proof videos
 			// the CEO's sampling percentage did not draw, once their business day has closed and
 			// the percentage can no longer change. Without it the videos the verifier is no longer

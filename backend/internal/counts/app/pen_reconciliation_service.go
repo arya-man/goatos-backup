@@ -23,6 +23,9 @@ var (
 	ErrPenReconciliationEnqueuerNotWired = errors.New("counts: pen reconciliation verification enqueuer is not wired")
 	// ErrInvalidPenReconciliationFilter is returned for a malformed cursor or status bucket.
 	ErrInvalidPenReconciliationFilter = errors.New("counts: invalid pen reconciliation filter")
+	// ErrInvalidPenReconciliationRecoveryLimit is returned when a recovery tick asks for an
+	// unbounded or nonsensical enqueue-debt drain.
+	ErrInvalidPenReconciliationRecoveryLimit = errors.New("counts: invalid pen reconciliation recovery limit")
 )
 
 // PenReconciliationVerificationEnqueuer enqueues the mandatory-video verification item for a
@@ -125,40 +128,66 @@ func (s *PenReconciliationService) Complete(
 	// outage cannot strand a no-longer-actionable card without a repair path: an exact retry
 	// replays the completion and retries this idempotent enqueue.
 	if result.Status == domain.PenReconciliationStatusPendingVerification && result.NeedsVerificationEnqueue {
-		registered := oploc.OperationalLocation{
-			ShedName:       result.RegisteredShedName,
-			PartitionLabel: result.RegisteredPartitionLabel,
-		}.Display()
-		subject := "Pen return · " + result.ScannedIdentifier
-		if registered != "" {
-			subject += " · back to " + registered
-		}
 		proofRef := result.ProofRef
 		if proofRef == "" {
 			proofRef = strings.TrimSpace(in.ProofRef)
 		}
-		if enqErr := s.enqueuer.EnqueuePenReconciliationVerification(ctx, PenReconciliationVerificationEnqueueRequest{
-			TenantID:       in.TenantID,
+		if err := s.enqueueVerification(ctx, in.TenantID, PenReconciliationVerificationEnqueueRequest{
 			CardID:         in.CardID,
 			OperatorID:     in.CompletedByUserID,
 			ParkID:         derefString(result.ParkID),
 			ShedID:         result.RegisteredShedID,
 			PartitionLabel: result.RegisteredPartitionLabel,
 			MediaRefs:      []string{proofRef},
-			SubjectLabel:   subject,
+			SubjectLabel:   penReconciliationSubject(result.ScannedIdentifier, result.RegisteredShedName, result.RegisteredPartitionLabel),
 			CapturedAt:     s.now().UTC(),
 			// Keyed to the CARD + proof so a retry collapses onto one queue item while a
 			// re-shoot after rework mints the replacement item.
 			IdempotencyKey: "counts-pen-reconciliation-verification:" + in.CardID + ":" + proofRef,
-		}); enqErr != nil {
-			return domain.PenReconciliationCompletionResult{}, false, enqErr
-		}
-		if err := s.repo.MarkPenReconciliationVerificationEnqueued(ctx, in.TenantID, in.CardID); err != nil {
+		}); err != nil {
 			return domain.PenReconciliationCompletionResult{}, false, err
 		}
 		result.NeedsVerificationEnqueue = false
 	}
 	return result, replay, nil
+}
+
+// RecoverVerificationEnqueues drains durable enqueue debt for cards that already reached
+// pending_verification but whose mandatory verifier item was not confirmed created. It is safe to
+// call from the kernel worker: each enqueue is idempotent on card+proof, and the marker clears only
+// after the producer succeeds.
+func (s *PenReconciliationService) RecoverVerificationEnqueues(ctx context.Context, tenantID string, limit int) (int, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return 0, ErrMissingRequiredField
+	}
+	if limit < 1 || limit > 1000 {
+		return 0, ErrInvalidPenReconciliationRecoveryLimit
+	}
+	if s.enqueuer == nil {
+		return 0, ErrPenReconciliationEnqueuerNotWired
+	}
+	debts, err := s.repo.ListPenReconciliationVerificationEnqueueDebt(ctx, tenantID, limit)
+	if err != nil {
+		return 0, err
+	}
+	recovered := 0
+	for _, debt := range debts {
+		if err := s.enqueueVerification(ctx, tenantID, PenReconciliationVerificationEnqueueRequest{
+			CardID:         debt.CardID,
+			OperatorID:     debt.CompletedBy,
+			ParkID:         derefString(debt.ParkID),
+			ShedID:         debt.RegisteredShedID,
+			PartitionLabel: debt.RegisteredPartitionLabel,
+			MediaRefs:      []string{debt.ProofRef},
+			SubjectLabel:   penReconciliationSubject(debt.ScannedIdentifier, debt.RegisteredShedName, debt.RegisteredPartitionLabel),
+			CapturedAt:     debt.CompletedAt.UTC(),
+			IdempotencyKey: "counts-pen-reconciliation-verification:" + debt.CardID + ":" + debt.ProofRef,
+		}); err != nil {
+			return recovered, err
+		}
+		recovered++
+	}
+	return recovered, nil
 }
 
 // List returns one keyset page of the Reconcile queue. Status buckets are disjoint
@@ -186,4 +215,24 @@ func (s *PenReconciliationService) List(
 		PageSize: pageSize,
 		Cursor:   decoded,
 	})
+}
+
+func (s *PenReconciliationService) enqueueVerification(ctx context.Context, tenantID string, in PenReconciliationVerificationEnqueueRequest) error {
+	in.TenantID = tenantID
+	if err := s.enqueuer.EnqueuePenReconciliationVerification(ctx, in); err != nil {
+		return err
+	}
+	return s.repo.MarkPenReconciliationVerificationEnqueued(ctx, tenantID, in.CardID)
+}
+
+func penReconciliationSubject(scannedIdentifier, shedName, partitionLabel string) string {
+	registered := oploc.OperationalLocation{
+		ShedName:       shedName,
+		PartitionLabel: partitionLabel,
+	}.Display()
+	subject := "Pen return · " + scannedIdentifier
+	if registered != "" {
+		subject += " · back to " + registered
+	}
+	return subject
 }

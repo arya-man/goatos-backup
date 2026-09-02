@@ -321,7 +321,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // (`pen_reconciliation_items` + `pen_reconciliation_remote_keys`): the keyset-paginated cache
     // of "wrong pen" cards raised by weighing submits, shaped exactly like the shifting pending
     // pair (docs/decisions/pen-reconciliation.md).
-    version = 53,
+    // v54 (see [MIGRATION_53_54]) adds `statusRank` to the Reconcile item cache so tied detail
+    // lookups prefer the furthest-forward workflow state without depending on SQLite JSON1.
+    version = 54,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema

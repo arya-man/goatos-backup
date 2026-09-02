@@ -205,6 +205,7 @@ private class PenReconciliationRemoteMediator(
                             raisedAt = item.raisedAt,
                             dtoJson = json.encodeToString(item),
                             updatedAt = updatedAt,
+                            statusRank = penReconciliationStatusRank(item.status),
                         )
                     },
                 )
@@ -230,4 +231,12 @@ private class PenReconciliationRemoteMediator(
             MediatorResult.Error(error)
         }
     }
+}
+
+private fun penReconciliationStatusRank(status: String): Int = when (status) {
+    "completed" -> 4
+    "pending_verification" -> 3
+    "rework" -> 2
+    "open" -> 1
+    else -> 0
 }

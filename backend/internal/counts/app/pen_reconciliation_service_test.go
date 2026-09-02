@@ -18,6 +18,8 @@ type fakePenReconciliationRepo struct {
 	markCalls      []string
 	markErr        error
 	listCalls      []domain.PenReconciliationQuery
+	debts          []domain.PenReconciliationVerificationEnqueueDebt
+	debtErr        error
 }
 
 func (f *fakePenReconciliationRepo) RaisePenReconciliationCards(context.Context, domain.PenReconciliationRaiseCommand) (int, error) {
@@ -34,6 +36,9 @@ func (f *fakePenReconciliationRepo) CompletePenReconciliationCard(_ context.Cont
 func (f *fakePenReconciliationRepo) MarkPenReconciliationVerificationEnqueued(_ context.Context, tenantID, cardID string) error {
 	f.markCalls = append(f.markCalls, tenantID+":"+cardID)
 	return f.markErr
+}
+func (f *fakePenReconciliationRepo) ListPenReconciliationVerificationEnqueueDebt(context.Context, string, int) ([]domain.PenReconciliationVerificationEnqueueDebt, error) {
+	return f.debts, f.debtErr
 }
 func (f *fakePenReconciliationRepo) ApplyVerifiedPenReconciliation(context.Context, domain.PenReconciliationVerdictCommand) error {
 	return nil
@@ -205,6 +210,50 @@ func TestPenReconciliationCompleteEnqueueFailureStaysRetryable(t *testing.T) {
 	}
 	if len(enqueuer.calls) != 2 {
 		t.Fatalf("enqueue attempts after retry = %d, want 2", len(enqueuer.calls))
+	}
+	if len(repo.markCalls) != 1 || repo.markCalls[0] != "tenant-1:card-1" {
+		t.Fatalf("marker clear calls = %+v", repo.markCalls)
+	}
+}
+
+func TestPenReconciliationRecoverVerificationEnqueuesDrainsDurableDebt(t *testing.T) {
+	completedAt := time.Date(2026, 9, 2, 10, 30, 0, 0, time.UTC)
+	park := "park-1"
+	repo := &fakePenReconciliationRepo{
+		debts: []domain.PenReconciliationVerificationEnqueueDebt{{
+			CardID:                   "card-1",
+			ScannedIdentifier:        "1420 0001",
+			RegisteredShedID:         "shed-1",
+			RegisteredShedName:       "Mandela 11",
+			RegisteredPartitionLabel: "Part 2",
+			ParkID:                   &park,
+			ProofRef:                 "proof-1",
+			CompletedBy:              "operator-1",
+			CompletedAt:              completedAt,
+		}},
+	}
+	enqueuer := &fakePenReconciliationEnqueuer{}
+	svc := NewPenReconciliationService(repo, nil).WithVerificationEnqueuer(enqueuer)
+
+	recovered, err := svc.RecoverVerificationEnqueues(context.Background(), "tenant-1", 50)
+	if err != nil {
+		t.Fatalf("RecoverVerificationEnqueues: %v", err)
+	}
+	if recovered != 1 {
+		t.Fatalf("recovered = %d, want 1", recovered)
+	}
+	if len(enqueuer.calls) != 1 {
+		t.Fatalf("enqueue calls = %d, want 1", len(enqueuer.calls))
+	}
+	got := enqueuer.calls[0]
+	if got.TenantID != "tenant-1" || got.OperatorID != "operator-1" || got.CapturedAt != completedAt {
+		t.Fatalf("enqueue request = %+v", got)
+	}
+	if got.IdempotencyKey != "counts-pen-reconciliation-verification:card-1:proof-1" {
+		t.Fatalf("idempotency key = %q", got.IdempotencyKey)
+	}
+	if got.SubjectLabel != "Pen return · 1420 0001 · back to Mandela 11 - Part 2" {
+		t.Fatalf("subject = %q", got.SubjectLabel)
 	}
 	if len(repo.markCalls) != 1 || repo.markCalls[0] != "tenant-1:card-1" {
 		t.Fatalf("marker clear calls = %+v", repo.markCalls)

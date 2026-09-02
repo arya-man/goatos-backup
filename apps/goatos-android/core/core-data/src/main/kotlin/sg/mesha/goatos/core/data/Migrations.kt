@@ -1442,3 +1442,15 @@ val MIGRATION_52_53: Migration = object : Migration(52, 53) {
         )
     }
 }
+
+/**
+ * v53 -> v54: add an explicit Reconcile workflow rank for deterministic by-card lookups across
+ * cached status scopes. The previous fallback needed JSON parsing from `dtoJson`; the test SQLite
+ * runtime and older Android SQLite builds do not guarantee JSON1, so the rank is stored as a
+ * plain integer at refresh time. Existing rows default to 0 and are replaced on the next refresh.
+ */
+val MIGRATION_53_54: Migration = object : Migration(53, 54) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `pen_reconciliation_items` ADD COLUMN `statusRank` INTEGER NOT NULL DEFAULT 0")
+    }
+}

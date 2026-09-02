@@ -318,6 +318,26 @@ WHERE tenant_id = $1::uuid AND card_id = $2::uuid
   AND verification_enqueue_pending
 `
 
+const listPenReconciliationVerificationEnqueueDebtSQL = `
+-- projection-review: membership=bounded pending_verification cards whose verification item has
+-- not been confirmed enqueued; group_key=card_id (PK); join_cardinality=reg_shed 0..1 (PK);
+-- pagination=bounded LIMIT by updated_at/card_id using the partial enqueue-recovery index;
+-- scope=tenant_id.
+SELECT c.card_id, c.scanned_identifier,
+       c.registered_shed_id, COALESCE(reg.name, ''), c.registered_partition_label,
+       c.park_id, c.proof_ref, c.completed_by, c.completed_at
+FROM pen_reconciliation_cards c
+LEFT JOIN locations reg ON reg.tenant_id = c.tenant_id AND reg.location_id = c.registered_shed_id
+WHERE c.tenant_id = $1::uuid
+  AND c.status = 'pending_verification'
+  AND c.verification_enqueue_pending
+  AND c.proof_ref IS NOT NULL
+  AND c.completed_by IS NOT NULL
+  AND c.completed_at IS NOT NULL
+ORDER BY c.updated_at ASC, c.card_id ASC
+LIMIT $2
+`
+
 // applyPenReconciliationSQL / bouncePenReconciliationSQL are the two verdict writes. Both are
 // gated on status = 'pending_verification', which is what makes a redelivered verdict event a
 // no-op and keeps a verdict from force-completing a card in any other state.
@@ -465,6 +485,41 @@ func (r *Repository) MarkPenReconciliationVerificationEnqueued(ctx context.Conte
 
 	_, err := r.pool.Exec(ctx, markPenReconciliationVerificationEnqueuedSQL, tenantID, cardID)
 	return err
+}
+
+// ListPenReconciliationVerificationEnqueueDebt returns submitted cards whose verifier item still
+// needs a durable retry. The result is bounded so the kernel worker can make steady progress.
+func (r *Repository) ListPenReconciliationVerificationEnqueueDebt(
+	ctx context.Context, tenantID string, limit int,
+) ([]domain.PenReconciliationVerificationEnqueueDebt, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	if limit < 1 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := r.pool.Query(ctx, listPenReconciliationVerificationEnqueueDebtSQL, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	debts := make([]domain.PenReconciliationVerificationEnqueueDebt, 0, limit)
+	for rows.Next() {
+		var debt domain.PenReconciliationVerificationEnqueueDebt
+		if err := rows.Scan(
+			&debt.CardID, &debt.ScannedIdentifier,
+			&debt.RegisteredShedID, &debt.RegisteredShedName, &debt.RegisteredPartitionLabel,
+			&debt.ParkID, &debt.ProofRef, &debt.CompletedBy, &debt.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		debts = append(debts, debt)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return debts, nil
 }
 
 // ---------------------------------------------------------------------------
