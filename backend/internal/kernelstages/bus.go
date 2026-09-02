@@ -106,6 +106,8 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// kernel stage cannot drift from API/outbox-relay wiring. This path includes
 	// milk-preparation -> UHT stock consumption forwarding.
 	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, countsMilkPreparationRepo, weighingRepo, weighingverificationbridge.New(verificationpg.NewRepository(pool, pgCfg.QueryTimeout)), pccarepg.NewRepository(pool, pgCfg.QueryTimeout), healthRepo, logger)
+	countsapp.NewPenReconciliationRaiser(countsMilkPreparationRepo, logger, nil).Register(bus)
+	countsapp.NewPenReconciliationVerificationHandler(countsMilkPreparationRepo, nil).Register(bus)
 	countsapp.NewMilkFeedingVerificationHandler(countsMilkPreparationRepo).Register(bus)
 	// Toxin (maintainer decision 2026-08-25): a recorded feed purchase owes the load an
 	// aflatoxin strip test; the toxin consumer materializes the round-1 task idempotently.

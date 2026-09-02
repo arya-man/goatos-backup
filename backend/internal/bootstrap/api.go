@@ -1014,6 +1014,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
 	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, log)
+	countsapp.NewPenReconciliationRaiser(countsRepo, log, nil).Register(bus)
+	countsapp.NewPenReconciliationVerificationHandler(countsRepo, nil).Register(bus)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)

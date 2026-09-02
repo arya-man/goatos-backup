@@ -34,7 +34,7 @@ import (
 // The partition comparison below uses the shared scrubbed matching key, the exact idiom
 // weight_demographics.go and sex_scope.go use: strip a Part/Pt prefix, lower, trim, so the
 // register's "Part 1" and a bucket's "1" compare equal. 'whole' and blank both mean "no
-// partition" and are normalized to '' before the scrub is applied.
+// partition" and are normalized to ” before the scrub is applied.
 const raisePenReconciliationSQL = `
 -- projection-review: membership=one row per DISTINCT scanned tag in the submitted individual
 -- bucket that resolves to a live animal whose canonical registered pen differs from the

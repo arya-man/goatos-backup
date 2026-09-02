@@ -1,5 +1,5 @@
 -- +goose Up
--- 000242_pen_reconciliation.sql
+-- 000243_pen_reconciliation.sql
 --
 -- PEN RECONCILIATION (maintainer decision 2026-09-02): the herd register (DB) is TRUTH.
 -- When an individual weighing bucket is submitted, every scanned tag that resolves to a live
@@ -11,6 +11,9 @@
 --
 -- One open card per animal ("one piece one card"): enforced by the partial unique index
 -- below, which is also what makes the event-driven raise idempotent across bus deliveries.
+--
+-- seed-fixture-guard:ignore: runtime weighing-reconciliation work table; references goats for
+-- ownership but does not change vaccination or HRMS seed source contracts
 --
 -- Raised by the counts-side consumer of weighing.shed_submission.completed. Weighing itself
 -- knows nothing about this table (weighing isolation is untouched; this is outward-only

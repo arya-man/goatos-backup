@@ -139,6 +139,10 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 		stores.health = healthpg.NewRepository(pool, queryTimeout)
 	}
 	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.penReconciliation, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, stores.health, logger)
+	if stores.penReconciliation != nil {
+		countsapp.NewPenReconciliationRaiser(stores.penReconciliation, logger, nil).Register(bus)
+		countsapp.NewPenReconciliationVerificationHandler(stores.penReconciliation, nil).Register(bus)
+	}
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Birth/death workflow consumers: the ONE shared registration (internal/eventwiring), same set on

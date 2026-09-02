@@ -91,17 +91,6 @@ func RegisterVerificationAppliers(
 	log *slog.Logger,
 ) {
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
-	// Pen reconciliation (maintainer decision 2026-09-02). The RAISER consumes the durable
-	// weighing.shed_submission.completed event and inserts one card per scanned animal whose
-	// registered pen disagrees with the pen it was weighed in (set-based, idempotent SQL, so a
-	// duplicate delivery inserts nothing). The APPLIER is filtered to
-	// counts/pen_reconciliation_card: approve completes the card, reject sends it to rework;
-	// the herd register is never touched by either. penReconciliation may be nil on a bus
-	// built without a counts store; both consumers then no-op.
-	if penReconciliation != nil {
-		countsapp.NewPenReconciliationRaiser(penReconciliation, log, nil).Register(bus)
-		countsapp.NewPenReconciliationVerificationHandler(penReconciliation, nil).Register(bus)
-	}
 	// Milk preparation carries NO feed-stock fan-out, and that absence is deliberate (maintainer
 	// decision 2026-08-27, migration 000216): UHT stock depletes from the preparation itself, on
 	// SUBMIT, through the feed_effective_external_consumption view, which reads

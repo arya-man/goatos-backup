@@ -29,11 +29,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.ProofMediaPreview
 import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 
@@ -121,11 +120,10 @@ fun PenReconciliationExecuteScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             when {
-                state.loading -> Text("Loading…", color = MeshaColors.Muted, fontSize = 14.sp)
+                state.loading -> Text("Loading…", color = MeshaColors.Muted, style = MeshaType.body)
                 state.notFound -> Text(
                     "This card is no longer in your list. It may have been submitted already.",
                     color = MeshaColors.Muted,
-                    fontSize = 14.sp,
                 )
                 else -> {
                     val committed = state.result.status == CountsWriteStatus.QUEUED || state.result.status == CountsWriteStatus.SYNCED
@@ -138,7 +136,7 @@ fun PenReconciliationExecuteScreen(
                         onClick = { onEvent(PenReconciliationExecuteEvent.RecordVideo) },
                         onReRecord = { onEvent(PenReconciliationExecuteEvent.ReRecordVideo) },
                     )
-                    state.videoMessage?.let { Text(it, color = MeshaColors.Faint, fontSize = 11.sp) }
+                    state.videoMessage?.let { Text(it, color = MeshaColors.Faint, style = MeshaType.rowCaption) }
                     if (state.result.status != CountsWriteStatus.IDLE) {
                         CountsResultBanner(state.result)
                     }
@@ -163,30 +161,29 @@ private fun PenReturnCard(state: PenReconciliationExecuteUiState) {
             Text(
                 text = state.scannedIdentifier,
                 color = MeshaColors.Ink,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.W800,
+                style = MeshaType.pillStrong,
                 modifier = Modifier.weight(1f),
             )
             if (state.goatDisplayId.isNotBlank()) {
-                Text(state.goatDisplayId, color = MeshaColors.Faint, fontSize = 12.sp)
+                Text(state.goatDisplayId, color = MeshaColors.Faint, style = MeshaType.cardSubtitle)
             }
         }
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Found in", color = MeshaColors.Muted, fontSize = 11.sp)
-                Text(state.foundLabel, color = MeshaColors.Warn, fontSize = 15.sp, fontWeight = FontWeight.W700)
+                Text("Found in", color = MeshaColors.Muted, style = MeshaType.rowCaption)
+                Text(state.foundLabel, color = MeshaColors.Warn, style = MeshaType.cardTitle)
             }
             Icon(MeshaIcons.ArrowUpDown, contentDescription = "to", tint = MeshaColors.BrandD, modifier = Modifier.size(20.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text("Belongs in", color = MeshaColors.Muted, fontSize = 11.sp)
-                Text(state.belongsLabel, color = MeshaColors.Ok, fontSize = 15.sp, fontWeight = FontWeight.W700)
+                Text("Belongs in", color = MeshaColors.Muted, style = MeshaType.rowCaption)
+                Text(state.belongsLabel, color = MeshaColors.Ok, style = MeshaType.cardTitle)
             }
         }
         state.reworkReason?.takeIf { it.isNotBlank() }?.let { reason ->
             Text(
                 text = reason,
                 color = MeshaColors.Warn,
-                fontSize = 12.sp,
+                style = MeshaType.cardSubtitle,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
@@ -197,7 +194,7 @@ private fun PenReturnCard(state: PenReconciliationExecuteUiState) {
         Text(
             "The herd register already names the right pen — walk the animal back and film it there.",
             color = MeshaColors.Faint,
-            fontSize = 11.sp,
+            style = MeshaType.rowCaption,
         )
     }
 }
@@ -216,8 +213,7 @@ private fun PenReturnVideoCard(
             Text(
                 "Pen return video (required)",
                 color = MeshaColors.Muted,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.pill,
                 modifier = Modifier.weight(1f),
             )
             if (captured) {
@@ -239,7 +235,7 @@ private fun PenReturnVideoCard(
                 Text(
                     "The recorded video can't be played back on this phone. It is still saved — re-record if you want to check it.",
                     color = MeshaColors.Faint,
-                    fontSize = 11.sp,
+                    style = MeshaType.rowCaption,
                 )
             }
         }
@@ -265,7 +261,7 @@ private fun PenReturnVideoCard(
             Text(
                 "Live camera only. This evidence is reviewed after the task.",
                 color = MeshaColors.Faint,
-                fontSize = 11.sp,
+                style = MeshaType.rowCaption,
             )
         }
     }
@@ -299,8 +295,7 @@ private fun PenReturnActionButton(
         Text(
             text = label,
             color = if (enabled || loading) MeshaColors.Ink else MeshaColors.Faint,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W600,
+            style = MeshaType.cta,
         )
     }
 }

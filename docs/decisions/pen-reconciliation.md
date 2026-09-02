@@ -49,7 +49,7 @@ Locked properties:
   `weight_demographics.go` and `sex_scope.go` use. An undivided physical shed whose name ends
   in a number (`Ho Chi Minh 1`) is NEVER split — the trailing digits of a location name count
   as a partition only on the resolved-alias branch.
-- **Card store**: `pen_reconciliation_cards` (migration `000242`), counts-owned. States:
+- **Card store**: `pen_reconciliation_cards` (migration `000243`), counts-owned. States:
   `open → pending_verification → completed`, reject → `rework`. The completion is
   idempotency-keyed and fingerprinted like every mutating write.
 - **Verification**: category `pen_reconciliation` (module `counts`, ref_type

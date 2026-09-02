@@ -26,14 +26,13 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
@@ -177,8 +176,7 @@ private fun PenReconciliationStatusBar(
             Text(
                 "${status.label} ${status.count}",
                 color = if (status.selected) MeshaColors.OnBrand else MeshaColors.Muted,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.pill,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp))
                     .background(if (status.selected) MeshaColors.Brand else MeshaColors.Surf2)
                     .clickable { onEvent(PenReconciliationEvent.SelectStatus(status.key)) }
@@ -206,12 +204,11 @@ private fun PenReconciliationRowCard(row: PenReconciliationRowUi, onClick: () ->
             Text(
                 text = row.scannedIdentifier,
                 color = MeshaColors.Ink,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.W800,
+                style = MeshaType.pillStrong,
                 modifier = Modifier.weight(1f),
             )
             if (row.goatDisplayId.isNotBlank()) {
-                Text(row.goatDisplayId, color = MeshaColors.Faint, fontSize = 12.sp)
+                Text(row.goatDisplayId, color = MeshaColors.Faint, style = MeshaType.cardSubtitle)
             }
         }
         LocationLine(label = "Found in", value = row.foundLabel, valueColor = MeshaColors.Warn)
@@ -221,7 +218,7 @@ private fun PenReconciliationRowCard(row: PenReconciliationRowUi, onClick: () ->
             Text(
                 text = reason,
                 color = MeshaColors.Warn,
-                fontSize = 12.sp,
+                style = MeshaType.cardSubtitle,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
@@ -244,7 +241,7 @@ private fun PenReconciliationRowCard(row: PenReconciliationRowUi, onClick: () ->
                 PenReconciliationPill(row.statusLabel, bg, fg)
             }
             if (row.raisedAtLabel.isNotBlank()) {
-                Text(row.raisedAtLabel, color = MeshaColors.Faint, fontSize = 11.sp)
+                Text(row.raisedAtLabel, color = MeshaColors.Faint, style = MeshaType.rowCaption)
             }
         }
     }
@@ -256,8 +253,7 @@ private fun LocationLine(label: String, value: String, valueColor: androidx.comp
         Text(
             text = label,
             color = MeshaColors.Muted,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.fieldLabel,
             modifier = Modifier.padding(end = 8.dp),
         )
         Icon(
@@ -269,8 +265,7 @@ private fun LocationLine(label: String, value: String, valueColor: androidx.comp
         Text(
             text = value,
             color = valueColor,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.listTitle,
             modifier = Modifier.padding(start = 8.dp),
         )
     }
@@ -282,8 +277,7 @@ private fun PenReconciliationPill(text: String, bg: androidx.compose.ui.graphics
     Text(
         text = text,
         color = fg,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.W700,
+        style = MeshaType.pill,
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(bg)
