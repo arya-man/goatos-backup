@@ -13,14 +13,43 @@ import (
 // rename deliberately left alone.
 var shedWord = regexp.MustCompile(`\b[Ss]heds?\b`)
 
-// The whole point of the rename, asserted against the contract the browser actually receives:
-// no page title, table label, column label, filter label, chip, empty state, note or any other
-// user-visible string in the admin-web bootstrap says "shed".
+// machineFields are the JSON leaf names whose value is read by CODE, never by a person: ids,
+// keys, routes, icon names and the like. Everything else in the contract is copy.
 //
-// This is the test that would have caught the eleven tables that still rendered "Shed" after the
-// copy map was renamed: their column labels are DERIVED by humanLabel() from the column key, so
-// renaming the copy map alone left them speaking the old word. Walking the served contract
-// catches copy wherever it is produced, rather than wherever someone remembered to look.
+// The guard is keyed on the PATH rather than on how the value LOOKS, and that is the whole
+// point. An earlier version skipped any bare lowercase word as "an identifier", which is
+// exactly the shape of the eleven row-count nouns -- "pager.noun": "shed", "schedule.unit.sheds":
+// "sheds" -- so it passed while /vaccination rendered "1-25 of 104 sheds" and /weighing/weights
+// rendered "1-20 sheds". A value's spelling cannot say whether a person reads it; its position
+// in the contract can.
+var machineFields = map[string]bool{
+	"key": true, "id": true, "href": true, "icon": true, "domain": true,
+	"data_source": true, "dataSource": true, "row_param": true, "badge_key": true,
+	"pattern": true, "source": true, "page_key": true, "control_id": true,
+	"permission": true, "module": true, "category": true, "route_id": true,
+	"columns": true, "summary_fields": true, "shared_key": true, "kind": true,
+	"param": true, // row_click.param is a query-string name, not a word on screen
+}
+
+// deadCopy is the copy no screen renders. Each entry is named rather than pattern-matched, so
+// deleting one of these keys fails the test loudly instead of quietly widening the exception --
+// and so a future reader can see there are exactly two, not "some".
+var deadCopy = []string{
+	// A token list; no admin-web code reads this key.
+	"modal.rule_editor.default_proof_policy",
+	// vaccination_import_columns: an option group with no consumer in admin-web. Every label in
+	// it is the raw snake_case COLUMN NAME (drive_code, due_date, proof_type), because it
+	// describes a CSV contract rather than naming anything for a reader.
+	"option_groups[].options[].label",
+}
+
+// The whole point of the rename, asserted against the contract the browser actually receives:
+// no page title, table label, column label, filter label, chip, empty state, note, row-count
+// noun or any other user-visible string in the admin-web bootstrap says "shed".
+//
+// This is the test that catches copy wherever it is PRODUCED rather than wherever someone
+// remembered to look -- including column labels, which humanLabel() derives from the column key
+// and which no copy-map rename can reach.
 func TestBootstrapContractSaysPenNeverShed(t *testing.T) {
 	raw, err := json.Marshal(NewService().Bootstrap(context.Background(), BootstrapInput{}))
 	if err != nil {
@@ -32,62 +61,47 @@ func TestBootstrapContractSaysPenNeverShed(t *testing.T) {
 	}
 
 	var offences []string
-	var walk func(node any, path string)
-	walk = func(node any, path string) {
+	var walk func(node any, path string, leaf string)
+	walk = func(node any, path string, leaf string) {
 		switch v := node.(type) {
 		case map[string]any:
 			for k, child := range v {
-				walk(child, path+"."+k)
+				walk(child, path+"."+k, k)
 			}
 		case []any:
-			for i, child := range v {
-				walk(child, path+"[]")
-				_ = i
+			for _, child := range v {
+				walk(child, path+"[]", leaf)
 			}
 		case string:
-			if !shedWord.MatchString(v) {
-				return
-			}
-			// Machine-readable values are not copy: route paths, and the dotted/kebab/snake
-			// identifiers used as copy KEYS, table ids and column keys.
-			if strings.HasPrefix(v, "/") || !strings.ContainsAny(v, " ") && isIdentifier(v) {
+			if !shedWord.MatchString(v) || machineFields[leaf] || strings.HasPrefix(v, "/") {
 				return
 			}
 			offences = append(offences, path+" = "+v)
 		}
 	}
-	walk(tree, "")
+	walk(tree, "", "")
 
-	// One known exception, and it is dead copy rather than a screen: no admin-web code reads
-	// modal.rule_editor.default_proof_policy, so its token list never reaches a reader. Listed
-	// by name so deleting the key makes this test fail loudly rather than silently widening.
 	var real []string
 	for _, o := range offences {
-		if strings.Contains(o, "modal.rule_editor.default_proof_policy") {
-			continue
+		dead := false
+		for _, d := range deadCopy {
+			if strings.Contains(o, d) {
+				dead = true
+				break
+			}
 		}
-		real = append(real, o)
+		if !dead {
+			real = append(real, o)
+		}
 	}
 	if len(real) > 0 {
-		t.Fatalf("admin-web bootstrap still says \"shed\" in %d user-visible string(s):\n  %s",
-			len(real), strings.Join(real, "\n  "))
+		t.Fatalf("admin-web bootstrap still says %q in %d user-visible string(s):\n  %s",
+			"shed", len(real), strings.Join(real, "\n  "))
 	}
-}
-
-func isIdentifier(s string) bool {
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-		case r == '_', r == '-', r == '.', r == '{', r == '}', r == '/':
-		default:
-			return false
-		}
-	}
-	return s != ""
 }
 
 // Column labels are DERIVED from the column key, not read from the copy map, so the pen
-// vocabulary has to be stated here too. The keys stay shed_* -- every read model already emits
+// vocabulary has to be stated there too. The keys stay shed_* -- every read model already emits
 // them and renaming them would be a contract change, which this work deliberately is not.
 func TestColumnLabelsSpeakPenWhileTheKeysStayShed(t *testing.T) {
 	for key, want := range map[string]string{
