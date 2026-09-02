@@ -3804,6 +3804,8 @@ export interface components {
             display_id?: string;
             /** @description The identifier a person reads off the animal -- active RFID first, then a visible tag. */
             tag_number?: string;
+            /** @description The animal's OTHER active identifier, absent when it carries one tag. Shown beside tag_number because the picker's search matches every active identifier: a row showing only the primary answered a search for the secondary with a number the person could not recognise as the animal they typed. */
+            secondary_tag_number?: string;
             /** Format: uuid */
             park_id?: string;
             /** @description Park short code (CBE, CPT) when it has one, else the full name. */

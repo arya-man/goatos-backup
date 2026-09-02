@@ -31,17 +31,18 @@ import (
 //	gsp   goat_shed_partitions   PK (tenant_id, goat_id)             -> exactly 0..1
 //	sh    locations              PK location_id                      -> exactly 0..1
 //	pk    locations              PK location_id                      -> exactly 0..1
-//	tag   LATERAL ... LIMIT 1    one identifier by explicit priority  -> exactly 0..1
+//	tag   LATERAL aggregate       the two top identifiers by priority -> exactly 1
 //	wd    LATERAL max(...)       aggregate over completions          -> exactly 1
 //	alloc LATERAL ... LIMIT 1    live allocation, unique per goat     -> exactly 0..1
 //
-// The two LATERALs that use LIMIT 1 are ranking rows that are NOT interchangeable -- the
+// The identifier and allocation LATERALs rank rows that are NOT interchangeable -- the
 // identifier priority is explicit and total, so the pick is deterministic, not an
 // arbitrary "any row will do" that would silently flip between requests.
 const saleCandidateSelect = `
 SELECT g.goat_id::text,
        COALESCE(g.display_id, ''),
        COALESCE(tag.identifier_value, ''),
+       COALESCE(tag.secondary_identifier_value, ''),
        COALESCE(g.park_id::text, ''),
        COALESCE(NULLIF(pk.location_code, ''), pk.name, ''),
        COALESCE(g.shed_id::text, ''),
@@ -73,20 +74,38 @@ LEFT JOIN LATERAL (
   -- constraint does not permit -- so every branch fell through to ELSE and the priority
   -- did nothing at all. Ranking by a vocabulary the column cannot hold is dead code that
   -- reads as a rule.
-  SELECT gi.identifier_value
-  FROM goat_identifiers gi
-  WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
-    AND gi.status = 'active' AND gi.valid_to IS NULL
-  ORDER BY CASE gi.identifier_type
-             WHEN 'animal_identifier_1' THEN 0
-             WHEN 'animal_identifier_2' THEN 1
-             WHEN 'temporary_tag' THEN 2
-             ELSE 3
-           END,
-           gi.is_primary_for_goat DESC,
-           gi.valid_from DESC,
-           gi.identifier_id
-  LIMIT 1
+  --
+  -- BOTH tags are returned, not just the first. An operator searches by whichever number
+  -- is legible on the animal, and the search matches EVERY active identifier -- so a row
+  -- showing only the primary answered a search for the secondary with a number that looks
+  -- like a different animal. Showing the pair is what makes the match readable.
+  --
+  -- The ranking is unchanged and still explicit and total; only the number of rows kept
+  -- moved from one to two, so the FIRST value is exactly the tag this query has always
+  -- shown and the second is the next one down the same priority.
+  SELECT ranked.vals[1] AS identifier_value,
+         ranked.vals[2] AS secondary_identifier_value
+  FROM (
+    SELECT array_agg(v.identifier_value ORDER BY v.rank) AS vals
+    FROM (
+      SELECT gi.identifier_value,
+             row_number() OVER (
+               ORDER BY CASE gi.identifier_type
+                          WHEN 'animal_identifier_1' THEN 0
+                          WHEN 'animal_identifier_2' THEN 1
+                          WHEN 'temporary_tag' THEN 2
+                          ELSE 3
+                        END,
+                        gi.is_primary_for_goat DESC,
+                        gi.valid_from DESC,
+                        gi.identifier_id
+             ) AS rank
+      FROM goat_identifiers gi
+      WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+        AND gi.status = 'active' AND gi.valid_to IS NULL
+    ) v
+    WHERE v.rank <= 2
+  ) ranked
 ) tag ON TRUE
 LEFT JOIN LATERAL (
   -- The LATEST medicine withdrawal recorded against this animal. max() over an
@@ -116,7 +135,7 @@ LEFT JOIN LATERAL (
 func scanSaleCandidateRow(scan func(...any) error) (ports.SaleCandidateRow, error) {
 	var row ports.SaleCandidateRow
 	err := scan(
-		&row.GoatID, &row.DisplayID, &row.TagNumber,
+		&row.GoatID, &row.DisplayID, &row.TagNumber, &row.SecondaryTagNumber,
 		&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.PartitionLabel,
 		&row.Breed, &row.Sex,
 		&row.State.LifecycleStatus, &row.State.ManagementStage, &row.State.RowVersion,

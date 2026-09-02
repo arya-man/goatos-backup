@@ -50,14 +50,17 @@ func NewSaleAllocationService(reader ports.SaleAllocationReader, writer ports.Sa
 func judge(row ports.SaleCandidateRow, businessToday string) ports.SaleCandidate {
 	verdict := domain.ResolveSaleBlocker(row.State, businessToday)
 	return ports.SaleCandidate{
-		GoatID:         row.GoatID,
-		DisplayID:      row.DisplayID,
-		TagNumber:      row.TagNumber,
-		ParkID:         row.ParkID,
-		ParkName:       row.ParkName,
-		ShedID:         row.ShedID,
-		ShedName:       row.ShedName,
-		PartitionLabel: row.PartitionLabel,
+		GoatID:    row.GoatID,
+		DisplayID: row.DisplayID,
+		TagNumber: row.TagNumber,
+		// Never repeat one number as if it were two: an animal whose identifiers hold the
+		// same string reads as a single tag, which is what it is.
+		SecondaryTagNumber: secondaryTag(row.TagNumber, row.SecondaryTagNumber),
+		ParkID:             row.ParkID,
+		ParkName:           row.ParkName,
+		ShedID:             row.ShedID,
+		ShedName:           row.ShedName,
+		PartitionLabel:     row.PartitionLabel,
 		OperationalLocationDisplay: (oploc.OperationalLocation{
 			ShedID:         row.ShedID,
 			ShedName:       row.ShedName,
@@ -71,6 +74,16 @@ func judge(row ports.SaleCandidateRow, businessToday string) ports.SaleCandidate
 		BlockedReason:   verdict.Reason,
 		Sellable:        verdict.Sellable(),
 	}
+}
+
+// secondaryTag returns the animal's other identifier, blank when it is absent or is the
+// same number the primary already shows.
+func secondaryTag(primary, secondary string) string {
+	secondary = strings.TrimSpace(secondary)
+	if secondary == "" || strings.EqualFold(secondary, strings.TrimSpace(primary)) {
+		return ""
+	}
+	return secondary
 }
 
 // ListSaleCandidatesInput filters the picker.

@@ -316,10 +316,18 @@ export function SaleAllocationDrawer({
                                 checked={on}
                                 disabled={!c.sellable}
                                 onChange={() => toggle(c)}
-                                aria-label={c.tag_number || c.display_id || ""}
+                                aria-label={animalLabel(c)}
                               />
                             </td>
-                            <td><b>{c.tag_number || c.display_id}</b></td>
+                            {/* BOTH tags, because the search matches either one. A row
+                                showing only the primary answered a search for the
+                                secondary with a number that reads as a different animal. */}
+                            <td>
+                              <b>{c.tag_number || c.display_id}</b>
+                              {c.secondary_tag_number ? (
+                                <div className="muted small">{c.secondary_tag_number}</div>
+                              ) : null}
+                            </td>
                             <td>{c.operational_location_display}</td>
                             <td>
                               {/* The refusal is the backend's sentence, verbatim. */}
@@ -387,7 +395,7 @@ export function SaleAllocationDrawer({
                   <ul className="sales-taglist small">
                     {preview.blocked_animals.map((c) => (
                       <li key={c.goat_id}>
-                        {c.tag_number || c.display_id} — {c.blocked_reason}
+                        {animalLabel(c)} — {c.blocked_reason}
                       </li>
                     ))}
                   </ul>
@@ -465,6 +473,15 @@ function dealOptionLabel(deal: SalesDeal): string {
     .filter(Boolean)
     .join(" · ");
   return [deal.sale_date, who, what].filter(Boolean).join("  —  ");
+}
+
+/**
+ * One animal named the way the person reading it off the ear does: both tags when it
+ * carries two, because the picker's search matches either of them.
+ */
+function animalLabel(c: SaleCandidate): string {
+  const tags = [c.tag_number, c.secondary_tag_number].filter(Boolean).join(" · ");
+  return tags || c.display_id || "";
 }
 
 /**
