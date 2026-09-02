@@ -2,7 +2,7 @@
 
 // Write flow for the sales board's record-sale drawer. The backend response (or its error
 // envelope) drives the banner the operator sees — no optimistic success.
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { actionRedirect, optionalString, requiredString } from "@/lib/action-helpers";
 // NOTE: every actionKey below MUST start with "action." -- withActionFeedback silently rewrites
@@ -30,13 +30,6 @@ import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite, SalesDeal
 // leave the operator looking at the ledger they just wrote to, unchanged. The read pages are
 // force-dynamic and re-read on their own next visit.
 const SALES_PATH = "/sales/config";
-
-function stableSalesActionKey(scope: string, parts: Array<string | number>): string {
-  const hash = createHash("sha256")
-    .update(parts.map((part) => String(part)).join("\x1f"))
-    .digest("hex");
-  return `${scope}:v1:${hash}`;
-}
 
 /**
  * Reads the record-sale fields off the form.
@@ -301,7 +294,7 @@ export async function updateSalesDealPaymentAction(formData: FormData): Promise<
       amount_rupees: amountRupees,
       note,
     },
-    stableSalesActionKey("sales-payment-update", [dealId, paymentId, receivedOn, amountRupees, note]),
+    randomUUID(),
   );
   if (!result.ok) {
     actionRedirect(formData, "error", "action.payment_update_failed");
@@ -316,7 +309,7 @@ export async function deleteSalesDealPaymentAction(formData: FormData): Promise<
   const result = await deleteSalesDealPayment(
     dealId,
     paymentId,
-    stableSalesActionKey("sales-payment-delete", [dealId, paymentId]),
+    randomUUID(),
   );
   if (!result.ok) {
     actionRedirect(formData, "error", "action.payment_delete_failed");
