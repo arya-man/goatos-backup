@@ -477,23 +477,24 @@ func TestFindATagMatchesAnywhereInTheIdentifier(t *testing.T) {
 
 	if _, err := pool.Exec(ctx, `
 INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value,
-                              normalized_value, scope_key, status, valid_from, normalizer_version)
-VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', '901007000504830', '901007000504830', 'tenant', 'active', now(), 'v1')`,
+	                              normalized_value, scope_key, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', '901007000504830', '901007000504830', 'tenant', 'active', now(), 'v1'),
+       ($1::uuid, $2::uuid, 'animal_identifier_2', '901007000505274', '901007000505274', 'tenant', 'active', now(), 'v1')`,
 		ssTenant, goat); err != nil {
-		t.Fatalf("seed rfid: %v", err)
+		t.Fatalf("seed rfids: %v", err)
 	}
 
-	find := func(q string) int {
+	find := func(q string) []ports.SaleCandidateRow {
 		rows, _, err := repo.ListSaleCandidates(ctx, ports.ListSaleCandidatesParams{
 			TenantID: ssTenant, ParkID: ssPark, Query: q, IncludeBlocked: true, Limit: 50,
 		})
 		if err != nil {
 			t.Fatalf("search %q: %v", q, err)
 		}
-		hits := 0
+		var hits []ports.SaleCandidateRow
 		for _, row := range rows {
 			if row.GoatID == goat {
-				hits++
+				hits = append(hits, row)
 			}
 		}
 		return hits
@@ -504,14 +505,26 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', '901007000504830', '901007000
 		"9010",            // the first digits, which prefix search already handled
 		"0700050",         // the MIDDLE, which it did not
 		"4830",            // the LAST FOUR, the way a worn tag is usually read
+		"5274",            // the secondary tag must find the same animal too
 	} {
-		if find(q) != 1 {
+		if len(find(q)) != 1 {
 			t.Fatalf("searching %q must find the animal", q)
 		}
 	}
+	// The displayed row must name both tags. Search already matched both before this fix;
+	// the regression was that a secondary-tag search returned a row showing only the
+	// primary, which made the result look like the wrong animal.
+	bySecondary := find("5274")
+	if len(bySecondary) != 1 {
+		t.Fatalf("secondary-tag search returned %d rows, want 1", len(bySecondary))
+	}
+	if bySecondary[0].TagNumber != "901007000504830" || bySecondary[0].SecondaryTagNumber != "901007000505274" {
+		t.Fatalf("candidate tags = (%q, %q), want both active identifiers",
+			bySecondary[0].TagNumber, bySecondary[0].SecondaryTagNumber)
+	}
 	// A string the animal genuinely does not carry must NOT match, or the search is
 	// matching everything and the operator cannot trust it.
-	if find("777777") != 0 {
+	if len(find("777777")) != 0 {
 		t.Fatal("search matched an identifier the animal does not carry")
 	}
 }

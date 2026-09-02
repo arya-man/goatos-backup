@@ -167,7 +167,11 @@ function buildDirectedView(
   otherLabel: string,
   settledDay: string,
 ): DirectedView {
-  const dayKeys = data.days.map((d) => d.feed_day);
+  // Day totals are intentionally sheet-only because the KPI tiles read them as
+  // "on the issued sheet", but item rows can now include milk-only days from
+  // feed_effective_external_consumption. The chart axis must carry both sets or
+  // it silently drops those milk rows before rendering.
+  const dayKeys = [...new Set([...data.days.map((d) => d.feed_day), ...data.items.map((item) => item.feed_day)])].sort();
   const totalsByItem = new Map<string, { label: string; total: number }>();
   for (const item of data.items) {
     const existing = totalsByItem.get(item.feed_item_key);
