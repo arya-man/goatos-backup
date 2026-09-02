@@ -11,6 +11,9 @@ var (
 	// ErrDealNotFound is returned when a deal id does not resolve inside the caller's tenant.
 	// Deliberately indistinguishable from "exists in another tenant" so the ledger cannot be probed.
 	ErrDealNotFound = errors.New("sales: deal not found")
+	// ErrDealPaymentNotFound is returned when a receipt id does not belong to the named deal
+	// inside the caller's tenant. Same probing rule as ErrDealNotFound.
+	ErrDealPaymentNotFound = errors.New("sales: deal payment not found")
 	// ErrLeadNotFound is returned when a buyer/FPO lead id does not resolve inside the caller's
 	// tenant. Same probing rule as ErrDealNotFound.
 	ErrLeadNotFound = errors.New("sales: lead not found")
@@ -52,6 +55,14 @@ type SalesRepository interface {
 	// RecordDealPayment records one receipt against one deal and, in the SAME transaction,
 	// advances the deal's running payment_received total. Same idempotency contract as CreateDeal.
 	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
+
+	// UpdateDealPayment edits one receipt and adjusts the running payment_received total by the
+	// old/new delta in the SAME transaction.
+	UpdateDealPayment(ctx context.Context, tenantID, dealID, paymentID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
+
+	// DeleteDealPayment removes one receipt and subtracts its amount from payment_received in the
+	// SAME transaction. An idempotent replay returns the already-updated deal.
+	DeleteDealPayment(ctx context.Context, tenantID, dealID, paymentID string, actorID, idempotencyKey string) (domain.Deal, error)
 
 	// ListBuyerLeads returns one page of the buyer pipeline (newest first) plus the whole-filter
 	// total and the tenant's existing call-status vocabulary (for the status picker).

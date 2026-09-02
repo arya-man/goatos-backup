@@ -2,7 +2,7 @@
 
 // Write flow for the sales board's record-sale drawer. The backend response (or its error
 // envelope) drives the banner the operator sees — no optimistic success.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { actionRedirect, optionalString, requiredString } from "@/lib/action-helpers";
 // NOTE: every actionKey below MUST start with "action." -- withActionFeedback silently rewrites
@@ -12,6 +12,7 @@ import {
   createSalesBenchmark,
   createSalesBuyerLead,
   createSalesDeal,
+  deleteSalesDealPayment,
   recordSalesDealPayment,
   setSalesDealStatus,
   createSalesFpoLead,
@@ -20,6 +21,7 @@ import {
   setSalesBuyerLeadStatus,
   setSalesFpoLeadStatus,
   setLoadCost,
+  updateSalesDealPayment,
 } from "@/lib/api/procurement-server";
 import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite, SalesDealStatusWrite } from "@/lib/api/procurement";
 
@@ -28,6 +30,13 @@ import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite, SalesDeal
 // leave the operator looking at the ledger they just wrote to, unchanged. The read pages are
 // force-dynamic and re-read on their own next visit.
 const SALES_PATH = "/sales/config";
+
+function stableSalesActionKey(scope: string, parts: Array<string | number>): string {
+  const hash = createHash("sha256")
+    .update(parts.map((part) => String(part)).join("\x1f"))
+    .digest("hex");
+  return `${scope}:v1:${hash}`;
+}
 
 /**
  * Reads the record-sale fields off the form.
@@ -276,6 +285,44 @@ export async function recordSalesDealPaymentAction(formData: FormData): Promise<
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.payment_recorded");
+}
+
+export async function updateSalesDealPaymentAction(formData: FormData): Promise<void> {
+  const dealId = requiredString(formData, "deal_id");
+  const paymentId = requiredString(formData, "payment_id");
+  const note = (formData.get("note")?.toString() ?? "").trim();
+  const receivedOn = requiredString(formData, "received_on");
+  const amountRupees = Number(requiredString(formData, "amount_rupees"));
+  const result = await updateSalesDealPayment(
+    dealId,
+    paymentId,
+    {
+      received_on: receivedOn,
+      amount_rupees: amountRupees,
+      note,
+    },
+    stableSalesActionKey("sales-payment-update", [dealId, paymentId, receivedOn, amountRupees, note]),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.payment_update_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.payment_updated");
+}
+
+export async function deleteSalesDealPaymentAction(formData: FormData): Promise<void> {
+  const dealId = requiredString(formData, "deal_id");
+  const paymentId = requiredString(formData, "payment_id");
+  const result = await deleteSalesDealPayment(
+    dealId,
+    paymentId,
+    stableSalesActionKey("sales-payment-delete", [dealId, paymentId]),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.payment_delete_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.payment_deleted");
 }
 
 /** Sets a deal's lifecycle status — the edit that closes an expected sale on the day it happens. */

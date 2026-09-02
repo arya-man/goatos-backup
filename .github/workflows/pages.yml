@@ -8,6 +8,7 @@ name: pages
 #                         read from the generated report itself, never hardcoded here; see e2e-report
 #                         job's "Compute story count from the generated report" step)
 #   /e2e-hrms-report/     HRMS roster/RBAC kernel-story E2E report
+#   /sales-e2e-report/    Sales payment edit/delete + sale-allocation sex-count browser E2E report
 #   /scale-audit-e2e-report/  Scale-audit fix E2E report and certification boundary
 # Runs on every push to main that touches the relevant paths, AND on a daily cron so the
 # screenshot gallery and E2E report stay fresh even without a code change (data/timing drift,
@@ -25,6 +26,7 @@ on:
       - "apps/goatos-android/**"
       - "backend/tests/e2e/**"
       - "backend/internal/**"
+      - "pages/sales-e2e-report/**"
       - "context/execution/scale-audit-fix-e2e-report-2026-07-11.md"
       - "docs/runbooks/performance-gates.md"
       - "tools/perf/**"
@@ -224,12 +226,32 @@ jobs:
           path: pages/scale-audit-e2e-report/index.html
           retention-days: 14
 
+  sales-e2e-report:
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Publish the sales E2E report page
+        run: test -s pages/sales-e2e-report/index.html
+      - name: Job summary
+        run: |
+          {
+            echo "### Sales ledger E2E report"
+            echo "Published the local browser E2E proof for payment edit/delete and sale-allocation sex counts."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sales-e2e-report
+          path: pages/sales-e2e-report/index.html
+          retention-days: 14
+
   publish:
-    needs: [mobile-screenshots, nav-graph, e2e-report, e2e-hrms-report, scale-audit-e2e-report]
+    needs: [mobile-screenshots, nav-graph, e2e-report, e2e-hrms-report, scale-audit-e2e-report, sales-e2e-report]
     if: >-
       always() &&
       needs.nav-graph.result == 'success' &&
       needs.scale-audit-e2e-report.result == 'success' &&
+      needs.sales-e2e-report.result == 'success' &&
       contains(fromJSON('["success","skipped"]'), needs.e2e-report.result) &&
       contains(fromJSON('["success","skipped"]'), needs.e2e-hrms-report.result)
     runs-on: [self-hosted, macOS, ARM64]
@@ -243,7 +265,7 @@ jobs:
           POSTGRES_REPORTS: ${{ needs.e2e-report.result == 'success' && needs.e2e-hrms-report.result == 'success' }}
           SCREENSHOT_GALLERY: ${{ needs.mobile-screenshots.result == 'success' }}
         run: |
-          mkdir -p _site/screenshot-gallery _site/nav-graph _site/e2e-report _site/e2e-hrms-report _site/scale-audit-e2e-report
+          mkdir -p _site/screenshot-gallery _site/nav-graph _site/e2e-report _site/e2e-hrms-report _site/scale-audit-e2e-report _site/sales-e2e-report
           cat > _site/index.html <<'HTML'
           <!doctype html><html lang="en"><head><meta charset="utf-8">
           <title>Goat OS Android + vaccination kernel — CI reports</title>
@@ -292,6 +314,8 @@ jobs:
           cat >> _site/index.html <<'HTML'
           <a class="card" href="scale-audit-e2e-report/index.html"><b>Scale/performance E2E report</b>
             <p>Scale-audit fixes, latency gates, and the explicit 1M staging-certification boundary.</p></a>
+          <a class="card" href="sales-e2e-report/index.html"><b>Sales ledger E2E report</b>
+            <p>Payment edit/delete, payment totals, sale tagging, and male/female count repair proof.</p></a>
           </body></html>
           HTML
       - uses: actions/download-artifact@v4
@@ -317,6 +341,10 @@ jobs:
         with:
           name: scale-audit-e2e-report
           path: _site/scale-audit-e2e-report
+      - uses: actions/download-artifact@v4
+        with:
+          name: sales-e2e-report
+          path: _site/sales-e2e-report
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -58,6 +58,16 @@ func (f *fakeRepo) RecordDealPayment(_ context.Context, _ string, dealID string,
 	return domain.Deal{DealID: dealID}, nil
 }
 
+func (f *fakeRepo) UpdateDealPayment(_ context.Context, _ string, dealID, _ string, write domain.DealPaymentWrite, _ string, key string) (domain.Deal, error) {
+	f.paymentDealID, f.payment, f.paymentKey = dealID, write, key
+	return domain.Deal{DealID: dealID}, nil
+}
+
+func (f *fakeRepo) DeleteDealPayment(_ context.Context, _ string, dealID, _ string, _ string, key string) (domain.Deal, error) {
+	f.paymentDealID, f.paymentKey = dealID, key
+	return domain.Deal{DealID: dealID}, nil
+}
+
 func (f *fakeRepo) ListBuyerLeads(_ context.Context, _ string, limit, offset int) (ports.BuyerLeadPage, error) {
 	f.listLimit, f.listOffset = limit, offset
 	return ports.BuyerLeadPage{Total: 208}, nil

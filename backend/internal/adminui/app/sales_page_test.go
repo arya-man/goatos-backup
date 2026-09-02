@@ -203,6 +203,20 @@ func TestSalesRecordSaleControlIsCapabilityGated(t *testing.T) {
 			if payment.Action != "POST /sales/deals/{deal_id}/payments" {
 				t.Fatalf("record_sales_deal_payment.action = %q want the receipt write", payment.Action)
 			}
+			editPayment := controlByID(t, pageControls, "update_sales_deal_payment")
+			if editPayment.Enabled != tc.enabled {
+				t.Fatalf("%s update_sales_deal_payment.enabled = %v want %v", tc.name, editPayment.Enabled, tc.enabled)
+			}
+			if editPayment.Action != "PUT /sales/deals/{deal_id}/payments/{payment_id}" {
+				t.Fatalf("update_sales_deal_payment.action = %q want the receipt edit write", editPayment.Action)
+			}
+			deletePayment := controlByID(t, pageControls, "delete_sales_deal_payment")
+			if deletePayment.Enabled != tc.enabled {
+				t.Fatalf("%s delete_sales_deal_payment.enabled = %v want %v", tc.name, deletePayment.Enabled, tc.enabled)
+			}
+			if deletePayment.Action != "DELETE /sales/deals/{deal_id}/payments/{payment_id}" {
+				t.Fatalf("delete_sales_deal_payment.action = %q want the receipt delete write", deletePayment.Action)
+			}
 			status := controlByID(t, pageControls, "update_sales_deal_status")
 			if status.Enabled != tc.enabled {
 				t.Fatalf("%s update_sales_deal_status.enabled = %v want %v", tc.name, status.Enabled, tc.enabled)
@@ -376,6 +390,8 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 		"record_pipeline",
 		"allocate_sale_animals",
 		"record_sales_deal_payment",
+		"update_sales_deal_payment",
+		"delete_sales_deal_payment",
 		"update_sales_deal_status",
 		"record_load_cost",
 	}

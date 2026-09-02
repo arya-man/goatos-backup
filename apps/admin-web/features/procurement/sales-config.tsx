@@ -16,7 +16,7 @@ import {
 } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listProcurementVendorOptions, listSaleLocations } from "@/lib/api/server";
-import type { ProcurementVendorOptions } from "@/lib/api/server";
+import type { ProcurementVendorOptions, SaleLocationCatalog } from "@/lib/api/server";
 import {
   getLoadwiseSales,
   listSalesBuyerLeads,
@@ -112,7 +112,10 @@ export async function SalesConfigPage({
   const pageCount = Math.max(1, Math.ceil(total / limit));
   const pageNumber = Math.min(pageCount, Math.floor(offset / limit) + 1);
   const loads: LoadwiseLoad[] = loadwiseResult.ok ? loadwiseResult.data.loads : [];
-  const tagLocations = saleLocations.ok ? saleLocations.data : { parks: [], locations: [] };
+  // null means the park/shed catalog could NOT be read, which is a different fact from a
+  // farm that has no sheds. Collapsing the two rendered a picker offering "Choose a park"
+  // and nothing to choose, and read as a broken screen rather than a missing grant.
+  const tagLocations: SaleLocationCatalog | null = saleLocations.ok ? saleLocations.data : null;
   // null means the register could NOT be read (its own permission), which is a different fact
   // from an EMPTY register; the drawer gives the two different copy.
   const vendorOptions: ProcurementVendorOptions | null = vendorOptionsResult.ok ? vendorOptionsResult.data : null;

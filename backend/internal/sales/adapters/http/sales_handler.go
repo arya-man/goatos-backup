@@ -24,6 +24,8 @@ type SalesService interface {
 	ListDeals(ctx context.Context, tenantID string, q app.DealListQuery) (ports.DealPage, error)
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
+	UpdateDealPayment(ctx context.Context, tenantID, dealID, paymentID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
+	DeleteDealPayment(ctx context.Context, tenantID, dealID, paymentID string, actorID, idempotencyKey string) (domain.Deal, error)
 	SetDealStatus(ctx context.Context, tenantID, dealID, status, actorID string) (domain.Deal, error)
 	ListBuyerLeads(ctx context.Context, tenantID string, q app.LeadListQuery) (ports.BuyerLeadPage, error)
 	CreateBuyerLead(ctx context.Context, tenantID string, write domain.BuyerLeadWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
@@ -59,6 +61,8 @@ func Register(mux *http.ServeMux, h *SalesHandler) {
 	mux.HandleFunc("GET /sales/deals", h.ListDeals)
 	mux.HandleFunc("POST /sales/deals", h.CreateDeal)
 	mux.HandleFunc("POST /sales/deals/{deal_id}/payments", h.RecordDealPayment)
+	mux.HandleFunc("PUT /sales/deals/{deal_id}/payments/{payment_id}", h.UpdateDealPayment)
+	mux.HandleFunc("DELETE /sales/deals/{deal_id}/payments/{payment_id}", h.DeleteDealPayment)
 	mux.HandleFunc("POST /sales/deals/{deal_id}/status", h.SetDealStatus)
 	mux.HandleFunc("GET /sales/buyer-leads", h.ListBuyerLeads)
 	mux.HandleFunc("POST /sales/buyer-leads", h.CreateBuyerLead)
@@ -193,6 +197,49 @@ func (h *SalesHandler) RecordDealPayment(w http.ResponseWriter, r *http.Request)
 	}
 	updated, err := h.service.RecordDealPayment(r.Context(), tenantID(r), r.PathValue("deal_id"),
 		body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()), key)
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toDealPayload(updated))
+}
+
+// UpdateDealPayment serves PUT /sales/deals/{deal_id}/payments/{payment_id}.
+func (h *SalesHandler) UpdateDealPayment(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		h.writeErr(w, r, app.BadRequest("missing_idempotency_key", "This payment could not be edited safely. Try again."))
+		return
+	}
+	var body dealPaymentWritePayload
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxSalesRequestBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		h.writeErr(w, r, app.BadRequest("invalid_body", "That payment form could not be read. Check the fields and try again."))
+		return
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		h.writeErr(w, r, app.BadRequest("invalid_body", "That payment form could not be read. Check the fields and try again."))
+		return
+	}
+	updated, err := h.service.UpdateDealPayment(r.Context(), tenantID(r), r.PathValue("deal_id"), r.PathValue("payment_id"),
+		body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()), key)
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toDealPayload(updated))
+}
+
+// DeleteDealPayment serves DELETE /sales/deals/{deal_id}/payments/{payment_id}.
+func (h *SalesHandler) DeleteDealPayment(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		h.writeErr(w, r, app.BadRequest("missing_idempotency_key", "This payment could not be removed safely. Try again."))
+		return
+	}
+	updated, err := h.service.DeleteDealPayment(r.Context(), tenantID(r), r.PathValue("deal_id"), r.PathValue("payment_id"),
+		httpmiddleware.ActorIDFromContext(r.Context()), key)
 	if err != nil {
 		h.writeErr(w, r, app.SalesHTTPError(err))
 		return

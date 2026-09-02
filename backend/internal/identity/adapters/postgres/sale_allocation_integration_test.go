@@ -26,6 +26,7 @@ func saleAllocCmd(dealID string, rows []ports.SaleAllocationRow, key string) por
 		StoredIdempotencyKey: ssTenant + ":sale_allocation:" + dealID + ":" + key,
 		RequestHash:          "hash-" + key,
 		SalesDealID:          dealID,
+		DeclaredAnimalCount:  len(rows),
 		Rows:                 rows,
 		Reason:               "Sold to buyer",
 		OccurredAt:           time.Date(2026, 8, 20, 6, 0, 0, 0, time.UTC),
@@ -43,6 +44,19 @@ func goatLifecycle(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID
 	return status
 }
 
+func seedSaleAllocationDeal(t *testing.T, ctx context.Context, pool *pgxpool.Pool, dealID string, animals int) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sales_deals (id, tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, sales_value, status)
+VALUES ($1::uuid, $2::uuid, '2026-08-20'::date, 'CBE', 'Synthetic buyer', 'Goat', 'Boer', $3, 1000, 'Deal Closed')
+ON CONFLICT (id) DO UPDATE
+SET animal_count = EXCLUDED.animal_count,
+    male_count = NULL,
+    female_count = NULL`, dealID, ssTenant, animals); err != nil {
+		t.Fatalf("seed sale deal: %v", err)
+	}
+}
+
 // THE WHOLE POINT OF THE FEATURE, proved end to end on the real write path: confirming a
 // sale must BOTH record which animals it is made of AND take those animals out of the
 // herd. A version that did one and not the other would look fine on the screen that
@@ -56,6 +70,12 @@ func TestConfirmingASaleRecordsTheAnimalsAndMarksThemSold(t *testing.T) {
 
 	one := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
 	two := seedStageGoat(t, ctx, pool, f.castroShed, "2", "F2", "adult")
+	seedSaleAllocationDeal(t, ctx, pool, saleDealA, 2)
+	if _, err := pool.Exec(ctx, `
+UPDATE goats SET sex = 'male'
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, ssTenant, one); err != nil {
+		t.Fatalf("seed male sale animal: %v", err)
+	}
 
 	result, err := repo.RecordSaleAllocations(ctx, saleAllocCmd(saleDealA, []ports.SaleAllocationRow{
 		{GoatID: one, RowVersion: goatRowVersion(t, pool, one)},
@@ -94,6 +114,16 @@ func TestConfirmingASaleRecordsTheAnimalsAndMarksThemSold(t *testing.T) {
 	if groups[0].OperationalLocationDisplay != "Castro 1" {
 		t.Fatalf("group display = %q, want %q", groups[0].OperationalLocationDisplay, "Castro 1")
 	}
+	var maleCount, femaleCount float64
+	if err := pool.QueryRow(ctx, `
+SELECT male_count, female_count
+FROM sales_deals
+WHERE tenant_id = $1::uuid AND id = $2::uuid`, ssTenant, saleDealA).Scan(&maleCount, &femaleCount); err != nil {
+		t.Fatalf("read sale sex counts: %v", err)
+	}
+	if maleCount != 1 || femaleCount != 1 {
+		t.Fatalf("sale sex counts = male %.0f female %.0f, want 1/1 from the tagged animals", maleCount, femaleCount)
+	}
 
 	// And the canonical exit fired its event, which is what cancels the animals' open
 	// vaccination obligations. A hand-written bulk UPDATE would have skipped this and left
@@ -123,6 +153,7 @@ func TestSaleAllocationStatusMatrixPlacesEveryRowOnce(t *testing.T) {
 
 	kept := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
 	released := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
+	seedSaleAllocationDeal(t, ctx, pool, saleDealA, 2)
 
 	if _, err := repo.RecordSaleAllocations(ctx, saleAllocCmd(saleDealA, []ports.SaleAllocationRow{
 		{GoatID: kept, RowVersion: goatRowVersion(t, pool, kept)},
@@ -175,6 +206,7 @@ func TestConfirmingTheSameSaleTwiceIsIdempotent(t *testing.T) {
 
 	goat := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
 	rows := []ports.SaleAllocationRow{{GoatID: goat, RowVersion: goatRowVersion(t, pool, goat)}}
+	seedSaleAllocationDeal(t, ctx, pool, saleDealB, 1)
 
 	first, err := repo.RecordSaleAllocations(ctx, saleAllocCmd(saleDealB, rows, "replay-key"))
 	if err != nil {

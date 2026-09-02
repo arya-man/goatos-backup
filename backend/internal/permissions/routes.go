@@ -313,6 +313,8 @@ var protectedRoutes = []Route{
 	// A buyer receipt is a money write on the same ledger, so it carries the same write permission
 	// as recording the deal itself.
 	{OperationID: "recordSalesDealPayment", Method: "POST", Pattern: "/sales/deals/{deal_id}/payments", Permissions: []string{SalesWrite}},
+	{OperationID: "updateSalesDealPayment", Method: "PUT", Pattern: "/sales/deals/{deal_id}/payments/{payment_id}", Permissions: []string{SalesWrite}},
+	{OperationID: "deleteSalesDealPayment", Method: "DELETE", Pattern: "/sales/deals/{deal_id}/payments/{payment_id}", Permissions: []string{SalesWrite}},
 	{OperationID: "setSalesDealStatus", Method: "POST", Pattern: "/sales/deals/{deal_id}/status", Permissions: []string{SalesWrite}},
 	{OperationID: "listSalesBuyerLeads", Method: "GET", Pattern: "/sales/buyer-leads", Permissions: []string{SalesRead}},
 	{OperationID: "createSalesBuyerLead", Method: "POST", Pattern: "/sales/buyer-leads", Permissions: []string{SalesWrite}},
