@@ -176,12 +176,15 @@ private class PenReconciliationRemoteMediator(
             // the scale rules ban).
             val nextCursor = response.nextCursor?.takeIf { it.isNotBlank() }
             val endReached = nextCursor == null || nextCursor == cursor
-            val updatedAt = clock()
             // Page rows and their cursor commit TOGETHER so a crash between them cannot leave the
             // cursor pointing past rows that were never stored.
             database.withTransaction {
                 val itemDao = database.penReconciliationItemDao()
                 val remoteKeyDao = database.penReconciliationRemoteKeyDao()
+                // Wall-clock milliseconds can tie across quick status-chip refreshes. Store a
+                // monotonic cache timestamp so detail lookup can choose the newest scope by
+                // freshness alone, never by lexicographic queryKey fallback.
+                val updatedAt = maxOf(clock(), (itemDao.maxUpdatedAt() ?: Long.MIN_VALUE) + 1)
                 val startIndex = if (loadType == LoadType.REFRESH) {
                     // A refresh re-reads the queue from the top: drop the scope's rows so a card
                     // cleared elsewhere disappears instead of lingering as an untappable ghost.

@@ -120,10 +120,11 @@ func (s *PenReconciliationService) Complete(
 		return domain.PenReconciliationCompletionResult{}, false, err
 	}
 
-	// Enqueue one evidence-review item. The key carries the proof, so a transport retry heals
-	// idempotently while a verifier-requested rework with a NEWLY recorded video creates the
-	// replacement review item rather than collapsing onto the already-decided one.
-	if result.Status == domain.PenReconciliationStatusPendingVerification {
+	// Enqueue one evidence-review item. The repository keeps a durable
+	// NeedsVerificationEnqueue marker on the pending card until this succeeds, so an enqueue
+	// outage cannot strand a no-longer-actionable card without a repair path: an exact retry
+	// replays the completion and retries this idempotent enqueue.
+	if result.Status == domain.PenReconciliationStatusPendingVerification && result.NeedsVerificationEnqueue {
 		registered := oploc.OperationalLocation{
 			ShedName:       result.RegisteredShedName,
 			PartitionLabel: result.RegisteredPartitionLabel,
@@ -152,6 +153,10 @@ func (s *PenReconciliationService) Complete(
 		}); enqErr != nil {
 			return domain.PenReconciliationCompletionResult{}, false, enqErr
 		}
+		if err := s.repo.MarkPenReconciliationVerificationEnqueued(ctx, in.TenantID, in.CardID); err != nil {
+			return domain.PenReconciliationCompletionResult{}, false, err
+		}
+		result.NeedsVerificationEnqueue = false
 	}
 	return result, replay, nil
 }

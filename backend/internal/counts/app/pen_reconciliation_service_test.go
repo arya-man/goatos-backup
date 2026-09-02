@@ -15,6 +15,8 @@ type fakePenReconciliationRepo struct {
 	completeReplay bool
 	completeErr    error
 	completeCalls  []domain.PenReconciliationCompletionCommand
+	markCalls      []string
+	markErr        error
 	listCalls      []domain.PenReconciliationQuery
 }
 
@@ -28,6 +30,10 @@ func (f *fakePenReconciliationRepo) ListPenReconciliationCards(_ context.Context
 func (f *fakePenReconciliationRepo) CompletePenReconciliationCard(_ context.Context, in domain.PenReconciliationCompletionCommand) (domain.PenReconciliationCompletionResult, bool, error) {
 	f.completeCalls = append(f.completeCalls, in)
 	return f.completeResult, f.completeReplay, f.completeErr
+}
+func (f *fakePenReconciliationRepo) MarkPenReconciliationVerificationEnqueued(_ context.Context, tenantID, cardID string) error {
+	f.markCalls = append(f.markCalls, tenantID+":"+cardID)
+	return f.markErr
 }
 func (f *fakePenReconciliationRepo) ApplyVerifiedPenReconciliation(context.Context, domain.PenReconciliationVerdictCommand) error {
 	return nil
@@ -74,6 +80,7 @@ func TestPenReconciliationCompleteEnqueuesVerificationWithProofKeyedIdempotency(
 		RegisteredShedName:       "Mandela 11",
 		RegisteredPartitionLabel: "Part 2",
 		ParkID:                   &park,
+		NeedsVerificationEnqueue: true,
 	}}
 	enqueuer := &fakePenReconciliationEnqueuer{}
 	svc := NewPenReconciliationService(repo, func() time.Time {
@@ -102,6 +109,9 @@ func TestPenReconciliationCompleteEnqueuesVerificationWithProofKeyedIdempotency(
 	}
 	if got.SubjectLabel != "Pen return · 1420 0001 · back to Mandela 11 - Part 2" {
 		t.Fatalf("subject = %q", got.SubjectLabel)
+	}
+	if len(repo.markCalls) != 1 || repo.markCalls[0] != "tenant-1:card-1" {
+		t.Fatalf("mark calls = %+v", repo.markCalls)
 	}
 }
 
@@ -134,9 +144,10 @@ func TestPenReconciliationCompleteReplayEnqueuesSameKey(t *testing.T) {
 	repo := &fakePenReconciliationRepo{
 		completeReplay: true,
 		completeResult: domain.PenReconciliationCompletionResult{
-			CardID:   "card-1",
-			Status:   domain.PenReconciliationStatusPendingVerification,
-			ProofRef: "proof-1",
+			CardID:                   "card-1",
+			Status:                   domain.PenReconciliationStatusPendingVerification,
+			ProofRef:                 "proof-1",
+			NeedsVerificationEnqueue: true,
 		},
 	}
 	enqueuer := &fakePenReconciliationEnqueuer{}
@@ -148,6 +159,55 @@ func TestPenReconciliationCompleteReplayEnqueuesSameKey(t *testing.T) {
 	if len(enqueuer.calls) != 1 ||
 		enqueuer.calls[0].IdempotencyKey != "counts-pen-reconciliation-verification:card-1:proof-1" {
 		t.Fatalf("enqueue calls = %+v", enqueuer.calls)
+	}
+	if len(repo.markCalls) != 1 {
+		t.Fatalf("mark calls = %+v", repo.markCalls)
+	}
+}
+
+// TestPenReconciliationCompleteEnqueueFailureStaysRetryable pins the recovery path for the
+// non-atomic card/store -> verifier-store boundary: the repository returns durable enqueue debt
+// until the idempotent verifier enqueue succeeds and is marked clear.
+func TestPenReconciliationCompleteEnqueueFailureStaysRetryable(t *testing.T) {
+	repo := &fakePenReconciliationRepo{
+		completeResult: domain.PenReconciliationCompletionResult{
+			CardID:                   "card-1",
+			Status:                   domain.PenReconciliationStatusPendingVerification,
+			ScannedIdentifier:        "1420 0001",
+			ProofRef:                 "proof-1",
+			RegisteredShedID:         "shed-1",
+			RegisteredShedName:       "Mandela 11",
+			RegisteredPartitionLabel: "Part 2",
+			NeedsVerificationEnqueue: true,
+		},
+	}
+	enqueuer := &fakePenReconciliationEnqueuer{err: errors.New("verification unavailable")}
+	svc := NewPenReconciliationService(repo, nil).WithVerificationEnqueuer(enqueuer)
+
+	if _, _, err := svc.Complete(context.Background(), penReconciliationCompleteInput()); err == nil {
+		t.Fatalf("first completion unexpectedly succeeded")
+	}
+	if len(enqueuer.calls) != 1 {
+		t.Fatalf("enqueue attempts after failure = %d, want 1", len(enqueuer.calls))
+	}
+	if len(repo.markCalls) != 0 {
+		t.Fatalf("enqueue marker was cleared on failure: %+v", repo.markCalls)
+	}
+
+	repo.completeReplay = true
+	enqueuer.err = nil
+	result, replay, err := svc.Complete(context.Background(), penReconciliationCompleteInput())
+	if err != nil || !replay {
+		t.Fatalf("retry replay = %v err = %v", replay, err)
+	}
+	if result.NeedsVerificationEnqueue {
+		t.Fatalf("retry result still reports enqueue debt: %+v", result)
+	}
+	if len(enqueuer.calls) != 2 {
+		t.Fatalf("enqueue attempts after retry = %d, want 2", len(enqueuer.calls))
+	}
+	if len(repo.markCalls) != 1 || repo.markCalls[0] != "tenant-1:card-1" {
+		t.Fatalf("marker clear calls = %+v", repo.markCalls)
 	}
 }
 

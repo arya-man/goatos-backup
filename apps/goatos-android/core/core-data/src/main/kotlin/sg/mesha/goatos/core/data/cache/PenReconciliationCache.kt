@@ -73,14 +73,17 @@ interface PenReconciliationItemDao {
      * One cached card by id, from whichever status scope cached it. Backs the execute screen's
      * offline-first open: the operator taps a row already in Room, so the detail renders from
      * cache with no refetch. The same card may be cached under more than one status scope; prefer
-     * the newest snapshot so a freshly refreshed `rework` row cannot be masked by an older `open`
-     * copy from another chip.
+     * the newest monotonic refresh snapshot so a freshly refreshed `completed`/`all` row cannot be
+     * masked by an older `open`/`rework` copy from another chip.
      */
     @Query(
         "SELECT * FROM pen_reconciliation_items WHERE cardId = :cardId " +
-            "ORDER BY updatedAt DESC, queryKey DESC LIMIT 1",
+            "ORDER BY updatedAt DESC LIMIT 1",
     )
     suspend fun findById(cardId: String): PenReconciliationItemEntity?
+
+    @Query("SELECT MAX(updatedAt) FROM pen_reconciliation_items")
+    suspend fun maxUpdatedAt(): Long?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<PenReconciliationItemEntity>)

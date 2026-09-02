@@ -302,10 +302,20 @@ SET status = 'pending_verification',
     completed_at = $5::timestamptz,
     completion_idempotency_key = $6,
     completion_request_fingerprint = $7,
+    verification_enqueue_pending = true,
     rework_reason = NULL,
     row_version = row_version + 1,
     updated_at = now()
 WHERE tenant_id = $1::uuid AND card_id = $2::uuid
+`
+
+const markPenReconciliationVerificationEnqueuedSQL = `
+UPDATE pen_reconciliation_cards
+SET verification_enqueue_pending = false,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND card_id = $2::uuid
+  AND status = 'pending_verification'
+  AND verification_enqueue_pending
 `
 
 // applyPenReconciliationSQL / bouncePenReconciliationSQL are the two verdict writes. Both are
@@ -338,7 +348,8 @@ const lockPenReconciliationSQL = `
 SELECT c.status, c.goat_id, c.scanned_identifier, c.found_display_name,
        c.registered_shed_id, COALESCE(reg.name, ''), c.registered_partition_label,
        c.park_id, c.proof_ref, c.completed_at,
-       c.completion_idempotency_key, c.completion_request_fingerprint
+       c.completion_idempotency_key, c.completion_request_fingerprint,
+       c.verification_enqueue_pending
 FROM pen_reconciliation_cards c
 LEFT JOIN locations reg ON reg.tenant_id = c.tenant_id AND reg.location_id = c.registered_shed_id
 WHERE c.tenant_id = $1::uuid AND c.card_id = $2::uuid
@@ -377,12 +388,13 @@ func (r *Repository) CompletePenReconciliationCard(
 		status, goatID, tag, foundDisplay, regShedID, regShedName, regPartition string
 		parkID, storedProof, storedKey, storedFingerprint                       *string
 		completedAt                                                             *time.Time
+		verificationEnqueuePending                                              bool
 	)
 	err = tx.QueryRow(ctx, lockPenReconciliationSQL, in.TenantID, in.CardID).Scan(
 		&status, &goatID, &tag, &foundDisplay,
 		&regShedID, &regShedName, &regPartition,
 		&parkID, &storedProof, &completedAt,
-		&storedKey, &storedFingerprint,
+		&storedKey, &storedFingerprint, &verificationEnqueuePending,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.PenReconciliationCompletionResult{}, false, ports.ErrPenReconciliationCardNotFound
@@ -409,6 +421,7 @@ func (r *Repository) CompletePenReconciliationCard(
 				return domain.PenReconciliationCompletionResult{}, false, ports.ErrIdempotencyConflict
 			}
 			result.Status = status
+			result.NeedsVerificationEnqueue = status == domain.PenReconciliationStatusPendingVerification && verificationEnqueuePending
 			if storedProof != nil {
 				result.ProofRef = *storedProof
 			}
@@ -440,7 +453,18 @@ func (r *Repository) CompletePenReconciliationCard(
 	result.Status = domain.PenReconciliationStatusPendingVerification
 	result.ProofRef = strings.TrimSpace(in.ProofRef)
 	result.CompletedAt = &completedAtValue
+	result.NeedsVerificationEnqueue = true
 	return result, false, nil
+}
+
+// MarkPenReconciliationVerificationEnqueued clears the durable enqueue-retry marker after the
+// verification producer has successfully created (or idempotently replayed) the review item.
+func (r *Repository) MarkPenReconciliationVerificationEnqueued(ctx context.Context, tenantID, cardID string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.pool.Exec(ctx, markPenReconciliationVerificationEnqueuedSQL, tenantID, cardID)
+	return err
 }
 
 // ---------------------------------------------------------------------------

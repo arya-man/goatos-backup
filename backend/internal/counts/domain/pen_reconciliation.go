@@ -159,6 +159,12 @@ type PenReconciliationCompletionResult struct {
 
 	ProofRef    string
 	CompletedAt *time.Time
+
+	// NeedsVerificationEnqueue is durable recovery state: true means the card has reached
+	// pending_verification but the mandatory verifier item has not yet been confirmed enqueued.
+	// Exact completion replays keep returning true until the producer clears it after a successful
+	// idempotent enqueue.
+	NeedsVerificationEnqueue bool
 }
 
 // PenReconciliationQuery is the keyset-paginated Reconcile list read.
