@@ -21,7 +21,15 @@ var _ ports.DirectedAnalyticsReader = (*Repository)(nil)
 
 // Feed Analytics rollup over the frozen sheet.
 //
-// projection-review: membership=feed_direction_issue_rows at their natural key (tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key), reached through the at-most-one live normal-workflow issue per (tenant, park, feed_day) enforced by feed_direction_issues_live_uidx; group_key=(feed_day, feed_item_label, feed_item_key) after first collapsing cells to the pen-grain (shed_id, partition_key, shed_tag_key, breed_key) so session and item cells cannot inflate head counts; join_cardinality=issues to rows is 1:N by feed_direction_issue_id and joins exactly once per day thanks to the live-issue partial unique index, and the pen_item CTE pre-aggregates the N side before the outer GROUP BY; pagination=none, whole-window aggregate invariant to any page size — there is no limit/offset input; scope=tenant_id on both tables plus the caller's authorized park set via park_id = ANY($2)
+// projection-review: membership=feed_direction_issue_rows at their natural key (tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key), reached through the at-most-one live normal-workflow issue per (tenant, park, feed_day) enforced by feed_direction_issues_live_uidx, UNION ALL feed_effective_external_consumption at (tenant_id, park_id, feed_item_key, feed_day) — one row per key by migration 000216, pre-aggregated to (feed_day, feed_item) before the union so neither side can fan the other out; group_key=(feed_day, feed_item_label, feed_item_key) on BOTH sides after first collapsing sheet cells to the pen-grain (shed_id, partition_key, shed_tag_key, breed_key) so session and item cells cannot inflate head counts; join_cardinality=issues to rows is 1:N by feed_direction_issue_id and joins exactly once per day thanks to the live-issue partial unique index, and the pen_item CTE pre-aggregates the N side before the outer GROUP BY; the union is a row concatenation, not a join, so an item carried by both sources on one day SUMS to what the animals actually ate rather than duplicating a row; pagination=none, whole-window aggregate invariant to any page size — there is no limit/offset input; scope=tenant_id on both tables plus the caller's authorized park set via park_id = ANY($2)
+//
+// Ratio key sets, second reading: per_head_grams for a (day, item) group divides the
+// group's kg by the SAME group's heads. The external side carries zero heads, so a
+// milk-only group divides by zero heads and reports EMPTY — never a per-head figure
+// over a herd nobody counted for it. The DAY totals (directedAnalyticsDaysSQL below)
+// are deliberately left on the sheet alone, because they are what the "Directed
+// yesterday" / "Avg ration per animal" tiles read and those tiles say "on the issued
+// sheet".
 //
 // Ratio key sets: per_head_grams divides SUM(quantity_kg) by SUM(head_count)
 // where BOTH range over the same collapsed pen-grain set of that
@@ -69,6 +77,29 @@ pen_item AS (
      AND r.feed_direction_issue_id = i.feed_direction_issue_id
     GROUP BY i.feed_day, r.feed_item_label, r.feed_item_key,
              r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
+),
+ext AS (
+    -- Feeds the ration grid does not direct -- UHT Milk, from the Milk Preparation
+    -- operator's submitted litres (read as kg 1:1) with the 000185 ledger as the
+    -- fallback. The animals drink it, so it belongs on the chart beside the sheet's
+    -- items (maintainer decision 2026-09-02); leaving it out drew a picture of the
+    -- farm's feeding with one real feed missing from it.
+    --
+    -- NO HEADS. The ledger records a park's litres for a day, not which pens drank
+    -- them, so there is no pen-grain head count to divide by: this side contributes
+    -- kg and a ZERO head count, which makes its per-head figure empty rather than a
+    -- number computed from a denominator nobody measured.
+    SELECT x.feed_day,
+           x.feed_item_label,
+           x.feed_item_key,
+           SUM(x.quantity_kg) AS grain_kg,
+           0::bigint          AS grain_heads
+    FROM feed_effective_external_consumption x
+    WHERE x.tenant_id = $1
+      AND x.park_id IS NOT NULL
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
+      AND x.feed_day BETWEEN $3 AND $4
+    GROUP BY x.feed_day, x.feed_item_label, x.feed_item_key
 )
 SELECT feed_day::text,
        feed_item_label,
@@ -79,7 +110,11 @@ SELECT feed_day::text,
          round(SUM(grain_kg) * 1000 / NULLIF(SUM(grain_heads), 0), 1)::text,
          ''
        )                                                         AS per_head_grams
-FROM pen_item
+FROM (
+    SELECT feed_day, feed_item_label, feed_item_key, grain_kg, grain_heads FROM pen_item
+    UNION ALL
+    SELECT feed_day, feed_item_label, feed_item_key, grain_kg, grain_heads FROM ext
+) both_sources
 GROUP BY feed_day, feed_item_label, feed_item_key
 ORDER BY feed_day, feed_item_label`
 
