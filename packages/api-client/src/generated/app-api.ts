@@ -11893,6 +11893,23 @@ export interface components {
             /** Format: double */
             average_gain_g_per_day: number;
         };
+        /** @description One operational shed (pen) behind ONE BAR of the Shed-wise comparison, listed so a reader can see which sheds that bar actually counted. Grain is per breed AND class, not per class: a pen holds one breed, so naming every elevated pen beside one breed's elevated bar would name mostly other breeds' pens. The classification is read from shed metadata and, for the sheds named in review, from the shed's own name -- neither visible on the chart, so the rule is enumerated beside it. Only CONTRIBUTING sheds appear: a classified pen weighed once, or whose cohort is too mixed to claim for a breed, is absent here for the same reason it is absent from the bars. Ordered by breed, then class, then park, then shed name in NATURAL order ("Part 2" before "Part 7", "Yashoda 2" before "Yashoda 10"). */
+        WeighingShedTypeMember: {
+            /** @description The breed whose bar this pen sits behind; matches WeighingWeightGainShedTypeBucket.label. */
+            label: string;
+            /** @enum {string} */
+            shed_type: "elevated" | "ground";
+            /** Format: uuid */
+            location_id: string;
+            /** @description Empty for an undivided shed. */
+            partition_label?: string;
+            /** @description Empty when the shed's parent does not resolve to a park. */
+            park_id?: string;
+            /** @description Part of the pen's identity, not decoration: this farm has a "Castro 1" in both parks, so a list keyed on the shed name alone merges two real pens into one line. Empty when the park does not resolve. */
+            park_name?: string;
+            /** @description Backend-composed farm name -- 'Castro 2', 'Godel 2 - Part 1'. Render verbatim. */
+            operational_location_display: string;
+        };
         /** @description One weight bracket: how many animals stand in it, and how fast it is growing. BOTH WAYS OF WEIGHING COUNT. A scanned animal is banded by its own latest weight and counts as one; a whole-shed pen is banded by the pen's own latest average weight and counts as ALL the animals it holds, kept whole in that one band rather than spread across neighbours. Bands are lower-inclusive and upper-exclusive, so animals sums to the weighed population. */
         WeighingWeightBandBucket: {
             /**
@@ -11973,6 +11990,8 @@ export interface components {
             gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
             /** @description Daily gain per breed split by elevated vs ground shed type. Unclassified sheds are omitted rather than guessed. */
             gain_by_breed_shed_type: components["schemas"]["WeighingWeightGainShedTypeBucket"][];
+            /** @description Which sheds each BAR counted, so the classification behind it is inspectable. Ordered by breed, then class, then park, then shed name in natural order. */
+            shed_type_members: components["schemas"]["WeighingShedTypeMember"][];
             /** @description How many animals stand in each weight bracket and how fast each grows, under the selected weighing-category filter. Ascending. */
             by_weight_band: components["schemas"]["WeighingWeightBandBucket"][];
             /** @description The same gain cut by breed AND calendar week, for the Time-wise per-breed trend. */

@@ -32,6 +32,36 @@ export type GroupedBar = {
   /** Optional right-hand chip: head count, capture mode, park. Already resolved copy. */
   noteLabel?: string;
   noteTone?: Tone;
+  /**
+   * Optional "what is in THIS bar" note, shown behind a small `i` beside the bar's own label.
+   *
+   * It exists for a bar whose MEMBERSHIP is decided by a rule the chart cannot show -- the
+   * shed-type split classifies pens from shed metadata and pen names, so a bar appears with no way
+   * to tell which sheds it counted. It sits on the BAR and not on the legend (maintainer,
+   * 2026-09-02): a pen holds one breed, so a per-series list beside one breed's bar would name
+   * mostly other breeds' pens.
+   *
+   * Every string here is already resolved from the page contract; this component composes no copy.
+   * Hover AND focus open it, and it is a plain server-rendered panel: no client JS, so the card
+   * stays a server component.
+   */
+  hint?: {
+    /** Accessible name for the `i` control, e.g. "Which sheds count as this". */
+    ariaLabel: string;
+    /** Heading inside the panel. */
+    title: string;
+    /**
+     * The members, in the backend's order, optionally split into headed sections.
+     *
+     * SECTIONS EXIST FOR THE PARK. A shed name is not unique across parks -- this farm has a
+     * "Castro 1" in each -- so a flat list of names would show one pen twice with nothing to tell
+     * them apart. A single-section list renders with no heading, which is what a park-filtered
+     * page wants.
+     */
+    sections: readonly { heading?: string; items: readonly string[] }[];
+    /** Shown INSTEAD of an empty list -- an absent list must say so, never render blank. */
+    emptyLabel: string;
+  };
 };
 
 export type GroupedBarSeries = {
@@ -129,6 +159,30 @@ export function GroupedBars({
                   <li className="wbar" key={bar.key}>
                     <span className="wbl" title={bar.label}>
                       <span className="wbl-text">{bar.label}</span>
+                      {bar.hint ? (
+                        <span className="wgl-hint">
+                          {/* Focusable so the panel is reachable without a pointer; `note` because
+                              it describes the bar rather than doing anything. */}
+                          <span className="wgl-i" tabIndex={0} role="note" aria-label={bar.hint.ariaLabel}>
+                            i
+                          </span>
+                          <span className="wgl-pop">
+                            <b>{bar.hint.title}</b>
+                            {bar.hint.sections.some((section) => section.items.length > 0) ? (
+                              bar.hint.sections.map((section) => (
+                                <span className="wgl-pop-list" key={section.heading ?? "all"}>
+                                  {section.heading ? <i className="wgl-pop-park">{section.heading}</i> : null}
+                                  {section.items.map((item) => (
+                                    <span key={item}>{item}</span>
+                                  ))}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="muted small">{bar.hint.emptyLabel}</span>
+                            )}
+                          </span>
+                        </span>
+                      ) : null}
                       {bar.noteLabel ? (
                         <span className="wbar-mode">
                           <Tag tone={bar.noteTone ?? "mut"}>{bar.noteLabel}</Tag>

@@ -3857,8 +3857,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.shed.body":         "No shed-type profile has daily gain in this period. Add elevated or ground shed profiles, then weigh twice.",
 			"view.shed_type.elevated": "Elevated shed",
 			"view.shed_type.ground":   "Ground shed",
-			"value.shed.mixed":        "Mixed breeds",
-			"value.shed.unknown":      "Breed not recorded",
+			// The two bars come out of a classification the reader cannot see on the chart, so each
+			// legend entry carries an info affordance naming the sheds behind it. Backend-owned
+			// copy, rendered verbatim -- the client composes no part of this sentence.
+			"section.shed.members_hint":  "Which sheds count as this",
+			"section.shed.members_title": "Sheds counted here",
+			"empty.shed.members":         "No shed of this type had a second weigh in this period.",
+			"value.shed.mixed":           "Mixed breeds",
+			"value.shed.unknown":         "Breed not recorded",
 
 			// Weight-wise. The head count is the headline here and the gain rides beside it, because
 			// a bracket's growth is only worth reading once you know how many animals are standing

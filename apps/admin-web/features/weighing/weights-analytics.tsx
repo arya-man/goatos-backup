@@ -767,6 +767,45 @@ function ShedTab({
   const breeds = [...new Set([...elevated.keys(), ...ground.keys()])].sort((a, b) =>
     a.localeCompare(b, undefined, { numeric: true }),
   );
+  // WHICH SHEDS ARE BEHIND THIS BAR. The elevated/ground split comes from shed metadata and, for
+  // the sheds named in review, from the shed's own name -- a rule the chart cannot show, so the
+  // reader was being asked to accept two bars on trust. The backend sends the pens each bar
+  // actually counted, already composed and already in natural order, and each bar carries them
+  // behind a small `i`.
+  //
+  // PER BAR, not per series (maintainer, 2026-09-02): a pen holds one breed, so a list on the
+  // legend would name mostly pens behind some OTHER breed's bar. These are also the CONTRIBUTING
+  // pens only -- a classified pen weighed once is absent from the bar and absent here for the same
+  // reason.
+  //
+  // GROUPED BY PARK when the list spans more than one. A shed name is NOT unique across parks --
+  // this farm has a "Castro 1" in each -- so a flat list would show one name twice with nothing to
+  // tell the two pens apart. With a park selected there is one group and no heading, so the
+  // ordinary case stays a plain list. Park names, like the shed names, arrive from the backend.
+  const members = demo?.shed_type_members ?? [];
+  const hintFor = (breed: string, shedType: "elevated" | "ground") => {
+    const mine = members.filter((m) => m.label === breed && m.shed_type === shedType);
+    const parks: string[] = [];
+    for (const member of mine) {
+      const park = member.park_name ?? "";
+      if (!parks.includes(park)) parks.push(park);
+    }
+    const headed = parks.length > 1;
+    return {
+      ariaLabel: copy(pageContract, "section.shed.members_hint"),
+      title: copy(pageContract, "section.shed.members_title"),
+      sections: parks.map((park) => ({
+        // A row whose park did not resolve keeps its own unheaded section rather than being filed
+        // under a park it may not belong to.
+        heading: headed && park ? park : undefined,
+        items: mine
+          .filter((m) => (m.park_name ?? "") === park)
+          .map((m) => m.operational_location_display),
+      })),
+      emptyLabel: copy(pageContract, "empty.shed.members"),
+    };
+  };
+
   const groups: BarGroup[] = breeds.map((breed) => {
     const bars: GroupedBar[] = [];
     const elevatedBucket = elevated.get(breed);
@@ -778,6 +817,7 @@ function ShedTab({
         value: Math.round(elevatedBucket.average_gain_g_per_day),
         seriesKey: "elevated",
         noteLabel: `${elevatedBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        hint: hintFor(breed, "elevated"),
       });
     }
     if (groundBucket) {
@@ -787,6 +827,7 @@ function ShedTab({
         value: Math.round(groundBucket.average_gain_g_per_day),
         seriesKey: "ground",
         noteLabel: `${groundBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        hint: hintFor(breed, "ground"),
       });
     }
     return { key: breed, heading: breed, bars };

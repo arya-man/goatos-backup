@@ -1227,3 +1227,230 @@ ON CONFLICT DO NOTHING`, repoTenant, partALoad, weightDemoGoat)
 			out.LumpSumAnimals, out.LumpSumUnattributedAnimals)
 	}
 }
+
+// The Shed-wise card names the pens behind its two bars, and this pins the three things that
+// membership list can get wrong. It is a MEMBERSHIP list, not an aggregate, so there is no count
+// or ratio to prove -- what has to hold is WHICH pens appear.
+//
+// ONE-TO-MANY: this farm's register carries legacy ALIAS rows, one physical pen spelled as two
+// active locations -- "Godel 2" carrying label "Part 1", and a separate location literally named
+// "Godel 2 - Part 1". Both are weighed, both classify as elevated, and both compose to the SAME
+// display. The SQL can only dedupe on (location_id, partition_label), so it returns the pen twice
+// and the panel named one shed as two. Caught in Chrome on the real register before this test
+// existed.
+//
+// PAGE BOUNDARY: the list is a WHOLE-FILTER answer, never a page of one. The shed table beside it
+// pages, and a membership list built from the visible page would name only the pens that happened
+// to be on screen. Here the ground pen is deliberately the only one of its class while five
+// elevated pens crowd the other, so a page-shaped answer loses it.
+//
+// And a pen that did NOT contribute is absent for the same reason it is absent from the bars: a
+// pen weighed ONCE has no gain, and an unclassified pen was never claimed by either side.
+func TestShedTypeMembersPerBreedPerParkOneToManyAliasRowsPageBoundaryParkScopeAndContributionOnly(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartB, "2026-07-17")
+	for _, proofID := range []string{repoShedProofTwo, repoShedProofThree, repoShedProofFour} {
+		insertProof(t, ctx, pool, proofID, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		aliasShed     = "00000000-0000-4000-8000-0000000095a1"
+		aliasGoat     = "00000000-0000-4000-8000-0000000095a2"
+		godelGoat     = "00000000-0000-4000-8000-0000000095a3"
+		castroGoat    = "00000000-0000-4000-8000-0000000095a4"
+		onceGoat      = "00000000-0000-4000-8000-0000000095a5"
+		plainGoat     = "00000000-0000-4000-8000-0000000095a6"
+		bucketGodelA  = "00000000-0000-4000-8000-0000000095b1"
+		bucketGodelB  = "00000000-0000-4000-8000-0000000095b2"
+		bucketAliasA  = "00000000-0000-4000-8000-0000000095b3"
+		bucketAliasB  = "00000000-0000-4000-8000-0000000095b4"
+		bucketCastroA = "00000000-0000-4000-8000-0000000095b5"
+		bucketCastroB = "00000000-0000-4000-8000-0000000095b6"
+		bucketOnce    = "00000000-0000-4000-8000-0000000095b7"
+		bucketPlainA  = "00000000-0000-4000-8000-0000000095b8"
+		bucketPlainB  = "00000000-0000-4000-8000-0000000095b9"
+		otherShed     = "00000000-0000-4000-8000-0000000095ba"
+		otherGoat     = "00000000-0000-4000-8000-0000000095bb"
+		bucketOtherA  = "00000000-0000-4000-8000-0000000095bc"
+		bucketOtherB  = "00000000-0000-4000-8000-0000000095bd"
+		secondPark    = "00000000-0000-4000-8000-0000000095c0"
+		twinShed      = "00000000-0000-4000-8000-0000000095c2"
+		twinGoat      = "00000000-0000-4000-8000-0000000095c3"
+		bucketTwinA   = "00000000-0000-4000-8000-0000000095c4"
+		bucketTwinB   = "00000000-0000-4000-8000-0000000095c5"
+		twinCampaignA = "00000000-0000-4000-8000-0000000095c6"
+		twinCampaignB = "00000000-0000-4000-8000-0000000095c7"
+	)
+
+	// A SECOND PARK with its own "Castro 1". The farm really has one in each park, and Gandhi and
+	// Yashoda repeat the same way, so a list keyed on the shed NAME merges two real pens into one
+	// line -- the OL-1 name-keying defect one grain down. Both must be named, under their parks.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'Shed Type Second Park', 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`, secondPark, repoTenant)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
+VALUES ($1::uuid, $3::uuid, $4::uuid, '2026-07-10', '2026-07-16', '2026-07-10', 'published', 100, $5::uuid, $5::uuid),
+       ($2::uuid, $3::uuid, $4::uuid, '2026-07-17', '2026-07-23', '2026-07-17', 'published', 100, $5::uuid, $5::uuid)
+ON CONFLICT (campaign_id) DO NOTHING`, twinCampaignA, twinCampaignB, repoTenant, secondPark, repoOperator)
+
+	// "Godel 2" holds Part 1; `aliasShed` is the SAME pen spelled as its own location row. Castro
+	// and Castro 2 are ground; "Plain 1" carries no classification at all.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+VALUES
+  ($1::uuid, $6::uuid, 'shed', 'Godel 2', $7::uuid, 'active'),
+  ($2::uuid, $6::uuid, 'shed', 'Godel 2 - Part 1', $7::uuid, 'active'),
+  ($3::uuid, $6::uuid, 'shed', 'Castro 1', $7::uuid, 'active'),
+  ($4::uuid, $6::uuid, 'shed', 'Castro 2', $7::uuid, 'active'),
+  ($5::uuid, $6::uuid, 'shed', 'Plain 1', $7::uuid, 'active'),
+  ($8::uuid, $6::uuid, 'shed', 'Godel 9', $7::uuid, 'active'),
+  ($9::uuid, $6::uuid, 'shed', 'Castro 1', $10::uuid, 'active')
+ON CONFLICT (tenant_id, location_id) DO UPDATE SET name=EXCLUDED.name, parent_location_id=EXCLUDED.parent_location_id`,
+		weightDemoGodelShed, aliasShed, weightDemoCastroOne, weightDemoCastroTwo, weightDemoPlainOneShed,
+		repoTenant, repoPark, otherShed, twinShed, secondPark)
+
+	// One single-breed resident per pen: a lump-sum weigh has no tags, so a pen with no resident
+	// resolves to no breed and never reaches the bars -- or this list.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES
+  ($1::uuid, $7::uuid, 'WG-ST-GODEL', 'Shed Type Breed', 'male', 'kid', 'alive', 'kid', $8::uuid, $2::uuid, $9::uuid, $2::uuid),
+  ($3::uuid, $7::uuid, 'WG-ST-ALIAS', 'Shed Type Breed', 'male', 'kid', 'alive', 'kid', $8::uuid, $4::uuid, $9::uuid, $4::uuid),
+  ($5::uuid, $7::uuid, 'WG-ST-CASTRO', 'Shed Type Breed', 'male', 'kid', 'alive', 'kid', $8::uuid, $6::uuid, $9::uuid, $6::uuid),
+  ($10::uuid, $7::uuid, 'WG-ST-ONCE', 'Shed Type Breed', 'male', 'kid', 'alive', 'kid', $8::uuid, $11::uuid, $9::uuid, $11::uuid),
+  ($12::uuid, $7::uuid, 'WG-ST-PLAIN', 'Shed Type Breed', 'male', 'kid', 'alive', 'kid', $8::uuid, $13::uuid, $9::uuid, $13::uuid),
+  ($14::uuid, $7::uuid, 'WG-ST-OTHER', 'Other Shed Type Breed', 'male', 'kid', 'alive', 'kid', $8::uuid, $15::uuid, $9::uuid, $15::uuid),
+  ($16::uuid, $7::uuid, 'WG-ST-TWIN', 'Shed Type Breed', 'male', 'kid', 'alive', 'kid', $8::uuid, $17::uuid, $18::uuid, $17::uuid)
+ON CONFLICT (goat_id) DO UPDATE
+SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, current_location_id=EXCLUDED.current_location_id,
+    park_id=EXCLUDED.park_id, shed_id=EXCLUDED.shed_id`,
+		godelGoat, weightDemoGodelShed, aliasGoat, aliasShed, castroGoat, weightDemoCastroOne,
+		repoTenant, repoParty, repoPark, onceGoat, weightDemoCastroTwo, plainGoat, weightDemoPlainOneShed,
+		otherGoat, otherShed, twinGoat, twinShed, secondPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Godel 2 - Part 1')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET shed_id=EXCLUDED.shed_id, partition_label=EXCLUDED.partition_label`,
+		repoTenant, godelGoat, weightDemoGodelShed)
+
+	// Weighed TWICE: the two spellings of one pen, and the ground pen.
+	seedLoadBucketPartition(t, ctx, pool, bucketGodelA, loadCampaignPartA, weightDemoGodelShed, "Part 1", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, bucketGodelB, loadCampaignPartB, weightDemoGodelShed, "Part 1", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, bucketAliasA, loadCampaignPartA, aliasShed, "", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, bucketAliasB, loadCampaignPartB, aliasShed, "", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, bucketCastroA, loadCampaignPartA, weightDemoCastroOne, "", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, bucketCastroB, loadCampaignPartB, weightDemoCastroOne, "", "per_shed_partition")
+	// Weighed ONCE, and classified: no gain, so it is in neither the bars nor the list.
+	seedLoadBucketPartition(t, ctx, pool, bucketOnce, loadCampaignPartA, weightDemoCastroTwo, "", "per_shed_partition")
+	// Another BREED in its own elevated pen, weighed twice. Elevated by class, and behind a
+	// DIFFERENT bar -- so it must not be named under the first breed's elevated list.
+	seedLoadBucketPartition(t, ctx, pool, bucketOtherA, loadCampaignPartA, otherShed, "", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, bucketOtherB, loadCampaignPartB, otherShed, "", "per_shed_partition")
+	// The second park's own "Castro 1", same breed and same class as the first park's.
+	seedLoadBucketPartition(t, ctx, pool, bucketTwinA, twinCampaignA, twinShed, "", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, bucketTwinB, twinCampaignB, twinShed, "", "per_shed_partition")
+	// Weighed twice but UNCLASSIFIED: neither side may claim it.
+	seedLoadBucketPartition(t, ctx, pool, bucketPlainA, loadCampaignPartA, weightDemoPlainOneShed, "", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, bucketPlainB, loadCampaignPartB, weightDemoPlainOneShed, "", "per_shed_partition")
+
+	first := time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC)
+	second := time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC)
+	seedLoadLumpWeigh(t, ctx, pool, bucketGodelA, loadCampaignPartA, repoShedProof, 20.0, 4, first)
+	seedLoadLumpWeigh(t, ctx, pool, bucketGodelB, loadCampaignPartB, repoShedProofTwo, 23.0, 4, second)
+	seedLoadLumpWeigh(t, ctx, pool, bucketAliasA, loadCampaignPartA, repoShedProof, 21.0, 4, first)
+	seedLoadLumpWeigh(t, ctx, pool, bucketAliasB, loadCampaignPartB, repoShedProofTwo, 24.0, 4, second)
+	seedLoadLumpWeigh(t, ctx, pool, bucketCastroA, loadCampaignPartA, repoShedProofThree, 18.0, 4, first)
+	seedLoadLumpWeigh(t, ctx, pool, bucketCastroB, loadCampaignPartB, repoShedProofFour, 19.0, 4, second)
+	seedLoadLumpWeigh(t, ctx, pool, bucketOnce, loadCampaignPartA, repoShedProofThree, 17.0, 4, first)
+	seedLoadLumpWeigh(t, ctx, pool, bucketOtherA, loadCampaignPartA, repoShedProof, 22.0, 4, first)
+	seedLoadLumpWeigh(t, ctx, pool, bucketOtherB, loadCampaignPartB, repoShedProofTwo, 26.0, 4, second)
+	seedLoadLumpWeigh(t, ctx, pool, bucketTwinA, twinCampaignA, repoShedProofThree, 15.0, 4, first)
+	seedLoadLumpWeigh(t, ctx, pool, bucketTwinB, twinCampaignB, repoShedProofFour, 17.0, 4, second)
+	seedLoadLumpWeigh(t, ctx, pool, bucketPlainA, loadCampaignPartA, repoShedProofThree, 16.0, 4, first)
+	seedLoadLumpWeigh(t, ctx, pool, bucketPlainB, loadCampaignPartB, repoShedProofFour, 18.0, 4, second)
+
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark, secondPark},
+		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics: %v", err)
+	}
+
+	// PER BAR: keyed by breed AND class, which is the grain one bar is drawn at.
+	named := map[string][]string{}
+	for _, member := range out.ShedTypeMembers {
+		key := member.Label + "/" + member.ShedType
+		named[key] = append(named[key], member.OperationalLocationDisplay)
+	}
+	for key, names := range named {
+		seen := map[string]int{}
+		for _, name := range names {
+			seen[name]++
+			if seen[name] > 1 {
+				t.Fatalf("%s names %q twice — two alias rows for one pen must collapse to one line: %v", key, name, names)
+			}
+		}
+	}
+	if got := named["Shed Type Breed/elevated"]; len(got) != 1 || got[0] != "Godel 2 - Part 1" {
+		t.Fatalf("this breed's elevated bar must list exactly its own pen, both of whose spellings were weighed twice: got %v", got)
+	}
+	// TWO PARKS, TWO PENS, ONE NAME. Both "Castro 1"s must be named, each under its own park --
+	// deduping on the name alone reported two real pens as one.
+	if got := named["Shed Type Breed/ground"]; len(got) != 2 || got[0] != "Castro 1" || got[1] != "Castro 1" {
+		t.Fatalf("both parks' Castro 1 must be named, and NOT the pen weighed once: got %v", got)
+	}
+	parksOfGroundCastro := map[string]int{}
+	for _, member := range out.ShedTypeMembers {
+		if member.Label == "Shed Type Breed" && member.ShedType == "ground" {
+			parksOfGroundCastro[member.ParkName]++
+		}
+	}
+	if len(parksOfGroundCastro) != 2 {
+		t.Fatalf("the two Castro 1 pens must carry DIFFERENT park names, got %#v", parksOfGroundCastro)
+	}
+	// The other breed's elevated pen is elevated, and belongs to the OTHER bar only. Listing it
+	// under this breed is the defect the per-class grain had.
+	if got := named["Other Shed Type Breed/elevated"]; len(got) != 1 || got[0] != "Godel 9" {
+		t.Fatalf("the second breed's elevated bar must list its own pen: got %v", got)
+	}
+	for _, name := range named["Shed Type Breed/elevated"] {
+		if name == "Godel 9" {
+			t.Fatalf("a pen holding another breed must not be named under this breed's bar: %v", named["Shed Type Breed/elevated"])
+		}
+	}
+	// PARK SCOPE: the list inherits the page's park filter, so another park's pens are not named
+	// under this park's bars. Every pen above lives in repoPark, so a different park must return
+	// an EMPTY list rather than the same one -- the failure a missing park predicate produces.
+	otherPark := "00000000-0000-4000-8000-0000000095c1" // a park holding nothing at all
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'Shed Type Other Park', 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`, otherPark, repoTenant)
+	elsewhere, err := repo.GetWeightDemographics(ctx, repoTenant, []string{otherPark},
+		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(other park): %v", err)
+	}
+	if len(elsewhere.ShedTypeMembers) != 0 {
+		t.Fatalf("another park must name none of this park's pens, got %#v", elsewhere.ShedTypeMembers)
+	}
+
+	for _, member := range out.ShedTypeMembers {
+		if member.OperationalLocationDisplay == "Plain 1" {
+			t.Fatalf("an unclassified pen must be claimed by neither side, got %#v", member)
+		}
+		if member.OperationalLocationDisplay == "Castro 2" {
+			t.Fatalf("a pen weighed once has no gain and must not be named beside the bars, got %#v", member)
+		}
+	}
+}

@@ -29173,6 +29173,39 @@ components:
           type: integer
           description: Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed.
         average_gain_g_per_day: {type: number, format: double}
+    WeighingShedTypeMember:
+      type: object
+      additionalProperties: false
+      required: [label, shed_type, location_id, operational_location_display]
+      description: >-
+        One operational shed (pen) behind ONE BAR of the Shed-wise comparison, listed so a reader
+        can see which sheds that bar actually counted. Grain is per breed AND class, not per class:
+        a pen holds one breed, so naming every elevated pen beside one breed's elevated bar would
+        name mostly other breeds' pens. The classification is read from shed metadata and, for the
+        sheds named in review, from the shed's own name -- neither visible on the chart, so the rule
+        is enumerated beside it. Only CONTRIBUTING sheds appear: a classified pen weighed once, or
+        whose cohort is too mixed to claim for a breed, is absent here for the same reason it is
+        absent from the bars. Ordered by breed, then class, then park, then shed name in NATURAL
+        order ("Part 2" before "Part 7", "Yashoda 2" before "Yashoda 10").
+      properties:
+        label:
+          type: string
+          description: "The breed whose bar this pen sits behind; matches WeighingWeightGainShedTypeBucket.label."
+        shed_type:
+          type: string
+          enum: [elevated, ground]
+        location_id: {type: string, format: uuid}
+        partition_label: {type: string, description: "Empty for an undivided shed."}
+        park_id: {type: string, description: "Empty when the shed's parent does not resolve to a park."}
+        park_name:
+          type: string
+          description: >-
+            Part of the pen's identity, not decoration: this farm has a "Castro 1" in both parks,
+            so a list keyed on the shed name alone merges two real pens into one line. Empty when
+            the park does not resolve.
+        operational_location_display:
+          type: string
+          description: "Backend-composed farm name -- 'Castro 2', 'Godel 2 - Part 1'. Render verbatim."
     WeighingWeightBandBucket:
       type: object
       additionalProperties: false
@@ -29289,7 +29322,7 @@ components:
     WeighingWeightDemographicsResponse:
       type: object
       additionalProperties: false
-      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, gain_by_breed_origin, gain_by_breed_shed_type, by_weight_band, gain_by_breed_week, gain_thresholds_by_breed, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
+      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, gain_by_breed_origin, gain_by_breed_shed_type, shed_type_members, by_weight_band, gain_by_breed_week, gain_thresholds_by_breed, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
       properties:
         by_breed:
           type: array
@@ -29321,6 +29354,10 @@ components:
           type: array
           description: "Daily gain per breed split by elevated vs ground shed type. Unclassified sheds are omitted rather than guessed."
           items: {$ref: "#/components/schemas/WeighingWeightGainShedTypeBucket"}
+        shed_type_members:
+          type: array
+          description: "Which sheds each BAR counted, so the classification behind it is inspectable. Ordered by breed, then class, then park, then shed name in natural order."
+          items: {$ref: "#/components/schemas/WeighingShedTypeMember"}
         by_weight_band:
           type: array
           description: How many animals stand in each weight bracket and how fast each grows, under the selected weighing-category filter. Ascending.

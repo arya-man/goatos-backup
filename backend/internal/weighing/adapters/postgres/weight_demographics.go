@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -630,6 +632,59 @@ SELECT
          GROUP BY sc.breed, st.shed_type
        ) parts GROUP BY breed, shed_type
      ) gbst),
+  -- WHICH SHEDS ARE BEHIND EACH BAR. The bars above are produced by a classification rule the
+  -- reader cannot see, so the page names the pens beside them -- PER BREED AND CLASS, the grain of
+  -- one bar (maintainer, 2026-09-02). Naming them per class only would answer "which pens are
+  -- elevated" while the reader is looking at one breed's elevated bar, and those are different
+  -- sets: a pen holds one breed, so most elevated pens are behind some OTHER breed's bar.
+  --
+  -- This lists the pens that actually CONTRIBUTED, not every pen carrying the profile: the two
+  -- arms below repeat the gbst arms' predicates exactly, so a classified pen weighed only once, or
+  -- whose cohort is too mixed to claim for a breed, is absent here for the same reason it is
+  -- absent from the bars.
+  --
+  -- projection-review: membership=the pens that contributed to gbst above, one row per
+  -- (breed, location_id, partition_label) from each of its two arms; group_key=(label, shed_type,
+  -- location_id, partition_label), the pair shed_type is DISTINCT on plus the breed the bar is; join_cardinality=shed_type 1 per
+  -- (location_id, partition_label) by that DISTINCT, lump_span 1 per pair (rn=1 x rn=1),
+  -- shed_cohort 1 per pair (GROUPed by it), locations 1 per location_id (PK) -- every join 1:1,
+  -- and UNION (not UNION ALL) collapses a pen that contributes through BOTH arms;
+  -- pagination=NONE, this is a whole-filter membership list bounded by the pen catalogue and is
+  -- never a page of the shed table beside it; scope=tenant_id + park_id = ANY($2), inherited from
+  -- shed_targets, plus the same $5 sex and $16 weighing-category predicates the two gbst arms use.
+  --
+  -- No count or ratio is computed here, so there is no numerator/denominator key set to align.
+  -- One-to-many that SURVIVES this SQL: two legacy alias LOCATION rows can spell one physical pen,
+  -- which is a distinct group key here and the same display name. decodeShedTypeMembers collapses
+  -- that by name WITHIN A PARK -- never across parks, where the same name is two different pens.
+  -- Pinned by TestShedTypeMembersPerBreedOneToManyAliasRowsPageBoundaryParkScopeAndContributionOnly.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(m.label, m.shed_type, m.location_id, m.partition_label, loc.name,
+                                               COALESCE(park.location_id::text, ''), COALESCE(park.name, ''))
+                             ORDER BY m.label, m.shed_type, COALESCE(park.name, ''), loc.name, m.partition_label), '[]'::jsonb)
+     FROM (
+       SELECT DISTINCT rg.breed AS label, st.shed_type, st.location_id, st.partition_label
+       FROM resolved_gain rg
+       JOIN shed_type st ON st.location_id = rg.location_id AND st.partition_label = rg.partition_label
+       WHERE st.shed_type IS NOT NULL AND rg.breed IS NOT NULL
+         AND ($16::text = '' OR $16::text = 'individual_animal')
+       UNION
+       SELECT sc.breed AS label, st.shed_type, st.location_id, st.partition_label
+       FROM lump_span ls
+       JOIN shed_cohort sc ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+       JOIN shed_type st ON st.location_id = ls.location_id AND st.partition_label = ls.partition_label
+       WHERE st.shed_type IS NOT NULL AND sc.breeds = 1
+         AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+         AND ($16::text = '' OR $16::text = 'per_shed_partition')
+     ) m
+     JOIN locations loc ON loc.location_id = m.location_id AND loc.tenant_id = $1::uuid
+     -- THE PARK IS PART OF THE PEN'S IDENTITY. This farm has a "Castro 1" in CBE and a "Castro 1"
+     -- in CPT, and Gandhi and Yashoda repeat the same way, so a list keyed on the NAME alone
+     -- silently merges two real pens in two parks into one line -- the OL-1 name-keying defect,
+     -- one grain down. The join demands location_type = 'park' rather than trusting the parent
+     -- blindly: an unexpected parent yields NO park rather than a wrong one, and the panel then
+     -- simply does not group that row.
+     LEFT JOIN locations park ON park.location_id = loc.parent_location_id
+       AND park.tenant_id = $1::uuid AND park.location_type = 'park'),
   -- WEIGHT BANDS: how many animals sit in each weight bracket, and how fast that bracket is
   -- growing. Both arms, always -- a page that banded only the scanned kids would describe this
   -- farm from a minority of it, since most of its animals are weighed by the whole shed.
@@ -805,6 +860,7 @@ SELECT
 		gainBreedJSON, gainSexJSON, gainStageJSON                   []byte
 		gainByBreedOriginJSON                                       []byte
 		gainByBreedShedTypeJSON                                     []byte
+		shedTypeMembersJSON                                         []byte
 		weightBandJSON                                              []byte
 		gainBreedWeekJSON                                           []byte
 		gainThresholdBreedJSON                                      []byte
@@ -821,6 +877,7 @@ SELECT
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,
 		&gainByBreedOriginJSON,
 		&gainByBreedShedTypeJSON,
+		&shedTypeMembersJSON,
 		&weightBandJSON,
 		&gainBreedWeekJSON,
 		&gainThresholdBreedJSON,
@@ -856,6 +913,9 @@ SELECT
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainByBreedShedType, err = decodeWeightGainShedTypeBuckets(gainByBreedShedTypeJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.ShedTypeMembers, err = decodeShedTypeMembers(shedTypeMembersJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
 	if out.ByWeightBand, err = decodeWeightBandBuckets(weightBandJSON); err != nil {
@@ -1072,6 +1132,154 @@ func decodeWeightGainShedTypeBuckets(raw []byte) ([]domain.WeightGainShedTypeBuc
 		})
 	}
 	return out, nil
+}
+
+// decodeShedTypeMembers reads the seven-element rows the membership list emits: breed, shed type
+// key, location id, partition label, the weighing bucket's own planning name, and the park.
+//
+// The DISPLAY is composed here, not in SQL, for two reasons. The operational-location convention
+// (Rule 5/5a) puts one composer behind every location label, and a `CASE` in the query would be a
+// second one that drifts; and the doubling guard below only exists in Go.
+//
+// SAME DOUBLING GUARD as shed_weights.go and growth.go: a partitioned weighing bucket is routinely
+// NAMED for the pen it covers -- "Castro 2", "Godel 2 - Part 2" -- so handing that name to oploc,
+// which appends the partition to a SHED name, produces "Castro 2 2" and "Godel 2 - Part 2 - Part 2".
+// A row that resolves to no name at all is SKIPPED rather than listed as a bare uuid: a tooltip
+// that cannot name a shed should be one shed shorter, never one identifier longer.
+func decodeShedTypeMembers(raw []byte) ([]domain.ShedTypeMember, error) {
+	out := []domain.ShedTypeMember{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if len(row) != 7 {
+			continue
+		}
+		var label, shedType, locationID, partitionLabel, shedName, parkID, parkName string
+		if json.Unmarshal(row[0], &label) != nil || label == "" {
+			continue
+		}
+		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "ground") {
+			continue
+		}
+		if json.Unmarshal(row[2], &locationID) != nil || locationID == "" {
+			continue
+		}
+		// A pen with no label is an undivided shed, not a defect: unmarshal failure alone is fatal.
+		if len(row[3]) > 0 && string(row[3]) != "null" && json.Unmarshal(row[3], &partitionLabel) != nil {
+			continue
+		}
+		if json.Unmarshal(row[4], &shedName) != nil || strings.TrimSpace(shedName) == "" {
+			continue
+		}
+		// A shed whose parent is not a park yields empty rather than a wrong label; the panel then
+		// lists it without a park heading rather than filing it under someone else's park.
+		_ = json.Unmarshal(row[5], &parkID)
+		_ = json.Unmarshal(row[6], &parkName)
+		display := shedName
+		if partitionLabel != "" && !strings.HasSuffix(shedName, partitionLabel) {
+			display = (oploc.OperationalLocation{
+				ShedID:         locationID,
+				ShedName:       shedName,
+				PartitionLabel: partitionLabel,
+			}).Display()
+		}
+		// DEDUPE BY THE NAME WITHIN ONE PARK, not by the id. This farm's register carries
+		// legacy ALIAS rows -- one physical pen spelled as two active locations ("Godel 2 - Part 1"
+		// as its own row and as "Godel 2" carrying label "Part 1") -- so the SQL's UNION, which can
+		// only dedupe on (location_id, partition_label), returns one pen twice. A membership list
+		// that names the same shed twice reads as two sheds, which is the one thing this list
+		// exists to answer correctly.
+		//
+		// THE PARK IS IN THE KEY, and that is the correction to the first version of this: two real
+		// pens in DIFFERENT parks share the name "Castro 1", and collapsing those merged two pens
+		// into one line -- the OL-1 name-keying defect. Alias rows are a spelling problem inside
+		// one park; a repeated name across parks is two pens.
+		key := label + "\x00" + shedType + "\x00" + parkID + "\x00" + display
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, domain.ShedTypeMember{
+			Label:                      label,
+			ShedType:                   shedType,
+			ParkID:                     parkID,
+			ParkName:                   parkName,
+			LocationID:                 locationID,
+			PartitionLabel:             partitionLabel,
+			OperationalLocationDisplay: display,
+		})
+	}
+	// SORT ON THE COMPOSED NAME, and NATURALLY. The SQL can only order by the columns it has, and
+	// they are the wrong ones twice over: an alias row spelled "Mandela 1" + label "Part 7" sorts
+	// under "Mandela 1", ahead of the location literally named "Mandela 1 - Part 2", which is how
+	// the panel came out reading "Part 7, Part 2, Part 3"; and plain text ordering puts "Yashoda
+	// 10" between "Yashoda 1" and "Yashoda 2". The reader is scanning for one pen, so the order has
+	// to be the one they would count in.
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Label != out[j].Label {
+			return out[i].Label < out[j].Label
+		}
+		if out[i].ShedType != out[j].ShedType {
+			return out[i].ShedType < out[j].ShedType
+		}
+		if out[i].ParkName != out[j].ParkName {
+			return out[i].ParkName < out[j].ParkName
+		}
+		return naturalLess(out[i].OperationalLocationDisplay, out[j].OperationalLocationDisplay)
+	})
+	return out, nil
+}
+
+// naturalLess orders shed names the way a person reads them: text compared as text, digit runs
+// compared as NUMBERS, so "Part 2" precedes "Part 7" and "Yashoda 2" precedes "Yashoda 10".
+// Case-insensitive, because a pen's spelling is not its identity here.
+func naturalLess(a, b string) bool {
+	ai, bi := 0, 0
+	for ai < len(a) && bi < len(b) {
+		aDigit, bDigit := isASCIIDigit(a[ai]), isASCIIDigit(b[bi])
+		if aDigit && bDigit {
+			aStart, bStart := ai, bi
+			for ai < len(a) && isASCIIDigit(a[ai]) {
+				ai++
+			}
+			for bi < len(b) && isASCIIDigit(b[bi]) {
+				bi++
+			}
+			// Compare digit runs with leading zeros stripped: length first, then lexically, which
+			// is numeric order without parsing (and without overflowing on a silly-long run).
+			an := strings.TrimLeft(a[aStart:ai], "0")
+			bn := strings.TrimLeft(b[bStart:bi], "0")
+			if len(an) != len(bn) {
+				return len(an) < len(bn)
+			}
+			if an != bn {
+				return an < bn
+			}
+			continue
+		}
+		ac, bc := lowerASCII(a[ai]), lowerASCII(b[bi])
+		if ac != bc {
+			return ac < bc
+		}
+		ai++
+		bi++
+	}
+	return len(a)-ai < len(b)-bi
+}
+
+func isASCIIDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+func lowerASCII(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+	return c
 }
 
 // decodeWeightBandBuckets reads the four-element rows wb emits: band key, animals, gain animals,
