@@ -462,11 +462,11 @@ class DefaultPcCareRepository(
         detailDao.delete(taskId)
     }
 
-    override suspend fun recordStockVerdict(
+    override suspend fun recordStockVerdict( // offline-first-guard:ignore: live director judgement on submitted proof videos; the echoed task is written through to Room below
         taskId: String,
         verdict: String,
         reason: String,
-    ): AppResult<PcCareTaskDto> = try { // offline-first-guard:ignore: a live judgement on live videos; the echoed task is written through to Room below
+    ): AppResult<PcCareTaskDto> = try {
         val task = api.recordPcCareStockVerdict(
             taskId,
             PcCareStockVerdictRequestDto(verdict = verdict, reason = reason),
