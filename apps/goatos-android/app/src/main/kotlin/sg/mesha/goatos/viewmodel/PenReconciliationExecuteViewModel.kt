@@ -218,6 +218,9 @@ class PenReconciliationExecuteViewModel @Inject constructor(
                         it.copy(
                             isCapturingVideo = false,
                             videoCaptured = true,
+                            // The clip the operator just shot, playable in place before submitting
+                            // (same review affordance as the feed proof screens).
+                            videoPreviewPath = captured.localUri,
                             videoMessage = VIDEO_QUEUED,
                             canComplete = !it.result.isCommitted,
                         )
@@ -306,7 +309,12 @@ class PenReconciliationExecuteViewModel @Inject constructor(
             observeProofOutbox()
         }
         _state.update {
-            it.copy(videoCaptured = false, result = CountsWriteResultUi(), videoMessage = REWORK_REQUIRED)
+            it.copy(
+                videoCaptured = false,
+                videoPreviewPath = null,
+                result = CountsWriteResultUi(),
+                videoMessage = REWORK_REQUIRED,
+            )
         }
     }
 
@@ -333,7 +341,17 @@ class PenReconciliationExecuteViewModel @Inject constructor(
                         else -> VIDEO_QUEUED
                     }
                     _state.update { current ->
-                        if (current.result.isCommitted) current else current.copy(videoMessage = proofMessage)
+                        if (current.result.isCommitted) {
+                            current
+                        } else {
+                            current.copy(
+                                videoMessage = proofMessage,
+                                // Re-entry restore: the queued upload's own local file is the clip
+                                // the operator recorded, so the preview survives Back + reopen
+                                // (mirrors FeedDistributionCompleteViewModel).
+                                videoPreviewPath = item.localFilePath ?: current.videoPreviewPath,
+                            )
+                        }
                     }
                 }
         }

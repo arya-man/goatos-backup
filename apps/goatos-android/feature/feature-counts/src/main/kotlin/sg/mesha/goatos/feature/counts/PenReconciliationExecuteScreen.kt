@@ -22,6 +22,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 
 /**
  * The Reconcile EXECUTE screen (`/counts/reconcile/execute/{card_id}`) — an L1 hosted destination
@@ -59,6 +65,13 @@ data class PenReconciliationExecuteUiState(
     val reworkReason: String? = null,
     /** Mandatory video: false until captured/queued. Gates [canComplete]. */
     val videoCaptured: Boolean = false,
+    /**
+     * Local file path of the recorded clip so the operator can WATCH what they shot before
+     * submitting — the same review affordance the feed proof screens give. Restored from the
+     * queued upload's own local file on re-entry; null when no clip exists yet or the file is
+     * gone (the preview then simply hides, never blocks the flow).
+     */
+    val videoPreviewPath: String? = null,
     val isCapturingVideo: Boolean = false,
     val videoMessage: String? = null,
     /** The "Mark done" write result. */
@@ -121,6 +134,7 @@ fun PenReconciliationExecuteScreen(
                         captured = state.videoCaptured,
                         capturing = state.isCapturingVideo,
                         committed = committed,
+                        previewPath = state.videoPreviewPath,
                         onClick = { onEvent(PenReconciliationExecuteEvent.RecordVideo) },
                         onReRecord = { onEvent(PenReconciliationExecuteEvent.ReRecordVideo) },
                     )
@@ -193,6 +207,7 @@ private fun PenReturnVideoCard(
     captured: Boolean,
     capturing: Boolean,
     committed: Boolean,
+    previewPath: String?,
     onClick: () -> Unit,
     onReRecord: () -> Unit = onClick,
 ) {
@@ -207,6 +222,25 @@ private fun PenReturnVideoCard(
             )
             if (captured) {
                 Icon(MeshaIcons.CheckCircle, contentDescription = "captured", tint = MeshaColors.Ok, modifier = Modifier.size(18.dp))
+            }
+        }
+        // The recorded clip, playable in place (the shared proof preview the feed screens use):
+        // the operator reviews what they actually shot before sending it to the verifier. A
+        // missing/unplayable local file hides the preview and leaves Re-record as the way out.
+        if (captured && !capturing && !previewPath.isNullOrBlank()) {
+            var previewFailed by remember(previewPath) { mutableStateOf(false) }
+            if (!previewFailed) {
+                ProofMediaPreview(
+                    path = previewPath,
+                    kind = ProofMediaPreviewKind.Video,
+                    onPlaybackFailure = { previewFailed = true },
+                )
+            } else {
+                Text(
+                    "The recorded video can't be played back on this phone. It is still saved — re-record if you want to check it.",
+                    color = MeshaColors.Faint,
+                    fontSize = 11.sp,
+                )
             }
         }
         when {
