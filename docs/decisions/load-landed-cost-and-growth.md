@@ -122,7 +122,7 @@ mid-day redeploy, and both HA instances ticking together, and it rolls over to a
 tomorrow. Same mechanism as `FeedLowStockNotifier` — the house pattern for a daily alert, and the
 task-kernel lock forbids a module keeping a private scheduler.
 
-**The alert reads the finished read model**, not raw rows, so the push and the Purchase & barn
+**The alert reads the finished read model**, not raw rows, so the push and the Purchase and Born
 chart can never disagree about whether a load is overdue.
 
 ## Proof

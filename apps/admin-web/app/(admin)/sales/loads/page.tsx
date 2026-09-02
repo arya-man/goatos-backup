@@ -4,7 +4,7 @@ import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
 
-// Purchase & born — every batch of animals reconciled: what was bought or born, what sold, what
+// Purchase and Born — every batch of animals reconciled: what was bought or born, what sold, what
 // died, what is still on farm, and the money on each side.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   return (

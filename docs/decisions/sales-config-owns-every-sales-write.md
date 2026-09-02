@@ -1,4 +1,4 @@
-# Sales Config owns every sales write; Sales and Purchase & barn are read-only
+# Sales Config owns every sales write; Sales and Purchase and Born are read-only
 
 **Maintainer decision, 2026-09-01.**
 
@@ -22,7 +22,7 @@ sales alike:
 | Market quotes, sold-tag lists, weight checks | `/sales` evidence section headers |
 | A purchased load's landed cost | `/sales/loads` row click |
 
-`/sales` (the board) and `/sales/loads` (Purchase & barn) are **for seeing**.
+`/sales` (the board) and `/sales/loads` (Purchase and Born) are **for seeing**.
 They read the same facts back and offer no way to change them. A deal row on
 `/sales` still opens its drawer, because reading a deal's detail is seeing; the
 drawer simply carries no form.

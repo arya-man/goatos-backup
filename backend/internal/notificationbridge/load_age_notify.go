@@ -41,7 +41,7 @@ const NotificationTypeLoadOverdue = "procurement_load_overdue"
 //
 // It asks for the FINISHED read model rather than raw rows on purpose: the age clock, the
 // remaining count and the landed cost are all derived in procurement/domain, and re-deriving any
-// of them here would be a second implementation of a business number that the Purchase & barn
+// of them here would be a second implementation of a business number that the Purchase and Born
 // screen also shows. The alert and the chart must never disagree about whether a load is overdue.
 type OverdueLoadReader interface {
 	OverdueLoadCandidates(ctx context.Context, tenantID, asOf string) ([]procurementdomain.OverdueLoad, error)
