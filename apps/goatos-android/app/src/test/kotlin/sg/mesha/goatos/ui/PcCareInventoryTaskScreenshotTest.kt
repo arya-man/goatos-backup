@@ -42,6 +42,7 @@ class PcCareInventoryTaskScreenshotTest {
                                         requiredDosesLabel = "125 doses",
                                     ),
                                 ),
+                                taskProofMode = true,
                                 taskProofSlot = PcCareSlotChipUi(
                                     fieldKey = "stock_fridge_video",
                                     label = "Fridge stock video",
