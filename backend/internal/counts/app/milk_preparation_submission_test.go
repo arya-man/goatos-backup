@@ -77,4 +77,11 @@ func TestSubmitMilkPreparationEnqueuesAllFiveStepVideosTogether(t *testing.T) {
 	if enqueuer.request.ParkID != "park" {
 		t.Fatalf("verification farm=%q", enqueuer.request.ParkID)
 	}
+	// The verifier item states the entered quantities, so the enqueue request must carry the
+	// operator's answers, not just the proof refs.
+	if !enqueuer.request.GoatMilkUsed || enqueuer.request.Answers.UHTMilkQuantityLitres != 8 ||
+		enqueuer.request.Answers.GoatMilkQuantityLitres != 2 || enqueuer.request.Answers.CitricAcidGrams != 44 {
+		t.Fatalf("enqueue answers=%+v goat_milk_used=%v, want the submitted quantities forwarded",
+			enqueuer.request.Answers, enqueuer.request.GoatMilkUsed)
+	}
 }

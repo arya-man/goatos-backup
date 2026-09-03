@@ -64,3 +64,47 @@ func TestMilkPreparationEnqueuesFiveVideosInStepOrderOnOneItem(t *testing.T) {
 		t.Fatalf("farm-only scope park=%v shed=%v", capture.item.ParkID, capture.item.ShedID)
 	}
 }
+
+// The verifier judges each quantity video against the number the operator ENTERED, so the item
+// must carry the milk litres and citric acid grams as context rows. Mutation-tested when written:
+// dropping the ContextRows attach in the bridge turns this red.
+func TestMilkPreparationItemCarriesEnteredMilkAndCitricAcid(t *testing.T) {
+	capture := &capturingVerificationCreator{}
+	bridge := NewMilkPreparationVerificationEnqueuer(capture)
+	err := bridge.EnqueueMilkPreparationVerification(context.Background(), countsapp.MilkPreparationVerificationEnqueueRequest{
+		TenantID: "tenant", CompletionID: "completion", ParkID: "park", OperatorID: "operator",
+		AttemptNo: 1, GoatMilkUsed: true,
+		Answers: countsdomain.MilkPreparationAnswers{
+			MorningMilkCollectedLitres: 6, EveningMilkCollectedLitres: 4,
+			GoatMilkQuantityLitres: 8, BoilingTemperatureC: 95, CooledTemperatureC: 40,
+			UHTMilkQuantityLitres: 12.5, CitricAcidGrams: 112.75,
+		},
+		CapturedAt: time.Now(), IdempotencyKey: "milk-context",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []verificationdomain.ContextRow{
+		{Label: "Milk used", Value: "20.5 L (goat 8 L + UHT 12.5 L)"},
+		{Label: "Citric acid", Value: "112.75 g"},
+	}
+	if !reflect.DeepEqual(capture.item.ContextRows, want) {
+		t.Fatalf("context_rows=%v want=%v", capture.item.ContextRows, want)
+	}
+}
+
+// A legacy client that sent no answers must state nothing rather than claim zero litres.
+func TestMilkPreparationItemWithoutAnswersAttachesNoContext(t *testing.T) {
+	capture := &capturingVerificationCreator{}
+	bridge := NewMilkPreparationVerificationEnqueuer(capture)
+	err := bridge.EnqueueMilkPreparationVerification(context.Background(), countsapp.MilkPreparationVerificationEnqueueRequest{
+		TenantID: "tenant", CompletionID: "completion", ParkID: "park", OperatorID: "operator",
+		AttemptNo: 1, CapturedAt: time.Now(), IdempotencyKey: "milk-no-answers",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.item.ContextRows) != 0 {
+		t.Fatalf("context_rows=%v, want none for an answer-less submission", capture.item.ContextRows)
+	}
+}
