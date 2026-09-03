@@ -477,8 +477,15 @@ deploy() {
     --max=2 \
     --min-instances=1 \
     --max-instances=2 \
+    --no-traffic \
     --update-env-vars="GOATOS_CANONICAL_DASHBOARD_HOST=${GOATOS_CANONICAL_DASHBOARD_HOST},GOATOS_API_BASE_URL=${GOATOS_API_BASE_URL}" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --quiet
+  wait_service_ready "$ADMIN_WEB_SERVICE" "admin-web pre-traffic"
+  run gcloud run services update-traffic "$ADMIN_WEB_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --to-latest \
     --quiet
 
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"
