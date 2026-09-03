@@ -2967,10 +2967,18 @@ func pageSpecificCopy(id string) map[string]string {
 			// THE GROWTH READ (maintainer request 2026-09-01): weight in vs weight out, cost per
 			// kg vs price per kg, and the days between. Three charts under the money one, in the
 			// same load order, so the farm reads one column of loads down the page.
-			"chart.loadwise_weight.title":       "Average weight per animal",
-			"chart.loadwise_weight.empty":       "No load has both a purchase weight and a sale weight yet.",
-			"chart.series.avg_purchase_weight":  "Bought at",
-			"chart.series.avg_sale_weight":      "Sold at",
+			"chart.loadwise_weight.title":      "Average weight per animal",
+			"chart.loadwise_weight.empty":      "No load has both a purchase weight and a sale weight yet.",
+			"chart.series.avg_purchase_weight": "Bought at",
+			"chart.series.avg_sale_weight":     "Sold at",
+			// A load that has sold nothing has no "sold at" bar, so its third bar is what its
+			// animals weigh NOW (maintainer request 2026-09-03): the latest weighing of the pens
+			// the load was placed into, weighted by head count. A sold load shows no third bar.
+			"chart.series.current_avg_weight":   "Weighs now",
+			"value.not_weighed_yet":             "not weighed yet",
+			"value.sold_no_now":                 "sold",
+			"value.weighed_now":                 "weighed at the latest weighing",
+			"disabled.weights":                  "Your current role can view loads but not weighing.",
 			"chart.loadwise_per_kg.title":       "Price per kg",
 			"chart.loadwise_per_kg.empty":       "No load has a recorded cost or a priced sale yet.",
 			"chart.series.landing_price_per_kg": "Landing price",
@@ -3989,8 +3997,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// page's other filters cannot slice a load that is bought whole; and the latest
 			// weighing deliberately ignores the selected period, or a narrow window would
 			// erase a load's newest weigh and read as the animals shrinking.
-			"note.load.denominator": "At purchase averages over every animal bought; the latest weighing averages over the animals weighed in the load's sheds — sold or lost animals are no longer in it.",
-			"note.load.filters":     "This tab narrows by park only. A load is bought whole, so the sex, origin, weighing-mode and period filters do not apply here; the latest weighing is each shed's newest weigh on record.",
+			"note.load.denominator": "At purchase averages over every animal bought; the latest weighing averages over the animals weighed in the load's pens — sold or lost animals are no longer in it.",
+			"note.load.filters":     "This tab narrows by park only. A load is bought whole, so the sex, origin, weighing-mode and period filters do not apply here; the latest weighing is each pen's newest weigh on record.",
 
 			"empty.load.body": "No purchased loads recorded yet. When one is, its arrival weight and latest weighing will be compared here.",
 
