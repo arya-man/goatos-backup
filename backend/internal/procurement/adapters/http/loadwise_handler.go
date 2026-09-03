@@ -94,6 +94,11 @@ type loadwiseLoadPayload struct {
 	// from fattening_days, which starts on arrival and stops at sale.
 	DaysSincePurchase *int `json:"days_since_purchase,omitempty"`
 
+	// The remaining animals by species, for valuing today's stock at a per-species live-weight
+	// rate. They add up to at most `remaining`.
+	RemainingSheep int `json:"remaining_sheep"`
+	RemainingGoats int `json:"remaining_goats"`
+
 	SoldValue      float64  `json:"sold_value"`
 	SoldPriced     int      `json:"sold_priced"`
 	AvgSoldPrice   *float64 `json:"avg_sold_price,omitempty"`
@@ -211,6 +216,9 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			FatteningDays:       l.FatteningDays,
 			DaysOnFarmSoFar:     l.DaysOnFarmSoFar,
 			DaysSincePurchase:   l.DaysSincePurchase,
+
+			RemainingSheep: l.RemainingSheep,
+			RemainingGoats: l.RemainingGoats,
 
 			SoldValue:      l.SoldValue,
 			SoldPriced:     l.SoldPriced,

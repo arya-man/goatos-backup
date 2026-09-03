@@ -2642,6 +2642,8 @@ select:disabled { opacity: .45; }
 .wgrouped-legend .wgl{width:10px;height:10px;border-radius:3px;display:inline-block}
 .wgrouped-legend .wgl.s0{background:var(--brand)}
 .wgrouped-legend .wgl.s1{background:var(--muted)}
+/* A third series (the Comparison tab's gain bar) needs its own tone, or it borrows the first. */
+.wgrouped-legend .wgl.s2{background:var(--teal)}
 /* The "which sheds are behind this bar" note. It hangs off the bar's OWN label, not the legend
    (maintainer, 2026-09-02) — a pen holds one breed, so a per-series list would name mostly other
    breeds' pens. CSS-ONLY on :hover and :focus-within, so the card stays a server component.
@@ -2687,6 +2689,7 @@ select:disabled { opacity: .45; }
 .wgrouped .wbars{height:auto;max-height:none;overflow:visible;gap:3px}
 .wgrouped .wbar .wbt i.s0{background:var(--brand)}
 .wgrouped .wbar .wbt i.s1{background:var(--muted)}
+.wgrouped .wbar .wbt i.s2{background:var(--teal)}
 .wgrouped .wbar .wbt i.neg{background:var(--danger)}
 
 /* The Weights metric strip. The default 12px grid gap made six cards read as one
@@ -3099,8 +3102,13 @@ select:disabled { opacity: .45; }
 /* Columns SHARE the card's full width rather than sitting in a fixed-width block at the left:
    grow to fill, and only start scrolling once each would fall under a readable 64px. */
 .gcol{flex:1 1 0;min-width:64px;display:flex;flex-direction:column;align-items:center}
-.gcarea{display:flex;align-items:flex-end;justify-content:center;gap:3px;height:138px;width:100%;border-bottom:1px solid var(--line);box-sizing:border-box;padding-top:6px}
-.gcbar{display:block;flex:0 0 auto;width:16px;max-width:22%;border-radius:3px 3px 0 0;background:var(--brand)}
+.gcarea{display:flex;align-items:flex-end;justify-content:center;gap:8px;height:150px;width:100%;border-bottom:1px solid var(--line);box-sizing:border-box;padding-top:18px}
+/* One column per bar: the printed figure above, the bar below (maintainer request 2026-09-03:
+   numbers on the chart, not only on hover). The column is as tall as the area so the bar keeps
+   its percentage height and the label rides on top of it. */
+.gcb{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;flex:0 0 auto;min-width:16px}
+.gcval{font-size:10px;font-weight:700;color:var(--ink);white-space:nowrap;line-height:1.1;margin-bottom:3px;font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+.gcbar{display:block;flex:0 0 auto;width:16px;border-radius:3px 3px 0 0;background:var(--brand)}
 .gcbar.none{background:transparent}
 .gcbar.info,.gleg .sw.info{background:var(--info)}
 .gcbar.ok,.gleg .sw.ok{background:var(--ok)}

@@ -6080,6 +6080,10 @@ export interface components {
             sale_price_per_kg?: number | null;
             /** @description The denominator behind avg_sale_weight_kg -- the animals that carry a sale weight. Published so a client can say the average is over a sample rather than imply a total. */
             sold_weighed_animals?: number | null;
+            /** @description Of `remaining`, the sheep. With remaining_goats it lets a client value today's stock at a per-species live-weight rate; an animal of any other species is in `remaining` and in neither count. */
+            remaining_sheep: number;
+            /** @description Of `remaining`, the goats. See remaining_sheep. */
+            remaining_goats: number;
             /**
              * Format: date
              * @description The day the animals REACHED THE FARM. Not the purchase date: the farm warms animals up at the source, so a load is bought a day or more before it lands here, and the fattening clock starts on arrival.

@@ -31,7 +31,22 @@ export type GroupedDatum = {
   displays: string[];
   /** Optional second line under the axis label (e.g. the vendor, or "97 of 100 sold"). */
   subLabel?: string;
+  /**
+   * Optional short figure printed ABOVE each bar (maintainer request 2026-09-03: numbers on the
+   * chart, not only on hover). One entry per series; `null` prints nothing. When absent, the bar
+   * carries the leading part of its `displays` string, up to the first " · " -- the callers put
+   * the figure first and the qualifier after it, so "27.9 kg · 126 weighed" prints "27.9 kg".
+   */
+  barLabels?: (string | null)[];
 };
+
+function barLabelFor(datum: GroupedDatum, index: number): string | null {
+  const explicit = datum.barLabels?.[index];
+  if (explicit !== undefined) return explicit;
+  const display = datum.displays[index];
+  if (!display) return null;
+  return display.split(" · ")[0];
+}
 
 export function GroupedColumns({
   series,
@@ -89,17 +104,23 @@ export function GroupedColumns({
                 {series.map((s, i) => {
                   const value = datum.values[i];
                   if (value === null || value === 0) {
-                    // Absent or zero: no bar. The tooltip still carries the display string, so
-                    // "cost not recorded" and "0" stay distinguishable where it matters.
-                    return <span key={s.key} className="gcbar none" />;
+                    // Absent or zero: no bar and no figure. The tooltip still carries the display
+                    // string, so "cost not recorded" and "0" stay distinguishable where it matters.
+                    return (
+                      <span key={s.key} className="gcb">
+                        <span className="gcbar none" />
+                      </span>
+                    );
                   }
                   const pct = (value / max) * 100;
+                  const label = barLabelFor(datum, i);
+                  // The figure sits on the bar itself, always visible; the hover card keeps the
+                  // fuller wording (unit qualifiers, head counts) for whoever wants it.
                   return (
-                    <span
-                      key={s.key}
-                      className={`gcbar ${s.tone}`}
-                      style={{ height: `${Math.max(pct, 2).toFixed(1)}%` }}
-                    />
+                    <span key={s.key} className="gcb">
+                      {label ? <span className="gcval">{label}</span> : null}
+                      <span className={`gcbar ${s.tone}`} style={{ height: `${Math.max(pct, 2).toFixed(1)}%` }} />
+                    </span>
                   );
                 })}
               </span>

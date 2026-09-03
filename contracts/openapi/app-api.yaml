@@ -15079,7 +15079,8 @@ components:
       description: One procurement load's reconciliation row on the Sales page.
       required:
         [load_id, vendor_name, status, declared_count, purchased, sold, mortality, other_exits,
-         remaining, unaccounted, sold_value, sold_priced, price_basis, row_version]
+         remaining, remaining_sheep, remaining_goats, unaccounted, sold_value, sold_priced,
+         price_basis, row_version]
       # profit_loss is nullable-by-absence (no recorded cost), so it is deliberately not required.
       properties:
         load_id: { type: string, format: uuid }
@@ -15173,6 +15174,15 @@ components:
           description: >-
             The denominator behind avg_sale_weight_kg -- the animals that carry a sale weight.
             Published so a client can say the average is over a sample rather than imply a total.
+        remaining_sheep:
+          type: integer
+          description: >-
+            Of `remaining`, the sheep. With remaining_goats it lets a client value today's stock
+            at a per-species live-weight rate; an animal of any other species is in `remaining`
+            and in neither count.
+        remaining_goats:
+          type: integer
+          description: Of `remaining`, the goats. See remaining_sheep.
         arrived_on:
           type: string
           format: date

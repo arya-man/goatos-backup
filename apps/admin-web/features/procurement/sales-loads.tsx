@@ -5,8 +5,10 @@ import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/l
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getLoadwiseSales } from "@/lib/api/procurement-server";
+import { getShedWeights } from "@/lib/api/server";
+import { istDayPlus, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { LoadwiseSection } from "./loadwise-section";
+import { LoadwiseSection, type LoadCurrentWeights } from "./loadwise-section";
 
 const PAGE_PATH = "/sales/loads";
 /** The tab the page opens on when the URL names none — the first option the contract serves. */
@@ -59,9 +61,25 @@ export async function SalesLoadsPage({
   const parkId = one(sp, "park") ?? "";
 
   // Fetch = render: the Farm born tab reads nothing yet, so it asks for nothing.
-  const loadwiseResult =
-    view === DEFAULT_VIEW ? await getLoadwiseSales({ park_id: parkId || undefined }) : null;
+  // The "weighs now" series reads weighing only when the contract enabled it for this principal
+  // (weights_current_average_series, gated on WeighingMonitor): fetch = render. The window runs a
+  // year back so every pen's LATEST weigh is inside it; by_load keeps the latest per pen.
+  const nowSeriesEnabled = controlEnabled(pageContract, "weights_current_average_series", false);
+  const today = todayIso();
+  const [loadwiseResult, weightsResult] = await Promise.all([
+    view === DEFAULT_VIEW ? getLoadwiseSales({ park_id: parkId || undefined }) : Promise.resolve(null),
+    view === DEFAULT_VIEW && nowSeriesEnabled
+      ? getShedWeights({ from: istDayPlus(today, -365), to: today, park_id: parkId || undefined })
+      : Promise.resolve(null),
+  ]);
   if (loadwiseResult && firstAuthRequiredError(loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);
+  let currentWeights: LoadCurrentWeights | null = null;
+  if (weightsResult?.ok) {
+    currentWeights = {};
+    for (const bucket of weightsResult.data.by_load) {
+      currentWeights[bucket.load_ref] = { averageKg: bucket.average_weight_kg, animals: bucket.animals };
+    }
+  }
 
   // READ-ONLY BY CONTRACT (maintainer decision 2026-09-01): this page's backend contract declares
   // no write control, so `controlEnabled` is false for everyone and the load rows below are not
@@ -132,6 +150,7 @@ export async function SalesLoadsPage({
         loadwise={loadwiseResult}
         canRecordCost={canRecordCost}
         costHref={(loadId) => hrefWithQuery(sp, { cost_load: loadId })}
+        currentWeights={currentWeights}
       />
     </div>
   );

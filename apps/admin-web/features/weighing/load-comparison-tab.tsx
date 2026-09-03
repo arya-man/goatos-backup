@@ -66,13 +66,52 @@ export function LoadComparisonTab({
     latestAvg: number | null;
     multiple: number | null;
   };
-  const rows: Row[] = loads.map((load) => {
-    const bucket = load.load_ref ? byLoad.get(load.load_ref) : undefined;
-    const purchasedAvg = load.avg_purchase_weight_kg ?? null;
-    const latestAvg = bucket ? bucket.average_weight_kg : null;
-    const multiple =
-      purchasedAvg !== null && purchasedAvg > 0 && latestAvg !== null ? latestAvg / purchasedAvg : null;
-    return { load, heading: loadHeading(load), purchasedAvg, latestAvg, multiple };
+  const rows: Row[] = loads
+    .map((load) => {
+      const bucket = load.load_ref ? byLoad.get(load.load_ref) : undefined;
+      const purchasedAvg = load.avg_purchase_weight_kg ?? null;
+      const latestAvg = bucket ? bucket.average_weight_kg : null;
+      const multiple =
+        purchasedAvg !== null && purchasedAvg > 0 && latestAvg !== null ? latestAvg / purchasedAvg : null;
+      return { load, heading: loadHeading(load), purchasedAvg, latestAvg, multiple };
+    })
+    // ONLY loads with a latest weighing (maintainer request 2026-09-03): this tab compares, and a
+    // load nobody has weighed since it arrived has nothing to compare. The note above the chart
+    // says so. When the weighing read is down every load is kept, so the purchase half still
+    // renders under its own "weighing unavailable" band rather than the tab going blank.
+    .filter((row) => weighingDown || row.latestAvg !== null);
+
+  // VALUE (maintainer request 2026-09-03). Purchased value is the load's LANDED cost; current
+  // stock value is the animals still on farm at their latest average weight, priced at the
+  // maintainer's assumed live-weight rate per species (backend-owned figures, printed on the
+  // chart); gain is the difference. A sold-out load has no stock and gets no value bars.
+  const rateSheep = Number(copy(pageContract, "load.rate.sheep_per_kg"));
+  const rateGoat = Number(copy(pageContract, "load.rate.goat_per_kg"));
+  const rupees = copy(pageContract, "unit.rupees");
+  const valueGroups: BarGroup[] = rows.map((row) => {
+    const bars: GroupedBar[] = [];
+    const purchaseValue = row.load.purchase_value ?? null;
+    const stockAnimals = row.load.remaining_sheep + row.load.remaining_goats;
+    const stockValue =
+      row.latestAvg !== null && stockAnimals > 0
+        ? row.latestAvg * (row.load.remaining_sheep * rateSheep + row.load.remaining_goats * rateGoat)
+        : null;
+    if (purchaseValue !== null) {
+      bars.push({ key: `${row.load.load_id}-pv`, label: copy(pageContract, "legend.load.purchase_value"), value: Math.round(purchaseValue), seriesKey: "purchase_value" });
+    }
+    if (stockValue !== null) {
+      bars.push({ key: `${row.load.load_id}-sv`, label: copy(pageContract, "legend.load.stock_value"), value: Math.round(stockValue), seriesKey: "stock_value" });
+    }
+    if (purchaseValue !== null && stockValue !== null) {
+      bars.push({ key: `${row.load.load_id}-gain`, label: copy(pageContract, "legend.load.gain"), value: Math.round(stockValue - purchaseValue), seriesKey: "gain" });
+    }
+    const subheading =
+      stockAnimals === 0
+        ? copy(pageContract, "load.value.sold_out")
+        : purchaseValue === null
+          ? copy(pageContract, "load.value.no_cost")
+          : `${stockAnimals.toLocaleString("en-IN")} × ${kg(row.latestAvg ?? 0)} ${unit}`;
+    return { key: `${row.load.load_id}-value`, heading: row.heading, subheading, bars };
   });
 
   const groups: BarGroup[] = rows.map((row) => {
@@ -123,6 +162,7 @@ export function LoadComparisonTab({
         </h2>
         <p className="muted small">{copy(pageContract, "section.load.caption")}</p>
         <p className="muted small">{copy(pageContract, "note.load.filters")}</p>
+        <p className="muted small">{copy(pageContract, "note.load.weighed_only")}</p>
         <GroupedBars
           groups={groups}
           // Both sides ARE the same measure (kg per animal) over two moments, so they share
@@ -133,6 +173,27 @@ export function LoadComparisonTab({
           ]}
           emptyLabel={copy(pageContract, "empty.load.body")}
           chartLabel={copy(pageContract, "section.load.aria")}
+        />
+      </section>
+
+      {/* VALUE. Three bars per load on ONE rupee scale -- purchased value, current stock value,
+          and the gain between them -- so a loss draws below the baseline. The assumed rates are
+          printed here, beside the chart, because a figure priced on an assumption must show it. */}
+      <section className="card wchart" aria-label={copy(pageContract, "section.load_value.aria")}>
+        <h2 className="h">
+          <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.load_value.title")}
+        </h2>
+        <p className="muted small">{copy(pageContract, "section.load_value.caption")}</p>
+        <p className="muted small">{copy(pageContract, "note.load.rates")}</p>
+        <GroupedBars
+          groups={valueGroups}
+          series={[
+            { key: "purchase_value", scaleKey: "inr", label: copy(pageContract, "legend.load.purchase_value"), unit: rupees, fractionDigits: 0 },
+            { key: "stock_value", scaleKey: "inr", label: copy(pageContract, "legend.load.stock_value"), unit: rupees, fractionDigits: 0 },
+            { key: "gain", scaleKey: "inr", label: copy(pageContract, "legend.load.gain"), unit: rupees, fractionDigits: 0 },
+          ]}
+          emptyLabel={copy(pageContract, "empty.load.body")}
+          chartLabel={copy(pageContract, "section.load_value.aria")}
         />
       </section>
 

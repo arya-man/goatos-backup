@@ -849,6 +849,10 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// card reads weighing, which is a different desk's permission, so it is declared here
 			// and gated the same way a write would be -- see compileSalesWeightCards.
 			out[i].Controls = compileSalesWeightCards(out[i].Controls, input, out[i].Copy)
+		case "sales-loads":
+			// READ control for the "weighs now" series on the load chart -- weighing's
+			// permission, gated exactly like the Sales board's Over 35 kg card.
+			out[i].Controls = compileLoadsWeightSeries(out[i].Controls, input, out[i].Copy)
 		case "sales-config":
 			// Sales Config is the ONLY sales write surface (maintainer decision 2026-09-01).
 			// /sales and /sales/loads are deliberately absent from this switch: a page that
@@ -948,6 +952,26 @@ func compileSalesWeightCards(controls []domain.Control, input BootstrapInput, co
 		ID:             "weights_over_35_card",
 		Label:          controlCopy(copy, "kpi.over35", "Over 35 kg"),
 		Kind:           "summary_card",
+		Enabled:        allowed,
+		DisabledReason: reason,
+	})
+}
+
+// compileLoadsWeightSeries declares the Purchase and Born chart's third weight series
+// (maintainer request 2026-09-03): for a load that has sold nothing, the average its animals
+// weigh NOW, from the latest weighing of the pens the load was placed into. It reads
+// /weighing/shed-weights, so it is gated on WeighingMonitor the same way as the Sales board's
+// Over 35 kg card, and declares no Action so /sales/loads stays read-only by contract.
+func compileLoadsWeightSeries(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.WeighingMonitor})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.weights", "Your current role can view loads but not weighing.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "weights_current_average_series",
+		Label:          controlCopy(copy, "chart.series.current_avg_weight", "Weighs now"),
+		Kind:           "chart_series",
 		Enabled:        allowed,
 		DisabledReason: reason,
 	})

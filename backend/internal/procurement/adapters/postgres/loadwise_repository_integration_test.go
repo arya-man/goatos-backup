@@ -269,6 +269,11 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 			loadA.Remaining != 1 || loadA.Unaccounted != 1 {
 			t.Fatalf("load A counts = %+v", loadA)
 		}
+		// The species split is a partition OF remaining, never wider than it: the fixture's
+		// goats carry no species, so both halves are 0 while remaining is 1.
+		if loadA.RemainingSheep+loadA.RemainingGoats > loadA.Remaining {
+			t.Fatalf("load A species split %d+%d exceeds remaining %d", loadA.RemainingSheep, loadA.RemainingGoats, loadA.Remaining)
+		}
 		// The dedupe (one goat, two accepted rows): the animal counts on load B, not load A —
 		// plus load B's pre-GoatOS history folded in: 2 tracked + 3 already sold + 2 already dead.
 		// Load B DECLARES 9 animals, so the 2 it cannot account for surface as Unaccounted rather

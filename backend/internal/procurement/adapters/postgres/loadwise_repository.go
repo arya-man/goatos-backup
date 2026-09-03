@@ -97,6 +97,7 @@ outcomes AS (
     SELECT m.load_id,
            ds.share,
            gp.park_code,
+           lower(g.species) AS species,
            CASE
                WHEN g.lifecycle_status = 'sold' OR g.exit_reason = 'sold' THEN 'sold'
                WHEN g.lifecycle_status = 'dead' OR g.exit_reason = 'died' THEN 'mortality'
@@ -136,6 +137,12 @@ stats AS (
            (count(*) FILTER (WHERE o.outcome = 'mortality'))::int AS mortality,
            (count(*) FILTER (WHERE o.outcome = 'other'))::int AS other_exits,
            (count(*) FILTER (WHERE o.outcome = 'remaining'))::int AS remaining,
+           -- The remaining animals BY SPECIES (maintainer request 2026-09-03): the Comparison
+           -- tab values today's stock at a live-weight rate that differs between sheep and
+           -- goats, so a load's remaining head count must arrive already split. Same rows,
+           -- same outcome rule, so the two never add up to more than the remaining count.
+           (count(*) FILTER (WHERE o.outcome = 'remaining' AND o.species = 'sheep'))::int AS remaining_sheep,
+           (count(*) FILTER (WHERE o.outcome = 'remaining' AND o.species = 'goat'))::int AS remaining_goats,
            COALESCE(sum(o.share) FILTER (WHERE o.outcome = 'sold'), 0)::float8 AS sold_value,
            (count(*) FILTER (WHERE o.outcome = 'sold' AND o.share IS NOT NULL))::int AS sold_priced,
            -- Agree-or-go-bare needs THREE facts, not one. count(DISTINCT) SKIPS NULLS, so a load
@@ -184,6 +191,7 @@ SELECT pl.load_id::text AS load_id, COALESCE(pl.context->>'load_ref', '') AS loa
        COALESCE(s.purchased, 0) AS purchased, COALESCE(s.sold, 0) AS sold,
        COALESCE(s.mortality, 0) AS mortality,
        COALESCE(s.other_exits, 0) AS other_exits, COALESCE(s.remaining, 0) AS remaining,
+       COALESCE(s.remaining_sheep, 0) AS remaining_sheep, COALESCE(s.remaining_goats, 0) AS remaining_goats,
        COALESCE(s.sold_value, 0) AS sold_value, COALESCE(s.sold_priced, 0) AS sold_priced,
        -- The park every accepted animal agrees on; when none is attributed (a sold-out legacy
        -- load has no residents left) the load's OWN recorded farm answers instead. Both are the
@@ -214,7 +222,7 @@ SELECT r.load_id, r.load_ref, r.vendor_name, r.purchase_date, r.status,
        r.row_version,
        r.expected_count,
        r.purchased, r.sold, r.mortality,
-       r.other_exits, r.remaining,
+       r.other_exits, r.remaining, r.remaining_sheep, r.remaining_goats,
        r.sold_value, r.sold_priced,
        r.farm,
        r.prior_sold, r.prior_sold_value, r.prior_sold_first, r.prior_sold_last,
@@ -372,7 +380,7 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 			&row.RowVersion,
 			&row.DeclaredCount,
 			&row.Purchased, &row.Sold, &row.Mortality,
-			&row.OtherExits, &row.Remaining,
+			&row.OtherExits, &row.Remaining, &row.RemainingSheep, &row.RemainingGoats,
 			&row.SoldValue, &row.SoldPriced,
 			&row.Farm,
 			&row.PriorSold.Count, &row.PriorSold.Value, &priorSoldFirst, &priorSoldLast,

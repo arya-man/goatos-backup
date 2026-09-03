@@ -132,7 +132,7 @@ func navigation() domain.NavigationContract {
 				},
 			},
 			{
-				ID: "weighing", Label: "Weight", Icon: "scale", DefaultOpen: false,
+				ID: "weighing", Label: "Weighing", Icon: "scale", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					// Weights is parked from the sidebar (maintainer request 2026-09-03: the Weight
 					// menu carries ADG Analytics and the SOP only). The page itself stays
@@ -3970,7 +3970,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// load with no recorded purchase weight has no multiple — neither is ever
 			// shown as zero.
 			// ---------------------------------------------------------------------------
-			"tab.load": "Load-wise",
+			"tab.load": "Comparison",
 
 			"section.load.title":   "Purchased weight against the latest weighing",
 			"section.load.caption": "Average weight per animal in each purchased load — as bought, and at its latest weighing. The figure above each pair is how many times the arrival weight the load now stands at.",
@@ -3978,6 +3978,28 @@ func pageSpecificCopy(id string) map[string]string {
 
 			"legend.load.purchased": "At purchase",
 			"legend.load.latest":    "Latest weighing",
+
+			// ONLY LOADS WITH A LATEST WEIGHING (maintainer request 2026-09-03): the tab is a
+			// comparison, and a load nobody has weighed since it arrived has nothing to compare.
+			// Said on the tab so a missing load reads as unweighed, never as lost.
+			"note.load.weighed_only": "Only loads with a latest weighing are shown. A load whose pens have not been weighed since it arrived is left out.",
+
+			// VALUE (maintainer request 2026-09-03): what the load cost against what the animals
+			// still on farm are worth today at an assumed live-weight rate, and the difference.
+			// The rates are the maintainer's assumptions, stated on the chart; a sold-out load
+			// has no stock to value and shows nothing here rather than a zero.
+			"section.load_value.title":   "Purchased value against current stock value",
+			"section.load_value.caption": "What each load cost, landed, against what its animals still on farm are worth today: remaining animals × latest average weight × the assumed live-weight rate. Gain is the difference. A load that has sold out has no stock to value.",
+			"section.load_value.aria":    "Purchased value against current stock value by load",
+			"legend.load.purchase_value": "Purchased value (₹)",
+			"legend.load.stock_value":    "Current stock value (₹)",
+			"legend.load.gain":           "Gain / difference (₹)",
+			"note.load.rates":            "Assumed live-weight rates: sheep ₹430 per kg, goat ₹450 per kg.",
+			"load.rate.sheep_per_kg":     "430",
+			"load.rate.goat_per_kg":      "450",
+			"load.value.sold_out":        "sold out",
+			"load.value.no_cost":         "cost not recorded",
+			"unit.rupees":                "",
 
 			// The growth multiple. Composed as value + suffix ("1.8" + "x"); the dash is
 			// what renders when either side of the division is missing.
