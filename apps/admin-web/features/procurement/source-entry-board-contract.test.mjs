@@ -32,6 +32,6 @@ assert.match(
 
 assert.match(
   source,
-  /goatsInLoad: detail \? String\(detail\.goats\.length\) : copy\(pageContract, "label\.placeholder"\)/,
+  /goatsInLoad: detail \? String\(\(detail\.goats \?\? \[\]\)\.length\) : copy\(pageContract, "label\.placeholder"\)/,
   "drawer goat count must render unavailable when detail was not fetched, not 0",
 );

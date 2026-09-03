@@ -18,3 +18,9 @@ test("Procurement source-load local drawer fetches selected detail for ordinary 
   assert.match(drawerSource, /<Link href=\{displayedItem\.detailHref\}/);
   assert.match(drawerSource, /detailHref.*#hf-evidence/);
 });
+
+test("Procurement source-load local drawer tolerates nullable detail arrays", () => {
+  assert.match(drawerSource, /const goats = detail\.goats \?\? \[\]/);
+  assert.match(drawerSource, /detail\.hf_vaccination_evidence \?\? \[\]/);
+  assert.match(drawerSource, /String\(\(detail\.goats \?\? \[\]\)\.length\)/);
+});

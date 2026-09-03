@@ -59,8 +59,9 @@ function warmupExpectationKey(purpose: string): string {
 }
 
 function warmupCell(load: ProcurementLoad, detail: ProcurementLoadDetail, pageContract: AdminUiPageContract): { label: string; tone: Tone } {
-  const purposeValues = Array.from(new Set(detail.goats.map((g) => g.purpose).filter(Boolean)));
-  const goatDays = detail.goats
+  const goats = detail.goats ?? [];
+  const purposeValues = Array.from(new Set(goats.map((g) => g.purpose).filter(Boolean)));
+  const goatDays = goats
     .map((g) => g.warmup_days)
     .filter((d): d is number => typeof d === "number");
   const days = goatDays.length > 0 ? Math.max(...goatDays) : daysSince(load.purchase_date);
@@ -82,7 +83,7 @@ function warmupCell(load: ProcurementLoad, detail: ProcurementLoadDetail, pageCo
 }
 
 function purposeLabel(detail: ProcurementLoadDetail, pageContract: AdminUiPageContract): string {
-  const purposes = Array.from(new Set(detail.goats.map((g) => g.purpose).filter(Boolean)));
+  const purposes = Array.from(new Set((detail.goats ?? []).map((g) => g.purpose).filter(Boolean)));
   const [first] = purposes;
   if (!first) return copy(pageContract, "label.placeholder");
   if (purposes.length === 1) return optionLabel(pageContract, "proc_purpose", first);
@@ -90,12 +91,12 @@ function purposeLabel(detail: ProcurementLoadDetail, pageContract: AdminUiPageCo
 }
 
 function taggingLabel(detail: ProcurementLoadDetail, expectedCount: number): string {
-  const tagged = detail.goats.filter((g) => Boolean(g.animal_identifier_1 && g.animal_identifier_2)).length;
+  const tagged = (detail.goats ?? []).filter((g) => Boolean(g.animal_identifier_1 && g.animal_identifier_2)).length;
   return `${tagged}/${expectedCount}`;
 }
 
 function hfVaccinationLabel(detail: ProcurementLoadDetail, pageContract: AdminUiPageContract): { label: string; tone: Tone } {
-  const evidence = detail.hf_vaccination_evidence;
+  const evidence = detail.hf_vaccination_evidence ?? [];
   let key = "due";
   if (evidence.some((row) => row.review_status === "trusted")) key = "trusted";
   else if (evidence.some((row) => row.review_status === "imported")) key = "imported";
@@ -135,7 +136,7 @@ function drawerItemFromDetail(detail: ProcurementLoadDetail, pageContract: Admin
     sourceParty: sourcePartyLabel(load),
     purpose: purposeLabel(detail, pageContract),
     expectedCount: load.expected_count,
-    goatsInLoad: String(detail.goats.length),
+    goatsInLoad: String((detail.goats ?? []).length),
     warmup: warmupCell(load, detail, pageContract),
     tagging: taggingLabel(detail, load.expected_count),
     hfVaccination: hfVaccinationLabel(detail, pageContract),

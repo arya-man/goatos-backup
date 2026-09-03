@@ -189,7 +189,7 @@ export async function SourceEntryBoardPage({
       sourceParty: sourcePartyLabel(load),
       purpose: purposeLabel(detail, pageContract),
       expectedCount: load.expected_count,
-      goatsInLoad: detail ? String(detail.goats.length) : copy(pageContract, "label.placeholder"),
+      goatsInLoad: detail ? String((detail.goats ?? []).length) : copy(pageContract, "label.placeholder"),
       warmup: warmupCell(load, detail, pageContract),
       tagging: taggingLabel(detail, load.expected_count, pageContract),
       hfVaccination: hfVaccinationLabel(detail, pageContract),
