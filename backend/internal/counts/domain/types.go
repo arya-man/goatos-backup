@@ -543,20 +543,36 @@ type CountsBreakdown struct {
 	ProjectedAt time.Time             `json:"projected_at"`
 }
 
-// CountsBreakdownQuery filters and pages the census breakdown.
+// CountsBreakdownPen selects one pen for the shed filter: a whole physical shed
+// (PartitionLabel == "") or one partition of it. Empty PartitionLabel means the parent-shed
+// aggregate — every partition of that shed — never "the non-partitioned animals".
+//
+// Empty ShedID with a non-empty PartitionLabel is the WILDCARD-SHED scope: the partition
+// matched across every shed. It exists for the CEO assistant's "at Castro 1"-style ask where a
+// partition is named without its shed — the retired scalar PartitionLabel filter narrowed the
+// query in that case, and totals/charts must keep agreeing with the rows. No HTTP route builds
+// such a pen (the `pen` param and the legacy shed_id pair both require the shed); an entry
+// empty on BOTH halves states no pen and is dropped by the repository, never bound.
+type CountsBreakdownPen struct {
+	ShedID string
+	// PartitionLabel is matched on the NORMALIZED partition key, so 'Part 3' and '3' select the
+	// same pen (oploc.SamePartition semantics).
+	PartitionLabel string
+}
+
+// CountsBreakdownQuery filters and pages the census breakdown. Every filter dimension is a SET:
+// an empty slice means "no filter on this dimension", and a multi-valued slice matches rows in
+// ANY of the values (OR within a dimension, AND across dimensions).
 type CountsBreakdownQuery struct {
-	TenantID        string
-	LifecycleStatus *string
-	ParkID          *string
-	ShedID          *string
-	// PartitionLabel narrows to ONE partition of ShedID. Empty/nil means the whole shed (the parent
-	// aggregate), never "the non-partitioned animals".
-	PartitionLabel  *string
-	ManagementStage *string
-	Breed           *string
-	Sex             *string
-	Limit           int32
-	Offset          int32
+	TenantID         string
+	LifecycleStatus  *string
+	ParkIDs          []string
+	Pens             []CountsBreakdownPen
+	ManagementStages []string
+	Breeds           []string
+	Sexes            []string
+	Limit            int32
+	Offset           int32
 }
 
 // ---------------------------------------------------------------------------

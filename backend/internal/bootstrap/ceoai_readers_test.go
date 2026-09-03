@@ -122,14 +122,38 @@ func TestCountsReader_UsesCanonicalCountsBreakdown(t *testing.T) {
 	if fakeSvc.captured.TenantID != "tenant-1" {
 		t.Fatalf("tenant = %q, want tenant-1", fakeSvc.captured.TenantID)
 	}
-	if fakeSvc.captured.ParkID == nil || *fakeSvc.captured.ParkID != "park-uuid-channapatna" {
-		t.Fatalf("park id did not reach counts query: %+v", fakeSvc.captured.ParkID)
+	if len(fakeSvc.captured.ParkIDs) != 1 || fakeSvc.captured.ParkIDs[0] != "park-uuid-channapatna" {
+		t.Fatalf("park id did not reach counts query: %+v", fakeSvc.captured.ParkIDs)
 	}
-	if fakeSvc.captured.ShedID == nil || *fakeSvc.captured.ShedID != "shed-uuid-gandhi" {
-		t.Fatalf("shed id did not reach counts query: %+v", fakeSvc.captured.ShedID)
+	if len(fakeSvc.captured.Pens) != 1 || fakeSvc.captured.Pens[0].ShedID != "shed-uuid-gandhi" {
+		t.Fatalf("shed id did not reach counts query: %+v", fakeSvc.captured.Pens)
 	}
 	if len(facts) == 0 || facts[0].Label != "Active animals" || facts[0].Value != "972" {
 		t.Fatalf("missing active animals fact: %+v", facts)
+	}
+}
+
+// TestCountsReader_PartitionWithoutShedNarrowsTheQuery reproduces the review finding: a
+// partition named WITHOUT its shed used to be honored only by the SamePartition row drop, so
+// TotalCount / TotalKids / TotalAdults and the chart-derived species facts were computed from
+// the UNFILTERED query — unfiltered totals over filtered detail rows. The retired scalar
+// PartitionLabel filter narrowed the query even without a shed; the wildcard-shed pen restores
+// that. Red before the fix: captured.Pens stayed empty.
+func TestCountsReader_PartitionWithoutShedNarrowsTheQuery(t *testing.T) {
+	fakeSvc := &fakeCountsBreakdownLister{response: countsdomain.CountsBreakdown{TotalCount: 13}}
+	reader := buildCountsReader(fakeSvc, &fakeParkResolver{})
+
+	if _, err := reader(context.Background(), "tenant-1", map[string]any{
+		"partition_label": "Part 1",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fakeSvc.captured.Pens) != 1 {
+		t.Fatalf("partition-only scope must narrow the query with a wildcard-shed pen, got %+v", fakeSvc.captured.Pens)
+	}
+	pen := fakeSvc.captured.Pens[0]
+	if pen.ShedID != "" || pen.PartitionLabel != "Part 1" {
+		t.Fatalf("want wildcard-shed pen {\"\", \"Part 1\"}, got %+v", pen)
 	}
 }
 

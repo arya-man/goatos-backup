@@ -2461,6 +2461,20 @@ func ptrValue(v *string) string {
 	return *v
 }
 
+// compactStrings drops empty entries and guarantees a NON-NIL slice, so an array bind's
+// cardinality() reads 0 for "no filter" rather than NULL (which every OR-guard would treat as
+// unknown and filter everything out).
+func compactStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
 func ptrIfNotEmpty(v string) *string {
 	if v == "" {
 		return nil
@@ -2602,8 +2616,9 @@ WHERE g.tenant_id = $1
 //
 // Bind order is fixed for both consumers:
 //
-//	$1 tenant_id, $2 lifecycle_status, $3 park_id, $4 shed_id,
-//	$5 management_stage, $6 breed, $7 sex
+//	$1 tenant_id, $2 lifecycle_status, $3 park_ids text[], $4 pen shed_ids text[],
+//	$5 management_stages text[], $6 breeds text[], $7 sexes text[],
+//	$8 pen partition_labels text[] (parallel to $4)
 //
 // partition_key is the SQL twin of oploc.NormalizePartition: NULL/""/"whole" (any case/
 // whitespace) collapse to 'whole', and the 'Part N' convention normalizes to bare 'N' so both
@@ -2641,16 +2656,31 @@ WITH grouped AS MATERIALIZED (
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
-    AND ($3 = '' OR g.park_id = NULLIF($3, '')::uuid)
-    AND ($4 = '' OR g.shed_id = NULLIF($4, '')::uuid)
-    AND ($5 = '' OR COALESCE(g.management_stage, '') = $5)
-    AND ($6 = '' OR COALESCE(g.breed, '') = $6)
-    AND ($7 = '' OR g.sex = $7)
-    -- projection-review: membership=unchanged (canonical live goats for the tenant); group_key=unchanged (park, shed, stage, breed, sex, partition key) -- this hunk adds a PREDICATE, not a grouping column, so the grain is untouched; join_cardinality=unchanged, the goat_shed_partitions join is still 1:{0,1} on its (tenant_id, goat_id) primary key; pagination=unchanged, totals remain window functions over the whole grouped set and are invariant to limit/offset; scope=tenant plus the existing park/shed/stage/breed/sex predicates, NARROWED by one optional partition equality
-    -- Partition filter. Compared on the NORMALIZED key so a caller passing 'Part 3' or '3' selects
-    -- the same pen, matching oploc.SamePartition. Empty means "no partition filter" (the parent
-    -- shed aggregate), NOT "the non-partitioned bucket".
-    AND ($8 = '' OR ` + partitionKeyExpr + ` = regexp_replace(lower(btrim($8)), '^part[[:space:]]+', ''))
+    -- projection-review: membership=unchanged (canonical live goats for the tenant); group_key=unchanged (park, shed, stage, breed, sex, partition key) -- every filter dimension below is a PREDICATE over a bound SET, not a grouping column, so the grain is untouched; join_cardinality=unchanged, the goat_shed_partitions join is still 1:{0,1} on its (tenant_id, goat_id) primary key; pagination=unchanged, totals remain window functions over the whole grouped set and are invariant to limit/offset; scope=tenant plus optional multi-valued park/pen/stage/breed/sex membership predicates (OR within a dimension, AND across dimensions; an empty array means "no filter")
+    -- Multi-valued filters. Each dimension is an ARRAY bind: empty means "no filter on this
+    -- dimension"; non-empty matches ANY listed value. Columns stay bare and the CAST sits on the
+    -- typed bind array (text[] -> uuid[]), per the scale rule on predicate casts.
+    AND (cardinality($3::text[]) = 0 OR g.park_id = ANY($3::text[]::uuid[]))
+    AND (cardinality($5::text[]) = 0 OR COALESCE(g.management_stage, '') = ANY($5::text[]))
+    AND (cardinality($6::text[]) = 0 OR COALESCE(g.breed, '') = ANY($6::text[]))
+    AND (cardinality($7::text[]) = 0 OR g.sex = ANY($7::text[]))
+    -- Pen filter: parallel arrays of shed uuid ($4) and partition label ($8), one entry per
+    -- selected pen. An entry with an empty partition selects the WHOLE shed (the parent
+    -- aggregate), never "the non-partitioned bucket"; an entry with an empty SHED selects that
+    -- partition across EVERY shed — the CEO assistant's partition-named-without-its-shed scope,
+    -- which the retired scalar PartitionLabel filter honored at query level and which must keep
+    -- narrowing totals/charts, not just rows (an entry empty on BOTH halves is dropped by the
+    -- Go builder, never bound). Partitions are compared on the NORMALIZED key so a caller
+    -- passing 'Part 3' or '3' selects the same pen, matching oploc.SamePartition. The uuid cast
+    -- sits on the unnest VALUE (bind side), never on g.shed_id, per the scale rule on
+    -- predicate casts.
+    AND (cardinality($4::text[]) = 0 OR EXISTS (
+      SELECT 1
+      FROM unnest($4::text[], $8::text[]) AS pen(shed_id, partition_label)
+      WHERE (pen.shed_id = '' OR g.shed_id = NULLIF(pen.shed_id, '')::uuid)
+        AND (pen.partition_label = ''
+             OR ` + partitionKeyExpr + ` = regexp_replace(lower(btrim(pen.partition_label)), '^part[[:space:]]+', ''))
+    ))
   GROUP BY g.park_id, g.shed_id, COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex,
            ` + partitionKeyExpr + `
 )`
@@ -2971,6 +3001,42 @@ WHERE sp.tenant_id = $1::uuid
       AND regexp_replace(lower(btrim(COALESCE(gsp2.partition_label, 'whole'))), '^part[[:space:]]+', '')
           = sp.normalized_label
   )
+UNION ALL
+-- Parent row for an ALL-EMPTY subdivided shed. The parent-shed aggregate branch above derives
+-- from goats, so a shed whose every pen is currently empty emits NO parent row at all — its only
+-- facet rows are the composed pen labels from the empty-catalog branch, and the client then had
+-- no bare shed name to head the dropdown group with (review finding: "Yashoda - Part 1" as the
+-- group heading). One zero-count parent row per such shed restores the heading truth. It cannot
+-- duplicate the goats-derived parent row, because NOT EXISTS excludes any shed with a live
+-- animal; an empty UNDIVIDED shed stays absent, exactly as before — this branch only fires for
+-- sheds the empty-catalog branch is already surfacing pens for.
+-- projection-review: membership=DISTINCT shed_ids of active shed_partitions catalog rows whose shed holds no live animal (NOT EXISTS over goats with the shared lifecycle predicate); group_key=(shed_id) via SELECT DISTINCT, one row per all-empty subdivided shed; join_cardinality=locations joined once on (tenant_id, location_id), its primary key, 1:1 label lookup, and the park subselect is a LIMIT 1 scalar; pagination=whole-result rollup, never paged, like every facet branch; scope=tenant_id plus the same lifecycle predicate the sibling branches share, and the park key uses the SAME goats-first/parentage-fallback resolution as the empty-catalog branch so this parent row groups under the identical park key as that shed's pen rows
+SELECT DISTINCT 'shed', sp.shed_id::text,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
+       0,
+       COALESCE(
+         (SELECT g5.park_id::text
+            FROM goats g5
+           WHERE g5.tenant_id = sp.tenant_id
+             AND g5.shed_id = sp.shed_id
+             AND g5.merged_into_goat_id IS NULL
+           LIMIT 1),
+         shed.parent_location_id::text,
+         ''
+       ),
+       ''
+FROM shed_partitions sp
+JOIN locations shed ON shed.tenant_id = sp.tenant_id AND shed.location_id = sp.shed_id
+WHERE sp.tenant_id = $1::uuid
+  AND sp.status = 'active'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM goats g4
+    WHERE g4.tenant_id = sp.tenant_id
+      AND g4.shed_id = sp.shed_id
+      AND g4.merged_into_goat_id IS NULL
+      AND ($2 = '' OR g4.lifecycle_status = $2)
+  )
 ORDER BY 1, 2, 5`
 
 const (
@@ -3010,15 +3076,30 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		lifecycle = "alive"
 	}
 
+	// Pen filter travels as two PARALLEL arrays (shed uuid + partition label, same index = one
+	// pen), matching the unnest(...) pair in the SQL. Both are always non-nil so cardinality()
+	// reads 0 for "no filter" instead of NULL. An entry empty on BOTH halves would match every
+	// animal — it states no pen at all, so it is dropped rather than bound; an entry with only
+	// a partition is the deliberate wildcard-shed scope (see CountsBreakdownPen).
+	penSheds := make([]string, 0, len(req.Pens))
+	penPartitions := make([]string, 0, len(req.Pens))
+	for _, pen := range req.Pens {
+		if pen.ShedID == "" && pen.PartitionLabel == "" {
+			continue
+		}
+		penSheds = append(penSheds, pen.ShedID)
+		penPartitions = append(penPartitions, pen.PartitionLabel)
+	}
+
 	grainArgs := []any{
 		req.TenantID,
 		lifecycle,
-		ptrValue(req.ParkID),
-		ptrValue(req.ShedID),
-		ptrValue(req.ManagementStage),
-		ptrValue(req.Breed),
-		ptrValue(req.Sex),
-		ptrValue(req.PartitionLabel),
+		compactStrings(req.ParkIDs),
+		penSheds,
+		compactStrings(req.ManagementStages),
+		compactStrings(req.Breeds),
+		compactStrings(req.Sexes),
+		penPartitions,
 	}
 
 	batch := &pgx.Batch{}

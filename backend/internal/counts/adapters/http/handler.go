@@ -370,17 +370,44 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Every filter dimension is REPEATABLE: each occurrence adds a value to the match set
+	// (OR within a dimension, AND across dimensions), and a single occurrence behaves exactly as
+	// the old single-valued form — installed mobile clients keep working unchanged.
+	//
+	// Pens arrive two ways, merged into ONE set:
+	//   - repeatable `pen` values in the facet-key convention, "<shed_uuid>" for a whole shed or
+	//     "<shed_uuid>#<partition>" for one pen (the same oploc.Key shape facets.sheds emits);
+	//   - the legacy single `shed_id` + `partition_label` pair, kept for installed clients.
+	pens := make([]domain.CountsBreakdownPen, 0, len(query["pen"])+1)
+	for _, raw := range query["pen"] {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		shedID, partition, _ := strings.Cut(raw, "#")
+		if shedID == "" {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "pen must be <shed_id> or <shed_id>#<partition>", nil)
+			return
+		}
+		pens = append(pens, domain.CountsBreakdownPen{ShedID: shedID, PartitionLabel: partition})
+	}
+	if legacyShed := strings.TrimSpace(query.Get("shed_id")); legacyShed != "" {
+		pens = append(pens, domain.CountsBreakdownPen{
+			ShedID:         legacyShed,
+			PartitionLabel: strings.TrimSpace(query.Get("partition_label")),
+		})
+	}
+
 	req := domain.CountsBreakdownQuery{
-		TenantID:        tenantID,
-		LifecycleStatus: nullableString(query.Get("lifecycle_status")),
-		ParkID:          nullableString(query.Get("park_id")),
-		ShedID:          nullableString(query.Get("shed_id")),
-		PartitionLabel:  nullableString(query.Get("partition_label")),
-		ManagementStage: nullableString(query.Get("management_stage")),
-		Breed:           nullableString(query.Get("breed")),
-		Sex:             nullableString(query.Get("sex")),
-		Limit:           limit,
-		Offset:          offset,
+		TenantID:         tenantID,
+		LifecycleStatus:  nullableString(query.Get("lifecycle_status")),
+		ParkIDs:          multiParam(query, "park_id"),
+		Pens:             pens,
+		ManagementStages: multiParam(query, "management_stage"),
+		Breeds:           multiParam(query, "breed"),
+		Sexes:            multiParam(query, "sex"),
+		Limit:            limit,
+		Offset:           offset,
 	}
 
 	breakdown, err := h.service.GetBreakdown(r.Context(), req)
@@ -449,6 +476,21 @@ func boundedIntParam(query url.Values, name string, fallback, minValue, maxValue
 		return 0, fmt.Errorf("%s must be between %d and %d", name, minValue, maxValue)
 	}
 	return int32(parsed), nil
+}
+
+// multiParam collects every occurrence of a repeatable query parameter, trimmed, with empty
+// values dropped — so `?breed=` filters nothing rather than matching a breed named "".
+func multiParam(query url.Values, name string) []string {
+	values := query[name]
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 func nullableString(s string) *string {

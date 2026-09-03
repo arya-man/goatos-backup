@@ -227,7 +227,7 @@ func TestCountsBreakdownScopeHierarchyKeepsParkAndShedIndependent(t *testing.T) 
 	// Scoping to the park must return exactly the two rows that carry it — never the NULL-park
 	// rows (which would over-report) and never zero rows (which would under-report).
 	scoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
-		TenantID: countsTenant, ParkID: strp(countsPark), Limit: 50,
+		TenantID: countsTenant, ParkIDs: []string{countsPark}, Limit: 50,
 	})
 	if err != nil {
 		t.Fatalf("park-scoped: %v", err)
@@ -238,7 +238,7 @@ func TestCountsBreakdownScopeHierarchyKeepsParkAndShedIndependent(t *testing.T) 
 
 	// Scoping to a shed is independent of park: one row has the park, one does not.
 	shedScoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
-		TenantID: countsTenant, ShedID: strp(countsShedA), Limit: 50,
+		TenantID: countsTenant, Pens: []domain.CountsBreakdownPen{{ShedID: countsShedA}}, Limit: 50,
 	})
 	if err != nil {
 		t.Fatalf("shed-scoped: %v", err)
@@ -490,7 +490,7 @@ func TestCountsBreakdownFacetsIgnoreActiveDimensionFilters(t *testing.T) {
 	}
 
 	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
-		TenantID: countsTenant, ManagementStage: strp("K1"), Limit: 50,
+		TenantID: countsTenant, ManagementStages: []string{"K1"}, Limit: 50,
 	})
 	if err != nil {
 		t.Fatalf("GetCountsBreakdown: %v", err)
@@ -730,7 +730,7 @@ func TestCountsBreakdownLifecycleFacetScopeHierarchyIgnoresParkAndShedScope(t *t
 		"female", "Beetal", "sold", "F2", nil, nil, nil)
 
 	scoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
-		TenantID: countsTenant, ParkID: strp(countsPark), ShedID: strp(countsShedA), Limit: 50,
+		TenantID: countsTenant, ParkIDs: []string{countsPark}, Pens: []domain.CountsBreakdownPen{{ShedID: countsShedA}}, Limit: 50,
 	})
 	if err != nil {
 		t.Fatalf("GetCountsBreakdown(park+shed scoped): %v", err)
@@ -1165,7 +1165,7 @@ func TestCountsBreakdownShedChartParkScopeMatchesTheFilter(t *testing.T) {
 		t.Fatalf("GetCountsBreakdown: %v", err)
 	}
 	scoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
-		TenantID: countsTenant, ParkID: strp(countsPark), Limit: 50,
+		TenantID: countsTenant, ParkIDs: []string{countsPark}, Limit: 50,
 	})
 	if err != nil {
 		t.Fatalf("GetCountsBreakdown(park): %v", err)
@@ -1246,7 +1246,7 @@ func TestCountsBreakdownShedFacetParkScopeCascadeAgreesWithTheFilter(t *testing.
 	// Each advertised count must equal what the real filter returns.
 	for _, f := range got.Facets.Sheds {
 		filtered, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
-			TenantID: countsTenant, ParkID: strp(f.ParkID), ShedID: strp(f.Key), Limit: 50,
+			TenantID: countsTenant, ParkIDs: []string{f.ParkID}, Pens: []domain.CountsBreakdownPen{{ShedID: f.Key}}, Limit: 50,
 		})
 		if err != nil {
 			t.Fatalf("filtered breakdown for shed %s: %v", f.Key, err)
@@ -1462,7 +1462,7 @@ func TestCountsBreakdownLifecycleLabelScopeHierarchy(t *testing.T) {
 
 	// Scoped to park+shed — grain is narrowed but facet is not.
 	scoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
-		TenantID: countsTenant, ParkID: strp(countsPark), ShedID: strp(countsShedA), Limit: 50,
+		TenantID: countsTenant, ParkIDs: []string{countsPark}, Pens: []domain.CountsBreakdownPen{{ShedID: countsShedA}}, Limit: 50,
 	})
 	if err != nil {
 		t.Fatalf("scoped: %v", err)
@@ -1655,7 +1655,7 @@ func TestCountsBreakdownShedFacetIsWholeResultRollupLikeParksBranch(t *testing.T
 	}
 
 	filtered, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
-		TenantID: countsTenant, ParkID: strp(countsParkTwo), ShedID: strp(countsShedCastroTwo), Limit: 50,
+		TenantID: countsTenant, ParkIDs: []string{countsParkTwo}, Pens: []domain.CountsBreakdownPen{{ShedID: countsShedCastroTwo}}, Limit: 50,
 	})
 	if err != nil {
 		t.Fatalf("filtered: %v", err)
@@ -1716,5 +1716,196 @@ func TestCountsBreakdownShedFacetKeepsUnplacedAnimalsInTheirOwnBucket(t *testing
 	if sum != got.TotalCount {
 		t.Errorf("sum(shed facet counts)=%d, want total_count=%d — the '' bucket must keep the partition complete",
 			sum, got.TotalCount)
+	}
+}
+
+// MULTI-VALUE FILTERS (multiselect, 2026-09-03). Each dimension is a SET: two selected stages
+// must count animals in EITHER stage (OR within a dimension), while dimensions still AND
+// together. An empty set means "no filter", never "match nothing".
+func TestCountsBreakdownMultiValueFiltersUnionWithinADimension(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	insertBreakdownGoat(t, ctx, pool, goatUUID(0), goatDisplayID(0),
+		"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(1), goatDisplayID(1),
+		"male", "Osmanabadi", "alive", "K2", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(2), goatDisplayID(2),
+		"female", "Sirohi", "alive", "Buck", strp(countsPark), strp(countsShedB), nil)
+
+	twoStages, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant, ManagementStages: []string{"K1", "K2"}, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("two stages: %v", err)
+	}
+	if twoStages.TotalCount != 2 {
+		t.Errorf("two-stage filter total_count=%d, want 2 (K1 OR K2)", twoStages.TotalCount)
+	}
+
+	twoBreeds, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant, Breeds: []string{"Beetal", "Sirohi"}, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("two breeds: %v", err)
+	}
+	if twoBreeds.TotalCount != 2 {
+		t.Errorf("two-breed filter total_count=%d, want 2 (Beetal OR Sirohi)", twoBreeds.TotalCount)
+	}
+
+	// Dimensions still AND: (K1 OR K2) AND female matches only the K1 female.
+	crossed, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant, ManagementStages: []string{"K1", "K2"}, Sexes: []string{"female"}, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("crossed: %v", err)
+	}
+	if crossed.TotalCount != 1 {
+		t.Errorf("crossed filter total_count=%d, want 1 ((K1|K2) AND female)", crossed.TotalCount)
+	}
+
+	// Both sexes selected reads the same as no sex filter at all.
+	bothSexes, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant, Sexes: []string{"female", "male"}, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("both sexes: %v", err)
+	}
+	if bothSexes.TotalCount != 3 {
+		t.Errorf("both-sex filter total_count=%d, want 3", bothSexes.TotalCount)
+	}
+}
+
+// The pen filter is a set of (shed, partition) pairs: selecting Castro 1 pen 2 in one park plus
+// the OTHER park's whole same-named Castro must count exactly those animals — a name-keyed or
+// pair-collapsed predicate would leak the unselected "Part 1" pen in.
+func TestCountsBreakdownMultiPenFilterSelectsExactPens(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool) // Castro1(park1): pen "2" x3, "Part 1" x1; Castro(park2): pen "2" x2
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant,
+		Pens: []domain.CountsBreakdownPen{
+			{ShedID: countsShedCastroOne, PartitionLabel: "2"},
+			{ShedID: countsShedCastroTwo}, // whole shed, both its pens
+		},
+		Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	if got.TotalCount != 5 {
+		t.Errorf("pen-set filter total_count=%d, want 5 (Castro1 pen 2 x3 + whole Castro Two x2)", got.TotalCount)
+	}
+
+	// 'Part 2' and '2' are the same pen on the normalized key (oploc.SamePartition).
+	normalized, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant,
+		Pens:     []domain.CountsBreakdownPen{{ShedID: countsShedCastroOne, PartitionLabel: "Part 2"}},
+		Limit:    50,
+	})
+	if err != nil {
+		t.Fatalf("normalized pen: %v", err)
+	}
+	if normalized.TotalCount != 3 {
+		t.Errorf("normalized pen filter total_count=%d, want 3", normalized.TotalCount)
+	}
+}
+
+// A WILDCARD-SHED pen (empty ShedID + a partition) narrows the whole query to that partition
+// across every shed — the CEO assistant's partition-named-without-its-shed scope, which the
+// retired scalar PartitionLabel filter used to honor at query level. TotalCount must move with
+// it, because the review finding this pins was exactly "unfiltered totals over filtered rows".
+// An entry empty on both halves states no pen and must be dropped, never bound as match-all.
+func TestCountsBreakdownWildcardShedPenFiltersPartitionAcrossSheds(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool) // Castro1(park1): pen "2" x3, "Part 1" x1; Castro(park2): pen "2" x2
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant,
+		Pens:     []domain.CountsBreakdownPen{{PartitionLabel: "Part 2"}},
+		Limit:    50,
+	})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	if got.TotalCount != 5 {
+		t.Errorf("wildcard-shed pen total_count=%d, want 5 (pen 2 in both Castros)", got.TotalCount)
+	}
+
+	empty, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant,
+		Pens:     []domain.CountsBreakdownPen{{}},
+		Limit:    50,
+	})
+	if err != nil {
+		t.Fatalf("empty pen entry: %v", err)
+	}
+	if empty.TotalCount != 6 {
+		t.Errorf("an entry empty on both halves must be dropped (no filter): total_count=%d, want 6", empty.TotalCount)
+	}
+}
+
+// An ALL-EMPTY subdivided shed must still carry a PARENT facet row (count 0, bare shed label,
+// no partition). The parent-aggregate branch derives from goats, so before this branch existed a
+// shed whose every pen was empty surfaced ONLY composed pen labels ("Yashoda - Part 1") — and the
+// web shed dropdown, which heads a subdivided shed's optgroup with the parent row's label, fell
+// back to the first pen row and rendered the pen label as the shed heading (review finding).
+// An empty UNDIVIDED shed must stay absent, exactly as before.
+func TestCountsBreakdownAllEmptyShedStillCarriesItsParentFacetRow(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	const emptyShed = "00000000-0000-4000-8000-000000004021"
+	const emptyUndividedShed = "00000000-0000-4000-8000-000000004022"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES
+  ($2::uuid, $1::uuid, 'shed', 'CPT-YASHODA', 'Yashoda', $4::uuid, 'active'),
+  ($3::uuid, $1::uuid, 'shed', 'CPT-BARE', 'Bare', $4::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`, countsTenant, emptyShed, emptyUndividedShed, countsPark); err != nil {
+		t.Fatalf("seed empty sheds: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES
+  ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual'),
+  ($1::uuid, $2::uuid, 'Part 2', '2', 'active', 'manual')
+ON CONFLICT DO NOTHING`, countsTenant, emptyShed); err != nil {
+		t.Fatalf("seed catalog partitions: %v", err)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	var parent *domain.CountsBreakdownShedFacet
+	pens := 0
+	for i, f := range got.Facets.Sheds {
+		if f.ShedID == emptyUndividedShed {
+			t.Fatalf("an empty UNDIVIDED shed must stay absent from the facet, got %+v", f)
+		}
+		if f.ShedID != emptyShed {
+			continue
+		}
+		if f.PartitionLabel == "" {
+			parent = &got.Facets.Sheds[i]
+		} else {
+			pens++
+		}
+	}
+	if parent == nil {
+		t.Fatalf("all-empty subdivided shed has no parent facet row; the dropdown group heading falls back to a pen label. facets=%+v", got.Facets.Sheds)
+	}
+	if parent.Label != "Yashoda" || parent.Count != 0 || parent.Key != emptyShed {
+		t.Fatalf("parent row=%+v, want bare label 'Yashoda', count 0, bare shed key", *parent)
+	}
+	if parent.ParkID != countsPark {
+		t.Fatalf("parent row park=%q, want %q — it must group under the same park key as its pen rows", parent.ParkID, countsPark)
+	}
+	if pens != 2 {
+		t.Fatalf("expected the 2 empty catalog pens beside the parent row, got %d", pens)
 	}
 }

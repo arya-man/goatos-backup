@@ -617,6 +617,19 @@ function VerificationReviewDrawerPanel({
                 {renderLabelOrFallback(item.verified_by_name)}
               </div>
             )}
+            {/* Producer-attached context: what the reviewed work was claimed/expected to be —
+                e.g. the milk litres and citric acid grams the operator entered with a milk
+                preparation submission, or a feed packing item's frozen ration. Backend-composed
+                label/value pairs rendered VERBATIM in the producer's order; a row missing either
+                half states nothing and is dropped, matching the Android verify detail. */}
+            {(item.context_rows ?? []).map((row, index) =>
+              row.label?.trim() && row.value?.trim() ? (
+                <div key={`ctx:${index}:${row.label}`} className="vr-fact">
+                  <b>{row.label}</b>
+                  {row.value}
+                </div>
+              ) : null
+            )}
             {/* Each proof's recorded answer */}
             {item.media.map((media) =>
               media.answer ? (

@@ -125,23 +125,23 @@ func (r *locationsParkResolver) ResolveParkID(ctx context.Context, tenantID, par
 }
 
 // buildCountsReader maps park_label/shed_id/stage/breed/sex onto
-// countsdomain.CountsBreakdownQuery's real fields, plus "partition_label" --
-// which the underlying grain (ceo_ai.animal_current_scope's counts-domain
-// twin) already carries per row (CountsBreakdownRow.PartitionLabel /
-// OperationalLocationDisplay) even though CountsBreakdownQuery itself has no
-// partition filter field. So "at Castro 1" is honored two ways: every row's
-// Scope renders through oploc.OperationalLocation.Display() -- which already
-// disambiguates "Castro 1" from "Castro 2" instead of collapsing both under
-// the bare "Castro" shed label -- and, when the caller names a specific
-// partition, rows for every OTHER partition of that shed are dropped before
-// the fact list is built (oploc.SamePartition, so "1" and "Part 1" match the
-// same partition). A shed with no partitions renders its bare shed name,
-// never the "whole" sentinel, per oploc.OperationalLocation.Display().
+// countsdomain.CountsBreakdownQuery's real fields, plus "partition_label".
+// "At Castro 1" is honored at QUERY level in both shapes: with a shed it is an
+// ordinary (shed, partition) pen, and named WITHOUT its shed it becomes a
+// wildcard-shed pen (see CountsBreakdownPen), so TotalCount / TotalKids /
+// TotalAdults and the chart-derived species split are computed over the same
+// narrowed set as the rows. Every row's Scope renders through
+// oploc.OperationalLocation.Display() -- which disambiguates "Castro 1" from
+// "Castro 2" instead of collapsing both under the bare "Castro" shed label --
+// and the SamePartition row drop below is kept as a belt over the SQL's
+// identically-normalized match ("1" and "Part 1" select the same partition).
+// A shed with no partitions renders its bare shed name, never the "whole"
+// sentinel, per oploc.OperationalLocation.Display().
 func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 		q := countsdomain.CountsBreakdownQuery{TenantID: tenantID, Limit: 10}
 		if parkID, ok := params["park_id"].(string); ok && parkID != "" {
-			q.ParkID = &parkID
+			q.ParkIDs = []string{parkID}
 		} else if parkLabel, ok := params["park_label"].(string); ok && parkLabel != "" {
 			parkID, found, err := resolver.ResolveParkID(ctx, tenantID, parkLabel)
 			if err != nil {
@@ -150,24 +150,27 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 			if !found {
 				return nil, fmt.Errorf("park_label %q could not be resolved", parkLabel)
 			}
-			q.ParkID = &parkID
-		}
-		if shedID, ok := params["shed_id"].(string); ok && shedID != "" {
-			q.ShedID = &shedID
+			q.ParkIDs = []string{parkID}
 		}
 		if stage, ok := params["stage"].(string); ok && stage != "" {
-			q.ManagementStage = &stage
+			q.ManagementStages = []string{stage}
 		}
 		if breed, ok := params["breed"].(string); ok && breed != "" {
-			q.Breed = &breed
+			q.Breeds = []string{breed}
 		}
 		if sex, ok := params["sex"].(string); ok && sex != "" {
-			q.Sex = &sex
+			q.Sexes = []string{sex}
 		}
 		partitionFilter, hasPartitionFilter := params["partition_label"].(string)
 		hasPartitionFilter = hasPartitionFilter && partitionFilter != ""
-		if hasPartitionFilter {
-			q.PartitionLabel = &partitionFilter
+		if shedID, ok := params["shed_id"].(string); ok && shedID != "" {
+			q.Pens = []countsdomain.CountsBreakdownPen{{ShedID: shedID, PartitionLabel: partitionFilter}}
+		} else if hasPartitionFilter {
+			// A partition named WITHOUT its shed still narrows the QUERY (wildcard-shed pen), so
+			// TotalCount / TotalKids / TotalAdults and the chart-derived species split agree with
+			// the rows. Dropping rows alone here once reported unfiltered totals over filtered
+			// detail; the retired scalar PartitionLabel filter always narrowed the query.
+			q.Pens = []countsdomain.CountsBreakdownPen{{PartitionLabel: partitionFilter}}
 		}
 
 		result, err := svc.GetBreakdown(ctx, q)
@@ -402,7 +405,7 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 				continue
 			}
 			facts = append(facts, ceodomain.Fact{
-				Label: "Vaccination pen",
+				Label: "Vaccination shed",
 				Value: fmt.Sprintf("Animals: %d, Due: %d, Done: %d, Sessions: %d, Status: %s",
 					row.Animals, row.Due, row.Done, row.Sessions, row.Status),
 				Scope: scope,
@@ -410,7 +413,7 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 		}
 		facts = append([]ceodomain.Fact{{
 			Label: "Vaccination summary",
-			Value: fmt.Sprintf("Pens: %d, Animals: %d, Due: %d, Done: %d, Sessions: %d",
+			Value: fmt.Sprintf("Sheds: %d, Animals: %d, Due: %d, Done: %d, Sessions: %d",
 				len(result.Rows), totalAnimals, totalDue, totalDone, totalSessions),
 		}}, facts...)
 		if metricLabel != "" && aggregateTotal {
