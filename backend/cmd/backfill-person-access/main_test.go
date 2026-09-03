@@ -115,3 +115,42 @@ func TestStatusMatrixOnlyActiveGrantsReachTheShaping(t *testing.T) {
 		t.Fatalf("a dormant catalog role shaped to %d module rows; an unmapped role must grant nothing", len(assignments))
 	}
 }
+
+func TestCEOInternalKeepsFutureWebPagesOpen(t *testing.T) {
+	assignments, scope := shapePerson(person{roles: []string{permissions.RoleCEOInternal}, tenantWide: true})
+	if scope != "tenant" {
+		t.Fatalf("ceo_internal shaped to scope %q, want tenant", scope)
+	}
+	var sawWeb bool
+	for _, a := range assignments {
+		if a.Surface != permissions.SurfaceWeb {
+			continue
+		}
+		sawWeb = true
+		if len(a.Pages) != 0 {
+			t.Fatalf("ceo_internal web module %q stored frozen pages %v; want empty list so future pages stay open", a.Module, a.Pages)
+		}
+	}
+	if !sawWeb {
+		t.Fatal("ceo_internal shaped to no web rows")
+	}
+}
+
+func TestNonCEORetiredPageNarrowingStaysExplicit(t *testing.T) {
+	assignments, _ := shapePerson(person{roles: []string{permissions.RoleProcurementDirector}, tenantWide: true})
+	for _, a := range assignments {
+		if a.Module != "feed_direction" || a.Surface != permissions.SurfaceWeb {
+			continue
+		}
+		if len(a.Pages) == 0 {
+			t.Fatal("procurement director Feed web row stored empty pages; retired lens narrowing must remain explicit")
+		}
+		for _, page := range a.Pages {
+			if page == "feed-config" {
+				t.Fatalf("procurement director Feed pages %v include Feed Config; retired lens narrowing was widened", a.Pages)
+			}
+		}
+		return
+	}
+	t.Fatal("procurement director Feed web row missing")
+}

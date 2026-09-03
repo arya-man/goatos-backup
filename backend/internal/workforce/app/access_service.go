@@ -74,6 +74,10 @@ func (s *AccessService) SavePersonAccess(ctx context.Context, tenantID, actorID,
 	if err != nil {
 		return domain.PersonAccessResponse{}, err
 	}
+	designationCode := strings.TrimSpace(req.DesignationCode)
+	if designationCode == permissions.RoleCEOInternal {
+		assignments = keepFuturePagesOpen(assignments)
+	}
 	scopeMode := strings.TrimSpace(req.ScopeMode)
 	switch scopeMode {
 	case "tenant", "parks":
@@ -96,7 +100,7 @@ func (s *AccessService) SavePersonAccess(ctx context.Context, tenantID, actorID,
 		TenantID:           tenantID,
 		ActorID:            actorID,
 		PersonID:           personID,
-		DesignationCode:    strings.TrimSpace(req.DesignationCode),
+		DesignationCode:    designationCode,
 		ScopeMode:          scopeMode,
 		ParkIDs:            parkIDs,
 		Assignments:        assignments,
@@ -108,6 +112,17 @@ func (s *AccessService) SavePersonAccess(ctx context.Context, tenantID, actorID,
 	// row version and the recomputed warnings, and the editor must show what was
 	// actually stored, not what was sent.
 	return s.GetPersonAccess(ctx, tenantID, personID)
+}
+
+func keepFuturePagesOpen(in []permissions.ModuleAssignment) []permissions.ModuleAssignment {
+	out := make([]permissions.ModuleAssignment, len(in))
+	copy(out, in)
+	for i := range out {
+		if out[i].Surface == permissions.SurfaceWeb {
+			out[i].Pages = nil
+		}
+	}
+	return out
 }
 
 // DesignationDefaults reports what picking a job title pre-fills.

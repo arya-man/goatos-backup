@@ -106,6 +106,9 @@ func seedDesignationDefaults(ctx context.Context, pool *pgxpool.Pool, dryRun boo
 		// narrowing belongs to a PERSON, and stamping it on the title would hand the next
 		// Procurement Director a workspace nobody chose for them.
 		assignments = permissions.FillDefaultPages(assignments)
+		if code == permissions.RoleCEOInternal {
+			assignments = keepFuturePagesOpen(assignments)
+		}
 		if dryRun {
 			fmt.Printf("designation %-22s -> %d module rows\n", code, len(assignments))
 			continue
@@ -329,11 +332,34 @@ func shapePerson(p person) ([]permissions.ModuleAssignment, string) {
 	assignments := permissions.FillDefaultPages(
 		permissions.NarrowForRetiredLenses(p.roles, permissions.AssignmentsForRoles(p.roles)),
 	)
+	if hasRole(p.roles, permissions.RoleCEOInternal) {
+		assignments = keepFuturePagesOpen(assignments)
+	}
 	scopeMode := "parks"
 	if p.tenantWide {
 		scopeMode = "tenant"
 	}
 	return assignments, scopeMode
+}
+
+func hasRole(roles []string, want string) bool {
+	for _, role := range roles {
+		if role == want {
+			return true
+		}
+	}
+	return false
+}
+
+func keepFuturePagesOpen(in []permissions.ModuleAssignment) []permissions.ModuleAssignment {
+	out := make([]permissions.ModuleAssignment, len(in))
+	copy(out, in)
+	for i := range out {
+		if out[i].Surface == permissions.SurfaceWeb {
+			out[i].Pages = nil
+		}
+	}
+	return out
 }
 
 // writePerson replaces one person's access in a single transaction. Reports false when

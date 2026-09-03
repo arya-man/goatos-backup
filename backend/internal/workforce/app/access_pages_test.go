@@ -1,11 +1,13 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
+	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
 // Page ticks are the mechanism that retired the hand-coded admin-web lenses
@@ -89,6 +91,37 @@ func TestSavedPageTicksRideOnlyTheWebRow(t *testing.T) {
 	}
 }
 
+func TestCEOInternalSaveKeepsFutureWebPagesOpen(t *testing.T) {
+	repo := &captureAccessRepo{}
+	service := NewAccessService(repo)
+	_, err := service.SavePersonAccess(context.Background(), "tenant-1", "actor-1", "person-1", domain.SavePersonAccessRequest{
+		DesignationCode: permissions.RoleCEOInternal,
+		ScopeMode:       "tenant",
+		Modules: []domain.AccessModuleWrite{{
+			ModuleKey: "weighing",
+			Web:       []string{permissions.LevelView, permissions.LevelConfigure},
+			Pages:     []string{"weighing-analytics"},
+		}},
+		RowVersion: 7,
+	})
+	if err != nil {
+		t.Fatalf("save refused: %v", err)
+	}
+	if len(repo.saved.Assignments) != 1 {
+		t.Fatalf("saved %d assignments, want 1", len(repo.saved.Assignments))
+	}
+	got := repo.saved.Assignments[0]
+	if got.Surface != permissions.SurfaceWeb || got.Module != "weighing" {
+		t.Fatalf("saved assignment = %#v, want web weighing", got)
+	}
+	if len(got.Pages) != 0 {
+		t.Fatalf("ceo_internal save stored frozen pages %v; want empty list so future pages stay open", got.Pages)
+	}
+	if repo.saved.DesignationCode != permissions.RoleCEOInternal {
+		t.Fatalf("designation = %q, want ceo_internal", repo.saved.DesignationCode)
+	}
+}
+
 // TestTheEditorShowsExplicitTicksForAModuleStoredWithNone pins the read half of
 // "empty means every page": the SCREEN must never open with a held module showing
 // no ticks, or an admin saving it back would refuse (see the write test above) or
@@ -134,4 +167,41 @@ func health0(t *testing.T) permissions.ModuleCapability {
 		t.Fatal("the Health module is missing from the catalog")
 	}
 	return m
+}
+
+type captureAccessRepo struct {
+	saved ports.SavePersonAccessCommand
+}
+
+func (r *captureAccessRepo) LoadPersonAccess(context.Context, string, string) (ports.PersonAccessRecord, error) {
+	return ports.PersonAccessRecord{PersonID: "person-1", ScopeMode: "tenant", RowVersion: 8}, nil
+}
+
+func (r *captureAccessRepo) SavePersonAccess(_ context.Context, cmd ports.SavePersonAccessCommand) (ports.PersonAccessRecord, error) {
+	r.saved = cmd
+	return ports.PersonAccessRecord{PersonID: cmd.PersonID, DesignationCode: cmd.DesignationCode, ScopeMode: cmd.ScopeMode, Assignments: cmd.Assignments, RowVersion: cmd.ExpectedRowVersion + 1}, nil
+}
+
+func (r *captureAccessRepo) ListParks(context.Context, string) ([]ports.AccessCatalogOption, error) {
+	return nil, nil
+}
+
+func (r *captureAccessRepo) ListDesignations(context.Context) ([]ports.AccessCatalogOption, error) {
+	return nil, nil
+}
+
+func (r *captureAccessRepo) DesignationDefaults(context.Context, string) ([]permissions.ModuleAssignment, error) {
+	return nil, nil
+}
+
+func (r *captureAccessRepo) ResolvePermissions(context.Context, string, string) ([]string, bool, error) {
+	return nil, false, nil
+}
+
+func (r *captureAccessRepo) ResolveParkScope(context.Context, string, string) (string, []string, bool, error) {
+	return "", nil, false, nil
+}
+
+func (r *captureAccessRepo) ResolvePageAccess(context.Context, string, string) (permissions.PageAccess, bool, error) {
+	return permissions.PageAccess{}, false, nil
 }
