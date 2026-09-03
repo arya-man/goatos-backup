@@ -34,9 +34,12 @@ func NewFeedPurchaseServiceWithClock(repo ports.FeedPurchaseRepository, now func
 
 // FeedPurchaseListQuery is one page request against the ledger.
 type FeedPurchaseListQuery struct {
-	Farm   string
-	Limit  int
-	Offset int
+	Farm string
+	// Delivery narrows to one delivery state ("purchased" = still on the road, "reached");
+	// blank or "all" lists every load.
+	Delivery string
+	Limit    int
+	Offset   int
 }
 
 // ListFeedPurchases returns one ledger page plus the whole-filter totals.
@@ -45,11 +48,15 @@ func (s *FeedPurchaseService) ListFeedPurchases(ctx context.Context, tenantID st
 	if !ok {
 		return ports.FeedPurchasePage{}, ErrFeedPurchaseInvalidFarm
 	}
+	delivery, ok := domain.NormalizeFeedDeliveryFilter(q.Delivery)
+	if !ok {
+		return ports.FeedPurchasePage{}, ErrFeedPurchaseInvalidDelivery
+	}
 	if q.Offset < 0 || q.Offset > domain.MaxFeedPurchaseOffset {
 		// REJECTED rather than clamped: clamping would serve page 1's rows under page 400's number.
 		return ports.FeedPurchasePage{}, ErrFeedPurchaseOffsetOutOfRange
 	}
-	return s.repo.ListFeedPurchases(ctx, tenantID, farm, domain.ClampFeedPurchasePageSize(q.Limit), q.Offset)
+	return s.repo.ListFeedPurchases(ctx, tenantID, farm, delivery, domain.ClampFeedPurchasePageSize(q.Limit), q.Offset)
 }
 
 // FeedPurchaseOptions returns the entry form's backend-owned vocabularies.
@@ -121,4 +128,21 @@ func (s *FeedPurchaseService) EditFeedPurchase(ctx context.Context, tenantID, pu
 		return domain.FeedPurchase{}, err
 	}
 	return s.repo.UpdateFeedPurchase(ctx, tenantID, purchaseID, normalized, actorID)
+}
+
+// RecordFeedPurchaseDelivery marks a load reached, or corrects an already-reached load's arrival.
+//
+// Only the shape is validated here (a date, a positive weight): the rule that a load cannot reach
+// before it was bought needs the load's own purchase date, which the repository reads under the row
+// lock and judges with the same domain rule -- so a concurrent edit of the purchase date cannot
+// slip an arrival in before it.
+func (s *FeedPurchaseService) RecordFeedPurchaseDelivery(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchaseDeliveryWrite, actorID string) (domain.FeedPurchase, error) {
+	if strings.TrimSpace(purchaseID) == "" {
+		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
+	}
+	normalized := write.Normalize()
+	if err := normalized.Validate("", biztime.BusinessDayStart(s.now())); err != nil {
+		return domain.FeedPurchase{}, err
+	}
+	return s.repo.RecordFeedPurchaseDelivery(ctx, tenantID, purchaseID, normalized, actorID)
 }

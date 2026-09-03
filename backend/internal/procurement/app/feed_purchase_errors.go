@@ -11,6 +11,8 @@ import (
 var (
 	// ErrFeedPurchaseInvalidFarm reports a farm filter that is neither blank/all nor a real farm.
 	ErrFeedPurchaseInvalidFarm = errors.New("procurement: unknown feed purchase farm filter")
+	// ErrFeedPurchaseInvalidDelivery reports a delivery filter that is neither blank/all nor a state.
+	ErrFeedPurchaseInvalidDelivery = errors.New("procurement: unknown feed purchase delivery filter")
 	// ErrFeedPurchaseOffsetOutOfRange reports a page request past the ledger's bounded depth.
 	ErrFeedPurchaseOffsetOutOfRange = errors.New("procurement: feed purchase page out of range")
 	// ErrFeedPurchaseIdempotencyKeyRequired reports a record-purchase call with no Idempotency-Key.
@@ -47,6 +49,10 @@ func feedPurchaseFieldLabel(field string) string {
 		return "Payment status"
 	case "vendor":
 		return "Vendor"
+	case "reached_on":
+		return "Reached on"
+	case "reached_weight_kg":
+		return "Weight received (kg)"
 	case "paid_on":
 		return "Paid on"
 	case "amount_rupees":
@@ -88,6 +94,9 @@ func FeedPurchaseHTTPError(err error) *Error {
 
 	case errors.Is(err, ErrFeedPurchaseInvalidFarm):
 		return BadRequest("invalid_farm", "That farm is not recognised.")
+
+	case errors.Is(err, ErrFeedPurchaseInvalidDelivery):
+		return BadRequest("invalid_delivery", "That delivery state is not recognised.")
 
 	case errors.Is(err, ErrFeedPurchaseOffsetOutOfRange):
 		return BadRequest("page_out_of_range", "That page is beyond the purchase ledger. Use the filters to narrow it down.")

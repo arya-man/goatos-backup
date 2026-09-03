@@ -40,6 +40,58 @@ const (
 // FeedPaymentStatuses is the closed payment vocabulary the entry form renders.
 var FeedPaymentStatuses = []string{FeedPaymentPaid, FeedPaymentPending}
 
+// Delivery states (maintainer decision 2026-09-03). Buying feed and RECEIVING it are days apart:
+// the desk records the load when the money is committed, the truck takes three or four days, and
+// only what comes off the truck is feed the farm can use. A load is therefore either still on the
+// road or reached -- two words, no third: "dispatched"/"in transit" would be a state nobody at the
+// farm records, and a state nobody records is a state the screen lies about.
+const (
+	// FeedDeliveryPurchased is bought and still in transit: counted NOWHERE as stock, and no
+	// aflatoxin test has been born for it because there is nothing to test yet.
+	FeedDeliveryPurchased = "purchased"
+	// FeedDeliveryReached arrived on the load's ReachedOn date: counted as stock from that day,
+	// and the toxin test task is born at that moment.
+	FeedDeliveryReached = "reached"
+)
+
+// FeedDeliveryStatuses is the closed delivery vocabulary, in lifecycle order.
+var FeedDeliveryStatuses = []string{FeedDeliveryPurchased, FeedDeliveryReached}
+
+// NormalizeFeedDeliveryFilter resolves the ledger page's delivery query parameter. "" and "all"
+// mean every load; otherwise it must be an exact state. ok is false for anything else, so the
+// caller REJECTS rather than silently widening the filter.
+func NormalizeFeedDeliveryFilter(raw string) (status string, ok bool) {
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
+	switch trimmed {
+	case "", "all":
+		return "", true
+	case FeedDeliveryPurchased, FeedDeliveryReached:
+		return trimmed, true
+	default:
+		return "", false
+	}
+}
+
+// DeriveFeedPerKgCost is the ONE landed-rate rule: landed cost divided by the kilograms the farm
+// actually has to show for it -- the received weight once it is entered, the buying weight until
+// then. A load that shrank on the road therefore reads a higher rate, which is the true cost of
+// the feed in the store rather than the price the vendor quoted per kg loaded. Nil when there is
+// no total to divide or nothing to divide by.
+func DeriveFeedPerKgCost(total *float64, buyingKg float64, receivedKg *float64) *float64 {
+	if total == nil {
+		return nil
+	}
+	kg := buyingKg
+	if receivedKg != nil && *receivedKg > 0 {
+		kg = *receivedKg
+	}
+	if kg <= 0 {
+		return nil
+	}
+	rate := *total / kg
+	return &rate
+}
+
 // MaxFeedPurchaseOffset bounds the ledger's paging depth, the same way the sales ledger and the
 // vendor register bound theirs.
 const MaxFeedPurchaseOffset = 10000
@@ -101,6 +153,15 @@ type FeedPurchase struct {
 	PaymentReleased *float64
 	PaymentStatus   string
 
+	// DeliveryStatus is FeedDeliveryPurchased while the load is on the road and
+	// FeedDeliveryReached once it arrived. ReachedOn is the IST business date it arrived (nil while
+	// in transit); ReachedWeightKg is the weight actually received, nil until the desk enters it --
+	// deferrable, because the weighbridge figure is often known days after the feed is in use.
+	DeliveryStatus  string
+	ReachedOn       *string // YYYY-MM-DD business date
+	ReachedWeightKg *float64
+	ReachedBy       *string
+
 	// EntrySource is "app" for a purchase recorded on /procurement/feed-purchases and
 	// "sheet_import" for bootstrapped history. The ledger shows the difference rather than
 	// presenting imported history as something a person typed here.
@@ -148,6 +209,66 @@ func (p FeedPurchase) PaymentBalance() *float64 {
 		balance = 0
 	}
 	return &balance
+}
+
+// StockKg is the kilograms this load contributes to stock: the received weight once entered, the
+// buying weight until then, and NIL while the load is still on the road -- an in-transit load is
+// not "zero stock", it is not stock at all, and the screen says so with an absence rather than a
+// figure. Mirrors the feed_purchases.stock_kg generated column the stock reads use, so the ledger
+// row and the Feed Analytics card can never disagree about what a load is worth in the store.
+func (p FeedPurchase) StockKg() *float64 {
+	if p.DeliveryStatus != FeedDeliveryReached {
+		return nil
+	}
+	kg := p.QuantityKg
+	if p.ReachedWeightKg != nil {
+		kg = *p.ReachedWeightKg
+	}
+	return &kg
+}
+
+// FeedPurchaseDeliveryWrite is the mark-reached / update-arrival form: the day the load reached
+// and, when known, the weight that came off the truck.
+//
+// It serves two moments with one shape. On a load still on the road it is the REACH: the state
+// flips, stock starts counting and the toxin test is born. On a load already reached it is a
+// correction -- typically the weighbridge figure typed in days later. ReachedWeightKg is a POINTER
+// because "not weighed yet" and "weighed at exactly the buying figure" are different facts.
+type FeedPurchaseDeliveryWrite struct {
+	ReachedOn       string
+	ReachedWeightKg *float64
+}
+
+// Normalize trims the write before validation, for the same reason FeedPurchaseWrite does.
+func (w FeedPurchaseDeliveryWrite) Normalize() FeedPurchaseDeliveryWrite {
+	out := w
+	out.ReachedOn = strings.TrimSpace(w.ReachedOn)
+	return out
+}
+
+// Validate applies the arrival rules against the load's own purchase date and the caller's IST
+// business day: a load cannot reach before it was bought, nor on a day that has not happened.
+func (w FeedPurchaseDeliveryWrite) Validate(purchaseDate string, today time.Time) error {
+	return validateFeedArrival(w.ReachedOn, w.ReachedWeightKg, purchaseDate, today)
+}
+
+// validateFeedArrival is the ONE arrival rule, shared by the record form (a load recorded after it
+// already arrived) and the delivery form.
+func validateFeedArrival(reachedOn string, reachedWeightKg *float64, purchaseDate string, today time.Time) error {
+	reached, err := time.Parse("2006-01-02", reachedOn)
+	if err != nil {
+		return ErrFeedPurchaseValidation{Field: "reached_on", Reason: "must be a date"}
+	}
+	if reached.After(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)) {
+		return ErrFeedPurchaseValidation{Field: "reached_on", Reason: "cannot be in the future"}
+	}
+	if purchased, err := time.Parse("2006-01-02", purchaseDate); err == nil && reached.Before(purchased) {
+		return ErrFeedPurchaseValidation{Field: "reached_on", Reason: "cannot be before the purchase date"}
+	}
+	if reachedWeightKg != nil && *reachedWeightKg <= 0 {
+		return ErrFeedPurchaseValidation{Field: "reached_weight_kg", Reason: "must be more than zero"}
+	}
+	return nil
 }
 
 // maxFeedPurchasePaymentNote bounds the free-text note on one instalment.
@@ -246,7 +367,11 @@ func (e FeedPurchaseEdit) asWrite() FeedPurchaseWrite {
 func (e FeedPurchaseEdit) TotalOrSplitSum() *float64 { return e.asWrite().TotalOrSplitSum() }
 
 // PerKgCost derives the landed rate from the resolved total, exactly as the record form does.
-func (e FeedPurchaseEdit) PerKgCost() *float64 { return e.asWrite().PerKgCost() }
+// receivedKg is the load's already-recorded arrival weight, which an edit does not carry but
+// which the rate must keep honouring.
+func (e FeedPurchaseEdit) PerKgCost(receivedKg *float64) *float64 {
+	return DeriveFeedPerKgCost(e.TotalOrSplitSum(), e.QuantityKg, receivedKg)
+}
 
 // Validate applies the record form's rules to the editable fields. today is the caller's IST
 // business date, same as the record form.
@@ -315,7 +440,17 @@ type FeedPurchaseWrite struct {
 	Vendor          string
 	PaymentReleased *float64
 	PaymentStatus   string
+
+	// ReachedOn is OPTIONAL on the record form: blank records the load as still on the road (the
+	// normal case -- the desk records the purchase the day the money moves), a date records a load
+	// that already arrived, reached that day, for the desk catching up on paper. ReachedWeightKg is
+	// meaningful only with ReachedOn.
+	ReachedOn       string
+	ReachedWeightKg *float64
 }
+
+// IsReached reports whether the record form describes a load that has already arrived.
+func (w FeedPurchaseWrite) IsReached() bool { return w.ReachedOn != "" }
 
 // ErrFeedPurchaseValidation is a field-level rejection carrying operator-readable copy.
 type ErrFeedPurchaseValidation struct {
@@ -338,6 +473,7 @@ func (w FeedPurchaseWrite) Normalize() FeedPurchaseWrite {
 	out.FeedItemLabel = strings.Join(strings.Fields(w.FeedItemLabel), " ")
 	out.Vendor = strings.Join(strings.Fields(w.Vendor), " ")
 	out.PaymentStatus = strings.TrimSpace(w.PaymentStatus)
+	out.ReachedOn = strings.TrimSpace(w.ReachedOn)
 	// Title-case the two known payment words so "paid"/"PAID" from a client store as the sheet's
 	// form. An unrecognised value still fails Validate rather than being rewritten to a default —
 	// a silently defaulted payment state is a money fact nobody entered.
@@ -378,12 +514,7 @@ func (w FeedPurchaseWrite) TotalOrSplitSum() *float64 {
 // DERIVED, never entered: the sheet keeps a "Per kg Cost" column that a person maintained by hand,
 // and a hand-kept rate drifts from its own total. Nil when there is no total to divide.
 func (w FeedPurchaseWrite) PerKgCost() *float64 {
-	total := w.TotalOrSplitSum()
-	if total == nil || w.QuantityKg <= 0 {
-		return nil
-	}
-	rate := *total / w.QuantityKg
-	return &rate
+	return DeriveFeedPerKgCost(w.TotalOrSplitSum(), w.QuantityKg, w.ReachedWeightKg)
 }
 
 // Validate applies the field rules. today is the caller's IST business date: a purchase cannot be
@@ -425,6 +556,13 @@ func (w FeedPurchaseWrite) Validate(today time.Time) error {
 	}
 	if w.PaymentStatus != FeedPaymentPaid && w.PaymentStatus != FeedPaymentPending {
 		return ErrFeedPurchaseValidation{Field: "payment_status", Reason: "must be Paid or Pending"}
+	}
+	if w.ReachedOn != "" {
+		return validateFeedArrival(w.ReachedOn, w.ReachedWeightKg, w.PurchaseDate, today)
+	}
+	if w.ReachedWeightKg != nil {
+		// A received weight with no arrival day describes a load that both has and has not reached.
+		return ErrFeedPurchaseValidation{Field: "reached_weight_kg", Reason: "needs the reached date"}
 	}
 	return nil
 }

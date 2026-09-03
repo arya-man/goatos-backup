@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -116,6 +117,18 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 		}
 		if depletesFrom.Format("2006-01-02") != "2026-08-20" {
 			t.Fatalf("depletes_from = %s want the purchase date", depletesFrom.Format("2006-01-02"))
+		}
+		// DELIVERY (maintainer decision 2026-09-03): a load recorded with no arrival date is still
+		// on the road -- not reached, no arrival day, and worth NOTHING in stock yet.
+		if created.DeliveryStatus != domain.FeedDeliveryPurchased || created.ReachedOn != nil || created.StockKg() != nil {
+			t.Fatalf("fresh load delivery = %q reached_on=%v stock=%v; want on the road", created.DeliveryStatus, created.ReachedOn, created.StockKg())
+		}
+		var stockKg float64
+		if err := pool.QueryRow(ctx, `SELECT stock_kg FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).Scan(&stockKg); err != nil {
+			t.Fatalf("read stock_kg: %v", err)
+		}
+		if stockKg != 0 {
+			t.Fatalf("stock_kg = %v for a load on the road, want 0", stockKg)
 		}
 	})
 
@@ -271,7 +284,7 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 	t.Run("the ledger page carries whole-filter totals, not page sums", func(t *testing.T) {
 		// Page size 1 over a ledger holding several loads: the totals must describe the FILTER,
 		// never the single row on the page.
-		page, err := repo.ListFeedPurchases(ctx, testTenant, "", 1, 0)
+		page, err := repo.ListFeedPurchases(ctx, testTenant, "", "", 1, 0)
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
@@ -286,7 +299,7 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 		}
 
 		// The farm filter narrows rows and totals through the SAME predicate.
-		cbe, err := repo.ListFeedPurchases(ctx, testTenant, domain.FeedFarmCBE, 25, 0)
+		cbe, err := repo.ListFeedPurchases(ctx, testTenant, domain.FeedFarmCBE, "", 25, 0)
 		if err != nil {
 			t.Fatalf("list CBE: %v", err)
 		}
@@ -441,7 +454,7 @@ func TestFeedPurchasePaymentPostgresPaths(t *testing.T) {
 	})
 
 	t.Run("the page read carries every instalment batched", func(t *testing.T) {
-		page, err := repo.ListFeedPurchases(ctx, testTenant, "", 25, 0)
+		page, err := repo.ListFeedPurchases(ctx, testTenant, "", "", 25, 0)
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
@@ -530,5 +543,185 @@ func TestFeedPurchaseEditPostgresPaths(t *testing.T) {
 		if !errors.Is(err, ports.ErrFeedPurchaseNotFound) {
 			t.Fatalf("want ErrFeedPurchaseNotFound, got %v", err)
 		}
+	})
+}
+
+// TestFeedPurchaseDeliveryPostgresPaths exercises the arrival write against a real Postgres
+// (maintainer decision 2026-09-03). Every rule it covers lives in SQL or on the transaction
+// boundary: the generated stock_kg column, depletes_from following the arrival day, the
+// transition-only outbox event, the received weight entered later, and the natural idempotency.
+func TestFeedPurchaseDeliveryPostgresPaths(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFeedPurchaseFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	reachedEvents := func() int {
+		var n int
+		if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1 AND event_type = 'procurement.feed_purchase.reached'`, testTenant).Scan(&n); err != nil {
+			t.Fatalf("count reached events: %v", err)
+		}
+		return n
+	}
+	readStock := func(id string) (status string, stockKg float64, depletesFrom string) {
+		var from time.Time
+		if err := pool.QueryRow(ctx, `
+SELECT delivery_status, stock_kg, depletes_from FROM feed_purchases WHERE feed_purchase_id = $1`, id).
+			Scan(&status, &stockKg, &from); err != nil {
+			t.Fatalf("read stock: %v", err)
+		}
+		return status, stockKg, from.Format("2006-01-02")
+	}
+
+	today := time.Now().In(time.FixedZone("IST", 5*3600+1800)).Format("2006-01-02")
+
+	created, err := repo.CreateFeedPurchase(ctx, testTenant, feedWrite(), "", "delivery-1")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if n := reachedEvents(); n != 0 {
+		t.Fatalf("recording a load on the road emitted %d reached event(s); the toxin test must wait for the arrival", n)
+	}
+
+	t.Run("an arrival before the purchase date is refused under the row lock", func(t *testing.T) {
+		_, err := repo.RecordFeedPurchaseDelivery(ctx, testTenant, created.FeedPurchaseID, domain.FeedPurchaseDeliveryWrite{ReachedOn: "2026-08-19"}, "")
+		var v domain.ErrFeedPurchaseValidation
+		if !errors.As(err, &v) || v.Field != "reached_on" {
+			t.Fatalf("err = %v want a reached_on validation error", err)
+		}
+		if status, _, _ := readStock(created.FeedPurchaseID); status != domain.FeedDeliveryPurchased {
+			t.Fatalf("a refused arrival flipped the load to %q", status)
+		}
+	})
+
+	t.Run("marking reached makes the load stock from that day and raises the toxin test once", func(t *testing.T) {
+		reached, err := repo.RecordFeedPurchaseDelivery(ctx, testTenant, created.FeedPurchaseID, domain.FeedPurchaseDeliveryWrite{ReachedOn: "2026-08-23"}, "")
+		if err != nil {
+			t.Fatalf("mark reached: %v", err)
+		}
+		if reached.DeliveryStatus != domain.FeedDeliveryReached || reached.ReachedOn == nil || *reached.ReachedOn != "2026-08-23" {
+			t.Fatalf("after arrival: %+v", reached)
+		}
+		// No weighbridge figure yet: the buying weight is what the store counts.
+		if got := reached.StockKg(); got == nil || *got != 5420 {
+			t.Fatalf("stock after unweighed arrival = %v want 5420", got)
+		}
+		status, stockKg, depletesFrom := readStock(created.FeedPurchaseID)
+		if status != domain.FeedDeliveryReached || stockKg != 5420 || depletesFrom != "2026-08-23" {
+			t.Fatalf("row after arrival: status=%s stock_kg=%v depletes_from=%s", status, stockKg, depletesFrom)
+		}
+		if n := reachedEvents(); n != 1 {
+			t.Fatalf("reached events = %d want exactly 1", n)
+		}
+		var payload struct {
+			FeedPurchaseID string  `json:"feed_purchase_id"`
+			ReachedOn      string  `json:"reached_on"`
+			QuantityKg     float64 `json:"quantity_kg"`
+			FeedItemKey    string  `json:"feed_item_key"`
+			BatchNo        int     `json:"batch_no"`
+		}
+		var raw []byte
+		if err := pool.QueryRow(ctx, `
+SELECT payload -> 'payload' FROM outbox_messages
+WHERE tenant_id = $1 AND event_type = 'procurement.feed_purchase.reached'`, testTenant).Scan(&raw); err != nil {
+			t.Fatalf("read reached event: %v", err)
+		}
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if payload.FeedPurchaseID != created.FeedPurchaseID || payload.ReachedOn != "2026-08-23" ||
+			payload.QuantityKg != 5420 || payload.FeedItemKey == "" || payload.BatchNo != created.BatchNo {
+			t.Fatalf("reached payload = %+v", payload)
+		}
+	})
+
+	t.Run("the received weight entered later corrects stock and the rate without a second test", func(t *testing.T) {
+		kg := 5000.0
+		weighed, err := repo.RecordFeedPurchaseDelivery(ctx, testTenant, created.FeedPurchaseID, domain.FeedPurchaseDeliveryWrite{ReachedOn: "2026-08-23", ReachedWeightKg: &kg}, "")
+		if err != nil {
+			t.Fatalf("enter weight: %v", err)
+		}
+		if got := weighed.StockKg(); got == nil || *got != 5000 {
+			t.Fatalf("stock after weighing = %v want 5000", got)
+		}
+		if weighed.QuantityKg != 5420 {
+			t.Fatalf("buying weight moved to %v; the received weight must not overwrite it", weighed.QuantityKg)
+		}
+		// 76980 landed over the 5000 kg actually received.
+		if weighed.PerKgCost == nil || *weighed.PerKgCost < 15.39 || *weighed.PerKgCost > 15.40 {
+			t.Fatalf("per_kg_cost = %v want ~15.396 over the received weight", weighed.PerKgCost)
+		}
+		if _, stockKg, _ := readStock(created.FeedPurchaseID); stockKg != 5000 {
+			t.Fatalf("stock_kg column = %v want 5000", stockKg)
+		}
+		if n := reachedEvents(); n != 1 {
+			t.Fatalf("a correction emitted another reached event (total %d)", n)
+		}
+
+		// Same values again: nothing changes, nothing is audited, nothing is emitted.
+		var auditsBefore int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND resource_id = $2`, testTenant, created.FeedPurchaseID).Scan(&auditsBefore); err != nil {
+			t.Fatalf("count audits: %v", err)
+		}
+		if _, err := repo.RecordFeedPurchaseDelivery(ctx, testTenant, created.FeedPurchaseID, domain.FeedPurchaseDeliveryWrite{ReachedOn: "2026-08-23", ReachedWeightKg: &kg}, ""); err != nil {
+			t.Fatalf("replay: %v", err)
+		}
+		var auditsAfter int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND resource_id = $2`, testTenant, created.FeedPurchaseID).Scan(&auditsAfter); err != nil {
+			t.Fatalf("recount audits: %v", err)
+		}
+		if auditsAfter != auditsBefore {
+			t.Fatalf("an unchanged arrival write audited %d new row(s)", auditsAfter-auditsBefore)
+		}
+	})
+
+	t.Run("a load recorded as already reached is stock and tested at once", func(t *testing.T) {
+		write := feedWrite()
+		write.FarmLabel = domain.FeedFarmCBE
+		write.ReachedOn = "2026-08-22"
+		kg := 5400.0
+		write.ReachedWeightKg = &kg
+		arrived, err := repo.CreateFeedPurchase(ctx, testTenant, write, "", "delivery-2")
+		if err != nil {
+			t.Fatalf("create reached: %v", err)
+		}
+		if arrived.DeliveryStatus != domain.FeedDeliveryReached || arrived.StockKg() == nil || *arrived.StockKg() != 5400 {
+			t.Fatalf("reached-on-record: %+v", arrived)
+		}
+		if _, _, depletesFrom := readStock(arrived.FeedPurchaseID); depletesFrom != "2026-08-22" {
+			t.Fatalf("depletes_from = %s want the arrival day, not the purchase date", depletesFrom)
+		}
+		if n := reachedEvents(); n != 2 {
+			t.Fatalf("reached events = %d want 2 (one per load that reached)", n)
+		}
+		// An exact idempotent replay of the record form emits no second event.
+		if _, err := repo.CreateFeedPurchase(ctx, testTenant, write, "", "delivery-2"); err != nil {
+			t.Fatalf("replay: %v", err)
+		}
+		if n := reachedEvents(); n != 2 {
+			t.Fatalf("reached events after replay = %d want still 2", n)
+		}
+	})
+
+	t.Run("the ledger's delivery filter narrows rows and totals through one predicate", func(t *testing.T) {
+		onRoad, err := repo.CreateFeedPurchase(ctx, testTenant, feedWrite(), "", "delivery-3")
+		if err != nil {
+			t.Fatalf("create third: %v", err)
+		}
+		page, err := repo.ListFeedPurchases(ctx, testTenant, "", domain.FeedDeliveryPurchased, 25, 0)
+		if err != nil {
+			t.Fatalf("list purchased: %v", err)
+		}
+		if page.Total != 1 || len(page.Purchases) != 1 || page.Purchases[0].FeedPurchaseID != onRoad.FeedPurchaseID {
+			t.Fatalf("purchased filter: total=%d rows=%d", page.Total, len(page.Purchases))
+		}
+		if page.QuantityKg != 5420 {
+			t.Fatalf("purchased filter quantity = %v want the one load on the road", page.QuantityKg)
+		}
+		_ = today
 	})
 }

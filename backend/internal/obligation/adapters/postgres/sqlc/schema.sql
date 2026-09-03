@@ -5948,6 +5948,17 @@ CREATE TABLE public.feed_purchases (
     source_ref text DEFAULT ''::text NOT NULL,
     imported_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    entry_source text DEFAULT 'sheet_import'::text NOT NULL,
+    recorded_by uuid,
+    delivery_status text DEFAULT 'reached'::text NOT NULL,
+    reached_on date,
+    reached_weight_kg numeric(12,3),
+    reached_by uuid,
+    stock_kg numeric(12,3) GENERATED ALWAYS AS (
+CASE
+    WHEN (delivery_status = 'reached'::text) THEN COALESCE(reached_weight_kg, quantity_kg)
+    ELSE (0)::numeric
+END) STORED,
     CONSTRAINT feed_purchases_consumed_check CHECK ((consumed_at_import_kg >= (0)::numeric)),
     CONSTRAINT feed_purchases_farm_check CHECK ((btrim(farm_label) <> ''::text)),
     CONSTRAINT feed_purchases_quantity_check CHECK ((quantity_kg > (0)::numeric))

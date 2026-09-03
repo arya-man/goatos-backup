@@ -38,7 +38,7 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 	// header row and writes its body cells in the same order, so a reorder here without a matching
 	// reorder there pairs a value with the wrong heading.
 	wantColumns := []string{
-		"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg",
+		"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "delivery_status",
 		"total_cost", "per_kg_cost", "vendor", "payment_status", "payment_balance",
 	}
 	if len(ledger.Columns) != len(wantColumns) {
@@ -74,7 +74,13 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 		"action.purchase_updated", "action.purchase_update_failed",
 		"action.save", "action.cancel", "action.close",
 		"action.purchase_recorded", "action.purchase_record_failed", "action.error_form",
-		"filter.farm", "pager.page", "pager.of", "action.next_page", "action.prev_page",
+		"filter.farm", "filter.delivery", "filter.delivery.all",
+		"column.delivery_status", "section.delivery.title", "field.delivery_status",
+		"field.reached_on", "field.reached_weight_kg", "field.stock_kg",
+		"hint.record_reached", "hint.reached_weight", "hint.mark_reached", "delivery.in_transit_note",
+		"action.mark_reached.label", "action.update_delivery.label",
+		"action.delivery_recorded", "action.delivery_updated", "action.delivery_record_failed",
+		"pager.page", "pager.of", "action.next_page", "action.prev_page",
 		"empty.purchases", "empty.purchases.unset", "error.load", "error.options", "disabled.write",
 	} {
 		if page.Copy[key] == "" {
@@ -95,6 +101,20 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 	}
 	if groups["feed_purchase_payment_statuses"] != 2 {
 		t.Fatalf("feed_purchase_payment_statuses options = %d", groups["feed_purchase_payment_statuses"])
+	}
+	// The delivery vocabulary (maintainer decision 2026-09-03): exactly the two states the domain
+	// stores, in lifecycle order, each with a tone so the chip is backend-owned.
+	for _, g := range page.OptionGroups {
+		if g.ID != "feed_purchase_delivery_statuses" {
+			continue
+		}
+		if len(g.Options) != 2 || g.Options[0].Key != "purchased" || g.Options[1].Key != "reached" ||
+			g.Options[0].Tone == "" || g.Options[1].Tone == "" {
+			t.Fatalf("feed_purchase_delivery_statuses = %+v", g.Options)
+		}
+	}
+	if groups["feed_purchase_delivery_statuses"] != 2 {
+		t.Fatalf("feed_purchase_delivery_statuses options = %d", groups["feed_purchase_delivery_statuses"])
 	}
 	for id := range groups {
 		if id == "feed_purchase_feed_items" {
@@ -179,6 +199,7 @@ func TestRecordFeedPurchaseControlIsCapabilityGated(t *testing.T) {
 				"record_feed_purchase_payment":        "POST /procurement/feed-purchases/{purchase_id}/payments",
 				"edit_feed_purchase":                  "PUT /procurement/feed-purchases/{purchase_id}",
 				"update_feed_purchase_payment_status": "PUT /procurement/feed-purchases/{purchase_id}/payment-status",
+				"record_feed_purchase_delivery":       "PUT /procurement/feed-purchases/{purchase_id}/delivery",
 			} {
 				payment := controlByID(t, pageControls, controlID)
 				if payment.Enabled != tc.enabled {

@@ -224,7 +224,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// Toxin task creation (maintainer decision 2026-08-25): in local eventbus mode this
 		// in-process bus IS the delivery, so without this a recorded feed purchase never gets its
 		// aflatoxin test task locally. The durable twin is cmd/domain-event-consumer.
-		toxinapp.NewFeedPurchaseRecordedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
+		toxinapp.NewFeedPurchaseReachedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:

@@ -187,11 +187,11 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	countsapp.NewPenReconciliationRaiser(countsMilkPreparationRepo, logger, nil).Register(bus)
 	countsapp.NewPenReconciliationVerificationHandler(countsMilkPreparationRepo, nil).Register(bus)
 	countsapp.NewMilkFeedingVerificationHandler(countsMilkPreparationRepo).Register(bus)
-	// Toxin (maintainer decision 2026-08-25): procurement.feed_purchase.recorded reaches THIS
+	// Toxin (maintainer decision 2026-08-25): procurement.feed_purchase.reached reaches THIS
 	// durable consumer, never the API's in-process bus, so a missing registration here is a
 	// silent drop that leaves every purchased load without its aflatoxin test task. Mirrors
 	// kernelstages.BuildDomainBus.
-	toxinapp.NewFeedPurchaseRecordedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
+	toxinapp.NewFeedPurchaseReachedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
 	verificationService := verificationapp.NewService(verificationpg.NewRepository(pool, pgCfg.QueryTimeout), nil)
 	if err := pccareverificationbridge.RegisterCategories(verificationService); err != nil {
 		panic(fmt.Sprintf("register pc care verification categories: %v", err))

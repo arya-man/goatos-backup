@@ -49,6 +49,7 @@ func TestFeedPurchaseRoutesAreGatedOnTheDedicatedPermissions(t *testing.T) {
 		"GET /procurement/feed-purchases":        {FeedPurchaseRead},
 		"POST /procurement/feed-purchases":       {FeedPurchaseWrite},
 		"GET /procurement/feed-purchase-options": {FeedPurchaseRead},
+		"PUT /procurement/feed-purchases/{purchase_id}/delivery": {FeedPurchaseWrite},
 	}
 	found := map[string]bool{}
 	for _, route := range ProtectedRoutes() {

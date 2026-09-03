@@ -20,12 +20,13 @@ import {
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
-import { paymentStatusChip } from "./feed-purchase-format";
+import { deliveryStatusChip, paymentStatusChip } from "./feed-purchase-format";
 import { inr, num, resolveFarm } from "./sales-format";
 import { FeedPurchaseDrawer } from "./feed-purchase-drawer";
 
 const PATHNAME = "/procurement/feed-purchases";
 const DEFAULT_FARM = "all";
+const DEFAULT_DELIVERY = "all";
 const DEFAULT_LIMIT = 25;
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
@@ -70,6 +71,14 @@ export async function FeedPurchasesPage({
     DEFAULT_FARM,
   );
 
+  // Delivery scope (on the road / reached): validated against the SERVED option keys too.
+  const deliveryOptions = optionGroup(pageContract, "feed_purchase_delivery_statuses");
+  const delivery = resolveFarm(
+    one(sp, "delivery"),
+    deliveryOptions.map((option) => option.key),
+    DEFAULT_DELIVERY,
+  );
+
   const ledgerTable = table(pageContract, "feed-purchases");
   const pageSizes = ledgerTable.page_size_options.length > 0 ? ledgerTable.page_size_options : [DEFAULT_LIMIT];
   const limit = boundedInt(one(sp, "limit"), pageSizes[0], 1, 100);
@@ -79,7 +88,7 @@ export async function FeedPurchasesPage({
   // page of rows. LocalOverlayLink opens the drawer without an RSC request, so its data must ride
   // with the page rather than be fetched on open.
   const [result, optionsResult] = await Promise.all([
-    listFeedPurchases({ farm, limit, offset }),
+    listFeedPurchases({ farm, delivery, limit, offset }),
     getFeedPurchaseOptions(),
   ]);
 
@@ -103,7 +112,7 @@ export async function FeedPurchasesPage({
   const none = copy(pageContract, "value.none");
   const columns = tableLabels(pageContract, "feed-purchases");
   const listHref = hrefWithQuery(sp, { purchase_id: null });
-  const isFiltered = farm !== DEFAULT_FARM;
+  const isFiltered = farm !== DEFAULT_FARM || delivery !== DEFAULT_DELIVERY;
 
   return (
     <div className="screen on">
@@ -178,6 +187,34 @@ export async function FeedPurchasesPage({
         ))}
       </div>
 
+      {/* Delivery scope: the same server-rendered chip shape as the farm toggle. "All loads" is
+          page copy rather than an option, because the write vocabulary has exactly two states and
+          a third key in the option group would be offered on the mark-reached form. */}
+      <div className="chips" role="group" aria-label={copy(pageContract, "filter.delivery")} style={{ marginBottom: 14 }}>
+        <span className="muted small" style={{ marginRight: 6 }}>
+          {copy(pageContract, "filter.delivery")}
+        </span>
+        <Link
+          href={hrefWithQuery(sp, { delivery: null, offset: null, purchase_id: null })}
+          scroll={false}
+          className={delivery === DEFAULT_DELIVERY ? "btn sm p" : "btn sm"}
+          aria-current={delivery === DEFAULT_DELIVERY ? "true" : undefined}
+        >
+          {copy(pageContract, "filter.delivery.all")}
+        </Link>
+        {deliveryOptions.map((option) => (
+          <Link
+            key={option.key}
+            href={hrefWithQuery(sp, { delivery: option.key, offset: null, purchase_id: null })}
+            scroll={false}
+            className={option.key === delivery ? "btn sm p" : "btn sm"}
+            aria-current={option.key === delivery ? "true" : undefined}
+          >
+            {option.label}
+          </Link>
+        ))}
+      </div>
+
       <section className="card">
         <div className="hd">
           <Wheat className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
@@ -228,6 +265,23 @@ export async function FeedPurchasesPage({
                       <td>{cellLink(<b>{purchase.feed_item}</b>)}</td>
                       <td style={{ whiteSpace: "nowrap" }}>{cellLink(purchase.batch_no)}</td>
                       <td style={{ whiteSpace: "nowrap" }}>{cellLink(num(purchase.quantity_kg, 0))}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {cellLink(
+                          // Tone AND label are backend option metadata. A reached load also shows
+                          // the day it came in, because "Reached" alone does not say when stock
+                          // started.
+                          <>
+                            <Tag tone={deliveryStatusChip(pageContract, purchase.delivery_status, none).tone}>
+                              {deliveryStatusChip(pageContract, purchase.delivery_status, none).label}
+                            </Tag>
+                            {purchase.reached_on ? (
+                              <span className="muted small" style={{ marginLeft: 6 }}>
+                                {fmtDate(purchase.reached_on)}
+                              </span>
+                            ) : null}
+                          </>,
+                        )}
+                      </td>
                       <td style={{ whiteSpace: "nowrap" }}>
                         {cellLink(purchase.total_cost == null ? none : inr(purchase.total_cost))}
                       </td>

@@ -12,11 +12,12 @@ import { Tag } from "@/components/ui-primitives";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedPurchase, FeedPurchaseOptions } from "@/lib/api/procurement";
 import { fmtDate } from "@/lib/format";
-import { paymentStatusChip } from "./feed-purchase-format";
+import { deliveryStatusChip, paymentStatusChip } from "./feed-purchase-format";
 import { inr, num } from "./sales-format";
 import {
   editFeedPurchaseAction,
   recordFeedPurchaseAction,
+  recordFeedPurchaseDeliveryAction,
   recordFeedPurchasePaymentAction,
   setFeedPurchasePaymentStatusAction,
 } from "./feed-purchase-actions";
@@ -115,6 +116,7 @@ export function FeedPurchaseDrawer({
   const canRecordPayment = controlEnabled(pageContract, "record_feed_purchase_payment", false);
   const canEditStatus = controlEnabled(pageContract, "update_feed_purchase_payment_status", false);
   const canEdit = controlEnabled(pageContract, "edit_feed_purchase", false);
+  const canRecordDelivery = controlEnabled(pageContract, "record_feed_purchase_delivery", false);
   // Where the payment actions return to: the SAME record, so the drawer reopens showing the new
   // instalment rather than closing over the operator's work.
   const detailHref = purchase
@@ -280,6 +282,20 @@ export function FeedPurchaseDrawer({
                   ))}
                 </select>
               </div>
+
+              {/* DELIVERY: blank = the load is still on the road (the normal case). A date here
+                  records a load that already came in, reached that day. */}
+              <div className="dgrp">{copy(pageContract, "section.delivery.title")}</div>
+              <div className="fld">
+                <label htmlFor="fp-reached_on">{field("reached_on")}</label>
+                <input id="fp-reached_on" name="reached_on" type="date" />
+                <div className="muted small">{copy(pageContract, "hint.record_reached")}</div>
+              </div>
+              <div className="fld">
+                <label htmlFor="fp-reached_weight_kg">{field("reached_weight_kg")}</label>
+                <input id="fp-reached_weight_kg" name="reached_weight_kg" type="number" min={0.001} step="0.001" />
+                <div className="muted small">{copy(pageContract, "hint.reached_weight")}</div>
+              </div>
             </div>
             <div className="df">
               <button type="submit" className="btn p">
@@ -391,6 +407,59 @@ export function FeedPurchaseDrawer({
                   : copy(pageContract, "value.entry_sheet"),
               )}
             </div>
+
+            {/* DELIVERY: has the load come in, when, and what it is worth in the store. Behind its
+                backend control, the mark-reached / update-arrival write. The received weight can
+                be entered later, so the same form serves a load already reached. */}
+            <div className="dgrp">{copy(pageContract, "section.delivery.title")}</div>
+            <div className="metagrid">
+              <div>
+                <div className="k">{field("delivery_status")}</div>
+                <div className="v">
+                  <Tag tone={deliveryStatusChip(pageContract, purchase.delivery_status, none).tone}>
+                    {deliveryStatusChip(pageContract, purchase.delivery_status, none).label}
+                  </Tag>
+                </div>
+              </div>
+              {cell(field("reached_on"), purchase.reached_on ? fmtDate(purchase.reached_on) : null)}
+              {cell(field("reached_weight_kg"), purchase.reached_weight_kg == null ? null : num(purchase.reached_weight_kg, 1))}
+              {/* BACKEND-derived: received weight if entered, else buying weight; absent on the road. */}
+              {cell(field("stock_kg"), purchase.stock_kg == null ? null : num(purchase.stock_kg, 1))}
+            </div>
+            {purchase.stock_kg == null ? (
+              <div className="note">{copy(pageContract, "delivery.in_transit_note")}</div>
+            ) : null}
+
+            {canRecordDelivery ? (
+              <form action={recordFeedPurchaseDeliveryAction}>
+                <input type="hidden" name="return_to" value={detailHref} />
+                <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
+                <input type="hidden" name="was_reached" value={purchase.reached_on ? "1" : "0"} />
+                <div className="fld">
+                  <label htmlFor="fpd-reached_on">{field("reached_on")}</label>
+                  <input id="fpd-reached_on" name="reached_on" type="date" required defaultValue={purchase.reached_on ?? ""} />
+                </div>
+                <div className="fld">
+                  <label htmlFor="fpd-reached_weight_kg">{field("reached_weight_kg")}</label>
+                  <input
+                    id="fpd-reached_weight_kg"
+                    name="reached_weight_kg"
+                    type="number"
+                    min={0.001}
+                    step="0.001"
+                    defaultValue={purchase.reached_weight_kg ?? ""}
+                  />
+                  <div className="muted small">
+                    {purchase.reached_on ? copy(pageContract, "hint.reached_weight") : copy(pageContract, "hint.mark_reached")}
+                  </div>
+                </div>
+                <button type="submit" className="btn p">
+                  {purchase.reached_on
+                    ? copy(pageContract, "action.update_delivery.label")
+                    : copy(pageContract, "action.mark_reached.label")}
+                </button>
+              </form>
+            ) : null}
 
             {/* PAYMENTS: what has been handed over, what is still owed, the instalment history,
                 and — behind their backend controls — the add-payment and status-edit writes. */}

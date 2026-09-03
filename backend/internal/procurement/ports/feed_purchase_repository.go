@@ -56,7 +56,8 @@ type FeedPurchaseOptions struct {
 // FeedPurchaseRepository is the feed-purchase ledger's persistence boundary.
 type FeedPurchaseRepository interface {
 	// ListFeedPurchases returns one page (newest purchase date first) plus whole-filter totals.
-	ListFeedPurchases(ctx context.Context, tenantID, farm string, limit, offset int) (FeedPurchasePage, error)
+	// farm and delivery are already-normalized filters; "" means unfiltered on that dimension.
+	ListFeedPurchases(ctx context.Context, tenantID, farm, delivery string, limit, offset int) (FeedPurchasePage, error)
 	// FeedPurchaseOptions returns the entry form's backend-owned vocabularies.
 	FeedPurchaseOptions(ctx context.Context, tenantID string) (FeedPurchaseOptions, error)
 	// CreateFeedPurchase records one load: idempotency reservation, catalog check, batch-number
@@ -71,6 +72,13 @@ type FeedPurchaseRepository interface {
 	// status in the SAME transaction. Naturally idempotent: writing the values a load already has
 	// changes nothing and audits nothing.
 	UpdateFeedPurchase(ctx context.Context, tenantID, purchaseID string, edit domain.FeedPurchaseEdit, actorID string) (domain.FeedPurchase, error)
+	// RecordFeedPurchaseDelivery marks a load reached, or corrects an already-reached load's
+	// arrival day and received weight, under the purchase row lock. The FIRST transition from
+	// purchased to reached is the moment the load becomes stock (depletes_from follows reached_on)
+	// and emits procurement.feed_purchase.reached in the SAME transaction, so the toxin test is
+	// born exactly once per load. A later correction moves the figures and emits nothing.
+	// Naturally idempotent: writing the values a load already has changes nothing.
+	RecordFeedPurchaseDelivery(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchaseDeliveryWrite, actorID string) (domain.FeedPurchase, error)
 	// SetFeedPurchasePaymentStatus sets the load's payment status directly (the edit control for a
 	// status recorded wrong, or a load settled outside the instalment ledger). status must already
 	// be a canonical vocabulary word.

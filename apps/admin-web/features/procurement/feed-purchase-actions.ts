@@ -8,7 +8,13 @@ import { actionRedirect, optionalString, requiredString } from "@/lib/action-hel
 // NOTE: every actionKey below MUST start with "action." -- withActionFeedback silently rewrites
 // anything else to "action.error_form" -- and each key needs matching page-contract copy, because
 // actionFeedbackCopy throws on a missing key and takes the whole page down with it.
-import { createFeedPurchase, editFeedPurchase, recordFeedPurchasePayment, setFeedPurchasePaymentStatus } from "@/lib/api/procurement-server";
+import {
+  createFeedPurchase,
+  editFeedPurchase,
+  recordFeedPurchaseDelivery,
+  recordFeedPurchasePayment,
+  setFeedPurchasePaymentStatus,
+} from "@/lib/api/procurement-server";
 import type { FeedPurchaseEdit, FeedPurchaseStatusWrite, FeedPurchaseWrite } from "@/lib/api/procurement";
 
 const FEED_PURCHASES_PATH = "/procurement/feed-purchases";
@@ -29,6 +35,7 @@ function readPurchaseForm(formData: FormData): FeedPurchaseWrite {
     return Number.isFinite(parsed) ? parsed : null;
   };
 
+  const reachedOn = optionalString(formData, "reached_on");
   return {
     purchase_date: requiredString(formData, "purchase_date"),
     // The backend re-validates these against its closed vocabularies and REJECTS an unrecognised
@@ -46,6 +53,10 @@ function readPurchaseForm(formData: FormData): FeedPurchaseWrite {
     vendor: requiredString(formData, "vendor"),
     payment_released: parseOptionalNumber("payment_released"),
     payment_status: requiredString(formData, "payment_status") as FeedPurchaseWrite["payment_status"],
+    // A blank reached date is the normal case: the load is recorded when bought and is still on
+    // the road. The fields are OMITTED rather than sent as null so the backend's "absent means in
+    // transit" rule is what decides, and a received weight rides only with an arrival day.
+    ...(reachedOn ? { reached_on: reachedOn, reached_weight_kg: parseOptionalNumber("reached_weight_kg") } : {}),
   };
 }
 
@@ -136,4 +147,29 @@ export async function editFeedPurchaseAction(formData: FormData): Promise<void> 
   revalidatePath(FEED_PURCHASES_PATH);
   revalidatePath("/feed/analytics");
   actionRedirect(formData, "success", "action.purchase_updated");
+}
+
+/**
+ * Marks a load reached, or updates its arrival details. The backend decides which of the two this
+ * is (first call flips the state and raises the toxin test; later calls only move the figures), so
+ * the form posts the same fields either way and the banner copy follows the load's prior state.
+ */
+export async function recordFeedPurchaseDeliveryAction(formData: FormData): Promise<void> {
+  const purchaseId = requiredString(formData, "feed_purchase_id");
+  const weightRaw = (formData.get("reached_weight_kg")?.toString() ?? "").trim();
+  const parsedWeight = weightRaw === "" ? null : Number(weightRaw);
+  const wasReached = optionalString(formData, "was_reached") === "1";
+  const result = await recordFeedPurchaseDelivery(purchaseId, {
+    reached_on: requiredString(formData, "reached_on"),
+    // A cleared weight is NULL (deferred), never 0: the backend keeps the buying weight as stock.
+    reached_weight_kg: parsedWeight !== null && Number.isFinite(parsedWeight) ? parsedWeight : null,
+  });
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.delivery_record_failed");
+  }
+  // Arrival is what puts the load into stock, so the stock and days-left cards must not stay
+  // cached showing the farm short of feed that has just come in.
+  revalidatePath(FEED_PURCHASES_PATH);
+  revalidatePath("/feed/analytics");
+  actionRedirect(formData, "success", wasReached ? "action.delivery_updated" : "action.delivery_recorded");
 }

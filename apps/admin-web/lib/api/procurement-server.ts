@@ -19,6 +19,7 @@ import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights,
   FeedPurchasePage,
   FeedPurchasePaymentWrite,
   FeedPurchaseEdit,
+  FeedPurchaseDeliveryWrite,
   FeedPurchaseStatusWrite,
   FeedPurchaseWrite,
   SalesBenchmarkWrite,
@@ -334,7 +335,7 @@ export async function createSalesDeal(
 // the loads the stock and days-left cards on /feed/analytics are counted from. ----
 
 export async function listFeedPurchases(
-  params: { farm?: string; limit?: number; offset?: number } = {},
+  params: { farm?: string; delivery?: string; limit?: number; offset?: number } = {},
 ): Promise<ApiResult<FeedPurchasePage>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -342,7 +343,28 @@ export async function listFeedPurchases(
   return request(() =>
     client.request<FeedPurchasePage>("/procurement/feed-purchases", {
       cache: "no-store",
-      query: compactQuery({ farm: params.farm, limit: params.limit, offset: params.offset }),
+      query: compactQuery({ farm: params.farm, delivery: params.delivery, limit: params.limit, offset: params.offset }),
+    }),
+  );
+}
+
+/**
+ * Marks a load reached, or corrects an already-reached load's arrival day / received weight. The
+ * backend flips the state, starts stock from the arrival day and raises the toxin test in one
+ * transaction on the first call; later calls only move the figures.
+ */
+export async function recordFeedPurchaseDelivery(
+  purchaseId: string,
+  body: FeedPurchaseDeliveryWrite,
+): Promise<ApiResult<FeedPurchase>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPurchase>(`/procurement/feed-purchases/${encodeURIComponent(purchaseId)}/delivery` as keyof AppApiPaths & string, {
+      method: "PUT",
+      cache: "no-store",
+      body,
     }),
   );
 }

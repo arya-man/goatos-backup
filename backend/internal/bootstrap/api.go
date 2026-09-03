@@ -689,7 +689,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementLoadwiseHandler := procurementhttp.NewLoadwiseHandler(
 		procurementapp.NewLoadwiseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	// Toxin (maintainer decision 2026-08-25): the aflatoxin strip-test module. Tasks are
-	// born from procurement.feed_purchase.recorded (consumer wired in kernelstages); the
+	// born from procurement.feed_purchase.reached (consumer wired in kernelstages); the
 	// routes here serve the tester's guided step flow and the CEO/CXO-only review.
 	toxinHandler := toxinhttp.NewHandler(
 		toxinapp.NewService(toxinpg.NewRepository(pool, cfg.Postgres.QueryTimeout), toxinproof.NewValidator(proofRepo)), log)

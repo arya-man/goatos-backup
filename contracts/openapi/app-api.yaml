@@ -7293,6 +7293,11 @@ paths:
           in: query
           required: false
           schema: { type: string, enum: [all, CBE, CPT], default: all }
+        - name: delivery
+          in: query
+          required: false
+          schema: { type: string, enum: [all, purchased, reached], default: all }
+          description: Narrow to loads still on the road (`purchased`) or already `reached`.
         - name: limit
           in: query
           required: false
@@ -7727,6 +7732,50 @@ paths:
       responses:
         "200":
           description: The load after the edit, with its payment history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPurchase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/feed-purchases/{purchase_id}/delivery:
+    put:
+      tags:
+        - Procurement
+      operationId: recordFeedPurchaseDelivery
+      summary: Mark a purchased feed load reached, or correct its arrival.
+      description: >-
+        Buying feed and receiving it are days apart (maintainer decision 2026-09-03). A load is
+        recorded when bought and counted as stock only once it is marked reached here. The FIRST
+        call on a load still on the road is the arrival: in one transaction the load flips to
+        `reached`, its stock starts on `reached_on`, its landed rate is re-derived from the received
+        weight, and its aflatoxin strip test is raised (the toxin task does not wait for anything
+        else). A later call corrects the arrival day or enters a received weight that was deferred
+        -- the weighbridge figure is often known after the feed is already in use -- and moves
+        stock to it without raising a second test. Naturally idempotent: writing the values a load
+        already has changes nothing and audits nothing.
+      parameters:
+        - name: purchase_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedPurchaseDeliveryWrite"
+      responses:
+        "200":
+          description: The load after the arrival write, with its payment history.
           content:
             application/json:
               schema:
@@ -15068,6 +15117,7 @@ components:
         - vendor
         - payment_status
         - payments
+        - delivery_status
         - entry_source
         - created_at
       properties:
@@ -15076,6 +15126,31 @@ components:
           type: string
           format: date
           description: The business date the load was bought, never a timestamp.
+        delivery_status:
+          type: string
+          enum: [purchased, reached]
+          description: >-
+            `purchased` = bought and still on the road: counted NOWHERE as stock and its toxin test
+            not yet raised. `reached` = arrived on `reached_on`: counted as stock from that day.
+            History recorded before this state existed is `reached` on its purchase date.
+        reached_on:
+          type: string
+          format: date
+          nullable: true
+          description: The business date the load arrived at the farm. Null while on the road.
+        reached_weight_kg:
+          type: number
+          nullable: true
+          description: >-
+            The weight actually received, entered whenever it is known (it can be deferred). Null
+            means the buying weight stands in for it.
+        stock_kg:
+          type: number
+          nullable: true
+          description: >-
+            BACKEND-derived: what this load contributes to stock -- the received weight once entered,
+            else the buying weight -- and null while the load is on the road. Clients render this and
+            never decide for themselves what a load is worth in the store.
         farm: { type: string, enum: [CBE, CPT] }
         feed_item:
           type: string
@@ -15097,7 +15172,10 @@ components:
         per_kg_cost:
           type: number
           nullable: true
-          description: DERIVED from total_cost / quantity_kg, never entered, so it cannot drift from its own total.
+          description: >-
+            DERIVED, never entered, so it cannot drift from its own total: landed cost divided by
+            the kilograms the farm has to show for it -- `reached_weight_kg` once entered, else
+            `quantity_kg`. A load that shrank on the road reads a higher rate.
         vendor: { type: string }
         payment_released:
           type: number
@@ -15486,6 +15564,34 @@ components:
         vendor: { type: string, maxLength: 160 }
         payment_released: { type: number, minimum: 0, nullable: true }
         payment_status: { type: string, enum: [Paid, Pending] }
+        reached_on:
+          type: string
+          format: date
+          nullable: true
+          description: >-
+            Omit for the normal case -- the load is recorded when bought and is still on the road.
+            Supply the arrival date only for a load that had already come in when it was recorded;
+            it is then `reached` from that day. Not before `purchase_date`, not in the future.
+        reached_weight_kg:
+          type: number
+          exclusiveMinimum: 0
+          nullable: true
+          description: Weight received; meaningful only with `reached_on`. Omit to defer it.
+    FeedPurchaseDeliveryWrite:
+      type: object
+      description: >-
+        Mark-reached / update-arrival body. On a load still on the road this is the ARRIVAL: the
+        load becomes stock from `reached_on` and its toxin test is raised. On a load already reached
+        it corrects the arrival day or enters the received weight that was deferred. `reached_on`
+        may not be before the load's purchase date nor in the future (IST business day).
+      required: [reached_on]
+      properties:
+        reached_on: { type: string, format: date }
+        reached_weight_kg:
+          type: number
+          exclusiveMinimum: 0
+          nullable: true
+          description: Weight received. Null keeps the buying weight as the stock figure.
     FeedPurchasePayment:
       type: object
       description: One instalment actually handed to the vendor for one purchased feed load.

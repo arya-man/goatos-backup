@@ -58,7 +58,7 @@
     "weighing.work_item.day_start",
     "weighing.work_item.rolled_forward",
     "weighing.work_item.delayed",
-    "procurement.feed_purchase.recorded"
+    "procurement.feed_purchase.reached"
   ],
   "events": [
     {
@@ -1526,8 +1526,8 @@
       ]
     },
     {
-      "eventType": "procurement.feed_purchase.recorded",
-      "producer": "procurement feed-purchase write transaction (CreateFeedPurchase): the outbox emit rides the same transaction as the ledger insert, so a committed purchase always announces the load and a rolled-back one never does.",
+      "eventType": "procurement.feed_purchase.reached",
+      "producer": "procurement feed-purchase delivery transaction (RecordFeedPurchaseDelivery on the purchased -> reached transition, or CreateFeedPurchase when the record form already carries the arrival date): the outbox emit rides the same transaction as the state flip that makes the load stock, so a committed arrival always announces the load exactly once and a rolled-back one never does. Maintainer decision 2026-09-03: recording a purchase no longer emits anything -- the feed is still on the road.",
       "producerFiles": [
         "backend/internal/procurement/adapters/postgres/feed_purchase_outbox.go",
         "backend/internal/procurement/adapters/postgres/feed_purchase_repository.go"
@@ -1535,13 +1535,13 @@
       "consumers": [
         {
           "module": "toxin",
-          "file": "backend/internal/toxin/app/feed_purchase_recorded_handler.go",
-          "notes": "Creates the load's aflatoxin strip-test task (round 1) idempotently on (tenant_id, feed_purchase_id, round_no); an event replay is a no-op, never a second task. Maintainer decision 2026-08-25: one toxin test per purchased feed load; review is CEO/CXO-only outside the generic Verification module."
+          "file": "backend/internal/toxin/app/feed_purchase_reached_handler.go",
+          "notes": "Creates the load's aflatoxin strip-test task (round 1) idempotently on (tenant_id, feed_purchase_id, round_no); an event replay is a no-op, never a second task. Maintainer decision 2026-08-25: one toxin test per purchased feed load; review is CEO/CXO-only outside the generic Verification module. 2026-09-03: born when the load REACHES, not when it is bought."
         }
       ],
       "owningDoc": "docs/decisions/toxin-testing-module.md",
       "e2eProof": [
-        "backend/internal/toxin/app/feed_purchase_recorded_handler_test.go"
+        "backend/internal/toxin/app/feed_purchase_reached_handler_test.go"
       ],
       "surfaces": [
         "backend",

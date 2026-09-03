@@ -76,6 +76,61 @@ the route's own permission. There is no role-string conditional in the page comp
   also double the farm's available stock. An exact replay returns the original row with no new side
   effects; a same-key/different-payload replay is refused.
 
+## Delivery: a load is stock when it REACHES, not when it is bought (maintainer decision 2026-09-03)
+
+This section **supersedes the "STOCK DEPLETES AT SHEET LOCK" note above in one respect**: an
+app-entered row no longer goes into stock on its purchase date. Everything else about depletion
+(locked sheets, FIFO by `depletes_from`) stands.
+
+**What was wrong.** Recording a purchase put the whole quantity into stock that day and raised the
+aflatoxin strip test at once. The farm does not work that way: the procurement desk records the
+load when the money is committed, the truck takes three or four days, and only what comes off the
+truck is feed anyone can use or test.
+
+**What a load is now.** Two states, no third:
+
+| `delivery_status` | Meaning | Stock | Toxin test |
+|---|---|---|---|
+| `purchased` | bought, still on the road | counted **nowhere** | not yet raised |
+| `reached` | arrived on `reached_on` | counted from that day | raised at that moment |
+
+The desk marks a load reached on `/procurement/feed-purchases` (the **Mark reached** control,
+`PUT /procurement/feed-purchases/{id}/delivery`, same `feed.purchase.write` authority as recording
+it). The record form also accepts an arrival date for a load that had already come in when it was
+written up, so catching up on paper does not leave loads falsely on the road.
+
+**Which weight counts.** The stock figure is the weight actually **received** (`reached_weight_kg`)
+once the desk enters it, and the **buying** weight (`quantity_kg`) until then. Entering the received
+weight is **deferrable by design**: the weighbridge figure is often known days after the feed is in
+use, and stock must not sit at zero waiting for it. When it is entered, stock and the per-kg rate
+move to it from that moment; the buying weight is never overwritten, so the loss on the road stays
+readable as the difference. The per-kg rate is landed cost over the weight the farm has to show for
+it, so a load that shrank reads a higher rate than the vendor quoted -- that is the true cost of the
+feed in the store.
+
+**Where the rule lives.** `feed_purchases.stock_kg` is a GENERATED column (received weight if
+entered, else buying weight, `0` while on the road). Every stock read in feeddirection analytics
+(Stock cards, forecast, Mesha concentrate table, low-stock alert) reads that column and keeps only
+`delivery_status = 'reached'` rows, and `depletes_from` follows `reached_on`, so depletion starts on
+the day the feed was actually there. No read re-derives the CASE.
+
+**The toxin trigger moved.** `procurement.feed_purchase.recorded` is retired.
+`procurement.feed_purchase.reached` is emitted inside the transaction that flips a load to reached
+-- on that transition **only**, under the purchase row lock, so a later correction of the arrival
+day or received weight raises no second test and two desks marking the same load at once serialize
+to one event. The toxin task does **not** wait for anything: stock and the test start together on
+arrival, and the test's outcome never gates feeding (v1 rule from the toxin decision, unchanged).
+
+**History.** Every row present before this decision -- sheet history and app rows recorded so far
+-- is `reached` on its purchase date (migration `000246`). Nothing in stock or analytics moved for
+history; only purchases recorded from now on start on the road. The sheet importer keeps writing
+reached rows: it records loads that arrived long ago.
+
+Pinned by `TestFeedPurchaseDeliveryPostgresPaths` (state flip, `depletes_from`, transition-only
+event, deferred weight, idempotent replay), `TestStockCountsOnlyLoadsThatReached` (a load on the
+road is absent from the balance until it reaches, then counts at the received weight) and the
+toxin consumer test, which publishes the retired `recorded` type and expects no task.
+
 ## Provenance
 
 Migration `000206_feed_purchases_app_entry.sql` adds `entry_source` (`sheet_import` | `app`) and

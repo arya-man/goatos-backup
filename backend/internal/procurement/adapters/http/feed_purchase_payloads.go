@@ -29,8 +29,27 @@ type feedPurchasePayload struct {
 	PaymentBalance *float64                     `json:"payment_balance"`
 	Payments       []feedPurchasePaymentPayload `json:"payments"`
 
+	// Delivery state (maintainer decision 2026-09-03). ReachedOn and ReachedWeightKg are null
+	// while the load is on the road; StockKg is BACKEND-derived (received weight if entered, else
+	// buying weight) and null while in transit, so no surface decides for itself what a load is
+	// worth in the store.
+	DeliveryStatus  string   `json:"delivery_status"`
+	ReachedOn       *string  `json:"reached_on"`
+	ReachedWeightKg *float64 `json:"reached_weight_kg"`
+	StockKg         *float64 `json:"stock_kg"`
+
 	EntrySource string `json:"entry_source"`
 	CreatedAt   string `json:"created_at"`
+}
+
+// feedPurchaseDeliveryWritePayload is the mark-reached / update-arrival body.
+type feedPurchaseDeliveryWritePayload struct {
+	ReachedOn       string   `json:"reached_on"`
+	ReachedWeightKg *float64 `json:"reached_weight_kg"`
+}
+
+func (p feedPurchaseDeliveryWritePayload) toDomain() domain.FeedPurchaseDeliveryWrite {
+	return domain.FeedPurchaseDeliveryWrite{ReachedOn: p.ReachedOn, ReachedWeightKg: p.ReachedWeightKg}
 }
 
 // feedPurchasePaymentPayload is one instalment on the wire.
@@ -126,15 +145,24 @@ type feedPurchaseWritePayload struct {
 	Vendor          string   `json:"vendor"`
 	PaymentReleased *float64 `json:"payment_released"`
 	PaymentStatus   string   `json:"payment_status"`
+
+	// Optional: a load that already arrived when it is recorded. Absent means still on the road.
+	ReachedOn       *string  `json:"reached_on"`
+	ReachedWeightKg *float64 `json:"reached_weight_kg"`
 }
 
 func (p feedPurchaseWritePayload) toDomain() domain.FeedPurchaseWrite {
+	reachedOn := ""
+	if p.ReachedOn != nil {
+		reachedOn = *p.ReachedOn
+	}
 	return domain.FeedPurchaseWrite{
 		PurchaseDate: p.PurchaseDate, FarmLabel: p.Farm, FeedItemLabel: p.FeedItem,
 		BatchNo: p.BatchNo, QuantityKg: p.QuantityKg,
 		FeedCost: p.FeedCost, TransportCost: p.TransportCost,
 		LoadingCost: p.LoadingCost, UnloadingCost: p.UnloadingCost, TotalCost: p.TotalCost,
 		Vendor: p.Vendor, PaymentReleased: p.PaymentReleased, PaymentStatus: p.PaymentStatus,
+		ReachedOn: reachedOn, ReachedWeightKg: p.ReachedWeightKg,
 	}
 }
 
@@ -155,6 +183,8 @@ func toFeedPurchasePayload(p domain.FeedPurchase) feedPurchasePayload {
 		UnloadingCost: p.UnloadingCost, TotalCost: p.TotalCost, PerKgCost: p.PerKgCost,
 		Vendor: p.Vendor, PaymentReleased: p.PaymentReleased, PaymentStatus: p.PaymentStatus,
 		PaymentBalance: p.PaymentBalance(), Payments: payments,
+		DeliveryStatus: p.DeliveryStatus, ReachedOn: p.ReachedOn, ReachedWeightKg: p.ReachedWeightKg,
+		StockKg:     p.StockKg(),
 		EntrySource: p.EntrySource, CreatedAt: p.CreatedAt,
 	}
 }

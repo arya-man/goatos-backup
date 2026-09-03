@@ -830,7 +830,7 @@ func loadwiseTable() domain.TableContract {
 // rendering blank.
 func feedPurchaseTable() domain.TableContract {
 	t := tableP("feed-purchases", "Purchases", "/procurement/feed-purchases",
-		[]string{"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "total_cost", "per_kg_cost", "vendor", "payment_status", "payment_balance"},
+		[]string{"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "delivery_status", "total_cost", "per_kg_cost", "vendor", "payment_status", "payment_balance"},
 		"purchase_id", []int{25, 50, 100})
 	copy := pageCopy("feed-purchases")
 	for i := range t.Columns {
@@ -3155,6 +3155,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"column.per_kg_cost":    "Per kg",
 			"column.vendor":         "Vendor",
 			"column.payment_status": "Payment",
+			// Whether the load has come in yet: feed on the road is not stock, and the ledger
+			// says so beside the quantity rather than letting the reader assume it is in the store.
+			"column.delivery_status": "Delivery",
 			// The money still owed on the load, so a pending row answers "how much" without opening it.
 			"column.payment_balance": "Remaining",
 			"column.entry_source":    "Recorded",
@@ -3164,13 +3167,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.purchases.unset":  "No feed purchases recorded yet. Record the first load to start the ledger.",
 
 			// Filters and paging.
-			"filter.farm":      "Farm",
-			"filter.all":       "All farms",
-			"filter.clear":     "Clear filters",
-			"action.next_page": "Next",
-			"action.prev_page": "Back",
-			"pager.page":       "Page",
-			"pager.of":         "of",
+			"filter.farm":         "Farm",
+			"filter.all":          "All farms",
+			"filter.delivery":     "Delivery",
+			"filter.delivery.all": "All loads",
+			"filter.clear":        "Clear filters",
+			"action.next_page":    "Next",
+			"action.prev_page":    "Back",
+			"pager.page":          "Page",
+			"pager.of":            "of",
 
 			// Record-purchase drawer.
 			"action.record_feed_purchase.label": "Record purchase",
@@ -3193,6 +3198,25 @@ func pageSpecificCopy(id string) map[string]string {
 			"required.hint":                     "Date, farm, feed, quantity, vendor and payment status are required.",
 			"hint.batch_no":                     "Leave blank to record this as the next load of this feed at this farm.",
 			"hint.total_cost":                   "Leave blank to add up the feed, transport, loading and unloading costs entered above.",
+
+			// Delivery (maintainer decision 2026-09-03): a load is bought, travels for days, then
+			// reaches. Stock counts it from the day it reached, at the weight received once that
+			// is entered -- which can wait, because the weighbridge figure is often known after
+			// the feed is already in use.
+			"section.delivery.title":        "Delivery",
+			"field.delivery_status":         "Delivery",
+			"field.reached_on":              "Reached on",
+			"field.reached_weight_kg":       "Weight received (kg)",
+			"field.stock_kg":                "Counted as stock (kg)",
+			"hint.record_reached":           "Leave the reached date blank if the load is still on the road. Fill it in only for a load that has already come in.",
+			"hint.reached_weight":           "Leave blank if the load has not been weighed on arrival yet — the buying weight counts until you enter it.",
+			"hint.mark_reached":             "Marking the load reached counts it as stock from that day and raises its toxin test. The received weight can be entered now or later.",
+			"delivery.in_transit_note":      "This load is still on the road. It is not counted as stock and its toxin test has not started.",
+			"action.mark_reached.label":     "Mark reached",
+			"action.update_delivery.label":  "Update arrival",
+			"action.delivery_recorded":      "Load marked reached. It now counts as stock and its toxin test has been raised.",
+			"action.delivery_updated":       "Arrival details updated.",
+			"action.delivery_record_failed": "Could not update the arrival. Check the fields and try again.",
 
 			// Payment section of the detail drawer: instalment history, running totals, and the
 			// add-payment / status-edit controls.
@@ -6429,6 +6453,16 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				Options: []domain.Option{
 					option("Paid", "Paid", "", "ok"),
 					option("Pending", "Pending", "", "warn"),
+				},
+			},
+			{
+				// Mirrors procurement/domain.FeedDeliveryStatuses (maintainer decision 2026-09-03),
+				// in lifecycle order. The tone is the chip: a load on the road is a warning on the
+				// ledger because it is feed the farm is counting on and does not have yet.
+				ID: "feed_purchase_delivery_statuses",
+				Options: []domain.Option{
+					option("purchased", "On the road", "", "warn"),
+					option("reached", "Reached", "", "ok"),
 				},
 			},
 		})

@@ -25,6 +25,7 @@ type FeedPurchaseService interface {
 	RecordFeedPurchasePayment(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchasePaymentWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error)
 	SetFeedPurchasePaymentStatus(ctx context.Context, tenantID, purchaseID, status, actorID string) (domain.FeedPurchase, error)
 	EditFeedPurchase(ctx context.Context, tenantID, purchaseID string, edit domain.FeedPurchaseEdit, actorID string) (domain.FeedPurchase, error)
+	RecordFeedPurchaseDelivery(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchaseDeliveryWrite, actorID string) (domain.FeedPurchase, error)
 }
 
 // FeedPurchaseHandler serves /procurement/feed-purchases.
@@ -52,6 +53,7 @@ func RegisterFeedPurchases(mux *http.ServeMux, h *FeedPurchaseHandler) {
 	mux.HandleFunc("POST /procurement/feed-purchases/{purchase_id}/payments", h.RecordFeedPurchasePayment)
 	mux.HandleFunc("PUT /procurement/feed-purchases/{purchase_id}/payment-status", h.SetFeedPurchasePaymentStatus)
 	mux.HandleFunc("PUT /procurement/feed-purchases/{purchase_id}", h.EditFeedPurchase)
+	mux.HandleFunc("PUT /procurement/feed-purchases/{purchase_id}/delivery", h.RecordFeedPurchaseDelivery)
 }
 
 // maxFeedPurchaseRequestBytes caps a write body. The largest legitimate record-purchase payload is
@@ -71,9 +73,10 @@ func (h *FeedPurchaseHandler) ListFeedPurchases(w http.ResponseWriter, r *http.R
 	}
 
 	page, err := h.service.ListFeedPurchases(r.Context(), tenantID(r), app.FeedPurchaseListQuery{
-		Farm:   q.Get("farm"),
-		Limit:  limit,
-		Offset: offset,
+		Farm:     q.Get("farm"),
+		Delivery: q.Get("delivery"),
+		Limit:    limit,
+		Offset:   offset,
 	})
 	if err != nil {
 		h.writeErr(w, r, app.FeedPurchaseHTTPError(err))
@@ -168,6 +171,21 @@ func (h *FeedPurchaseHandler) EditFeedPurchase(w http.ResponseWriter, r *http.Re
 		return
 	}
 	updated, err := h.service.EditFeedPurchase(r.Context(), tenantID(r), r.PathValue("purchase_id"),
+		body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()))
+	if err != nil {
+		h.writeErr(w, r, app.FeedPurchaseHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toFeedPurchasePayload(updated))
+}
+
+// RecordFeedPurchaseDelivery serves PUT /procurement/feed-purchases/{purchase_id}/delivery.
+func (h *FeedPurchaseHandler) RecordFeedPurchaseDelivery(w http.ResponseWriter, r *http.Request) {
+	var body feedPurchaseDeliveryWritePayload
+	if !decodeFeedPurchaseBody(h, w, r, &body) {
+		return
+	}
+	updated, err := h.service.RecordFeedPurchaseDelivery(r.Context(), tenantID(r), r.PathValue("purchase_id"),
 		body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()))
 	if err != nil {
 		h.writeErr(w, r, app.FeedPurchaseHTTPError(err))

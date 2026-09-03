@@ -109,9 +109,10 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	countsapp.NewPenReconciliationRaiser(countsMilkPreparationRepo, logger, nil).Register(bus)
 	countsapp.NewPenReconciliationVerificationHandler(countsMilkPreparationRepo, nil).Register(bus)
 	countsapp.NewMilkFeedingVerificationHandler(countsMilkPreparationRepo).Register(bus)
-	// Toxin (maintainer decision 2026-08-25): a recorded feed purchase owes the load an
-	// aflatoxin strip test; the toxin consumer materializes the round-1 task idempotently.
-	toxinapp.NewFeedPurchaseRecordedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
+	// Toxin (maintainer decisions 2026-08-25 and 2026-09-03): a feed load that REACHED the
+	// farm owes an aflatoxin strip test; the toxin consumer materializes the round-1 task
+	// idempotently. Recording the purchase does not trigger it -- the feed is still on the road.
+	toxinapp.NewFeedPurchaseReachedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
 	verificationService := verificationapp.NewService(verificationpg.NewRepository(pool, pgCfg.QueryTimeout), nil)
 	if err := pccareverificationbridge.RegisterCategories(verificationService); err != nil {
 		panic(fmt.Sprintf("register pc care verification categories: %v", err))

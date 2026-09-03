@@ -2949,6 +2949,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/feed-purchases/{purchase_id}/delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Mark a purchased feed load reached, or correct its arrival.
+         * @description Buying feed and receiving it are days apart (maintainer decision 2026-09-03). A load is recorded when bought and counted as stock only once it is marked reached here. The FIRST call on a load still on the road is the arrival: in one transaction the load flips to `reached`, its stock starts on `reached_on`, its landed rate is re-derived from the received weight, and its aflatoxin strip test is raised (the toxin task does not wait for anything else). A later call corrects the arrival day or enters a received weight that was deferred -- the weighbridge figure is often known after the feed is already in use -- and moves stock to it without raising a second test. Naturally idempotent: writing the values a load already has changes nothing and audits nothing.
+         */
+        put: operations["recordFeedPurchaseDelivery"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/feed-purchases/{purchase_id}/payment-status": {
         parameters: {
             query?: never;
@@ -6011,6 +6031,20 @@ export interface components {
              * @description The business date the load was bought, never a timestamp.
              */
             purchase_date: string;
+            /**
+             * @description `purchased` = bought and still on the road: counted NOWHERE as stock and its toxin test not yet raised. `reached` = arrived on `reached_on`: counted as stock from that day. History recorded before this state existed is `reached` on its purchase date.
+             * @enum {string}
+             */
+            delivery_status: "purchased" | "reached";
+            /**
+             * Format: date
+             * @description The business date the load arrived at the farm. Null while on the road.
+             */
+            reached_on?: string | null;
+            /** @description The weight actually received, entered whenever it is known (it can be deferred). Null means the buying weight stands in for it. */
+            reached_weight_kg?: number | null;
+            /** @description BACKEND-derived: what this load contributes to stock -- the received weight once entered, else the buying weight -- and null while the load is on the road. Clients render this and never decide for themselves what a load is worth in the store. */
+            stock_kg?: number | null;
             /** @enum {string} */
             farm: "CBE" | "CPT";
             /** @description The FEED CATALOG's label, not the typed one, so one feed reads with one spelling. */
@@ -6024,7 +6058,7 @@ export interface components {
             unloading_cost?: number | null;
             /** @description The landed cost. Null when no cost was entered at all -- a load whose cost is not yet known is a real state, and a zero would report a free load. */
             total_cost?: number | null;
-            /** @description DERIVED from total_cost / quantity_kg, never entered, so it cannot drift from its own total. */
+            /** @description DERIVED, never entered, so it cannot drift from its own total: landed cost divided by the kilograms the farm has to show for it -- `reached_weight_kg` once entered, else `quantity_kg`. A load that shrank on the road reads a higher rate. */
             per_kg_cost?: number | null;
             vendor: string;
             /** @description Money released to the vendor so far. For app-recorded instalments this is the running total of `payments`, maintained in the same transaction as each instalment; sheet history keeps whatever single figure the sheet carried, with no instalment rows. */
@@ -6244,6 +6278,20 @@ export interface components {
             payment_released?: number | null;
             /** @enum {string} */
             payment_status: "Paid" | "Pending";
+            /**
+             * Format: date
+             * @description Omit for the normal case -- the load is recorded when bought and is still on the road. Supply the arrival date only for a load that had already come in when it was recorded; it is then `reached` from that day. Not before `purchase_date`, not in the future.
+             */
+            reached_on?: string | null;
+            /** @description Weight received; meaningful only with `reached_on`. Omit to defer it. */
+            reached_weight_kg?: number | null;
+        };
+        /** @description Mark-reached / update-arrival body. On a load still on the road this is the ARRIVAL: the load becomes stock from `reached_on` and its toxin test is raised. On a load already reached it corrects the arrival day or enters the received weight that was deferred. `reached_on` may not be before the load's purchase date nor in the future (IST business day). */
+        FeedPurchaseDeliveryWrite: {
+            /** Format: date */
+            reached_on: string;
+            /** @description Weight received. Null keeps the buying weight as the stock figure. */
+            reached_weight_kg?: number | null;
         };
         /** @description One instalment actually handed to the vendor for one purchased feed load. */
         FeedPurchasePayment: {
@@ -20010,6 +20058,8 @@ export interface operations {
         parameters: {
             query?: {
                 farm?: "all" | "CBE" | "CPT";
+                /** @description Narrow to loads still on the road (`purchased`) or already `reached`. */
+                delivery?: "all" | "purchased" | "reached";
                 limit?: number;
                 /** @description Rows to skip. Bounded on purpose -- the ledger grows with loads bought, never with herd size. A request past the cap is REJECTED rather than clamped, so a page number never shows the wrong rows. */
                 offset?: number;
@@ -20329,6 +20379,37 @@ export interface operations {
         };
         responses: {
             /** @description The load after the edit, with its payment history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPurchase"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordFeedPurchaseDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchase_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedPurchaseDeliveryWrite"];
+            };
+        };
+        responses: {
+            /** @description The load after the arrival write, with its payment history. */
             200: {
                 headers: {
                     [name: string]: unknown;

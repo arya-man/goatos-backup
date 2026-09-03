@@ -1194,13 +1194,25 @@ func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput
 	// Editing a recorded load's values is the same authority as recording it: whoever buys feed
 	// may correct a wrongly-typed quantity or cost. Identity (farm/feed/batch) stays immutable at
 	// the contract's own route.
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "edit_feed_purchase",
 		Label:          controlCopy(copy, "action.edit_feed_purchase.label", "Edit purchase"),
 		Kind:           "row_action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "PUT /procurement/feed-purchases/{purchase_id}",
+	})
+	// Marking a load reached (maintainer decision 2026-09-03) is the desk that bought it saying
+	// the truck came in: same permission, same disabled reason. It is the write that turns a
+	// purchase into stock and raises its toxin test, so it is its own control rather than a
+	// field on the edit form.
+	return upsertControl(controls, domain.Control{
+		ID:             "record_feed_purchase_delivery",
+		Label:          controlCopy(copy, "action.mark_reached.label", "Mark reached"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /procurement/feed-purchases/{purchase_id}/delivery",
 	})
 }
 

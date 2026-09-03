@@ -1123,6 +1123,12 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // Stock & expenditure
 // ---------------------------------------------------------------------------
 
+// STOCK IS WHAT REACHED (maintainer decision 2026-09-03): every purchase CTE below reads
+// stock_kg (the received weight when entered, else the buying weight; 0 in transit) and keeps only
+// delivery_status = 'reached' rows, so a load still on the road is counted nowhere and the FIFO
+// depletion starts on the day it arrived (depletes_from follows reached_on). The rule lives in the
+// generated column and this predicate; no read re-derives it.
+//
 // projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), and feed_effective_external_consumption at (tenant, park_id, feed_item_key, feed_day) (feeds the ration grid does not direct — UHT Milk, resolved from the Milk Preparation workflow on submit, with the feed_external_consumption ledger as the fallback for days that workflow does not cover; migration 000216 guarantees at most one row per key, so the two sources cannot both contribute); the two consumption sources pre-aggregate to the same (park_id, feed_item_key, feed_day) grain and the UNION ALL is re-grouped on that key, so a day contributes once; group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
 //
 // PER-FARM GRAIN (maintainer decision 2026-08-21): each farm keeps its own
@@ -1136,11 +1142,12 @@ WITH bought AS (
     SELECT farm_label, feed_item_key,
            MAX(feed_item_label)                          AS feed_item_label,
            MIN(park_id::text)                            AS park_id_text,
-           SUM(quantity_kg - consumed_at_import_kg)      AS net_kg,
+           SUM(stock_kg - consumed_at_import_kg)      AS net_kg,
            MAX(batch_no)                                 AS latest_batch,
            MIN(depletes_from)                            AS depletes_from
     FROM feed_purchases
     WHERE tenant_id = $1
+      AND delivery_status = 'reached'
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
     GROUP BY farm_label, feed_item_key
 ),
@@ -1279,10 +1286,11 @@ recent AS (
 -- exactly as the expenditure series excludes them.
 purchased AS (
     SELECT p.park_id, p.feed_item_key,
-           SUM(p.quantity_kg - p.consumed_at_import_kg) AS net_kg,
+           SUM(p.stock_kg - p.consumed_at_import_kg) AS net_kg,
            MIN(p.depletes_from)                         AS depletes_from
     FROM feed_purchases p
     WHERE p.tenant_id = $1
+      AND p.delivery_status = 'reached'
       AND p.park_id IS NOT NULL
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
     GROUP BY p.park_id, p.feed_item_key
@@ -1353,10 +1361,11 @@ WITH bought AS (
     SELECT farm_label, feed_item_key,
            MAX(feed_item_label)                     AS feed_item_label,
            MIN(park_id::text)                       AS park_id_text,
-           SUM(quantity_kg - consumed_at_import_kg) AS net_kg,
+           SUM(stock_kg - consumed_at_import_kg) AS net_kg,
            MIN(depletes_from)                       AS depletes_from
     FROM feed_purchases
     WHERE tenant_id = $1
+      AND delivery_status = 'reached'
     GROUP BY farm_label, feed_item_key
 ),
 fed AS (
@@ -1602,7 +1611,7 @@ FROM priced`
 
 // Per-farm Mesha-concentrate purchase/consumption table (Stock tab).
 //
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, filtered to the four MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on both purchase sides — loads GROUP BY that pair and last_load is DISTINCT ON the same pair so they meet exactly 1:1, while the directed side collapses locked issue-row cells to (park_id, feed_item_key) before joining and one farm_label resolves to exactly one park (the importer maps CBE/CPT to the tenant's park locations); load_consumption is a FIFO crossing: locked_cells is one row per (park, feed_item_key, feed_day), so the running SUM window per (farm_label, feed_item_key) sees each day once, and MIN(feed_day) over the crossing days collapses back to one row per pair; join_cardinality=loads JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, no side left unaggregated; pagination=none — four items across a tenant's farms is a bounded table with no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets.
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, filtered to the four MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on both purchase sides — loads GROUP BY that pair and last_load is DISTINCT ON the same pair so they meet exactly 1:1, while the directed side collapses locked issue-row cells to (park_id, feed_item_key) before joining and one farm_label resolves to exactly one park (the importer maps CBE/CPT to the tenant's park locations) -- load_consumption is a FIFO crossing: locked_cells is one row per (park, feed_item_key, feed_day), so the running SUM window per (farm_label, feed_item_key) sees each day once, and MIN(feed_day) over the crossing days collapses back to one row per pair; join_cardinality=loads JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, no side left unaggregated; pagination=none — four items across a tenant's farms is a bounded table with no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets.
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded four-item aggregate over the
 // small purchase ledger and locked sheets, canonical-indexed-SQL default.
@@ -1611,10 +1620,11 @@ WITH loads AS (
     SELECT farm_label, feed_item_key,
            MAX(feed_item_label) AS feed_item_label,
            MIN(park_id::text)   AS park_id_text,
-           SUM(quantity_kg - consumed_at_import_kg) AS net_kg,
+           SUM(stock_kg - consumed_at_import_kg) AS net_kg,
            MIN(depletes_from)    AS depletes_from
     FROM feed_purchases
     WHERE tenant_id = $1
+      AND delivery_status = 'reached'
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_item_key = ANY ($3::text[])
     GROUP BY farm_label, feed_item_key
@@ -1623,9 +1633,10 @@ last_load AS (
     SELECT DISTINCT ON (farm_label, feed_item_key)
            farm_label, feed_item_key,
            batch_no, purchase_date, quantity_kg, vendor, total_cost, per_kg_cost,
-           depletes_from, quantity_kg - consumed_at_import_kg AS net_kg
+           depletes_from, stock_kg - consumed_at_import_kg AS net_kg
     FROM feed_purchases
     WHERE tenant_id = $1
+      AND delivery_status = 'reached'
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_item_key = ANY ($3::text[])
     ORDER BY farm_label, feed_item_key, purchase_date DESC, batch_no DESC

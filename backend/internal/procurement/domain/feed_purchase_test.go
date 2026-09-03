@@ -251,3 +251,89 @@ func TestNormalizeFeedPaymentStatus(t *testing.T) {
 		t.Fatal("a word outside the closed vocabulary must be rejected, never defaulted")
 	}
 }
+
+// TestDeriveFeedPerKgCostUsesTheWeightTheFarmHas pins the ONE landed-rate rule (maintainer decision
+// 2026-09-03): landed cost over the received weight once it is entered, over the buying weight
+// until then, and absent when there is no total or nothing to divide by.
+func TestDeriveFeedPerKgCostUsesTheWeightTheFarmHas(t *testing.T) {
+	total := 76980.0
+	received := 5000.0
+	if got := DeriveFeedPerKgCost(nil, 5420, &received); got != nil {
+		t.Fatalf("no total: rate = %v want nil", *got)
+	}
+	if got := DeriveFeedPerKgCost(&total, 0, nil); got != nil {
+		t.Fatalf("no weight: rate = %v want nil", *got)
+	}
+	buying := DeriveFeedPerKgCost(&total, 5420, nil)
+	if buying == nil || *buying < 14.20 || *buying > 14.21 {
+		t.Fatalf("buying-weight rate = %v want ~14.2", buying)
+	}
+	// A load that shrank on the road costs MORE per kg in the store: 76980 / 5000.
+	shrunk := DeriveFeedPerKgCost(&total, 5420, &received)
+	if shrunk == nil || *shrunk < 15.39 || *shrunk > 15.40 {
+		t.Fatalf("received-weight rate = %v want ~15.396", shrunk)
+	}
+}
+
+// TestFeedPurchaseDeliveryWriteValidate pins the arrival rules: a real date, not in the future,
+// not before the load's purchase date, and a positive received weight when one is given -- with
+// the weight itself OPTIONAL, because entering it is deferrable.
+func TestFeedPurchaseDeliveryWriteValidate(t *testing.T) {
+	today := time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)
+	zero := 0.0
+	kg := 5380.0
+	for name, tc := range map[string]struct {
+		write FeedPurchaseDeliveryWrite
+		field string
+	}{
+		"bad date":              {FeedPurchaseDeliveryWrite{ReachedOn: "yesterday"}, "reached_on"},
+		"future":                {FeedPurchaseDeliveryWrite{ReachedOn: "2026-09-04"}, "reached_on"},
+		"before purchase":       {FeedPurchaseDeliveryWrite{ReachedOn: "2026-08-29"}, "reached_on"},
+		"zero weight":           {FeedPurchaseDeliveryWrite{ReachedOn: "2026-09-02", ReachedWeightKg: &zero}, "reached_weight_kg"},
+		"deferred weight is ok": {FeedPurchaseDeliveryWrite{ReachedOn: "2026-09-02"}, ""},
+		"weighed is ok":         {FeedPurchaseDeliveryWrite{ReachedOn: "2026-09-03", ReachedWeightKg: &kg}, ""},
+		"same day as purchase":  {FeedPurchaseDeliveryWrite{ReachedOn: "2026-08-30"}, ""},
+	} {
+		err := tc.write.Normalize().Validate("2026-08-30", today)
+		if tc.field == "" {
+			if err != nil {
+				t.Fatalf("%s: unexpected %v", name, err)
+			}
+			continue
+		}
+		var v ErrFeedPurchaseValidation
+		if !errors.As(err, &v) || v.Field != tc.field {
+			t.Fatalf("%s: err = %v want field %s", name, err, tc.field)
+		}
+	}
+}
+
+// TestFeedPurchaseStockKgIsAbsentOnTheRoad pins what a load is worth in the store: nothing (nil,
+// not zero) while on the road, the buying weight once reached with no weighbridge figure, and the
+// received weight once that is entered. Mirrors the feed_purchases.stock_kg generated column.
+func TestFeedPurchaseStockKgIsAbsentOnTheRoad(t *testing.T) {
+	received := 5000.0
+	if got := (FeedPurchase{DeliveryStatus: FeedDeliveryPurchased, QuantityKg: 5420, ReachedWeightKg: &received}).StockKg(); got != nil {
+		t.Fatalf("on the road: stock = %v want nil", *got)
+	}
+	if got := (FeedPurchase{DeliveryStatus: FeedDeliveryReached, QuantityKg: 5420}).StockKg(); got == nil || *got != 5420 {
+		t.Fatalf("reached unweighed: stock = %v want 5420", got)
+	}
+	if got := (FeedPurchase{DeliveryStatus: FeedDeliveryReached, QuantityKg: 5420, ReachedWeightKg: &received}).StockKg(); got == nil || *got != 5000 {
+		t.Fatalf("reached weighed: stock = %v want 5000", got)
+	}
+}
+
+// TestNormalizeFeedDeliveryFilter pins the closed filter vocabulary: blank/all widen, an exact
+// state (case-insensitive, trimmed) passes, anything else is refused rather than defaulted.
+func TestNormalizeFeedDeliveryFilter(t *testing.T) {
+	for raw, want := range map[string]string{"": "", "all": "", " Reached ": FeedDeliveryReached, "PURCHASED": FeedDeliveryPurchased} {
+		got, ok := NormalizeFeedDeliveryFilter(raw)
+		if !ok || got != want {
+			t.Fatalf("%q -> %q,%v want %q", raw, got, ok, want)
+		}
+	}
+	if _, ok := NormalizeFeedDeliveryFilter("in transit"); ok {
+		t.Fatal("an unknown delivery filter was accepted")
+	}
+}

@@ -38,6 +38,7 @@ export type FeedPurchasePayment = AppApiComponents["schemas"]["FeedPurchasePayme
 export type FeedPurchasePaymentWrite = AppApiComponents["schemas"]["FeedPurchasePaymentWrite"];
 export type FeedPurchaseStatusWrite = AppApiComponents["schemas"]["FeedPurchaseStatusWrite"];
 export type FeedPurchaseEdit = AppApiComponents["schemas"]["FeedPurchaseEdit"];
+export type FeedPurchaseDeliveryWrite = AppApiComponents["schemas"]["FeedPurchaseDeliveryWrite"];
 export type SalesBuyerLead = AppApiComponents["schemas"]["SalesBuyerLead"];
 export type SalesBuyerLeadPage = AppApiComponents["schemas"]["SalesBuyerLeadPage"];
 export type SalesBuyerLeadWrite = AppApiComponents["schemas"]["SalesBuyerLeadWrite"];

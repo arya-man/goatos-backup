@@ -8,7 +8,9 @@ Status: ACCEPTED, implemented on branch `feat/toxin-module`.
 Every feed load recorded on `/procurement/feed-purchases` must be screened for
 aflatoxins with the SafetiX SHF 001-A qualitative rapid strip kit before the farm trusts
 the load. One test task is born **per feed-purchase row** (per load × feed type),
-created automatically by the toxin consumer of `procurement.feed_purchase.recorded` —
+created automatically by the toxin consumer of `procurement.feed_purchase.reached` (the load
+ARRIVING at the farm; maintainer decision 2026-09-03 moved the trigger off the purchase being
+recorded, because a truck still on the road carries nothing to test) —
 never typed in by hand, so a load can neither be forgotten nor tested twice.
 
 There is **no calendar and no due clock**: tasks sit in a flat pending list until done.
@@ -154,9 +156,10 @@ phone and is pinned in `ToxinTaskListViewModelTest`.
 
 ## Event spine
 
-`procurement.feed_purchase.recorded` is emitted inside `CreateFeedPurchase`'s
-transaction (`feed_purchase_outbox.go`); the toxin consumer
-(`toxin/app.FeedPurchaseRecordedHandler`, wired in `kernelstages/bus.go`) creates the
+`procurement.feed_purchase.reached` is emitted inside the delivery transaction
+(`RecordFeedPurchaseDelivery` on the purchased -> reached transition, or `CreateFeedPurchase`
+when the record form already carries the arrival date; `feed_purchase_outbox.go`); the toxin
+consumer (`toxin/app.FeedPurchaseReachedHandler`, wired in `kernelstages/bus.go`) creates the
 round-1 task idempotently on `(tenant_id, feed_purchase_id, round_no)`. Registered in
 `context/architecture/domain-event-registry.json` and the envelope schema enum.
 

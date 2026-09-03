@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -29,6 +30,10 @@ const feedPurchaseNaturalKeyConstraint = "feed_purchases_natural_uq"
 
 // feedPurchaseColumns is the single projection every purchase read uses.
 //
+// The arrival day is projected as COALESCE(reached_on, purchase_date) on a reached row: sheet
+// history and the importer's rows are reached with no recorded arrival day, and "arrived on the
+// day it was bought" is what the ledger has always counted them as.
+//
 // Column order here and in scanFeedPurchase must move together. pgx fails loudly on a count
 // mismatch but silently mis-assigns two same-typed columns that are swapped, so any edit to one
 // must be mirrored in the other.
@@ -37,6 +42,9 @@ const feedPurchaseColumns = `
 	p.batch_no, p.quantity_kg,
 	p.feed_cost, p.transport_cost, p.loading_cost, p.unloading_cost, p.total_cost, p.per_kg_cost,
 	p.vendor, p.payment_released, p.payment_status,
+	p.delivery_status,
+	CASE WHEN p.delivery_status = 'reached' THEN COALESCE(p.reached_on, p.purchase_date) END,
+	p.reached_weight_kg, p.reached_by,
 	p.entry_source, p.recorded_by, p.created_at`
 
 // scanFeedPurchase reads one row of feedPurchaseColumns, in that exact order.
@@ -44,6 +52,7 @@ func scanFeedPurchase(row pgx.Row) (domain.FeedPurchase, error) {
 	var (
 		p            domain.FeedPurchase
 		purchaseDate time.Time
+		reachedOn    *time.Time
 		createdAt    time.Time
 	)
 	err := row.Scan(
@@ -51,25 +60,37 @@ func scanFeedPurchase(row pgx.Row) (domain.FeedPurchase, error) {
 		&p.BatchNo, &p.QuantityKg,
 		&p.FeedCost, &p.TransportCost, &p.LoadingCost, &p.UnloadingCost, &p.TotalCost, &p.PerKgCost,
 		&p.Vendor, &p.PaymentReleased, &p.PaymentStatus,
+		&p.DeliveryStatus, &reachedOn, &p.ReachedWeightKg, &p.ReachedBy,
 		&p.EntrySource, &p.RecordedBy, &createdAt,
 	)
 	if err != nil {
 		return domain.FeedPurchase{}, err
 	}
 	// The purchase date is a business DATE: formatted as its calendar day, never shifted through a
-	// timezone conversion.
+	// timezone conversion. Same for the arrival day.
 	p.PurchaseDate = purchaseDate.Format("2006-01-02")
+	if reachedOn != nil {
+		day := reachedOn.Format("2006-01-02")
+		p.ReachedOn = &day
+	}
 	p.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 	return p, nil
 }
 
 // buildFeedPurchaseFilter renders the shared WHERE clause for the page read and its whole-filter
 // totals, so the rows and the header figures can never range over different predicate sets.
-func buildFeedPurchaseFilter(tenantID, farm string) (string, []any) {
-	if farm == "" {
-		return "p.tenant_id = $1", []any{tenantID}
+func buildFeedPurchaseFilter(tenantID, farm, delivery string) (string, []any) {
+	where := "p.tenant_id = $1"
+	args := []any{tenantID}
+	if farm != "" {
+		args = append(args, farm)
+		where += fmt.Sprintf(" AND p.farm_label = $%d", len(args))
 	}
-	return "p.tenant_id = $1 AND p.farm_label = $2", []any{tenantID, farm}
+	if delivery != "" {
+		args = append(args, delivery)
+		where += fmt.Sprintf(" AND p.delivery_status = $%d", len(args))
+	}
+	return where, args
 }
 
 // ListFeedPurchases returns one ledger page plus the whole-filter total, quantity and spend.
@@ -80,7 +101,7 @@ func buildFeedPurchaseFilter(tenantID, farm string) (string, []any) {
 // call, so numerator (page rows) and denominator (total) are the same key set by construction;
 // join_cardinality=n/a, nothing is joined here; pagination=bounded LIMIT/OFFSET with the totals
 // computed whole-filter, never page-local; scope=tenant_id on every branch.
-func (r *Repository) ListFeedPurchases(ctx context.Context, tenantID, farm string, limit, offset int) (ports.FeedPurchasePage, error) {
+func (r *Repository) ListFeedPurchases(ctx context.Context, tenantID, farm, delivery string, limit, offset int) (ports.FeedPurchasePage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -88,7 +109,7 @@ func (r *Repository) ListFeedPurchases(ctx context.Context, tenantID, farm strin
 	if offset < 0 {
 		offset = 0
 	}
-	where, args := buildFeedPurchaseFilter(tenantID, farm)
+	where, args := buildFeedPurchaseFilter(tenantID, farm, delivery)
 
 	// scale-guard:ignore: bounded LIMIT/OFFSET over an authored commercial ledger, not a herd-sized
 	// table. The ledger grows with the number of feed LOADS the farm buys (a few hundred rows of
@@ -235,6 +256,7 @@ func (r *Repository) CreateFeedPurchase(ctx context.Context, tenantID string, wr
 		fpMoney(write.FeedCost), fpMoney(write.TransportCost), fpMoney(write.LoadingCost),
 		fpMoney(write.UnloadingCost), fpMoney(write.TotalCost),
 		write.Vendor, fpMoney(write.PaymentReleased), write.PaymentStatus,
+		write.ReachedOn, fpMoney(write.ReachedWeightKg),
 	)
 	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeFeedPurchaseCreate, idempotencyKey, fingerprint)
 	if err != nil {
@@ -284,6 +306,25 @@ WHERE tenant_id = $1 AND farm_label = $2 AND feed_item_key = feed_config_norm($3
 		}
 	}
 
+	// DELIVERY STATE (maintainer decision 2026-09-03). A load is recorded as still on the road
+	// unless the form carries the day it arrived, in which case it is reached from that day.
+	// depletes_from is the first feed day this load can be drawn against: the arrival day when
+	// known, else the purchase date as a placeholder the delivery write overwrites -- an
+	// in-transit load contributes stock_kg = 0 (generated column), so the placeholder feeds
+	// nothing until then.
+	deliveryStatus := domain.FeedDeliveryPurchased
+	var reachedOn *string
+	var reachedBy *string
+	depletesFrom := write.PurchaseDate
+	if write.IsReached() {
+		deliveryStatus = domain.FeedDeliveryReached
+		reachedOn = &write.ReachedOn
+		depletesFrom = write.ReachedOn
+		if actorID != "" {
+			reachedBy = &actorID
+		}
+	}
+
 	var purchaseID, feedItemKey string
 	err = tx.QueryRow(ctx, `
 INSERT INTO public.feed_purchases (
@@ -291,6 +332,7 @@ INSERT INTO public.feed_purchases (
   feed_cost, transport_cost, loading_cost, unloading_cost, total_cost, per_kg_cost,
   consumed_at_import_kg, depletes_from,
   vendor, payment_released, payment_status,
+  delivery_status, reached_on, reached_weight_kg, reached_by,
   entry_source, recorded_by, source_ref
 ) VALUES (
   $1::uuid,
@@ -298,8 +340,9 @@ INSERT INTO public.feed_purchases (
     WHERE l.tenant_id = $1::uuid AND l.location_type = 'park' AND upper(l.location_code) = $2 LIMIT 1),
   $2, $3, $4, $5::date, $6,
   $7, $8, $9, $10, $11, $12,
-  0, $5::date,
+  0, $17::date,
   $13, $14, $15,
+  $18, $19::date, $20, $21::uuid,
   'app', nullif($16, '')::uuid, 'app:procurement-feed-purchases'
 )
 RETURNING feed_purchase_id::text, feed_item_key`,
@@ -307,6 +350,7 @@ RETURNING feed_purchase_id::text, feed_item_key`,
 		write.FeedCost, write.TransportCost, write.LoadingCost, write.UnloadingCost,
 		write.TotalOrSplitSum(), write.PerKgCost(),
 		write.Vendor, write.PaymentReleased, write.PaymentStatus, actorID,
+		depletesFrom, deliveryStatus, reachedOn, write.ReachedWeightKg, reachedBy,
 	).Scan(&purchaseID, &feedItemKey)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -333,6 +377,8 @@ RETURNING feed_purchase_id::text, feed_item_key`,
 			"quantity_kg":     write.QuantityKg,
 			"purchase_date":   write.PurchaseDate,
 			"vendor":          write.Vendor,
+			"delivery_status": deliveryStatus,
+			"reached_on":      write.ReachedOn,
 			"idempotency_key": idempotencyKey,
 			"operation_id":    idempotencyKey,
 		},
@@ -340,11 +386,21 @@ RETURNING feed_purchase_id::text, feed_item_key`,
 		return domain.FeedPurchase{}, fmt.Errorf("procurement: audit feed purchase record: %w", err)
 	}
 
-	// The toxin module owes this load an aflatoxin test; the event rides THIS
-	// transaction's outbox so a committed purchase always reaches the toxin consumer
-	// (maintainer decision 2026-08-25).
-	if err := emitFeedPurchaseRecorded(ctx, tx, tenantID, purchaseID, actorID, idempotencyKey, write, feedItemKey, catalogLabel, batchNo); err != nil {
-		return domain.FeedPurchase{}, err
+	// A load recorded as ALREADY reached becomes stock and owes its aflatoxin test right now;
+	// the event rides THIS transaction's outbox so a committed arrival always reaches the toxin
+	// consumer. A load still on the road emits nothing until the delivery write flips it.
+	if write.IsReached() {
+		stockKg := write.QuantityKg
+		if write.ReachedWeightKg != nil {
+			stockKg = *write.ReachedWeightKg
+		}
+		if err := emitFeedPurchaseReached(ctx, tx, tenantID, actorID, idempotencyKey, feedPurchaseReachedFacts{
+			PurchaseID: purchaseID, FarmLabel: write.FarmLabel, FeedItemKey: feedItemKey,
+			FeedItemLabel: catalogLabel, Vendor: write.Vendor, BatchNo: batchNo,
+			PurchaseDate: write.PurchaseDate, ReachedOn: write.ReachedOn, StockKg: stockKg,
+		}); err != nil {
+			return domain.FeedPurchase{}, err
+		}
 	}
 
 	if err := completeIdempotency(ctx, tx, tenantID, idemScopeFeedPurchaseCreate, idempotencyKey, "feed_purchase", purchaseID); err != nil {
@@ -627,7 +683,7 @@ SET purchase_date = $3::date, quantity_kg = $4,
 WHERE tenant_id = $1 AND feed_purchase_id = $2`,
 			tenantID, purchaseID, edit.PurchaseDate, edit.QuantityKg,
 			edit.FeedCost, edit.TransportCost, edit.LoadingCost, edit.UnloadingCost,
-			newTotal, edit.PerKgCost(), edit.Vendor, newStatus); err != nil {
+			newTotal, edit.PerKgCost(current.ReachedWeightKg), edit.Vendor, newStatus); err != nil {
 			return domain.FeedPurchase{}, fmt.Errorf("procurement: update feed purchase: %w", err)
 		}
 		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -668,6 +724,122 @@ func eqMoney(a, b *float64) bool {
 	}
 	diff := *a - *b
 	return diff < 0.005 && diff > -0.005
+}
+
+// feedPurchaseDeliveryUpdateSQL is the arrival write: the state flip, the arrival day (which
+// depletes_from follows, so depletion starts the day the feed was actually there), the received
+// weight, and the landed rate re-derived from it. reached_by keeps the FIRST marker.
+const feedPurchaseDeliveryUpdateSQL = `
+UPDATE public.feed_purchases
+SET delivery_status = $3, reached_on = $4::date, reached_weight_kg = $5,
+    reached_by = COALESCE(reached_by, nullif($6, '')::uuid),
+    depletes_from = $4::date,
+    per_kg_cost = $7
+WHERE tenant_id = $1 AND feed_purchase_id = $2
+RETURNING feed_item_key`
+
+// RecordFeedPurchaseDelivery marks a load reached, or corrects an already-reached load's arrival
+// day and received weight.
+//
+// Everything that turns a load into stock happens in ONE transaction under the purchase row lock:
+// the state flip, depletes_from following the arrival day, the per-kg rate re-derived from the
+// received weight, the audit row, and -- on the purchased -> reached transition ONLY -- the outbox
+// event that gives the toxin module its test. The row lock is what makes "exactly once" hold: two
+// desks marking the same load reached at the same moment serialize, and the second finds it
+// already reached and emits nothing. Naturally idempotent, so no reservation: writing the values
+// the load already has changes nothing and audits nothing.
+func (r *Repository) RecordFeedPurchaseDelivery(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchaseDeliveryWrite, actorID string) (domain.FeedPurchase, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: begin feed purchase delivery: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	current, err := scanFeedPurchase(tx.QueryRow(ctx, fmt.Sprintf(
+		`SELECT %s FROM public.feed_purchases p WHERE p.tenant_id = $1 AND p.feed_purchase_id = $2 FOR UPDATE`,
+		feedPurchaseColumns), tenantID, purchaseID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
+	}
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: lock feed purchase delivery: %w", err)
+	}
+	// The arrival is judged against the purchase date the LOCKED row carries, not one the caller
+	// remembered: a concurrent re-dating of the purchase cannot slip an arrival in before it.
+	if err := write.Validate(current.PurchaseDate, biztime.BusinessDayStart(time.Now())); err != nil {
+		return domain.FeedPurchase{}, err
+	}
+
+	transition := current.DeliveryStatus != domain.FeedDeliveryReached
+	unchanged := !transition &&
+		current.ReachedOn != nil && *current.ReachedOn == write.ReachedOn &&
+		eqMoney(current.ReachedWeightKg, write.ReachedWeightKg)
+	if unchanged {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.FeedPurchase{}, fmt.Errorf("procurement: commit feed purchase delivery noop: %w", err)
+		}
+		return r.getFeedPurchase(ctx, tenantID, purchaseID)
+	}
+
+	var feedItemKey string
+	if err := tx.QueryRow(ctx, feedPurchaseDeliveryUpdateSQL,
+		tenantID, purchaseID, domain.FeedDeliveryReached, write.ReachedOn, write.ReachedWeightKg, actorID,
+		domain.DeriveFeedPerKgCost(current.TotalCost, current.QuantityKg, write.ReachedWeightKg),
+	).Scan(&feedItemKey); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: update feed purchase delivery: %w", err)
+	}
+
+	action := "procurement.feed_purchase.delivery_update"
+	if transition {
+		action = "procurement.feed_purchase.reached"
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    "human",
+		Action:       action,
+		ResourceType: "feed_purchase",
+		ResourceID:   purchaseID,
+		Metadata: map[string]any{
+			"domain":                  "procurement",
+			"module":                  "feed_purchases",
+			"category":                "delivery",
+			"farm":                    current.FarmLabel,
+			"feed_item":               current.FeedItemLabel,
+			"batch_no":                current.BatchNo,
+			"previous_status":         current.DeliveryStatus,
+			"previous_reached_on":     current.ReachedOn,
+			"previous_reached_weight": current.ReachedWeightKg,
+			"reached_on":              write.ReachedOn,
+			"reached_weight_kg":       write.ReachedWeightKg,
+			"buying_weight_kg":        current.QuantityKg,
+		},
+	}); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: audit feed purchase delivery: %w", err)
+	}
+
+	if transition {
+		stockKg := current.QuantityKg
+		if write.ReachedWeightKg != nil {
+			stockKg = *write.ReachedWeightKg
+		}
+		// Keyed on the load itself: the transition happens once per load, so the load id IS the
+		// operation identity a replayed relay delivery can recognise.
+		if err := emitFeedPurchaseReached(ctx, tx, tenantID, actorID, "feed-purchase-reached:"+purchaseID, feedPurchaseReachedFacts{
+			PurchaseID: purchaseID, FarmLabel: current.FarmLabel, FeedItemKey: feedItemKey,
+			FeedItemLabel: current.FeedItemLabel, Vendor: current.Vendor, BatchNo: current.BatchNo,
+			PurchaseDate: current.PurchaseDate, ReachedOn: write.ReachedOn, StockKg: stockKg,
+		}); err != nil {
+			return domain.FeedPurchase{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: commit feed purchase delivery: %w", err)
+	}
+	return r.getFeedPurchase(ctx, tenantID, purchaseID)
 }
 
 var _ ports.FeedPurchaseRepository = (*Repository)(nil)

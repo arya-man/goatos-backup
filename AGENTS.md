@@ -1534,8 +1534,10 @@ alignment)"; pinned by `TestVerificationSeparationOfDuty` and
 Confirmed TOXIN module rule (maintainer decisions 2026-08-25; a RECORDED, SCOPED exception
 to the verifier verdict-exclusivity rule above that leaves that rule untouched): every feed
 load recorded on `/procurement/feed-purchases` owes one aflatoxin strip test (SafetiX SHF
-001-A), born automatically per feed-purchase row from `procurement.feed_purchase.recorded`
-— never hand-created, no calendar, no due clock. The test is a 7-STEP GUIDED FLOW with
+001-A), born automatically per feed-purchase row from `procurement.feed_purchase.reached`
+— the load ARRIVING at the farm (maintainer decision 2026-09-03: a purchase is recorded when
+bought, marked reached days later on `/procurement/feed-purchases`, and only then counts as
+stock at the weight received and owes its test) — never hand-created, no calendar, no due clock. The test is a 7-STEP GUIDED FLOW with
 PROOF AT EVERY WORKING STEP: steps 1/2/3/5/6 one in-app-camera VIDEO each, step 4 a
 settling wait (the farm does NOT centrifuge — the extract sits ~1 hour), step 7 one
 in-app-camera strip PHOTO plus the reading (Negative/Positive/Invalid). ALL THREE WAITS

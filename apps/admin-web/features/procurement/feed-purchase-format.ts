@@ -19,3 +19,18 @@ export function paymentStatusChip(
   if (!option) return { tone: "mut", label: status || fallbackLabel };
   return { tone: (option.tone || "mut") as Tone, label: option.label };
 }
+
+/**
+ * Resolves a delivery state's chip tone and label from the page contract's own option group
+ * (`feed_purchase_delivery_statuses`: `warn` for a load on the road, `ok` for reached), for the
+ * same reason as paymentStatusChip: the screen never compares against a hardcoded state word.
+ */
+export function deliveryStatusChip(
+  pageContract: AdminUiPageContract,
+  status: string,
+  fallbackLabel: string,
+): { tone: Tone; label: string } {
+  const option = optionGroup(pageContract, "feed_purchase_delivery_statuses").find((item) => item.key === status);
+  if (!option) return { tone: "mut", label: status || fallbackLabel };
+  return { tone: (option.tone || "mut") as Tone, label: option.label };
+}

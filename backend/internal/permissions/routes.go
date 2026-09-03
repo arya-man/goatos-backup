@@ -284,6 +284,9 @@ var protectedRoutes = []Route{
 	{OperationID: "recordFeedPurchasePayment", Method: "POST", Pattern: "/procurement/feed-purchases/{purchase_id}/payments", Permissions: []string{FeedPurchaseWrite}},
 	{OperationID: "setFeedPurchasePaymentStatus", Method: "PUT", Pattern: "/procurement/feed-purchases/{purchase_id}/payment-status", Permissions: []string{FeedPurchaseWrite}},
 	{OperationID: "editFeedPurchase", Method: "PUT", Pattern: "/procurement/feed-purchases/{purchase_id}", Permissions: []string{FeedPurchaseWrite}},
+	// Marking a load reached (and entering its received weight) is the same desk's job as
+	// recording it: whoever buys the feed knows when the truck came in.
+	{OperationID: "recordFeedPurchaseDelivery", Method: "PUT", Pattern: "/procurement/feed-purchases/{purchase_id}/delivery", Permissions: []string{FeedPurchaseWrite}},
 
 	// LOAD-WISE SALES (the Sales page's per-procurement-load reconciliation, maintainer decision
 	// 2026-08-31). The read is the Sales page's data, so it rides SalesRead; the cost entry is

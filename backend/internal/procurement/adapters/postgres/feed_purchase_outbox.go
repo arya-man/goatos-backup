@@ -9,48 +9,69 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
-	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 )
 
-// procurement.feed_purchase.recorded (maintainer decision 2026-08-25): recording a feed
-// load is a business event with an outward consequence — the toxin module owes the load
-// an aflatoxin strip test. The event is emitted INSIDE the purchase transaction's
-// outbox, so a committed purchase always reaches the toxin consumer (which creates the
-// test task idempotently), and a rolled-back purchase emits nothing. Registered in
-// context/architecture/domain-event-registry.json.
+// procurement.feed_purchase.reached (maintainer decision 2026-09-03, moving the toxin
+// trigger off procurement.feed_purchase.recorded): a feed load REACHING the farm is the
+// business event with an outward consequence — the toxin module owes the load an
+// aflatoxin strip test, and only now is there feed to test. Recording the purchase is
+// not: the truck is still on the road. The event is emitted INSIDE the transaction that
+// flips the load to reached (the delivery write, or a record-purchase write that already
+// carries an arrival date), on that transition ONLY, so a committed arrival always reaches
+// the toxin consumer exactly once and a later correction of the arrival day or received
+// weight emits nothing. Registered in context/architecture/domain-event-registry.json.
 const (
-	feedPurchaseRecordedEventType     = "procurement.feed_purchase.recorded"
-	feedPurchaseRecordedSchemaVersion = "1.0.0"
-	feedPurchaseRecordedSchemaRef     = "contracts/jsonschema/domain-event-envelope.schema.json"
-	feedPurchaseRecordedTopic         = "procurement.events"
+	feedPurchaseReachedEventType     = "procurement.feed_purchase.reached"
+	feedPurchaseReachedSchemaVersion = "1.0.0"
+	feedPurchaseReachedSchemaRef     = "contracts/jsonschema/domain-event-envelope.schema.json"
+	feedPurchaseReachedTopic         = "procurement.events"
 )
 
-// emitFeedPurchaseRecorded writes the purchase event into outbox_messages inside tx.
-func emitFeedPurchaseRecorded(ctx context.Context, tx pgx.Tx, tenantID, purchaseID, actorID, idempotencyKey string, write domain.FeedPurchaseWrite, feedItemKey, catalogLabel string, batchNo int) error {
+// feedPurchaseReachedFacts is the load context the event denormalizes for the toxin task
+// card. The consumer keeps these as the CATALOG's spelling, the same one the ledger stores.
+type feedPurchaseReachedFacts struct {
+	PurchaseID    string
+	FarmLabel     string
+	FeedItemKey   string
+	FeedItemLabel string
+	Vendor        string
+	BatchNo       int
+	PurchaseDate  string
+	ReachedOn     string
+	// StockKg is the weight the load contributes to stock at the moment it reached: the
+	// received weight when it was entered with the arrival, else the buying weight.
+	StockKg float64
+}
+
+// emitFeedPurchaseReached writes the arrival event into outbox_messages inside tx.
+//
+// idempotencyKey is the operation that caused the arrival (the record form's key, or the
+// delivery write's derived key); the outbox row carries it so a replayed relay delivery is
+// recognisable as the same arrival.
+func emitFeedPurchaseReached(ctx context.Context, tx pgx.Tx, tenantID, actorID, idempotencyKey string, facts feedPurchaseReachedFacts) error {
 	eventID, err := newUUID(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("procurement: feed purchase event id: %w", err)
 	}
 	now := time.Now().UTC()
-	// The consumer denormalizes these onto the toxin task card; keep them the CATALOG's
-	// spelling, the same one the ledger row stores.
 	payload := map[string]any{
-		"feed_purchase_id": purchaseID,
-		"farm_label":       write.FarmLabel,
-		"feed_item_key":    feedItemKey,
-		"feed_item_label":  catalogLabel,
-		"vendor":           write.Vendor,
-		"batch_no":         batchNo,
-		"purchase_date":    write.PurchaseDate,
-		"quantity_kg":      write.QuantityKg,
+		"feed_purchase_id": facts.PurchaseID,
+		"farm_label":       facts.FarmLabel,
+		"feed_item_key":    facts.FeedItemKey,
+		"feed_item_label":  facts.FeedItemLabel,
+		"vendor":           facts.Vendor,
+		"batch_no":         facts.BatchNo,
+		"purchase_date":    facts.PurchaseDate,
+		"reached_on":       facts.ReachedOn,
+		"quantity_kg":      facts.StockKg,
 	}
 	envelope, err := json.Marshal(map[string]any{
 		"event_id":       eventID,
-		"event_type":     feedPurchaseRecordedEventType,
-		"schema_version": feedPurchaseRecordedSchemaVersion,
-		"schema_ref":     feedPurchaseRecordedSchemaRef,
+		"event_type":     feedPurchaseReachedEventType,
+		"schema_version": feedPurchaseReachedSchemaVersion,
+		"schema_ref":     feedPurchaseReachedSchemaRef,
 		"aggregate_type": "feed_purchase",
-		"aggregate_id":   purchaseID,
+		"aggregate_id":   facts.PurchaseID,
 		"occurred_at":    now.Format("2006-01-02T15:04:05.000000Z"),
 		"recorded_at":    now.Format("2006-01-02T15:04:05.000000Z"),
 		"producer": map[string]any{
@@ -65,23 +86,23 @@ func emitFeedPurchaseRecorded(ctx context.Context, tx pgx.Tx, tenantID, purchase
 			"actor_ref":  nil,
 		},
 		"subject_type": "feed_purchase",
-		"subject_id":   purchaseID,
+		"subject_id":   facts.PurchaseID,
 		"visibility_scope": map[string]any{
 			"tenant_id": tenantID,
 		},
 		"evidence_refs": []map[string]string{{
 			"evidence_type": "source_record",
-			"evidence_id":   "feed_purchase:" + purchaseID,
+			"evidence_id":   "feed_purchase:" + facts.PurchaseID,
 		}},
 		"payload":  payload,
-		"trace_id": "procurement-feed-purchase:" + purchaseID,
+		"trace_id": "procurement-feed-purchase:" + facts.PurchaseID,
 	})
 	if err != nil {
 		return err
 	}
 	headers, err := json.Marshal(map[string]any{
 		"actor_id":      actorID,
-		"farm":          write.FarmLabel,
+		"farm":          facts.FarmLabel,
 		"business_date": biztime.BusinessDate(now),
 	})
 	if err != nil {
@@ -97,15 +118,15 @@ INSERT INTO outbox_messages (
 )`,
 		tenantID,
 		eventID,
-		feedPurchaseRecordedEventType,
-		feedPurchaseRecordedSchemaVersion,
-		purchaseID,
-		feedPurchaseRecordedTopic,
+		feedPurchaseReachedEventType,
+		feedPurchaseReachedSchemaVersion,
+		facts.PurchaseID,
+		feedPurchaseReachedTopic,
 		envelope,
 		headers,
 		idempotencyKey,
 	); err != nil {
-		return fmt.Errorf("procurement: outbox feed purchase recorded: %w", err)
+		return fmt.Errorf("procurement: outbox feed purchase reached: %w", err)
 	}
 	return nil
 }
