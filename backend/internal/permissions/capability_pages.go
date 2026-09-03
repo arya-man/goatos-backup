@@ -107,7 +107,7 @@ var modulePages = []ModulePage{
 	{Key: "weighing-sops", Module: "weighing", Label: "Weighing SOP", Href: "/weighing/sops", Permissions: []string{SOPRead}},
 
 	{Key: "feed-config", Module: "feed_direction", Label: "Feed Config", Href: "/feed/config", Permissions: []string{FeedConfigRead}},
-	{Key: "feed-analytics", Module: "feed_direction", Label: "Feed Analytics", Href: "/feed/analytics", Permissions: []string{FeedDirectionRead}},
+	{Key: "feed-analytics", Module: "feed_direction", Label: "Feed Analytics", Href: "/feed/analytics", Permissions: []string{FeedAnalyticsStockRead}},
 	{Key: "feed-sops", Module: "feed_direction", Label: "Feed SOP", Href: "/feed/sops", Permissions: []string{SOPRead}},
 
 	{Key: "health-config", Module: "aas_health", Label: "Health Config", Href: "/health/config", Permissions: []string{HealthConfigRead}},

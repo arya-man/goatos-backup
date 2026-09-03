@@ -245,7 +245,6 @@ func TestRecordLoadCostControlIsCapabilityGated(t *testing.T) {
 		enabled bool
 	}{
 		{"ceo_internal", permissions.RoleCEOInternal, true},
-		{"procurement_director", permissions.RoleProcurementDirector, true},
 		{"procurement_manager", permissions.RoleProcurementManager, true},
 		// THE ROW THAT MATTERS since the write moved onto the shared config page: this director
 		// holds SalesWrite, so every OTHER control on /sales/config is enabled for him. Costing a
@@ -378,9 +377,7 @@ func TestSalesLoadsNavLeafRidesSalesRead(t *testing.T) {
 // were still compiled onto these pages for anybody it would be for him.
 // The Over 35 kg card on /sales reads weighing, which the sales desk cannot: the card is a READ
 // control gated on WeighingMonitor, declared for everyone who reaches the page and disabled with
-// the backend's reason for those who may not read weights. The procurement director row is the
-// mutation test -- it holds every sales permission there is, so gating the card on any sales
-// key would turn it green for a role the weighing endpoint refuses.
+// the backend's reason for those who may not read weights.
 func TestSalesOver35CardIsGatedOnWeighingMonitor(t *testing.T) {
 	cases := []struct {
 		role    string
@@ -388,7 +385,6 @@ func TestSalesOver35CardIsGatedOnWeighingMonitor(t *testing.T) {
 	}{
 		{permissions.RoleCEOInternal, true},
 		{permissions.RoleGrowthDirector, true},
-		{permissions.RoleProcurementDirector, false},
 	}
 	for _, tc := range cases {
 		resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
@@ -474,7 +470,6 @@ func TestLoadsWeighsNowSeriesIsGatedOnWeighingMonitor(t *testing.T) {
 		enabled bool
 	}{
 		{permissions.RoleCEOInternal, true},
-		{permissions.RoleProcurementDirector, false},
 	} {
 		resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 			TenantID: "00000000-0000-4000-8000-000000000001",

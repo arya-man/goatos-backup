@@ -450,6 +450,14 @@ func (h *Handler) GetExperimentAnalytics(w http.ResponseWriter, r *http.Request)
 // analyticsInput centralises the shared window + park-scope parsing of the
 // three /feed-analytics/* reads. Returns ok=false after writing the error.
 func (h *Handler) analyticsInput(w http.ResponseWriter, r *http.Request) (app.DirectedAnalyticsInput, bool) {
+	return h.analyticsInputForPermission(w, r, permissions.FeedDirectionRead)
+}
+
+func (h *Handler) analyticsInputForPermission(
+	w http.ResponseWriter,
+	r *http.Request,
+	scopePermission string,
+) (app.DirectedAnalyticsInput, bool) {
 	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
 	if tenantID == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
@@ -468,7 +476,7 @@ func (h *Handler) analyticsInput(w http.ResponseWriter, r *http.Request) (app.Di
 		return app.DirectedAnalyticsInput{}, false
 	}
 	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
-		r.Context(), tenantID, strings.TrimSpace(query.Get("park_id")), permissions.FeedDirectionRead,
+		r.Context(), tenantID, strings.TrimSpace(query.Get("park_id")), scopePermission,
 	)
 	if !parkScope.Allowed {
 		httpresponse.WriteError(w, r, h.log, parkScope.Status, parkScope.Message, nil)
@@ -644,7 +652,7 @@ func executionCompletionPage(w http.ResponseWriter, r *http.Request, h *Handler)
 
 // GetStockAnalytics serves GET /feed-analytics/stock.
 func (h *Handler) GetStockAnalytics(w http.ResponseWriter, r *http.Request) {
-	in, ok := h.analyticsInput(w, r)
+	in, ok := h.analyticsInputForPermission(w, r, permissions.FeedAnalyticsStockRead)
 	if !ok {
 		return
 	}

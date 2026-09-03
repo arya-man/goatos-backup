@@ -34,19 +34,6 @@ func TestDirectorReachesOwnModuleAndIsForbiddenOnAnothers(t *testing.T) {
 			ownerRole:   RoleFeedDirector,
 			otherOwners: []string{RolePCDirector, RoleGrowthDirector, RoleHealthDirector},
 		},
-		// Procurement belongs to procurement_director (maintainer decision 2026-08-21). The other
-		// directors — feed_director included, whose ProcurementRead covers only the source-entry
-		// intake screens — must not reach the vendor register or the sales ledger.
-		{
-			name: "procurement vendor register", method: "GET", path: "/procurement/vendors",
-			ownerRole:   RoleProcurementDirector,
-			otherOwners: []string{RolePCDirector, RoleGrowthDirector, RoleHealthDirector, RoleFeedDirector},
-		},
-		{
-			name: "sales ledger", method: "GET", path: "/sales/deals",
-			ownerRole:   RoleProcurementDirector,
-			otherOwners: []string{RolePCDirector, RoleGrowthDirector, RoleHealthDirector, RoleFeedDirector},
-		},
 	}
 	for _, p := range probes {
 		route, ok := Match(p.method, p.path)
@@ -60,6 +47,58 @@ func TestDirectorReachesOwnModuleAndIsForbiddenOnAnothers(t *testing.T) {
 			if RolesAuthorize([]string{other}, route.Permissions, route.AdminOnly) {
 				t.Errorf("%s: %s must NOT reach %s -- that module belongs to %s", p.name, other, p.path, p.ownerRole)
 			}
+		}
+	}
+}
+
+func TestProcurementDirectorIsStockOnlyOnAdminWeb(t *testing.T) {
+	allowed, ok := Match("GET", "/feed-analytics/stock")
+	if !ok {
+		t.Fatal("feed stock route is not registered")
+	}
+	if !RolesAuthorize([]string{RoleProcurementDirector}, allowed.Permissions, allowed.AdminOnly) &&
+		!RolesAuthorizeAny([]string{RoleProcurementDirector}, allowed.AnyPermissions) {
+		t.Fatal("procurement_director must reach Feed Analytics stock")
+	}
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/procurement/source-entry/loads"},
+		{"GET", "/feed-analytics/directed"},
+		{"GET", "/feed-analytics/execution"},
+		{"GET", "/feed-analytics/experiment"},
+	} {
+		route, ok := Match(tt.method, tt.path)
+		if !ok {
+			t.Fatalf("%s %s is not registered", tt.method, tt.path)
+		}
+		if RolesAuthorize([]string{RoleProcurementDirector}, route.Permissions, route.AdminOnly) ||
+			RolesAuthorizeAny([]string{RoleProcurementDirector}, route.AnyPermissions) {
+			t.Fatalf("procurement_director must not authorize %s %s", tt.method, tt.path)
+		}
+	}
+	sales, ok := Match("GET", "/sales/deals")
+	if !ok {
+		t.Fatal("sales route is not registered")
+	}
+	if !RolesAuthorize([]string{RoleProcurementDirector}, sales.Permissions, sales.AdminOnly) {
+		t.Fatal("procurement_director must keep Sales Config data access")
+	}
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/procurement/vendors"},
+		{"GET", "/procurement/feed-purchases"},
+	} {
+		route, ok := Match(tt.method, tt.path)
+		if !ok {
+			t.Fatalf("%s %s is not registered", tt.method, tt.path)
+		}
+		if !RolesAuthorize([]string{RoleProcurementDirector}, route.Permissions, route.AdminOnly) &&
+			!RolesAuthorizeAny([]string{RoleProcurementDirector}, route.AnyPermissions) {
+			t.Fatalf("procurement_director must authorize %s %s", tt.method, tt.path)
 		}
 	}
 }

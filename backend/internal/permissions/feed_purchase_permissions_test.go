@@ -5,7 +5,8 @@ import "testing"
 // TestFeedPurchaseRolePermissions pins who may read and record feed purchases.
 //
 // CEO/CxO holds both by the founder/builder visibility invariant. The procurement desk BUYS, so it
-// holds both. The Feed Director owns what the farm feeds and is accountable for the stock cards
+// holds both. Procurement Director sees this ledger because feed buying remains under Procurement.
+// The Feed Director owns what the farm feeds and is accountable for the stock cards
 // these loads are counted from, so it READS -- and deliberately does not write, the same read/write
 // split that keeps that role out of FeedDirectionComplete.
 //
@@ -13,7 +14,7 @@ import "testing"
 // source-entry screens they work, and the purchase ledger carries supplier prices and payment
 // state. Gating this module on ProcurementRead would hand it to both.
 func TestFeedPurchaseRolePermissions(t *testing.T) {
-	for _, role := range []string{RoleCEOInternal, RoleProcurementDirector, RoleProcurementManager} {
+	for _, role := range []string{RoleCEOInternal, RoleProcurementManager, RoleProcurementDirector} {
 		if !RolesAuthorize([]string{role}, []string{FeedPurchaseRead, FeedPurchaseWrite}, false) {
 			t.Fatalf("%s should read and record feed purchases", role)
 		}

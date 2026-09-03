@@ -37,13 +37,9 @@ func accessFor(roles ...string) permissions.PageAccess {
 	return permissions.PageAccessForAssignments(permissions.FillDefaultPages(assignments))
 }
 
-// TestRetiredProcurementDirectorLensIsReproducedByTicks is the proof that retiring
-// procurement_director_lens.go changed nothing for the person it was written for.
-//
-// The maintainer's 2026-08-21 words were "he should see only the Procurement and Feed
-// modules in web" and "hide the Feed Config page for him under Feed". His live sidebar on
-// 2026-08-27 was exactly the six leaves below. The lens is gone; his backfilled TICKS must
-// still produce them, and must still produce nothing else.
+// TestProcurementDirectorBackfillIsStockOnly is the Hemant lock: Procurement Director keeps
+// Sales Config, Vendors, Feed Purchases plus Feed Analytics in the sidebar, and Feed Analytics
+// narrows to Stock.
 func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 	// The real holder wears BOTH roles -- his phone access and feed-proof ownership ride on
 	// feed_director -- and the retired lens applied anyway. Stacking them here is the case
@@ -51,29 +47,9 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 	access := accessFor(permissions.RoleProcurementDirector, permissions.RoleFeedDirector)
 	resp := applyPersonPageLens(compileForTest(), access)
 
-	// All six leaves the lens left him, Feed SOP included -- and that one now WORKS.
-	//
-	// It had become a dead leaf: /admin/sops needs sop.read, and dropping his
-	// non-Procurement web modules took it away. A cutover simulation against the real STG
-	// roster caught the permission loss, and the fix restores the modules that own no
-	// sidebar page at all (Protocols & SOPs, Herd Register, Parks & Sheds). They add nothing
-	// visible, they carry reads he has always held, and Feed SOP opens instead of 403ing.
 	want := []string{
-		"/sales",
-		// Purchase and Born (maintainer decision 2026-08-31). It rides SalesRead, which this
-		// director already holds, and he is precisely the desk that records a load's landed
-		// cost -- LoadCostWrite is granted exactly where FeedPurchaseWrite is.
-		"/sales/loads",
-		// Sales Config (maintainer decision 2026-09-01), which is where the load-cost write
-		// he owns MOVED to when /sales/loads became read-only. Withholding it would leave him
-		// the one desk that records a load's cost with nowhere to record it.
 		"/sales/config",
 		"/feed/analytics",
-		"/feed/sops",
-		// The role lens preserves the global top-level menu order (maintainer decision
-		// 2026-09-02): Counts, Weight, Sales, Feed, Preventive Care, Procurement, Others.
-		// This director has only Sales, Feed, and Procurement leaves from that sequence.
-		"/procurement/source-entry",
 		"/procurement/vendors",
 		"/procurement/feed-purchases",
 	}
@@ -89,7 +65,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 
 	// The deep-link half: a typed URL must fail closed, which requireAdminWebPageContract
 	// does by throwing on a route with no contract.
-	for _, banned := range []string{"/feed/config", "/people", "/verify", "/vaccination", "/"} {
+	for _, banned := range []string{"/sales", "/sales/loads", "/feed/config", "/feed/sops", "/procurement/source-entry", "/people", "/verify", "/vaccination", "/"} {
 		for _, page := range resp.Pages {
 			if page.Href == banned {
 				t.Errorf("page contract for %s survived; a typed URL would render", banned)
@@ -97,7 +73,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 		}
 	}
 	// And what he keeps must still carry its contract, or the sidebar links to a 404.
-	for _, kept := range []string{"/feed/analytics", "/sales"} {
+	for _, kept := range []string{"/sales/config", "/feed/analytics", "/procurement/vendors", "/procurement/feed-purchases"} {
 		found := false
 		for _, page := range resp.Pages {
 			if page.Href == kept {
@@ -115,7 +91,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 func TestCeoIsNeverNarrowed(t *testing.T) {
 	access := accessFor(permissions.RoleCEOInternal, permissions.RoleProcurementDirector)
 	resp := applyPersonPageLens(compileForTest(), access)
-	for _, want := range []string{"/", "/people", "/feed/config", "/verify", "/vaccination"} {
+	for _, want := range []string{"/", "/people", "/feed/config", "/feed/analytics", "/feed/sops", "/sales", "/sales/config", "/procurement/source-entry", "/procurement/vendors", "/procurement/feed-purchases", "/verify", "/vaccination"} {
 		found := false
 		for _, href := range leafHrefs(resp) {
 			if href == want {
@@ -125,6 +101,42 @@ func TestCeoIsNeverNarrowed(t *testing.T) {
 		if !found {
 			t.Errorf("CEO lost %s", want)
 		}
+	}
+}
+
+func TestCeoKeepsEveryFeedAnalyticsTab(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	page := pageByRouteID(t, resp.Pages, "feed-analytics")
+	tabs := optionGroupByID(t, page.OptionGroups, "feed_analytics_tabs")
+	want := []string{"overview", "items", "peranimal", "experiment", "execution"}
+	if len(tabs.Options) != len(want) {
+		t.Fatalf("CEO feed tabs = %+v; want %v", tabs.Options, want)
+	}
+	for i, key := range want {
+		if tabs.Options[i].Key != key {
+			t.Fatalf("CEO feed tabs = %+v; want %v", tabs.Options, want)
+		}
+	}
+}
+
+func TestProcurementDirectorKeepsOnlyStockFeedAnalyticsTab(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleProcurementDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	page := pageByRouteID(t, resp.Pages, "feed-analytics")
+	tabs := optionGroupByID(t, page.OptionGroups, "feed_analytics_tabs")
+	if len(tabs.Options) != 1 || tabs.Options[0].Key != "items" {
+		t.Fatalf("Procurement Director feed tabs = %+v; want Stock only", tabs.Options)
 	}
 }
 

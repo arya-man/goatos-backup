@@ -15,29 +15,24 @@ import "sort"
 // migration, access comes from the person's stored rows, and editing this file changes
 // nothing for anyone already migrated.
 
-// retiredProcurementDirectorWebModules are the web modules the retired lens left reachable.
+// retiredProcurementDirectorWebModules are the web modules the retired lens leaves reachable.
 // Everything else was dropped from the sidebar AND from the page contracts, so keeping the
 // module here would grant a screen the person could not open under the rule being preserved.
 var retiredProcurementDirectorWebModules = map[string]struct{}{
-	"procurement":    {},
-	"vendors":        {},
 	"sales":          {},
+	"vendors":        {},
 	"feed_purchases": {},
 	"feed_direction": {},
-	// KEPT FOR THEIR PERMISSIONS, NOT FOR A SCREEN. These three own no sidebar page at
-	// all, so granting them adds nothing visible -- the lens narrowed what he SEES, and
-	// dropping the modules outright would also have taken sop.read, protocol.read and
-	// goat.read, which he holds today and which nothing in the 2026-08-21 decision
-	// mentions. A cutover simulation against the real STG roster is what surfaced it.
-	"config":        {},
-	"herd_register": {},
-	"locations":     {},
 }
 
 // retiredProcurementDirectorFeedPages is the second half of the 2026-08-21 decision --
-// "hide the Feed Config page for him under Feed". Feed Config is the AUTHORED ration grid,
-// the Feed Director's own instrument, and this workspace is read-only feed oversight.
-var retiredProcurementDirectorFeedPages = []string{"feed-analytics", "feed-sops"}
+// "only Stock under Feed Analytics", while Sales Config, Vendors, and Feed Purchases stay visible
+// and the Sales board + Source Entry stay hidden. Other Feed Analytics tabs and Feed SOP remain
+// CEO/CXO-visible, not Procurement Director-visible.
+var retiredProcurementDirectorFeedPages = []string{"feed-analytics"}
+var retiredProcurementDirectorSalesPages = []string{"sales-config"}
+var retiredProcurementDirectorVendorPages = []string{"procurement-vendors"}
+var retiredProcurementDirectorFeedPurchasePages = []string{"procurement-feed-purchases"}
 
 // applyRetiredProcurementDirectorNarrowing rewrites a person's backfilled rows to what the
 // retired lens actually served them.
@@ -56,7 +51,20 @@ func applyRetiredProcurementDirectorNarrowing(in []ModuleAssignment) []ModuleAss
 		if _, kept := retiredProcurementDirectorWebModules[row.Module]; !kept {
 			continue
 		}
+		if row.Module == "sales" {
+			row.Capabilities = []string{LevelView, LevelDo}
+			row.Pages = append([]string(nil), retiredProcurementDirectorSalesPages...)
+		}
+		if row.Module == "vendors" {
+			row.Capabilities = []string{LevelView, LevelDo, LevelOversee}
+			row.Pages = append([]string(nil), retiredProcurementDirectorVendorPages...)
+		}
+		if row.Module == "feed_purchases" {
+			row.Capabilities = []string{LevelView, LevelDo}
+			row.Pages = append([]string(nil), retiredProcurementDirectorFeedPurchasePages...)
+		}
 		if row.Module == "feed_direction" {
+			row.Capabilities = []string{LevelStock}
 			row.Pages = append([]string(nil), retiredProcurementDirectorFeedPages...)
 		}
 		out = append(out, row)

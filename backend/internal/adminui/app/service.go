@@ -6730,8 +6730,19 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		// One vocabulary for both weighing screens on purpose: they carry the SAME filter bar,
 		// and two copies would let the capture-mode labels drift into two spellings of one thing.
 		return withGenericOptionGroups(weighingWeightsOptionGroups())
-	case "feed-direction", "feed-packing", "feed-config", "feed-analytics":
+	case "feed-direction", "feed-packing", "feed-config":
 		return withGenericOptionGroups(feedOptionGroups())
+	case "feed-analytics":
+		return withGenericOptionGroups(append(feedOptionGroups(), domain.OptionGroup{
+			ID: "feed_analytics_tabs",
+			Options: []domain.Option{
+				option("overview", "Overview", "", ""),
+				option("items", "Stock", "", ""),
+				option("peranimal", "Per Animal", "", ""),
+				option("experiment", "Experiment", "", ""),
+				option("execution", "Execution", "", ""),
+			},
+		}))
 	case "calendar":
 		return withGenericOptionGroups(calendarOptionGroups())
 	case "audit-log":

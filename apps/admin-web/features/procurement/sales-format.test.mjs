@@ -12,6 +12,7 @@ import {
   monthlyRevenueTotal,
   num,
   numCompact,
+  numCompactWhole,
   resolveFarm,
   salesHref,
 } from "./sales-format.ts";
@@ -29,6 +30,13 @@ test("numCompact shortens counts and kg the same way", () => {
   assert.equal(numCompact(219305), "2.2L");
   assert.equal(numCompact(12410), "12.4k");
   assert.equal(numCompact(528), "528");
+});
+
+test("numCompactWhole rounds chart labels without decimal units", () => {
+  assert.equal(numCompactWhole(94_800), "95k");
+  assert.equal(numCompactWhole(10_200), "10k");
+  assert.equal(numCompactWhole(412.49), "412");
+  assert.equal(numCompactWhole(412.5), "413");
 });
 
 test("monthLabel and humanDate turn ISO values into farm-readable dates", () => {

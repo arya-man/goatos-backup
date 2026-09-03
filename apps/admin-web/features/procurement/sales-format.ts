@@ -98,6 +98,14 @@ export function numCompact(value: number): string {
   return String(Math.round(value));
 }
 
+/** Compact chart label without decimals or units: 94800 -> "95k", 412.5 -> "413". */
+export function numCompactWhole(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_00_000) return `${Math.floor(value / 1_00_000 + 0.5)}L`;
+  if (abs >= 1_000) return `${Math.floor(value / 1_000 + 0.5)}k`;
+  return String(Math.floor(value + 0.5));
+}
+
 function trimZero(value: number): string {
   const fixed = value.toFixed(1);
   return fixed.endsWith(".0") ? fixed.slice(0, -2) : fixed;

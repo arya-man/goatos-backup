@@ -35,6 +35,7 @@ import {
   monthlyRevenueTotal,
   num,
   numCompact,
+  numCompactWhole,
   resolveFarm,
   salesHref,
 } from "./sales-format";
@@ -206,7 +207,7 @@ function OverviewSections({
                 axisLabel: monthLabel(month.month),
                 label: monthLabel(month.month),
                 value: month.manure_kg,
-                display: `${numCompact(month.manure_kg)} ${kgSuffix}`,
+                display: numCompactWhole(month.manure_kg),
                 subDisplay: month.manure_revenue > 0 ? inrCompact(month.manure_revenue) : "",
               }))}
               chartLabel={copy(pageContract, "chart.monthly_manure.title")}

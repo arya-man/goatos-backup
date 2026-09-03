@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
   getFeedAnalyticsDirected,
@@ -85,9 +85,10 @@ function fa(pageContract: AdminUiPageContract, key: string): string {
   return copy(pageContract, key);
 }
 
-function readTab(sp: RouteSearchParams): Tab {
+function readTab(sp: RouteSearchParams, allowedTabs: readonly Tab[] = TABS): Tab {
   const raw = one(sp, "tab");
-  return (TABS as readonly string[]).includes(raw ?? "") ? (raw as Tab) : "overview";
+  if ((allowedTabs as readonly string[]).includes(raw ?? "")) return raw as Tab;
+  return allowedTabs[0] ?? "overview";
 }
 
 function readRange(sp: RouteSearchParams): Range {
@@ -269,7 +270,11 @@ export async function FeedAnalyticsPage({
   searchParams: RouteSearchParams;
   pageContract: AdminUiPageContract;
 }) {
-  const tab = readTab(searchParams);
+  const allowedTabs = optionGroup(pageContract, "feed_analytics_tabs")
+    .map((item) => item.key)
+    .filter((key): key is Tab => (TABS as readonly string[]).includes(key));
+  const stockOnly = allowedTabs.length === 1 && allowedTabs[0] === "items";
+  const tab = readTab(searchParams, allowedTabs);
   const range = readRange(searchParams);
   const { parkId } = backendScope(parseScope(searchParams));
   const window = rangeDates(range);
@@ -288,7 +293,7 @@ export async function FeedAnalyticsPage({
 
   // Overview needs directed + execution (for the adherence KPI); every other
   // tab reads exactly its own endpoint.
-  const wantDirected = tab === "overview" || tab === "items" || tab === "peranimal";
+  const wantDirected = !stockOnly && (tab === "overview" || tab === "items" || tab === "peranimal");
   const wantExecution = tab === "overview" || tab === "execution";
   const wantExperiment = tab === "experiment";
   // The experiment tab carries its OWN park dropdown (fa_park), the same
@@ -388,32 +393,36 @@ export async function FeedAnalyticsPage({
     <div className="pagegrid">
       <FeedFaroView routeId={pageContract.route_id} parkId={parkId} />
 
-      <p className="muted small" style={{ margin: "0 0 4px" }}>
-        {fa(pageContract, "banner.basis")}
-      </p>
+      {!stockOnly ? (
+        <>
+          <p className="muted small" style={{ margin: "0 0 4px" }}>
+            {fa(pageContract, "banner.basis")}
+          </p>
 
-      <div
-        className="feed-tabbar"
-        style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}
-      >
-        <SegmentedLinks
-          current={tab}
-          options={TABS.map((t) => ({
-            value: t,
-            label: fa(pageContract, `tab.${t}`),
-            href: hrefWith(searchParams, { tab: t === "overview" ? undefined : t }),
-          }))}
-        />
-        <SegmentedLinks
-          current={range}
-          ariaLabel={fa(pageContract, "range.aria")}
-          options={RANGES.map((r) => ({
-            value: r,
-            label: fa(pageContract, `range.${r}`),
-            href: hrefWith(searchParams, { range: r === "30" ? undefined : r }),
-          }))}
-        />
-      </div>
+          <div
+            className="feed-tabbar"
+            style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}
+          >
+            <SegmentedLinks
+              current={tab}
+              options={allowedTabs.map((t) => ({
+                value: t,
+                label: fa(pageContract, `tab.${t}`),
+                href: hrefWith(searchParams, { tab: t === "overview" ? undefined : t }),
+              }))}
+            />
+            <SegmentedLinks
+              current={range}
+              ariaLabel={fa(pageContract, "range.aria")}
+              options={RANGES.map((r) => ({
+                value: r,
+                label: fa(pageContract, `range.${r}`),
+                href: hrefWith(searchParams, { range: r === "30" ? undefined : r }),
+              }))}
+            />
+          </div>
+        </>
+      ) : null}
 
       {failed ? (
         <section className="card">
@@ -422,13 +431,16 @@ export async function FeedAnalyticsPage({
         </section>
       ) : null}
 
-      {directed?.ok && (tab === "overview" || tab === "items" || tab === "peranimal") ? (
+      {stockOnly && tab === "items" ? <StockCards stock={stock?.ok ? stock.data : null} pageContract={pageContract} /> : null}
+
+      {!stockOnly && directed?.ok && (tab === "overview" || tab === "items" || tab === "peranimal") ? (
         <DirectedTabs
           tab={tab}
           range={range}
           data={directed.data}
           execution={execution?.ok ? execution.data : null}
           stock={stock?.ok ? stock.data : null}
+          stockOnly={stockOnly}
           pageContract={pageContract}
         />
       ) : null}
@@ -551,6 +563,7 @@ function DirectedTabs({
   data,
   execution,
   stock,
+  stockOnly,
   pageContract,
 }: {
   tab: Tab;
@@ -558,6 +571,7 @@ function DirectedTabs({
   data: FeedAnalyticsDirectedResponse;
   execution: FeedAnalyticsExecutionResponse | null;
   stock: FeedAnalyticsStockResponse | null;
+  stockOnly: boolean;
   pageContract: AdminUiPageContract;
 }) {
   const view = buildDirectedView(data, fa(pageContract, "series.other"), istDayPlus(todayIso(), -1));
@@ -636,7 +650,7 @@ function DirectedTabs({
 
       {tab === "items" ? <StockCards stock={stock} pageContract={pageContract} /> : null}
 
-      {tab === "items" ? (
+      {tab === "items" && !stockOnly ? (
         // The artifact's Feed Items tab: one card per feed item, each in its
         // ranked colour, over the same window, below the stock cards. MONEY
         // FIRST (maintainer request 2026-09-03): the solid line is ₹ spent per

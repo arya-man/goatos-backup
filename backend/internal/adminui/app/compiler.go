@@ -80,6 +80,24 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 	// The resolved value is carried into compile() rather than read again, so this costs
 	// ONE small indexed read per bootstrap, not two.
 	access, assigned, accessErr := s.personPageAccessFor(ctx, input)
+	if procurementDirectorStockOnly(input) {
+		access = permissions.PageAccess{
+			Pages: map[string]struct{}{
+				"sales-config":               {},
+				"feed-analytics":             {},
+				"procurement-vendors":        {},
+				"procurement-feed-purchases": {},
+			},
+			Modules: map[string]struct{}{
+				"sales":          {},
+				"feed_direction": {},
+				"vendors":        {},
+				"feed_purchases": {},
+			},
+		}
+		assigned = true
+		accessErr = nil
+	}
 	fingerprint := pageAccessFingerprint(access, assigned)
 	revisionKey := ""
 	if revisions, ok := s.loadFamilyRevisions(ctx, input.TenantID); ok {
@@ -100,6 +118,14 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 		s.storeCache(revisionKey, resp, now, expiresAt)
 	}
 	return resp
+}
+
+func procurementDirectorStockOnly(input BootstrapInput) bool {
+	roles := rolesFromGrants(input.Grants)
+	if hasAnyRole(roles, permissions.RoleCEOInternal) {
+		return false
+	}
+	return hasAnyRole(roles, permissions.RoleProcurementDirector)
 }
 
 func (s *Service) cacheKey(input BootstrapInput, families ReferenceFamilies, familyErr error) string {
@@ -825,7 +851,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// Source-backed reproductive vocabulary for the Herd Register reproductive edit drawer.
 			// Same status_definitions family the Config rule editor uses, minus the "any" sentinel.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "herd_reproductive", optionsFromReferences(families.ReproductiveStates, ""))
-		case "feed-direction", "feed-packing", "feed-config":
+		case "feed-direction", "feed-packing", "feed-config", "feed-analytics":
 			// Live feed vocabulary. feedOptionGroups() declares only fixed schema constraints;
 			// the actual feed items are tenant data from feed_item_catalog and arrive here as
 			// ReferenceFamilies.FeedItems. This is the intended injection path — the alternative
@@ -833,6 +859,9 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].OptionGroups = mergeOptionGroupReferences(out[i].OptionGroups, "feed_items", families.FeedItems, "")
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_parks", optionsFromReferences(families.Parks, "info"))
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_breeds", optionsFromReferences(families.Breeds, ""))
+			if out[i].RouteID == "feed-analytics" {
+				out[i].OptionGroups = compileFeedAnalyticsOptionGroups(out[i].OptionGroups, input)
+			}
 		case "weighing-weights", "weighing-analytics":
 			// Live park vocabulary, same injection path Feed uses. The contract declares
 			// the group empty; the parks themselves are tenant rows and must never be
@@ -861,6 +890,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// Sales Config is the ONLY sales write surface (maintainer decision 2026-09-01).
 			// /sales and /sales/loads are deliberately absent from this switch: a page that
 			// declares no write control renders none, which is what makes them read-only.
+			out[i].OptionGroups = compileSalesConfigOptionGroups(out[i].OptionGroups, input)
 			out[i].Controls = compileSalesConfigControls(out[i].Controls, input, out[i].Copy)
 		case "feed-purchases":
 			out[i].Controls = compileFeedPurchaseControls(out[i].Controls, input, out[i].Copy)
@@ -1001,6 +1031,13 @@ func compileLoadsWeightSeries(controls []domain.Control, input BootstrapInput, c
 	})
 }
 
+func compileSalesConfigOptionGroups(groups []domain.OptionGroup, input BootstrapInput) []domain.OptionGroup {
+	return replaceOptionGroup(groups, "sales_config_read_links", []domain.Option{
+		option("sales-board", "See the sales board", "", ""),
+		option("sales-loads", "See Purchase and Born", "", ""),
+	})
+}
+
 func compileSalesConfigControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
 	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps the control
 	// enabled, matching compileConfigControls and compileHealthConfigControls.
@@ -1020,12 +1057,17 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 	// One capability gate for the pipeline/evidence writes (leads, farmer groups, market quotes,
 	// tag lists, weight checks): they all ride SalesWrite, and the sheet they replaced is retired
 	// (maintainer decision 2026-08-18), so entry lives here or nowhere.
+	pipelineAllowed := allowed && !procurementDirectorStockOnly(input)
+	pipelineReason := reason
+	if allowed && !pipelineAllowed {
+		pipelineReason = controlCopy(copy, "disabled.pipeline", "Pipeline and evidence entry is not enabled for your current role.")
+	}
 	controls = upsertControl(controls, domain.Control{
 		ID:             "record_pipeline",
 		Label:          controlCopy(copy, "action.record_pipeline.label", "Add record"),
 		Kind:           "secondary_action",
-		Enabled:        allowed,
-		DisabledReason: reason,
+		Enabled:        pipelineAllowed,
+		DisabledReason: pipelineReason,
 		Action:         "POST /sales/buyer-leads",
 	})
 	allocateAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesAllocateAnimals})
@@ -1504,6 +1546,22 @@ func compileDLQOptionGroups(groups []domain.OptionGroup, input BootstrapInput) [
 	return out
 }
 
+func compileFeedAnalyticsOptionGroups(groups []domain.OptionGroup, input BootstrapInput) []domain.OptionGroup {
+	ungated := len(input.Grants) == 0
+	mayReadFullFeed := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.FeedDirectionRead})
+	tabs := []domain.Option{option("items", "Stock", "", "")}
+	if mayReadFullFeed {
+		tabs = []domain.Option{
+			option("overview", "Overview", "", ""),
+			option("items", "Stock", "", ""),
+			option("peranimal", "Per Animal", "", ""),
+			option("experiment", "Experiment", "", ""),
+			option("execution", "Execution", "", ""),
+		}
+	}
+	return replaceOptionGroup(groups, "feed_analytics_tabs", tabs)
+}
+
 func ruleScopeOptions(parks []ReferenceOption) []domain.Option {
 	options := []domain.Option{option("tenant", "tenant (company default)", "", "")}
 	for _, park := range parks {
@@ -1839,7 +1897,7 @@ func permissionsForNav(id string) []string {
 	case "feed-config":
 		return []string{permissions.FeedConfigRead}
 	case "feed-analytics":
-		return []string{permissions.FeedDirectionRead}
+		return []string{permissions.FeedAnalyticsStockRead}
 	case "vaccination-live-tracker":
 		return []string{permissions.LocationsRead, permissions.ObligationRead, permissions.VaccinationRead}
 	case "herd-signals":

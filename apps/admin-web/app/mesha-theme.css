@@ -2296,6 +2296,7 @@
 .card .hd h3 { margin: 0; font-size: 14.5px; }
 .card .hd .sp { flex: 1; }
 .card .bd { padding: 6px 16px 16px; }
+.sales-config-card-copy{margin:0;padding:10px 16px 14px;line-height:1.45}
 .tag { border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; display: inline-block; }
 .t-ok { background: var(--okx); color: var(--ok); }
 .t-info { background: var(--infox); color: var(--info); }

@@ -159,16 +159,15 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 	),
-	// Web-only. Reads the whole feed chain (the Hemant case) with no authority over it.
+	// Web-only. Procurement Director keeps Sales Config, Vendors, Feed Purchases, and sees Feed
+	// Analytics stock only (the Hemant case). Source Entry is intentionally absent.
 	RoleProcurementDirector: rows(
-		one(assign("procurement", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
-		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
-		one(assign("load_costs", SurfaceWeb, LevelDo)),
-		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
-		one(assign("feed_direction", SurfaceWeb, LevelView)),
-		one(assign("config", SurfaceWeb, LevelView)),
+		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("load_costs", SurfaceWeb, LevelDo)),
+		one(assign("feed_direction", SurfaceWeb, LevelStock)),
 	),
 	// Granted BY NAME alongside a job (maintainer decision 2026-08-05). Carries approval
 	// authority and nothing else -- no read, no write. LevelView is deliberately absent.

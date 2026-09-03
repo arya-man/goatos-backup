@@ -148,7 +148,6 @@ func TestRecordFeedPurchaseControlIsCapabilityGated(t *testing.T) {
 		enabled bool
 	}{
 		{"ceo_internal", permissions.RoleCEOInternal, true},
-		{"procurement_director", permissions.RoleProcurementDirector, true},
 		{"procurement_manager", permissions.RoleProcurementManager, true},
 		{"feed_director reads the ledger but does not buy", permissions.RoleFeedDirector, false},
 		{"growth_director", permissions.RoleGrowthDirector, false},
@@ -218,8 +217,7 @@ func TestFeedPurchaseNavLeafIsGatedOnItsOwnPermission(t *testing.T) {
 		}
 	}
 	for _, role := range []string{
-		permissions.RoleCEOInternal, permissions.RoleProcurementDirector,
-		permissions.RoleProcurementManager, permissions.RoleFeedDirector,
+		permissions.RoleCEOInternal, permissions.RoleProcurementManager, permissions.RoleFeedDirector,
 	} {
 		if !permissions.RolesAuthorize([]string{role}, required, false) {
 			t.Fatalf("%s must reach the feed purchase ledger leaf", role)

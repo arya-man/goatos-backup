@@ -82,8 +82,8 @@ const (
 	// Catalog row: migration 000156 (tier 'manager', vertical 'procurement').
 	RoleProcurementManager = "procurement_manager"
 	// RoleProcurementDirector owns the PROCUREMENT vertical on admin-web and additionally reads
-	// the Feed chain (maintainer decision 2026-08-21: "when he logs in he should see only the
-	// Procurement and Feed modules in web").
+	// feed stock (maintainer decision 2026-09-03: Hemant/Procurement Director should see only
+	// Feed Analytics -> Stock in web; CEO/CXO retain the other screens).
 	//
 	// Like RoleProcurementManager this is a JOB, not a per-person authority: running the
 	// procurement desk at director tier is somebody's role, and a future holder inherits it by
@@ -91,10 +91,11 @@ const (
 	// so granting it changes nothing on the phone — the current holder's mobile access continues
 	// to come from the feed_director grant he holds alongside it.
 	//
-	// The Feed half is READ-ONLY oversight (config/dispatch/packing/wastage/transport reads).
-	// Authoring the ration grid (feed_config.write), the projected-count exception verdicts
-	// (feed_direction.oversee) and the M1 double-verify duty (verification.act) stay with
-	// RoleFeedDirector — this role watches the feed chain, it does not run it.
+	// The Feed half is now stock-only read oversight. Sales Config remains visible and writable,
+	// but the Sales board page is page-tick hidden for this role. Procurement keeps Vendors and
+	// Feed Purchases; Source Entry stays hidden because this role deliberately does not hold
+	// ProcurementRead. Broader feed-chain reads and SOPs stay with CEO/CXO or other explicitly
+	// ticked roles.
 	//
 	// Catalog row: migration 000180 (tier 'director', vertical 'procurement', is_legacy like the
 	// other live name_director keys).
@@ -564,6 +565,11 @@ const (
 	// invariant). READ-ONLY; the completion write rides FeedDirectionComplete, and the verifier's
 	// measured value rides VerificationVerdict on the producer's own route.
 	FeedWastageRead = "feed_wastage.read"
+	// FeedAnalyticsStockRead gates the stock-only Feed Analytics surface
+	// (/feed-analytics/stock). It is deliberately narrower than FeedDirectionRead:
+	// procurement can watch purchased stock cover without seeing directed-feed, per-animal,
+	// experiment, execution, SOP, sales, or source-entry screens.
+	FeedAnalyticsStockRead = "feed_analytics.stock_read"
 	// FeedDirectionRead gates the feed-DIRECTION read surface (/feed-direction/preview,
 	// /feed-direction/generation-preview, and the counts-projection exception list).
 	//
@@ -763,9 +769,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsRead: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		TaskRead: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
-		FeedDirectionRead: {},
-		CalendarRead:      {},
-		ProcurementRead:   {}, ProcurementReview: {},
+		FeedAnalyticsStockRead: {}, FeedDirectionRead: {},
+		CalendarRead:    {},
+		ProcurementRead: {}, ProcurementReview: {},
 		RosterRead: {},
 		// The Video Verification Team's permissions: read the evidence queue, and record the
 		// approve/reject verdict on it. VerificationVerdict is held by NO other role, CEO included
@@ -800,13 +806,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		// A park head dispatches feed on their own ground, so they read the packing worklist and may
 		// record a shed-session as fed. They still hold no feed_config.* grant: executing a ration is
 		// not authoring one.
-		FeedPackingRead:       {},
-		FeedWastageRead:       {},
-		FeedDirectionRead:     {},
-		FeedDirectionComplete: {},
-		FeedTransportRead:     {},
-		VerificationAct:       {},
-		HealthRead:            {},
+		FeedPackingRead:        {},
+		FeedWastageRead:        {},
+		FeedAnalyticsStockRead: {},
+		FeedDirectionRead:      {},
+		FeedDirectionComplete:  {},
+		FeedTransportRead:      {},
+		VerificationAct:        {},
+		HealthRead:             {},
 	},
 	RolePCDirector: {
 		GoatRead: {}, GoatWriteHealth: {},
@@ -930,7 +937,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
 		GoatRead: {}, SOPRead: {}, TaskRead: {}, TaskAssign: {},
 		FeedConfigRead: {}, FeedConfigWrite: {},
-		FeedDirectionRead: {}, FeedDirectionOversee: {}, FeedPackingRead: {}, FeedWastageRead: {},
+		FeedAnalyticsStockRead: {}, FeedDirectionRead: {}, FeedDirectionOversee: {}, FeedPackingRead: {}, FeedWastageRead: {},
 		// The transport worklist READ (maintainer decision 2026-08-05). Paired deliberately with
 		// the absence of FeedDirectionComplete below: the director sees every page of the feed
 		// chain including the daily transport tasks, and still cannot record one as done.
@@ -1065,42 +1072,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		// vendors it is bought from are already in this role's register.
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 	},
-	// RoleProcurementDirector: the Procurement vertical in full, plus read-only Feed oversight
-	// (maintainer decision 2026-08-21). See the constant's doc comment for the split with
-	// RoleFeedDirector.
-	//
-	// What it gets, and why:
-	//   - The whole procurement suite: source-entry intake (read/write/review), the vendor
-	//     register including payment instruments, and the sales ledger including record-sale.
-	//     A director of the desk decides arrivals and HF evidence, so ProcurementReview is held
-	//     where RoleProcurementManager deliberately does not hold it.
-	//   - Feed READS only: the dispatch sheet, packing worklist, wastage and transport worklists
-	//     — the oversight half of the feed chain. NOT FeedConfigRead: the authored ration grid
-	//     (/feed/config) is hidden from this workspace by the same 2026-08-21 decision, and its
-	//     leaf/page are withheld in procurement_director_lens.go.
-	//   - LocationsRead: park/shed selectors on those screens.
-	//   - SOPRead: the /feed/sops module-surface renders the sop-library contract over
-	//     /admin/sops, which is gated on sop.read.
-	//
-	// What it deliberately does NOT get:
-	//   - AppBootstrap: admin-web only; the phone surface stays whatever the person's other
-	//     grants provide.
-	//   - FeedConfigWrite / FeedDirectionOversee / FeedDirectionComplete / VerificationAct:
-	//     running the feed chain is RoleFeedDirector's job.
-	//   - Any vaccination, weighing, counts, goat, calendar, roster or health permission —
-	//     the admin-web workspace for this role is Procurement + Feed and nothing else
-	//     (procurement_director_lens.go is the nav half of that decision).
+	// RoleProcurementDirector: admin-web bootstrap plus stock-only Feed Analytics.
 	RoleProcurementDirector: {
-		AdminWebBootstrap: {},
-		LocationsRead:     {}, SOPRead: {},
-		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
-		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
-		SalesRead: {}, SalesWrite: {}, SalesAllocateAnimals: {},
-		FeedDirectionRead: {}, FeedPackingRead: {}, FeedWastageRead: {}, FeedTransportRead: {},
-		// The feed purchase ledger in full (maintainer decision 2026-08-24). This is a BUYING
-		// surface, so it sits inside this director's desk rather than being one of the read-only
-		// feed oversight grants above.
-		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
+		AdminWebBootstrap:      {},
+		LocationsRead:          {},
+		SalesRead:              {}, SalesWrite: {}, SalesAllocateAnimals: {},
+		VendorRead:             {}, VendorWrite: {}, VendorFinanceRead: {},
+		FeedPurchaseRead:       {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
+		FeedAnalyticsStockRead: {},
 	},
 	RoleCountsApprover: {
 		CountsApproveAccess:    {},
@@ -1125,13 +1104,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		// above already anticipated this widening. ProtocolRead gates Feed Direction (the generated
 		// dispatch sheet), FeedPackingRead gates the per-shed packing worklist. Both are READ-ONLY;
 		// authoring the ration grid (feed_config.write) stays with the CEO/CXO tier and is NOT added.
-		ProtocolRead:          {},
-		FeedPackingRead:       {},
-		FeedWastageRead:       {},
-		FeedDirectionRead:     {},
-		FeedDirectionComplete: {},
-		FeedTransportRead:     {},
-		HealthRead:            {}, HealthReport: {}, HealthExecute: {},
+		ProtocolRead:           {},
+		FeedPackingRead:        {},
+		FeedWastageRead:        {},
+		FeedAnalyticsStockRead: {},
+		FeedDirectionRead:      {},
+		FeedDirectionComplete:  {},
+		FeedTransportRead:      {},
+		HealthRead:             {}, HealthReport: {}, HealthExecute: {},
 		// See VaccinationAlertsRead doc comment above: this is the operator's Alerts
 		// tab feed only, NOT the shared ObligationRead/VaccinationRead admin bundle.
 		VaccinationAlertsRead: {},
@@ -1189,13 +1169,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Founder/builder visibility invariant (AGENTS.md): the platform-owner leadership cohort must
 		// hold the grants for every built visible module, so a founder account is never locked out of
 		// the Feed Config screen it is expected to operate.
-		FeedConfigRead:       {},
-		FeedConfigWrite:      {},
-		FeedPackingRead:      {},
-		FeedWastageRead:      {},
-		FeedDirectionRead:    {},
-		FeedDirectionOversee: {},
-		FeedTransportRead:    {},
+		FeedConfigRead:         {},
+		FeedConfigWrite:        {},
+		FeedPackingRead:        {},
+		FeedWastageRead:        {},
+		FeedAnalyticsStockRead: {},
+		FeedDirectionRead:      {},
+		FeedDirectionOversee:   {},
+		FeedTransportRead:      {},
 		// Herd Signals (BLE ear-tag telemetry): founder/builder visibility invariant, same as
 		// every other built module above. Ingest is a device/service credential's permission,
 		// not something the CEO account itself is expected to call, but is granted here too so

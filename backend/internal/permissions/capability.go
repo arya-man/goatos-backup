@@ -50,6 +50,9 @@ const (
 	LevelNone = "none"
 	// LevelView sees the module's screens and cards and can open nothing that changes state.
 	LevelView = "view"
+	// LevelStock is a feed-specific read tier for Procurement Director: it opens only
+	// Feed Analytics -> Stock and the stock endpoint behind it.
+	LevelStock = "stock"
 	// LevelDo performs the module's own field work -- execute, complete, record.
 	LevelDo = "do"
 	// LevelOversee judges other people's work -- verify, approve, reassign, oversee.
@@ -62,7 +65,7 @@ const (
 )
 
 // LevelOrder is the display order for the level picker.
-var LevelOrder = []string{LevelNone, LevelView, LevelDo, LevelOversee, LevelConfigure}
+var LevelOrder = []string{LevelNone, LevelStock, LevelView, LevelDo, LevelOversee, LevelConfigure}
 
 // CapabilityCopy is the farm wording for one capability, rendered verbatim by the access
 // editor. The client never composes these -- "oversee" is not a word to show an admin.
@@ -75,6 +78,7 @@ type CapabilityCopy struct {
 // CapabilityVocabulary is the ordered capability list the editor renders, LevelNone
 // excluded: removing access is unticking everything, not a fifth chip to choose.
 var CapabilityVocabulary = []CapabilityCopy{
+	{Level: LevelStock, Label: "Stock", Blurb: "Can open Feed Analytics stock only. Cannot see broader feed analytics."},
 	{Level: LevelView, Label: "View", Blurb: "Can open the screens and read them. Cannot change anything."},
 	{Level: LevelDo, Label: "Do", Blurb: "Carries out the work: records, captures, completes."},
 	{Level: LevelOversee, Label: "Oversee", Blurb: "Judges other people's work: approve, verify, send back."},
@@ -185,15 +189,16 @@ var moduleCapabilities = []ModuleCapability{
 		Blurb:    "The daily feed sheet, packing, transport and distribution.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
-			LevelView: {FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead},
-			LevelDo:   {FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead, FeedDirectionComplete},
+			LevelStock: {FeedAnalyticsStockRead},
+			LevelView:  {FeedAnalyticsStockRead, FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead},
+			LevelDo:    {FeedAnalyticsStockRead, FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead, FeedDirectionComplete},
 			// THE HEMANT CASE, and the reason levels are not cumulative. Oversee reads every
 			// page of the feed chain and adds FeedDirectionOversee -- and deliberately does NOT
 			// carry FeedDirectionComplete. The director sees the daily transport tasks and still
 			// cannot record one as done. Adding Complete here reverses a recorded decision.
-			LevelOversee: {FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead, FeedDirectionOversee},
+			LevelOversee: {FeedAnalyticsStockRead, FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead, FeedDirectionOversee},
 			LevelConfigure: {
-				FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead, FeedDirectionOversee,
+				FeedAnalyticsStockRead, FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead, FeedDirectionOversee,
 				FeedConfigRead, FeedConfigWrite,
 			},
 		},

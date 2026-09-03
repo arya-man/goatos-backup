@@ -180,7 +180,7 @@ func TestSaleAllocationRoutesUseSalesPermissionsWithoutGoatIdentityAccess(t *tes
 				t.Fatalf("permissions=%v, want [%s]", route.Permissions, tt.permission)
 			}
 			if !RolesAuthorize([]string{RoleProcurementDirector}, route.Permissions, route.AdminOnly) {
-				t.Fatalf("procurement_director should authorize %s", tt.name)
+				t.Fatalf("procurement_director must authorize Sales Config tag flow %s", tt.name)
 			}
 			if RolesAuthorize([]string{RoleKey(TierManager, VerticalSales)}, route.Permissions, route.AdminOnly) {
 				t.Fatalf("sales manager must not inherit sale allocation herd-lifecycle authority through sales.write for %s", tt.name)

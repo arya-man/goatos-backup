@@ -45,6 +45,7 @@ var benignReadGains = map[string]string{
 	FeedPackingRead:         "another page of the feed chain the principal already reads",
 	FeedWastageRead:         "another page of the feed chain the principal already reads",
 	FeedTransportRead:       "another page of the feed chain the principal already reads",
+	FeedAnalyticsStockRead:  "the stock-only read behind Feed Analytics for anyone who already reads the feed chain",
 }
 
 // orgGridGains are accepted ONLY on the 36 composite tier x vertical roles. Those are

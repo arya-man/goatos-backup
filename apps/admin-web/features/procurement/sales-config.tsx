@@ -171,20 +171,6 @@ export async function SalesConfigPage({
         ) : null}
       </div>
 
-      {/* Where these records are read back. Without it the person who just recorded a sale has to
-          guess which screen shows it. */}
-      <div className="chips" style={{ marginBottom: 14, alignItems: "center" }}>
-        <span className="muted small" style={{ marginRight: 6 }}>
-          {copy(pageContract, "hint.read_only")}
-        </span>
-        <Link href="/sales" scroll={false} className="btn sm">
-          {copy(pageContract, "link.sales_board")}
-        </Link>
-        <Link href="/sales/loads" scroll={false} className="btn sm">
-          {copy(pageContract, "link.sales_loads")}
-        </Link>
-      </div>
-
       {/* Write feedback. Without this a save simply closes the drawer, which is
           indistinguishable from the save being dropped. */}
       {actionStatus ? (
@@ -212,7 +198,7 @@ export async function SalesConfigPage({
           <div className="sp" style={{ flex: 1 }} />
           <span className="muted small">{copy(pageContract, "section.sales_entry.row_hint")}</span>
         </div>
-        <p className="muted small" style={{ marginTop: 0 }}>
+        <p className="muted small sales-config-card-copy">
           {copy(pageContract, "section.sales_entry.subtitle")}
         </p>
 
@@ -283,17 +269,15 @@ export async function SalesConfigPage({
         ) : null}
       </section>
 
-      {/* 2 — pipeline and evidence: the five datasets the retired Sales DB sheet carried. Each
-          button opens its own entry drawer, which also lists what has been entered. */}
-      <section className="card">
-        <div className="hd">
-          <ClipboardList className="ic" style={{ color: "var(--warn)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.pipeline_entry.title")}</h3>
-        </div>
-        <p className="muted small" style={{ marginTop: 0 }}>
-          {copy(pageContract, "section.pipeline_entry.subtitle")}
-        </p>
-        {canRecordPipeline ? (
+      {canRecordPipeline ? (
+        <section className="card">
+          <div className="hd">
+            <ClipboardList className="ic" style={{ color: "var(--warn)" }} aria-hidden="true" />
+            <h3>{copy(pageContract, "section.pipeline_entry.title")}</h3>
+          </div>
+          <p className="muted small sales-config-card-copy">
+            {copy(pageContract, "section.pipeline_entry.subtitle")}
+          </p>
           <div className="chips">
             {panelButton(panelHrefFor("buyer_leads"), copy(pageContract, "action.add_lead"))}
             {panelButton(panelHrefFor("fpo_leads"), copy(pageContract, "action.add_fpo"))}
@@ -301,10 +285,8 @@ export async function SalesConfigPage({
             {panelButton(panelHrefFor("tags"), copy(pageContract, "action.add_tags"))}
             {panelButton(panelHrefFor("weight_check"), copy(pageContract, "action.add_weight_check"))}
           </div>
-        ) : (
-          <div className="empty">{copy(pageContract, "disabled.write")}</div>
-        )}
-      </section>
+        </section>
+      ) : null}
 
       {/* 3 — Purchase and Born: a load's landed cost. Its own permission, so this section can be
           the only inert one on an otherwise live page. */}
@@ -315,7 +297,7 @@ export async function SalesConfigPage({
           <div className="sp" style={{ flex: 1 }} />
           <span className="muted small">{copy(pageContract, "section.load_entry.row_hint")}</span>
         </div>
-        <p className="muted small" style={{ marginTop: 0 }}>
+        <p className="muted small sales-config-card-copy">
           {copy(pageContract, "section.load_entry.subtitle")}
         </p>
 
