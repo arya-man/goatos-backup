@@ -754,6 +754,15 @@ VALUES ($1, $2, $3, 'Mesha Kids Goat Concentrate', $4, $5::date, 1000, $6::numer
 	if got.Spend.ThisYear != "1070" {
 		t.Fatalf("spend summary must use the same farm-grain pricing, got %+v", got.Spend)
 	}
+	// The per-item series is the SAME priced set at item grain: one row for the
+	// one feed, its two farms' kg summed and each farm priced at its own load.
+	if len(got.ItemExpenditure) != 1 {
+		t.Fatalf("want one item expenditure row, got %+v", got.ItemExpenditure)
+	}
+	if ie := got.ItemExpenditure[0]; ie.FeedDay != "2026-08-15" || ie.FeedItemKey != "mesha_kids_goat_concentrate" ||
+		ie.FeedItemLabel != "Mesha Kids Goat Concentrate" || ie.DirectedKg != "20.0" || ie.Rupees != "1070" {
+		t.Fatalf("item expenditure must carry farm-priced rupees beside the priced kg, got %+v", ie)
+	}
 
 	cbeScoped, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
 		DateFrom: day,

@@ -777,6 +777,22 @@ type ExpenditureDay struct {
 	Rupees  string
 }
 
+// ExpenditureItemDay is one feed ITEM's spend on one feed day: that item's
+// directed kg (sheet plus externally tracked consumption) priced at each farm's
+// most recent load rate on or before the day, and the kg it priced. The Feed
+// Items charts read this so each feed shows what it COST per day beside what
+// was fed (maintainer request 2026-09-03: money first, quantity alongside).
+// An item with no load rate on a day has no row -- absence, never a zero.
+type ExpenditureItemDay struct {
+	FeedDay       string
+	FeedItemKey   string
+	FeedItemLabel string
+	// DirectedKg is the priced kg only: the same kg the rupees were computed
+	// from, so ₹ ÷ kg on a row is the rate the farm actually paid.
+	DirectedKg string
+	Rupees     string
+}
+
 // SpendSummary totals the expenditure over the standing periods leadership
 // asks about, independent of the page's chart window. Every bucket ends at
 // YESTERDAY (today's sheet is still being executed) and is priced the same way
@@ -803,7 +819,11 @@ type StockAnalytics struct {
 	// grain over every fed feed, ordered by farm then item.
 	Forecast    []StockForecastItem
 	Expenditure []ExpenditureDay
-	Spend       SpendSummary
+	// ItemExpenditure is the same priced series at (feed day, feed item) grain,
+	// ordered by day then item key. Summing a day's rows differs from that
+	// day's Expenditure only by rounding, since each is rounded to the rupee.
+	ItemExpenditure []ExpenditureItemDay
+	Spend           SpendSummary
 }
 
 // ShedFeedItemTotal is one feed item's window total inside a pen's row —

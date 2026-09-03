@@ -16971,6 +16971,27 @@ components:
         rupees:
           type: string
           description: Directed kg priced at each item's most recent load rate on or before the day.
+    FeedAnalyticsExpenditureItemDay:
+      type: object
+      required: [feed_day, feed_item_key, feed_item_label, directed_kg, rupees]
+      description: >-
+        One feed item's spend on one feed day, priced like the daily series (each farm's most
+        recent load rate on or before the day). Only priced kg appear; an item with no load rate
+        that day has no row.
+      properties:
+        feed_day:
+          type: string
+          format: date
+        feed_item_key:
+          type: string
+        feed_item_label:
+          type: string
+        directed_kg:
+          type: string
+          description: The kg the rupees were priced from, one decimal.
+        rupees:
+          type: string
+          description: Whole rupees.
     FeedAnalyticsSpendSummary:
       type: object
       description: >-
@@ -16992,7 +17013,7 @@ components:
           description: Jan 1 of the current IST year through yesterday.
     FeedAnalyticsStockResponse:
       type: object
-      required: [date_from, date_to, items, farm_items, forecast, expenditure, spend]
+      required: [date_from, date_to, items, farm_items, forecast, expenditure, item_expenditure, spend]
       properties:
         date_from:
           type: string
@@ -17022,6 +17043,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsExpenditureDay"
+        item_expenditure:
+          type: array
+          description: The same priced series at (feed day, feed item) grain, ordered by day then item key.
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsExpenditureItemDay"
         spend:
           $ref: "#/components/schemas/FeedAnalyticsSpendSummary"
     FeedAnalyticsStockForecastItem:

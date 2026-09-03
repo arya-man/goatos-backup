@@ -254,6 +254,9 @@
   .chartcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px;box-shadow:var(--shadow);min-width:0;cursor:pointer}.charts>.chartcard,.charts>.card{break-inside:avoid;-webkit-column-break-inside:avoid;width:100%;margin:0 0 14px;display:inline-block;vertical-align:top}
   .chartcard h4{margin:0 0 1px;font-size:13px}
   .chartcard .cap{color:var(--muted);font-size:11.5px;margin-bottom:8px}
+  /* Feed Items cards: the per-day money/quantity strip above each item's chart. */
+  .chartcard .feed-item-strip{display:flex;flex-wrap:wrap;gap:6px 22px;margin:0 0 10px;padding:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .chartcard .feed-item-strip .val{font-size:16px;font-weight:600;letter-spacing:-.01em;line-height:1.2}
   .chartcard .lg,.wchart .lg{display:flex;gap:14px 18px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px}
   .chartcard .lg span,.wchart .lg span{display:inline-flex;align-items:center;gap:5px}
   .chartcard svg{display:block}

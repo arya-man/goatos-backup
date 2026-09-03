@@ -151,13 +151,16 @@ function rangeDates(range: Range, endDay?: string): { date_from: string; date_to
 // Directed-view regrouping (drawing shape only — no derived business numbers)
 // ---------------------------------------------------------------------------
 
+/** A feed item's line, keyed so the stock read's money can be joined to it. */
+type ItemLineSeries = LineSeries & { key: string };
+
 type DirectedView = {
   dayLabels: string[];
   /** Top feed items by window kg, in stable order; the rest fold into one slot. */
   itemLabels: string[];
   stacked: StackedDay[];
   mix: { key: string; label: string; value: number }[];
-  itemSeries: LineSeries[];
+  itemSeries: ItemLineSeries[];
   perHead: LineSeries[];
   latestDay?: FeedAnalyticsDirectedResponse["days"][number];
 };
@@ -208,8 +211,9 @@ function buildDirectedView(
 
   // One small-multiple series per feed item, in ranked order so each item's
   // colour matches its slot on the stacked chart and legend.
-  const itemSeries: { label: string; colorVar: string; points: (number | null)[] }[] = ranked.map(
+  const itemSeries: ItemLineSeries[] = ranked.map(
     ([key, v], s) => ({
+      key,
       label: v.label,
       colorVar: seriesColorVar(s),
       points: dayKeys.map((day) => {
@@ -494,6 +498,53 @@ export async function FeedAnalyticsPage({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Per-item money view (drawing shape only): the stock read's priced series,
+// indexed to the directed chart's day axis so each feed card can put ₹ per
+// day beside kg per day on one x-axis.
+// ---------------------------------------------------------------------------
+
+type ItemMoney = {
+  /** ₹ per day slot, null where no load rate priced that day. */
+  rupees: (number | null)[];
+  rupeesTotal: number;
+  /** The kg the rupees were priced from — the rate's honest denominator. */
+  pricedKg: number;
+  pricedDays: number;
+};
+
+function buildItemMoney(stock: FeedAnalyticsStockResponse | null, dayKeys: string[]): Map<string, ItemMoney> {
+  const out = new Map<string, ItemMoney>();
+  if (!stock) return out;
+  const slot = new Map<string, number>();
+  dayKeys.forEach((day, i) => slot.set(day, i));
+  for (const row of stock.item_expenditure ?? []) {
+    const i = slot.get(row.feed_day);
+    if (i === undefined) continue;
+    let m = out.get(row.feed_item_key);
+    if (!m) {
+      m = { rupees: new Array<number | null>(dayKeys.length).fill(null), rupeesTotal: 0, pricedKg: 0, pricedDays: 0 };
+      out.set(row.feed_item_key, m);
+    }
+    const rupees = num(row.rupees);
+    m.rupees[i] = (m.rupees[i] ?? 0) + rupees;
+    m.rupeesTotal += rupees;
+    m.pricedKg += num(row.directed_kg);
+    m.pricedDays += 1;
+  }
+  return out;
+}
+
+/** Money first: priced feeds by window ₹ descending, then unpriced feeds in their kg rank. */
+function rankItemCards(
+  itemSeries: ItemLineSeries[],
+  itemMoney: Map<string, ItemMoney>,
+): { series: ItemLineSeries; money: ItemMoney | null }[] {
+  return itemSeries
+    .map((series) => ({ series, money: itemMoney.get(series.key) ?? null }))
+    .sort((a, b) => (b.money?.rupeesTotal ?? -1) - (a.money?.rupeesTotal ?? -1));
+}
+
 function DirectedTabs({
   tab,
   range,
@@ -510,6 +561,7 @@ function DirectedTabs({
   pageContract: AdminUiPageContract;
 }) {
   const view = buildDirectedView(data, fa(pageContract, "series.other"), istDayPlus(todayIso(), -1));
+  const itemMoney = tab === "items" ? buildItemMoney(stock, view.dayLabels) : new Map<string, ItemMoney>();
   const empty = data.days.length === 0;
   const noData = fa(pageContract, "empty.title");
 
@@ -585,30 +637,77 @@ function DirectedTabs({
       {tab === "items" ? <StockCards stock={stock} pageContract={pageContract} /> : null}
 
       {tab === "items" ? (
-        // The artifact's Feed Items tab: one small chart per feed item, each in
-        // its ranked colour, over the same window, below the stock cards.
-        // Two charts per row (single column on narrow), sized up from the
-        // .charts 3-up column flow so each item's day-to-day movement is
-        // readable, with breathing room under the tab bar.
+        // The artifact's Feed Items tab: one card per feed item, each in its
+        // ranked colour, over the same window, below the stock cards. MONEY
+        // FIRST (maintainer request 2026-09-03): the solid line is ₹ spent per
+        // day, the dashed line on the right-hand scale is the kg fed, and the
+        // strip above the chart carries the per-day figures. Cards are ordered by what
+        // each feed cost; a feed with no load rate yet falls to the end and
+        // keeps its kg line, so it is never hidden for lack of a price.
         <div
           className="grid"
           style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14, marginTop: 14 }}
         >
-          {view.itemSeries.map((series) => (
-            <div className="chartcard" key={series.label}>
-              <h4>{series.label}</h4>
-              <div className="cap">{fa(pageContract, "chart.item.hint")}</div>
-              <ChartHover>
-                <FeedLines
-                  series={[series]}
-                  dayLabels={view.dayLabels}
-                  valueNoun={fa(pageContract, "unit.kg")}
-                  chartLabel={series.label}
-                  emptyLabel={fa(pageContract, "empty.body")}
-                />
-              </ChartHover>
-            </div>
-          ))}
+          {rankItemCards(view.itemSeries, itemMoney).map(({ series, money }) => {
+            const fedDays = series.points.filter((p) => p !== null).length;
+            const fedKg = series.points.reduce<number>((acc, p) => acc + (p ?? 0), 0);
+            const kgNoun = fa(pageContract, "unit.kg");
+            const rupeeNoun = fa(pageContract, "unit.rupees");
+            const fedSeries: LineSeries = { label: fa(pageContract, "item.series.fed"), colorVar: series.colorVar, points: series.points };
+            return (
+              <div className="chartcard" key={series.key}>
+                <h4>{series.label}</h4>
+                <div className="cap">{fa(pageContract, "chart.item.hint")}</div>
+                <div className="feed-item-strip">
+                  {money ? (
+                    <div>
+                      <div className="val">
+                        {money.pricedDays > 0
+                          ? `₹${(money.rupeesTotal / money.pricedDays).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
+                          : "—"}
+                      </div>
+                      <div className="muted small">{fa(pageContract, "item.spend.per_day")}</div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="val">—</div>
+                      <div className="muted small">{fa(pageContract, "item.unpriced")}</div>
+                    </div>
+                  )}
+                  <div>
+                    <div className="val">{fedDays > 0 ? nf(fedKg / fedDays) : "—"}</div>
+                    <div className="muted small">{fa(pageContract, "item.kg.per_day")}</div>
+                  </div>
+                  {money && money.pricedKg > 0 ? (
+                    <div>
+                      <div className="val">{`₹${rate(money.rupeesTotal / money.pricedKg)}`}</div>
+                      <div className="muted small">{fa(pageContract, "item.rate")}</div>
+                    </div>
+                  ) : null}
+                </div>
+                <ChartHover>
+                  {money ? (
+                    <FeedLines
+                      series={[{ label: fa(pageContract, "item.series.spend"), colorVar: series.colorVar, points: money.rupees }]}
+                      secondary={{ series: fedSeries, valueNoun: kgNoun }}
+                      dayLabels={view.dayLabels}
+                      valueNoun={rupeeNoun}
+                      chartLabel={series.label}
+                      emptyLabel={fa(pageContract, "empty.body")}
+                    />
+                  ) : (
+                    <FeedLines
+                      series={[fedSeries]}
+                      dayLabels={view.dayLabels}
+                      valueNoun={kgNoun}
+                      chartLabel={series.label}
+                      emptyLabel={fa(pageContract, "empty.body")}
+                    />
+                  )}
+                </ChartHover>
+              </div>
+            );
+          })}
         </div>
       ) : null}
 

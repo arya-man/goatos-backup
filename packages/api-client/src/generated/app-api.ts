@@ -7071,6 +7071,17 @@ export interface components {
             /** @description Directed kg priced at each item's most recent load rate on or before the day. */
             rupees: string;
         };
+        /** @description One feed item's spend on one feed day, priced like the daily series (each farm's most recent load rate on or before the day). Only priced kg appear; an item with no load rate that day has no row. */
+        FeedAnalyticsExpenditureItemDay: {
+            /** Format: date */
+            feed_day: string;
+            feed_item_key: string;
+            feed_item_label: string;
+            /** @description The kg the rupees were priced from, one decimal. */
+            directed_kg: string;
+            /** @description Whole rupees. */
+            rupees: string;
+        };
         /** @description Rupee totals over the standing leadership periods, each ending yesterday and priced like the daily series (most recent load rate per item). "0" when nothing priced. */
         FeedAnalyticsSpendSummary: {
             /** @description Rolling 7 IST days ending yesterday. */
@@ -7093,6 +7104,8 @@ export interface components {
             /** @description Next-7-days feed requirement and cost, one row per (farm, feed item), ordered by farm then feed item. Keyed on what the farm actually FEEDS -- sheet-directed feeds and externally-tracked feeds alike -- so this list is wider than `farm_items`, which covers the four Mesha concentrates only. Always present, possibly empty. */
             forecast: components["schemas"]["FeedAnalyticsStockForecastItem"][];
             expenditure: components["schemas"]["FeedAnalyticsExpenditureDay"][];
+            /** @description The same priced series at (feed day, feed item) grain, ordered by day then item key. */
+            item_expenditure: components["schemas"]["FeedAnalyticsExpenditureItemDay"][];
             spend: components["schemas"]["FeedAnalyticsSpendSummary"];
         };
         /** @description One farm's requirement for one feed over the next 7 days, at the CURRENT feeding rate. Quantities are kg and money is rupees, both as decimal strings; an empty string means the figure is unavailable for this row rather than zero -- `stock_kg` and the cost fields are empty when the purchase ledger carries no load for this farm and feed, and a never-purchased feed still reports its requirement. */

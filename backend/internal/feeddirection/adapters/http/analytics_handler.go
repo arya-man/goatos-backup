@@ -499,6 +499,14 @@ type expenditureDayDTO struct {
 	Rupees  string `json:"rupees"`
 }
 
+type expenditureItemDayDTO struct {
+	FeedDay       string `json:"feed_day"`
+	FeedItemKey   string `json:"feed_item_key"`
+	FeedItemLabel string `json:"feed_item_label"`
+	DirectedKg    string `json:"directed_kg"`
+	Rupees        string `json:"rupees"`
+}
+
 type spendSummaryDTO struct {
 	Last7Days   string `json:"last_7_days"`
 	ThisMonth   string `json:"this_month"`
@@ -542,7 +550,9 @@ type stockAnalyticsDTO struct {
 	// Forecast is always present (possibly empty) so the renderer needs no null branch.
 	Forecast    []stockForecastItemDTO `json:"forecast"`
 	Expenditure []expenditureDayDTO    `json:"expenditure"`
-	Spend       spendSummaryDTO        `json:"spend"`
+	// ItemExpenditure is the priced series at (day, feed item) grain; always present.
+	ItemExpenditure []expenditureItemDayDTO `json:"item_expenditure"`
+	Spend           spendSummaryDTO         `json:"spend"`
 }
 
 // executionSections reads the optional `sections` narrowing. An unknown name is a 400 rather than
@@ -645,12 +655,13 @@ func (h *Handler) GetStockAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 	from, to := domain.ClampAnalyticsWindow(in.DateFrom, in.DateTo)
 	dto := stockAnalyticsDTO{
-		DateFrom:    from.Format("2006-01-02"),
-		DateTo:      to.Format("2006-01-02"),
-		Items:       make([]stockItemDTO, 0, len(result.Items)),
-		FarmItems:   make([]stockFarmItemDTO, 0, len(result.FarmItems)),
-		Expenditure: make([]expenditureDayDTO, 0, len(result.Expenditure)),
-		Forecast:    make([]stockForecastItemDTO, 0, len(result.Forecast)),
+		DateFrom:        from.Format("2006-01-02"),
+		DateTo:          to.Format("2006-01-02"),
+		Items:           make([]stockItemDTO, 0, len(result.Items)),
+		FarmItems:       make([]stockFarmItemDTO, 0, len(result.FarmItems)),
+		Expenditure:     make([]expenditureDayDTO, 0, len(result.Expenditure)),
+		Forecast:        make([]stockForecastItemDTO, 0, len(result.Forecast)),
+		ItemExpenditure: make([]expenditureItemDayDTO, 0, len(result.ItemExpenditure)),
 	}
 	for _, it := range result.Items {
 		dto.Items = append(dto.Items, stockItemDTO(it))
@@ -660,6 +671,9 @@ func (h *Handler) GetStockAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, d := range result.Expenditure {
 		dto.Expenditure = append(dto.Expenditure, expenditureDayDTO(d))
+	}
+	for _, d := range result.ItemExpenditure {
+		dto.ItemExpenditure = append(dto.ItemExpenditure, expenditureItemDayDTO(d))
 	}
 	for _, f := range result.Forecast {
 		dto.Forecast = append(dto.Forecast, stockForecastItemDTO(f))

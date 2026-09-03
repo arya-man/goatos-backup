@@ -206,22 +206,31 @@ export type LineSeries = {
   points: (number | null)[];
 };
 
-/** Multi-series line chart on one shared scale, endpoint dot per series. */
+/**
+ * Multi-series line chart on one shared scale, endpoint dot per series.
+ *
+ * `secondary` draws ONE more series in a different unit on its OWN scale — a dashed line with
+ * its ticks on the right edge — so money and quantity can share a card without either being
+ * squashed flat by the other's magnitude. Its points join the same hover tip in their own noun.
+ */
 export function SeriesLines({
   series,
   dayLabels,
   valueNoun,
   chartLabel,
   emptyLabel,
+  secondary,
 }: {
   series: LineSeries[];
   dayLabels: string[];
   valueNoun: string;
   chartLabel: string;
   emptyLabel: string;
+  secondary?: { series: LineSeries; valueNoun: string };
 }) {
   const values = series.flatMap((s) => s.points.filter((p): p is number => p !== null));
-  if (values.length === 0 || dayLabels.length === 0) {
+  const secondaryValues = secondary?.series.points.filter((p): p is number => p !== null) ?? [];
+  if ((values.length === 0 && secondaryValues.length === 0) || dayLabels.length === 0) {
     return (
       <div className="muted small" style={{ padding: "12px 2px", textAlign: "center" }}>
         {emptyLabel}
@@ -230,8 +239,27 @@ export function SeriesLines({
   }
   const max = Math.max(1, ...values);
   const padX = padForTicks(max);
-  const stepX = (VIEW_W - padX - PAD_X) / Math.max(1, dayLabels.length - 1);
+  const secondaryMax = Math.max(1, ...secondaryValues);
+  // The right edge holds the secondary ticks when there are any; otherwise the plot keeps its
+  // usual 6px margin so charts without a secondary series draw exactly as before.
+  const rightX = secondary ? VIEW_W - padForTicks(secondaryMax) : VIEW_W - 6;
+  const stepX = (rightX - padX) / Math.max(1, dayLabels.length - 1);
   const yOf = (v: number) => BASELINE - ((BASELINE - PAD_TOP) * v) / max;
+  const yOfSecondary = (v: number) => BASELINE - ((BASELINE - PAD_TOP) * v) / secondaryMax;
+  const pathFor = (points: (number | null)[], y: (v: number) => number): string[] => {
+    const segments: string[] = [];
+    let current: string[] = [];
+    points.forEach((p, i) => {
+      if (p === null) {
+        if (current.length > 0) segments.push(current.join(" "));
+        current = [];
+        return;
+      }
+      current.push(`${current.length === 0 ? "M" : "L"}${(padX + i * stepX).toFixed(1)} ${y(p).toFixed(1)}`);
+    });
+    if (current.length > 0) segments.push(current.join(" "));
+    return segments;
+  };
   return (
     <svg
       viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
@@ -243,7 +271,7 @@ export function SeriesLines({
         <line
           key={f}
           x1={padX}
-          x2={VIEW_W - 6}
+          x2={rightX}
           y1={BASELINE - (BASELINE - PAD_TOP) * f}
           y2={BASELINE - (BASELINE - PAD_TOP) * f}
           stroke="var(--line)"
@@ -262,19 +290,37 @@ export function SeriesLines({
           {nf(max * f)}
         </text>
       ))}
-      <line x1={padX} x2={VIEW_W - 6} y1={BASELINE} y2={BASELINE} stroke="var(--line)" strokeWidth="1" />
+      {secondary
+        ? [0.5, 1].map((f) => (
+            <text
+              key={`s${f}`}
+              x={rightX + 5}
+              y={BASELINE - (BASELINE - PAD_TOP) * f + 3}
+              fontSize="9"
+              textAnchor="start"
+              fill="var(--faint)"
+            >
+              {nf(secondaryMax * f)}
+            </text>
+          ))
+        : null}
+      <line x1={padX} x2={rightX} y1={BASELINE} y2={BASELINE} stroke="var(--line)" strokeWidth="1" />
+      {secondary
+        ? pathFor(secondary.series.points, yOfSecondary).map((d, i) => (
+            <path
+              key={`s${i}`}
+              d={d}
+              fill="none"
+              stroke={secondary.series.colorVar}
+              strokeWidth="1.5"
+              strokeDasharray="4 3"
+              strokeLinejoin="round"
+              opacity="0.75"
+            />
+          ))
+        : null}
       {series.map((s) => {
-        const segments: string[] = [];
-        let current: string[] = [];
-        s.points.forEach((p, i) => {
-          if (p === null) {
-            if (current.length > 0) segments.push(current.join(" "));
-            current = [];
-            return;
-          }
-          current.push(`${current.length === 0 ? "M" : "L"}${(padX + i * stepX).toFixed(1)} ${yOf(p).toFixed(1)}`);
-        });
-        if (current.length > 0) segments.push(current.join(" "));
+        const segments = pathFor(s.points, yOf);
         const lastIdx: number = s.points.reduce<number>((acc, p, i) => (p === null ? acc : i), -1);
         const lastVal = lastIdx >= 0 ? s.points[lastIdx] : null;
         return (
@@ -299,6 +345,10 @@ export function SeriesLines({
         const parts = series
           .map((s) => (s.points[i] === null ? null : `${s.label}  ${nf(s.points[i] as number)} ${valueNoun}`))
           .filter((p): p is string => p !== null);
+        const secondaryPoint = secondary?.series.points[i];
+        if (secondary && secondaryPoint !== null && secondaryPoint !== undefined) {
+          parts.push(`${secondary.series.label}  ${nf(secondaryPoint)} ${secondary.valueNoun}`);
+        }
         if (parts.length === 0) return null;
         return (
           <rect
@@ -327,7 +377,7 @@ export function SeriesLines({
           {fmtDay(dayLabels[i])}
         </text>
       ))}
-      <text x={VIEW_W - 6} y={VIEW_H - 4} fontSize="8" textAnchor="end" fill="var(--faint)">
+      <text x={rightX} y={VIEW_H - 4} fontSize="8" textAnchor="end" fill="var(--faint)">
         {fmtDay(dayLabels[dayLabels.length - 1])}
       </text>
     </svg>

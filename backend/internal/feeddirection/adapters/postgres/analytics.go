@@ -1485,6 +1485,68 @@ JOIN LATERAL (
 GROUP BY di.feed_day
 ORDER BY di.feed_day`
 
+// Per-ITEM expenditure: the SAME day_item × same-farm latest-load pricing as
+// the daily series above, kept at (feed_day, feed_item_key) grain instead of
+// collapsing to the day. Each feed's kg and rupees are summed over the
+// caller's farms, so a feed bought at two rates on two farms reads as one row
+// priced farm by farm -- never repriced at either farm's rate alone.
+//
+// projection-review: membership=the same both_sources set as stockExpenditureSQL -- issue rows
+// through their live issue plus feed_effective_external_consumption, each pre-aggregated to
+// (feed_day, park_id, feed_item_key) before pricing; group_key=(feed_day, feed_item_key), one row
+// per feed per day; join_cardinality=day_item to price is 1:0..1 via the LIMIT 1 lateral, so no
+// fan-out -- the day series and this series range over the identical priced (day, farm, item)
+// set and differ only by the grain they round at; pagination=none, bounded by window days × the
+// feed catalog; scope=tenant_id plus the caller's authorized park set on every source.
+//
+// scale-guard:ignore: 5k-50k-envelope -- bounded windowed aggregate over the
+// indexed issue/consumption date columns, the ADR's canonical-indexed-SQL default.
+const stockItemExpenditureSQL = `
+WITH day_item AS (
+    SELECT feed_day, park_id, feed_item_key, MAX(feed_item_label) AS feed_item_label, SUM(kg) AS kg
+    FROM (
+        SELECT i.feed_day, i.park_id, r.feed_item_key, MAX(r.feed_item_label) AS feed_item_label,
+               SUM(r.quantity_kg) AS kg
+        FROM feed_direction_issues i
+        JOIN feed_direction_issue_rows r
+          ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+        WHERE i.tenant_id = $1
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
+          AND i.state IN ('issued', 'amended', 'locked')
+          AND i.feed_day BETWEEN $3 AND $4
+        GROUP BY i.feed_day, i.park_id, r.feed_item_key
+        UNION ALL
+        SELECT x.feed_day, x.park_id, x.feed_item_key, MAX(x.feed_item_label) AS feed_item_label,
+               SUM(x.quantity_kg) AS kg
+        FROM feed_effective_external_consumption x
+        WHERE x.tenant_id = $1
+          AND x.park_id IS NOT NULL
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
+          AND x.feed_day BETWEEN $3 AND $4
+        GROUP BY x.feed_day, x.park_id, x.feed_item_key
+    ) both_sources
+    GROUP BY feed_day, park_id, feed_item_key
+)
+SELECT di.feed_day::text,
+       di.feed_item_key,
+       MAX(di.feed_item_label)                    AS feed_item_label,
+       round(SUM(di.kg), 1)::text                 AS directed_kg,
+       round(SUM(di.kg * price.per_kg), 0)::text  AS rupees
+FROM day_item di
+JOIN LATERAL (
+    SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) AS per_kg
+    FROM feed_purchases p
+    WHERE p.tenant_id = $1
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
+      AND p.park_id = di.park_id
+      AND p.feed_item_key = di.feed_item_key
+      AND p.purchase_date <= di.feed_day
+    ORDER BY p.purchase_date DESC, p.batch_no DESC
+    LIMIT 1
+) price ON price.per_kg IS NOT NULL
+GROUP BY di.feed_day, di.feed_item_key
+ORDER BY di.feed_day, di.feed_item_key`
+
 // Spend periods: same day_item × same-farm latest-load pricing as the daily
 // series, one scan from Jan 1 of the current IST year, bucketed by fixed period
 // starts. Every bucket's numerator and denominator (none — plain sums) range
@@ -1685,7 +1747,11 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	if len(q.ParkIDs) > 0 {
 		parkIDs = q.ParkIDs
 	}
-	out := domain.StockAnalytics{Items: []domain.StockItem{}, Expenditure: []domain.ExpenditureDay{}}
+	out := domain.StockAnalytics{
+		Items:           []domain.StockItem{},
+		Expenditure:     []domain.ExpenditureDay{},
+		ItemExpenditure: []domain.ExpenditureItemDay{},
+	}
 
 	itemRows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs)
 	if err != nil {
@@ -1770,6 +1836,23 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	}
 	if err := expRows.Err(); err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics expenditure rows: %w", err)
+	}
+
+	// Same floored window as the daily series: the two are one fact at two grains.
+	itemExpRows, err := r.pool.Query(ctx, stockItemExpenditureSQL, tenantID, parkIDs, expFrom.Format("2006-01-02"), expTo.Format("2006-01-02"))
+	if err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics item expenditure: %w", err)
+	}
+	defer itemExpRows.Close()
+	for itemExpRows.Next() {
+		var d domain.ExpenditureItemDay
+		if err := itemExpRows.Scan(&d.FeedDay, &d.FeedItemKey, &d.FeedItemLabel, &d.DirectedKg, &d.Rupees); err != nil {
+			return domain.StockAnalytics{}, fmt.Errorf("feed analytics item expenditure scan: %w", err)
+		}
+		out.ItemExpenditure = append(out.ItemExpenditure, d)
+	}
+	if err := itemExpRows.Err(); err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics item expenditure rows: %w", err)
 	}
 
 	today := biztime.BusinessDate(time.Now())

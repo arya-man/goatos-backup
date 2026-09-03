@@ -27,7 +27,10 @@ test("wide y-axis ticks expand plot padding instead of clipping", () => {
   assert.match(source, /const padForTicks = \(max: number\) => Math\.max\(PAD_X, Math\.ceil\(nf\(max\)\.length \* 5\.6\) \+ 10\);/);
   assert.match(source, /const padX = padForTicks\(max\);/);
   assert.match(source, /const slot = \(VIEW_W - padX - PAD_X\) \/ days\.length;/);
-  assert.match(source, /const stepX = \(VIEW_W - padX - PAD_X\) \/ Math\.max\(1, dayLabels\.length - 1\);/);
+  // The line chart's right edge yields to a secondary axis only when one is drawn; a chart
+  // without one keeps its 6px margin, so the secondary series can never squash a plain chart.
+  assert.match(source, /const rightX = secondary \? VIEW_W - padForTicks\(secondaryMax\) : VIEW_W - 6;/);
+  assert.match(source, /const stepX = \(rightX - padX\) \/ Math\.max\(1, dayLabels\.length - 1\);/);
   assert.match(source, /x=\{padX - 5\}/);
   assert.doesNotMatch(source, /x=\{PAD_X - 5\}/);
 });
