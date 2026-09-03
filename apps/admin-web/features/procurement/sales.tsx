@@ -148,10 +148,9 @@ function OverviewSections({
                 {inr(summary.manure_revenue)} · {copy(pageContract, "kpi.manure.detail")}
               </div>
             </div>
-            {/* Over 35 kg: the Weights pages' sale-weight count on a FIXED six-week window, because
-                this page has no time filter. The window is printed so it never reads as all-time.
-                Gated by the page contract (weighing is another desk's permission): a role that may
-                not read weights sees the backend's reason, never a zero. */}
+            {/* Over 35 kg: the Weights pages' sale-weight count on the backend's reliable weighing
+                window. Gated by the page contract: a role that may not read weights sees the
+                backend's reason, never a zero. */}
             <div className="kpi">
               <div className="lab">{copy(pageContract, "kpi.over35")}</div>
               <div className="val">{over35.count == null ? none : num(over35.count)}</div>
@@ -166,6 +165,7 @@ function OverviewSections({
           </section>
           {over35.enabled ? (
             <SalesReadyToleranceControl
+              key={over35.toleranceG}
               valueG={over35.toleranceG}
               maxG={OVER35_MAX_TOLERANCE_G}
               preserveQuery={over35.preserveQuery}
@@ -617,7 +617,10 @@ export async function SalesPage({
         {farmOptions.map((option) => (
           <Link
             key={option.key}
-            href={salesHref({ farm: option.key, limit }, { farm: DEFAULT_FARM, limit: pageSizes[0] })}
+            href={salesHref(
+              { farm: option.key, limit, saleReadyToleranceG },
+              { farm: DEFAULT_FARM, limit: pageSizes[0] },
+            )}
             scroll={false}
             className={option.key === farm ? "btn sm p" : "btn sm"}
             aria-current={option.key === farm ? "true" : undefined}
@@ -708,7 +711,7 @@ export async function SalesPage({
             {pageNumber > 1 ? (
               <Link
                 href={salesHref(
-                  { farm, limit, offset: Math.max(0, offset - limit) },
+                  { farm, limit, offset: Math.max(0, offset - limit), saleReadyToleranceG },
                   { farm: DEFAULT_FARM, limit: pageSizes[0] },
                 )}
                 scroll={false}
@@ -719,7 +722,10 @@ export async function SalesPage({
             ) : null}
             {pageNumber < pageCount ? (
               <Link
-                href={salesHref({ farm, limit, offset: offset + limit }, { farm: DEFAULT_FARM, limit: pageSizes[0] })}
+                href={salesHref(
+                  { farm, limit, offset: offset + limit, saleReadyToleranceG },
+                  { farm: DEFAULT_FARM, limit: pageSizes[0] },
+                )}
                 scroll={false}
                 className="btn"
               >

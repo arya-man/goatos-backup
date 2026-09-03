@@ -911,6 +911,9 @@ func AuthorizeRoute(route Route, roles []string) bool {
 	if len(route.Permissions) == 0 && len(route.AnyPermissions) == 0 {
 		return false
 	}
+	if procurementDirectorStockOnlyRoute(route, roles) {
+		return false
+	}
 	if route.AdminOnly {
 		// Unchanged legacy semantics: AdminOnly short-circuits to the product-admin
 		// role check and ignores the permission lists entirely.
@@ -923,6 +926,27 @@ func AuthorizeRoute(route Route, roles []string) bool {
 		return false
 	}
 	return true
+}
+
+func procurementDirectorStockOnlyRoute(route Route, roles []string) bool {
+	if !hasRole(roles, RoleProcurementDirector) || hasRole(roles, RoleCEOInternal) {
+		return false
+	}
+	switch route.OperationID {
+	case "getFeedAnalyticsDirected", "getFeedAnalyticsExecution", "getFeedAnalyticsExperiment", "getFeedAnalyticsShedFeed":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasRole(roles []string, want string) bool {
+	for _, role := range roles {
+		if role == want {
+			return true
+		}
+	}
+	return false
 }
 
 // AuthorizePermissionSet is AuthorizeRoute against a principal's RESOLVED permission

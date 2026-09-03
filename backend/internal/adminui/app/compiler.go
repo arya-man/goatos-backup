@@ -1548,7 +1548,8 @@ func compileDLQOptionGroups(groups []domain.OptionGroup, input BootstrapInput) [
 
 func compileFeedAnalyticsOptionGroups(groups []domain.OptionGroup, input BootstrapInput) []domain.OptionGroup {
 	ungated := len(input.Grants) == 0
-	mayReadFullFeed := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.FeedDirectionRead})
+	mayReadFullFeed := !procurementDirectorStockOnly(input) &&
+		(ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.FeedDirectionRead}))
 	tabs := []domain.Option{option("items", "Stock", "", "")}
 	if mayReadFullFeed {
 		tabs = []domain.Option{

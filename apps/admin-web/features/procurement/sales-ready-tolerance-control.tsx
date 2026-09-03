@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 type Props = {
@@ -25,10 +25,6 @@ export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label 
   const router = useRouter();
   const [draftG, setDraftG] = useState(valueG);
   const [, startTransition] = useTransition();
-
-  useEffect(() => {
-    setDraftG(valueG);
-  }, [valueG]);
 
   const href = useMemo(() => {
     const query = new URLSearchParams(preserveQuery);

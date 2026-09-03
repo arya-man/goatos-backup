@@ -103,6 +103,37 @@ func TestProcurementDirectorIsStockOnlyOnAdminWeb(t *testing.T) {
 	}
 }
 
+func TestProcurementDirectorPlusFeedDirectorStillGetsStockOnlyFeedAnalytics(t *testing.T) {
+	roles := []string{RoleProcurementDirector, RoleFeedDirector}
+	stock, ok := Match("GET", "/feed-analytics/stock")
+	if !ok {
+		t.Fatal("feed stock route is not registered")
+	}
+	if !AuthorizeRoute(stock, roles) {
+		t.Fatal("real Hemant role stack must keep Feed Analytics stock")
+	}
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/feed-analytics/directed"},
+		{"GET", "/feed-analytics/execution"},
+		{"GET", "/feed-analytics/experiment"},
+		{"GET", "/feed-analytics/shed-feed"},
+	} {
+		route, ok := Match(tt.method, tt.path)
+		if !ok {
+			t.Fatalf("%s %s is not registered", tt.method, tt.path)
+		}
+		if AuthorizeRoute(route, roles) {
+			t.Fatalf("real Hemant role stack must not authorize %s %s", tt.method, tt.path)
+		}
+		if !AuthorizeRoute(route, []string{RoleCEOInternal, RoleProcurementDirector, RoleFeedDirector}) {
+			t.Fatalf("CEO/CXO must keep %s %s even when carrying procurement/feed roles", tt.method, tt.path)
+		}
+	}
+}
+
 // The capability-level counterpart: a director must not hold another module's permissions at
 // all, not merely be blocked on today's route list. health_director is checked against the FULL
 // vaccination set specifically because it is a distinct role from pc_director and must never

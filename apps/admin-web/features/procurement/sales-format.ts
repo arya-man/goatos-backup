@@ -34,11 +34,17 @@ export function resolveFarm(raw: string | undefined, optionKeys: readonly string
  * builder so a farm switch always resets the ledger offset (the patch simply omits it) while a
  * pager click always preserves the selected farm.
  */
-export function salesHref(params: { farm?: string; offset?: number; limit?: number }, defaults: { farm: string; limit: number }): string {
+export function salesHref(
+  params: { farm?: string; offset?: number; limit?: number; saleReadyToleranceG?: number },
+  defaults: { farm: string; limit: number },
+): string {
   const query = new URLSearchParams();
   if (params.farm && params.farm !== defaults.farm) query.set("farm", params.farm);
   if (params.limit && params.limit !== defaults.limit) query.set("limit", String(params.limit));
   if (params.offset && params.offset > 0) query.set("offset", String(params.offset));
+  if (params.saleReadyToleranceG && params.saleReadyToleranceG > 0) {
+    query.set("sale_ready_tolerance_g", String(params.saleReadyToleranceG));
+  }
   const qs = query.toString();
   return qs ? `${SALES_PATH}?${qs}` : SALES_PATH;
 }

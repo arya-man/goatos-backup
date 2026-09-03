@@ -126,17 +126,31 @@ func TestCeoKeepsEveryFeedAnalyticsTab(t *testing.T) {
 }
 
 func TestProcurementDirectorKeepsOnlyStockFeedAnalyticsTab(t *testing.T) {
-	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
-		TenantID: "00000000-0000-4000-8000-000000000001",
-		ActorID:  "00000000-0000-4000-8000-000000000099",
-		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RoleProcurementDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
-		},
-	})
-	page := pageByRouteID(t, resp.Pages, "feed-analytics")
-	tabs := optionGroupByID(t, page.OptionGroups, "feed_analytics_tabs")
-	if len(tabs.Options) != 1 || tabs.Options[0].Key != "items" {
-		t.Fatalf("Procurement Director feed tabs = %+v; want Stock only", tabs.Options)
+	for _, tc := range []struct {
+		name  string
+		roles []string
+	}{
+		{"procurement only", []string{permissions.RoleProcurementDirector}},
+		{"real Hemant stack", []string{permissions.RoleProcurementDirector, permissions.RoleFeedDirector}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			grants := make([]permissions.ActiveGrant, 0, len(tc.roles))
+			for _, role := range tc.roles {
+				grants = append(grants, permissions.ActiveGrant{
+					Role: role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001",
+				})
+			}
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants:   grants,
+			})
+			page := pageByRouteID(t, resp.Pages, "feed-analytics")
+			tabs := optionGroupByID(t, page.OptionGroups, "feed_analytics_tabs")
+			if len(tabs.Options) != 1 || tabs.Options[0].Key != "items" {
+				t.Fatalf("Procurement Director feed tabs = %+v; want Stock only", tabs.Options)
+			}
+		})
 	}
 }
 

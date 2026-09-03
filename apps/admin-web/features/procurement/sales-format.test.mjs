@@ -86,6 +86,10 @@ test("salesHref: a farm switch resets the ledger offset, a pager click keeps the
   );
   // The default page size is omitted; a chosen one is kept.
   assert.equal(salesHref({ limit: 50 }, defaults), "/sales?limit=50");
+  assert.equal(
+    salesHref({ farm: "CBE", offset: 50, limit: 25, saleReadyToleranceG: 100 }, defaults),
+    "/sales?farm=CBE&offset=50&sale_ready_tolerance_g=100",
+  );
 });
 
 test("monthly chart totals are plain sums of the backend components", () => {
