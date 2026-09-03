@@ -10122,12 +10122,16 @@ paths:
           description: >-
             Repeatable. Each occurrence adds a park to the match set (rows in ANY listed park
             match); a single occurrence behaves exactly as the old single-valued form, and
-            omitting it means no park filter.
+            omitting it means no park filter. The scalar arm keeps the pre-set-semantics type
+            surface, so an existing generated-client caller passing one string still compiles.
           schema:
-            type: array
-            items:
-              type: string
-              format: uuid
+            oneOf:
+              - type: string
+                format: uuid
+              - type: array
+                items:
+                  type: string
+                  format: uuid
           style: form
           explode: true
         - name: shed_id
@@ -10167,11 +10171,14 @@ paths:
           required: false
           description: >-
             Repeatable. Each occurrence adds a raw management stage to the match set; a single
-            occurrence behaves exactly as the old single-valued form.
+            occurrence behaves exactly as the old single-valued form (and keeps compiling for
+            existing generated-client callers via the scalar arm).
           schema:
-            type: array
-            items:
-              type: string
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
           style: form
           explode: true
         - name: breed
@@ -10179,11 +10186,14 @@ paths:
           required: false
           description: >-
             Repeatable. Each occurrence adds a breed to the match set; a single occurrence
-            behaves exactly as the old single-valued form.
+            behaves exactly as the old single-valued form (and keeps compiling for existing
+            generated-client callers via the scalar arm).
           schema:
-            type: array
-            items:
-              type: string
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
           style: form
           explode: true
         - name: sex
@@ -10191,11 +10201,14 @@ paths:
           required: false
           description: >-
             Repeatable. Each occurrence adds a sex to the match set; a single occurrence behaves
-            exactly as the old single-valued form.
+            exactly as the old single-valued form (and keeps compiling for existing
+            generated-client callers via the scalar arm).
           schema:
-            type: array
-            items:
-              type: string
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
           style: form
           explode: true
         - name: lifecycle_status

@@ -2666,12 +2666,18 @@ WITH grouped AS MATERIALIZED (
     AND (cardinality($7::text[]) = 0 OR g.sex = ANY($7::text[]))
     -- Pen filter: parallel arrays of shed uuid ($4) and partition label ($8), one entry per
     -- selected pen. An entry with an empty partition selects the WHOLE shed (the parent
-    -- aggregate), never "the non-partitioned bucket". Partitions are compared on the NORMALIZED
-    -- key so a caller passing 'Part 3' or '3' selects the same pen, matching oploc.SamePartition.
+    -- aggregate), never "the non-partitioned bucket"; an entry with an empty SHED selects that
+    -- partition across EVERY shed — the CEO assistant's partition-named-without-its-shed scope,
+    -- which the retired scalar PartitionLabel filter honored at query level and which must keep
+    -- narrowing totals/charts, not just rows (an entry empty on BOTH halves is dropped by the
+    -- Go builder, never bound). Partitions are compared on the NORMALIZED key so a caller
+    -- passing 'Part 3' or '3' selects the same pen, matching oploc.SamePartition. The uuid cast
+    -- sits on the unnest VALUE (bind side), never on g.shed_id, per the scale rule on
+    -- predicate casts.
     AND (cardinality($4::text[]) = 0 OR EXISTS (
       SELECT 1
-      FROM unnest($4::text[]::uuid[], $8::text[]) AS pen(shed_id, partition_label)
-      WHERE g.shed_id = pen.shed_id
+      FROM unnest($4::text[], $8::text[]) AS pen(shed_id, partition_label)
+      WHERE (pen.shed_id = '' OR g.shed_id = NULLIF(pen.shed_id, '')::uuid)
         AND (pen.partition_label = ''
              OR ` + partitionKeyExpr + ` = regexp_replace(lower(btrim(pen.partition_label)), '^part[[:space:]]+', ''))
     ))
@@ -3036,11 +3042,13 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 
 	// Pen filter travels as two PARALLEL arrays (shed uuid + partition label, same index = one
 	// pen), matching the unnest(...) pair in the SQL. Both are always non-nil so cardinality()
-	// reads 0 for "no filter" instead of NULL.
+	// reads 0 for "no filter" instead of NULL. An entry empty on BOTH halves would match every
+	// animal — it states no pen at all, so it is dropped rather than bound; an entry with only
+	// a partition is the deliberate wildcard-shed scope (see CountsBreakdownPen).
 	penSheds := make([]string, 0, len(req.Pens))
 	penPartitions := make([]string, 0, len(req.Pens))
 	for _, pen := range req.Pens {
-		if pen.ShedID == "" {
+		if pen.ShedID == "" && pen.PartitionLabel == "" {
 			continue
 		}
 		penSheds = append(penSheds, pen.ShedID)

@@ -1812,3 +1812,38 @@ func TestCountsBreakdownMultiPenFilterSelectsExactPens(t *testing.T) {
 		t.Errorf("normalized pen filter total_count=%d, want 3", normalized.TotalCount)
 	}
 }
+
+// A WILDCARD-SHED pen (empty ShedID + a partition) narrows the whole query to that partition
+// across every shed — the CEO assistant's partition-named-without-its-shed scope, which the
+// retired scalar PartitionLabel filter used to honor at query level. TotalCount must move with
+// it, because the review finding this pins was exactly "unfiltered totals over filtered rows".
+// An entry empty on both halves states no pen and must be dropped, never bound as match-all.
+func TestCountsBreakdownWildcardShedPenFiltersPartitionAcrossSheds(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool) // Castro1(park1): pen "2" x3, "Part 1" x1; Castro(park2): pen "2" x2
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant,
+		Pens:     []domain.CountsBreakdownPen{{PartitionLabel: "Part 2"}},
+		Limit:    50,
+	})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	if got.TotalCount != 5 {
+		t.Errorf("wildcard-shed pen total_count=%d, want 5 (pen 2 in both Castros)", got.TotalCount)
+	}
+
+	empty, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant,
+		Pens:     []domain.CountsBreakdownPen{{}},
+		Limit:    50,
+	})
+	if err != nil {
+		t.Fatalf("empty pen entry: %v", err)
+	}
+	if empty.TotalCount != 6 {
+		t.Errorf("an entry empty on both halves must be dropped (no filter): total_count=%d, want 6", empty.TotalCount)
+	}
+}

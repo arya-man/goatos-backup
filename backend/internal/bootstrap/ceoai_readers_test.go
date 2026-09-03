@@ -133,6 +133,30 @@ func TestCountsReader_UsesCanonicalCountsBreakdown(t *testing.T) {
 	}
 }
 
+// TestCountsReader_PartitionWithoutShedNarrowsTheQuery reproduces the review finding: a
+// partition named WITHOUT its shed used to be honored only by the SamePartition row drop, so
+// TotalCount / TotalKids / TotalAdults and the chart-derived species facts were computed from
+// the UNFILTERED query — unfiltered totals over filtered detail rows. The retired scalar
+// PartitionLabel filter narrowed the query even without a shed; the wildcard-shed pen restores
+// that. Red before the fix: captured.Pens stayed empty.
+func TestCountsReader_PartitionWithoutShedNarrowsTheQuery(t *testing.T) {
+	fakeSvc := &fakeCountsBreakdownLister{response: countsdomain.CountsBreakdown{TotalCount: 13}}
+	reader := buildCountsReader(fakeSvc, &fakeParkResolver{})
+
+	if _, err := reader(context.Background(), "tenant-1", map[string]any{
+		"partition_label": "Part 1",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fakeSvc.captured.Pens) != 1 {
+		t.Fatalf("partition-only scope must narrow the query with a wildcard-shed pen, got %+v", fakeSvc.captured.Pens)
+	}
+	pen := fakeSvc.captured.Pens[0]
+	if pen.ShedID != "" || pen.PartitionLabel != "Part 1" {
+		t.Fatalf("want wildcard-shed pen {\"\", \"Part 1\"}, got %+v", pen)
+	}
+}
+
 // TestActionCenterReader_ParkLabelReachesQuery is the flagship P1 regression
 // test: before the fix, buildActionCenterReader's predecessor (the inline
 // closure in api.go) never read params["park_label"] at all, so q.ParkID

@@ -125,18 +125,18 @@ func (r *locationsParkResolver) ResolveParkID(ctx context.Context, tenantID, par
 }
 
 // buildCountsReader maps park_label/shed_id/stage/breed/sex onto
-// countsdomain.CountsBreakdownQuery's real fields, plus "partition_label" --
-// which the underlying grain (ceo_ai.animal_current_scope's counts-domain
-// twin) already carries per row (CountsBreakdownRow.PartitionLabel /
-// OperationalLocationDisplay) even though CountsBreakdownQuery itself has no
-// partition filter field. So "at Castro 1" is honored two ways: every row's
-// Scope renders through oploc.OperationalLocation.Display() -- which already
-// disambiguates "Castro 1" from "Castro 2" instead of collapsing both under
-// the bare "Castro" shed label -- and, when the caller names a specific
-// partition, rows for every OTHER partition of that shed are dropped before
-// the fact list is built (oploc.SamePartition, so "1" and "Part 1" match the
-// same partition). A shed with no partitions renders its bare shed name,
-// never the "whole" sentinel, per oploc.OperationalLocation.Display().
+// countsdomain.CountsBreakdownQuery's real fields, plus "partition_label".
+// "At Castro 1" is honored at QUERY level in both shapes: with a shed it is an
+// ordinary (shed, partition) pen, and named WITHOUT its shed it becomes a
+// wildcard-shed pen (see CountsBreakdownPen), so TotalCount / TotalKids /
+// TotalAdults and the chart-derived species split are computed over the same
+// narrowed set as the rows. Every row's Scope renders through
+// oploc.OperationalLocation.Display() -- which disambiguates "Castro 1" from
+// "Castro 2" instead of collapsing both under the bare "Castro" shed label --
+// and the SamePartition row drop below is kept as a belt over the SQL's
+// identically-normalized match ("1" and "Part 1" select the same partition).
+// A shed with no partitions renders its bare shed name, never the "whole"
+// sentinel, per oploc.OperationalLocation.Display().
 func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 		q := countsdomain.CountsBreakdownQuery{TenantID: tenantID, Limit: 10}
@@ -164,10 +164,13 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 		partitionFilter, hasPartitionFilter := params["partition_label"].(string)
 		hasPartitionFilter = hasPartitionFilter && partitionFilter != ""
 		if shedID, ok := params["shed_id"].(string); ok && shedID != "" {
-			// A named partition scopes the query only together with its shed (the pen filter is a
-			// (shed, partition) pair); a partition named WITHOUT a shed is still honored by the
-			// SamePartition row drop below.
 			q.Pens = []countsdomain.CountsBreakdownPen{{ShedID: shedID, PartitionLabel: partitionFilter}}
+		} else if hasPartitionFilter {
+			// A partition named WITHOUT its shed still narrows the QUERY (wildcard-shed pen), so
+			// TotalCount / TotalKids / TotalAdults and the chart-derived species split agree with
+			// the rows. Dropping rows alone here once reported unfiltered totals over filtered
+			// detail; the retired scalar PartitionLabel filter always narrowed the query.
+			q.Pens = []countsdomain.CountsBreakdownPen{{PartitionLabel: partitionFilter}}
 		}
 
 		result, err := svc.GetBreakdown(ctx, q)
