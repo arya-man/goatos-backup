@@ -11962,6 +11962,126 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/counts/pen-reconciliation/cards:
+    get:
+      tags:
+        - Counts
+      operationId: listAppCountsPenReconciliationCards
+      summary: List the wrong-pen Reconcile cards raised by weighing submits.
+      description: >-
+        The Herd Operations Reconcile tab (maintainer decision 2026-09-02). The herd register is
+        TRUTH: when an individual weighing bucket is submitted, every scanned animal whose
+        registered pen disagrees with the pen it was weighed in gets ONE card here, and the
+        operator physically returns the animal to its registered pen. One open card per animal;
+        lump-sum buckets and tags that resolve to no live animal raise nothing.
+        Each card names the animal (scanned tag, display id), where it was FOUND (the weighing
+        bucket's pen label) and where it BELONGS (the registered pen, backend-composed display).
+        There is NO approval step anywhere on this surface: open/rework rows are actionable
+        (primary_action_key=execute), submitted evidence waits on the verifier, completed rows
+        are history.
+        Keyset-paginated with a maximum page size of 20; status_counts are whole-filter truth,
+        never page-local.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Disjoint workflow bucket. Defaults to all.
+          schema:
+            type: string
+            enum: [all, open, pending_verification, rework, completed]
+        - name: page_size
+          in: query
+          required: false
+          description: Server-capped at 20.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor from a previous page's next_cursor.
+          schema:
+            type: string
+            maxLength: 512
+      responses:
+        "200":
+          description: One page of status-filtered Reconcile cards.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountsPenReconciliationListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/counts/pen-reconciliation/cards/{card_id}/complete:
+    post:
+      tags:
+        - Counts
+      operationId: completeAppCountsPenReconciliationCard
+      summary: Submit the mandatory video proving the animal was returned to its registered pen.
+      description: >-
+        Records that the operator physically returned the strayed animal to the pen the herd
+        register names, with the MANDATORY live-camera video. The register is truth and this
+        request NEVER rewrites it — no goat location changes here. The card flips to
+        pending_verification and the video goes to the tenant verifier: approve completes the
+        card, reject sends it back to rework for a re-shoot. There is deliberately NO approver
+        step (unlike shifting).
+        Valid from status open or rework. A submitted or completed card is refused with 400
+        pen_reconciliation_not_actionable. A completion with no video is 422 proof_required.
+        Requires the Idempotency-Key header. Re-submitting returns the ORIGINAL result with
+        idempotent_replay=true and queues nothing new; a same-key request carrying a different
+        video is a 409 idempotency_conflict.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: card_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - proof_ref
+              properties:
+                proof_ref:
+                  type: string
+                  minLength: 1
+                  description: >-
+                    MANDATORY. The proof_artifact id of the video proving the animal was returned
+                    to its registered pen.
+      responses:
+        "200":
+          description: Card submitted for verification (or replayed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountsPenReconciliationCompleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/health/cases:
     post:
       tags: [Health]
@@ -24032,11 +24152,12 @@ components:
         the six counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so
         missedNotGiven + dosesVerified + awaitingVerification + overdueNotGiven + scheduledAhead +
         closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the
-        priority chain missed > verified > awaiting > overdue > scheduled > closedWithoutDose:
-        a missed dose wins outright, and below that its most-progressed dose wins. Apart from
-        missed the tiles therefore answer "how far has this animal got", not "how much work is
-        outstanding"; the outstanding-work question is answered at dose grain by cohortMatrix and
-        verificationQueue.
+        priority chain missed > awaiting > overdue > verified > scheduled > closedWithoutDose:
+        a missed dose wins outright; below that, actionable recorded-unverified and overdue
+        obligations outrank earlier accepted doses so the headline row cannot hide animals that
+        still need operator or verifier work. Future scheduled work does not demote an animal that
+        already has accepted protection. Dose-grain outstanding work is still answered by
+        cohortMatrix and verificationQueue.
         Every due-date comparison is on the Asia/Kolkata BUSINESS DATE, never an instant, so a
         dose due today never reads overdue merely because as-of is later the same day.
       required:
@@ -24074,22 +24195,27 @@ components:
         dosesVerified:
           type: integer
           description: >-
-            Animals with at least one verifier-accepted completion and NO missed obligation.
+            Animals with at least one verifier-accepted completion and no missed, awaiting-verification,
+            or overdue unvaccinated obligation. Future scheduled work does not demote an animal from
+            this bucket.
         awaitingVerification:
           type: integer
           description: >-
             Animals with a recorded completion not yet verifier-accepted (status=recorded,
-            verified_at=null) and no accepted completion.
+            verified_at=null), unless the animal also has a missed-with-no-completion obligation.
+            Awaiting verification outranks earlier accepted completions.
         overdueNotGiven:
           type: integer
           description: >-
-            Animals with no completion at all whose earliest open obligation was due before the
-            as-of IST business date.
+            Animals with at least one open obligation carrying no completion whose due business date
+            is before the as-of IST business date, unless the animal is already in missed or awaiting
+            verification. Overdue unvaccinated work outranks earlier accepted completions.
         scheduledAhead:
           type: integer
           description: >-
-            Animals with no completion at all whose open obligations are all due on or after the
-            as-of IST business date.
+            Animals whose remaining open no-completion obligations are all due on or after the as-of
+            IST business date, and who have no missed, awaiting, overdue, or accepted work that would
+            place them in an earlier bucket.
         closedWithoutDose:
           type: integer
           description: >-
@@ -24464,6 +24590,11 @@ components:
             convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". This is NOT
             redundant with shedName: on a live tenant it differed from shedName on 1282 of 1318
             cells, because most sheds carry a partition.
+        parkName:
+          type: string
+          description: >-
+            Farm/park display name for the shed row. The pen label alone is not unique enough for
+            the command board, so clients render this under operational_location_display.
     ShedDoseMatrixCell:
       type: object
       additionalProperties: false
@@ -34994,6 +35125,134 @@ components:
           type: integer
           format: int32
           minimum: 1
+    CountsPenReconciliationListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - status_counts
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountsPenReconciliationCard"
+        next_cursor:
+          description: Present only when another page exists. Opaque; pass back as ?cursor=.
+          type: string
+        status_counts:
+          $ref: "#/components/schemas/CountsPenReconciliationStatusCounts"
+    CountsPenReconciliationStatusCounts:
+      type: object
+      additionalProperties: false
+      required: [all, open, pending_verification, rework, completed]
+      properties:
+        all: { type: integer, minimum: 0 }
+        open: { type: integer, minimum: 0 }
+        pending_verification: { type: integer, minimum: 0 }
+        rework: { type: integer, minimum: 0 }
+        completed: { type: integer, minimum: 0 }
+    CountsPenReconciliationCard:
+      type: object
+      additionalProperties: false
+      required:
+        - card_id
+        - status
+        - primary_action_key
+        - goat_id
+        - scanned_identifier
+        - found_location_id
+        - found_operational_location_display
+        - registered_shed_id
+        - registered_shed_name
+        - registered_operational_location_display
+        - raised_at
+        - raised_at_ist
+      properties:
+        card_id:
+          type: string
+          format: uuid
+        status:
+          description: Backend-owned workflow state; buckets are disjoint at the card grain.
+          type: string
+          enum: [open, pending_verification, rework, completed]
+        primary_action_key:
+          description: Backend-owned row action. Only open/rework rows open the return flow.
+          type: string
+          enum: [execute, none]
+        goat_id:
+          type: string
+          format: uuid
+        goat_display_id:
+          type: string
+        scanned_identifier:
+          description: The tag exactly as the weighing operator scanned it — what the field operator reads on the animal's ear.
+          type: string
+        found_location_id:
+          type: string
+          format: uuid
+        found_partition_label:
+          type: string
+        found_operational_location_display:
+          description: Where the animal was actually scanned — the weighing bucket's operator-facing pen label.
+          type: string
+        registered_shed_id:
+          type: string
+          format: uuid
+        registered_shed_name:
+          type: string
+        registered_partition_label:
+          type: string
+        registered_operational_location_display:
+          description: The pen the register says the animal lives in — where to return it. Backend-composed; render verbatim.
+          type: string
+        park_id:
+          type: string
+          format: uuid
+        park_name:
+          type: string
+        raised_at:
+          type: string
+          format: date-time
+        raised_at_ist:
+          type: string
+        proof_ref:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
+        verified_at:
+          type: string
+          format: date-time
+        rework_reason:
+          description: The verifier's reason when evidence was rejected; render verbatim.
+          type: string
+    CountsPenReconciliationCompleteResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - card_id
+        - status
+        - scanned_identifier
+        - registered_operational_location_display
+        - idempotent_replay
+      properties:
+        card_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [open, pending_verification, rework, completed]
+        scanned_identifier:
+          type: string
+        registered_operational_location_display:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
+        completed_at_ist:
+          type: string
+        idempotent_replay:
+          type: boolean
     CountsShiftingPendingExecutionResponse:
       type: object
       additionalProperties: false

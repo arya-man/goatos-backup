@@ -109,7 +109,7 @@ func (c *WeighingSubmissionEventConsumer) HandleEvent(ctx context.Context, event
 		)
 	}
 
-	body := "A weighing shed submission is complete."
+	body := "A weighing pen submission is complete."
 	if shedLabel := strings.TrimSpace(payload.ShedLabel); shedLabel != "" {
 		body = shedLabel + " weighing submission is complete."
 	}
@@ -122,7 +122,7 @@ func (c *WeighingSubmissionEventConsumer) HandleEvent(ctx context.Context, event
 		NotificationType: "verification_closed",
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            "Weighing shed submitted",
+		Title:            "Weighing pen submitted",
 		Body:             body,
 		TraceID:          eventKey,
 		EventKey:         eventKey,
@@ -177,7 +177,7 @@ func (c *WeighingSubmissionEventConsumer) handleReopened(ctx context.Context, ev
 		toQueueRecipients(operatorDevices, "operator"),
 		toQueueRecipients(directorDevices, "growth_director")...,
 	), toQueueRecipients(ceoDevices, "ceo")...))
-	body := "A weighing shed was reopened for more scans."
+	body := "A weighing pen was reopened for more scans."
 	if shedLabel := strings.TrimSpace(payload.ShedLabel); shedLabel != "" {
 		body = shedLabel + " was reopened for more scans."
 	}
@@ -190,7 +190,7 @@ func (c *WeighingSubmissionEventConsumer) handleReopened(ctx context.Context, ev
 		NotificationType: "rework",
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            "Weighing shed reopened",
+		Title:            "Weighing pen reopened",
 		Body:             body,
 		TraceID:          eventKey,
 		EventKey:         eventKey,

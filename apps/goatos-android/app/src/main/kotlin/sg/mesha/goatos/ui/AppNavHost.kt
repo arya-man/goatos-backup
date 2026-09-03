@@ -108,6 +108,10 @@ import sg.mesha.goatos.feature.health.DiagnosisQueueScreen
 import sg.mesha.goatos.feature.health.DiagnosisProposalScreen
 import sg.mesha.goatos.feature.health.ObservationFormEvent
 import sg.mesha.goatos.feature.health.ObservationFormScreen
+import sg.mesha.goatos.feature.counts.PenReconciliationEvent
+import sg.mesha.goatos.feature.counts.PenReconciliationExecuteEvent
+import sg.mesha.goatos.feature.counts.PenReconciliationExecuteScreen
+import sg.mesha.goatos.feature.counts.PenReconciliationScreen
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
@@ -205,6 +209,8 @@ import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
 import sg.mesha.goatos.viewmodel.RfidViewModel
 import sg.mesha.goatos.viewmodel.ScanViewModel
 import sg.mesha.goatos.viewmodel.ShedsViewModel
+import sg.mesha.goatos.viewmodel.PenReconciliationExecuteViewModel
+import sg.mesha.goatos.viewmodel.PenReconciliationViewModel
 import sg.mesha.goatos.viewmodel.ShiftingExecuteViewModel
 import sg.mesha.goatos.viewmodel.ShiftingPendingViewModel
 import sg.mesha.goatos.viewmodel.ShiftingViewModel
@@ -348,6 +354,11 @@ object Routes {
     const val COUNTS_BIRTH = "/counts/birth"
     const val COUNTS_DEATH = "/counts/death"
     const val COUNTS_SHIFTING = "/counts/shifting"
+
+    // The Reconcile tab (maintainer decision 2026-09-02, docs/decisions/pen-reconciliation.md):
+    // "wrong pen" cards raised by weighing submits. A backend-composed bottom-bar leaf of the
+    // counts module (key "reconcile"), so an L0 root exactly like its siblings.
+    const val COUNTS_RECONCILE = "/counts/reconcile"
     const val COUNTS_MILK_PREPARATION = "/counts/milk-preparation"
     const val MILK_PREPARATION_PARK_ID_ARG = "park_id"
     const val MILK_PREPARATION_DATE_ARG = "preparation_date"
@@ -400,6 +411,15 @@ object Routes {
     const val COUNTS_SHIFTING_EXECUTE = "/counts/shifting/execute/{$COUNTS_SHIFTING_EXECUTE_ARG}"
     fun shiftingExecuteRoute(shiftingEventId: String): String =
         "/counts/shifting/execute/$shiftingEventId"
+
+    // The L1 execute destination for one Reconcile card. A distinct hosted destination with
+    // Up/Back and no root chrome (Android navigation-stack invariant) — NOT a prefix of
+    // COUNTS_RECONCILE reused as a drill target.
+    const val COUNTS_RECONCILE_EXECUTE_ARG = "card_id"
+    const val COUNTS_RECONCILE_EXECUTE = "/counts/reconcile/execute/{$COUNTS_RECONCILE_EXECUTE_ARG}"
+    fun reconcileExecuteRoute(cardId: String): String = "/counts/reconcile/execute/$cardId"
+    const val COUNTS_RECONCILE_SUBMISSION_NOTICE = "counts_reconcile_submission_notice"
+    const val COUNTS_RECONCILE_SUBMISSION_OUTBOX_ID = "counts_reconcile_submission_outbox_id"
 
     // Birth's final "Tag the kid" destination. It is reachable only from one kid workflow and is
     // never a Counts root/navigation item.
@@ -2529,6 +2549,95 @@ fun AppNavHost(
             }
         }
 
+        // Reconcile opens on the wrong-pen card queue raised by weighing submits
+        // (docs/decisions/pen-reconciliation.md). An L0 root of the counts bottom bar.
+        composable(Routes.COUNTS_RECONCILE) { backStackEntry ->
+            val vm: PenReconciliationViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val submissionNotice = remember(backStackEntry) {
+                backStackEntry.savedStateHandle
+                    .remove<String>(Routes.COUNTS_RECONCILE_SUBMISSION_NOTICE)
+            }
+            val submissionOutboxId = remember(backStackEntry) {
+                backStackEntry.savedStateHandle
+                    .remove<String>(Routes.COUNTS_RECONCILE_SUBMISSION_OUTBOX_ID)
+            }
+            LaunchedEffect(submissionOutboxId) {
+                if (submissionOutboxId != null) {
+                    vm.followSubmittedOutboxItem(submissionOutboxId, submissionNotice)
+                }
+            }
+            val rows = vm.rows.collectAsLazyPagingItems()
+            LaunchedEffect(submissionNotice) {
+                if (submissionNotice != null) {
+                    vm.onEvent(PenReconciliationEvent.Refresh)
+                    rows.refresh()
+                }
+            }
+            val refreshState = rows.loadState.refresh
+            LaunchedEffect(refreshState) {
+                when (refreshState) {
+                    is LoadState.Error -> vm.onRowsLoadFailed(refreshState.error)
+                    is LoadState.NotLoading -> vm.onRowsLoaded()
+                    else -> Unit
+                }
+            }
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
+
+            PenReconciliationScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        is PenReconciliationEvent.OpenCard ->
+                            navController.navigate(Routes.reconcileExecuteRoute(event.cardId)) {
+                                launchSingleTop = true
+                            }
+                        PenReconciliationEvent.Back -> navController.popBackStack()
+                        PenReconciliationEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // L1 execute destination: return the animal, record the mandatory video, then submit.
+        composable(
+            route = Routes.COUNTS_RECONCILE_EXECUTE,
+            arguments = listOf(navArgument(Routes.COUNTS_RECONCILE_EXECUTE_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: PenReconciliationExecuteViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val onEvent: (PenReconciliationExecuteEvent) -> Unit = { event ->
+                when (event) {
+                    PenReconciliationExecuteEvent.Back -> navController.popBackStack()
+                    else -> vm.onEvent(event)
+                }
+            }
+            // Server-confirmed submission pops back to the Reconcile list and hands it the
+            // confirmation, instead of leaving the operator on a finished form reading a banner.
+            LaunchedEffect(state.returnToList) {
+                if (state.returnToList) {
+                    navController.previousBackStackEntry?.savedStateHandle?.set(
+                        Routes.COUNTS_RECONCILE_SUBMISSION_NOTICE,
+                        state.submissionNotice ?: "Return recorded.",
+                    )
+                    vm.onEvent(PenReconciliationExecuteEvent.NavigationHandled)
+                    navController.popBackStack()
+                }
+            }
+            // Bind the live camera only while this screen is composed (operator capture role
+            // gated), so the mandatory return video records and the camera releases on leave.
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                PenReconciliationExecuteScreen(state = state, onEvent = onEvent)
+            }
+        }
+
         // Birth-owned tag form: assign the permanent RFID to this workflow's canonical kid.
         composable(
             route = Routes.COUNTS_PROMOTE_GOAT,
@@ -3677,6 +3786,10 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_BIRTH,
     Routes.COUNTS_DEATH,
     Routes.COUNTS_SHIFTING,
+    // The Reconcile tab is a backend-composed leaf of the counts bar (key "reconcile"), so it is
+    // an L0 root exactly like its siblings — registering the composable alone would leave a
+    // notification or deep link naming it treated as unhosted and bounced to home.
+    Routes.COUNTS_RECONCILE,
     Routes.COUNTS_MILK_PREPARATION,
     Routes.COUNTS_MILK_FEEDING,
     // Colostrum is a backend-composed leaf of the Milk module's bar, so it is an L0 root exactly

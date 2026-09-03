@@ -1293,7 +1293,7 @@ rollup AS (
 	      END,
 	      CASE
 	        WHEN e.planned_shed_count = 1 THEN NULLIF(e.shed_labels, '')
-	        WHEN e.planned_shed_count > 1 THEN e.planned_shed_count::text || ' sheds'
+	        WHEN e.planned_shed_count > 1 THEN e.planned_shed_count::text || ' pens'
 	        ELSE ''
 	      END
 	    )) AS batch_label,

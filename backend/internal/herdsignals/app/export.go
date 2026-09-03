@@ -46,7 +46,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 		"Animal",
 		"Tag ID",
 		"Tag MAC",
-		"Shed",
+		"Pen",
 		"Gateway",
 		"RSSI (dBm)",
 		"Signal State",

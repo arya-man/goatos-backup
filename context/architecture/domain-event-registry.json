@@ -149,12 +149,18 @@
           "module": "notification",
           "file": "backend/internal/notificationbridge/weighing_submission_notify_consumer.go",
           "notes": "LEGACY PRE-CUTOVER submission/sign-off contact. Shared verifier/sign-off task and contact policy become authoritative; suppress this direct sender before activation."
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/pen_reconciliation_raiser.go",
+          "notes": "PenReconciliationRaiser.HandleEvent (maintainer decision 2026-09-02) turns one submitted INDIVIDUAL weighing bucket into pen-reconciliation cards: it calls RaisePenReconciliationCards, one set-based idempotent SQL statement that resolves each scanned tag to a live animal, canonicalizes the bucket's pen (legacy alias location rows resolved to physical shed + scrubbed partition), and inserts one card per animal whose registered pen disagrees. The herd register is TRUTH and is never written; the operator physically returns the animal. One open card per animal (partial unique index) makes duplicate bus deliveries no-ops; lump-sum buckets carry no scans and match nothing. Registered in eventwiring.RegisterVerificationAppliers, the single shared registration point, so the API bus, outbox relay, and Pub/Sub consumer cannot drift."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
-        "backend/internal/weighing/adapters/postgres/shed_submission_event_integration_test.go",
-        "backend/internal/notificationbridge/weighing_submission_notify_consumer_test.go"
+        "backend/internal/counts/app/pen_reconciliation_raiser_test.go",
+        "backend/internal/notificationbridge/weighing_submission_notify_consumer_test.go",
+        "backend/internal/weighing/adapters/postgres/shed_submission_event_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -311,7 +317,7 @@
     },
     {
       "eventType": "weighing.shed.verified_closed",
-      "producer": "weighing NORMAL completion \u2014 emitted by the verification verdict applier's own transaction when the last SUBMITTED item in a bucket is verified. No human performs it: closure_kind='verified', no reason, no closing actor. DISTINCT from weighing.shed.closed, which is a leader ending work early and always carries a reason.",
+      "producer": "weighing NORMAL completion — emitted by the verification verdict applier's own transaction when the last SUBMITTED item in a bucket is verified. No human performs it: closure_kind='verified', no reason, no closing actor. DISTINCT from weighing.shed.closed, which is a leader ending work early and always carries a reason.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/verified_closure.go",
         "backend/internal/weighing/adapters/postgres/verification_verdict.go"
@@ -336,7 +342,7 @@
     },
     {
       "eventType": "weighing.campaign.verified_closed",
-      "producer": "weighing NORMAL completion CASCADE \u2014 same verdict transaction, emitted when the bucket that just settled was the task's last non-terminal one. closure_kind='verified', no reason, no closing actor.",
+      "producer": "weighing NORMAL completion CASCADE — same verdict transaction, emitted when the bucket that just settled was the task's last non-terminal one. closure_kind='verified', no reason, no closing actor.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/verified_closure.go",
         "backend/internal/weighing/adapters/postgres/verification_verdict.go"
@@ -765,7 +771,7 @@
         {
           "module": "counts",
           "file": "backend/internal/counts/app/milk_preparation_verification_handler.go",
-          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. APPROVE is the only transition from pending_verification to completed for the farm-day preparation; the operator's two/five-video submit never completes it. FEED-STOCK FAN-OUT (maintainer decision 2026-08-22): after the verdict applies, the handler forwards the accepted attempt's uht_milk_quantity_litres answer through the countsapp.MilkPreparationUHTRecorder seam (implemented at composition in eventwiring by feeddirection's RecordExternalConsumption) into feed_external_consumption (migration 000185), the ledger the feed stock cards deplete UHT Milk from. Runs on every approve delivery, duplicates included -- the upsert's (farm, feed, day) natural key converges -- and a recorder failure fails the handler so the at-least-once bus redelivers. Counts never writes a feed table; feed never reads a counts table."
+          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. APPROVE is the only transition from pending_verification to completed for the farm-day preparation; the operator's two/five-video submit never completes it. NO FEED-STOCK FAN-OUT, deliberately (maintainer decision 2026-08-27, migration 000216; the 2026-08-22 recorder seam was removed 2026-09-02). UHT Milk stock depletes from the preparation itself, on SUBMIT, through the feed_effective_external_consumption view, which reads milk_preparation_completions directly. The retired countsapp.MilkPreparationUHTRecorder seam wrote a SECOND row into feed_external_consumption on approve, keyed at preparation_date while the view books the same milk at feeding_date (= preparation_date + 1, a DB CHECK), so the ledger row was never suppressed by its own preparation and the litres were deducted twice on any day whose previous day carried no preparation. Migration 000241 additionally suppresses a ledger row on EITHER of a preparation's dates. Pinned by TestKernelStory_UhtMilkStockDepletesOnce."
         },
         {
           "module": "counts",
@@ -811,6 +817,11 @@
           "module": "health",
           "file": "backend/internal/health/app/verification_handler.go",
           "notes": "HealthVerificationHandler.HandleEvent filters source.module=health + source.ref_type=health_treatment_session and stamps verified_by/verified_at on the completed session (post-task evidence review; completion is never gated on the verdict)."
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/pen_reconciliation_verification_handler.go",
+          "notes": "PenReconciliationVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=pen_reconciliation_card and calls ApplyVerifiedPenReconciliation, flipping the card 'pending_verification' -> 'completed'. The verifier's verdict is the ONLY gate (no approver step, maintainer decision 2026-09-02) and it never rewrites the herd register -- the register was already truth. Registered in eventwiring.RegisterVerificationAppliers."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -902,6 +913,11 @@
           "module": "health",
           "file": "backend/internal/health/app/verification_handler.go",
           "notes": "HealthVerificationHandler.HandleEvent filters source.module=health + source.ref_type=health_treatment_session and flips the completed session back to 'rework' so the operator re-does and re-films it; medicine administrations and completion history are kept -- evidence review never rolls back a treatment already given."
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/pen_reconciliation_verification_handler.go",
+          "notes": "Filters source.module=counts + ref_type=pen_reconciliation_card and calls BouncePenReconciliationForRework, flipping the card back to 'rework' with the verifier's reason so the operator re-shoots the return video. Nothing rolls back; the register was never touched."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",

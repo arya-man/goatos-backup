@@ -242,7 +242,7 @@ func TestVaccinationSubmissionBridgeLabelsGroupedShedSubmissionHonestly(t *testi
 	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission); err != nil {
 		t.Fatalf("vaccination submit: %v", err)
 	}
-	if producer.last.SubjectLabel == nil || *producer.last.SubjectLabel != "3 sheds · 3 goats" {
+	if producer.last.SubjectLabel == nil || *producer.last.SubjectLabel != "3 pens · 3 goats" {
 		t.Fatalf("subject label = %v, want grouped shed context", producer.last.SubjectLabel)
 	}
 }

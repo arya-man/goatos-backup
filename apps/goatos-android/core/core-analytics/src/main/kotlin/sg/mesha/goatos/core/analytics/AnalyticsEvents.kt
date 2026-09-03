@@ -119,6 +119,18 @@ object AnalyticsEvents {
     /** The operator pressed "Mark done": the completion (relocation) write was queued. */
     const val COUNTS_SHIFTING_EXECUTE_COMPLETED = "counts_shifting_execute_completed"
 
+    /** The operator opened the Herd Operations "Reconcile" tab (wrong-pen cards from weighing). */
+    const val COUNTS_PEN_RECONCILIATION_VIEWED = "counts_pen_reconciliation_viewed"
+
+    /** The operator opened one Reconcile card to return the animal (the execute screen). */
+    const val COUNTS_PEN_RECONCILIATION_EXECUTE_OPENED = "counts_pen_reconciliation_execute_opened"
+
+    /** The operator recorded (or re-recorded) the mandatory pen-return video on a Reconcile card. */
+    const val COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED = "counts_pen_reconciliation_video_captured"
+
+    /** The operator pressed "Mark done": the Reconcile completion write was queued. */
+    const val COUNTS_PEN_RECONCILIATION_COMPLETED = "counts_pen_reconciliation_completed"
+
     /** The operator opened Birth's final "Tag the kid" permanent-RFID assignment. */
     const val COUNTS_RFID_PROMOTE_OPENED = "counts_rfid_promote_opened"
 

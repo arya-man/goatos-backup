@@ -4,6 +4,10 @@ import test from "node:test";
 
 const pickerSource = readFileSync(new URL("./date-range-picker.tsx", import.meta.url), "utf8");
 const barSource = readFileSync(new URL("./worklist-filters.tsx", import.meta.url), "utf8");
+const herdAnalyticsSource = readFileSync(
+  new URL("../features/counts/herd-analytics.tsx", import.meta.url),
+  "utf8",
+);
 
 test("the picker owns the calendar and nothing else — hosts write their own URL", () => {
   // Presentational on purpose. The moment it reaches for the router it stops being shareable, and
@@ -31,11 +35,20 @@ test("a future day cannot be requested", () => {
 });
 
 test("a day before the host's history floor cannot be requested either", () => {
-  // Optional per host: Herd Analytics' history starts 2026-08-01, so its calendar disables the
-  // days before that the same way every calendar disables the days after today. Hosts that pass
-  // no minDate keep every past day selectable.
+  // Optional per host: Weights history starts 2026-08-01, so its calendar disables the days before
+  // that the same way every calendar disables the days after today. Hosts that pass no minDate keep
+  // every past day selectable.
   assert.match(pickerSource, /const beforeFloor = minDate \? key < minDate : false;/);
   assert.match(pickerSource, /if \(minDate && key < minDate\) return;/);
+});
+
+test("Herd Analytics floors its default without disabling named historical windows", () => {
+  // The backend clamps only the default Herd Analytics window; an explicit older URL remains a
+  // valid read. The page must therefore not pass the floor into the picker as a selectable minimum,
+  // or the rendered historical window becomes impossible to adjust.
+  assert.match(herdAnalyticsSource, /const HERD_ANALYTICS_FLOOR_DATE = "2026-08-01";/);
+  assert.match(herdAnalyticsSource, /if \(cursor < HERD_ANALYTICS_FLOOR_DATE\) cursor = HERD_ANALYTICS_FLOOR_DATE;/);
+  assert.doesNotMatch(herdAnalyticsSource, /minDate=\{HERD_ANALYTICS_FLOOR_DATE\}/);
 });
 
 test("hosts can mark domain-specific days without giving the picker routing knowledge", () => {

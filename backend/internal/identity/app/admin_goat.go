@@ -1094,6 +1094,11 @@ func normalizeHeader(value string) string {
 		return "management_stage"
 	case "partition", "partition_label", "partitionlabel", "pen", "pen_label", "penlabel":
 		return "partition_label"
+	// "pen_name" is what the downloaded template now calls the LOCATION column ("Shed" before the
+	// pen rename). Purely additive: bare "pen" keeps its existing meaning above, so a sheet written
+	// against the old template still imports exactly as it did.
+	case "pen_name", "penname":
+		return "shed"
 	case "reproductive_status", "reproductivestatus", "repro_status", "reprostatus":
 		return "reproductive_status"
 	case "weightkg", "weight_kg":

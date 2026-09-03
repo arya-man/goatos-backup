@@ -222,6 +222,11 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "birth", labelKey: "nav.birth", href: "/counts/birth", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
 			{key: "death", labelKey: "nav.death", href: "/counts/death", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
 			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 4, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
+			// Reconcile (maintainer decision 2026-09-02): the wrong-pen cards raised by
+			// weighing submits. The register is truth; the operator returns the animal and
+			// records a video, and the verifier reviews it — still field capture, so it
+			// follows CountsWrite like the rest of this bar.
+			{key: "reconcile", labelKey: "nav.reconcile", href: "/counts/reconcile", shared_key: "", priority: 5, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 			// Milk prep/feeding MOVED OUT to the "milk" module (maintainer decision 2026-07-31).
 			// Counts contributes NO approval tab, and must not regain one. Approvals returned to the
 			// phone on 2026-08-05 (superseding their 2026-07-21 removal) as their OWN module -- see
@@ -1475,6 +1480,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth":            "Birth",
 		"nav.death":            "Death",
 		"nav.shifting":         "Shifting",
+		"nav.reconcile":        "Reconcile",
 		"nav.milk_preparation": "Milk Prep",
 		"nav.milk_feeding":     "Milk Feeding",
 		"nav.colostrum":        "Colostrum",
@@ -1526,6 +1532,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth":            "जन्म",
 		"nav.death":            "मृत्यु",
 		"nav.shifting":         "शिफ्टिंग",
+		"nav.reconcile":        "मिलान",
 		"nav.milk_preparation": "दूध तैयारी",
 		"nav.milk_feeding":     "दूध पिलाना",
 		"nav.colostrum":        "खीस",
@@ -1577,6 +1584,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth":            "ಜನನ",
 		"nav.death":            "ಮರಣ",
 		"nav.shifting":         "ಸ್ಥಳಾಂತರ",
+		"nav.reconcile":        "ಹೊಂದಾಣಿಕೆ",
 		"nav.milk_preparation": "ಹಾಲು ತಯಾರಿ",
 		"nav.milk_feeding":     "ಹಾಲು ಕುಡಿಸುವುದು",
 		"nav.colostrum":        "ಗಿಣ್ಣು ಹಾಲು",
@@ -1628,6 +1636,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth":            "జననం",
 		"nav.death":            "మరణం",
 		"nav.shifting":         "షిఫ్టింగ్",
+		"nav.reconcile":        "సరిదిద్దు",
 		"nav.milk_preparation": "పాల తయారీ",
 		"nav.milk_feeding":     "పాలు పట్టించడం",
 		"nav.colostrum":        "జున్నుపాలు",

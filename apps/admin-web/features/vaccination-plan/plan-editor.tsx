@@ -955,7 +955,7 @@ function ProcurementCard({
           <p className="s">
             Only vaccines given by us, in our parks or a supervised procurement holding park with
             proof, count as trusted history. Anything else starts the normal schedule once the
-            animal reaches our sheds.
+            animal reaches our pens.
           </p>
         </div>
       </div>
@@ -1343,11 +1343,11 @@ function ProofCard({ mode }: { mode: "shed" | "animal" | null }) {
           <div className="pc" aria-pressed={mode === "shed"}>
             <span className="pc-h">
               <span className="pc-r" />
-              <span className="pc-t">One video per shed</span>
+              <span className="pc-t">One video per pen</span>
             </span>
             <span className="pc-d">
               The operator scans every animal&apos;s tag as it is done, then records one video
-              covering the whole shed. A 200-animal shed produces 1 clip.
+              covering the whole pen. A 200-animal pen produces 1 clip.
             </span>
           </div>
           <div className="pc" aria-pressed={mode === "animal"}>
@@ -1357,7 +1357,7 @@ function ProofCard({ mode }: { mode: "shed" | "animal" | null }) {
             </span>
             <span className="pc-d">
               The operator scans a tag and records that animal&apos;s injection, one at a time. A
-              200-animal shed produces 200 clips.
+              200-animal pen produces 200 clips.
             </span>
           </div>
         </div>
@@ -1396,7 +1396,7 @@ function ImpactCard({ impact }: { impact: ImpactSummary | null }) {
           </div>
           <div className="stat">
             <div className="n num">{impact.affectedSheds}</div>
-            <div className="l">sheds affected</div>
+            <div className="l">pens affected</div>
           </div>
           <div className={overCap ? "stat warn" : "stat"}>
             <div className="n num">{impact.estimatedDays}</div>

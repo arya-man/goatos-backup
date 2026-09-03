@@ -325,7 +325,7 @@ export async function previewShedsAction(csv: string): Promise<ShedImportActionR
       return { ok: false, message: "CSV must include a header and at least one row." };
     }
     if (dataRecords.length > MAX_SHED_IMPORT_ROWS) {
-      return { ok: false, message: `Shed import supports at most ${MAX_SHED_IMPORT_ROWS} rows.` };
+      return { ok: false, message: `Pen import supports at most ${MAX_SHED_IMPORT_ROWS} rows.` };
     }
     const parksResult = await listLocations({ type: "park", status: "active", limit: 500 });
     if (!parksResult.ok) {
@@ -359,13 +359,13 @@ export async function previewShedsAction(csv: string): Promise<ShedImportActionR
 export async function commitShedsAction(rows: ShedImportCommitRow[], fileHash: string): Promise<ShedImportActionResult> {
   const stableFileHash = (typeof fileHash === "string" ? fileHash : "").trim().toLowerCase();
   if (!BULK_FILE_SHA256_RE.test(stableFileHash)) {
-    return { ok: false, message: "Shed import commit received an invalid file hash; preview the CSV again." };
+    return { ok: false, message: "Pen import commit received an invalid file hash; preview the CSV again." };
   }
   if (!Array.isArray(rows)) {
-    return { ok: false, message: "Shed import commit received invalid rows; preview the CSV again." };
+    return { ok: false, message: "Pen import commit received invalid rows; preview the CSV again." };
   }
   if (rows.length > MAX_SHED_IMPORT_ROWS) {
-    return { ok: false, message: `Shed import supports at most ${MAX_SHED_IMPORT_ROWS} rows.` };
+    return { ok: false, message: `Pen import supports at most ${MAX_SHED_IMPORT_ROWS} rows.` };
   }
 
   const parksResult = await listLocations({ type: "park", status: "active", limit: 500 });
@@ -448,9 +448,9 @@ function previewShedImportRow(record: string[], rowNumber: number, headers: Map<
   const park = resolvePark(parks, parkValue);
   if (!parkValue) errors.push({ field: "park", code: "required", message: "Park is required." });
   else if (!park) errors.push({ field: "park", code: "not_found", message: "Park must match an active park id, code, or name." });
-  if (!shedName) errors.push({ field: "shed_name", code: "required", message: "Shed name is required." });
-  if (shedName.length > 200) errors.push({ field: "shed_name", code: "too_long", message: "Shed name must be at most 200 characters." });
-  if (shedCode.length > 80) errors.push({ field: "shed_code", code: "too_long", message: "Shed code must be at most 80 characters." });
+  if (!shedName) errors.push({ field: "shed_name", code: "required", message: "Pen name is required." });
+  if (shedName.length > 200) errors.push({ field: "shed_name", code: "too_long", message: "Pen name must be at most 200 characters." });
+  if (shedCode.length > 80) errors.push({ field: "shed_code", code: "too_long", message: "Pen code must be at most 80 characters." });
   const displayOrder = displayOrderRaw ? Number.parseInt(displayOrderRaw, 10) : 0;
   if ((displayOrderRaw && !/^\d+$/.test(displayOrderRaw)) || !Number.isFinite(displayOrder) || displayOrder < 0) {
     errors.push({ field: "display_order", code: "invalid", message: "Display order must be a non-negative integer." });
@@ -481,7 +481,7 @@ function duplicateShedImportError(
   for (const key of keys) {
     const firstRow = seen.get(key);
     if (firstRow !== undefined) {
-      return { field: "shed", code: "duplicate_in_file", message: `Duplicate shed in uploaded sheet; first seen on row ${firstRow}.` };
+      return { field: "shed", code: "duplicate_in_file", message: `Duplicate pen in uploaded sheet; first seen on row ${firstRow}.` };
     }
   }
   for (const key of keys) seen.set(key, rowNumber);
@@ -505,7 +505,7 @@ function normalizeCommittedShedRow(
 ): { normalized?: CreateLocationRequest; errors: ShedImportRowResult["errors"] } {
   const errors: ShedImportRowResult["errors"] = [];
   if (!row || typeof row !== "object") {
-    errors.push({ field: "row", code: "invalid", message: "Commit row is missing the previewed shed payload." });
+    errors.push({ field: "row", code: "invalid", message: "Commit row is missing the previewed pen payload." });
     return { errors };
   }
   if (!Number.isSafeInteger(row.row_number) || row.row_number < 2) {
@@ -518,7 +518,7 @@ function normalizeCommittedShedRow(
 
   const source: Partial<CreateLocationRequest> | undefined = row.normalized;
   if (!source || typeof source !== "object") {
-    errors.push({ field: "row", code: "invalid", message: "Commit row is missing the previewed shed payload." });
+    errors.push({ field: "row", code: "invalid", message: "Commit row is missing the previewed pen payload." });
     return { errors };
   }
   const name = typeof source.name === "string" ? source.name.trim() : "";
@@ -527,19 +527,19 @@ function normalizeCommittedShedRow(
   const op = source.operational;
 
   if (source.location_type !== "shed") {
-    errors.push({ field: "location_type", code: "invalid", message: "Shed import can only create shed locations." });
+    errors.push({ field: "location_type", code: "invalid", message: "Pen import can only create pen locations." });
   }
   if (source.status !== "active") {
-    errors.push({ field: "status", code: "invalid", message: "Shed import can only create active sheds." });
+    errors.push({ field: "status", code: "invalid", message: "Pen import can only create active pens." });
   }
-  if (!name) errors.push({ field: "shed_name", code: "required", message: "Shed name is required." });
-  if (name.length > 200) errors.push({ field: "shed_name", code: "too_long", message: "Shed name must be at most 200 characters." });
-  if (locationCode.length > 80) errors.push({ field: "shed_code", code: "too_long", message: "Shed code must be at most 80 characters." });
+  if (!name) errors.push({ field: "shed_name", code: "required", message: "Pen name is required." });
+  if (name.length > 200) errors.push({ field: "shed_name", code: "too_long", message: "Pen name must be at most 200 characters." });
+  if (locationCode.length > 80) errors.push({ field: "shed_code", code: "too_long", message: "Pen code must be at most 80 characters." });
   if (!parentLocationID || !activeParkIDs.has(parentLocationID)) {
     errors.push({ field: "park", code: "not_found", message: "Park must still match an active park." });
   }
   if (!op) {
-    errors.push({ field: "operational", code: "required", message: "Operational attributes are required for shed import commit." });
+    errors.push({ field: "operational", code: "required", message: "Operational attributes are required for pen import commit." });
   } else {
     if (
       op.usable_for_counts !== true ||
@@ -550,7 +550,7 @@ function normalizeCommittedShedRow(
       op.is_quarantine !== false ||
       op.is_icu !== false
     ) {
-      errors.push({ field: "operational", code: "invalid", message: "Shed import can only create vaccination-usable, non-feed, non-holding sheds." });
+      errors.push({ field: "operational", code: "invalid", message: "Pen import can only create vaccination-usable, non-feed, non-holding pens." });
     }
     if (!Number.isSafeInteger(op.display_order) || op.display_order < 0) {
       errors.push({ field: "display_order", code: "invalid", message: "Display order must be a non-negative integer." });
@@ -602,10 +602,15 @@ function headerMap(header: string[]): Map<string, number> {
 function normalizeHeader(value: string): string {
   const key = value.trim().toLowerCase().replace(/[./()]/g, "").replace(/[\s/-]+/g, "_");
   switch (key) {
+    // "pen*" are the labels the downloaded template now carries; "shed*" stay accepted so a
+    // sheet saved before the rename still imports.
+    case "pen":
+    case "pen_name":
     case "shed":
     case "shed_name":
     case "name":
       return "shed_name";
+    case "pen_code":
     case "shed_code":
     case "location_code":
       return "shed_code";

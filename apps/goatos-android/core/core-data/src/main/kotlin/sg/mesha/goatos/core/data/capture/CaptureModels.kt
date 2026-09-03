@@ -130,6 +130,17 @@ enum class ProofFlow(val wireValue: String) {
     FEED_WASTAGE("feed_wastage"),
     FEED_TRANSPORT("feed_transport"),
     SHIFTING("shifting"),
+
+    /**
+     * Pen Reconciliation return video (docs/decisions/pen-reconciliation.md): the mandatory
+     * live-camera clip proving a strayed animal was returned to its registered pen. Like
+     * [PC_CARE] it deliberately rides the GENERIC storage/idempotency branches —
+     * `proof:$taskId:pen_reconciliation:$subjectKey` /
+     * `proof:capture:$taskId:pen_reconciliation:$subjectKey` — with the caller passing
+     * `taskId = cardId` and `subjectKey = registeredShedId`, so one card is one capture identity
+     * and a re-record replaces it rather than accumulating.
+     */
+    PEN_RECONCILIATION("pen_reconciliation"),
     MILK("milk"),
     BIRTH("birth"),
     GENERIC_SUBMIT("generic_submit"),

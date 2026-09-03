@@ -48,4 +48,4 @@ RUN mkdir -p /app/.next/cache /app/apps/admin-web/.next/cache && \
 
 USER nextjs
 EXPOSE 8080
-CMD ["node", "server.js"]
+CMD ["node", "apps/admin-web/server.js"]

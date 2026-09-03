@@ -150,7 +150,7 @@ func TestCorrectedLabelRestatesTheWeightAtBothGrains(t *testing.T) {
 	}
 	// A bucket whose shed lookup found nothing degrades to the shed-less form rather
 	// than printing a UUID or a dangling separator (LOCKED SPEC section 5).
-	if bare := CorrectedSubjectLabel(VerificationRefTypeShed, "", "", 732, 0); bare != "Whole shed · 732.0 kg" {
+	if bare := CorrectedSubjectLabel(VerificationRefTypeShed, "", "", 732, 0); bare != "Whole pen · 732.0 kg" {
 		t.Fatalf("a shed-less lump-sum label must degrade, got %q", bare)
 	}
 }

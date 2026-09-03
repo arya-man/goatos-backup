@@ -2633,6 +2633,70 @@ Do:
   the drive execution/grouping scope. Required guards:
   `make goat-shed-scope-guard`; post-seed DB proof:
   `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
+## The Word On Screen Is PEN, Never SHED (maintainer lock, 2026-09-02)
+
+Every user-visible string says **pen**. The word *shed* appears on no screen a person reads --
+page and table titles, column labels, filters, chips, KPIs, empty states, notes, tooltips,
+drawer copy, user-facing error text, CSV export headers and download filenames.
+
+This is a VOCABULARY decision and nothing else. Behaviour, grain, schema and API contracts do
+not change because of it. A change made in the name of this rule that alters what the software
+DOES is wrong.
+
+**What stays `shed`, deliberately and permanently:** column KEYS (`shed`, `shed_tag`), copy KEYS
+(`kpi.sheds.label`), table/section ids (`shed-weights`), route paths (`/vaccination/sheds`),
+every database table/column/enum (`subject_type='shed'`, `position_code='shed_manager'`), and
+every Go/TS identifier and JSON wire field (`shed_id`, `shed_name`). Do NOT rename these to
+match the label. The mismatch between the stored word and the shown word is the design.
+
+**Copy comes from FOUR places and a new screen must get all four right** -- missing one is how
+the first pass shipped eleven tables still saying "Shed" on pages whose own copy said pen:
+(1) the page-contract copy maps in `adminui/app/service.go`; (2) `humanLabel()` in the same
+file, which DERIVES column labels from the column key rather than reading the copy map;
+(3) sentences composed in a producing module's Go or SQL (`weighing/domain.CorrectedSubjectLabel`
+"Whole pen", counts shifting "Pen move", the verification batch label, the calendar subtitle);
+(4) seeded rows in the database, which need a forward migration. Plus position TITLES,
+prettified from `position_code` in `workforce/app.formatPositionCode`.
+
+**Three places the two words meant different things, and substitution was WRONG.** Feed Config's
+multiplier is a **FEED factor**, not a pen factor: `feed_shed_factors` has no partition column,
+so one row scales every pen in the building and "pen factor" would be false. Feed TRANSPORT is
+shed-grain on purpose (one trip per building, migration 000152), so its copy says "physical
+location" -- writing "pen" states the opposite of the rule it explains. Explainers that existed
+only to relate the two words ("an undivided shed is its single pen") are circular with one word
+and are DELETED, not reworded. General form: when a sentence needs both words, name the thing
+accurately without either noun, or drop the clause -- never substitute.
+
+**The trap that can silently corrupt data:** `pen` ALREADY MEANT PARTITION in the animal bulk
+importer (`identity/app.normalizeHeader`: `pen`, `pen_label` -> `partition_label`). The CSV
+template header is built from the option LABELS and parsed by header NAME, so labelling the
+location column "Pen" would file a pen name into `partition_label` on every row -- no error, a
+wrong location on every animal. It is labelled **"Pen name"**; bare `pen` keeps its meaning.
+Generalise: a template header label IS a parser input. Add the new name as an ALIAS and keep
+the old one, or every sheet already saved stops importing.
+
+**THREE SHAPES A SWEEP MISSES, all found by RENDERING the pages rather than re-reading the
+source.** (1) BARE LOWERCASE NOUNS -- `"pager.noun": "shed"`, `"schedule.unit.sheds": "sheds"` --
+which a sweep keyed on "has a space or starts with a capital" skips entirely, leaving pages
+reading "1-25 of 104 sheds" while the contract scan comes back clean. (2) JSX TEXT NODES --
+`<option>All sheds</option>`, a bare `Shed` label line -- which are not quoted, so a
+string-literal sweep cannot see them at all. (3) FARM DATA -- `procurement_vendor_catalog` holds
+the vendor category "Sheds Contractor", someone who BUILDS sheds; that is the farm's word about
+the outside world, not the product's word for a pen, and changing it is a maintainer decision.
+The rule that follows: decide by POSITION, never by spelling. The guard skips a named set of
+machine leaves (key, id, href, icon, data_source, param, columns) and treats everything else as
+copy, so an unanticipated copy shape fails closed instead of slipping through.
+
+Enforced by `adminui/app.TestBootstrapContractSaysPenNeverShed` (walks the whole served
+bootstrap JSON, keyed on PATH not spelling; mutation-tested),
+`admin-web features/counts/pen-vocabulary.test.mjs` (JSX text nodes; mutation-tested),
+`TestColumnLabelsSpeakPenWhileTheKeysStayShed`,
+`identity/app.TestImportHeaderAliasesSurviveThePenRename`,
+`workforce/app.TestPositionTitlesSayPenWhileTheCodesStayShed`, and admin-web
+`features/counts/pen-import-headers.test.mjs`. NOT yet done: the Android app's ~471 own
+hardcoded "shed" strings, tracked separately. Canonical prose:
+`docs/decisions/pen-not-shed-vocabulary.md`.
+
 ## Operational Location and Partition Convention (maintainer lock, 2026-08-06; clarified 2026-08-16)
 
 **Read `docs/decisions/partition-is-operational-shed.md` FIRST. It outranks the

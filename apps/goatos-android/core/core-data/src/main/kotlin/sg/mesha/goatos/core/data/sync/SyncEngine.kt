@@ -502,6 +502,7 @@ class SyncEngine(
         OutboxOpType.COUNTS_APPROVAL_REJECT -> dispatchCountsApprovalReject(item)
         OutboxOpType.SHIFTING_COMPLETE -> dispatchShiftingComplete(item)
         OutboxOpType.SHIFTING_CANCEL -> dispatchShiftingCancel(item)
+        OutboxOpType.PEN_RECONCILIATION_COMPLETE -> dispatchPenReconciliationComplete(item)
         OutboxOpType.COUNTS_PROMOTE_IDENTIFIER -> dispatchPromoteIdentifier(item)
         OutboxOpType.FEED_DIRECTION_COMPLETE -> dispatchFeedDirectionComplete(item)
         OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> dispatchFeedDistributionComplete(item)
@@ -1018,6 +1019,29 @@ class SyncEngine(
     private suspend fun resolveOptionalShiftingProofRef(proofItemId: String?, label: String): String? {
         if (proofItemId.isNullOrBlank()) return null
         return resolveUploadedProofRef(proofItemId)
+    }
+
+    /**
+     * The Pen Reconciliation "Mark done" (docs/decisions/pen-reconciliation.md). Same
+     * idempotent-replay contract as every other `dispatch*` — the row's STORED key is passed
+     * through verbatim, so a server-committed-but-client-unrecorded retry returns the original
+     * result (idempotent_replay=true) instead of queueing a second verification. The mandatory
+     * video's proof_id is resolved from the coupled PROOF_UPLOAD row (same group, drained first);
+     * a missing coupling is terminal — a pen return without a verifiable video must not reach the
+     * backend. Completing a card that is no longer actionable (already submitted or completed) is
+     * a 400 — terminal by [recordFailure]'s `isTerminalAppApiError` check, so it surfaces to the
+     * operator instead of being retried against a state that will never change.
+     */
+    private suspend fun dispatchPenReconciliationComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PenReconciliationCompletePayload>(item.payloadJson)
+        val proofItemId = payload.proofOutboxItemId
+            ?: throw NonRetryableSyncException("This pen return is missing its required video. Please record it again.")
+        val response = api.completeCountsPenReconciliationCard(
+            payload.cardId,
+            item.idempotencyKey,
+            resolveUploadedProofRef(proofItemId),
+        )
+        return syncJson.encodeToString(response)
     }
 
     private suspend fun dispatchFeedDirectionComplete(item: OutboxEntity): String {

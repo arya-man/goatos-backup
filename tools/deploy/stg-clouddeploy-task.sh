@@ -194,6 +194,38 @@ print(status.get("latestCreatedRevisionName") or "", status.get("latestReadyRevi
   die "$service did not reach $expected_phase readiness before continuing"
 }
 
+wait_revision_ready() {
+  local revision="$1"
+  local expected_phase="${2:-ready}"
+  local attempt ready_condition
+
+  for attempt in $(seq 1 60); do
+    ready_condition="$(
+      gcloud run revisions describe "$revision" \
+        --project="$PROJECT_ID" \
+        --region="$REGION" \
+        --format=json | python3 -c '
+import json
+import sys
+
+doc = json.load(sys.stdin)
+ready = ""
+for condition in doc.get("status", {}).get("conditions", []):
+    if condition.get("type") == "Ready":
+        ready = condition.get("status") or ""
+        break
+print(ready)
+'
+    )"
+    if [[ "$ready_condition" == "True" ]]; then
+      return 0
+    fi
+    echo "waiting for revision $revision $expected_phase readiness: condition=${ready_condition:-?} attempt=$attempt"
+    sleep 5
+  done
+  die "revision $revision did not reach $expected_phase readiness before continuing"
+}
+
 drain_replaced_revisions() {
   local service="$1"
   shift
@@ -273,6 +305,7 @@ deploy() {
   local old_api_revisions=()
   local old_worker_revisions=()
   local revision
+  local admin_web_revision
 
   # Fail before touching the database when Terraform has not created every
   # release target. In particular, never migrate and then discover that the
@@ -470,13 +503,27 @@ deploy() {
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$ADMIN_WEB_IMAGE" \
+    --command="node" \
+    --args="apps/admin-web/server.js" \
     --ingress=all \
     --min=1 \
     --max=2 \
     --min-instances=1 \
     --max-instances=2 \
+    --no-traffic \
     --update-env-vars="GOATOS_CANONICAL_DASHBOARD_HOST=${GOATOS_CANONICAL_DASHBOARD_HOST},GOATOS_API_BASE_URL=${GOATOS_API_BASE_URL}" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --quiet
+  admin_web_revision="$(gcloud run services describe "$ADMIN_WEB_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --format='value(status.latestCreatedRevisionName)')"
+  [[ -n "$admin_web_revision" ]] || die "$ADMIN_WEB_SERVICE did not create an admin-web revision before traffic switch"
+  wait_revision_ready "$admin_web_revision" "admin-web pre-traffic"
+  run gcloud run services update-traffic "$ADMIN_WEB_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --to-latest \
     --quiet
 
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"

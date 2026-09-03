@@ -347,7 +347,7 @@ export const STEP_TYPES: StepTypeDef[] = [
   { value: "select", label: "select", backend: "select" },
   { value: "multiselect", label: "multiselect", backend: "multiselect" },
   { value: "goat_scan", label: "Animal ID scan", backend: "goat_scan" },
-  { value: "shed_picker", label: "shed picker", backend: "shed_picker" },
+  { value: "shed_picker", label: "pen picker", backend: "shed_picker" },
   { value: "vaccine_batch_picker", label: "vaccine batch picker", backend: "vaccine_batch_picker", optionSource: "vaccine_batches" },
   { value: "medicine_picker", label: "medicine picker", backend: "medicine_picker", optionSource: "medicines" },
   { value: "photo_proof", label: "photo proof", backend: "photo_proof", proof: true },

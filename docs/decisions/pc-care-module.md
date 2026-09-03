@@ -89,4 +89,4 @@ recorded by the PC Director. Park operators record the fridge proof and the PC D
 approves/rejects it on the module's own stock-verdict route (`pc_care.stock_approve`,
 pc_director only — the toxin approval-gate shape). The four work categories above are
 unchanged. Canonical prose: `docs/decisions/pc-care-vaccine-stock-director-gate.md`;
-migration `000241_pc_care_stock_director_gate.sql`.
+migration `000242_pc_care_stock_director_gate.sql`.

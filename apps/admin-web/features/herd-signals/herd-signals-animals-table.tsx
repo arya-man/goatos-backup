@@ -52,7 +52,7 @@ export function HerdSignalsAnimalsHead() {
   return (
     <tr>
       <th>Animal</th>
-      <th>Shed</th>
+      <th>Pen</th>
       <th>Smart tag</th>
       <th className="num">15m delta</th>
       <th className="num">1h delta</th>
@@ -114,7 +114,7 @@ export function HerdSignalsAnimalsRow({
           </>
         ) : null}
       </td>
-      <td data-l="Shed">
+      <td data-l="Pen">
         {location || "—"}
         {item.park_name ? (
           <>

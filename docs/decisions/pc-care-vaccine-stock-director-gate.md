@@ -28,7 +28,7 @@ The PC Director cannot be in both farms. So:
    shape, NOT a Verification category: `inventory_vaccine` is no longer registered in the
    verifier queue registry (`verificationbridge.RegisterCategories` iterates
    `domain.VerifierReviewedCategories`), the pending-verification consumer AND the bridge both
-   skip director-approved categories, and migration `000241` withdrew the already-pending
+   skip director-approved categories, and migration `000242` withdrew the already-pending
    verifier items at cutover. The verdict-exclusivity lock on `verification.verdict` is
    untouched.
 
@@ -50,7 +50,7 @@ Both halves of the capability-gated lock are enforced:
 - **Endpoint**: the stock-verdict route requires `pc_care.stock_approve`; the capture writes
   (`RegisterTaskProof`, `SubmitTask`) still require task-assignee membership, and the director
   is no longer an assignee (the reconciler strips director assignees off unfinished
-  per-vaccine tasks, and migration `000241` did the one-time cutover).
+  per-vaccine tasks, and migration `000242` did the one-time cutover).
 
 ## Semantics worth pinning
 

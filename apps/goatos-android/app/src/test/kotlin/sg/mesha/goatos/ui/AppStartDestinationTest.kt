@@ -79,6 +79,7 @@ class AppStartDestinationTest {
             NavItem("birth", "Birth", Routes.COUNTS_BIRTH),
             NavItem("death", "Death", Routes.COUNTS_DEATH),
             NavItem("shifting", "Shifting", Routes.COUNTS_SHIFTING),
+            NavItem("reconcile", "Reconcile", Routes.COUNTS_RECONCILE),
         )
         // The backend lands a capture operator on /counts/birth (the census /counts is
         // gated away). Calendar is NOT exposed to them, so the fallback must not fire.

@@ -75,7 +75,53 @@ var (
 	// current herd member (dead, sold, transferred, or otherwise exited). Unlike ErrGoatNotFound,
 	// this is an actionable eligibility rejection rather than a missing resource.
 	ErrGoatNotShiftable = errors.New("counts: goat is not eligible for shifting")
+
+	// ErrPenReconciliationCardNotFound is returned when the addressed reconciliation card does
+	// not exist in the caller's tenant.
+	ErrPenReconciliationCardNotFound = errors.New("counts: pen reconciliation card not found")
+	// ErrPenReconciliationNotActionable is returned when a completion addresses a card that is
+	// not open/rework -- already submitted or already completed. A replay of the SAME completion
+	// (same idempotency key) is not an error; it echoes the original result.
+	ErrPenReconciliationNotActionable = errors.New("counts: pen reconciliation card is not in an actionable state")
+	// ErrPenReconciliationProofRequired is returned when an operator submits a reconciliation
+	// card without the mandatory return video. The verifier reviews that video; a submission
+	// with no video has nothing to verify and is rejected before any state changes.
+	ErrPenReconciliationProofRequired = errors.New("counts: pen reconciliation completion requires a video proof")
 )
+
+// PenReconciliationRepository owns the Reconcile card store. It is a separate interface from
+// Repository so existing fakes keep compiling; the postgres Repository implements both.
+type PenReconciliationRepository interface {
+	// RaisePenReconciliationCards inserts one card per mismatched live animal scanned in the
+	// named submitted weighing bucket, skipping animals that already carry a non-completed
+	// card. It returns how many cards were inserted and is idempotent across duplicate event
+	// deliveries.
+	RaisePenReconciliationCards(ctx context.Context, in domain.PenReconciliationRaiseCommand) (int, error)
+
+	// ListPenReconciliationCards returns one keyset page of the Reconcile queue plus
+	// whole-filter status counts.
+	ListPenReconciliationCards(ctx context.Context, q domain.PenReconciliationQuery) (domain.PenReconciliationPage, error)
+
+	// CompletePenReconciliationCard stores the operator's mandatory return video and flips the
+	// card open/rework -> pending_verification. The bool result reports an idempotent replay.
+	CompletePenReconciliationCard(ctx context.Context, in domain.PenReconciliationCompletionCommand) (domain.PenReconciliationCompletionResult, bool, error)
+
+	// MarkPenReconciliationVerificationEnqueued clears the durable retry marker after the
+	// verifier item has been created or idempotently replayed. If this write fails, a later exact
+	// completion replay or kernel recovery tick sees the marker and retries the enqueue.
+	MarkPenReconciliationVerificationEnqueued(ctx context.Context, tenantID, cardID string) error
+
+	// ListPenReconciliationVerificationEnqueueDebt returns bounded submitted cards whose verifier
+	// item still needs an idempotent enqueue retry.
+	ListPenReconciliationVerificationEnqueueDebt(ctx context.Context, tenantID string, limit int) ([]domain.PenReconciliationVerificationEnqueueDebt, error)
+
+	// ApplyVerifiedPenReconciliation flips a submitted card to completed on verifier approve.
+	ApplyVerifiedPenReconciliation(ctx context.Context, in domain.PenReconciliationVerdictCommand) error
+
+	// BouncePenReconciliationForRework flips a submitted card to rework on verifier reject,
+	// recording the reason. The operator re-shoots and submits again.
+	BouncePenReconciliationForRework(ctx context.Context, in domain.PenReconciliationVerdictCommand) error
+}
 
 type Repository interface {
 	RecordBaseCountAnchor(ctx context.Context, in domain.BaseCountAnchor) (id string, replay bool, err error)
@@ -170,12 +216,6 @@ type MilkPreparationCompletionStore interface {
 	SubmitMilkPreparation(ctx context.Context, in domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error)
 	ApplyVerifiedMilkPreparation(ctx context.Context, in domain.MilkPreparationVerdictCommand) (bool, error)
 	BounceMilkPreparationForRework(ctx context.Context, in domain.MilkPreparationVerdictCommand) (bool, error)
-	// VerifiedUHTConsumption reads the accepted attempt's UHT-milk litres for a
-	// COMPLETED preparation. ok=false (no error) when the completion is missing
-	// or not completed — a rework/pending row has no accepted consumption yet.
-	// Read on every APPROVE delivery, duplicates included, so an at-least-once
-	// verdict can always re-forward the fact to the feed stock recorder.
-	VerifiedUHTConsumption(ctx context.Context, tenantID, completionID string) (domain.MilkPreparationUHTConsumption, bool, error)
 }
 
 type MilkFeedingStore interface {

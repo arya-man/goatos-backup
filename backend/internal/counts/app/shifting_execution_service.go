@@ -163,7 +163,7 @@ func (s *ShiftingExecutionService) Complete(
 		result.EventStatus == domain.ShiftingEventStatusApplied {
 		loc := oploc.OperationalLocation{ShedName: result.DestinationShedName, PartitionLabel: result.DestinationPartitionLabel}
 		locDisplay := loc.Display()
-		subject := "Shed move · " + locDisplay + " · " + strconv.Itoa(len(result.MovedGoatIDs)) + " animals"
+		subject := "Pen move · " + locDisplay + " · " + strconv.Itoa(len(result.MovedGoatIDs)) + " animals"
 		mediaRefs := []string{strings.TrimSpace(in.ProofRef)}
 		if ref := strings.TrimSpace(in.FeedPackingProofRef); ref != "" {
 			mediaRefs = append(mediaRefs, ref)

@@ -84,6 +84,22 @@ enum class OutboxOpType {
     SHIFTING_CANCEL,
 
     /**
+     * Pen Reconciliation completion from the Herd Operations "Reconcile" tab
+     * (`POST /app/counts/pen-reconciliation/cards/{card_id}/complete`).
+     *
+     * Records that the operator physically returned a strayed animal to its registered pen, with
+     * the MANDATORY live-camera video resolved from a PROOF_UPLOAD row enqueued on the SAME group
+     * (the CARD ID) that drains first — mirroring [SHIFTING_COMPLETE]'s mandatory-video coupling.
+     * The write never rewrites the herd register; it flips the card to `pending_verification` for
+     * the tenant verifier (there is deliberately NO approver step). Its caller derives a STABLE
+     * idempotency key from the card id (never a timestamp-suffixed one), so a
+     * server-committed-but-client-unrecorded retry returns the original result instead of queueing
+     * a second verification. The CARD ID is the outbox group key so two actions on the same card
+     * cannot drain concurrently or out of order.
+     */
+    PEN_RECONCILIATION_COMPLETE,
+
+    /**
      * Counts identifier PROMOTE from the operator's "Awaiting RFID" list
      * (`POST /app/counts/goats/{goat_id}/promote-identifier`).
      *

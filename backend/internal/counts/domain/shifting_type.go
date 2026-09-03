@@ -446,7 +446,7 @@ func canonicalWritableStage(stage string, writable []string) string {
 // Farm-worded refusal copy (backend-owned; rendered verbatim -- golden frontend rule). Written in
 // the same voice as the StageReason* constants: what the farm needs to do, no internal vocabulary.
 const (
-	shiftCopyDestinationUnknown = "This destination is not in the current shed list. Refresh and pick it again"
+	shiftCopyDestinationUnknown = "This destination is not in the current pen list. Refresh and pick it again"
 	shiftCopyGrowthStageUnknown = "An animal in this group has no tag yet, so its next stage cannot be checked"
 	shiftCopyGrowthNotNext      = "This destination's tag is not the next stage for every animal in the group"
 	shiftCopyGrowthSexMismatch  = "This destination's tag does not match the sex of every animal in the group"

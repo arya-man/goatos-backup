@@ -671,6 +671,9 @@ func TestVisibleNavigationFor(t *testing.T) {
 				{Key: "birth", Label: "Birth", Href: "/counts/birth"},
 				{Key: "death", Label: "Death", Href: "/counts/death"},
 				{Key: "shifting", Label: "Shifting", Href: "/counts/shifting"},
+				// Reconcile joined the bar 2026-09-02: the wrong-pen cards weighing submits
+				// raise. Still field capture, so it rides the same CountsWrite grant.
+				{Key: "reconcile", Label: "Reconcile", Href: "/counts/reconcile"},
 			},
 		},
 		{
@@ -1241,9 +1244,9 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 		role      string
 		wantItems []string // nav item keys inside the counts module, nil => module absent
 	}{
-		{permissions.RoleOperator, []string{"birth", "death", "shifting"}},
+		{permissions.RoleOperator, []string{"birth", "death", "shifting", "reconcile"}},
 		{permissions.RoleParkHead, nil},
-		{permissions.RoleCEOInternal, []string{"birth", "death", "shifting"}},
+		{permissions.RoleCEOInternal, []string{"birth", "death", "shifting", "reconcile"}},
 		{permissions.RolePCDirector, nil},
 		// A standalone verifier does NOT get registry modules at all: modulesFor composes
 		// per-feature verification modules ("verify_counts", "verify_feed_direction", ...),
@@ -1380,13 +1383,13 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 	}
 
 	// The headline requirement: an operator's Counts bar is the capture tabs (no approval/census).
-	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting"}) {
-		t.Fatalf("operator counts bar=%v want exactly [birth death shifting]", got)
+	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting", "reconcile"}) {
+		t.Fatalf("operator counts bar=%v want exactly [birth death shifting reconcile]", got)
 	}
 
 	// A park head no longer gets an approval tab — its Counts bar is the same capture tabs.
-	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting"}) {
-		t.Fatalf("park_head counts bar=%v want [birth death shifting] (no approval on mobile)", got)
+	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting", "reconcile"}) {
+		t.Fatalf("park_head counts bar=%v want [birth death shifting reconcile] (no approval on mobile)", got)
 	}
 
 	// No role gets a global "You" tab from Counts on mobile.
@@ -1671,8 +1674,8 @@ func TestApprovalsModuleIsPerPersonAndLeavesCountsCaptureOnly(t *testing.T) {
 			t.Fatalf("counts bar regained an approval tab (%q); approvals is its own module", key)
 		}
 	}
-	if got := countsBar([]domain.GrantSummary{grantWithRole(permissions.RoleOperator)}); len(got) != 3 {
-		t.Fatalf("operator counts bar=%v want the 3 capture tabs, unchanged by the approvals module", got)
+	if got := countsBar([]domain.GrantSummary{grantWithRole(permissions.RoleOperator)}); len(got) != 4 {
+		t.Fatalf("operator counts bar=%v want the 4 capture tabs, unchanged by the approvals module", got)
 	}
 }
 

@@ -55,10 +55,12 @@ import sg.mesha.goatos.core.data.DefaultAwaitingRfidRepository
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.DefaultCaptureDraftRepository
+import sg.mesha.goatos.core.data.DefaultPenReconciliationRepository
 import sg.mesha.goatos.core.data.DefaultShiftingPendingRepository
 import sg.mesha.goatos.core.data.DefaultWorkflowsRepository
 import sg.mesha.goatos.core.data.DefaultHealthRepository
 import sg.mesha.goatos.core.data.HealthRepository
+import sg.mesha.goatos.core.data.PenReconciliationRepository
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
 import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.DefaultCountsRepository
@@ -131,6 +133,7 @@ import sg.mesha.goatos.core.data.sync.countsBirthRefreshHook
 import sg.mesha.goatos.core.data.sync.countsDeathRefreshHook
 import sg.mesha.goatos.core.data.sync.countsApprovalApproveRefreshHook
 import sg.mesha.goatos.core.data.sync.countsApprovalRejectRefreshHook
+import sg.mesha.goatos.core.data.sync.penReconciliationCompleteRefreshHook
 import sg.mesha.goatos.core.data.sync.shiftingCompleteRefreshHook
 import sg.mesha.goatos.core.data.sync.shiftingCancelRefreshHook
 import sg.mesha.goatos.core.data.sync.countsPromoteIdentifierRefreshHook
@@ -471,6 +474,13 @@ object AppModule {
         api: AppApi,
         database: GoatDatabase,
     ): ShiftingPendingRepository = DefaultShiftingPendingRepository(api, database)
+
+    @Provides
+    @Singleton
+    fun providePenReconciliationRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): PenReconciliationRepository = DefaultPenReconciliationRepository(api, database)
 
     @Provides
     @Singleton
@@ -819,6 +829,7 @@ object AppModule {
         countsApprovalRepository: CountsApprovalRepository,
         awaitingRfidRepository: AwaitingRfidRepository,
         shiftingPendingRepository: ShiftingPendingRepository,
+        penReconciliationRepository: PenReconciliationRepository,
         workflowsRepository: WorkflowsRepository,
         healthRepository: HealthRepository,
         // Provider, NOT the repository: PcCareRepository -> SyncRepository -> SyncEngine would
@@ -874,6 +885,7 @@ object AppModule {
             OutboxOpType.COUNTS_APPROVAL_REJECT to countsApprovalRejectRefreshHook(countsApprovalRepository),
             OutboxOpType.SHIFTING_COMPLETE to shiftingCompleteRefreshHook(shiftingPendingRepository),
             OutboxOpType.SHIFTING_CANCEL to shiftingCancelRefreshHook(shiftingPendingRepository),
+            OutboxOpType.PEN_RECONCILIATION_COMPLETE to penReconciliationCompleteRefreshHook(penReconciliationRepository),
             OutboxOpType.COUNTS_PROMOTE_IDENTIFIER to countsPromoteIdentifierRefreshHook(
                 countsRepository,
                 awaitingRfidRepository,

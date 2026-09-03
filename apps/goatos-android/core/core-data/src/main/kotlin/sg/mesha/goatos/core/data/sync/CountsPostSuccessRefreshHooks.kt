@@ -3,6 +3,7 @@ package sg.mesha.goatos.core.data.sync
 import sg.mesha.goatos.core.data.AwaitingRfidRepository
 import sg.mesha.goatos.core.data.CountsApprovalRepository
 import sg.mesha.goatos.core.data.CountsRepository
+import sg.mesha.goatos.core.data.PenReconciliationRepository
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
 
 /**
@@ -76,6 +77,15 @@ fun shiftingCancelRefreshHook(repository: ShiftingPendingRepository): PostSucces
         val payload = syncJson.decodeFromString<ShiftingCancelPayload>(payloadJson)
         // Forget the cancelled movement from the cached Pending list so it never re-appears.
         repository.forgetExecuted(payload.shiftingEventId)
+    }
+
+fun penReconciliationCompleteRefreshHook(repository: PenReconciliationRepository): PostSuccessRefreshHook =
+    PostSuccessRefreshHook { payloadJson ->
+        val payload = syncJson.decodeFromString<PenReconciliationCompletePayload>(payloadJson)
+        // Forget the submitted card from the cached Reconcile list so it never re-appears as an
+        // actionable ghost; the next refresh re-serves it in its server truth (pending
+        // verification) bucket.
+        repository.forgetCompleted(payload.cardId)
     }
 
 fun countsPromoteIdentifierRefreshHook(

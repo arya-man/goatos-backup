@@ -243,6 +243,28 @@ data class ShiftingCancelPayload(
 )
 
 /**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.PEN_RECONCILIATION_COMPLETE].
+ *
+ * The Reconcile "Mark done": the operator physically returned a strayed animal to its registered
+ * pen and recorded the MANDATORY video (docs/decisions/pen-reconciliation.md). The CARD ID is the
+ * outbox group key, so the coupled video's PROOF_UPLOAD (same group) drains first and two actions
+ * on the same card cannot drain concurrently or out of order. The write never rewrites the herd
+ * register — it flips the card to pending_verification for the tenant verifier.
+ */
+@Serializable
+data class PenReconciliationCompletePayload(
+    @SerialName("card_id") val cardId: String,
+    /**
+     * Outbox id of the MANDATORY video's PROOF_UPLOAD item. The dispatcher resolves this item's
+     * uploaded proof_id and sends it as `proof_ref`. Enqueued on the same group as this
+     * completion, so it drains first. Optional-nullable only for backward decode safety; a missing
+     * coupling is failed terminally at dispatch — a return without a verifiable video must not
+     * reach the backend.
+     */
+    @SerialName("proof_outbox_item_id") val proofOutboxItemId: String? = null,
+)
+
+/**
  * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_PROMOTE_IDENTIFIER].
  * Assigns a permanent RFID to a temporary-tagged goat, atomically retiring the temp tag. The temp
  * tag to retire is found server-side, so only the [permanentIdentifier] and the goat's [rowVersion]

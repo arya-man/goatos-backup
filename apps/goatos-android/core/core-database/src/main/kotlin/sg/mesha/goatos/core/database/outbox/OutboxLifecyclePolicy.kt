@@ -95,6 +95,7 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         OutboxOpType.COUNTS_APPROVAL_REJECT -> optimisticRefreshLifecycle()
         OutboxOpType.SHIFTING_COMPLETE -> exactItemPostSuccessRefreshLifecycle()
         OutboxOpType.SHIFTING_CANCEL -> exactItemPostSuccessRefreshLifecycle()
+        OutboxOpType.PEN_RECONCILIATION_COMPLETE -> exactItemPostSuccessRefreshLifecycle()
         OutboxOpType.COUNTS_PROMOTE_IDENTIFIER -> optimisticRefreshLifecycle()
         OutboxOpType.FEED_DIRECTION_COMPLETE -> overlayRefreshLifecycle()
         OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> overlayDirectReconcileLifecycle()

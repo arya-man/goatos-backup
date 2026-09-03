@@ -29,7 +29,7 @@ func CalendarPresentationForQuery(ownerKey string) CalendarPresentation {
 
 	return CalendarPresentation{
 		PageTitle:              "Calendar",
-		PageSubtitle:           "Vaccination due work and accepted completion history by time, owner lane, park, shed, and date.",
+		PageSubtitle:           "Vaccination due work and accepted completion history by time, owner lane, park, pen, and date.",
 		ViewTabs:               calendarViewTabs(),
 		OwnerTabs:              calendarOwnerTabs(ownerKey),
 		WorkstreamTabs:         active.workstreams,
@@ -127,7 +127,7 @@ func emptyQuery() map[string]string {
 func calendarEventTypeLabels() []CalendarKeyLabel {
 	return []CalendarKeyLabel{
 		{Key: EventVaccinationDoseDue, Label: "Dose due"},
-		{Key: EventVaccinationDrive, Label: "Shed / cohort drive"},
+		{Key: EventVaccinationDrive, Label: "Pen / cohort drive"},
 		{Key: EventVaccinationHistory, Label: "Completed vaccination history"},
 		{Key: EventVaccinationCampaign, Label: "Campaign / catch-up"},
 		{Key: EventVaccinationBoosterDue, Label: "Booster due"},

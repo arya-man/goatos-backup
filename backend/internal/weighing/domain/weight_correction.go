@@ -205,7 +205,7 @@ func CorrectedSubjectLabel(refType, shedDisplay, scannedIdentifier string, weigh
 	if refType == VerificationRefTypeShed {
 		head := shed
 		if head == "" {
-			head = "Whole shed"
+			head = "Whole pen"
 		}
 		label := head + " · " + FormatWeightKg(weightKg)
 		if animalCount > 0 {

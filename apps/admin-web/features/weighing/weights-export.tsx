@@ -11,9 +11,7 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-// window-bounds, NOT landing-window: this is a client component, and landing-window is
-// server-only (it imports the SSR API reader). See window-bounds.ts.
-import { WINDOW_MIN_DATE } from "./window-bounds";
+import { WINDOW_MIN_DATE } from "./landing-window-constants";
 import { exportWeightsCsvAction } from "./weights-export-action";
 
 export type WeightsExportPark = { park_id: string; name: string };
@@ -96,7 +94,7 @@ export function WeightsExportControl({
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   const [parkId, setParkId] = useState(initialParkId);
-  // Empty set = every shed ("All sheds"), which is also what the backend receives.
+  // Empty set = every shed ("All pens"), which is also what the backend receives.
   const [selectedSheds, setSelectedSheds] = useState<ReadonlySet<string>>(new Set());
   const [failed, setFailed] = useState(false);
   const [pending, startTransition] = useTransition();

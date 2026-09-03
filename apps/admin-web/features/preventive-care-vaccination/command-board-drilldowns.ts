@@ -179,7 +179,7 @@ const NO_COHORT_MATRIX: CohortMatrixCell[] = [];
 
 // The interned wire shape of the shed x dose grid, and its expanded form.
 export type ShedDoseMatrixWire = {
-  sheds: Array<{ shedId: string; shedName: string; partition_label?: string; operational_location_display?: string }>;
+  sheds: Array<{ shedId: string; shedName: string; partition_label?: string; operational_location_display?: string; parkName?: string }>;
   doseRules: string[];
   cells: Array<{
     shed: number;
@@ -202,6 +202,7 @@ export type ShedDoseCellRow = {
   shedName: string;
   partition_label?: string | null;
   operational_location_display?: string | null;
+  parkName?: string | null;
   doseRule: string;
   state: string;
   animalCount: number;
@@ -232,6 +233,7 @@ export function expandShedDoseMatrix(matrix?: ShedDoseMatrixWire | null): ShedDo
       shedName: shed.shedName,
       partition_label: shed.partition_label ?? null,
       operational_location_display: shed.operational_location_display ?? null,
+      parkName: shed.parkName ?? null,
       doseRule,
       state: cell.state,
       animalCount: cell.count,

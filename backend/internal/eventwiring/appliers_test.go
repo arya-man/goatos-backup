@@ -24,7 +24,7 @@ func (b *spyBus) Publish(_ context.Context, _ eventbus.Event) error {
 func TestRegisterVerificationAppliersRegistersAllNine(t *testing.T) {
 	bus := &spyBus{subs: map[string]int{}}
 
-	RegisterVerificationAppliers(bus, nil, nil, nil, nil, nil, nil, nil, nil)
+	RegisterVerificationAppliers(bus, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// shifting + milk-preparation + feed-distribution + feed-packing + feed-transport + feed-wastage
 	// + weighing + pc-care + health = 9 appliers, each subscribing to BOTH verdict types. Weighing and milk preparation each

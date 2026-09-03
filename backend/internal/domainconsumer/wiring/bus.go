@@ -52,7 +52,10 @@ type verificationStores struct {
 	// the other appliers: a consumer that applies feed/shifting/weighing verdicts but not this
 	// one would silently drop every milk-preparation verdict it received.
 	milkPreparation countsports.MilkPreparationCompletionStore
-	weighing        eventwiring.WeighingVerdictStore
+	// penReconciliation raises wrong-pen cards from weighing submits and applies their
+	// verdicts (counts/pen_reconciliation_card). Same drift argument as every store here.
+	penReconciliation eventwiring.PenReconciliationStore
+	weighing          eventwiring.WeighingVerdictStore
 	// weighingAck is the apply-RECEIPT seam. Injectable for the same reason the stores are:
 	// the pool-less dispatch test must be able to exercise the real registration without a
 	// database, and a Postgres repository built on a nil pool panics the moment it is used.
@@ -117,6 +120,9 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	if stores.milkPreparation == nil {
 		stores.milkPreparation = countspg.NewRepository(pool, queryTimeout)
 	}
+	if stores.penReconciliation == nil && pool != nil {
+		stores.penReconciliation = countspg.NewRepository(pool, queryTimeout)
+	}
 	if stores.weighing == nil {
 		stores.weighing = weighingpg.NewRepository(pool, queryTimeout)
 	}
@@ -132,7 +138,11 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	if stores.health == nil {
 		stores.health = healthpg.NewRepository(pool, queryTimeout)
 	}
-	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, stores.health, logger)
+	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.penReconciliation, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, stores.health, logger)
+	if stores.penReconciliation != nil {
+		countsapp.NewPenReconciliationRaiser(stores.penReconciliation, logger, nil).Register(bus)
+		countsapp.NewPenReconciliationVerificationHandler(stores.penReconciliation, nil).Register(bus)
+	}
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Birth/death workflow consumers: the ONE shared registration (internal/eventwiring), same set on

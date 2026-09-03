@@ -123,6 +123,88 @@ func TestVaccinationCommandBoardKPIOneToManyDosesFoldToOneAnimalAndStatusBuckets
 	}
 }
 
+func TestVaccinationCommandBoardKPIOneToManyStatusBucketsDateShiftParkScopePageBoundaryOverdueDoseOutranksEarlierVerifiedDose(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000e1"
+	parkID := "70000000-0000-4000-8000-0000010000e1"
+	shedID := "70000000-0000-4000-8000-0000020000e1"
+	goatID := "70000000-0000-4000-8000-0000030000e1"
+	protocolVersionID := "70000000-0000-4000-8000-0000060000e1"
+	ruleAcceptedID := "70000000-0000-4000-8000-0000070000e1"
+	ruleOverdueID := "70000000-0000-4000-8000-0000070000e2"
+	oblAccepted := "70000000-0000-4000-8000-0000080000e1"
+	oblOverdue := "70000000-0000-4000-8000-0000080000e2"
+
+	execProjectionSQL(t, ctx, pool, "tenant",
+		`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Test Org', 'active')`, tenantID)
+	execProjectionSQL(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Park E1', 'park', NULL, 'active')`, parkID, tenantID)
+	execProjectionSQL(t, ctx, pool, "shed",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Shed E1', 'shed', $3, 'active')`, shedID, tenantID, parkID)
+	custodianPartyID := "70000000-0000-4000-8000-00000a0000e1"
+	execProjectionSQL(t, ctx, pool, "custodian party",
+		`INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1, 'org', 'Custodian E1', 'active')`,
+		custodianPartyID)
+	execProjectionSQL(t, ctx, pool, "goat",
+		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, custodian_party_id, dob)
+		 VALUES ($1, $2, 'female', 'alive', 'Non-Pregnant', $3, $4, '2025-01-01')`, goatID, tenantID, shedID, custodianPartyID)
+	protocolID := "70000000-0000-4000-8000-0000060000e0"
+	execProjectionSQL(t, ctx, pool, "protocol definition",
+		`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+		 VALUES ($1, $2, 'vaccination_e1', 'Vaccination E1', 'vaccination', 'active')`,
+		protocolID, tenantID)
+	execProjectionSQL(t, ctx, pool, "protocol version",
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl)
+		 VALUES ($1, $2, $3, 'tenant', 1, 'published', '2026-01-01', '{}')`,
+		protocolVersionID, tenantID, protocolID)
+	execProjectionSQL(t, ctx, pool, "accepted rule",
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
+		 VALUES ($1, $2, $3, 'blue_tongue_adult_w1', 'birth_age')`, ruleAcceptedID, tenantID, protocolVersionID)
+	execProjectionSQL(t, ctx, pool, "overdue rule",
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
+		 VALUES ($1, $2, $3, 'blue_tongue_adult_w2', 'birth_age')`, ruleOverdueID, tenantID, protocolVersionID)
+	asOf := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+
+	execProjectionSQL(t, ctx, pool, "obligation accepted",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
+		 VALUES ($1, $2, $3, $4, 'goat', 'shed', $5, $6, 'completed', $7::timestamptz, 'kpi-overdue-accepted-e1')`,
+		oblAccepted, tenantID, protocolVersionID, goatID, shedID, ruleAcceptedID, asOf.Add(-20*24*time.Hour))
+	execProjectionSQL(t, ctx, pool, "completion accepted",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, status, administered_at, verified_at, idempotency_key)
+		 VALUES ('70000000-0000-4000-8000-0000090000e1', $1, $2, $3, 'accepted', $4::timestamptz, $4::timestamptz, 'kpi-overdue-completion-e1')`,
+		tenantID, oblAccepted, goatID, asOf.Add(-20*24*time.Hour))
+	execProjectionSQL(t, ctx, pool, "obligation overdue",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
+		 VALUES ($1, $2, $3, $4, 'goat', 'shed', $5, $6, 'due', $7::timestamptz, 'kpi-overdue-dose-e1')`,
+		oblOverdue, tenantID, protocolVersionID, goatID, shedID, ruleOverdueID, asOf.Add(-24*time.Hour))
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
+		TenantID: tenantID,
+		AsOf:     asOf,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+	if resp.KPIs.OverdueNotGiven != 1 {
+		t.Fatalf("overdue_not_given = %d, want 1; an overdue BT Dose 2 must not be hidden by an earlier accepted dose", resp.KPIs.OverdueNotGiven)
+	}
+	if resp.KPIs.DosesVerified != 0 {
+		t.Fatalf("doses_verified = %d, want 0; overdue unvaccinated work outranks earlier progress", resp.KPIs.DosesVerified)
+	}
+	sum := resp.KPIs.MissedNotGiven + resp.KPIs.DosesVerified + resp.KPIs.AwaitingVerification +
+		resp.KPIs.OverdueNotGiven + resp.KPIs.ScheduledAhead + resp.KPIs.ClosedWithoutDose
+	if sum != resp.KPIs.Targets {
+		t.Fatalf("tiles sum to %d but targets = %d", sum, resp.KPIs.Targets)
+	}
+}
+
 // TestVaccinationCommandBoardKPIParkScopeExcludesAnotherParksAnimals pins the SCOPE half of
 // the same aggregate. The per-animal fold groups on target_id, and the park filter reaches
 // the animal only through locations.parent_location_id (goat -> shed -> park). If that

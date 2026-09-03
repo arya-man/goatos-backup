@@ -47,7 +47,7 @@ export async function fetchSaleCandidatesAction(params: {
     cursor: params.cursor || undefined,
   });
   if (!result.ok) {
-    return failure(result.error?.message, "Could not load animals for this shed.");
+    return failure(result.error?.message, "Could not load animals for this pen.");
   }
   return { ok: true, data: result.data };
 }

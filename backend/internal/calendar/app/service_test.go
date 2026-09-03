@@ -49,7 +49,7 @@ func TestServiceAddsBackendControlledPresentation(t *testing.T) {
 	if len(resp.Presentation.ViewTabs) != 2 {
 		t.Fatalf("view tabs = %#v, want week/month tabs", resp.Presentation.ViewTabs)
 	}
-	if resp.Presentation.PageSubtitle != "Vaccination due work and accepted completion history by time, owner lane, park, shed, and date." {
+	if resp.Presentation.PageSubtitle != "Vaccination due work and accepted completion history by time, owner lane, park, pen, and date." {
 		t.Fatalf("page subtitle = %q", resp.Presentation.PageSubtitle)
 	}
 	if resp.Presentation.ViewTabs[0].Key != "week" || resp.Presentation.ViewTabs[1].Key != "month" {

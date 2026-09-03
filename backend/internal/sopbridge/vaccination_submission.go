@@ -469,7 +469,7 @@ func vaccinationShedSummary(shedLabels map[string]string) string {
 	case 1, 2:
 		return strings.Join(labels, " + ")
 	default:
-		return fmt.Sprintf("%d sheds", len(labels))
+		return fmt.Sprintf("%d pens", len(labels))
 	}
 }
 

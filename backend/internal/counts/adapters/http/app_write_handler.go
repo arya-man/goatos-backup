@@ -158,6 +158,9 @@ type AppWriteHandler struct {
 	// execution owns what happens AFTER a shifting is authorized: complete, cancel, and the
 	// operator's pending-execution queue. See shifting_execution_handler.go.
 	execution ShiftingExecutionWorkflow
+	// reconciliation owns the Reconcile tab: the wrong-pen cards weighing submits raise, and
+	// the operator's return-video submission. See pen_reconciliation_handler.go.
+	reconciliation PenReconciliationWorkflow
 	// approvalNameResolver turns the ids on an approval row into names for display. OPTIONAL by
 	// design: nil means rows render without the name clauses rather than failing, so a
 	// construction path that does not wire it (tests, a DB-less assembly) still serves the queue.

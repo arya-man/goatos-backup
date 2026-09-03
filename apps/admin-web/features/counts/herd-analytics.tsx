@@ -47,10 +47,9 @@ const MAX_WINDOW_DAYS = 1150;
 /** Mirrors counts/domain.HerdAnalyticsDefaultMonths. */
 const HERD_ANALYTICS_DEFAULT_MONTHS = 12;
 /**
- * Mirrors counts/domain.HerdAnalyticsFloorDate — the herd's flow history in Goat OS
- * starts in August 2026. The default window never opens earlier, and the calendar
- * disables the days before it so the control cannot ask for months that would come
- * back as empty padding.
+ * Mirrors counts/domain.HerdAnalyticsFloorDate — the herd's flow history in the product
+ * starts in August 2026, so the default window never opens earlier. Named windows
+ * before this date are still valid backend reads and must remain selectable.
  */
 const HERD_ANALYTICS_FLOOR_DATE = "2026-08-01";
 
@@ -245,7 +244,6 @@ export async function HerdAnalyticsPage({
           from={servedFrom}
           to={servedTo}
           today={todayIso()}
-          minDate={HERD_ANALYTICS_FLOOR_DATE}
           defaultFrom={fallback.from}
           defaultTo={fallback.to}
         />

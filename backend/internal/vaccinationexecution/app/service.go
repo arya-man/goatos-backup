@@ -926,11 +926,11 @@ func blockerReason(p domain.ExecutionProjection, workState domain.WorkState) *st
 	var reason string
 	switch {
 	case !p.UsableForVaccination:
-		reason = "Shed is not marked usable for vaccination"
+		reason = "Pen is not marked usable for vaccination"
 	case p.IsICU:
-		reason = "Shed is ICU; PC defer/approval required"
+		reason = "Pen is ICU; PC defer/approval required"
 	case p.IsQuarantine:
-		reason = "Shed is quarantine; PC defer/approval required"
+		reason = "Pen is quarantine; PC defer/approval required"
 	case p.HealthDeferredCount > 0:
 		reason = "Some goats are sick, under treatment, recovering, quarantined, or in ICU"
 	case p.MissedCount > 0:

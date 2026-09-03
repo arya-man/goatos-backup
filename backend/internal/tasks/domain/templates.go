@@ -261,8 +261,8 @@ func TemplateBirthKidAt(eventAt time.Time, needsShedPlacement bool) Template {
 	if needsShedPlacement {
 		actions = append(actions, ActionTemplate{
 			Key: ActionKeyRecordShed, Seq: len(actions) + 1, Section: SectionMain, Type: ActionTypeQuestion,
-			Title: "Record shed",
-			Detail: "Record which shed and pen this kid is in. " +
+			Title: "Record pen",
+			Detail: "Record which pen this kid is in. " +
 				"This pen becomes the park's kid pen, so the next kid born here is placed there automatically.",
 			RequiresVideo: false,
 		})

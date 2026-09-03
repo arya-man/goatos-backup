@@ -1,3 +1,7 @@
+import { fileURLToPath } from "node:url";
+
+const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   devIndicators: false,
@@ -7,6 +11,7 @@ const nextConfig = {
   // are the same loopback on this stack; allowing 127.0.0.1 makes both URLs behave.
   allowedDevOrigins: ["127.0.0.1"],
   output: "standalone",
+  outputFileTracingRoot: repoRoot,
   transpilePackages: ["@goatos/api-client"],
   async rewrites() {
     return [

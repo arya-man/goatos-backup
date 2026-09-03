@@ -65,7 +65,7 @@ const KIND_META: Record<HerdSignalActivityResponse["events"][number]["kind"], { 
   weighing: { label: "Weighing", color: "#5B9BE8" },
   treatment: { label: "Treatment", color: "#F0635F" },
   hoof_trimming: { label: "Hoof trimming", color: "#E0A53A" },
-  shed_move: { label: "Shed move", color: "#94A89A" },
+  shed_move: { label: "Pen move", color: "#94A89A" },
 };
 const OVERLAY_KINDS = Object.keys(KIND_META) as (keyof typeof KIND_META)[];
 
@@ -378,7 +378,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
             </div>
             <p className="chartnote">
               Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained
-              patterns. Overlaid markers are other recorded farm activity for the same animal or its shed — read them as
+              patterns. Overlaid markers are other recorded farm activity for the same animal or its pen — read them as
               correlation, never as behaviour, cause, or a clinical finding.
             </p>
           </div>
@@ -442,7 +442,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                                 "No recorded farm activity in this window"
                               )}
                             </h4>
-                            {!activity.data.reason && <p>No vaccination, feed, weighing, treatment, hoof trimming, or shed move records found.</p>}
+                            {!activity.data.reason && <p>No vaccination, feed, weighing, treatment, hoof trimming, or pen move records found.</p>}
                           </div>
                         </td>
                       </tr>
@@ -487,7 +487,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                           else if (event.motion_change_percent <= -40) tone = "t-warn";
                         }
 
-                        const grainLabel = event.grain === "animal" ? "" : event.grain === "shed" ? " (shed)" : " (scanned)";
+                        const grainLabel = event.grain === "animal" ? "" : event.grain === "shed" ? " (pen)" : " (scanned)";
                         return (
                           <tr key={`${event.at}${idx}`}>
                             <td>
@@ -499,7 +499,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                             <td className="num small" title={event.after_window_incomplete ? "Window contains gaps or reconnect delta" : undefined}>{afterDelta}</td>
                             <td className={`num small ${tone}`} title={event.before_window_incomplete || event.after_window_incomplete ? "Change computed from incomplete windows" : undefined}>{changePercent}</td>
                             <td className="small">
-                              <span className="tag">{event.grain === "animal" ? "Animal" : event.grain === "shed" ? "Shed" : "ID"}</span>
+                              <span className="tag">{event.grain === "animal" ? "Animal" : event.grain === "shed" ? "Pen" : "ID"}</span>
                             </td>
                           </tr>
                         );
@@ -510,7 +510,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
               </div>
               <p className="chartnote">
                 Change compares the summed motion-count delta in the two hours before and after the recorded activity. A
-                feed correlation is a shed-level response to feeding — it is not eating detection. A post-vaccination or
+                feed correlation is a pen-level response to feeding — it is not eating detection. A post-vaccination or
                 post-treatment change is a watch signal, never a diagnosis or an adverse-event finding.
               </p>
             </div>
@@ -537,7 +537,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                   {fmtBleMac(item.tag_mac)}
                   <span className="srcl direct">Direct</span>
                 </dd>
-                <dt>Park / shed</dt>
+                <dt>Park / pen</dt>
                 <dd>
                   {item.park_name && item.shed_name ? `${item.park_name} · ${item.shed_name}` : "—"}
                   <span className="srcl correlated">Correlated</span>

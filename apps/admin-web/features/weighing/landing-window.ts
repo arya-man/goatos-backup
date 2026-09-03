@@ -12,23 +12,14 @@
 import { istDayPlus } from "@/lib/format";
 import { getWeighingDates } from "@/lib/api/server";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-
-/** Both pages carry the window in the same two parameters, so a link survives moving between them. */
-export const WINDOW_FROM_PARAM = "wt_from";
-export const WINDOW_TO_PARAM = "wt_to";
-
-/**
- * The farm asked for the default period to start at the first dense/proper weighing history.
- * The shared staging data currently has the reliable run from 2026-08-03 onward; before that, July rows are
- * sparse weekly checks and make the default read noisy. Keep this fixed until enough later history
- * exists to replace it with a true long-term rolling window.
- */
-export const DEFAULT_WINDOW_FROM = "2026-08-03";
-// Re-exported from the client-safe module so server callers keep one import site; the export
-// drawer (a client component) imports window-bounds directly and must never import THIS module.
-export { WINDOW_MIN_DATE } from "./window-bounds";
-export const LATEST_LUMP_LOOKBACK_DAYS = 400;
-export const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
+import {
+  BUSINESS_DAY,
+  DEFAULT_WINDOW_FROM,
+  LATEST_LUMP_LOOKBACK_DAYS,
+  WINDOW_FROM_PARAM,
+  WINDOW_TO_PARAM,
+} from "./landing-window-constants";
+export { DEFAULT_WINDOW_FROM, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
 
 export type Window = { from: string; to: string };
 

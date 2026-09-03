@@ -588,8 +588,8 @@ var WeighingAssignableRoles = []string{"operator", "growth_director"}
 const (
 	CloseReasonCodeAllAccepted = "all_buckets_accepted"
 	CloseReasonCodeOpenBuckets = "open_buckets_closed"
-	closeReasonAllAcceptedText = "Every shed bucket was accepted."
-	closeReasonOpenBucketsText = "Closed while shed buckets were still not accepted."
+	closeReasonAllAcceptedText = "Every pen bucket was accepted."
+	closeReasonOpenBucketsText = "Closed while pen buckets were still not accepted."
 )
 
 // ResolveCloseReason maps a known client-sent reason CODE to the backend-owned

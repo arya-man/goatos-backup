@@ -552,14 +552,22 @@ func TestMilkPreparationPartitionExecutionDateIndependence(t *testing.T) {
 	}
 }
 
-// TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly drives the production
-// submit → approve path and pins the feed-stock seam's read contract
-// (maintainer decision 2026-08-22: the app's verified UHT answer feeds the
-// stock ledger): litres exist only once the completion is COMPLETED, come from
-// the CURRENT attempt, and disappear again on rework.
-func TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly(t *testing.T) {
+// TestMilkPreparationUHTConsumptionFollowsTheAcceptedAttempt drives the production submit ->
+// rework -> re-submit -> approve path and pins what the feed stock actually depletes, which since
+// migration 000216 is the preparation ITSELF, read through
+// feed_effective_external_consumption -- not a ledger row some consumer copies over afterwards.
+//
+// Four properties, each a real failure mode:
+//   - SUBMIT is the trigger: a pending_verification preparation already depletes (holding stock
+//     behind review made every card lag the verification queue).
+//   - The CURRENT attempt's answer wins: a bounced attempt's litres must never resurface.
+//   - The APPROVE changes nothing. The retired 2026-08-22 recorder seam wrote a second
+//     feed_external_consumption row here, keyed at preparation_date while this view books the same
+//     milk at feeding_date, so the litres were deducted twice.
+//   - The milk is booked on the FEEDING date, one row, never two.
+func TestMilkPreparationUHTConsumptionFollowsTheAcceptedAttempt(t *testing.T) {
 	ctx := context.Background()
-	repo, _ := newBreakdownRepo(t, ctx)
+	repo, pool := newBreakdownRepo(t, ctx)
 
 	submit := func(idem string, litres float64) domain.MilkPreparationSubmissionResult {
 		t.Helper()
@@ -584,14 +592,50 @@ func TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly(t *testing.T) {
 		return res
 	}
 
-	first := submit("a1", 28)
-
-	// Pending: no accepted consumption yet.
-	if _, ok, err := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID); err != nil || ok {
-		t.Fatalf("pending completion must read (ok=false, nil), got ok=%v err=%v", ok, err)
+	// depleted returns every (day, kg) row the feed stock read would see for this park's UHT.
+	depleted := func(stage string) []string {
+		t.Helper()
+		rows, err := pool.Query(ctx, `
+SELECT feed_day::text || '=' || quantity_kg::text
+FROM feed_effective_external_consumption
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid
+ORDER BY feed_day`, countsTenant, countsPark)
+		if err != nil {
+			t.Fatalf("%s: read effective consumption: %v", stage, err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var row string
+			if err := rows.Scan(&row); err != nil {
+				t.Fatalf("%s: scan: %v", stage, err)
+			}
+			out = append(out, row)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("%s: rows: %v", stage, err)
+		}
+		return out
+	}
+	want := func(stage string, expected ...string) {
+		t.Helper()
+		got := depleted(stage)
+		if len(got) != len(expected) {
+			t.Fatalf("%s: consumption=%v, want %v", stage, got, expected)
+		}
+		for i := range expected {
+			if got[i] != expected[i] {
+				t.Fatalf("%s: consumption=%v, want %v", stage, got, expected)
+			}
+		}
 	}
 
-	// Verifier bounces the first attempt; a reworked row has no accepted fact.
+	first := submit("a1", 28)
+	// Submitted, not yet reviewed: the milk is already gone from the store, on the FEEDING date.
+	want("pending", "2026-08-23=28.000")
+
+	// Verifier bounces the first attempt. The proof gets re-shot; the milk was still drunk, so the
+	// preparation keeps depleting its current answer.
 	if applied, err := repo.BounceMilkPreparationForRework(ctx, domain.MilkPreparationVerdictCommand{
 		TenantID: countsTenant, CompletionID: first.CompletionID,
 		VerifiedBy: "90000000-0000-4000-8000-000000000101", Reason: "blurry",
@@ -599,32 +643,35 @@ func TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly(t *testing.T) {
 	}); err != nil || !applied {
 		t.Fatalf("rework: applied=%v err=%v", applied, err)
 	}
-	if _, ok, _ := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID); ok {
-		t.Fatalf("reworked completion must carry no accepted consumption")
-	}
+	want("rework", "2026-08-23=28.000")
 
-	// The re-shoot carries CORRECTED litres; approval must surface the second
-	// attempt's answer, never the bounced first attempt's.
+	// The re-shoot carries CORRECTED litres; the bounced attempt's 28 must not resurface.
 	second := submit("a2", 30)
 	if second.CompletionID != first.CompletionID || second.AttemptNo != 2 {
 		t.Fatalf("second attempt must reuse the farm-day completion: %+v", second)
 	}
+	want("second attempt", "2026-08-23=30.000")
+
 	if _, err := repo.ApplyVerifiedMilkPreparation(ctx, domain.MilkPreparationVerdictCommand{
 		TenantID: countsTenant, CompletionID: first.CompletionID,
 		VerifiedBy: "90000000-0000-4000-8000-000000000101", OccurredAt: time.Now().In(biztime.DefaultLocation()), TraceID: "verdict-2",
 	}); err != nil {
 		t.Fatalf("approve second attempt: %v", err)
 	}
-	got, ok, err := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID)
-	if err != nil || !ok {
-		t.Fatalf("completed read = (ok=%v, err=%v)", ok, err)
+	// THE APPROVE MUST CHANGE NOTHING. One row, same day, same litres -- and no ledger row born
+	// out of the verdict, which is the 2026-08-22 seam this test exists to keep retired.
+	want("approved", "2026-08-23=30.000")
+	var ledgerRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM feed_external_consumption WHERE tenant_id = $1::uuid`, countsTenant).
+		Scan(&ledgerRows); err != nil {
+		t.Fatalf("count ledger rows: %v", err)
 	}
-	if got.ParkID != countsPark || got.PreparationDate != "2026-08-22" || got.UHTMilkQuantityLitres != 30 || got.AttemptNo != 2 {
-		t.Fatalf("consumption=%+v, want the SECOND attempt's 30 litres", got)
+	if ledgerRows != 0 {
+		t.Fatalf("approving a preparation wrote %d feed_external_consumption row(s); the workflow owns the fact "+
+			"and a second writer can only double-deduct it", ledgerRows)
 	}
 
-	// A stale rework verdict on the now-completed row is an at-least-once no-op —
-	// it neither errors nor retracts the accepted fact.
+	// A stale rework verdict on the now-completed row is an at-least-once no-op.
 	if applied, err := repo.BounceMilkPreparationForRework(ctx, domain.MilkPreparationVerdictCommand{
 		TenantID: countsTenant, CompletionID: first.CompletionID,
 		VerifiedBy: "90000000-0000-4000-8000-000000000101", Reason: "late duplicate",
@@ -632,7 +679,5 @@ func TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly(t *testing.T) {
 	}); err != nil || applied {
 		t.Fatalf("stale rework must be a no-op: applied=%v err=%v", applied, err)
 	}
-	if _, ok, _ := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID); !ok {
-		t.Fatalf("stale rework no-op must not retract the accepted fact")
-	}
+	want("stale rework", "2026-08-23=30.000")
 }

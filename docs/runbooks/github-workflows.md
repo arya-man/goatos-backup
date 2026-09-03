@@ -926,6 +926,8 @@ Publishes CI and E2E report categories to GitHub Pages as one combined site:
                       2026-07-19 vaccination-closure audit; the generated index
                       links to them via report.go's related-reports block.
 /e2e-hrms-report/     HRMS roster/RBAC kernel-story E2E report
+/sales-e2e-report/    Sales ledger browser E2E report for payment edit/delete
+                      and sale-allocation sex-count behavior
 /scale-audit-e2e-report/
                       scale-audit fix E2E report BOUND to current-SHA latency
                       gates; shows VERIFIED only when gates pass, UNVERIFIED
@@ -936,7 +938,7 @@ Runs on:
 
 ```text
 push to main touching apps/goatos-android/**, backend/tests/e2e/**,
-  backend/internal/**, scale/perf/E2E report inputs, the nav-graph/gallery
+  backend/internal/**, pages/sales-e2e-report/**, scale/perf/E2E report inputs, the nav-graph/gallery
   generator scripts, tools/ci/**, context/execution/**, AGENTS.md, or this
   workflow file
 a daily cron at 03:00 UTC (non-Postgres reports only)
@@ -944,7 +946,7 @@ workflow_dispatch (manual run from the Actions tab; set run_postgres_tests=true
   to regenerate the vaccination and HRMS DB-backed reports)
 ```
 
-Six report jobs plus one publisher:
+Seven report jobs plus one publisher:
 
 ```text
 mobile-screenshots  installs a JDK + the Android SDK platform for
@@ -959,6 +961,11 @@ e2e-report           manual Postgres opt-in only; starts Docker-based ephemeral 
                      go test ./backend/tests/e2e/... -run TestKernelStor -v
 e2e-hrms-report      manual Postgres opt-in only; runs the HRMS roster/RBAC E2E harness and publishes the
                      generated story report
+sales-e2e-report     publishes the committed local-browser sales ledger E2E report at
+                     pages/sales-e2e-report/index.html. The page records payment
+                     edit/delete, payment totals, sale tagging, sex-count sync, and
+                     sold-candidate filtering evidence from a disposable local stack;
+                     it is local proof, not staging certification.
 scale-audit-e2e-report
                      uses tools/ci/generate-scale-audit-report.py to render
                      context/execution/scale-audit-fix-e2e-report-2026-07-11.md

@@ -62,7 +62,7 @@ func (a Actor) leadership() bool { return a.Role == permissions.RoleCEOInternal 
 var defaultStarters = []string{
 	"How many animals missed vaccination across all parks?",
 	"How many active goats and sheep do we have?",
-	"What vaccinations are overdue by shed?",
+	"What vaccinations are overdue by pen?",
 	"How many vaccinations are due today?",
 	"Which operators are overloaded on vaccination drives?",
 	"What vaccines need pickup today?",
@@ -72,12 +72,12 @@ var defaultStarters = []string{
 	"What source-entry health issues exist?",
 	"What SOP execution is blocked?",
 	"What verification items are waiting?",
-	"Where are sheds over capacity?",
+	"Where are pens over capacity?",
 	"What workforce coverage gaps exist?",
 	"What operation exceptions are open?",
 	"What inventory stock needs reorder?",
 	"Summarize the operations audit anomalies.",
-	"Plot vaccination overdue by shed.",
+	"Plot vaccination overdue by pen.",
 	"Plot vaccination overdue by park.",
 }
 

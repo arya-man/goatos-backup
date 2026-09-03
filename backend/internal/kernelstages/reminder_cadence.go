@@ -522,7 +522,7 @@ func renderReminderBody(fire calendarports.ReminderCadenceFire, parkName string)
 			if shedDetail != "" {
 				return fmt.Sprintf("%s: %s not yet submitted. Complete the drive by 8:30 PM today.", park, shedDetail)
 			}
-			return fmt.Sprintf("%s: %d scheduled vaccination shed(s) still not submitted by 8:30 PM today.", park, count)
+			return fmt.Sprintf("%s: %d scheduled vaccination pen(s) still not submitted by 8:30 PM today.", park, count)
 		}
 		if shedDetail != "" && vaccineDetail != "" {
 			return fmt.Sprintf("%s: %s (%s) due today (%s).", park, vaccineDetail, shedDetail, when)

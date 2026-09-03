@@ -64,7 +64,7 @@ export function HerdSignalsFilters({
         </svg>
         <input
           type="search"
-          placeholder="Search animal, tag ID, BLE MAC, shed or gateway"
+          placeholder="Search animal, tag ID, BLE MAC, pen or gateway"
           value={q}
           onChange={(event) => onSearchChange(event.target.value)}
           autoComplete="off"
@@ -90,13 +90,13 @@ export function HerdSignalsFilters({
           read, so scoping by park still filters this page's table and KPI aggregates exactly as
           before; only the duplicate in-page control is gone. */}
       <span className="fsel">
-        Shed
+        Pen
         <select
-          aria-label="Shed"
+          aria-label="Pen"
           value={params.shedId ?? ""}
           onChange={(event) => go(herdSignalsHref(params, { hs_shed: event.target.value || undefined }))}
         >
-          <option value="">All sheds</option>
+          <option value="">All pens</option>
           {sheds.map((shed) => (
             <option key={shed.id} value={shed.id}>
               {shed.label}

@@ -77,6 +77,8 @@ import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
+import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.CountsPenReconciliationListResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
@@ -983,6 +985,35 @@ interface AppApi {
         idempotencyKey: String,
         reason: String,
     ): CountsShiftingExecutionResponseDto
+
+    /**
+     * GET /app/counts/pen-reconciliation/cards — the Herd Operations Reconcile tab: "wrong pen"
+     * cards raised by weighing submits (maintainer decision 2026-09-02). The herd register is
+     * truth; each card names where the animal was FOUND and where it BELONGS, and the operator
+     * physically returns it. Keyset-paginated and server-capped at 20 rows. [status] is a
+     * disjoint backend-owned bucket (all/open/pending_verification/rework/completed);
+     * `status_counts` are whole-filter truth, never page-local.
+     */
+    suspend fun listCountsPenReconciliationCards(
+        status: String? = null,
+        pageSize: Int? = null,
+        cursor: String? = null,
+    ): CountsPenReconciliationListResponseDto
+
+    /**
+     * POST /app/counts/pen-reconciliation/cards/{card_id}/complete — submits the MANDATORY
+     * live-camera video proving the animal was returned to its registered pen. The register is
+     * truth and this request never rewrites it — no goat location changes here. The card flips to
+     * pending_verification; there is deliberately NO approver step (unlike shifting). Drained
+     * through the offline outbox with a stable [idempotencyKey]: a
+     * server-committed-but-client-unrecorded retry returns the ORIGINAL result
+     * (idempotent_replay=true) instead of queueing a second verification.
+     */
+    suspend fun completeCountsPenReconciliationCard(
+        cardId: String,
+        idempotencyKey: String,
+        proofRef: String,
+    ): CountsPenReconciliationCompleteResponseDto
 
     /**
      * GET /feed-direction/preview — one park's generated feed sheet for one Asia/Kolkata business
@@ -2016,6 +2047,21 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): CountsShiftingExecutionResponseDto = CountsShiftingExecutionResponseDto(
         shiftingEventId = shiftingEventId,
         eventStatus = "canceled",
+    )
+
+    override suspend fun listCountsPenReconciliationCards(
+        status: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): CountsPenReconciliationListResponseDto = CountsPenReconciliationListResponseDto()
+
+    override suspend fun completeCountsPenReconciliationCard(
+        cardId: String,
+        idempotencyKey: String,
+        proofRef: String,
+    ): CountsPenReconciliationCompleteResponseDto = CountsPenReconciliationCompleteResponseDto(
+        cardId = cardId,
+        status = "pending_verification",
     )
 
     override suspend fun completeFeedDirectionSession(

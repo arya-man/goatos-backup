@@ -87,9 +87,9 @@ func TestBootstrapDoesNotPublishHardcodedLocationTruth(t *testing.T) {
 	}
 }
 
-func TestVaccinationLeadershipCopyUsesActionableShedAndDateLanguage(t *testing.T) {
+func TestVaccinationLeadershipCopyUsesActionablePenAndDateLanguage(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "vaccination")
-	if got := page.Copy["note.sheds_counts"]; got != "Current status by shed. Up to date means no vaccination is currently due; actual and future vaccination dates are shown above." {
+	if got := page.Copy["note.sheds_counts"]; got != "Current status by pen. Up to date means no vaccination is currently due; actual and future vaccination dates are shown above." {
 		t.Fatalf("vaccination shed note = %q", got)
 	}
 	if page.Copy["command_board.cohort_matrix.date_unavailable"] == "" {
@@ -505,7 +505,7 @@ func TestCalendarOwnerTabsHaveFallbackPresentationGroups(t *testing.T) {
 func TestCalendarBootstrapPublishesHistoryAwareCopy(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "calendar")
 
-	if page.Subtitle != "Vaccination due work and accepted completion history by time, owner lane, park, shed, and date." {
+	if page.Subtitle != "Vaccination due work and accepted completion history by time, owner lane, park, pen, and date." {
 		t.Fatalf("calendar subtitle = %q", page.Subtitle)
 	}
 	if page.Copy["calendar.month.cell_note"] != "Each cell shows that day's due-work and completion markers. Tap an event for its rich detail." {

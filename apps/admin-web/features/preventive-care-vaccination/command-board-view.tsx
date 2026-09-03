@@ -46,6 +46,7 @@ interface ShedGridRow {
   shedId: string;
   partitionLabel: string | null;
   operational_location_display: string | null;
+  parkName: string | null;
   cells: Record<string, GridCell>;
 }
 
@@ -256,6 +257,7 @@ function buildShedGrid(
     shedName: string;
     partition_label?: string | null;
     operational_location_display?: string | null;
+    parkName?: string | null;
     doseRule: string;
     state: string;
     animalCount: number;
@@ -291,6 +293,7 @@ function buildShedGrid(
         shedId: cell.shedId,
         partitionLabel: cell.partition_label ?? null,
         operational_location_display: cell.operational_location_display ?? null,
+        parkName: cell.parkName ?? null,
         cells: {},
       });
     }
@@ -1102,12 +1105,16 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                       });
                       return (
                         <tr key={shedKey}>
-                          <th className="cbm-rowh">{shedLabel}</th>
+                          <th className="cbm-rowh">
+                            {shedLabel}
+                            {row.parkName ? <span className="cbm-rowh-note">{row.parkName}</span> : null}
+                          </th>
                           {grid.byDose.map((dose) => {
                             const cell = row.cells[dose.key];
                             if (!cell) {
                               return <td key={dose.key} className="cbm-cell cbm-na">—</td>;
                             }
+                            const locationTitle = row.parkName ? `${shedLabel} · ${row.parkName}` : shedLabel;
                             // Completed cells show the operator's actual administration date. Verification
                             // can happen days later and must never replace the medical date. Scheduled and
                             // overdue cells continue to show their rule-derived due date.
@@ -1121,7 +1128,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                               <td
                                 key={dose.key}
                                 className={`cbm-cell cbm-${cell.state}`}
-                                title={`${shedLabel} · ${cell.animalCount} animals${
+                                title={`${locationTitle} · ${cell.animalCount} animals${
                                   waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""
                                 }`}
                               >

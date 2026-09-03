@@ -91,5 +91,5 @@ type AlertPage struct {
 // when it has nothing to render. Farm/product language, never module internals.
 const (
 	AlertFeedTitle        = "Weighing alerts"
-	AlertFeedEmptyMessage = "No weighing updates yet. New work, submissions, and reopened sheds show up here."
+	AlertFeedEmptyMessage = "No weighing updates yet. New work, submissions, and reopened pens show up here."
 )

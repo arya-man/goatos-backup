@@ -875,6 +875,12 @@ var protectedRoutes = []Route{
 	{OperationID: "completeAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/complete", Permissions: []string{CountsWrite}},
 	{OperationID: "cancelAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/cancel", Permissions: []string{CountsWrite}},
 
+	// Pen reconciliation (maintainer decision 2026-09-02): returning a strayed animal to its
+	// registered pen is ordinary herd-operations field work — same CountsWrite gate as shifting
+	// execution, and deliberately NO approval permission anywhere on this surface.
+	{OperationID: "listAppCountsPenReconciliationCards", Method: "GET", Pattern: "/app/counts/pen-reconciliation/cards", Permissions: []string{CountsWrite}},
+	{OperationID: "completeAppCountsPenReconciliationCard", Method: "POST", Pattern: "/app/counts/pen-reconciliation/cards/{card_id}/complete", Permissions: []string{CountsWrite}},
+
 	{OperationID: "listAppCountsApprovals", Method: "GET", Pattern: "/app/counts/approvals", Permissions: []string{CountsApproveAccess}},
 	{OperationID: "approveAppCountsApproval", Method: "POST", Pattern: "/app/counts/approvals/{request_id}/approve", Permissions: []string{CountsApproveAccess}},
 	{OperationID: "rejectAppCountsApproval", Method: "POST", Pattern: "/app/counts/approvals/{request_id}/reject", Permissions: []string{CountsApproveAccess}},

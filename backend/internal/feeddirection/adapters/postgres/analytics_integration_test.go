@@ -1303,8 +1303,14 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, $4::numeric, 326, 'test')`,
 		}
 	}
 
-	// 08-19 predates the workflow: ledger only, and it must still deplete.
-	ledger("2026-08-19", "40.000")
+	// 08-18 predates the workflow entirely -- no preparation touches it on either date -- so the
+	// ledger is the only record and it must still deplete.
+	ledger("2026-08-18", "40.000")
+	// 08-19 is the PREPARATION date of the 08-20 preparation below. The sheet books UHT on the day
+	// it is prepared and the workflow books it on the day it is fed, so this row and that
+	// preparation are the SAME milk one day apart: it must be suppressed, not added (migration
+	// 000241). This is the exact row the retired 2026-08-22 approve-time recorder used to write.
+	ledger("2026-08-19", "55.000")
 	// 08-20 is carried by BOTH, with DIFFERENT numbers. The workflow's 28 wins;
 	// a sum would deplete 128 and a ledger win would deplete 100.
 	ledger("2026-08-20", "100.000")
@@ -1330,7 +1336,9 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, $4::numeric, 326, 'test')`,
 	}
 	// 600 − (40 ledger + 28 + 26 + 30 workflow) = 476.0
 	if uht.BalanceKg != "476.0" {
-		t.Errorf("balance = %q, want 476.0 (ledger 40 for the pre-workflow day, then the workflow's 28/26/30 -- the 100 ledger row for 08-20 is superseded, never added)", uht.BalanceKg)
+		t.Errorf("balance = %q, want 476.0 (ledger 40 for the pre-workflow day, then the workflow's 28/26/30 -- "+
+			"the 100 ledger row on a covered FEEDING date and the 55 row on a covered PREPARATION date are both "+
+			"superseded, never added)", uht.BalanceKg)
 	}
 	// Burn rate is the 3 most recent consumption days: (28+26+30)/3 = 28.0.
 	if uht.AvgDailyKg != "28.0" {
@@ -1442,88 +1450,6 @@ UPDATE milk_preparation_completions SET current_attempt_no = 2
 			t.Errorf("balance with two attempts on one day = %q, want 478.0 (current attempt only, never the sum)", bal)
 		}
 	})
-}
-
-// TestRecordExternalConsumptionUpsertsTheLedgerAndFeedsStock pins the feed
-// half of the milk-preparation → feed-stock seam (maintainer decision
-// 2026-08-22): the recorder resolves the park's farm label itself, lands on
-// the SAME natural key as the sheet importer so replays and corrections
-// converge, refuses an unresolvable park loudly, and the stock read sees the
-// recorded day.
-func TestRecordExternalConsumptionUpsertsTheLedgerAndFeedsStock(t *testing.T) {
-	ctx := context.Background()
-	repo, pool := setupIssueDB(t, ctx)
-
-	park := fdiPark
-	if _, err := pool.Exec(ctx, `
-INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
-                            purchase_date, quantity_kg, per_kg_cost, total_cost,
-                            consumed_at_import_kg, depletes_from, vendor, payment_status)
-VALUES ($1, $2, 'CBE', 'UHT Milk', 326, DATE '2026-08-07', 600, 63.64, 38184,
-        0, DATE '2026-03-18', 'Balamurugan Enterprises', 'Pending')`,
-		fdiTenant, park); err != nil {
-		t.Fatalf("insert UHT purchase: %v", err)
-	}
-
-	cmd := ports.RecordExternalConsumptionCommand{
-		TenantID: fdiTenant, ParkID: park, FeedItemLabel: "UHT Milk",
-		FeedDay: "2026-08-22", QuantityKg: 29,
-		SourceRef: "milk-preparation:completion-1:attempt=1",
-	}
-	if err := repo.RecordExternalConsumption(ctx, cmd); err != nil {
-		t.Fatalf("record: %v", err)
-	}
-	// Replay with a corrected quantity (a rework's second accepted attempt)
-	// converges on the same (farm, feed, day) row.
-	cmd.QuantityKg = 28
-	cmd.SourceRef = "milk-preparation:completion-1:attempt=2"
-	if err := repo.RecordExternalConsumption(ctx, cmd); err != nil {
-		t.Fatalf("record replay: %v", err)
-	}
-	var rows int
-	var qty float64
-	var farm, sourceRef string
-	if err := pool.QueryRow(ctx, `
-SELECT count(*), max(quantity_kg::float8), max(farm_label), max(source_ref)
-FROM feed_external_consumption WHERE tenant_id = $1`, fdiTenant).
-		Scan(&rows, &qty, &farm, &sourceRef); err != nil {
-		t.Fatalf("read ledger: %v", err)
-	}
-	if rows != 1 || qty != 28 || farm != "CBE" || sourceRef != "milk-preparation:completion-1:attempt=2" {
-		t.Fatalf("ledger = rows=%d qty=%v farm=%q ref=%q, want one converged CBE row of 28", rows, qty, farm, sourceRef)
-	}
-
-	// The stock card sees the recorded day: balance 600 − 28 = 572.0.
-	stock, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
-	if err != nil {
-		t.Fatalf("StockAnalytics: %v", err)
-	}
-	found := false
-	for _, item := range stock.Items {
-		if item.FeedItemKey == "uht_milk" && item.FarmLabel == "CBE" {
-			found = true
-			if item.BalanceKg != "572.0" {
-				t.Errorf("balance = %q, want 572.0", item.BalanceKg)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("UHT stock card missing: %+v", stock.Items)
-	}
-
-	// An unresolvable park is a loud error (the event redelivers), never a
-	// silent skip that quietly stops depleting the store.
-	bad := cmd
-	bad.ParkID = "00000000-0000-4000-8000-00000000dead"
-	if err := repo.RecordExternalConsumption(ctx, bad); err == nil {
-		t.Fatal("unknown park must error")
-	}
-	// A non-positive quantity is a producer bug and is rejected.
-	bad = cmd
-	bad.QuantityKg = 0
-	if err := repo.RecordExternalConsumption(ctx, bad); err == nil {
-		t.Fatal("zero quantity must error")
-	}
 }
 
 // The next-7-days requirement table is keyed on what the farm FEEDS, so its

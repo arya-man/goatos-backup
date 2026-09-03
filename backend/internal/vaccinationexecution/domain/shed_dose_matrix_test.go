@@ -7,8 +7,8 @@ import "testing"
 func TestShedDoseMatrixFlattenResolvesIdentity(t *testing.T) {
 	m := ShedDoseMatrix{
 		Sheds: []ShedDoseMatrixShed{
-			{ShedID: "s1", ShedName: "Castro", PartitionLabel: "Pen 2", LocationDisplay: "Castro - Pen 2"},
-			{ShedID: "s2", ShedName: "Godel"},
+			{ShedID: "s1", ShedName: "Castro", PartitionLabel: "Pen 2", LocationDisplay: "Castro - Pen 2", ParkName: "CPT"},
+			{ShedID: "s2", ShedName: "Godel", ParkName: "CBE"},
 		},
 		DoseRules: []string{"ET+TT · Dose 1", "Blue Tongue · Dose 1"},
 		Cells: []ShedDoseMatrixCell{
@@ -26,6 +26,9 @@ func TestShedDoseMatrixFlattenResolvesIdentity(t *testing.T) {
 	}
 	if got[0].AnimalCount != 3 || got[0].MinDueDate != "2026-08-01" || got[0].MaxDueDate != "2026-08-04" {
 		t.Fatalf("first cell lost its measures: %+v", got[0])
+	}
+	if got[0].ParkName != "CBE" {
+		t.Fatalf("park identity did not survive interning: %+v", got[0])
 	}
 	if got[1].LocationDisplay != "Castro - Pen 2" || got[1].PartitionLabel != "Pen 2" {
 		t.Fatalf("partition identity did not survive interning: %+v", got[1])

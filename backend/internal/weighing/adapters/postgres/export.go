@@ -67,8 +67,8 @@ func (r *Repository) ExportCampaignCSV(ctx context.Context, tenantID, campaignID
 	// capture path is banned from doing. The scanned identifier is what was actually read.
 	header := []string{
 		"Park",
-		"Shed Name",
-		"Shed Status",
+		"Pen Name",
+		"Pen Status",
 		"Type",
 		"Scanned Identifier",
 		"Weight (kg)",

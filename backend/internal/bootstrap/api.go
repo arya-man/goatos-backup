@@ -599,12 +599,17 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// identity transaction seam the relocation runs through -- and the relocation now happens HERE,
 	// at completion, rather than at approval.
 	countsShiftingExecutionService := countsapp.NewShiftingExecutionService(countsApprovalRepo, nil)
+	// Pen reconciliation (maintainer decision 2026-09-02): the Reconcile queue and the
+	// operator's return-video submission. The bare countsRepo suffices — no identity seam,
+	// because a reconciliation never rewrites the register.
+	countsPenReconciliationService := countsapp.NewPenReconciliationService(countsRepo, nil)
 	countsAppWriteHandler := countshttp.NewAppWriteHandler(countsService, log).
 		WithApprovalWorkflow(countsApprovalService, identityService).
 		// Raiser and shed NAMES for the approvals queue, so neither the phone nor admin-web
 		// renders a UUID at an approver (golden frontend rule: the label is backend-owned).
 		WithApprovalNames(countsApprovalRepo).
-		WithShiftingExecutionWorkflow(countsShiftingExecutionService)
+		WithShiftingExecutionWorkflow(countsShiftingExecutionService).
+		WithPenReconciliationWorkflow(countsPenReconciliationService)
 	feedService := feedapp.NewService(feedpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithCountsProjectionProvider(countsService).
 		WithCountsProjectionExceptionResolver(countsService).
@@ -767,6 +772,17 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	countsShiftingExecutionService.WithVerificationEnqueuer(
 		countsbridge.NewShiftingVerificationEnqueuer(verificationService))
+	// Pen reconciliation (maintainer decision 2026-09-02): the herd register is truth; a
+	// weighing submit that finds a scanned animal in the wrong pen raises a Reconcile card,
+	// and the operator's return video is the item this category reviews. There is NO approver
+	// step — the verifier's verdict is the only gate — and neither the completion nor the
+	// verdict ever rewrites the register.
+	if err := verificationService.RegisterCategory(verificationcatalog.PenReconciliation); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	countsPenReconciliationService.WithVerificationEnqueuer(
+		countsbridge.NewPenReconciliationVerificationEnqueuer(verificationService))
 	// Milk preparation is a park-day work item. Every applicable step owns a distinct live-camera
 	// video (five with goat milk, two without), and all videos travel on one verifier item so one
 	// verdict completes or reworks the whole preparation attempt.
@@ -997,7 +1013,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, log)
+	countsapp.NewPenReconciliationRaiser(countsRepo, log, nil).Register(bus)
+	countsapp.NewPenReconciliationVerificationHandler(countsRepo, nil).Register(bus)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
@@ -1154,6 +1172,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countshttp.RegisterApprovals(protectedMux, countsAppWriteHandler)
 	countshttp.RegisterAdminWebApprovals(protectedMux, countsAppWriteHandler)
 	countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
+	countshttp.RegisterPenReconciliation(protectedMux, countsAppWriteHandler)
 	taskshttp.Register(protectedMux, tasksWorkflowHandler)
 	healthhttp.Register(protectedMux, healthHandler)
 	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)

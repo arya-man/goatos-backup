@@ -25,12 +25,10 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 // The landing window is SHARED with /weighing/analytics so the two screens can never disagree
 // about which weighing period they are describing. See landing-window.ts for why it is one module.
 import {
-  WINDOW_FROM_PARAM,
-  WINDOW_MIN_DATE,
-  WINDOW_TO_PARAM,
   defaultWindow,
   landingWindow,
 } from "./landing-window";
+import { WINDOW_FROM_PARAM, WINDOW_MIN_DATE, WINDOW_TO_PARAM } from "./landing-window-constants";
 
 const PAGE_PATH = "/weighing/weights";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
@@ -853,9 +851,8 @@ export async function WeighingWeightsPage({
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.over30.label")}</div>
           <div className="val">{summary.at_or_above_30kg.toLocaleString("en-IN")}</div>
-          {/* The threshold counts carry their own denominator. A whole-shed pen is counted whole at
-              its average (all its animals over the line, or none), so the basis now spans every
-              animal weighed; it is still rendered from the backend field, never re-derived. */}
+          {/* The threshold counts carry their OWN denominator: a whole-shed weigh contributes
+              nothing to them, so showing them against animals_weighed would understate them. */}
           <div className="dl">
             {summary.threshold_basis_animals.toLocaleString("en-IN")}{" "}
             {copy(pageContract, "kpi.threshold.basis")}

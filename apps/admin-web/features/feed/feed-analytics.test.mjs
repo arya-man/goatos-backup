@@ -96,6 +96,17 @@ test("the KPI tiles name the settled day rather than the last day drawn", () => 
   assert.match(source, /buildDirectedView\(data, fa\(pageContract, "series\.other"\), istDayPlus\(todayIso\(\), -1\)\)/);
 });
 
+test("milk-only item days stay on the chart axis", () => {
+  // Day totals are sheet-only by design, but item rows now include UHT Milk. A
+  // milk-only day must still get an x-axis slot instead of being dropped by
+  // buildDirectedView before the chart renderer ever sees it.
+  assert.match(directedViewBlock, /\.\.\.data\.days\.map\(\(d\) => d\.feed_day\)/);
+  assert.match(directedViewBlock, /\.\.\.data\.items\.map\(\(item\) => item\.feed_day\)/);
+  assert.match(directedViewBlock, /new Set\(/);
+  assert.match(directedViewBlock, /\.sort\(\)/);
+  assert.doesNotMatch(directedViewBlock, /const dayKeys = data\.days\.map\(\(d\) => d\.feed_day\);/);
+});
+
 test("the stacked chart's own copy says the milk is in it", () => {
   // Backend-owned copy: the bars now carry UHT Milk alongside the sheet's feeds, so the
   // hint may no longer describe them as the issued sheet alone.

@@ -11,7 +11,6 @@ package eventwiring
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
@@ -34,6 +33,19 @@ type ShiftingVerificationRepo interface {
 	BounceShiftingEventForRework(ctx context.Context, in countsdomain.ShiftingReworkCommand) error
 }
 
+// PenReconciliationStore is the counts slice the pen-reconciliation consumers drive
+// (maintainer decision 2026-09-02). Satisfied by *countspg.Repository. It carries BOTH halves
+// of the flow — the raiser that turns a durable weighing.shed_submission.completed event into
+// wrong-pen cards, and the verdict applier that completes/reworks a submitted card — because
+// both are delivered ONLY through the durable outbox on deployed processes, so a registration
+// missing on one bus would silently raise no cards or strand every card in
+// pending_verification: the exact incident this package exists to prevent.
+type PenReconciliationStore interface {
+	RaisePenReconciliationCards(ctx context.Context, in countsdomain.PenReconciliationRaiseCommand) (int, error)
+	ApplyVerifiedPenReconciliation(ctx context.Context, in countsdomain.PenReconciliationVerdictCommand) error
+	BouncePenReconciliationForRework(ctx context.Context, in countsdomain.PenReconciliationVerdictCommand) error
+}
+
 // FeedCompletionStore is satisfied by *feeddirectionpg.Repository (it owns both the distribution and
 // packing completion tables, so it is both stores at once).
 type FeedCompletionStore interface {
@@ -41,34 +53,6 @@ type FeedCompletionStore interface {
 	feeddirectionports.PackingCompletionStore
 	feeddirectionports.TransportStore
 	feeddirectionports.WastageCompletionStore
-	feeddirectionports.ExternalConsumptionStore
-}
-
-// uhtConsumptionRecorder adapts the feeddirection external-consumption store to
-// the counts-side MilkPreparationUHTRecorder seam: an approved milk preparation
-// records the litres of UHT it opened into the feed stock ledger (maintainer
-// decision 2026-08-22 — the app's verified answer is the consumption source;
-// the sheet import remains history bootstrap only). Interface lives with the
-// consumer (countsapp), implementation with the owner (feeddirection), and only
-// this composition point knows both.
-type uhtConsumptionRecorder struct {
-	feed feeddirectionports.ExternalConsumptionStore
-}
-
-// uhtMilkFeedItemLabel is the feed_item_catalog label the milk-preparation UHT
-// answer depletes. One constant, because the recorder and the sheet importer
-// must land on the same catalog identity.
-const uhtMilkFeedItemLabel = "UHT Milk"
-
-func (a uhtConsumptionRecorder) RecordVerifiedUHTConsumption(ctx context.Context, in countsdomain.MilkPreparationUHTConsumption) error {
-	return a.feed.RecordExternalConsumption(ctx, feeddirectionports.RecordExternalConsumptionCommand{
-		TenantID:      in.TenantID,
-		ParkID:        in.ParkID,
-		FeedItemLabel: uhtMilkFeedItemLabel,
-		FeedDay:       in.PreparationDate,
-		QuantityKg:    in.UHTMilkQuantityLitres,
-		SourceRef:     fmt.Sprintf("milk-preparation:%s:attempt=%d", in.CompletionID, in.AttemptNo),
-	})
 }
 
 // WeighingVerdictStore is satisfied by *weighingpg.Repository. Weighing enqueued a verification item
@@ -98,6 +82,7 @@ func RegisterVerificationAppliers(
 	bus eventbus.Bus,
 	feed FeedCompletionStore,
 	shifting ShiftingVerificationRepo,
+	penReconciliation PenReconciliationStore,
 	milkPreparation countsports.MilkPreparationCompletionStore,
 	weighing WeighingVerdictStore,
 	weighingAck weighingapp.VerificationApplyAcker,
@@ -106,8 +91,16 @@ func RegisterVerificationAppliers(
 	log *slog.Logger,
 ) {
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
-	countsapp.NewMilkPreparationVerificationHandler(milkPreparation).
-		WithUHTRecorder(uhtConsumptionRecorder{feed: feed}).Register(bus)
+	// Milk preparation carries NO feed-stock fan-out, and that absence is deliberate (maintainer
+	// decision 2026-08-27, migration 000216): UHT stock depletes from the preparation itself, on
+	// SUBMIT, through the feed_effective_external_consumption view, which reads
+	// milk_preparation_completions directly. The retired 2026-08-22 seam wrote a SECOND row into
+	// feed_external_consumption on APPROVE keyed at preparation_date while the view books the same
+	// milk at feeding_date (= preparation_date + 1, DB CHECK), so the ledger row was never
+	// suppressed by its own preparation and the litres were deducted twice on any day whose
+	// PREVIOUS day carried no preparation. Do not reattach a recorder here; the workflow already
+	// owns the fact, and a second writer can only disagree with it.
+	countsapp.NewMilkPreparationVerificationHandler(milkPreparation).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feed, log).Register(bus)

@@ -15,7 +15,7 @@ type taskPresentationCopy struct {
 }
 
 var taskPresentationCatalog = map[string]taskPresentationCopy{
-	"en": {vaccination: "Vaccination", shedRecord: "Shed record", date: "Due date"},
+	"en": {vaccination: "Vaccination", shedRecord: "Pen record", date: "Due date"},
 	"hi": {vaccination: "टीकाकरण", shedRecord: "शेड रिकॉर्ड", date: "नियत तारीख"},
 	"kn": {vaccination: "ಲಸಿಕೆ", shedRecord: "ಶೆಡ್ ದಾಖಲೆ", date: "ಅಂತಿಮ ದಿನಾಂಕ"},
 	"te": {vaccination: "టీకా", shedRecord: "షెడ్ రికార్డు", date: "గడువు తేదీ"},
