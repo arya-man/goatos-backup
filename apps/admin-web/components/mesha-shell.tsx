@@ -368,6 +368,22 @@ export function MeshaShell({
       source,
     });
     if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    const targetHref = toHref ?? anchor?.href ?? "";
+    const targetUrl = targetHref ? new URL(targetHref, window.location.href) : null;
+    let frames = 0;
+    function clearWhenLocationCommits() {
+      if (
+        targetUrl &&
+        window.location.pathname === targetUrl.pathname &&
+        window.location.search === targetUrl.search
+      ) {
+        clearRoutePending();
+        return;
+      }
+      frames += 1;
+      if (frames < 180) window.requestAnimationFrame(clearWhenLocationCommits);
+    }
+    if (targetUrl) window.requestAnimationFrame(clearWhenLocationCommits);
     pendingTimerRef.current = setTimeout(() => {
       const pending = pendingNavigationRef.current;
       if (pending) {

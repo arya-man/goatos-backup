@@ -319,30 +319,6 @@ export async function WeighingWeightsPage({
   const slice = visibleRows.slice(offset, offset + limit);
   const visibleRowKeys = new Set(visibleRows.map((row) => shedKey(row.location_id, row.partition_label)));
 
-  // Losing kids come from the growth read, which already computes "latest pair went down".
-  // A growth failure must not take the whole page down: the weights half is independent.
-  // Per-park gain cards. This fans out one call per PARK, which is a handful of
-  // rows (two today), never a paginated entity list — the banned shape is draining
-  // a cursor, not asking a bounded vocabulary. Skipped entirely when the caller
-  // already narrowed to one park, because the headline above is then that park's.
-  const perParkGain =
-    parkFilter === "" && parks.length > 1
-      ? await Promise.all(
-          parks.map(async (park) => {
-            // The per-park gain cards carry the filter too. They were the one read that did not,
-            // and the page then showed a filtered headline above two unfiltered park cards — three
-            // numbers about three different populations, side by side, with nothing saying so.
-            const result = await getWeighingGrowth({ ...scope, ...window, park_id: park.park_id });
-            const headline = result.ok ? result.data.headline : null;
-            return {
-              name: park.name,
-              median: headline?.average_adg_g_per_day ?? null,
-              animals: headline?.headline_animals ?? 0,
-            };
-          }),
-        )
-      : [];
-
   // Biggest loss first: the kid that dropped most is the one to go and look at.
   // Sorted on the CHANGE, not the daily rate, because that is what the table shows
   // and a reader ordering by an unshown column has no way to check the order.
@@ -892,23 +868,6 @@ export async function WeighingWeightsPage({
               : `${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`}
           </div>
         </div>
-        {perParkGain.map((park) => (
-          <div className="kpi" key={park.name}>
-            <div className="lab">
-              {park.name} {copy(pageContract, "kpi.park_gain.suffix")}
-            </div>
-            <div className="val">
-              {park.median == null
-                ? copy(pageContract, "empty.no_data.title")
-                : `${Math.round(park.median)} g`}
-            </div>
-            <div className="dl">
-              {park.median == null
-                ? copy(pageContract, "kpi.gain.none")
-                : `${copy(pageContract, "kpi.gain.blended")} · ${park.animals.toLocaleString("en-IN")}`}
-            </div>
-          </div>
-        ))}
       </section>
 
       {/* Row 1 — the true growth charts. These sit before shed/scale movement because

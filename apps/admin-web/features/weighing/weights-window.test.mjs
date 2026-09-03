@@ -113,9 +113,9 @@ test("weights analytics sends the weighing mode through every tab read", () => {
 test("weights analytics fails selected tabs instead of rendering API failures as empty data", () => {
   assert.match(analyticsSource, /if \(growth && !growth\.ok\) \{\s*return <WeightsAnalyticsLoadError pageContract=\{pageContract\} \/>;\s*\}/);
   assert.match(analyticsSource, /if \(demographics && !demographics\.ok\) \{\s*return <WeightsAnalyticsLoadError pageContract=\{pageContract\} \/>;\s*\}/);
-  assert.match(analyticsSource, /if \(perParkResults\.some\(\(\{ result \}\) => !result\.ok\)\) \{\s*return <WeightsAnalyticsLoadError pageContract=\{pageContract\} \/>;\s*\}/);
   assert.match(analyticsSource, /function WeightsAnalyticsLoadError/);
-  assert.match(analyticsSource, /function mustHaveData<T>\(result: ApiResult<T>\): T/);
+  assert.doesNotMatch(analyticsSource, /perParkResults/);
+  assert.doesNotMatch(analyticsSource, /function mustHaveData/);
   assert.match(analyticsSource, /const demo = demographics\?\.ok \? demographics\.data : null;/);
 });
 
@@ -129,7 +129,7 @@ test("weights page sends the weighing mode through every backend read", () => {
   assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window \}\)/);
   assert.match(source, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.window \}\)/);
   assert.match(source, /getGrowthDirector\(\{ \.\.\.scope, \.\.\.window \}\)/);
-  assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, park_id: park\.park_id \}\)/);
+  assert.doesNotMatch(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, park_id: park\.park_id \}\)/);
 });
 
 test("the default window is passed as NAMED fields, never spread", () => {
@@ -146,6 +146,7 @@ test("a hand-edited window falls back instead of taking the page down", () => {
   assert.match(landingSource, /rawFrom <= rawTo/);
   assert.match(landingSource, /rawFrom > today \? today : rawFrom/);
   assert.match(landingSource, /if \(rawFrom \|\| rawTo\) return defaultWindow\(today\);/);
+  assert.match(landingSource, /ADMIN_WEB_FAST_SIDEBAR_WINDOWS/);
   assert.match(landingSource, /return defaultWindow\(today\);/);
 });
 

@@ -55,6 +55,9 @@ export async function landingWindow(
 ): Promise<Window> {
   const selected = explicitWindow(params, today);
   if (selected) return selected;
+  if (process.env.ADMIN_WEB_FAST_SIDEBAR_WINDOWS !== "0") {
+    return defaultWindow(today);
+  }
 
   const lookback = {
     from: istDayPlus(today, -(LATEST_LUMP_LOOKBACK_DAYS - 1)),
