@@ -51,12 +51,21 @@ interface ProofArtifactValidator {
      * 2026-08-15: overlay-free originals reached the server). Images validate by decodability;
      * videos keep the strict processed probe.
      */
-    fun validateProcessedArtifact(localUri: String, mimeType: String?): ValidationResult =
-        if (mimeType?.startsWith("image/") == true) validateImageFile(localUri)
-        else validateProcessedArtifact(localUri)
+    fun validateProcessedArtifact(localUri: String, mimeType: String?): ValidationResult = when {
+        mimeType?.startsWith("image/") == true -> validateImageFile(localUri)
+        mimeType?.startsWith("audio/") == true -> validateAudioFile(localUri)
+        else -> validateProcessedArtifact(localUri)
+    }
 
     /** Image validation: the file must exist, be non-empty, and decode to positive bounds. */
     fun validateImageFile(localUri: String): ValidationResult = ValidationResult(true, null)
+
+    /**
+     * Audio validation (vendor voice note, 2026-09-03): the file must exist and be non-empty. An
+     * audio note must never be judged by the video probe, whose dimension checks would reject
+     * every valid recording.
+     */
+    fun validateAudioFile(localUri: String): ValidationResult = ValidationResult(true, null)
 }
 
 /**
@@ -92,6 +101,20 @@ class FileSystemProofArtifactValidator internal constructor(
 
     override fun validateVideoFile(localUri: String): ProofArtifactValidator.ValidationResult {
         return validateVideoFileImpl(localUri, allowPlausibleAccept = true)
+    }
+
+    override fun validateAudioFile(localUri: String): ProofArtifactValidator.ValidationResult {
+        return try {
+            val file = if (localUri.startsWith("file:")) java.io.File(java.net.URI(localUri)) else java.io.File(localUri)
+            when {
+                !file.exists() -> ProofArtifactValidator.ValidationResult(false, "Recording file is missing. Please record again.", "missing")
+                file.length() <= 0L -> ProofArtifactValidator.ValidationResult(false, "Recording is empty. Please record again.", "empty")
+                else -> ProofArtifactValidator.ValidationResult(true, null)
+            }
+        } catch (_: Exception) {
+            // exception:exempt an unreadable path is a definitive rejection, reported as such.
+            ProofArtifactValidator.ValidationResult(false, "Recording could not be read. Please record again.", "unreadable")
+        }
     }
 
     override fun validateImageFile(localUri: String): ProofArtifactValidator.ValidationResult {

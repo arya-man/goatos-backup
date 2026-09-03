@@ -150,6 +150,21 @@ object MeshaIcons {
         "M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z",
         "M4 7.5 12 12l8-4.5M12 12v9M8 5.25l8 4.5",
     )
+    /** Vendors: a storefront — the counterparties the farm buys from. */
+    val Store: ImageVector = strokeIcon(
+        "store",
+        "M3.5 9.5 5 4.5h14l1.5 5",
+        "M3.5 9.5a2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 2 0",
+        "M5 11.5v8h14v-8",
+        "M10 19.5v-5h4v5",
+    )
+    /** A microphone: the vendor voice note. */
+    val Microphone: ImageVector = strokeIcon(
+        "microphone",
+        "M12 3.5a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0v-5a3 3 0 0 1 3-3z",
+        "M6.5 11.5a5.5 5.5 0 0 0 11 0",
+        "M12 17v3.5M9 20.5h6",
+    )
     val Truck: ImageVector = strokeIcon(
         "truck",
         "M3.5 6h11v10h-11z",
@@ -357,6 +372,10 @@ object MeshaIcons {
         // each tab names its own work so four tabs on one bar never share a mark.
         "pc_care" -> PcCare
         "pc_deworming" -> Deworming
+        // Vendors module (maintainer decision 2026-09-03): the register wears the storefront and
+        // its Feed Purchases tab the package, so the two tabs on one bar never share a mark.
+        "vendors" -> Store
+        "feed_purchases" -> Package
         "pc_ticks" -> Tick
         "pc_hoof_trimming" -> HoofTrimming
         "pc_hair_trimming" -> HairTrimming

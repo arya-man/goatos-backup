@@ -64,4 +64,10 @@
     <string name="proof_photo_toxin_strip_title">Take strip photo</string>
     <string name="proof_photo_toxin_strip_instruction">Hold the strip flat and steady so both lines are clearly visible</string>
     <string name="proof_video_toxin_step_header">Aflatoxin test</string>
+    <string name="proof_audio_title">Record voice note</string>
+    <string name="proof_audio_instruction">Speak clearly. Tap stop when you are done.</string>
+    <string name="proof_audio_start">Start recording</string>
+    <string name="proof_audio_stop">Stop recording</string>
+    <string name="proof_audio_cancel">Cancel voice note</string>
+    <string name="proof_audio_unavailable">The microphone is not available right now.</string>
 </resources>

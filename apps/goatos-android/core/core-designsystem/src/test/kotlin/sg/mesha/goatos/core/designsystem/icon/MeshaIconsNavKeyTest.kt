@@ -51,6 +51,10 @@ class MeshaIconsNavKeyTest {
         "pc_ticks",
         "pc_hoof_trimming",
         "pc_hair_trimming",
+        // Vendors (maintainer decision 2026-09-03): the module row and its second tab share one
+        // bar, so both need their own glyph.
+        "vendors",
+        "feed_purchases",
     )
 
     /** The verifier drawer's own key namespace (bootstrap_copy.go: `verifyModuleKey = "verify_" + normalized`). */

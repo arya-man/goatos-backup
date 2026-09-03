@@ -154,6 +154,11 @@ class SyncEngine(
     // re-renders server truth the moment the write drains — and refreshes it after a terminal
     // wait_not_elapsed / step_already_done refusal so the screen shows why.
     private val toxinRepository: sg.mesha.goatos.core.data.ToxinRepository? = null,
+    // Vendors module (maintainer decision 2026-09-03): without this the VENDOR_CREATE /
+    // FEED_PURCHASE_CREATE reconciliation silently no-ops and the phone keeps showing the
+    // register without the vendor it just recorded until the next refresh. Same defect class as
+    // feedRepository/toxinRepository above.
+    private val vendorsRepository: sg.mesha.goatos.core.data.VendorsRepository? = null,
     private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
@@ -530,6 +535,8 @@ class SyncEngine(
         OutboxOpType.TOXIN_SUBMIT -> dispatchToxinSubmit(item)
         OutboxOpType.CLOCK_IN -> dispatchClockPunch(item, clockIn = true)
         OutboxOpType.CLOCK_OUT -> dispatchClockPunch(item, clockIn = false)
+        OutboxOpType.VENDOR_CREATE -> dispatchVendorCreate(item)
+        OutboxOpType.FEED_PURCHASE_CREATE -> dispatchFeedPurchaseCreate(item)
     }
 
     private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
@@ -689,6 +696,24 @@ class SyncEngine(
                             )
                         }.onFailure { reportCacheReconcileFailure(item, it) }
                     }
+                }
+            }
+            OutboxOpType.VENDOR_CREATE -> {
+                item.resultJson?.takeIf { it.trim() != "{}" }?.let { resultJson ->
+                    runCatching {
+                        vendorsRepository?.persistServerVendor(
+                            syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.VendorDto>(resultJson),
+                        )
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            OutboxOpType.FEED_PURCHASE_CREATE -> {
+                item.resultJson?.let { resultJson ->
+                    runCatching {
+                        vendorsRepository?.persistServerFeedPurchase(
+                            syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedPurchaseDto>(resultJson),
+                        )
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
                 }
             }
             OutboxOpType.TOXIN_STEP_COMPLETE, OutboxOpType.TOXIN_SUBMIT -> {
@@ -924,6 +949,38 @@ class SyncEngine(
      * by [recordFailure]'s `isTerminalAppApiError` check, surfaced with the server's own message,
      * never retried against a payload that can never succeed.
      */
+    /**
+     * A vendor recorded on the phone (module vendors, maintainer decision 2026-09-03). The voice
+     * note, when there is one, rides ahead as a PROOF_UPLOAD on the same group; its server proof id
+     * is resolved here exactly like a toxin step's clip. The route carries no idempotency header:
+     * the register's natural key (business, record type, state, phone) refuses a second identical
+     * vendor with `409 vendor_duplicate`, so a replay after a lost response is read as "already
+     * recorded" and succeeds with an empty result — the list refresh-on-open then shows the row.
+     */
+    private suspend fun dispatchVendorCreate(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<VendorCreatePayload>(item.payloadJson)
+        val voiceNoteRef = if (payload.voiceNoteOutboxItemId.isBlank()) "" else resolveUploadedProofRef(payload.voiceNoteOutboxItemId)
+        return try {
+            val created = api.createProcurementVendor(payload.request.copy(voiceNoteProofRef = voiceNoteRef))
+            syncJson.encodeToString(created)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            if (error.appApiStatusCode() == 409 && error.serverErrorText()?.code == "vendor_duplicate" && item.attemptCount > 0) {
+                // A retry of a create whose first attempt landed but whose response was lost.
+                "{}"
+            } else {
+                throw error
+            }
+        }
+    }
+
+    /** A feed purchase recorded on the phone; the stored key rides as the backend's Idempotency-Key. */
+    private suspend fun dispatchFeedPurchaseCreate(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedPurchaseCreatePayload>(item.payloadJson)
+        val created = api.createFeedPurchase(item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(created)
+    }
+
     private suspend fun dispatchClockPunch(item: OutboxEntity, clockIn: Boolean): String {
         val payload = syncJson.decodeFromString<ClockPunchPayload>(item.payloadJson)
         val response = if (clockIn) {

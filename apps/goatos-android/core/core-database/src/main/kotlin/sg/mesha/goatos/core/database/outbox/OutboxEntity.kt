@@ -309,6 +309,18 @@ enum class OutboxOpType {
      */
     CLOCK_IN,
     CLOCK_OUT,
+
+    /**
+     * Vendors module (maintainer decision 2026-09-03): a vendor recorded on the phone
+     * (`POST /procurement/vendors`). Its optional voice note rides ahead of it as a PROOF_UPLOAD
+     * on the same per-vendor group, so the upload drains first and the dispatcher resolves the
+     * server proof id. The route has no idempotency header; the register's natural key refuses a
+     * duplicate with `409 vendor_duplicate`, which a replay reads as "already there".
+     */
+    VENDOR_CREATE,
+
+    /** A feed purchase recorded on the phone (`POST /procurement/feed-purchases`, Idempotency-Key). */
+    FEED_PURCHASE_CREATE,
 }
 
 /**

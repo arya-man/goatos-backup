@@ -61,4 +61,10 @@
     <string name="proof_photo_toxin_strip_title">स्ट्रिप की फ़ोटो लें</string>
     <string name="proof_photo_toxin_strip_instruction">स्ट्रिप को सीधा और स्थिर रखें ताकि दोनों लाइनें साफ़ दिखें</string>
     <string name="proof_video_toxin_step_header">एफ़्लाटॉक्सिन जाँच</string>
+    <string name="proof_audio_title">वॉइस नोट रिकॉर्ड करें</string>
+    <string name="proof_audio_instruction">साफ़ बोलें। हो जाने पर रोकें दबाएँ।</string>
+    <string name="proof_audio_start">रिकॉर्डिंग शुरू करें</string>
+    <string name="proof_audio_stop">रिकॉर्डिंग रोकें</string>
+    <string name="proof_audio_cancel">वॉइस नोट रद्द करें</string>
+    <string name="proof_audio_unavailable">माइक्रोफ़ोन अभी उपलब्ध नहीं है।</string>
 </resources>

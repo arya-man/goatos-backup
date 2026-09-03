@@ -15692,7 +15692,7 @@ components:
     FeedPurchaseOptions:
       type: object
       description: The backend-owned vocabulary the record-purchase form renders.
-      required: [farms, feed_items, payment_statuses, vendors]
+      required: [farms, feed_items, payment_statuses, delivery_statuses, vendors]
       properties:
         farms:
           type: array
@@ -15713,6 +15713,15 @@ components:
         payment_statuses:
           type: array
           items: { type: string, enum: [Paid, Pending] }
+        delivery_statuses:
+          type: array
+          description: The closed delivery vocabulary with its farm labels, in lifecycle order.
+          items:
+            type: object
+            required: [key, label]
+            properties:
+              key: { type: string, enum: [purchased, reached] }
+              label: { type: string }
         vendors:
           type: array
           description: Suppliers already bought from, most recent first. A suggestion list, not a closed vocabulary.

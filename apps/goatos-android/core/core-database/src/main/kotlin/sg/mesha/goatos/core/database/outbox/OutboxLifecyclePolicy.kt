@@ -141,6 +141,11 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // Step 7's reading submit, same shape: overlay "In review" at once, then the server's
         // returned detail (status chip, outcome label) reconciles the Room task rows directly.
         OutboxOpType.TOXIN_SUBMIT -> overlayDirectReconcileLifecycle()
+        // Vendors module (maintainer decision 2026-09-03): the add form shows a "queued" banner at
+        // once (the record is durable in the outbox), and the sync pass writes the server's
+        // RETURNED row straight into the Room detail/list caches -- the toxin/packing shape.
+        OutboxOpType.VENDOR_CREATE -> overlayDirectReconcileLifecycle()
+        OutboxOpType.FEED_PURCHASE_CREATE -> overlayDirectReconcileLifecycle()
 
         // Clock punches (module clock, maintainer decision 2026-08-27): the punch button follows
         // the EXACT outbox item (disabled while pending), success re-fetches the status blob via

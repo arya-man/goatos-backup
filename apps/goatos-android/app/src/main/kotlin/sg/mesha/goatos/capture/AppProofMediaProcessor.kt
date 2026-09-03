@@ -55,12 +55,28 @@ class AppProofMediaProcessor @Inject constructor(
     private val bootstrapRepository: BootstrapRepository,
     private val crashReporter: CrashReporter,
 ) : ProofMediaProcessor {
-    override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult =
-        if (request.mimeType.startsWith("image/", ignoreCase = true)) {
-            processPhoto(request)
-        } else {
-            processVideo(request)
-        }
+    override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult = when {
+        request.mimeType.startsWith("image/", ignoreCase = true) -> processPhoto(request)
+        request.mimeType.startsWith("audio/", ignoreCase = true) -> processAudio(request)
+        else -> processVideo(request)
+    }
+
+    /**
+     * An audio note (vendor voice note, 2026-09-03) has no frame to overlay and is already a small
+     * AAC file: it is copied to a processed path as-is. Copied rather than reused because the
+     * capture pipeline requires the processed artifact to be a distinct file from the original.
+     */
+    private fun processAudio(request: ProofMediaProcessingRequest): ProofMediaProcessingResult {
+        val source = resolveLocalFile(request.originalUri)
+        val target = processedFile(request.proofId, "m4a")
+        source.copyTo(target, overwrite = true)
+        return ProofMediaProcessingResult(
+            outputUri = target.toURI().toString(),
+            outputMimeType = request.mimeType,
+            originalBytes = source.length(),
+            processedBytes = target.length(),
+        )
+    }
 
     private suspend fun processPhoto(request: ProofMediaProcessingRequest): ProofMediaProcessingResult {
         val source = resolveLocalFile(request.originalUri)

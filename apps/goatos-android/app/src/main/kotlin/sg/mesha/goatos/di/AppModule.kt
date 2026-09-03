@@ -542,6 +542,18 @@ object AppModule {
     ): sg.mesha.goatos.core.data.ToxinRepository =
         sg.mesha.goatos.core.data.DefaultToxinRepository(api = api, database = database)
 
+    /**
+     * Vendors module reads (maintainer decision 2026-09-03). Room-backed and offline-first; the
+     * WRITES ride the outbox, so like Toxin this repository takes no SyncRepository.
+     */
+    @Provides
+    @Singleton
+    fun provideVendorsRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): sg.mesha.goatos.core.data.VendorsRepository =
+        sg.mesha.goatos.core.data.DefaultVendorsRepository(api = api, database = database)
+
     // App-scoped optimistic overlay for feed completions (offline-first badge ahead of the next
     // refresh). A process singleton, not persisted — the outbox is the durable command record.
     @Provides
@@ -681,6 +693,17 @@ object AppModule {
     @Provides
     @Singleton
     fun providePhotoCaptureSource(delegate: DelegatingPhotoCaptureSource): PhotoCaptureSource = delegate
+
+    // Vendors module (maintainer decision 2026-09-03): the voice note's microphone recorder, the
+    // photo/video delegate shape.
+    @Provides
+    @Singleton
+    fun provideDelegatingAudioCaptureSource(): sg.mesha.goatos.capture.DelegatingAudioCaptureSource =
+        sg.mesha.goatos.capture.DelegatingAudioCaptureSource()
+
+    @Provides
+    @Singleton
+    fun provideAudioCaptureSource(delegate: sg.mesha.goatos.capture.DelegatingAudioCaptureSource): sg.mesha.goatos.capture.AudioCaptureSource = delegate
 
     @Provides
     @Singleton
@@ -845,6 +868,9 @@ object AppModule {
         // step write would land on the server while the phone kept rendering the PREVIOUS step
         // states until the next manual refresh. Same defect class as feedRepository above.
         toxinRepository: sg.mesha.goatos.core.data.ToxinRepository,
+        // Vendors (2026-09-03): same defect class -- without it a recorded vendor/purchase never
+        // reconciles into Room after its write lands.
+        vendorsRepository: sg.mesha.goatos.core.data.VendorsRepository,
     ): SyncEngine {
         val pcCareRepository = DeferredPcCareRepository(pcCareRepositoryProvider)
         return SyncEngine(
@@ -867,6 +893,7 @@ object AppModule {
         pcCareAnimalRowDao = database.pcCareAnimalRowDao(),
         pcCareRepository = pcCareRepository,
         toxinRepository = toxinRepository,
+        vendorsRepository = vendorsRepository,
         telemetry = outboxTelemetry,
         // Whole-page-blob reconcile: these opTypes affect cached lists/envelopes with no server-truth
         // row to write directly into. The reconcile is "refresh the page" or "forget the row",

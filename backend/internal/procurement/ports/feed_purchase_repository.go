@@ -34,6 +34,12 @@ type FeedPurchasePage struct {
 	SpendRupees float64
 }
 
+// DeliveryStatusOption is one delivery state with its operator-facing label.
+type DeliveryStatusOption struct {
+	Key   string
+	Label string
+}
+
 // FeedItemOption is one selectable feed in the entry form.
 type FeedItemOption struct {
 	Key   string
@@ -47,6 +53,9 @@ type FeedPurchaseOptions struct {
 	Farms           []string
 	FeedItems       []FeedItemOption
 	PaymentStatuses []string
+	// DeliveryStatuses is the closed delivery vocabulary with its farm labels (maintainer decision
+	// 2026-09-03), so the phone's ledger chips render the same words the web page contract does.
+	DeliveryStatuses []DeliveryStatusOption
 	// Vendors the farm has already bought feed from, most recent first. A suggestion list for the
 	// vendor field, not a closed vocabulary: the ledger's vendor is free text and a new supplier
 	// must be enterable on the first load bought from them.

@@ -1454,3 +1454,39 @@ val MIGRATION_53_54: Migration = object : Migration(53, 54) {
         db.execSQL("ALTER TABLE `pen_reconciliation_items` ADD COLUMN `statusRank` INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+/**
+ * v54 -> v55: the Vendors module's five read-model tables (module vendors, maintainer decision
+ * 2026-09-03): the paged register (`vendor_items` + `vendor_remote_keys`), the paged feed purchase
+ * ledger (`feed_purchase_items` + `feed_purchase_remote_keys`), and one JSON blob cache
+ * (`vendors_blob_cache`) for vendor/purchase detail, the vendor catalog and the purchase form
+ * options. The [MIGRATION_49_50] toxin shape exactly. Additive only; touches nothing existing.
+ */
+val MIGRATION_54_55: Migration = object : Migration(54, 55) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        for (table in listOf("vendor_items", "feed_purchase_items")) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `$table` " +
+                    "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                    "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`queryKey`, `grainKey`))",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_${table}_queryKey_sortIndex` ON `$table` (`queryKey`, `sortIndex`)",
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_${table}_grainKey` ON `$table` (`grainKey`)")
+        }
+        for (table in listOf("vendor_remote_keys", "feed_purchase_remote_keys")) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `$table` " +
+                    "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                    "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+            )
+        }
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `vendors_blob_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

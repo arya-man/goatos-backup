@@ -63,6 +63,17 @@ import sg.mesha.goatos.core.network.dto.ToxinStepDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskPageDto
+import sg.mesha.goatos.core.network.dto.VendorCatalogDto
+import sg.mesha.goatos.core.network.dto.VendorCatalogEntryDto
+import sg.mesha.goatos.core.network.dto.VendorDto
+import sg.mesha.goatos.core.network.dto.VendorPageDto
+import sg.mesha.goatos.core.network.dto.VendorWriteDto
+import sg.mesha.goatos.core.network.dto.FeedItemOptionDto
+import sg.mesha.goatos.core.network.dto.DeliveryStatusOptionDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
+import sg.mesha.goatos.core.network.dto.FeedPurchasePageDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -1332,6 +1343,52 @@ interface AppApi {
         request: ToxinSubmitRequestDto,
     ): ToxinTaskDetailDto
 
+    // ------------------------------------------------------------------
+    // Vendors (vendor register + feed purchases on the phone, maintainer decision 2026-09-03)
+    // ------------------------------------------------------------------
+
+    /**
+     * GET /procurement/vendors — one bounded page of the register, newest first, optionally
+     * narrowed by a search term (backend trigram search) and a status. Offset-paged on the server
+     * (a few hundred rows, bounded), consumed here ~20 at a time.
+     */
+    suspend fun getProcurementVendors(
+        search: String? = null,
+        status: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): VendorPageDto
+
+    /** GET /procurement/vendors/{vendor_id} — one register row. */
+    suspend fun getProcurementVendor(vendorId: String): VendorDto
+
+    /** GET /procurement/vendor-catalog — the business-managed vocabularies the add form renders. */
+    suspend fun getProcurementVendorCatalog(): VendorCatalogDto
+
+    /**
+     * POST /procurement/vendors — records a vendor. No idempotency header on this route: the
+     * register's natural key (business, record type, state, phone) refuses a duplicate with
+     * `409 vendor_duplicate`, which a replay after a lost response reads as "already there".
+     */
+    suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto
+
+    /** GET /procurement/feed-purchases — one bounded page of the ledger, newest first. */
+    suspend fun getFeedPurchases(
+        farm: String? = null,
+        delivery: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): FeedPurchasePageDto
+
+    /** GET /procurement/feed-purchase-options — farms, the ACTIVE feed catalog, payment words, vendors seen. */
+    suspend fun getFeedPurchaseOptions(): FeedPurchaseOptionsDto
+
+    /** POST /procurement/feed-purchases — records a load. The `Idempotency-Key` is REQUIRED. */
+    suspend fun createFeedPurchase(
+        idempotencyKey: String,
+        request: FeedPurchaseWriteDto,
+    ): FeedPurchaseDto
+
     suspend fun getFeedDistributionCaptures(
         parkId: String?,
         shedId: String,
@@ -2469,6 +2526,58 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         request: ToxinSubmitRequestDto,
     ): ToxinTaskDetailDto = getToxinTask(taskId).copy(status = "pending_review", statusChip = "Sent for review")
+
+    override suspend fun getProcurementVendors(
+        search: String?,
+        status: String?,
+        limit: Int?,
+        offset: Int?,
+    ): VendorPageDto = VendorPageDto(vendors = listOf(fakeVendor()), total = 1, limit = limit ?: 20, offset = offset ?: 0)
+
+    override suspend fun getProcurementVendor(vendorId: String): VendorDto = fakeVendor().copy(vendorId = vendorId)
+
+    override suspend fun getProcurementVendorCatalog(): VendorCatalogDto = VendorCatalogDto(
+        recordTypes = listOf(VendorCatalogEntryDto("Feed Agent", "Feed Agent"), VendorCatalogEntryDto("Sheep Agent", "Sheep Agent")),
+        states = listOf(VendorCatalogEntryDto("KA", "Karnataka"), VendorCatalogEntryDto("TN", "Tamil Nadu")),
+        statuses = listOf(VendorCatalogEntryDto("active", "Active"), VendorCatalogEntryDto("negotiating", "Negotiating")),
+        capacityUnits = listOf(VendorCatalogEntryDto("kg", "kg"), VendorCatalogEntryDto("animals", "animals")),
+        supplyFrequencies = listOf(VendorCatalogEntryDto("per_week", "Every week"), VendorCatalogEntryDto("one_time", "One time")),
+    )
+
+    override suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto =
+        fakeVendor().copy(vendorId = "vendor-new", businessName = request.businessName, displayName = request.businessName)
+
+    override suspend fun getFeedPurchases(
+        farm: String?,
+        delivery: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedPurchasePageDto = FeedPurchasePageDto(purchases = listOf(fakeFeedPurchase()), total = 1, quantityKg = 1000.0, spendRupees = 23000.0, limit = limit ?: 20, offset = offset ?: 0)
+
+    override suspend fun getFeedPurchaseOptions(): FeedPurchaseOptionsDto = FeedPurchaseOptionsDto(
+        farms = listOf("CBE", "CPT"),
+        feedItems = listOf(FeedItemOptionDto("concentrate", "Concentrate")),
+        paymentStatuses = listOf("Paid", "Pending"),
+        deliveryStatuses = listOf(DeliveryStatusOptionDto("purchased", "On the road"), DeliveryStatusOptionDto("reached", "Reached")),
+        vendors = listOf("QA Vendor"),
+    )
+
+    override suspend fun createFeedPurchase(idempotencyKey: String, request: FeedPurchaseWriteDto): FeedPurchaseDto =
+        fakeFeedPurchase().copy(feedPurchaseId = "purchase-new", feedItem = request.feedItem, quantityKg = request.quantityKg)
+
+    private fun fakeVendor(): VendorDto = VendorDto(
+        vendorId = "vendor-1", recordType = "Feed Agent", businessName = "Kumar Traders",
+        displayName = "Kumar Traders - Kumar", contactPersonName = "Kumar", phoneNumber = "9800000000",
+        status = "active", statusLabel = "Active", state = "KA", city = "Mysuru", locationDisplay = "Mysuru, KA",
+        capacityQuantity = "5000", capacityUnit = "kg", supplyFrequency = "per_2_weeks",
+        capacityDisplay = "5,000 kg · Every 2 weeks",
+    )
+
+    private fun fakeFeedPurchase(): FeedPurchaseDto = FeedPurchaseDto(
+        feedPurchaseId = "purchase-1", purchaseDate = "2026-09-01", farm = "CBE", feedItem = "Concentrate",
+        batchNo = 12, quantityKg = 1000.0, totalCost = 23000.0, perKgCost = 23.0, vendor = "QA Vendor",
+        paymentStatus = "Pending", paymentBalance = 23000.0, deliveryStatus = "purchased", entrySource = "app",
+    )
 
     override suspend fun recordClockIn(
         idempotencyKey: String,

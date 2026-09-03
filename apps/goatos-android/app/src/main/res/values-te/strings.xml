@@ -61,4 +61,10 @@
     <string name="proof_photo_toxin_strip_title">స్ట్రిప్ ఫోటో తీయండి</string>
     <string name="proof_photo_toxin_strip_instruction">రెండు గీతలు స్పష్టంగా కనిపించేలా స్ట్రిప్‌ను చదునుగా, స్థిరంగా పట్టుకోండి</string>
     <string name="proof_video_toxin_step_header">అఫ్లాటాక్సిన్ పరీక్ష</string>
+    <string name="proof_audio_title">వాయిస్ నోట్ రికార్డ్ చేయండి</string>
+    <string name="proof_audio_instruction">స్పష్టంగా మాట్లాడండి. పూర్తయ్యాక ఆపు నొక్కండి.</string>
+    <string name="proof_audio_start">రికార్డింగ్ ప్రారంభించండి</string>
+    <string name="proof_audio_stop">రికార్డింగ్ ఆపండి</string>
+    <string name="proof_audio_cancel">వాయిస్ నోట్ రద్దు చేయండి</string>
+    <string name="proof_audio_unavailable">మైక్రోఫోన్ ఇప్పుడు అందుబాటులో లేదు.</string>
 </resources>

@@ -163,6 +163,9 @@ func (r *Repository) FeedPurchaseOptions(ctx context.Context, tenantID string) (
 		Farms:           append([]string(nil), domain.FeedFarms...),
 		PaymentStatuses: append([]string(nil), domain.FeedPaymentStatuses...),
 	}
+	for _, status := range domain.FeedDeliveryStatuses {
+		opts.DeliveryStatuses = append(opts.DeliveryStatuses, ports.DeliveryStatusOption{Key: status, Label: domain.FeedDeliveryLabel(status)})
+	}
 
 	rows, err := r.pool.Query(ctx, `
 SELECT feed_item_key, feed_item_label

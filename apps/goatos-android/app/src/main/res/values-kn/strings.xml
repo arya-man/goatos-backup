@@ -61,4 +61,10 @@
     <string name="proof_photo_toxin_strip_title">ಸ್ಟ್ರಿಪ್ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
     <string name="proof_photo_toxin_strip_instruction">ಎರಡೂ ಗೆರೆಗಳು ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಸ್ಟ್ರಿಪ್ ಅನ್ನು ಸಮತಟ್ಟಾಗಿ ಹಿಡಿಯಿರಿ</string>
     <string name="proof_video_toxin_step_header">ಅಫ್ಲಾಟಾಕ್ಸಿನ್ ಪರೀಕ್ಷೆ</string>
+    <string name="proof_audio_title">ಧ್ವನಿ ಟಿಪ್ಪಣಿ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="proof_audio_instruction">ಸ್ಪಷ್ಟವಾಗಿ ಮಾತನಾಡಿ. ಮುಗಿದ ಮೇಲೆ ನಿಲ್ಲಿಸಿ ಒತ್ತಿ.</string>
+    <string name="proof_audio_start">ರೆಕಾರ್ಡಿಂಗ್ ಪ್ರಾರಂಭಿಸಿ</string>
+    <string name="proof_audio_stop">ರೆಕಾರ್ಡಿಂಗ್ ನಿಲ್ಲಿಸಿ</string>
+    <string name="proof_audio_cancel">ಧ್ವನಿ ಟಿಪ್ಪಣಿ ರದ್ದುಮಾಡಿ</string>
+    <string name="proof_audio_unavailable">ಮೈಕ್ರೊಫೋನ್ ಈಗ ಲಭ್ಯವಿಲ್ಲ.</string>
 </resources>

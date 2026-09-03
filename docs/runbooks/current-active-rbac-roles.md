@@ -345,3 +345,10 @@ Vaccination, with Growth Director as the owning director:
   `docs/decisions/scale-anti-patterns.md` and the `fcm-recipient-routing-guard`
   make target, which covers Weighing's notification wiring alongside
   Vaccination's.
+
+## Vendors on the phone (2026-09-03)
+
+`ceo_internal`, `procurement_director` and `procurement_manager` hold `app.bootstrap` and are
+offered the **Vendors** phone module (vendor register + feed purchases, view and add) on
+`procurement.vendor.read`. `procurement_manager` is an active STG role for the procurement desk
+(admin-web + phone). See `docs/decisions/vendors-mobile-module.md`.

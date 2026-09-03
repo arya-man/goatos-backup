@@ -561,6 +561,25 @@ interface SyncRepository {
         stripPhotoOutboxItemId: String,
     ): AppResult<String> = AppResult.Err("toxin submit sync is not configured")
 
+    /**
+     * Enqueues a vendor recorded on the phone (`POST /procurement/vendors`, maintainer decision
+     * 2026-09-03). [voiceNoteOutboxItemId] names the audio note's PROOF_UPLOAD row (blank = no
+     * note); both rows share [vendorCreateGroupKey] so the upload drains first and the dispatcher
+     * resolves the server proof id. The idempotency key is [vendorCreateIdempotencyKey] — STABLE
+     * per client id, never a timestamp.
+     */
+    suspend fun enqueueVendorCreate(
+        clientId: String,
+        request: sg.mesha.goatos.core.network.dto.VendorWriteDto,
+        voiceNoteOutboxItemId: String = "",
+    ): AppResult<String> = AppResult.Err("vendor sync is not configured")
+
+    /** Enqueues a feed purchase recorded on the phone (`POST /procurement/feed-purchases`). */
+    suspend fun enqueueFeedPurchaseCreate(
+        clientId: String,
+        request: sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto,
+    ): AppResult<String> = AppResult.Err("feed purchase sync is not configured")
+
     suspend fun enqueueMilkPreparationSubmit(
         groupKey: String,
         idempotencyKey: String,
@@ -1517,6 +1536,29 @@ class DefaultSyncRepository(
                 stripPhotoOutboxItemId = stripPhotoOutboxItemId,
             ),
         ),
+    )
+
+    override suspend fun enqueueVendorCreate(
+        clientId: String,
+        request: sg.mesha.goatos.core.network.dto.VendorWriteDto,
+        voiceNoteOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.VENDOR_CREATE,
+        groupKey = vendorCreateGroupKey(clientId.trim()),
+        idempotencyKey = vendorCreateIdempotencyKey(clientId.trim()),
+        payloadJson = syncJson.encodeToString(
+            VendorCreatePayload(clientId = clientId.trim(), request = request, voiceNoteOutboxItemId = voiceNoteOutboxItemId),
+        ),
+    )
+
+    override suspend fun enqueueFeedPurchaseCreate(
+        clientId: String,
+        request: sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.FEED_PURCHASE_CREATE,
+        groupKey = feedPurchaseCreateGroupKey(clientId.trim()),
+        idempotencyKey = feedPurchaseCreateIdempotencyKey(clientId.trim()),
+        payloadJson = syncJson.encodeToString(FeedPurchaseCreatePayload(clientId = clientId.trim(), request = request)),
     )
 
     override suspend fun enqueueMilkPreparationSubmit(

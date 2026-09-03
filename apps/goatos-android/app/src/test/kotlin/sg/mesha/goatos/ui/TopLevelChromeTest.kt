@@ -630,4 +630,19 @@ class TopLevelChromeTest {
             isTopLevelRoute(Routes.VACCINATION, populatedDrawerTopLevelRoutes)
         )
     }
+
+    @Test
+    fun `vendors L0 roots are exact and their drills never inherit root chrome`() {
+        // Module vendors (maintainer decision 2026-09-03): two backend-composed L0 hrefs. The
+        // detail routes carry a literal segment so the second L0 (`/vendors/feed-purchases`) can
+        // never be matched as a vendor id, and no drill is a prefix reuse of a root.
+        val roots = listOf(Routes.VENDORS, Routes.VENDORS_FEED_PURCHASES)
+        assertTrue(isTopLevelRoute(Routes.VENDORS, roots))
+        assertTrue(isTopLevelRoute(Routes.VENDORS_FEED_PURCHASES, roots))
+        assertFalse(isTopLevelRoute(Routes.VENDOR_NEW, roots))
+        assertFalse(isTopLevelRoute(Routes.VENDOR_DETAIL, roots))
+        assertFalse(isTopLevelRoute(Routes.FEED_PURCHASE_NEW, roots))
+        assertFalse(isTopLevelRoute(Routes.FEED_PURCHASE_DETAIL, roots))
+        assertFalse(isTopLevelRoute(Routes.vendorDetailRoute("v-1"), roots))
+    }
 }

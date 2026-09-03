@@ -38,7 +38,9 @@ import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.R
 import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.capture.BindAudioCaptureSource
 import sg.mesha.goatos.capture.BindPhotoCaptureSource
+import sg.mesha.goatos.capture.rememberDelegatingAudioCaptureSource
 import sg.mesha.goatos.capture.BindVideoCaptureSource
 import sg.mesha.goatos.capture.CaptureAccessGate
 import sg.mesha.goatos.capture.rememberDelegatingPhotoCaptureSource
@@ -92,6 +94,18 @@ import sg.mesha.goatos.feature.toxin.ToxinTaskDetailEvent
 import sg.mesha.goatos.feature.toxin.ToxinTaskDetailScreen
 import sg.mesha.goatos.feature.toxin.ToxinTaskListEvent
 import sg.mesha.goatos.feature.toxin.ToxinTaskListScreen
+import sg.mesha.goatos.feature.vendors.FeedPurchaseCreateEvent
+import sg.mesha.goatos.feature.vendors.FeedPurchaseCreateScreen
+import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailEvent
+import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailScreen
+import sg.mesha.goatos.feature.vendors.FeedPurchasesListEvent
+import sg.mesha.goatos.feature.vendors.FeedPurchasesListScreen
+import sg.mesha.goatos.feature.vendors.VendorCreateEvent
+import sg.mesha.goatos.feature.vendors.VendorCreateScreen
+import sg.mesha.goatos.feature.vendors.VendorDetailEvent
+import sg.mesha.goatos.feature.vendors.VendorDetailScreen
+import sg.mesha.goatos.feature.vendors.VendorsListEvent
+import sg.mesha.goatos.feature.vendors.VendorsListScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
@@ -203,6 +217,12 @@ import sg.mesha.goatos.viewmodel.ClockTeamViewModel
 import sg.mesha.goatos.viewmodel.ClockViewModel
 import sg.mesha.goatos.viewmodel.ToxinTaskDetailViewModel
 import sg.mesha.goatos.viewmodel.ToxinTaskListViewModel
+import sg.mesha.goatos.viewmodel.FeedPurchaseCreateViewModel
+import sg.mesha.goatos.viewmodel.FeedPurchaseDetailViewModel
+import sg.mesha.goatos.viewmodel.FeedPurchasesListViewModel
+import sg.mesha.goatos.viewmodel.VendorCreateViewModel
+import sg.mesha.goatos.viewmodel.VendorDetailViewModel
+import sg.mesha.goatos.viewmodel.VendorsListViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
 import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
@@ -505,6 +525,24 @@ object Routes {
     const val TOXIN_TASK = "/toxin/tasks/{$TOXIN_TASK_ID_ARG}"
 
     fun toxinTaskRoute(taskId: String): String = "/toxin/tasks/${Uri.encode(taskId)}"
+
+    // Vendors module (backend module `vendors`, maintainer decision 2026-09-03). TWO L0 roots
+    // whose hrefs match the backend-composed nav items VERBATIM (bootstrap_copy.go:
+    // {key:"vendors", href:"/vendors"} and {key:"feed_purchases", href:"/vendors/feed-purchases"});
+    // the add wizards and the detail screens are distinct hosted drills with Up/Back and NO root
+    // chrome, never a prefix reuse of an L0 route. The detail routes carry a literal segment
+    // (`/vendor/`, `/purchase/`) so `/vendors/feed-purchases` can never be read as a vendor id.
+    const val VENDORS = "/vendors"
+    const val VENDOR_NEW = "/vendors/new"
+    const val VENDOR_ID_ARG = "vendor_id"
+    const val VENDOR_DETAIL = "/vendors/vendor/{$VENDOR_ID_ARG}"
+    const val VENDORS_FEED_PURCHASES = "/vendors/feed-purchases"
+    const val FEED_PURCHASE_NEW = "/vendors/feed-purchases/new"
+    const val FEED_PURCHASE_ID_ARG = "purchase_id"
+    const val FEED_PURCHASE_DETAIL = "/vendors/feed-purchases/purchase/{$FEED_PURCHASE_ID_ARG}"
+
+    fun vendorDetailRoute(vendorId: String): String = "/vendors/vendor/${Uri.encode(vendorId)}"
+    fun feedPurchaseDetailRoute(purchaseId: String): String = "/vendors/feed-purchases/purchase/${Uri.encode(purchaseId)}"
 
     // Clock module (backend module `clock`, maintainer decision 2026-08-27 —
     // docs/features/clock-in-out/plan.md). TWO L0 roots whose hrefs match the backend-composed
@@ -3168,6 +3206,140 @@ fun AppNavHost(
             }
         }
 
+        // --- Vendors (module vendors, maintainer decision 2026-09-03) ------------------------
+        // TWO L0 lists (the vendor register and the feed purchase ledger) plus their hosted add
+        // wizards and detail drills. Module visibility is backend-composed (offered on
+        // procurement.vendor.read), so nothing here gates on a role string.
+        composable(Routes.VENDORS) {
+            val vm: VendorsListViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bind(VENDORS_TAB_TITLE) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
+            VendorsListScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        VendorsListEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is VendorsListEvent.SelectStatus -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is VendorsListEvent.OpenVendor -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.vendorDetailRoute(event.vendorId)) { launchSingleTop = true }
+                        }
+                        VendorsListEvent.AddVendor -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.VENDOR_NEW) { launchSingleTop = true }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(Routes.VENDOR_NEW) {
+            val vm: VendorCreateViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            // The microphone is bound only while this destination is on screen, the camera shape.
+            CaptureAccessGate {
+                BindAudioCaptureSource(rememberDelegatingAudioCaptureSource())
+                VendorCreateScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            VendorCreateEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+        }
+        composable(
+            route = Routes.VENDOR_DETAIL,
+            arguments = listOf(navArgument(Routes.VENDOR_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: VendorDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            VendorDetailScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        VendorDetailEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(Routes.VENDORS_FEED_PURCHASES) {
+            val vm: FeedPurchasesListViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bind(FEED_PURCHASES_TAB_TITLE) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
+            FeedPurchasesListScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        FeedPurchasesListEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is FeedPurchasesListEvent.SelectDelivery -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is FeedPurchasesListEvent.OpenPurchase -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.feedPurchaseDetailRoute(event.purchaseId)) { launchSingleTop = true }
+                        }
+                        FeedPurchasesListEvent.AddPurchase -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.FEED_PURCHASE_NEW) { launchSingleTop = true }
+                        }
+                    }
+                },
+            )
+        }
+        composable(Routes.FEED_PURCHASE_NEW) {
+            val vm: FeedPurchaseCreateViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            FeedPurchaseCreateScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        FeedPurchaseCreateEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.FEED_PURCHASE_DETAIL,
+            arguments = listOf(navArgument(Routes.FEED_PURCHASE_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: FeedPurchaseDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            FeedPurchaseDetailScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        FeedPurchaseDetailEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
         // --- Clock In / Clock Out (module clock, maintainer decision 2026-08-27) -----------
         // TWO L0 bottom-bar roots (My Clock for everyone; Team for leadership, offered only when
         // bootstrap composed the nav item) plus the hosted person-day drill. Module visibility is
@@ -3876,6 +4048,10 @@ private fun executionRoutePattern(base: String): String =
  */
 /** The backend's `nav.toxin` label, mirrored so the L0 header matches the nav item. */
 private const val TOXIN_TAB_TITLE = "Tests"
+
+/** The backend's `nav.vendors` / `nav.feed_purchases` labels, mirrored so each L0 header matches its nav item. */
+private const val VENDORS_TAB_TITLE = "Vendors"
+private const val FEED_PURCHASES_TAB_TITLE = "Feed Purchases"
 
 private fun NavGraphBuilder.pcCareCategoryComposable(
     route: String,

@@ -131,6 +131,9 @@ enum class ProofFlow(val wireValue: String) {
     FEED_TRANSPORT("feed_transport"),
     SHIFTING("shifting"),
 
+    /** Vendors module (maintainer decision 2026-09-03): the audio note recorded about a vendor. */
+    VENDOR_VOICE_NOTE("vendor_voice_note"),
+
     /**
      * Pen Reconciliation return video (docs/decisions/pen-reconciliation.md): the mandatory
      * live-camera clip proving a strayed animal was returned to its registered pen. Like

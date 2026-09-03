@@ -125,6 +125,16 @@ import sg.mesha.goatos.core.data.cache.ToxinTaskItemDao
 import sg.mesha.goatos.core.data.cache.ToxinTaskItemEntity
 import sg.mesha.goatos.core.data.cache.ToxinTaskRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.ToxinTaskRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.VendorItemDao
+import sg.mesha.goatos.core.data.cache.VendorItemEntity
+import sg.mesha.goatos.core.data.cache.VendorRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.VendorRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedPurchaseItemDao
+import sg.mesha.goatos.core.data.cache.FeedPurchaseItemEntity
+import sg.mesha.goatos.core.data.cache.FeedPurchaseRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.FeedPurchaseRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.VendorsBlobCacheDao
+import sg.mesha.goatos.core.data.cache.VendorsBlobCacheEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowCardDao
@@ -308,6 +318,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         ToxinTaskRemoteKeyEntity::class,
         ToxinTaskDetailCacheEntity::class,
         ClockBlobCacheEntity::class,
+        VendorItemEntity::class,
+        VendorRemoteKeyEntity::class,
+        FeedPurchaseItemEntity::class,
+        FeedPurchaseRemoteKeyEntity::class,
+        VendorsBlobCacheEntity::class,
     ],
     // v52 (see [MIGRATION_51_52]) adds the three diagnosis tables. `health_diagnosis_runs` is the
     // DETAIL cache — one animal's whole assessment, read in a shed with no signal, so a manager who
@@ -323,7 +338,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // pair (docs/decisions/pen-reconciliation.md).
     // v54 (see [MIGRATION_53_54]) adds `statusRank` to the Reconcile item cache so tied detail
     // lookups prefer the furthest-forward workflow state without depending on SQLite JSON1.
-    version = 54,
+    // v55 (see [MIGRATION_54_55]) adds the five Vendors read-model tables (module vendors,
+    // maintainer decision 2026-09-03): the paged register and ledger rows with their per-scope
+    // cursors, and one JSON blob cache for vendor/purchase detail, the catalog and the form options.
+    version = 55,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -512,4 +530,9 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun toxinTaskRemoteKeyDao(): ToxinTaskRemoteKeyDao
     abstract fun toxinTaskDetailCacheDao(): ToxinTaskDetailCacheDao
     abstract fun clockBlobCacheDao(): ClockBlobCacheDao
+    abstract fun vendorItemDao(): VendorItemDao
+    abstract fun vendorRemoteKeyDao(): VendorRemoteKeyDao
+    abstract fun feedPurchaseItemDao(): FeedPurchaseItemDao
+    abstract fun feedPurchaseRemoteKeyDao(): FeedPurchaseRemoteKeyDao
+    abstract fun vendorsBlobCacheDao(): VendorsBlobCacheDao
 }

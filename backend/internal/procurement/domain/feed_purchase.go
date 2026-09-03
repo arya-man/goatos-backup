@@ -57,6 +57,19 @@ const (
 // FeedDeliveryStatuses is the closed delivery vocabulary, in lifecycle order.
 var FeedDeliveryStatuses = []string{FeedDeliveryPurchased, FeedDeliveryReached}
 
+// FeedDeliveryLabel is the ONE farm label per delivery state, rendered verbatim by the web page
+// contract and the phone alike, so no surface phrases "on the road" its own way.
+func FeedDeliveryLabel(status string) string {
+	switch status {
+	case FeedDeliveryPurchased:
+		return "On the road"
+	case FeedDeliveryReached:
+		return "Reached"
+	default:
+		return status
+	}
+}
+
 // NormalizeFeedDeliveryFilter resolves the ledger page's delivery query parameter. "" and "all"
 // mean every load; otherwise it must be an exact state. ok is false for anything else, so the
 // caller REJECTS rather than silently widening the filter.

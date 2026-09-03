@@ -6369,6 +6369,12 @@ export interface components {
                 label: string;
             }[];
             payment_statuses: ("Paid" | "Pending")[];
+            /** @description The closed delivery vocabulary with its farm labels, in lifecycle order. */
+            delivery_statuses: {
+                /** @enum {string} */
+                key: "purchased" | "reached";
+                label: string;
+            }[];
             /** @description Suppliers already bought from, most recent first. A suggestion list, not a closed vocabulary. */
             vendors: string[];
         };

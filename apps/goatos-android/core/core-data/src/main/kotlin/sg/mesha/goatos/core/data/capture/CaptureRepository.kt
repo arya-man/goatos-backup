@@ -910,10 +910,10 @@ class DefaultProofCaptureRepository(
         // Gate 3: Backstop validation — file must exist && length > 0 before Room insert.
         // Mime-aware: a JPEG must never be judged by the video duration probe (OEMs that report
         // duration=0 for images would reject every valid photo at this gate).
-        val validationResult = if (mimeType.startsWith("image/")) {
-            proofArtifactValidator.validateImageFile(localUri)
-        } else {
-            proofArtifactValidator.validateVideoFile(localUri)
+        val validationResult = when {
+            mimeType.startsWith("image/") -> proofArtifactValidator.validateImageFile(localUri)
+            mimeType.startsWith("audio/") -> proofArtifactValidator.validateAudioFile(localUri)
+            else -> proofArtifactValidator.validateVideoFile(localUri)
         }
         if (!validationResult.isValid) {
             telemetry.track(
@@ -2145,8 +2145,14 @@ private fun localFileBytes(localUri: String): Long? =
         null
     }
 
-private fun proofTypeForMime(mimeType: String): String =
-    if (mimeType.startsWith("image/", ignoreCase = true)) "photo" else "video"
+private fun proofTypeForMime(mimeType: String): String = when {
+    mimeType.startsWith("image/", ignoreCase = true) -> "photo"
+    // An audio note (vendor voice note, 2026-09-03) declares itself as what it is. Before this
+    // branch an audio/mp4 capture would have been labelled "video" and refused by the server's
+    // video rules (no camera capture source).
+    mimeType.startsWith("audio/", ignoreCase = true) -> "audio"
+    else -> "video"
+}
 
 private fun byteBucket(bytes: Long): String = when {
     bytes < 1_000_000 -> "lt_1mb"

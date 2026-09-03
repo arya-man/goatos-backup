@@ -116,7 +116,14 @@ type feedPurchaseOptionsPayload struct {
 	Farms           []string                `json:"farms"`
 	FeedItems       []feedItemOptionPayload `json:"feed_items"`
 	PaymentStatuses []string                `json:"payment_statuses"`
-	Vendors         []string                `json:"vendors"`
+	// DeliveryStatuses carries the farm label per state so the phone's chips render backend words.
+	DeliveryStatuses []deliveryStatusOptionPayload `json:"delivery_statuses"`
+	Vendors          []string                      `json:"vendors"`
+}
+
+type deliveryStatusOptionPayload struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
 }
 
 type feedItemOptionPayload struct {
@@ -208,7 +215,11 @@ func toFeedPurchaseOptionsPayload(o ports.FeedPurchaseOptions) feedPurchaseOptio
 	if vendors == nil {
 		vendors = []string{}
 	}
+	deliveries := make([]deliveryStatusOptionPayload, 0, len(o.DeliveryStatuses))
+	for _, d := range o.DeliveryStatuses {
+		deliveries = append(deliveries, deliveryStatusOptionPayload{Key: d.Key, Label: d.Label})
+	}
 	return feedPurchaseOptionsPayload{
-		Farms: farms, FeedItems: items, PaymentStatuses: statuses, Vendors: vendors,
+		Farms: farms, FeedItems: items, PaymentStatuses: statuses, DeliveryStatuses: deliveries, Vendors: vendors,
 	}
 }

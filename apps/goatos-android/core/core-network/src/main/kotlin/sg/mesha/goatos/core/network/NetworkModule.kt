@@ -79,6 +79,14 @@ import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskPageDto
+import sg.mesha.goatos.core.network.dto.VendorCatalogDto
+import sg.mesha.goatos.core.network.dto.VendorDto
+import sg.mesha.goatos.core.network.dto.VendorPageDto
+import sg.mesha.goatos.core.network.dto.VendorWriteDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
+import sg.mesha.goatos.core.network.dto.FeedPurchasePageDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto
@@ -875,6 +883,41 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: ToxinSubmitRequestDto,
     ): ToxinTaskDetailDto
+
+    // Vendors (maintainer decision 2026-09-03): the same procurement routes the web uses.
+    @GET("procurement/vendors")
+    suspend fun getProcurementVendors(
+        @Query("search") search: String?,
+        @Query("status") status: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): VendorPageDto
+
+    @GET("procurement/vendors/{vendor_id}")
+    suspend fun getProcurementVendor(@Path("vendor_id") vendorId: String): VendorDto
+
+    @GET("procurement/vendor-catalog")
+    suspend fun getProcurementVendorCatalog(): VendorCatalogDto
+
+    @POST("procurement/vendors")
+    suspend fun createProcurementVendor(@Body request: VendorWriteDto): VendorDto
+
+    @GET("procurement/feed-purchases")
+    suspend fun getFeedPurchases(
+        @Query("farm") farm: String?,
+        @Query("delivery") delivery: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): FeedPurchasePageDto
+
+    @GET("procurement/feed-purchase-options")
+    suspend fun getFeedPurchaseOptions(): FeedPurchaseOptionsDto
+
+    @POST("procurement/feed-purchases")
+    suspend fun createFeedPurchase(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedPurchaseWriteDto,
+    ): FeedPurchaseDto
 
     @GET("feed-direction/distribution/captures")
     suspend fun getFeedDistributionCaptures(
@@ -1769,6 +1812,32 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: ToxinSubmitRequestDto,
     ): ToxinTaskDetailDto = service.submitToxinReading(taskId, idempotencyKey, request)
+
+    override suspend fun getProcurementVendors(
+        search: String?,
+        status: String?,
+        limit: Int?,
+        offset: Int?,
+    ): VendorPageDto = service.getProcurementVendors(search, status, limit, offset)
+
+    override suspend fun getProcurementVendor(vendorId: String): VendorDto = service.getProcurementVendor(vendorId)
+
+    override suspend fun getProcurementVendorCatalog(): VendorCatalogDto = service.getProcurementVendorCatalog()
+
+    override suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto =
+        service.createProcurementVendor(request)
+
+    override suspend fun getFeedPurchases(
+        farm: String?,
+        delivery: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedPurchasePageDto = service.getFeedPurchases(farm, delivery, limit, offset)
+
+    override suspend fun getFeedPurchaseOptions(): FeedPurchaseOptionsDto = service.getFeedPurchaseOptions()
+
+    override suspend fun createFeedPurchase(idempotencyKey: String, request: FeedPurchaseWriteDto): FeedPurchaseDto =
+        service.createFeedPurchase(idempotencyKey, request)
 
     override suspend fun getFeedDistributionCaptures(
         parkId: String?,

@@ -273,6 +273,31 @@ class GoatDatabaseMigrationTest {
         db.close()
     }
 
+    @Test
+    fun `migration 54 to 55 creates the five vendors tables and preserves existing toxin rows`() {
+        helper.createDatabase(DB_NAME, 54).apply {
+            execSQL(
+                "INSERT INTO `toxin_task_items` " +
+                    "(`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('scope-1', 'task-1', 0, '{}', 1)",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 55, true, MIGRATION_54_55)
+        for (table in listOf("vendor_items", "vendor_remote_keys", "feed_purchase_items", "feed_purchase_remote_keys", "vendors_blob_cache")) {
+            db.query("SELECT COUNT(*) FROM `$table`").use { cursor ->
+                assertEquals("$table exists and is empty", true, cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
+        db.query("SELECT `dtoJson` FROM `toxin_task_items` WHERE `queryKey`='scope-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{}", cursor.getString(0))
+        }
+        db.close()
+    }
+
     /** The real v1 (bootstrap-cache-only) schema, then the actual migration objects applied in order. */
     private fun buildV1ThenMigrate(): SupportSQLiteDatabase {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -344,6 +369,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_51_52.migrate(db)
         MIGRATION_52_53.migrate(db)
         MIGRATION_53_54.migrate(db)
+        MIGRATION_54_55.migrate(db)
         return db
     }
 

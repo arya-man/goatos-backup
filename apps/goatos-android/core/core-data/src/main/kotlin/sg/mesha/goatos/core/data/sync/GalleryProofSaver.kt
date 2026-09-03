@@ -27,6 +27,8 @@ class MediaStoreGalleryProofSaver(
     override suspend fun saveProofCopy(localFilePath: String, request: ProofUploadRequestDto, idempotencyKey: String) {
         if (localFilePath.isBlank()) return
         val mimeType = request.mimeType.ifBlank { fallbackMimeType(localFilePath, request.proofType) }
+        // An audio note is not evidence the operator needs in their gallery; it stays app-private.
+        if (mimeType.startsWith("audio/", ignoreCase = true) || request.proofType.equals("audio", ignoreCase = true)) return
         val isImage = mimeType.startsWith("image/", ignoreCase = true) || request.proofType.equals("photo", ignoreCase = true)
         val relativePath = galleryRelativePath(isImage)
         val displayName = proofDisplayName(request.proofType, idempotencyKey, mimeType, request.uploadOriginal)
