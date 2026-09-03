@@ -16194,11 +16194,7 @@ export interface operations {
                 to?: string;
                 /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
-                /**
-                 * @description Optional sale-ready tolerance in grams, from 0 to 1000. When present, only the 35 kg sale-ready summary threshold is lowered by this amount; the 30 kg threshold remains unchanged.
-                 * @minimum 0
-                 * @maximum 1000
-                 */
+                /** @description Optional sale-ready tolerance in grams, from 0 to 1000. When present, only the 35 kg sale-ready summary threshold is lowered by this amount; the 30 kg threshold remains unchanged. */
                 sale_threshold_tolerance_g?: number;
             };
             header?: never;
@@ -16240,11 +16236,7 @@ export interface operations {
                 origin?: "farm_born" | "purchased";
                 /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
-                /**
-                 * @description Optional sale-ready tolerance in grams, from 0 to 1000. When present, only the 35 kg sale-ready summary threshold is lowered by this amount; the 30 kg threshold remains unchanged.
-                 * @minimum 0
-                 * @maximum 1000
-                 */
+                /** @description Optional sale-ready tolerance in grams, from 0 to 1000. When present, only the 35 kg sale-ready summary threshold is lowered by this amount; the 30 kg threshold remains unchanged. */
                 sale_threshold_tolerance_g?: number;
             };
             header?: never;
