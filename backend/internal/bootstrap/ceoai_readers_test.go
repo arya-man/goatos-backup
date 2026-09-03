@@ -122,11 +122,11 @@ func TestCountsReader_UsesCanonicalCountsBreakdown(t *testing.T) {
 	if fakeSvc.captured.TenantID != "tenant-1" {
 		t.Fatalf("tenant = %q, want tenant-1", fakeSvc.captured.TenantID)
 	}
-	if fakeSvc.captured.ParkID == nil || *fakeSvc.captured.ParkID != "park-uuid-channapatna" {
-		t.Fatalf("park id did not reach counts query: %+v", fakeSvc.captured.ParkID)
+	if len(fakeSvc.captured.ParkIDs) != 1 || fakeSvc.captured.ParkIDs[0] != "park-uuid-channapatna" {
+		t.Fatalf("park id did not reach counts query: %+v", fakeSvc.captured.ParkIDs)
 	}
-	if fakeSvc.captured.ShedID == nil || *fakeSvc.captured.ShedID != "shed-uuid-gandhi" {
-		t.Fatalf("shed id did not reach counts query: %+v", fakeSvc.captured.ShedID)
+	if len(fakeSvc.captured.Pens) != 1 || fakeSvc.captured.Pens[0].ShedID != "shed-uuid-gandhi" {
+		t.Fatalf("shed id did not reach counts query: %+v", fakeSvc.captured.Pens)
 	}
 	if len(facts) == 0 || facts[0].Label != "Active animals" || facts[0].Value != "972" {
 		t.Fatalf("missing active animals fact: %+v", facts)

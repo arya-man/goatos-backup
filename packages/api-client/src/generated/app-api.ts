@@ -22058,12 +22058,18 @@ export interface operations {
     getCountsBreakdown: {
         parameters: {
             query?: {
-                park_id?: string;
+                /** @description Repeatable. Each occurrence adds a park to the match set (rows in ANY listed park match); a single occurrence behaves exactly as the old single-valued form, and omitting it means no park filter. */
+                park_id?: string[];
                 shed_id?: string;
                 partition_label?: string | null;
-                management_stage?: string;
-                breed?: string;
-                sex?: string;
+                /** @description Repeatable pen filter. Each value selects one pen in the facet-key convention the response's own `facets.sheds[].key` uses — "<shed_uuid>" for a whole shed (every partition of it) or "<shed_uuid>#<partition>" for one pen, where the partition half is matched on the normalized key so "Part 3" and "3" select the same pen. Rows in ANY listed pen match. */
+                pen?: string[];
+                /** @description Repeatable. Each occurrence adds a raw management stage to the match set; a single occurrence behaves exactly as the old single-valued form. */
+                management_stage?: string[];
+                /** @description Repeatable. Each occurrence adds a breed to the match set; a single occurrence behaves exactly as the old single-valued form. */
+                breed?: string[];
+                /** @description Repeatable. Each occurrence adds a sex to the match set; a single occurrence behaves exactly as the old single-valued form. */
+                sex?: string[];
                 lifecycle_status?: string;
                 limit?: number;
                 offset?: number;

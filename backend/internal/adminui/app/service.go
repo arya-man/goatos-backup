@@ -4070,14 +4070,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.gender_label":     "Gender",
 			"filter.all_option":       "All",
 			"filter.clear_all":        "Clear all",
-			"filter.scope_readonly":   "Park scope is set in the top bar.",
-			"chart.breed.title":       "Count by breed",
-			"chart.breed.caption":     "animals by breed",
-			"chart.stage.title":       "Count by stage",
-			"chart.stage.caption":     "where they are",
-			"chart.gender.title":      "Gender split",
-			"chart.gender.caption":    "animals by sex",
-			"chart.shed.title":        "Pen occupancy",
+			"filter.apply":            "Apply filters",
+			// Suffix rendered after the selection count on a multi-select filter button ("3 selected").
+			"filter.selected_count": "selected",
+			"filter.scope_readonly": "Park scope is set in the top bar.",
+			"chart.breed.title":     "Count by breed",
+			"chart.breed.caption":   "animals by breed",
+			"chart.stage.title":     "Count by stage",
+			"chart.stage.caption":   "where they are",
+			"chart.gender.title":    "Gender split",
+			"chart.gender.caption":  "animals by sex",
+			"chart.shed.title":      "Pen occupancy",
 			// PENS, not sheds (maintainer decision 2026-08-12): each bar is one pen, named with its
 			// park because 66 of 154 shed names exist in both. The caption has to say so — a reader
 			// counting twelve bars against a 44-shed estate would otherwise draw the wrong conclusion

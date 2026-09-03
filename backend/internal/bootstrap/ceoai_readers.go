@@ -141,7 +141,7 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 		q := countsdomain.CountsBreakdownQuery{TenantID: tenantID, Limit: 10}
 		if parkID, ok := params["park_id"].(string); ok && parkID != "" {
-			q.ParkID = &parkID
+			q.ParkIDs = []string{parkID}
 		} else if parkLabel, ok := params["park_label"].(string); ok && parkLabel != "" {
 			parkID, found, err := resolver.ResolveParkID(ctx, tenantID, parkLabel)
 			if err != nil {
@@ -150,24 +150,24 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 			if !found {
 				return nil, fmt.Errorf("park_label %q could not be resolved", parkLabel)
 			}
-			q.ParkID = &parkID
-		}
-		if shedID, ok := params["shed_id"].(string); ok && shedID != "" {
-			q.ShedID = &shedID
+			q.ParkIDs = []string{parkID}
 		}
 		if stage, ok := params["stage"].(string); ok && stage != "" {
-			q.ManagementStage = &stage
+			q.ManagementStages = []string{stage}
 		}
 		if breed, ok := params["breed"].(string); ok && breed != "" {
-			q.Breed = &breed
+			q.Breeds = []string{breed}
 		}
 		if sex, ok := params["sex"].(string); ok && sex != "" {
-			q.Sex = &sex
+			q.Sexes = []string{sex}
 		}
 		partitionFilter, hasPartitionFilter := params["partition_label"].(string)
 		hasPartitionFilter = hasPartitionFilter && partitionFilter != ""
-		if hasPartitionFilter {
-			q.PartitionLabel = &partitionFilter
+		if shedID, ok := params["shed_id"].(string); ok && shedID != "" {
+			// A named partition scopes the query only together with its shed (the pen filter is a
+			// (shed, partition) pair); a partition named WITHOUT a shed is still honored by the
+			// SamePartition row drop below.
+			q.Pens = []countsdomain.CountsBreakdownPen{{ShedID: shedID, PartitionLabel: partitionFilter}}
 		}
 
 		result, err := svc.GetBreakdown(ctx, q)
@@ -402,7 +402,7 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 				continue
 			}
 			facts = append(facts, ceodomain.Fact{
-				Label: "Vaccination pen",
+				Label: "Vaccination shed",
 				Value: fmt.Sprintf("Animals: %d, Due: %d, Done: %d, Sessions: %d, Status: %s",
 					row.Animals, row.Due, row.Done, row.Sessions, row.Status),
 				Scope: scope,
@@ -410,7 +410,7 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 		}
 		facts = append([]ceodomain.Fact{{
 			Label: "Vaccination summary",
-			Value: fmt.Sprintf("Pens: %d, Animals: %d, Due: %d, Done: %d, Sessions: %d",
+			Value: fmt.Sprintf("Sheds: %d, Animals: %d, Due: %d, Done: %d, Sessions: %d",
 				len(result.Rows), totalAnimals, totalDue, totalDone, totalSessions),
 		}}, facts...)
 		if metricLabel != "" && aggregateTotal {

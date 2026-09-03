@@ -143,23 +143,26 @@ export function buildShedFilterOptions(
       .filter((r) => r.partition_label && r.partition_label.toLowerCase() !== "whole")
       .sort((left, right) => collator.compare(left.partition_label ?? "", right.partition_label ?? ""));
 
-    // A subdivided shed becomes an OPTGROUP holding its whole-shed option and one option per pen,
-    // which is the shape the operational-location convention asks for ("group by shed_id first,
-    // list partitions under it" — OL-2). Real data makes this the difference between a usable
-    // control and an unusable one: 148 flat rows, twelve of them starting "Yashoda -", is a wall.
-    // An UNDIVIDED shed gets no group — a one-option group is chrome around a single row.
+    // A subdivided shed becomes an OPTGROUP holding one option per pen, which is the shape the
+    // operational-location convention asks for ("group by shed_id first, list partitions under
+    // it" — OL-2). Real data makes this the difference between a usable control and an unusable
+    // one: 148 flat rows, twelve of them starting "Yashoda -", is a wall.
+    // A subdivided shed gets NO whole-shed aggregate option (maintainer instruction, 2026-09-03):
+    // the group heading already names the shed, and with multi-select the reader picks the pens —
+    // a "Castro" row above "Castro 1/2/3" read as a duplicate. An UNDIVIDED shed keeps its single
+    // option and gets no group — a one-option group is chrome around a single row.
     // Options keep their full "Yashoda - 3" label rather than a bare "3": a native select scrolls
     // its group header out of sight, and the convention requires both halves of a location to
     // render together.
     const group = partitionedRows.length ? withPark(parentRow.label, parentRow.label, parkId) : undefined;
 
-    // Add parent aggregate option
-    options.push({
-      key: groupKey,
-      value: shedId,
-      label: withPark(parentRow.label, parentRow.label, parkId),
-      group,
-    });
+    if (partitionedRows.length === 0) {
+      options.push({
+        key: groupKey,
+        value: shedId,
+        label: withPark(parentRow.label, parentRow.label, parkId),
+      });
+    }
 
     for (const row of partitionedRows) {
       options.push({

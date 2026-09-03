@@ -73,15 +73,25 @@ export async function CountsBreakdownPage({
   const scope = parseScope(sp);
   const { parkId } = backendScope(scope);
 
+  // Stage, breed and shed are MULTI-VALUED (repeated URL params, OR within the dimension);
+  // farm and gender stay single-valued (maintainer instruction, 2026-09-03).
+  const all = (key: string): string[] => {
+    const value = sp[key];
+    return (Array.isArray(value) ? value : value ? [value] : []).filter(Boolean);
+  };
   const farmParkId = one(sp, "bd_farm");
-  const shedIdParam = one(sp, "bd_shed");
-  const stage = one(sp, "bd_stage");
-  const breed = one(sp, "bd_breed");
+  const shedParams = all("bd_shed");
+  const stages = all("bd_stage");
+  const breeds = all("bd_breed");
   const sex = one(sp, "bd_sex");
 
-  // Parse shed_id and partition_label from the shed filter parameter.
-  // The filter value may be "shed_id" (non-partitioned) or "shed_id|partition_label" (partitioned).
-  const [shedId, partitionLabel] = shedIdParam ? shedIdParam.split("|") : ["", ""];
+  // Each shed filter value is "shed_id" (whole shed) or "shed_id|partition_label" (one pen).
+  // The API's `pen` parameter carries the same pair with "#" as the separator (the facet-key
+  // convention), so the translation is only the separator swap.
+  const pens = shedParams.map((value) => {
+    const idx = value.indexOf("|");
+    return idx < 0 ? value : `${value.slice(0, idx)}#${value.slice(idx + 1)}`;
+  });
 
   const pageSizeOptions = tablePageSizes(pageContract, "detail-breakdown");
   const requestedLimit = Number(one(sp, "bd_limit"));
@@ -100,10 +110,9 @@ export async function CountsBreakdownPage({
   const [breakdownResult, stageResult] = await Promise.all([
     getCountsBreakdown({
       park_id: parkId || farmParkId,
-      shed_id: shedId,
-      partition_label: partitionLabel || undefined,
-      management_stage: stage,
-      breed,
+      pen: pens,
+      management_stage: stages,
+      breed: breeds,
       sex,
       limit: pageSize,
       offset: (requestedPage - 1) * pageSize,
@@ -116,7 +125,7 @@ export async function CountsBreakdownPage({
 
   const breakdown: CountsBreakdownResponse | null = breakdownResult.ok ? breakdownResult.data : null;
   const rows = breakdown?.items ?? [];
-  const hasFilter = Boolean(farmParkId || shedId || stage || breed || sex);
+  const hasFilter = Boolean(farmParkId || shedParams.length || stages.length || breeds.length || sex);
 
   const noParkLabel = copy(pageContract, "label.unassigned_farm");
   const noShedLabel = copy(pageContract, "label.unassigned_shed");
@@ -165,7 +174,7 @@ export async function CountsBreakdownPage({
     {
       param: "bd_farm",
       label: copy(pageContract, "filter.farm_label"),
-      value: farmParkId ?? "",
+      values: farmParkId ? [farmParkId] : [],
       // Disabled (not hidden) when the top bar already scopes a park: the mock's rule is
       // disable-with-reason, and hiding it would make the control appear to come and go.
       disabledReason: parkId ? copy(pageContract, "filter.scope_readonly") : undefined,
@@ -176,7 +185,8 @@ export async function CountsBreakdownPage({
     {
       param: "bd_stage",
       label: copy(pageContract, "filter.stage_label"),
-      value: stage ?? "",
+      multi: true,
+      values: stages,
       options: (breakdown?.facets.stages ?? [])
         .filter((point) => point.key !== "")
         .map((point) => ({ value: point.key, label: point.key })),
@@ -184,7 +194,8 @@ export async function CountsBreakdownPage({
     {
       param: "bd_breed",
       label: copy(pageContract, "filter.breed_label"),
-      value: breed ?? "",
+      multi: true,
+      values: breeds,
       options: (breakdown?.facets.breeds ?? [])
         .filter((point) => point.key !== "")
         .map((point) => ({ value: point.key, label: point.key })),
@@ -192,12 +203,12 @@ export async function CountsBreakdownPage({
     {
       param: "bd_shed",
       label: copy(pageContract, "filter.shed_label"),
+      multi: true,
       // The COMPOSITE "<shed_id>|<partition_label>" is the option value, so the control must be
-      // set to the composite too. Using the bare shedId meant no <option> matched when a partition
-      // was chosen and the native <select> silently fell back to showing "All" -- the table was
-      // correctly filtered while the dropdown claimed nothing was selected. The split into
-      // shedId/partitionLabel for the API call happens separately above.
-      value: shedIdParam ?? "",
+      // set to the composite too. Using the bare shedId meant no option matched when a partition
+      // was chosen and the control silently claimed nothing was selected. The translation to the
+      // API's `pen` values happens separately above.
+      values: shedParams,
       // The park vocabulary is handed over so same-named sheds can be told apart. `park_label` on
       // the shed facet is a field nothing has ever filled — the Go struct and the OpenAPI schema
       // both lack it — so without this the disambiguation was dead code and the dropdown listed
@@ -208,7 +219,7 @@ export async function CountsBreakdownPage({
     {
       param: "bd_sex",
       label: copy(pageContract, "filter.gender_label"),
-      value: sex ?? "",
+      values: sex ? [sex] : [],
       // Gender comes from the backend contract's own vocabulary, NOT from charts.sex. The chart
       // series is computed over the FILTERED set, so sourcing the dropdown from it collapses the
       // options to whatever is already selected — pick female and male vanishes, leaving no way

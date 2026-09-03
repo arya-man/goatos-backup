@@ -10119,42 +10119,85 @@ paths:
         - name: park_id
           in: query
           required: false
+          description: >-
+            Repeatable. Each occurrence adds a park to the match set (rows in ANY listed park
+            match); a single occurrence behaves exactly as the old single-valued form, and
+            omitting it means no park filter.
           schema:
-            type: string
-            format: uuid
-            description: Filter by park location ID (top-bar scope)
+            type: array
+            items:
+              type: string
+              format: uuid
+          style: form
+          explode: true
         - name: shed_id
           in: query
           required: false
           schema:
             type: string
             format: uuid
-            description: Filter by shed location ID
+            description: >-
+              Legacy single-pen filter, kept for installed clients: one shed location ID, paired
+              with the optional partition_label below. New callers use the repeatable `pen`
+              parameter instead; when both are sent the legacy pair simply joins the pen set.
         - name: partition_label
           in: query
           required: false
           schema:
             type: string
             nullable: true
-            description: Filter by shed partition label (null/omitted means all partitions of shed)
+            description: Filter by shed partition label (null/omitted means all partitions of shed_id)
+        - name: pen
+          in: query
+          required: false
+          description: >-
+            Repeatable pen filter. Each value selects one pen in the facet-key convention the
+            response's own `facets.sheds[].key` uses — "<shed_uuid>" for a whole shed (every
+            partition of it) or "<shed_uuid>#<partition>" for one pen, where the partition half is
+            matched on the normalized key so "Part 3" and "3" select the same pen. Rows in ANY
+            listed pen match.
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
         - name: management_stage
           in: query
           required: false
+          description: >-
+            Repeatable. Each occurrence adds a raw management stage to the match set; a single
+            occurrence behaves exactly as the old single-valued form.
           schema:
-            type: string
-            description: Filter by raw management stage
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
         - name: breed
           in: query
           required: false
+          description: >-
+            Repeatable. Each occurrence adds a breed to the match set; a single occurrence
+            behaves exactly as the old single-valued form.
           schema:
-            type: string
-            description: Filter by breed
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
         - name: sex
           in: query
           required: false
+          description: >-
+            Repeatable. Each occurrence adds a sex to the match set; a single occurrence behaves
+            exactly as the old single-valued form.
           schema:
-            type: string
-            description: Filter by sex
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
         - name: lifecycle_status
           in: query
           required: false

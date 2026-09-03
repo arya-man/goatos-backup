@@ -701,8 +701,15 @@ export type CountsBreakdownParams = {
   park_id?: string;
   shed_id?: string;
   partition_label?: string | null;
-  management_stage?: string;
-  breed?: string;
+  /**
+   * Repeatable pen filter in the facet-key convention (`<shed_uuid>` for a whole shed,
+   * `<shed_uuid>#<partition>` for one pen). Serialized as a repeated parameter by the client.
+   */
+  pen?: readonly string[];
+  /** Repeatable: rows in ANY listed stage match. */
+  management_stage?: readonly string[];
+  /** Repeatable: rows in ANY listed breed match. */
+  breed?: readonly string[];
   sex?: string;
   lifecycle_status?: string;
   limit?: number;
