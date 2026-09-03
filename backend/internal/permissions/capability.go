@@ -336,10 +336,12 @@ var moduleCapabilities = []ModuleCapability{
 		// a park head reviews procurement at his park and has no vendor access at all, while
 		// a procurement manager runs the vendor desk and records no source entry. Bundling
 		// them forced one to gain the other's authority on cutover.
-		Key:      "vendors",
-		Label:    "Vendors",
-		Blurb:    "The vendor list and what each one is paid.",
-		Surfaces: []string{SurfaceWeb},
+		Key:   "vendors",
+		Label: "Vendors",
+		Blurb: "The vendor list and what each one is paid.",
+		// Mobile too (maintainer decision 2026-09-03): the Vendors phone module carries the
+		// register and feed purchases, view and add, for the procurement desk and the CXO.
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {VendorRead},
 			LevelDo:   {VendorRead, VendorWrite},

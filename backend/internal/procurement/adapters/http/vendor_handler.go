@@ -79,6 +79,7 @@ func callerMaySeeFinance(r *http.Request) bool {
 
 // ListVendors serves GET /procurement/vendors.
 func (h *VendorHandler) ListVendors(w http.ResponseWriter, r *http.Request) {
+	labels := h.catalogLabels(r)
 	q := r.URL.Query()
 	limit := 0
 	if raw := strings.TrimSpace(q.Get("limit")); raw != "" {
@@ -119,7 +120,7 @@ func (h *VendorHandler) ListVendors(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]vendorPayload, 0, len(page.Vendors))
 	for _, v := range page.Vendors {
-		items = append(items, toVendorPayload(v))
+		items = append(items, toVendorPayload(v, labels))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, vendorListPayload{
 		Vendors: items,
@@ -133,6 +134,7 @@ func (h *VendorHandler) ListVendors(w http.ResponseWriter, r *http.Request) {
 
 // GetVendor serves GET /procurement/vendors/{vendor_id}.
 func (h *VendorHandler) GetVendor(w http.ResponseWriter, r *http.Request) {
+	labels := h.catalogLabels(r)
 	vendorID := r.PathValue("vendor_id")
 	if strings.TrimSpace(vendorID) == "" {
 		h.writeErr(w, r, app.BadRequest("invalid_vendor_id", "That vendor link is not valid."))
@@ -143,11 +145,12 @@ func (h *VendorHandler) GetVendor(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toVendorPayload(vendor))
+	httpresponse.WriteJSON(w, http.StatusOK, toVendorPayload(vendor, labels))
 }
 
 // CreateVendor serves POST /procurement/vendors.
 func (h *VendorHandler) CreateVendor(w http.ResponseWriter, r *http.Request) {
+	labels := h.catalogLabels(r)
 	var body vendorWritePayload
 	if !h.decode(w, r, &body) {
 		return
@@ -157,11 +160,12 @@ func (h *VendorHandler) CreateVendor(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusCreated, toVendorPayload(created))
+	httpresponse.WriteJSON(w, http.StatusCreated, toVendorPayload(created, labels))
 }
 
 // UpdateVendor serves PUT /procurement/vendors/{vendor_id}.
 func (h *VendorHandler) UpdateVendor(w http.ResponseWriter, r *http.Request) {
+	labels := h.catalogLabels(r)
 	vendorID := r.PathValue("vendor_id")
 	if strings.TrimSpace(vendorID) == "" {
 		h.writeErr(w, r, app.BadRequest("invalid_vendor_id", "That vendor link is not valid."))
@@ -176,11 +180,12 @@ func (h *VendorHandler) UpdateVendor(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toVendorPayload(updated))
+	httpresponse.WriteJSON(w, http.StatusOK, toVendorPayload(updated, labels))
 }
 
 // UpdateVendorStatus serves POST /procurement/vendors/{vendor_id}/status.
 func (h *VendorHandler) UpdateVendorStatus(w http.ResponseWriter, r *http.Request) {
+	labels := h.catalogLabels(r)
 	vendorID := r.PathValue("vendor_id")
 	if strings.TrimSpace(vendorID) == "" {
 		h.writeErr(w, r, app.BadRequest("invalid_vendor_id", "That vendor link is not valid."))
@@ -199,7 +204,7 @@ func (h *VendorHandler) UpdateVendorStatus(w http.ResponseWriter, r *http.Reques
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toVendorPayload(updated))
+	httpresponse.WriteJSON(w, http.StatusOK, toVendorPayload(updated, labels))
 }
 
 // ListVendorCatalog serves GET /procurement/vendor-catalog.
@@ -220,12 +225,14 @@ func (h *VendorHandler) ListVendorCatalog(w http.ResponseWriter, r *http.Request
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, vendorCatalogPayload{
-		RecordTypes: grouped[domain.CatalogKindRecordType],
-		Breeds:      grouped[domain.CatalogKindBreed],
-		States:      grouped[domain.CatalogKindState],
-		Cities:      grouped[domain.CatalogKindCity],
-		Statuses:    grouped[domain.CatalogKindStatus],
-		Feeds:       grouped[domain.CatalogKindFeed],
+		RecordTypes:       grouped[domain.CatalogKindRecordType],
+		Breeds:            grouped[domain.CatalogKindBreed],
+		States:            grouped[domain.CatalogKindState],
+		Cities:            grouped[domain.CatalogKindCity],
+		CapacityUnits:     grouped[domain.CatalogKindCapacityUnit],
+		SupplyFrequencies: grouped[domain.CatalogKindSupplyFrequency],
+		Statuses:          grouped[domain.CatalogKindStatus],
+		Feeds:             grouped[domain.CatalogKindFeed],
 	})
 }
 
@@ -281,4 +288,24 @@ func (h *VendorHandler) writeErr(w http.ResponseWriter, r *http.Request, appErr 
 		"error":   appErr.Code,
 		"message": appErr.Message,
 	}, errors.New(appErr.Code))
+}
+
+// catalogLabels resolves the tenant's catalog once per request so a vendor's capacity line can be
+// composed with the LABELS the farm chose ("Every 2 weeks") rather than the stored values. A
+// catalog read failure degrades to the raw values rather than failing the vendor read: the
+// register must stay readable when its vocabulary table is momentarily unreachable.
+func (h *VendorHandler) catalogLabels(r *http.Request) catalogLabels {
+	entries, err := h.service.ListVendorCatalog(r.Context(), tenantID(r))
+	if err != nil {
+		h.log.Warn("vendor catalog labels unavailable", "err", err)
+		return nil
+	}
+	out := catalogLabels{}
+	for _, e := range entries {
+		if out[e.Kind] == nil {
+			out[e.Kind] = map[string]string{}
+		}
+		out[e.Kind][e.Value] = e.Label
+	}
+	return out
 }

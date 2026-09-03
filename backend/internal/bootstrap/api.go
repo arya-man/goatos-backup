@@ -106,6 +106,7 @@ import (
 	processintegrityapp "github.com/vgoats/goatos/backend/internal/processintegrity/app"
 	procurementhttp "github.com/vgoats/goatos/backend/internal/procurement/adapters/http"
 	procurementpg "github.com/vgoats/goatos/backend/internal/procurement/adapters/postgres"
+	procurementproof "github.com/vgoats/goatos/backend/internal/procurement/adapters/proof"
 	procurementapp "github.com/vgoats/goatos/backend/internal/procurement/app"
 	proofhttp "github.com/vgoats/goatos/backend/internal/proof/adapters/http"
 	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
@@ -679,7 +680,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// The vendor register shares procurement's postgres repository (it owns procurement_vendors)
 	// but has its own thin service: a contact book has no state machine to orchestrate.
 	procurementVendorHandler := procurementhttp.NewVendorHandler(
-		procurementapp.NewVendorService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+		procurementapp.NewVendorService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
+			// A vendor's voice note is a proof (audio, in-app microphone) and is checked against
+			// the proof store before it is stored on the vendor (maintainer decision 2026-09-03).
+			WithVoiceNoteValidator(procurementproof.NewValidator(proofRepo)), log)
 	// The feed PURCHASE ledger (maintainer decision 2026-08-24, retiring the read-only half of
 	// migration 000174's lock). Procurement owns the write; feeddirection keeps the stock read.
 	procurementFeedPurchaseHandler := procurementhttp.NewFeedPurchaseHandler(

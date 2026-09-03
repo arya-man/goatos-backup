@@ -14,11 +14,31 @@ import (
 // validating a write and deciding whether the caller may see payment instruments. Inventing
 // workflow around it would be inventing rules the business does not have.
 type VendorService struct {
-	repo ports.VendorRepository
+	repo       ports.VendorRepository
+	voiceNotes ports.VoiceNoteValidator
 }
 
 func NewVendorService(repo ports.VendorRepository) *VendorService {
 	return &VendorService{repo: repo}
+}
+
+// WithVoiceNoteValidator attaches the proof-store check a voice-note ref must pass before it is
+// stored on a vendor. Without one, a write carrying a voice note is REFUSED rather than stored
+// unchecked: a proof id nobody verified is a link to nothing.
+func (s *VendorService) WithVoiceNoteValidator(v ports.VoiceNoteValidator) *VendorService {
+	s.voiceNotes = v
+	return s
+}
+
+// validateVoiceNote checks an optional voice-note ref. Blank means "no note" and passes.
+func (s *VendorService) validateVoiceNote(ctx context.Context, tenantID, proofRef string) error {
+	if proofRef == "" {
+		return nil
+	}
+	if s.voiceNotes == nil {
+		return ports.ErrInvalidVoiceNote
+	}
+	return s.voiceNotes.ValidateVendorVoiceNote(ctx, tenantID, proofRef)
 }
 
 // VendorListQuery is one page request against the register.
@@ -59,6 +79,9 @@ func (s *VendorService) CreateVendor(ctx context.Context, tenantID string, write
 	if err := normalized.ValidateForCreate(); err != nil {
 		return domain.Vendor{}, err
 	}
+	if err := s.validateVoiceNote(ctx, tenantID, normalized.VoiceNoteProofRef); err != nil {
+		return domain.Vendor{}, err
+	}
 	created, err := s.repo.CreateVendor(ctx, tenantID, normalized, actorID)
 	if err != nil {
 		return domain.Vendor{}, err
@@ -82,6 +105,9 @@ func (s *VendorService) UpdateVendor(ctx context.Context, tenantID, vendorID str
 	}
 	normalized := write.Normalize()
 	if err := normalized.Validate(); err != nil {
+		return domain.Vendor{}, err
+	}
+	if err := s.validateVoiceNote(ctx, tenantID, normalized.VoiceNoteProofRef); err != nil {
 		return domain.Vendor{}, err
 	}
 	// preserveFinance is the INVERSE of includeFinance. A caller who cannot READ the payment

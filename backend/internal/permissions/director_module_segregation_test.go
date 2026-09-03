@@ -222,7 +222,8 @@ func TestDirectorHoldsNoOtherModulesCapabilities(t *testing.T) {
 			VerificationReview, VerificationAct, VerificationVerdict,
 			GoatRead, CalendarRead, CalendarAction, TaskExecute, TaskRead, TaskAssign,
 			HealthConfigRead, HealthConfigWrite, HealthRead, HealthDiagnose,
-			AppBootstrap,
+			// AppBootstrap is deliberately NOT here any more: the Vendors phone module (maintainer
+			// decision 2026-09-03) put the register and feed purchases on this desk's phone.
 		},
 	}
 	for role, perms := range forbidden {

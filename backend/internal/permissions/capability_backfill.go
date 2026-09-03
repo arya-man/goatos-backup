@@ -152,19 +152,21 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("config", SurfaceWeb, LevelView)),
 	),
-	// Web-only, and narrow: the vendor desk, plus reading source entry.
+	// The vendor desk, plus reading source entry. Vendors is on BOTH surfaces (maintainer
+	// decision 2026-09-03): the register and feed purchases, view and add, on the phone.
 	RoleProcurementManager: rows(
 		one(assign("procurement", SurfaceWeb, LevelView)),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("load_costs", SurfaceWeb, LevelDo)),
-		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
 	),
-	// Web-only. Procurement Director keeps Sales Config, Vendors, Feed Purchases, and sees Feed
-	// Analytics stock only (the Hemant case). Source Entry is intentionally absent.
+	// Web-only except Vendors. Procurement Director keeps Sales Config, Vendors, Feed Purchases,
+	// and sees Feed Analytics stock only (the Hemant case). Source Entry is intentionally absent.
+	// Vendors is on BOTH surfaces (maintainer decision 2026-09-03): the Procurement phone module.
 	RoleProcurementDirector: rows(
 		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
-		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		one(assign("feed_direction", SurfaceWeb, LevelStock)),
@@ -217,7 +219,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		bothSurfaces("herd_register", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		one(assign("procurement", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
-		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
 		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
 		one(assign("verification", SurfaceWeb, LevelConfigure)),

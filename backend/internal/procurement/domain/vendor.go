@@ -47,6 +47,16 @@ type Vendor struct {
 	Comments *string
 	PartyID  *string
 
+	// Capacity (maintainer decision 2026-09-03): how much this vendor can supply per delivery and
+	// how often. Quantity is a decimal carried as a string, like PricePerGoat, and travels with its
+	// unit -- nil quantity means "not recorded", never zero.
+	CapacityQuantity *string
+	CapacityUnit     *string
+	SupplyFrequency  *string
+	// VoiceNoteProofRef is the audio note recorded on the phone (a completed 'audio' proof in
+	// this tenant), nil when none was recorded.
+	VoiceNoteProofRef *string
+
 	SourceRow *int
 
 	CreatedAt  string
@@ -77,6 +87,11 @@ const (
 	CatalogKindCity       = "city"
 	CatalogKindStatus     = "status"
 	CatalogKindFeed       = "feed"
+	// CatalogKindCapacityUnit / CatalogKindSupplyFrequency (maintainer decision 2026-09-03): what a
+	// vendor's capacity is counted in, and how often it is available. Stable VALUES the app stores
+	// (kg, per_2_weeks); the LABEL is what screens render.
+	CatalogKindCapacityUnit    = "capacity_unit"
+	CatalogKindSupplyFrequency = "supply_frequency"
 )
 
 // VendorCatalogKinds is the closed set of vocabulary kinds, mirroring the CHECK on
@@ -84,6 +99,8 @@ const (
 var VendorCatalogKinds = []string{
 	CatalogKindRecordType, CatalogKindBreed, CatalogKindState,
 	CatalogKindCity, CatalogKindStatus, CatalogKindFeed,
+	CatalogKindCapacityUnit,
+	CatalogKindSupplyFrequency,
 }
 
 // VendorCatalogEntry is one selectable option in a register dropdown.
@@ -172,6 +189,13 @@ type VendorWrite struct {
 	UPIID             string
 	PANNumber         string
 	Comments          string
+
+	// CapacityQuantity is a decimal string (up to three places); nil means not recorded. Unit and
+	// frequency are catalog VALUES; "" means not recorded. VoiceNoteProofRef is a proof id or "".
+	CapacityQuantity  *string
+	CapacityUnit      string
+	SupplyFrequency   string
+	VoiceNoteProofRef string
 }
 
 // ErrVendorValidation reports a rejected write with a field-specific, operator-readable reason.
@@ -206,6 +230,17 @@ func (w VendorWrite) Normalize() VendorWrite {
 	// Details and Comments are free prose: trim the edges but keep the author's line breaks.
 	out.Details = strings.TrimSpace(w.Details)
 	out.Comments = strings.TrimSpace(w.Comments)
+	out.CapacityUnit = NormalizeVendorText(w.CapacityUnit)
+	out.SupplyFrequency = NormalizeVendorText(w.SupplyFrequency)
+	out.VoiceNoteProofRef = strings.TrimSpace(w.VoiceNoteProofRef)
+	if w.CapacityQuantity != nil {
+		q := strings.TrimSpace(*w.CapacityQuantity)
+		if q == "" {
+			out.CapacityQuantity = nil
+		} else {
+			out.CapacityQuantity = &q
+		}
+	}
 
 	if status, ok := NormalizeStatus(w.Status); ok {
 		out.Status = status
@@ -310,7 +345,85 @@ func (w VendorWrite) Validate() error {
 			return ErrVendorValidation{Field: "price_per_goat", Reason: "must be a non-negative amount"}
 		}
 	}
+	// Capacity travels as a pair: a number with no unit is not a capacity and a unit with no number
+	// says nothing, so one without the other is refused rather than half-stored.
+	if w.CapacityQuantity != nil {
+		if !capacityPattern.MatchString(*w.CapacityQuantity) || *w.CapacityQuantity == "0" {
+			return ErrVendorValidation{Field: "capacity_quantity", Reason: "must be more than zero"}
+		}
+		if w.CapacityUnit == "" {
+			return ErrVendorValidation{Field: "capacity_unit", Reason: "required with a quantity"}
+		}
+	} else if w.CapacityUnit != "" {
+		return ErrVendorValidation{Field: "capacity_quantity", Reason: "required with a unit"}
+	}
+	for field, value := range map[string]string{
+		"capacity_unit":    w.CapacityUnit,
+		"supply_frequency": w.SupplyFrequency,
+	} {
+		if len(value) > maxVendorShortField {
+			return ErrVendorValidation{Field: field, Reason: "too long"}
+		}
+	}
+	if w.VoiceNoteProofRef != "" && !uuidPattern.MatchString(w.VoiceNoteProofRef) {
+		return ErrVendorValidation{Field: "voice_note_proof_ref", Reason: "must be a proof id"}
+	}
 	return nil
+}
+
+// capacityPattern accepts a positive amount with up to three decimal places (numeric(14,3)). Zero
+// is refused separately: "can supply nothing" is not a capacity worth recording.
+var capacityPattern = regexp.MustCompile(`^\d{1,11}(\.\d{1,3})?$`)
+
+// uuidPattern is the shape a proof id must have before the proof store is even asked.
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// CapacityDisplay composes the ONE capacity sentence every surface renders ("5,000 kg · Every 2
+// weeks"), from the stored values and the catalog labels the caller resolved. Backend-owned so the
+// phone and the web cannot phrase the same fact two ways. Empty when no capacity is recorded; a
+// frequency with no quantity still reads ("Every 2 weeks") because it is a real fact on its own.
+func (v Vendor) CapacityDisplay(unitLabel, frequencyLabel string) string {
+	parts := make([]string, 0, 2)
+	if v.CapacityQuantity != nil && v.CapacityUnit != nil {
+		unit := strings.TrimSpace(unitLabel)
+		if unit == "" {
+			unit = *v.CapacityUnit
+		}
+		parts = append(parts, formatCapacityQuantity(*v.CapacityQuantity)+" "+unit)
+	}
+	if v.SupplyFrequency != nil && *v.SupplyFrequency != "" {
+		freq := strings.TrimSpace(frequencyLabel)
+		if freq == "" {
+			freq = *v.SupplyFrequency
+		}
+		parts = append(parts, freq)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// formatCapacityQuantity renders a decimal string with Indian digit grouping and no trailing
+// zeros: "5000.000" -> "5,000", "2.500" -> "2.5".
+func formatCapacityQuantity(raw string) string {
+	whole, frac := raw, ""
+	if i := strings.IndexByte(raw, '.'); i >= 0 {
+		whole, frac = raw[:i], strings.TrimRight(raw[i+1:], "0")
+	}
+	if len(whole) > 3 {
+		head, tail := whole[:len(whole)-3], whole[len(whole)-3:]
+		groups := []string{}
+		for len(head) > 2 {
+			groups = append([]string{head[len(head)-2:]}, groups...)
+			head = head[:len(head)-2]
+		}
+		if head != "" {
+			groups = append([]string{head}, groups...)
+		}
+		whole = strings.Join(append(groups, tail), ",")
+	}
+	if frac == "" {
+		return whole
+	}
+	return whole + "." + frac
 }
 
 // decimalPattern accepts a non-negative amount with up to two decimal places, matching

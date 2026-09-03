@@ -2909,7 +2909,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.upi_id":              "UPI ID",
 			"field.pan_number":          "PAN number",
 			"field.comments":            "Comments",
-			"value.none":                "Not recorded",
+			// Capacity and the voice note (maintainer decision 2026-09-03).
+			"field.capacity":          "Capacity",
+			"field.capacity_quantity": "How much per delivery",
+			"field.capacity_unit":     "Unit",
+			"field.supply_frequency":  "How often",
+			"field.voice_note":        "Voice note",
+			"hint.capacity":           "Leave blank if not known. A quantity needs its unit.",
+			"voice_note.none":         "No voice note recorded. Notes are recorded from the phone.",
+			"voice_note.unavailable":  "The voice note could not be loaded right now.",
+			"voice_note.play":         "Load voice note",
+			"value.none":              "Not recorded",
 			// Shown in place of the payment block for a caller without the finance permission, so a
 			// withheld value never reads as "this vendor has no bank details".
 			"payment.hidden":      "Payment details are hidden for your role.",

@@ -46,9 +46,9 @@ func TestFeedPurchaseRolePermissions(t *testing.T) {
 // the ledger may see which feeds and farms it is keyed by.
 func TestFeedPurchaseRoutesAreGatedOnTheDedicatedPermissions(t *testing.T) {
 	want := map[string][]string{
-		"GET /procurement/feed-purchases":        {FeedPurchaseRead},
-		"POST /procurement/feed-purchases":       {FeedPurchaseWrite},
-		"GET /procurement/feed-purchase-options": {FeedPurchaseRead},
+		"GET /procurement/feed-purchases":                        {FeedPurchaseRead},
+		"POST /procurement/feed-purchases":                       {FeedPurchaseWrite},
+		"GET /procurement/feed-purchase-options":                 {FeedPurchaseRead},
 		"PUT /procurement/feed-purchases/{purchase_id}/delivery": {FeedPurchaseWrite},
 	}
 	found := map[string]bool{}

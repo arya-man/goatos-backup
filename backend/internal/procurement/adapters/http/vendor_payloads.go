@@ -48,6 +48,15 @@ type vendorPayload struct {
 
 	Comments *string `json:"comments"`
 
+	// Capacity (maintainer decision 2026-09-03). capacity_display is BACKEND-composed from the
+	// quantity, the unit label and the frequency label ("5,000 kg · Every 2 weeks"), empty when
+	// nothing is recorded; clients render it verbatim and use the raw fields only to prefill a form.
+	CapacityQuantity  *string `json:"capacity_quantity"`
+	CapacityUnit      *string `json:"capacity_unit"`
+	SupplyFrequency   *string `json:"supply_frequency"`
+	CapacityDisplay   string  `json:"capacity_display"`
+	VoiceNoteProofRef *string `json:"voice_note_proof_ref"`
+
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 	// row_version must be echoed back on update. It is the optimistic fence that stops two editors
@@ -79,6 +88,10 @@ type vendorCatalogPayload struct {
 	Cities      []vendorCatalogEntryPayload `json:"cities"`
 	Statuses    []vendorCatalogEntryPayload `json:"statuses"`
 	Feeds       []vendorCatalogEntryPayload `json:"feeds"`
+	// Capacity vocabularies (maintainer decision 2026-09-03): what a capacity is counted in and how
+	// often it is available. Values are stored, labels are rendered.
+	CapacityUnits     []vendorCatalogEntryPayload `json:"capacity_units"`
+	SupplyFrequencies []vendorCatalogEntryPayload `json:"supply_frequencies"`
 }
 
 // vendorWritePayload is the create/update body.
@@ -107,6 +120,12 @@ type vendorWritePayload struct {
 	UPIID             string  `json:"upi_id"`
 	PANNumber         string  `json:"pan_number"`
 	Comments          string  `json:"comments"`
+	// Capacity: quantity as a decimal string (null = not recorded) with its unit, plus how often;
+	// the audio note's proof id. All optional; quantity and unit must travel together.
+	CapacityQuantity  *string `json:"capacity_quantity"`
+	CapacityUnit      string  `json:"capacity_unit"`
+	SupplyFrequency   string  `json:"supply_frequency"`
+	VoiceNoteProofRef string  `json:"voice_note_proof_ref"`
 	// row_version is required on update and ignored on create.
 	RowVersion int64 `json:"row_version"`
 }
@@ -128,10 +147,22 @@ func (p vendorWritePayload) toDomain() domain.VendorWrite {
 		Details: p.Details, State: p.State, City: p.City,
 		BankName: p.BankName, AccountNo: p.AccountNo, IFSCCode: p.IFSCCode,
 		UPIID: p.UPIID, PANNumber: p.PANNumber, Comments: p.Comments,
+		CapacityQuantity: p.CapacityQuantity, CapacityUnit: p.CapacityUnit,
+		SupplyFrequency: p.SupplyFrequency, VoiceNoteProofRef: p.VoiceNoteProofRef,
 	}
 }
 
-func toVendorPayload(v domain.Vendor) vendorPayload {
+// catalogLabels resolves catalog VALUES to their LABELS per kind, for the backend-composed lines.
+type catalogLabels map[string]map[string]string
+
+func (c catalogLabels) label(kind, value string) string {
+	if c == nil {
+		return ""
+	}
+	return c[kind][value]
+}
+
+func toVendorPayload(v domain.Vendor, labels catalogLabels) vendorPayload {
 	return vendorPayload{
 		VendorID:          v.VendorID,
 		RecordType:        v.RecordType,
@@ -158,10 +189,25 @@ func toVendorPayload(v domain.Vendor) vendorPayload {
 		PANNumber:         v.PANNumber,
 		FinanceRedacted:   v.FinanceRedacted,
 		Comments:          v.Comments,
+		CapacityQuantity:  v.CapacityQuantity,
+		CapacityUnit:      v.CapacityUnit,
+		SupplyFrequency:   v.SupplyFrequency,
+		CapacityDisplay: v.CapacityDisplay(
+			labels.label(domain.CatalogKindCapacityUnit, derefString(v.CapacityUnit)),
+			labels.label(domain.CatalogKindSupplyFrequency, derefString(v.SupplyFrequency)),
+		),
+		VoiceNoteProofRef: v.VoiceNoteProofRef,
 		CreatedAt:         v.CreatedAt,
 		UpdatedAt:         v.UpdatedAt,
 		RowVersion:        v.RowVersion,
 	}
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // vendorDisplayName composes the one name every surface shows for a vendor.

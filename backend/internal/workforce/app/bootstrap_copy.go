@@ -386,6 +386,22 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "toxin", labelKey: "nav.toxin", href: "/toxin", shared_key: "", priority: 1, requiredPermission: permissions.ToxinRead}, //nav-composition:ignore: registry entry
 		},
 	},
+	// Vendors (module_key vendors, maintainer decision 2026-09-03): the procurement desk's phone
+	// module -- the vendor register and the feed purchase ledger, view and add. Two tabs, one per
+	// ledger, each gated on the SAME read permission its backing routes require. Offered on
+	// VendorRead the per-person way (ceo_internal, procurement_director, procurement_manager hold
+	// it); no job outside procurement carries it, so nothing widens.
+	"vendors": {
+		key:         "vendors",
+		labelKey:    "module.vendors",
+		landingHref: "/vendors", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    10,
+		contributions: []moduleNavContribution{
+			{key: "vendors", labelKey: "nav.vendors", href: "/vendors", shared_key: "", priority: 1, requiredPermission: permissions.VendorRead},                                    //nav-composition:ignore: registry entry
+			{key: "feed_purchases", labelKey: "nav.feed_purchases", href: "/vendors/feed-purchases", shared_key: "", priority: 2, requiredPermission: permissions.FeedPurchaseRead}, //nav-composition:ignore: registry entry
+		},
+	},
 	// PC Care (module_key pc_care, maintainer decision 2026-08-21): planner-assigned deworming /
 	// ticks removal / hoof trimming / hair trimming, one bottom-bar tab per category — the Feed
 	// four-tab shape. Each category tab is gated on PCCareExecute, the SAME permission its
@@ -685,7 +701,10 @@ func candidateModuleKeysFrom(grants []domain.GrantSummary, grantedModules []stri
 		// Clock In / Out is offered to EVERY non-verifier principal regardless
 		// of department grants (decision D2: everyone clocks in). Appended
 		// rather than seeded so a department grant row is never required.
-		return appendMissing(renderableModuleKeys(grantedModules), clockModuleKey)
+		// Permission-offered modules (Vendors) ride the same append: a procurement manager is
+		// not a leadership principal and belongs to no department with a module grant row.
+		keys := appendMissing(renderableModuleKeys(grantedModules), permissionOfferedModuleKeys(grants)...)
+		return appendMissing(keys, clockModuleKey)
 	}
 	return appendMissing(leadershipModuleKeys(grants), clockModuleKey)
 }
@@ -859,6 +878,7 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if grantsHavePermission(grants, permissions.ToxinRead) {
 		keys = appendMissing(keys, "toxin")
 	}
+	keys = appendMissing(keys, permissionOfferedModuleKeys(grants)...)
 	// Herd Operations (Counts) capture is offered the SAME per-person way as approvals above, and
 	// for the same reason (maintainer decision 2026-08-07, extending "rbac per person, not per
 	// group"). A leadership principal who has been granted counts.write ON THEIR OWN GRANT ROW --
@@ -884,6 +904,18 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	// stg-operator-scope guard makes them justify), so it names the person, not the job.
 	if hasRole(grants, permissions.RoleOperator) {
 		keys = appendMissing(keys, "counts")
+	}
+	return keys
+}
+
+// permissionOfferedModuleKeys lists the modules offered on a PERMISSION rather than a job or a
+// department grant, to leadership and field principals alike. Vendors (maintainer decision
+// 2026-09-03) is offered on VendorRead: the CEO/CXO and the procurement director/manager hold it,
+// and no other job does, so the permission IS the per-person fact -- the toxin shape.
+func permissionOfferedModuleKeys(grants []domain.GrantSummary) []string {
+	keys := make([]string, 0, 1)
+	if grantsHavePermission(grants, permissions.VendorRead) {
+		keys = append(keys, "vendors")
 	}
 	return keys
 }
@@ -1575,6 +1607,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "Approvals",
 		"module.toxin":          "Toxin",
 		"nav.toxin":             "Tests",
+		"module.vendors":        "Vendors",
+		"nav.vendors":           "Vendors",
+		"nav.feed_purchases":    "Feed Purchases",
 		"module.clock":          "Clock In / Out",
 		"nav.clock":             "My Clock",
 		"nav.clock_team":        "Team",
@@ -1627,6 +1662,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "अनुमोदन",
 		"module.toxin":          "टॉक्सिन",
 		"nav.toxin":             "जाँच",
+		"module.vendors":        "विक्रेता",
+		"nav.vendors":           "विक्रेता",
+		"nav.feed_purchases":    "चारा खरीद",
 		"module.clock":          "हाज़िरी",
 		"nav.clock":             "मेरी हाज़िरी",
 		"nav.clock_team":        "टीम",
@@ -1679,6 +1717,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "ಅನುಮೋದನೆ",
 		"module.toxin":          "ಟಾಕ್ಸಿನ್",
 		"nav.toxin":             "ಪರೀಕ್ಷೆಗಳು",
+		"module.vendors":        "ಮಾರಾಟಗಾರರು",
+		"nav.vendors":           "ಮಾರಾಟಗಾರರು",
+		"nav.feed_purchases":    "ಮೇವು ಖರೀದಿ",
 		"module.clock":          "ಹಾಜರಾತಿ",
 		"nav.clock":             "ನನ್ನ ಹಾಜರಾತಿ",
 		"nav.clock_team":        "ತಂಡ",
@@ -1731,6 +1772,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "ఆమోదం",
 		"module.toxin":          "టాక్సిన్",
 		"nav.toxin":             "పరీక్షలు",
+		"module.vendors":        "విక్రేతలు",
+		"nav.vendors":           "విక్రేతలు",
+		"nav.feed_purchases":    "దాణా కొనుగోళ్లు",
 		"module.clock":          "హాజరు",
 		"nav.clock":             "నా హాజరు",
 		"nav.clock_team":        "బృందం",

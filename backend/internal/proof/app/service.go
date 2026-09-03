@@ -424,7 +424,7 @@ func validateCreate(in domain.CreateUpload) error {
 	if in.UploadedBy != nil && *in.UploadedBy != "" && !uuidutil.IsUUIDString(*in.UploadedBy) {
 		return ErrInvalid
 	}
-	if !oneOf(in.ProofType, "photo", "video", "attachment") {
+	if !oneOf(in.ProofType, "photo", "video", "attachment", "audio") {
 		return ErrInvalid
 	}
 	if !oneOf(in.ScopeType, "tenant", "farm", "park", "shed", "cohort", "batch", "task", "goat") {
@@ -442,6 +442,23 @@ func validateCreate(in domain.CreateUpload) error {
 			return ErrInvalid
 		}
 		if captureSource == "gallery_picker" && in.SubjectType != "shed" {
+			return ErrInvalid
+		}
+		start, startOK := metadataNumber(in.Metadata["captured_start_ms"])
+		end, endOK := metadataNumber(in.Metadata["captured_end_ms"])
+		if !startOK || !endOK || start <= 0 || end < start {
+			return ErrInvalid
+		}
+	}
+	if in.ProofType == "audio" {
+		// An audio note (maintainer decision 2026-09-03: the vendor voice note) is held to the
+		// video rule's honesty: recorded by the in-app microphone, by a known person, over a
+		// captured window. There is no gallery path for audio -- a note about a vendor is
+		// spoken at the desk, not picked from a file.
+		if in.UploadedBy == nil || *in.UploadedBy == "" {
+			return ErrInvalid
+		}
+		if captureSource, _ := in.Metadata["capture_source"].(string); captureSource != "in_app_microphone" {
 			return ErrInvalid
 		}
 		start, startOK := metadataNumber(in.Metadata["captured_start_ms"])

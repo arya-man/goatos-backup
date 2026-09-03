@@ -75,3 +75,13 @@ type VendorRepository interface {
 	// guards. One query capped at domain.MaxVendorOptions, so this is never a paged full walk.
 	ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error)
 }
+
+// ErrInvalidVoiceNote reports a voice-note proof ref that is unknown, wrong-tenant, unfinished, not
+// an audio recording, or not captured by the in-app microphone.
+var ErrInvalidVoiceNote = errors.New("procurement: vendor voice note proof is not usable")
+
+// VoiceNoteValidator asserts a vendor's voice-note ref is real evidence: a completed audio proof
+// in the caller's tenant, recorded by the in-app microphone.
+type VoiceNoteValidator interface {
+	ValidateVendorVoiceNote(ctx context.Context, tenantID, proofRef string) error
+}

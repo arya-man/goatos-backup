@@ -212,11 +212,11 @@ var protectedRoutes = []Route{
 	// state weighing hit above. Adding health.execute here keeps each role scoped to the one
 	// module it owns; handing it task.execute instead would carry vaccination SOP submission with
 	// it, which is the privilege escalation this route shape exists to avoid.
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
-	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite}},
+	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite}},
 	// downloadProof stays on task.read ALONE, and that is correct for every module whose
 	// evidence it serves -- including toxin, where it reads like a gap and is not. A reviewer
 	// checking the toxin block in RoleCEOInternal sees ToxinRead/ToxinVerdict and concludes the
@@ -230,7 +230,11 @@ var protectedRoutes = []Route{
 	// renders its own local capture and only ever WRITES proof_ref. A tester surface that must
 	// show a previous attempt gets ToxinRead added here, the way the upload routes above
 	// already OR in ToxinExecute.
-	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", Permissions: []string{TaskRead}},
+	// VendorWrite joined the upload OR (maintainer decision 2026-09-03): the vendor voice note is
+	// an audio proof recorded on the phone by the procurement desk, which executes no task. The
+	// download row ORs in VendorRead for the same reason -- whoever may read the register may play
+	// the note on it -- without widening task.read to anyone.
+	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", AnyPermissions: []string{TaskRead, VendorRead}},
 	{OperationID: "recordAppAnalyticsEvent", Method: "POST", Pattern: "/app/analytics/events", Permissions: []string{AppBootstrap}},
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
 	{OperationID: "recordAppScanAttempt", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-attempts", Permissions: []string{TaskExecute}},

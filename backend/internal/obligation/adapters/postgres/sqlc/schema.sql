@@ -7410,7 +7410,7 @@ CREATE TABLE public.procurement_vendor_catalog (
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT procurement_vendor_catalog_kind_check CHECK ((kind = ANY (ARRAY['record_type'::text, 'breed'::text, 'state'::text, 'city'::text, 'status'::text, 'feed'::text]))),
+    CONSTRAINT procurement_vendor_catalog_kind_check CHECK ((kind = ANY (ARRAY['record_type'::text, 'breed'::text, 'state'::text, 'city'::text, 'status'::text, 'feed'::text, 'capacity_unit'::text, 'supply_frequency'::text]))),
     CONSTRAINT procurement_vendor_catalog_label_not_blank CHECK ((btrim(label) <> ''::text)),
     CONSTRAINT procurement_vendor_catalog_value_not_blank CHECK ((btrim(value) <> ''::text))
 );
@@ -7444,6 +7444,10 @@ CREATE TABLE public.procurement_vendors (
     pan_number text,
     comments text,
     party_id uuid,
+    capacity_quantity numeric(14,3),
+    capacity_unit text,
+    supply_frequency text,
+    voice_note_proof_ref uuid,
     source_row integer,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -7494,7 +7498,7 @@ CREATE TABLE public.proof_artifacts (
     CONSTRAINT proof_artifacts_duration_check CHECK (((duration_ms IS NULL) OR (duration_ms >= 0))),
     CONSTRAINT proof_artifacts_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
     CONSTRAINT proof_artifacts_object_key_check CHECK ((btrim(object_key) <> ''::text)),
-    CONSTRAINT proof_artifacts_proof_type_check CHECK ((proof_type = ANY (ARRAY['photo'::text, 'video'::text, 'attachment'::text]))),
+    CONSTRAINT proof_artifacts_proof_type_check CHECK ((proof_type = ANY (ARRAY['photo'::text, 'video'::text, 'attachment'::text, 'audio'::text]))),
     CONSTRAINT proof_artifacts_provider_check CHECK ((storage_provider = ANY (ARRAY['local'::text, 'gcs'::text]))),
     CONSTRAINT proof_artifacts_retention_policy_check CHECK ((retention_policy = ANY (ARRAY[''::text, 'operational_90d'::text, 'standard_1y'::text, 'critical_7y'::text, 'legal_hold'::text]))),
     CONSTRAINT proof_artifacts_row_version_check CHECK ((row_version >= 1)),

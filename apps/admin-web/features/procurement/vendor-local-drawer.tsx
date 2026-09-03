@@ -12,6 +12,7 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ProcurementVendor, ProcurementVendorCatalog } from "@/lib/api/server";
 import { changeVendorStatusAction, createVendorAction, updateVendorAction } from "./vendor-actions";
+import { VendorVoiceNote } from "./vendor-voice-note";
 
 type CatalogEntry = { value: string; label: string; is_active: boolean };
 
@@ -302,6 +303,42 @@ export function VendorLocalDrawer({
                 <textarea id="v-details" name="details" maxLength={2000} rows={2} defaultValue={vendor?.details ?? ""} />
               </div>
 
+              {/* CAPACITY (maintainer decision 2026-09-03): how much per delivery, in what unit,
+                  how often. Quantity and unit are a pair; the backend refuses one without the
+                  other, so they sit on one row. The vocabularies are catalog entries. */}
+              <div className="dgrp">{field("capacity")}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 9 }}>
+                <div className="fld">
+                  <label htmlFor="v-capacity_quantity">{field("capacity_quantity")}</label>
+                  <input id="v-capacity_quantity" name="capacity_quantity" inputMode="decimal" defaultValue={vendor?.capacity_quantity ?? ""} />
+                </div>
+                <div className="fld">
+                  <label htmlFor="v-capacity_unit">{field("capacity_unit")}</label>
+                  <select id="v-capacity_unit" name="capacity_unit" defaultValue={vendor?.capacity_unit ?? ""}>
+                    <option value="">—</option>
+                    {optionsFor(catalog.capacity_units, vendor?.capacity_unit ?? undefined).map((e) => (
+                      <option key={e.value} value={e.value}>
+                        {e.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="fld">
+                <label htmlFor="v-supply_frequency">{field("supply_frequency")}</label>
+                <select id="v-supply_frequency" name="supply_frequency" defaultValue={vendor?.supply_frequency ?? ""}>
+                  <option value="">—</option>
+                  {optionsFor(catalog.supply_frequencies, vendor?.supply_frequency ?? undefined).map((e) => (
+                    <option key={e.value} value={e.value}>
+                      {e.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="muted small">{copy(pageContract, "hint.capacity")}</div>
+              </div>
+              {/* The voice note is recorded on the phone; the web edit carries it through unchanged. */}
+              <input type="hidden" name="voice_note_proof_ref" value={vendor?.voice_note_proof_ref ?? ""} />
+
               {/* Payment is only editable by a caller who can also READ it. The backend additionally
                   PRESERVES these columns for such a caller, so a blank submit cannot erase a bank
                   account they were never shown. */}
@@ -369,8 +406,24 @@ export function VendorLocalDrawer({
                 {cell(field("eta_after_order"), vendor.eta_after_order_days)}
                 {cell(field("ready_to_filtered"), vendor.ready_to_filtered)}
                 {cell(field("details"), vendor.details)}
+                {/* BACKEND-composed capacity line ("5,000 kg · Every 2 weeks"); the raw fields are
+                    for prefilling the form only. */}
+                {cell(field("capacity"), vendor.capacity_display)}
                 {cell(field("comments"), vendor.comments)}
               </div>
+
+              <div className="mt" style={{ marginTop: 4 }}>
+                {field("voice_note")}
+              </div>
+              {vendor.voice_note_proof_ref ? (
+                <VendorVoiceNote
+                  proofRef={vendor.voice_note_proof_ref}
+                  loadLabel={copy(pageContract, "voice_note.play")}
+                  unavailableCopy={copy(pageContract, "voice_note.unavailable")}
+                />
+              ) : (
+                <div className="note">{copy(pageContract, "voice_note.none")}</div>
+              )}
 
               <div className="mt" style={{ marginTop: 4 }}>
                 {copy(pageContract, "group.payment")}

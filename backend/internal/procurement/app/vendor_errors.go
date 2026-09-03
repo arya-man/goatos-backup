@@ -29,6 +29,9 @@ func VendorHTTPError(err error) *Error {
 	case err == nil:
 		return nil
 
+	case errors.Is(err, ports.ErrInvalidVoiceNote):
+		return BadRequest("vendor_voice_note_invalid", "That voice note could not be attached. Record it again and save.")
+
 	case errors.Is(err, ports.ErrVendorNotFound):
 		// Deliberately the same answer for "does not exist" and "belongs to another tenant", so the
 		// register cannot be probed across tenants.

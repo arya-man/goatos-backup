@@ -987,6 +987,7 @@ func TestVerifierNoDutyFallbackCoversEveryBuiltVerifiableModule(t *testing.T) {
 		"approvals": "capture-approval queue; approving is not evidence review and enqueues nothing",
 		"clock":     "attendance clock-in/out; no proof video, no verification category",
 		"toxin":     "strip-test module with its own CEO/CXO review routes; not a verificationcatalog producer",
+		"vendors":   "procurement register and feed purchase ledger; commercial records with no proof to verify",
 	}
 
 	listed := map[string]bool{}

@@ -4,6 +4,7 @@
 // redirects back with a banner. No optimistic success: the backend response (or its error envelope)
 // drives the message, so a rejected duplicate or a stale-write conflict is what the operator sees.
 import { revalidatePath } from "next/cache";
+import { getProofDownloadUrl } from "@/lib/api/server";
 import { actionRedirect, optionalString, requiredString } from "@/lib/action-helpers";
 // NOTE: every actionKey below MUST start with "action." -- withActionFeedback silently rewrites
 // anything else to "action.error_form", which would report a generic failure after a SUCCESSFUL
@@ -60,6 +61,14 @@ function readVendorForm(formData: FormData): ProcurementVendorWrite {
     // Sent verbatim as a string so the backend validates the amount; parsing to a float here would
     // be the money-through-float round trip the contract avoids.
     price_per_goat: optionalString(formData, "price_per_goat") ?? null,
+    // Capacity travels as a pair (the backend refuses one half without the other); the quantity is
+    // a decimal string for the same no-float reason as the price.
+    capacity_quantity: optionalString(formData, "capacity_quantity") ?? null,
+    capacity_unit: optionalString(formData, "capacity_unit") ?? "",
+    supply_frequency: optionalString(formData, "supply_frequency") ?? "",
+    // The web form cannot record audio; it carries the note the phone recorded so an edit here
+    // does not silently drop it (the write is a REPLACE).
+    voice_note_proof_ref: optionalString(formData, "voice_note_proof_ref") ?? "",
   };
 }
 
@@ -106,4 +115,14 @@ export async function changeVendorStatusAction(formData: FormData): Promise<void
   }
   revalidatePath(VENDORS_PATH);
   actionRedirect(formData, "success", "action.vendor_status_changed");
+}
+
+/**
+ * Resolves the short-lived signed download URL of a vendor's voice note for the drawer's player.
+ * Returns null when the proof cannot be served right now, so the player degrades to copy.
+ */
+export async function resolveVendorVoiceNoteUrl(proofRef: string): Promise<string | null> {
+  const trimmed = proofRef.trim();
+  if (!trimmed) return null;
+  return getProofDownloadUrl(trimmed);
 }

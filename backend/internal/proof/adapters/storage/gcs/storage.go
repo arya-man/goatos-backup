@@ -77,6 +77,9 @@ func (s *Storage) PrepareUpload(_ context.Context, proof domain.Artifact, expire
 			ChunkSizeBytes: resumableChunkSizeBytes,
 		}, nil
 	}
+	// Photos, attachments and audio notes take the simple PUT: an audio note is a few hundred
+	// kilobytes at most, well inside one request, and the resumable session above exists for
+	// multi-minute video.
 	headers := map[string]string{"x-goog-if-generation-match": "0"}
 	signed, err := s.signedURL("PUT", proof.ObjectKey, expiresAt, headers, nil)
 	if err != nil {

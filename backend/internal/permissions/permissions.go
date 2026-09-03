@@ -1096,16 +1096,19 @@ var rolePermissions = map[string]map[string]struct{}{
 	// book is not the same authority as accepting an arriving load of animals or passing a
 	// pre-dispatch health decision. Those stay with the roles that already run intake.
 	RoleProcurementManager: {
-		AdminWebBootstrap: {},
-		VendorRead:        {}, VendorWrite: {}, VendorFinanceRead: {},
+		// AppBootstrap (maintainer decision 2026-09-03): the Vendors phone module -- the vendor
+		// register and feed purchases, view and add -- is this desk's daily work.
+		AdminWebBootstrap: {}, AppBootstrap: {},
+		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
 		ProcurementRead: {},
 		// The feed purchase ledger and its entry form: buying feed is this desk's job, and the
 		// vendors it is bought from are already in this role's register.
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 	},
-	// RoleProcurementDirector: admin-web bootstrap plus stock-only Feed Analytics.
+	// RoleProcurementDirector: admin-web bootstrap plus stock-only Feed Analytics. AppBootstrap
+	// (maintainer decision 2026-09-03): the Procurement phone module is offered on VendorRead.
 	RoleProcurementDirector: {
-		AdminWebBootstrap: {},
+		AdminWebBootstrap: {}, AppBootstrap: {},
 		LocationsRead:     {},
 		SalesRead:         {}, SalesWrite: {}, SalesAllocateAnimals: {},
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},

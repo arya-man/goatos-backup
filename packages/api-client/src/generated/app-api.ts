@@ -5834,6 +5834,16 @@ export interface components {
             /** @description True when payment fields were WITHHELD for this caller rather than absent. The client must render "hidden" in that case -- a blank would read as "no bank details on file". */
             finance_redacted: boolean;
             comments?: string | null;
+            /** @description How much per delivery, a decimal as a string; null when not recorded. */
+            capacity_quantity?: string | null;
+            /** @description Catalog VALUE (kg, tonnes, animals, litres, bags). Render capacity_display, not this. */
+            capacity_unit?: string | null;
+            /** @description Catalog VALUE (per_week, per_2_weeks, per_month, per_3_months, one_time). */
+            supply_frequency?: string | null;
+            /** @description BACKEND-composed capacity line ("5,000 kg · Every 2 weeks") from the quantity, the unit label and the frequency label. Empty when nothing is recorded. Rendered verbatim. */
+            capacity_display?: string;
+            /** @description The vendor's audio note: a completed `audio` proof in this tenant. Play it through GET /app/proofs/{proof_id}/download. Null when none was recorded. */
+            voice_note_proof_ref?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -5876,6 +5886,14 @@ export interface components {
             upi_id?: string;
             pan_number?: string;
             comments?: string;
+            /** @description Decimal as a string, more than zero, up to three places. Travels with capacity_unit: one without the other is rejected. */
+            capacity_quantity?: string | null;
+            /** @description A capacity_units catalog value. */
+            capacity_unit?: string;
+            /** @description A supply_frequencies catalog value. */
+            supply_frequency?: string;
+            /** @description Proof id of a completed in-app-microphone `audio` upload in this tenant, or empty. An unusable ref is rejected (`vendor_voice_note_invalid`), never stored unchecked. */
+            voice_note_proof_ref?: string;
             /**
              * Format: int64
              * @description Required on update, ignored on create.
@@ -5911,6 +5929,10 @@ export interface components {
             cities: components["schemas"]["ProcurementVendorCatalogEntry"][];
             statuses: components["schemas"]["ProcurementVendorCatalogEntry"][];
             feeds: components["schemas"]["ProcurementVendorCatalogEntry"][];
+            /** @description What a vendor's capacity is counted in (kg, tonnes, animals, litres, bags). */
+            capacity_units: components["schemas"]["ProcurementVendorCatalogEntry"][];
+            /** @description How often that capacity is available (every week ... one time). */
+            supply_frequencies: components["schemas"]["ProcurementVendorCatalogEntry"][];
         };
         /** @description One buyer lead in the demand pipeline. */
         SalesBuyerLead: {
@@ -8306,7 +8328,7 @@ export interface components {
         ProofReference: {
             proof_id: string;
             /** @enum {string} */
-            proof_type: "photo" | "video" | "attachment";
+            proof_type: "photo" | "video" | "audio" | "attachment" | "audio";
             /** @enum {string} */
             subject_type: "batch" | "goat" | "shed" | "task" | "vial_lot" | "administration" | "other";
             subject_id?: string | null;
@@ -8318,7 +8340,7 @@ export interface components {
         };
         CreateProofUploadRequest: {
             /** @enum {string} */
-            proof_type: "photo" | "video" | "attachment";
+            proof_type: "photo" | "video" | "audio" | "attachment" | "audio";
             mime_type: string;
             /** @enum {string} */
             scope_type: "tenant" | "farm" | "park" | "shed" | "cohort" | "batch" | "task" | "goat";
@@ -8349,7 +8371,7 @@ export interface components {
             /** @enum {string} */
             storage_provider: "local" | "gcs";
             /** @enum {string} */
-            proof_type: "photo" | "video" | "attachment";
+            proof_type: "photo" | "video" | "audio" | "attachment" | "audio";
             subject_type: string;
             /** Format: uuid */
             subject_id?: string | null;

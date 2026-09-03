@@ -14852,6 +14852,29 @@ components:
             True when payment fields were WITHHELD for this caller rather than absent. The client
             must render "hidden" in that case -- a blank would read as "no bank details on file".
         comments: { type: string, nullable: true }
+        capacity_quantity:
+          type: string
+          nullable: true
+          description: How much per delivery, a decimal as a string; null when not recorded.
+        capacity_unit:
+          type: string
+          nullable: true
+          description: Catalog VALUE (kg, tonnes, animals, litres, bags). Render capacity_display, not this.
+        supply_frequency:
+          type: string
+          nullable: true
+          description: Catalog VALUE (per_week, per_2_weeks, per_month, per_3_months, one_time).
+        capacity_display:
+          type: string
+          description: >-
+            BACKEND-composed capacity line ("5,000 kg · Every 2 weeks") from the quantity, the
+            unit label and the frequency label. Empty when nothing is recorded. Rendered verbatim.
+        voice_note_proof_ref:
+          type: string
+          nullable: true
+          description: >-
+            The vendor's audio note: a completed `audio` proof in this tenant. Play it through
+            GET /app/proofs/{proof_id}/download. Null when none was recorded.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         row_version:
@@ -14904,6 +14927,19 @@ components:
         upi_id: { type: string, maxLength: 160 }
         pan_number: { type: string, maxLength: 160 }
         comments: { type: string, maxLength: 2000 }
+        capacity_quantity:
+          type: string
+          nullable: true
+          description: >-
+            Decimal as a string, more than zero, up to three places. Travels with capacity_unit:
+            one without the other is rejected.
+        capacity_unit: { type: string, maxLength: 160, description: A capacity_units catalog value. }
+        supply_frequency: { type: string, maxLength: 160, description: A supply_frequencies catalog value. }
+        voice_note_proof_ref:
+          type: string
+          description: >-
+            Proof id of a completed in-app-microphone `audio` upload in this tenant, or empty. An
+            unusable ref is rejected (`vendor_voice_note_invalid`), never stored unchecked.
         row_version:
           type: integer
           format: int64
@@ -14947,7 +14983,7 @@ components:
             cannot find does not exist.
     ProcurementVendorCatalog:
       type: object
-      required: [record_types, breeds, states, cities, statuses, feeds]
+      required: [record_types, breeds, states, cities, statuses, feeds, capacity_units, supply_frequencies]
       properties:
         record_types:
           type: array
@@ -14966,6 +15002,14 @@ components:
           items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
         feeds:
           type: array
+          items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
+        capacity_units:
+          type: array
+          description: What a vendor's capacity is counted in (kg, tonnes, animals, litres, bags).
+          items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
+        supply_frequencies:
+          type: array
+          description: How often that capacity is available (every week ... one time).
           items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
     SalesBuyerLead:
       type: object
@@ -19692,7 +19736,9 @@ components:
           enum:
             - photo
             - video
+            - audio
             - attachment
+            - audio
         subject_type:
           type: string
           enum:
@@ -19732,7 +19778,9 @@ components:
           enum:
             - photo
             - video
+            - audio
             - attachment
+            - audio
         mime_type:
           type: string
         scope_type:
@@ -19816,7 +19864,9 @@ components:
           enum:
             - photo
             - video
+            - audio
             - attachment
+            - audio
         subject_type:
           type: string
         subject_id:
