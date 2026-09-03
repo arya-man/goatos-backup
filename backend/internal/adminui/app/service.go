@@ -132,7 +132,7 @@ func navigation() domain.NavigationContract {
 				},
 			},
 			{
-				ID: "weighing", Label: "Weighing", Icon: "scale", DefaultOpen: false,
+				ID: "weighing", Label: "Weight", Icon: "scale", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					// Weights is parked from the sidebar (maintainer request 2026-09-03: the Weight
 					// menu carries ADG Analytics and the SOP only). The page itself stays
