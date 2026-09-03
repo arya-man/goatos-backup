@@ -3186,6 +3186,8 @@ select:disabled { opacity: .45; }
 .sales-vendor-search{display:flex;gap:6px;align-items:center;margin-bottom:6px}
 .sales-vendor-search input{flex:1 1 auto;min-width:0}
 .sales-vendor-search .btn{flex:0 0 auto;white-space:nowrap}
+.sales-kpi-row{align-items:start}
+.sales-kpi-row .kpi{min-height:0}
 .sales-kpi-row .kpi .dl{color:var(--muted)}
 .main table.sales-market-table{min-width:1720px}
 .main table.sales-market-table th,.main table.sales-market-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
