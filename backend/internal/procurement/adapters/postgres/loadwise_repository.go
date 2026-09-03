@@ -213,6 +213,23 @@ LEFT JOIN public.parties p ON p.party_id = pl.source_party_id
 LEFT JOIN stats s ON s.load_id = pl.load_id
 LEFT JOIN prior pr ON pr.load_id = pl.load_id
 WHERE pl.tenant_id = $1
+),
+filtered AS (
+    SELECT r.*
+    FROM reconciled r
+    WHERE nullif($3, '') IS NULL
+       OR r.farm = (SELECT nullif(upper(l.location_code), '')
+                    FROM public.locations l
+                    WHERE l.tenant_id = $1 AND l.location_id = nullif($3, '')::uuid)
+),
+ranked AS (
+    SELECT f.*,
+           row_number() OVER (
+               PARTITION BY CASE WHEN nullif($3, '') IS NULL THEN f.farm ELSE '' END
+               ORDER BY f.purchase_date DESC NULLS LAST, f.created_at DESC, f.load_id
+           ) AS farm_rank,
+           count(*) OVER ()::int AS total_loads
+    FROM filtered f
 )
 SELECT r.load_id, r.load_ref, r.vendor_name, r.purchase_date, r.status,
        r.animal_cost, r.transport_cost, r.other_cost,
@@ -227,15 +244,11 @@ SELECT r.load_id, r.load_ref, r.vendor_name, r.purchase_date, r.status,
        r.farm,
        r.prior_sold, r.prior_sold_value, r.prior_sold_first, r.prior_sold_last,
        r.prior_dead, r.prior_dead_first, r.prior_dead_last,
-       -- Counted over the filtered set BEFORE the LIMIT, so the screen can still say when older
-       -- loads are not shown, and under a park filter counts only that park's loads.
-       count(*) OVER ()::int AS total_loads
-FROM reconciled r
-WHERE nullif($3, '') IS NULL
-   OR r.farm = (SELECT nullif(upper(l.location_code), '')
-                FROM public.locations l
-                WHERE l.tenant_id = $1 AND l.location_id = nullif($3, '')::uuid)
-ORDER BY r.purchase_date DESC NULLS LAST, r.created_at DESC, r.load_id
+       r.total_loads
+FROM ranked r
+ORDER BY
+    CASE WHEN nullif($3, '') IS NULL THEN r.farm_rank ELSE 0 END,
+    r.purchase_date DESC NULLS LAST, r.created_at DESC, r.load_id
 LIMIT NULLIF($2, 0)`
 
 // loadCostLinesSQL reads the itemisation for a whole page of loads at once. Ordered by the kind's

@@ -218,10 +218,12 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 
 	loadA, loadB, out := read()
 
-	// Newest purchase date first: C (2026-08-09), then B (08-05), then A (08-01).
+	// Unfiltered All Parks interleaves each farm's newest rows before taking the page window.
+	// This keeps a busy park from filling the newest slice and making other parks look filtered
+	// out even when the user has no filter selected.
 	if len(out.Loads) < 3 || out.Loads[0].LoadID != fx.loadC ||
-		out.Loads[1].LoadID != fx.loadB || out.Loads[2].LoadID != fx.loadA {
-		t.Fatalf("order: newest purchase first, got %v",
+		out.Loads[1].LoadID != fx.loadA || out.Loads[2].LoadID != fx.loadB {
+		t.Fatalf("order: farm-ranked page boundary, got %v",
 			[]string{out.Loads[0].LoadID, out.Loads[1].LoadID, out.Loads[2].LoadID})
 	}
 
@@ -305,7 +307,7 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		}
 	})
 
-	t.Run("StatusBucketsPartitionPurchasedDisjointly", func(t *testing.T) {
+	t.Run("StatusBucketsPartitionPurchasedDisjointlyAcrossAllParks", func(t *testing.T) {
 		// Load A: 5 accepted (the rejected row counts nowhere, the re-accepted-elsewhere animal
 		// counts once, on the other load). sold + mortality + other + remaining + unaccounted
 		// must equal purchased exactly — the merged animal is the unaccounted case.
@@ -334,7 +336,7 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		}
 	})
 
-	t.Run("OneToManyDealSharesStayPerAnimal", func(t *testing.T) {
+	t.Run("OneToManyDealSharesStayPerAnimalAcrossAllParks", func(t *testing.T) {
 		// One deal, three tagged animals across two loads and a farm-born sale: the value divides
 		// per animal (10000), each load receives exactly its own animals' shares, the released
 		// allocation dilutes nothing, and the sold-without-deal animal stays unpriced.
@@ -408,7 +410,7 @@ VALUES ($1, $2::uuid, 'animal', 2000, 'sheet_import'),
 		}
 	})
 
-	t.Run("PageBoundaryWindowKeepsWholeTenantTotals", func(t *testing.T) {
+	t.Run("PageBoundaryWindowInterleavesFarmsAndKeepsWholeTenantTotals", func(t *testing.T) {
 		if out.TotalLoads != 3 {
 			t.Fatalf("total loads = %d", out.TotalLoads)
 		}
@@ -425,6 +427,13 @@ VALUES ($1, $2::uuid, 'animal', 2000, 'sheet_import'),
 		}
 		if len(windowed.Loads) != 1 || windowed.Loads[0].LoadID != fx.loadC || windowed.TotalLoads != 3 {
 			t.Fatalf("windowed = %d loads first %s total %d", len(windowed.Loads), windowed.Loads[0].LoadID, windowed.TotalLoads)
+		}
+		twoRows, err := repo.LoadwiseSales(ctx, testTenant, "", 2)
+		if err != nil {
+			t.Fatalf("two-row windowed read: %v", err)
+		}
+		if len(twoRows.Loads) != 2 || twoRows.Loads[0].LoadID != fx.loadC || twoRows.Loads[1].LoadID != fx.loadA {
+			t.Fatalf("two-row windowed = %+v, want newest bare load plus first CPT load", twoRows.Loads)
 		}
 	})
 

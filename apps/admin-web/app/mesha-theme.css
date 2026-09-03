@@ -2011,11 +2011,18 @@
     .drawer{width:100vw}
   }
   @media(max-width:560px){
-    .top{gap:9px;padding:0 11px}
+    .top{gap:7px;padding:0 10px}
+    .top .brand b{display:block;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .me .nm,.me .rl{display:none}
     /* Narrow topbar must fit ~390px without compressing controls (no clipping) and keep >=40px tap
-       targets. Drop the non-essential scope/date chips; pin icon buttons + the role button to 40px. */
-    .top .pscope{display:none}
+       targets. Keep the park scope visible: it is the only global park filter on pages that do not
+       own a local park/farm control. Collapse the optional "all sheds" suffix instead. */
+    .top .parksel{flex:0 1 auto;min-width:0}
+    .top .pscope{display:inline-flex;min-height:40px;max-width:118px;padding:6px 8px;gap:5px;overflow:hidden}
+    .top .pscope .muted{display:none}
+    .top .pscope b{min-width:0;overflow:hidden;text-overflow:ellipsis}
+    .top .pscope svg.ic:first-child{display:none}
+    .top .iconbtn[disabled]{display:none}
     .iconbtn{flex:none;width:40px;height:40px}
     .nbback{min-height:40px}
     /* Top-bar scope controls that stay visible on touch widths are real controls — >=40px tap targets.
@@ -2283,6 +2290,9 @@
    label -- shouted back as "SALES / PURCHASE AND BORN" it read as a system code. Scoped to the page
    so no other crumb moves; pinned by check-sidebar-typography.mjs. */
 .sales-loads-page .crumb{text-transform:none;letter-spacing:normal;font-size:12px}
+.sales-loads-head{margin-top:12px;align-items:flex-end;padding-bottom:6px;position:relative}
+.sales-loads-head>div:first-child{min-width:0}
+.sales-loads-tabs{position:absolute;top:2px;left:50%;transform:translateX(-50%);justify-content:center;margin-top:0}
 .sub { color: var(--muted); font-size: 12.5px; max-width: 820px; }
 .grid { display: grid; gap: 12px; }
 .g4 { grid-template-columns: repeat(4, 1fr); }
@@ -2716,6 +2726,15 @@ select:disabled { opacity: .45; }
 .kpi-row{gap:16px}
 .kpi-row .kpi{padding:14px 16px}
 @media(max-width:1080px){.kpi-row{gap:12px}}
+.sales-loads-page .kpi-row{grid-template-columns:repeat(4,minmax(136px,1fr))}
+.sales-loads-page .kpi .val{overflow-wrap:normal;word-break:normal;white-space:nowrap;font-size:clamp(21px,4.8vw,26px)}
+.sales-loads-page .kpi .dl{line-height:1.35}
+@media(max-width:820px){
+  .sales-loads-page .kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:420px){
+  .sales-loads-page .kpi-row{grid-template-columns:1fr}
+}
 
 /* The Weights page owns its own vertical rhythm. `.wrap` is block layout with no
    gap and its children carry no margins, so without this every section — the two
@@ -3137,6 +3156,18 @@ select:disabled { opacity: .45; }
 .gclab{font-size:11px;color:var(--muted);margin-top:5px;white-space:nowrap;line-height:1.2}
 .gcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2}
 @media(max-width:1080px){.gclab{font-size:9px}.gcsub{font-size:9px}.gcarea{height:90px}}
+.sales-loads-page .gcols{scrollbar-width:thin}
+@media(max-width:680px){
+  .sales-loads-head{display:block;padding-bottom:0}
+  .sales-loads-tabs{position:static;transform:none;justify-content:flex-start;margin-top:10px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px}
+  .sales-loads-tabs .btn{min-height:40px;white-space:nowrap;flex:0 0 auto}
+  .sales-loads-page .gleg{gap:10px;padding:9px 14px 0}
+  .sales-loads-page .gcols{gap:10px;padding-left:14px;padding-right:14px}
+  .sales-loads-page .gcol{flex:0 0 92px;min-width:92px}
+  .sales-loads-page .gcarea{height:116px;gap:6px}
+  .sales-loads-page .gcval{font-size:9.5px;max-width:72px;overflow:hidden;text-overflow:ellipsis}
+  .sales-loads-page .gclab,.sales-loads-page .gcsub{max-width:86px;overflow:hidden;text-overflow:ellipsis}
+}
 
 /* Hover card for the grouped columns. CSS-only so the chart stays a server component: the card is
    in the markup, hidden, and revealed on hover/focus of its column. It reads every series at once,

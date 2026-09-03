@@ -99,10 +99,7 @@ export async function SalesLoadsPage({
           533px beside it at 1600px -- so on one row the subtitle is forced to wrap. Lifting the
           toggle clears it vertically (the title itself is short), and the title block goes back to
           its natural width so the sentence renders in full on one line. */}
-      <div
-        className="phead"
-        style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6, position: "relative" }}
-      >
+      <div className="phead sales-loads-head">
         <div>
           <div className="crumb">
             <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
@@ -119,16 +116,9 @@ export async function SalesLoadsPage({
             the toggle on the header's true midpoint -- two spacers alone would only centre it in
             the space the title leaves over. */}
         <div
-          className="chips"
+          className="chips sales-loads-tabs"
           role="group"
           aria-label={copy(pageContract, "page.tabs.aria")}
-          style={{
-            position: "absolute",
-            top: 2,
-            left: "50%",
-            transform: "translateX(-50%)",
-            justifyContent: "center",
-          }}
         >
           {views.map((option) => (
             <Link
