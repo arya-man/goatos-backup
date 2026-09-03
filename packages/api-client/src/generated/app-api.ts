@@ -9799,13 +9799,13 @@ export interface components {
             targets: number;
             /** @description Animals holding at least one obligation in status 'missed' WITH NO COMPLETION AGAINST IT. Evaluated FIRST, ahead of dosesVerified, and gated on the absence of a completion — both deliberate. Leading the chain is necessary because it folds to one row per animal, so while verified led it a single accepted dose anywhere in an animal's history swallowed every missed dose it also held. The no-completion gate is necessary because an obligation swept to 'missed' that carries a recorded completion was DOSED. On the live tenant all 137 such obligations were administered on the exact day they were due and are waiting on a verifier; counting them here reported 137 vaccinated animals as unvaccinated while awaitingVerification simultaneously read 0. missedNotGiven means no dose reached the animal. Proof waiting in the verification queue is a desk backlog and surfaces as the shed x vaccine matrix's 'verifying' state, never here. A missed dose is the failure this board exists to report, so it outranks every state an animal can simultaneously be in. */
             missedNotGiven: number;
-            /** @description Animals with at least one verifier-accepted completion and NO missed obligation. */
+            /** @description Animals with at least one verifier-accepted completion and no missed, awaiting-verification, or overdue unvaccinated obligation. Future scheduled work does not demote an animal from this bucket. */
             dosesVerified: number;
-            /** @description Animals with a recorded completion not yet verifier-accepted (status=recorded, verified_at=null) and no accepted completion. */
+            /** @description Animals with a recorded completion not yet verifier-accepted (status=recorded, verified_at=null), unless the animal also has a missed-with-no-completion obligation. Awaiting verification outranks earlier accepted completions. */
             awaitingVerification: number;
-            /** @description Animals with no completion at all whose earliest open obligation was due before the as-of IST business date. */
+            /** @description Animals with at least one open obligation carrying no completion whose due business date is before the as-of IST business date, unless the animal is already in missed or awaiting verification. Overdue unvaccinated work outranks earlier accepted completions. */
             overdueNotGiven: number;
-            /** @description Animals with no completion at all whose open obligations are all due on or after the as-of IST business date. */
+            /** @description Animals whose remaining open no-completion obligations are all due on or after the as-of IST business date, and who have no missed, awaiting, overdue, or accepted work that would place them in an earlier bucket. */
             scheduledAhead: number;
             /** @description Animals whose every obligation closed with no completion recorded against it (canceled, waived, superseded). They belong to the drive's roster, so they count in targets, but no dose was given and none is outstanding. Named explicitly because without it the tiles summed to LESS than targets and a reader could not tell whether the gap was a bug, missing data, or real outstanding work. Defined as the residual of the other four, so the partition stays exhaustive as statuses change. */
             closedWithoutDose: number;

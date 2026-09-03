@@ -24140,22 +24140,27 @@ components:
         dosesVerified:
           type: integer
           description: >-
-            Animals with at least one verifier-accepted completion and NO missed obligation.
+            Animals with at least one verifier-accepted completion and no missed, awaiting-verification,
+            or overdue unvaccinated obligation. Future scheduled work does not demote an animal from
+            this bucket.
         awaitingVerification:
           type: integer
           description: >-
             Animals with a recorded completion not yet verifier-accepted (status=recorded,
-            verified_at=null) and no accepted completion.
+            verified_at=null), unless the animal also has a missed-with-no-completion obligation.
+            Awaiting verification outranks earlier accepted completions.
         overdueNotGiven:
           type: integer
           description: >-
-            Animals with no completion at all whose earliest open obligation was due before the
-            as-of IST business date.
+            Animals with at least one open obligation carrying no completion whose due business date
+            is before the as-of IST business date, unless the animal is already in missed or awaiting
+            verification. Overdue unvaccinated work outranks earlier accepted completions.
         scheduledAhead:
           type: integer
           description: >-
-            Animals with no completion at all whose open obligations are all due on or after the
-            as-of IST business date.
+            Animals whose remaining open no-completion obligations are all due on or after the as-of
+            IST business date, and who have no missed, awaiting, overdue, or accepted work that would
+            place them in an earlier bucket.
         closedWithoutDose:
           type: integer
           description: >-
