@@ -941,8 +941,73 @@ func TestMCPWithoutBearerAdvertisesOAuthDiscovery(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if got := rec.Header().Get("WWW-Authenticate"); !strings.Contains(got, `resource_metadata="https://goatos-mcp-stg.example.com/.well-known/oauth-protected-resource"`) {
+	if got := rec.Header().Get("WWW-Authenticate"); !strings.Contains(got, `resource_metadata="https://goatos-mcp-stg.example.com/.well-known/oauth-protected-resource/mcp"`) || !strings.Contains(got, `scope="goatos.read"`) {
 		t.Fatalf("WWW-Authenticate=%q", got)
+	}
+}
+
+func TestOAuthMetadataSupportsMCPPathDiscovery(t *testing.T) {
+	s := newServer(config{
+		PublicURL:      "https://goatos-mcp-stg.example.com",
+		UpstreamAskURL: "http://example.invalid/ceo-ai/ask",
+		MCPPath:        "/mcp",
+	}, http.DefaultClient, nil)
+
+	for _, tc := range []struct {
+		name    string
+		path    string
+		handler http.HandlerFunc
+		want    string
+	}{
+		{name: "protected resource", path: "/.well-known/oauth-protected-resource/mcp", handler: s.handleProtectedResourceMetadata, want: "authorization_servers"},
+		{name: "authorization server", path: "/.well-known/oauth-authorization-server/mcp", handler: s.handleAuthorizationServerMetadata, want: "authorization_endpoint"},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		rec := httptest.NewRecorder()
+		tc.handler(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Fatalf("%s status=%d body=%s", tc.name, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestOAuthRegisterEchoesClientMetadata(t *testing.T) {
+	s := newServer(config{
+		PublicURL:      "https://goatos-mcp-stg.example.com",
+		UpstreamAskURL: "http://example.invalid/ceo-ai/ask",
+		MCPPath:        "/mcp",
+	}, http.DefaultClient, nil)
+	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(`{
+		"redirect_uris":["https://claude.ai/api/mcp/auth_callback"],
+		"client_name":"Claude",
+		"client_uri":"https://claude.ai",
+		"logo_uri":"https://claude.ai/favicon.ico",
+		"contacts":["support@anthropic.com"],
+		"grant_types":["authorization_code","refresh_token"],
+		"response_types":["code"],
+		"scope":"goatos.read offline_access",
+		"token_endpoint_auth_method":"none"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	s.handleRegister(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"redirect_uris":["https://claude.ai/api/mcp/auth_callback"]`,
+		`"client_name":"Claude"`,
+		`"client_uri":"https://claude.ai"`,
+		`"logo_uri":"https://claude.ai/favicon.ico"`,
+		`"contacts":["support@anthropic.com"]`,
+		`"scope":"goatos.read offline_access"`,
+		`"token_endpoint_auth_method":"none"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("registration response missing %s: %s", want, rec.Body.String())
+		}
 	}
 }
 
@@ -967,6 +1032,9 @@ func TestOAuthMetadataAndCodeExchange(t *testing.T) {
 	}
 	if !strings.Contains(asRec.Body.String(), "refresh_token") || !strings.Contains(asRec.Body.String(), "offline_access") {
 		t.Fatalf("auth metadata must advertise refresh-token support: %s", asRec.Body.String())
+	}
+	if !strings.Contains(asRec.Body.String(), `"client_id_metadata_document_supported":true`) {
+		t.Fatalf("auth metadata must advertise Claude hosted client metadata support: %s", asRec.Body.String())
 	}
 
 	verifier := "codex-pkce-verifier"

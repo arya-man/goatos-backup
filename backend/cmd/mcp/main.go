@@ -49,7 +49,9 @@ func main() {
 	mux.HandleFunc("/livez", srv.handleLive)
 	mux.HandleFunc("/readyz", srv.handleReady)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", srv.handleProtectedResourceMetadata)
+	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", srv.handleProtectedResourceMetadata)
 	mux.HandleFunc("/.well-known/oauth-authorization-server", srv.handleAuthorizationServerMetadata)
+	mux.HandleFunc("/.well-known/oauth-authorization-server/mcp", srv.handleAuthorizationServerMetadata)
 	mux.HandleFunc("/register", srv.handleRegister)
 	mux.HandleFunc("/authorize", srv.handleAuthorize)
 	mux.HandleFunc("/token", srv.handleToken)
@@ -297,6 +299,7 @@ func (s *server) handleAuthorizationServerMetadata(w http.ResponseWriter, r *htt
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256", "plain"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
+		"client_id_metadata_document_supported": true,
 		"scopes_supported":                      []string{"goatos.read", "offline_access"},
 	})
 }
@@ -307,13 +310,70 @@ func (s *server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
+	var in struct {
+		RedirectURIs            []string `json:"redirect_uris"`
+		ClientName              string   `json:"client_name"`
+		ClientURI               string   `json:"client_uri"`
+		LogoURI                 string   `json:"logo_uri"`
+		TOSURI                  string   `json:"tos_uri"`
+		PolicyURI               string   `json:"policy_uri"`
+		Contacts                []string `json:"contacts"`
+		GrantTypes              []string `json:"grant_types"`
+		ResponseTypes           []string `json:"response_types"`
+		Scope                   string   `json:"scope"`
+		TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	}
+	if r.Body != nil {
+		body, _ := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
+		if len(bytes.TrimSpace(body)) > 0 {
+			if err := json.Unmarshal(body, &in); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_client_metadata"})
+				return
+			}
+		}
+	}
+	if len(in.GrantTypes) == 0 {
+		in.GrantTypes = []string{"authorization_code", "refresh_token"}
+	}
+	if len(in.ResponseTypes) == 0 {
+		in.ResponseTypes = []string{"code"}
+	}
+	if strings.TrimSpace(in.Scope) == "" {
+		in.Scope = "goatos.read offline_access"
+	}
+	if strings.TrimSpace(in.TokenEndpointAuthMethod) == "" {
+		in.TokenEndpointAuthMethod = "none"
+	}
+	out := map[string]any{
 		"client_id":                  "goatos-mcp-" + randomString(12),
 		"client_id_issued_at":        time.Now().Unix(),
-		"token_endpoint_auth_method": "none",
-		"grant_types":                []string{"authorization_code", "refresh_token"},
-		"response_types":             []string{"code"},
-	})
+		"token_endpoint_auth_method": in.TokenEndpointAuthMethod,
+		"grant_types":                in.GrantTypes,
+		"response_types":             in.ResponseTypes,
+		"scope":                      in.Scope,
+	}
+	if len(in.RedirectURIs) > 0 {
+		out["redirect_uris"] = in.RedirectURIs
+	}
+	if strings.TrimSpace(in.ClientName) != "" {
+		out["client_name"] = strings.TrimSpace(in.ClientName)
+	}
+	if strings.TrimSpace(in.ClientURI) != "" {
+		out["client_uri"] = strings.TrimSpace(in.ClientURI)
+	}
+	if strings.TrimSpace(in.LogoURI) != "" {
+		out["logo_uri"] = strings.TrimSpace(in.LogoURI)
+	}
+	if strings.TrimSpace(in.TOSURI) != "" {
+		out["tos_uri"] = strings.TrimSpace(in.TOSURI)
+	}
+	if strings.TrimSpace(in.PolicyURI) != "" {
+		out["policy_uri"] = strings.TrimSpace(in.PolicyURI)
+	}
+	if len(in.Contacts) > 0 {
+		out["contacts"] = in.Contacts
+	}
+	writeJSON(w, http.StatusCreated, out)
 }
 
 func (s *server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -724,10 +784,14 @@ func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) writeUnauthorized(w http.ResponseWriter, r *http.Request) {
 	base := s.publicURL(r)
-	w.Header().Set("WWW-Authenticate", `Bearer realm="goatos-mcp", resource_metadata="`+base+`/.well-known/oauth-protected-resource"`)
+	metadataURL := base + "/.well-known/oauth-protected-resource"
+	if strings.TrimRight(r.URL.Path, "/") == strings.TrimRight(s.cfg.MCPPath, "/") {
+		metadataURL += strings.TrimRight(s.cfg.MCPPath, "/")
+	}
+	w.Header().Set("WWW-Authenticate", `Bearer realm="goatos-mcp", resource_metadata="`+metadataURL+`", scope="goatos.read"`)
 	writeJSON(w, http.StatusUnauthorized, map[string]any{
 		"error":             "authorization_required",
-		"resource_metadata": base + "/.well-known/oauth-protected-resource",
+		"resource_metadata": metadataURL,
 	})
 }
 
