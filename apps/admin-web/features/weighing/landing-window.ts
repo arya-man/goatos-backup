@@ -24,6 +24,9 @@ export const WINDOW_TO_PARAM = "wt_to";
  * exists to replace it with a true long-term rolling window.
  */
 export const DEFAULT_WINDOW_FROM = "2026-08-03";
+// Re-exported from the client-safe module so server callers keep one import site; the export
+// drawer (a client component) imports window-bounds directly and must never import THIS module.
+export { WINDOW_MIN_DATE } from "./window-bounds";
 export const LATEST_LUMP_LOOKBACK_DAYS = 400;
 export const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
 

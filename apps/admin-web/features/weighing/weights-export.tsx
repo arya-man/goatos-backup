@@ -11,6 +11,9 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+// window-bounds, NOT landing-window: this is a client component, and landing-window is
+// server-only (it imports the SSR API reader). See window-bounds.ts.
+import { WINDOW_MIN_DATE } from "./window-bounds";
 import { exportWeightsCsvAction } from "./weights-export-action";
 
 export type WeightsExportPark = { park_id: string; name: string };
@@ -210,6 +213,7 @@ export function WeightsExportControl({
               from={from}
               to={to}
               today={today}
+              minDate={WINDOW_MIN_DATE}
               busy={pending}
               onChange={(nextFrom, nextTo) => {
                 setFrom(nextFrom);

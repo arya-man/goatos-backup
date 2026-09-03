@@ -3,9 +3,18 @@
 // check-ui-title-case.mjs
 //
 // User-facing frontend/mobile navigation and title copy uses caption case:
-// "Purchase and born", "Preventive Care", "Feed transport". Do not shout
-// whole labels in ALL CAPS and do not use internal short forms like "PC" in
-// visible module titles.
+// "Preventive Care", "Feed transport". Do not shout whole labels in ALL CAPS
+// and do not use internal short forms like "PC" in visible module titles.
+//
+// NAMED EXCEPTION -- "Purchase and Born" (maintainer decision 2026-09-02).
+// The Sales load page is named for the two ways a batch of animals arrives:
+// it is BOUGHT or it is BORN. Both are the page's subject, so both are
+// capitalised, and the word is spelled "and" rather than "&" because the
+// label reads as a phrase and not as a pair of codes. This is the ONE label
+// exempt from caption case; every other rule below still applies to it.
+// It was previously written "Purchase and born" and "Purchase & born", so
+// the rule is stated in BOTH directions: the canonical form is required and
+// each retired variant is named, or a half-revert reads as done.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -13,7 +22,9 @@ import { resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
 const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "nor", "of", "on", "or", "per", "the", "to", "with"]);
-const ALLOWED_ACRONYMS = new Set(["CEO", "COO", "CXO", "DLQ", "ET", "FMD", "HF", "HRMS", "ID", "KPI", "ORS", "PPR", "RFID", "SOP", "TT", "UHT"]);
+// "ADG" is allowed because the maintainer named the weighing analytics screen
+// "ADG Analytics" (2026-09-03); body copy under it still says "gain".
+const ALLOWED_ACRONYMS = new Set(["ADG", "CEO", "COO", "CXO", "DLQ", "ET", "FMD", "HF", "HRMS", "ID", "KPI", "ORS", "PPR", "RFID", "SOP", "TT", "UHT"]);
 
 function stripPlaceholders(value) {
   return value
@@ -34,7 +45,8 @@ function isAllCapsWord(word) {
 function checkCaptionCase(value) {
   const out = [];
   const clean = stripPlaceholders(value);
-  if (/\bPurchase and Born\b/.test(clean)) out.push('write "Purchase and born", not "Purchase and Born"');
+  const load = clean.match(/\b[Pp]urchase\s*(?:&|and)\s*[Bb]orn\b/);
+  if (load && load[0] !== "Purchase and Born") out.push(`write "Purchase and Born", not ${JSON.stringify(load[0])}`);
   if (/\bPC\b/.test(clean)) out.push('visible title uses short form "PC"; write "Preventive Care"');
   const ws = words(clean);
   ws.forEach((word, index) => {
@@ -105,7 +117,11 @@ function findings() {
 
 function selfTest() {
   const bad = [
-    ["Purchase and Born", "Purchase and born"],
+    // Every retired spelling of the load page, including the two that shipped.
+    ["Purchase and born", 'not "Purchase and born"'],
+    ["Purchase & born", 'not "Purchase & born"'],
+    ["Purchase & Born", 'not "Purchase & Born"'],
+    ["See purchase and born", 'not "purchase and born"'],
     ["PREVENTIVE CARE", "all-caps"],
     ["Preventive Care (PC)", "short form"],
   ];
@@ -114,7 +130,9 @@ function selfTest() {
       throw new Error(`self-test failed to flag ${value}`);
     }
   }
-  for (const good of ["Purchase and born", "Preventive Care", "RFID reader", "ET+TT"]) {
+  // "Purchase and Born" must pass BOTH the named exception and the small-word rule
+  // that still governs its lowercase "and".
+  for (const good of ["Purchase and Born", "Sales / Purchase and Born", "Preventive Care", "RFID reader", "ET+TT"]) {
     const got = checkCaptionCase(good);
     if (got.length) throw new Error(`self-test wrongly flagged ${good}: ${got.join(", ")}`);
   }

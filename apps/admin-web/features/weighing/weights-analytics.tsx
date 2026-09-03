@@ -2,13 +2,15 @@ import { redirect } from "next/navigation";
 import { CalendarRange, Scale, Sprout, Warehouse } from "lucide-react";
 
 import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
+import { LoadComparisonTab } from "./load-comparison-tab";
 import { WeightBars } from "./weight-bars";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
-import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { PensTable, type PensTableRow } from "./pens-table";
 import { todayIso } from "@/lib/format";
 import {
   firstAuthRequiredError,
@@ -22,6 +24,7 @@ import {
   type WeighingGrowthResponse,
   type WeightDemographicsResponse,
 } from "@/lib/api/server";
+import { getLoadwiseSales } from "@/lib/api/procurement-server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 // The landing window is SHARED with /weighing/weights: both screens open on the latest whole-shed
@@ -29,6 +32,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 // than two that merely look alike. See landing-window.ts.
 import {
   WINDOW_FROM_PARAM,
+  WINDOW_MIN_DATE,
   WINDOW_TO_PARAM,
   defaultWindow,
   landingWindow,
@@ -39,10 +43,41 @@ const PAGE_PATH = "/weighing/analytics";
 const SEX_PARAM = "sex";
 const ORIGIN_PARAM = "origin";
 const TAB_PARAM = "tab";
+// The pens table's own average-weight filter: an operator and a typed value, applied together.
+const WEIGHT_OP_PARAM = "w_op";
+const WEIGHT_VALUE_PARAM = "w_kg";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
+
+/** The six operators of the `weight_kg_compare` option group, evaluated on a pen's average. */
+function compareKg(actual: number, op: string, wanted: number): boolean {
+  switch (op) {
+    case "gt":
+      return actual > wanted;
+    case "gte":
+      return actual >= wanted;
+    case "eq":
+      return Math.abs(actual - wanted) < 0.05;
+    case "lte":
+      return actual <= wanted;
+    case "lt":
+      return actual < wanted;
+    case "neq":
+      return Math.abs(actual - wanted) >= 0.05;
+    default:
+      return true;
+  }
+}
 const DEFAULT_LIMIT = 25;
 
-const TABS = ["general", "breed", "birth", "shed", "weight", "time"] as const;
+const TABS = ["general", "breed", "birth", "shed", "weight", "time", "load"] as const;
+
+/**
+ * The Load-wise tab's weighing window floor — before any GoatOS weighing capture, so "latest
+ * weighing" means the newest weigh on record whatever period the page's own filter holds. A
+ * purchase load is bought whole, so that tab deliberately ignores the period/sex/origin/mode
+ * filters (its caption says so).
+ */
+const LOAD_TAB_ALL_TIME_FROM = "2024-01-01";
 type Tab = (typeof TABS)[number];
 
 function weighingModeFilter(raw: string | undefined): string {
@@ -84,11 +119,6 @@ function shedKey(locationID: string, partitionLabel?: string | null): string {
   return `${locationID}|${partitionLabel ?? ""}`;
 }
 
-function workflowLabel(status: string, pageContract: AdminUiPageContract): string {
-  const key = `value.workflow.${status}`;
-  const resolved = copy(pageContract, key);
-  return resolved === key ? status : resolved;
-}
 
 /**
  * Which breed a shed belongs to, from the backend's own composition chips.
@@ -155,17 +185,28 @@ export async function WeighingWeightsAnalyticsPage({
   const wantsDemographics =
     tab === "breed" || tab === "shed" || tab === "birth" || tab === "weight" || tab === "time";
 
+  // The Load-wise tab reads the purchase ledger beside the ONE shed-weights request every tab
+  // makes — but on that tab the shed read carries the tab's own basis instead of the page
+  // filters: park only, all-time window. A load is bought whole, so sex/origin/mode cannot
+  // slice it, and "latest weighing" means the newest weigh on record, not the newest inside
+  // the selected period. One request either way, never two overlapping shed reads.
+  const wantsLoads = tab === "load";
+  const shedParams = wantsLoads
+    ? { park_id: parkFilter || undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today }
+    : { ...scope, ...readWindow };
+
   // ONE demographics read serves all three tabs that need it, Birth-wise included: the backend
   // carries `gain_by_breed_origin` on this same response. Asking the read twice under the two
   // origins would recompute by_sex, by_stage, the bands and the shed composition only to discard
   // both copies -- and would let the two halves be resolved a request apart.
-  const [weights, growth, demographics] = await Promise.all([
-    getShedWeights({ ...scope, ...readWindow }),
+  const [weights, growth, demographics, loadwise] = await Promise.all([
+    getShedWeights(shedParams),
     wantsGrowth ? getWeighingGrowth({ ...scope, ...readWindow }) : null,
     wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow }) : null,
+    wantsLoads ? getLoadwiseSales({ park_id: parkFilter || undefined }) : null,
   ]);
 
-  if (firstAuthRequiredError(weights, growth, demographics)) redirect(INTERNAL_LOGIN_PATH);
+  if (firstAuthRequiredError(weights, growth, demographics, loadwise)) redirect(INTERNAL_LOGIN_PATH);
 
   if (!weights.ok) {
     return <WeightsAnalyticsLoadError pageContract={pageContract} />;
@@ -240,6 +281,7 @@ export async function WeighingWeightsAnalyticsPage({
       from: window.from,
       to: window.to,
       today,
+      minDate: WINDOW_MIN_DATE,
       defaultFrom: defaultWindow(today).from,
       defaultTo: defaultWindow(today).to,
       labels: {
@@ -375,6 +417,16 @@ export async function WeighingWeightsAnalyticsPage({
         {tab === "time" ? (
           <TimeTab pageContract={pageContract} growth={growth?.ok ? growth.data : null} demo={demo} />
         ) : null}
+
+        {/* Load-wise degrades by half, not whole-page: a dead purchase ledger empties the tab
+            with its own message, a dead weighing side keeps the purchase figures with a band. */}
+        {tab === "load" ? (
+          <LoadComparisonTab
+            pageContract={pageContract}
+            loads={loadwise?.ok ? (loadwise.data.loads ?? []) : null}
+            weights={weights.data}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -428,11 +480,38 @@ function GeneralTab({
   offset: number;
   params: RouteSearchParams;
 }) {
-  const shedColumns = tableLabels(pageContract, "shed-weights");
   const weighedRows = rows.filter((row) => row.animals_weighed > 0);
-  const visibleRows =
+  const modeRows =
     modeFilter === "all" ? weighedRows : weighedRows.filter((row) => row.weighing_category === modeFilter);
+  // The pens table's weight filter (maintainer request 2026-09-03): the feed config's
+  // more-than / less-than control, applied with one button. It narrows THIS TABLE ONLY -- the
+  // KPI cards above keep answering for the whole selection, or "pens over 30 kg" would silently
+  // rewrite the herd's average. An unparseable value is no filter, never a filter on NaN.
+  const weightOp = one(params, WEIGHT_OP_PARAM) ?? "";
+  const weightValueRaw = one(params, WEIGHT_VALUE_PARAM) ?? "";
+  const weightValue = Number(weightValueRaw);
+  const weightFilterOn = weightOp !== "" && weightValueRaw.trim() !== "" && Number.isFinite(weightValue);
+  const visibleRows = weightFilterOn
+    ? modeRows.filter((row) => compareKg(row.average_weight_kg, weightOp, weightValue))
+    : modeRows;
   const slice = visibleRows.slice(offset, offset + limit);
+  const weightCompareOptions = optionGroup(pageContract, "weight_kg_compare").map((option) => ({
+    value: option.key,
+    label: option.label,
+  }));
+  const pensFilterFields: WorklistFilterField[] = [
+    {
+      kind: "compare",
+      param: WEIGHT_OP_PARAM,
+      valueParam: WEIGHT_VALUE_PARAM,
+      label: copy(pageContract, "filter.weight.label"),
+      op: weightOp,
+      value: weightValueRaw,
+      options: weightCompareOptions,
+      valueAriaLabel: copy(pageContract, "filter.weight.value_aria"),
+      note: copy(pageContract, "filter.weight.note"),
+    },
+  ];
   const hasAnyData = summary.animals_weighed > 0;
 
   // The backend's ONE daily-gain number: the animal-weighted mean over kids weighed twice PLUS
@@ -542,6 +621,17 @@ function GeneralTab({
           <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.sheds.title")}
         </h2>
         <p className="muted small">{copy(pageContract, "note.total_weight")}</p>
+        {/* STAGED, not applied per keystroke: the operator and the value are one question, so the
+            bar collects both and a single Apply commits them (deferApply). Scoped to the pens
+            table; the page's own bar above stays as it is. */}
+        <WorklistFilters
+          basePath={PAGE_PATH}
+          pageParam="offset"
+          fields={pensFilterFields}
+          pageContract={pageContract}
+          deferApply
+          telemetry={{ eventPrefix: "weights_analytics_pens_filter_apply", surface: "pens_table", route: PAGE_PATH }}
+        />
         {slice.length === 0 ? (
           <div className="empty">
             <b>{hasAnyData ? copy(pageContract, "empty.filtered.title") : copy(pageContract, "empty.no_data.title")}</b>
@@ -552,61 +642,35 @@ function GeneralTab({
         ) : (
           <>
             <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.aria")}>
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    {shedColumns.map((label) => (
-                      <th key={label}>{label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {slice.map((row) => (
-                    <tr key={shedKey(row.location_id, row.partition_label)}>
-                      <td>{row.park_name}</td>
-                      <td>
-                        <b>{row.operational_location_display || row.shed_display_name}</b>
-                      </td>
-                      <td>
-                        <Tag tone={row.weighing_category === "individual_animal" ? "info" : "mut"}>
-                          {row.weighing_category === "individual_animal"
-                            ? copy(pageContract, "value.weighing.individual")
-                            : copy(pageContract, "value.weighing.lump")}
-                        </Tag>
-                      </td>
-                      <td className="num">{row.animals_weighed.toLocaleString("en-IN")}</td>
-                      <td className="num">{kg(row.average_weight_kg)} kg</td>
-                      <td className="num">
-                        {(() => {
-                          // A whole-shed pen carries its own average-weight movement on the row; a
-                          // scanned shed's gain comes from the growth leaderboard. A shed weighed
-                          // ONCE in the window has neither -- a gain needs two weighs -- and reads
-                          // as no data rather than as 0 g/day, which would claim it stopped growing.
-                          const gain =
-                            row.shed_average_gain_g_per_day ??
-                            shedGainByKey.get(shedKey(row.location_id, row.partition_label)) ??
-                            null;
-                          if (gain == null) {
-                            return <span className="muted">{copy(pageContract, "empty.no_data.title")}</span>;
-                          }
-                          return (
-                            <span className={gain < 0 ? "neg" : undefined}>
-                              {Math.round(gain).toLocaleString("en-IN")} g
-                            </span>
-                          );
-                        })()}
-                      </td>
-                      <td className="num">{kg(row.total_weight_kg, 0)} kg</td>
-                      <td className="num">
-                        {row.last_weighed_date ?? (
-                          <span className="muted">{copy(pageContract, "value.never_weighed")}</span>
-                        )}
-                      </td>
-                      <td>{workflowLabel(row.bucket_status, pageContract)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <PensTable
+                contract={table(pageContract, "shed-weights")}
+                rows={slice.map((row): PensTableRow => ({
+                  key: shedKey(row.location_id, row.partition_label),
+                  park: row.park_name,
+                  pen: row.operational_location_display || row.shed_display_name,
+                  weighingCategory: row.weighing_category,
+                  animals: row.animals_weighed,
+                  averageKg: row.average_weight_kg,
+                  // A whole-shed pen carries its own average-weight movement on the row; a
+                  // scanned shed's gain comes from the growth leaderboard. A shed weighed ONCE
+                  // in the window has neither -- a gain needs two weighs -- and reads as no
+                  // data rather than as 0 g/day, which would claim it stopped growing.
+                  gainGPerDay:
+                    row.shed_average_gain_g_per_day ??
+                    shedGainByKey.get(shedKey(row.location_id, row.partition_label)) ??
+                    null,
+                  totalKg: row.total_weight_kg,
+                  lastWeighed: row.last_weighed_date ?? null,
+                }))}
+                labels={{
+                  ariaLabel: copy(pageContract, "section.sheds.aria"),
+                  individual: copy(pageContract, "value.weighing.individual"),
+                  lump: copy(pageContract, "value.weighing.lump"),
+                  noData: copy(pageContract, "empty.no_data.title"),
+                  neverWeighed: copy(pageContract, "value.never_weighed"),
+                  empty: copy(pageContract, "empty.filtered.title"),
+                }}
+              />
             </div>
             <WorklistPager
               pageContract={pageContract}

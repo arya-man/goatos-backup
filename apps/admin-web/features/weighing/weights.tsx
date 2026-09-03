@@ -26,6 +26,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 // about which weighing period they are describing. See landing-window.ts for why it is one module.
 import {
   WINDOW_FROM_PARAM,
+  WINDOW_MIN_DATE,
   WINDOW_TO_PARAM,
   defaultWindow,
   landingWindow,
@@ -377,6 +378,7 @@ export async function WeighingWeightsPage({
       from: window.from,
       to: window.to,
       today,
+      minDate: WINDOW_MIN_DATE,
       // Landing on this window clears both parameters, so a shared link keeps meaning "the last 15
       // days" rather than freezing on the fortnight it was copied in. Named fields, never a spread of
       // defaultWindow(): `{...{from,to}}` would silently overwrite the SELECTED window above with
@@ -851,8 +853,9 @@ export async function WeighingWeightsPage({
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.over30.label")}</div>
           <div className="val">{summary.at_or_above_30kg.toLocaleString("en-IN")}</div>
-          {/* The threshold counts carry their OWN denominator: a whole-shed weigh contributes
-              nothing to them, so showing them against animals_weighed would understate them. */}
+          {/* The threshold counts carry their own denominator. A whole-shed pen is counted whole at
+              its average (all its animals over the line, or none), so the basis now spans every
+              animal weighed; it is still rendered from the backend field, never re-derived. */}
           <div className="dl">
             {summary.threshold_basis_animals.toLocaleString("en-IN")}{" "}
             {copy(pageContract, "kpi.threshold.basis")}

@@ -630,6 +630,13 @@ Only these routes are current implemented product routes:
 /feed/sops                  Feed SOP — distribution / packing / transport
 /milk/sops                  Milk SOP — preparation / feeding (SOP split extension, 2026-08-22)
 /weighing/sops              Weighing SOP — scan-and-submit session (SOP split extension, 2026-08-22)
+/weighing/analytics         ADG Analytics — growth cut seven ways (leaf renamed from "Weights
+                            analytics", maintainer request 2026-09-03); its Load-wise tab holds
+                            the per-purchased-load purchase-weight vs latest-weighing comparison
+                            with the growth multiple (moved from a short-lived /weighing/comparison
+                            leaf the same day)
+/weighing/weights           Weights read-out (route live; its sidebar leaf is WITHHELD,
+                            maintainer request 2026-09-03 — deep link only)
 /goats/{goat_id}
 /verify                     Verify — cross-module verification evidence (top-level, below Approvals)
 /actions                    Compatibility redirect to /verify (route renamed 2026-08-12)

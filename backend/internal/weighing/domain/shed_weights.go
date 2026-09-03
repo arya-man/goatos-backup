@@ -106,15 +106,21 @@ type ShedWeightsSummary struct {
 	// shed pull as hard as a 73-animal one. Nil when nothing was weighed, so a client
 	// never renders "0.0 kg" where it means "no data".
 	AverageWeightKg *float64 `json:"average_weight_kg"`
-	// AtOrAbove30Kg / AtOrAbove35Kg count ANIMALS over the sale thresholds, using each
-	// tag's latest weight inside the window.
+	// AtOrAbove30Kg / AtOrAbove35Kg count ANIMALS over the sale thresholds: each tag
+	// at its latest weight inside the window, PLUS each whole-shed pen counted all-or-
+	// none at the pen's latest average (maintainer decision 2026-09-03: "in 30 kg and
+	// 35 kg above include lump-sum also").
 	//
-	// THEY COVER PER-ANIMAL SHEDS ONLY, and ThresholdBasisAnimals is their real
-	// denominator. A lump-sum shed reports one average for the whole shed, so it
-	// cannot say how many of its animals cleared 30 kg — averaging is not counting,
-	// and splitting the count by the average would invent a distribution nobody
-	// measured. Showing these against AnimalsWeighed (which includes lump-sum
-	// animals) would silently understate the share, so the basis travels with them.
+	// A lump-sum shed reports one average, so it cannot say how many of its animals
+	// cleared 30 kg — splitting the head count by the average would invent a
+	// distribution nobody measured. It is therefore counted WHOLE when its average
+	// clears the line and not at all when it does not, the identical trade the band
+	// board took on 2026-09-01. Until 2026-09-03 these two counts covered per-animal
+	// sheds only, which on this farm read the herd from a third of it.
+	//
+	// ThresholdBasisAnimals is the counts' denominator and now equals AnimalsWeighed.
+	// It stays on the wire so the denominator always travels with the counts and a
+	// renderer never pairs them with a narrower figure.
 	AtOrAbove30Kg         int `json:"at_or_above_30kg"`
 	AtOrAbove35Kg         int `json:"at_or_above_35kg"`
 	ThresholdBasisAnimals int `json:"threshold_basis_animals"`

@@ -147,6 +147,20 @@ from the third of it weighed one by one — the identical trade already recorded
 **This is NOT the same call as the losing-animals list**, which stays scanned-only. There the output
 NAMES individual animals, and a shed average cannot name one.
 
+## The Over 30 kg / Over 35 kg cards take the same trade (2026-09-03)
+
+Maintainer decision, 2026-09-03: *"in 30 kg and 35 kg above include lump-sum also"*.
+
+The two sale-threshold cards on the Weights page (`at_or_above_30kg`, `at_or_above_35kg` on the
+shed-weights summary) had stayed scanned-only with their own narrower denominator
+(`threshold_basis_animals`, "190 weighed one by one"), on the reasoning that a pen average cannot
+say how many of its animals cleared a line. That reasoning still holds, and the answer is the one the
+band board already gave: a whole-shed pen is counted **whole or not at all** at its latest average.
+A pen averaging 31 kg puts every one of its animals over 30 kg and none over 35 kg. The denominator
+widens with the counts and now equals `animals_weighed`; the field stays on the wire so the counts
+always travel with their own basis. Pinned by
+`TestShedWeightsSaleThresholdsCountWholeShedPensAtThePenAverage`.
+
 ## Wire changes, and why the renames were part of the fix
 
 | was | is | why |
