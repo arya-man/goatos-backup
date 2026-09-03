@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-const APPLY_DELAY_MS = 250;
-
 type Props = {
   valueG: number;
   maxG: number;
@@ -40,13 +38,10 @@ export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label 
     return qs ? `/sales?${qs}` : "/sales";
   }, [draftG, preserveQuery]);
 
-  useEffect(() => {
+  const apply = () => {
     if (draftG === valueG) return;
-    const timeout = window.setTimeout(() => {
-      startTransition(() => router.replace(href, { scroll: false }));
-    }, APPLY_DELAY_MS);
-    return () => window.clearTimeout(timeout);
-  }, [draftG, href, router, valueG]);
+    startTransition(() => router.replace(href, { scroll: false }));
+  };
 
   return (
     <div className="sales-ready-tolerance" aria-label={label}>
@@ -67,6 +62,9 @@ export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label 
         />
         <output htmlFor="sale-ready-tolerance">{draftG} g</output>
       </div>
+      <button className="btn ghost small" type="button" disabled={draftG === valueG} onClick={apply}>
+        Apply
+      </button>
     </div>
   );
 }

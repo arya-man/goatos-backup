@@ -1515,6 +1515,17 @@ paths:
           required: false
           description: Optional capture-mode narrowing. Omitted or `all` counts both capture modes.
           schema: {type: string, enum: [all, individual_animal, per_shed_partition]}
+        - name: sale_threshold_tolerance_g
+          in: query
+          required: false
+          description: >-
+            Optional sale-ready tolerance in grams, from 0 to 1000. When present, only the
+            35 kg sale-ready summary threshold is lowered by this amount; the 30 kg threshold
+            remains unchanged.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: Per-shed weights and the whole-filter summary.
@@ -1613,6 +1624,17 @@ paths:
           required: false
           description: Optional capture-mode narrowing. Omitted or `all` counts both capture modes.
           schema: {type: string, enum: [all, individual_animal, per_shed_partition]}
+        - name: sale_threshold_tolerance_g
+          in: query
+          required: false
+          description: >-
+            Optional sale-ready tolerance in grams, from 0 to 1000. When present, only the
+            35 kg sale-ready summary threshold is lowered by this amount; the 30 kg threshold
+            remains unchanged.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: Per-shed weights and the whole-filter summary.

@@ -69,10 +69,7 @@ import (
 // buckets x 300 observations).
 func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg float64) (domain.ShedWeights, error) {
 	weighingCategory = strings.TrimSpace(weighingCategory)
-	saleThresholdLowerKg := domain.SaleThresholdLowerKg - saleThresholdToleranceKg
-	if saleThresholdLowerKg < 0 {
-		saleThresholdLowerKg = 0
-	}
+	saleThresholdLowerKg := domain.SaleThresholdLowerKg
 	saleThresholdUpperKg := domain.SaleThresholdUpperKg - saleThresholdToleranceKg
 	if saleThresholdUpperKg < 0 {
 		saleThresholdUpperKg = 0

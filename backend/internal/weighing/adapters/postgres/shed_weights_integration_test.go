@@ -212,6 +212,10 @@ func TestShedWeightsSaleThresholdsCountWholeShedPensAtThePenAverage(t *testing.T
 	if got := tolerant.Summary.AtOrAbove35Kg - after.Summary.AtOrAbove35Kg; got != 1 {
 		t.Fatalf("34.9kg scanned kid must join the 35kg sale-ready count at 200g tolerance, added %d", got)
 	}
+	if tolerant.Summary.AtOrAbove30Kg != after.Summary.AtOrAbove30Kg {
+		t.Fatalf("sale-ready tolerance must not change the 30kg summary: before %d, after %d",
+			after.Summary.AtOrAbove30Kg, tolerant.Summary.AtOrAbove30Kg)
+	}
 }
 
 // STATUS MATRIX. weighing_campaign_sheds.status spans pending / in_progress / completed /
