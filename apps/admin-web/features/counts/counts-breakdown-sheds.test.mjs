@@ -69,11 +69,18 @@ test("same-named sheds across parks are told apart by their park", () => {
   // The disambiguation was DEAD CODE: it read `park_label` off the shed facet, a field neither the
   // Go struct nor the OpenAPI schema declares and nothing has ever sent. Passing the park
   // vocabulary from facets.parks is what makes it fire.
-  const labels = buildShedFilterOptions(PARTITIONED, "", PARK_LABELS).map((o) => o.label);
-  assert.ok(labels.includes("Yashoda · CBE"), `expected a CBE-suffixed option, got ${JSON.stringify(labels)}`);
-  assert.ok(labels.includes("Yashoda · CPT"));
-  assert.ok(labels.includes("Yashoda - 1 · CBE"));
+  const options = buildShedFilterOptions(PARTITIONED, "", PARK_LABELS);
+  const labels = options.map((o) => o.label);
+  assert.ok(labels.includes("Yashoda - 1 · CBE"), `expected a CBE-suffixed pen, got ${JSON.stringify(labels)}`);
   assert.ok(labels.includes("Yashoda - 1 · CPT"));
+  // A subdivided shed offers NO whole-shed aggregate option (maintainer instruction 2026-09-03):
+  // the group heading names the shed, the options are its pens.
+  assert.ok(!labels.includes("Yashoda · CBE"), `whole-shed option must be gone: ${JSON.stringify(labels)}`);
+  assert.ok(!labels.includes("Yashoda · CPT"));
+  // ...but its GROUP heading still carries the shed (and park) name.
+  const groups = options.map((o) => o.group);
+  assert.ok(groups.includes("Yashoda · CBE"), `group headings: ${JSON.stringify([...new Set(groups)])}`);
+  assert.ok(groups.includes("Yashoda · CPT"));
   // Every visible option is unique — no two rows read identically.
   assert.equal(new Set(labels).size, labels.length, `duplicate visible labels: ${JSON.stringify(labels)}`);
   // A name that exists in only ONE park stays clean; the suffix is disambiguation, not decoration.
@@ -83,7 +90,7 @@ test("same-named sheds across parks are told apart by their park", () => {
 test("a park's own sheds need no park suffix, and read in name order", () => {
   const labels = buildShedFilterOptions(PARTITIONED, PARK_A, PARK_LABELS).map((o) => o.label);
   // Ho Chi Minh before Yashoda: the facet arrives ordered by shed UUID, which is an artifact.
-  assert.deepEqual(labels, ["Ho Chi Minh 1", "Yashoda", "Yashoda - 1", "Yashoda - 2"]);
+  assert.deepEqual(labels, ["Ho Chi Minh 1", "Yashoda - 1", "Yashoda - 2"]);
 });
 
 test("pens sort naturally, so 10 comes after 2", () => {
@@ -96,7 +103,7 @@ test("pens sort naturally, so 10 comes after 2", () => {
   ];
   assert.deepEqual(
     buildShedFilterOptions(many, PARK_A, PARK_LABELS).map((o) => o.label),
-    ["Yashoda", "Yashoda - 1", "Yashoda - 2", "Yashoda - 10"],
+    ["Yashoda - 1", "Yashoda - 2", "Yashoda - 10"],
   );
 });
 

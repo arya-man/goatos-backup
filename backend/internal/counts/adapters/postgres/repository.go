@@ -2461,6 +2461,20 @@ func ptrValue(v *string) string {
 	return *v
 }
 
+// compactStrings drops empty entries and guarantees a NON-NIL slice, so an array bind's
+// cardinality() reads 0 for "no filter" rather than NULL (which every OR-guard would treat as
+// unknown and filter everything out).
+func compactStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
 func ptrIfNotEmpty(v string) *string {
 	if v == "" {
 		return nil
@@ -2602,8 +2616,9 @@ WHERE g.tenant_id = $1
 //
 // Bind order is fixed for both consumers:
 //
-//	$1 tenant_id, $2 lifecycle_status, $3 park_id, $4 shed_id,
-//	$5 management_stage, $6 breed, $7 sex
+//	$1 tenant_id, $2 lifecycle_status, $3 park_ids text[], $4 pen shed_ids text[],
+//	$5 management_stages text[], $6 breeds text[], $7 sexes text[],
+//	$8 pen partition_labels text[] (parallel to $4)
 //
 // partition_key is the SQL twin of oploc.NormalizePartition: NULL/""/"whole" (any case/
 // whitespace) collapse to 'whole', and the 'Part N' convention normalizes to bare 'N' so both
@@ -2641,16 +2656,25 @@ WITH grouped AS MATERIALIZED (
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
-    AND ($3 = '' OR g.park_id = NULLIF($3, '')::uuid)
-    AND ($4 = '' OR g.shed_id = NULLIF($4, '')::uuid)
-    AND ($5 = '' OR COALESCE(g.management_stage, '') = $5)
-    AND ($6 = '' OR COALESCE(g.breed, '') = $6)
-    AND ($7 = '' OR g.sex = $7)
-    -- projection-review: membership=unchanged (canonical live goats for the tenant); group_key=unchanged (park, shed, stage, breed, sex, partition key) -- this hunk adds a PREDICATE, not a grouping column, so the grain is untouched; join_cardinality=unchanged, the goat_shed_partitions join is still 1:{0,1} on its (tenant_id, goat_id) primary key; pagination=unchanged, totals remain window functions over the whole grouped set and are invariant to limit/offset; scope=tenant plus the existing park/shed/stage/breed/sex predicates, NARROWED by one optional partition equality
-    -- Partition filter. Compared on the NORMALIZED key so a caller passing 'Part 3' or '3' selects
-    -- the same pen, matching oploc.SamePartition. Empty means "no partition filter" (the parent
-    -- shed aggregate), NOT "the non-partitioned bucket".
-    AND ($8 = '' OR ` + partitionKeyExpr + ` = regexp_replace(lower(btrim($8)), '^part[[:space:]]+', ''))
+    -- projection-review: membership=unchanged (canonical live goats for the tenant); group_key=unchanged (park, shed, stage, breed, sex, partition key) -- every filter dimension below is a PREDICATE over a bound SET, not a grouping column, so the grain is untouched; join_cardinality=unchanged, the goat_shed_partitions join is still 1:{0,1} on its (tenant_id, goat_id) primary key; pagination=unchanged, totals remain window functions over the whole grouped set and are invariant to limit/offset; scope=tenant plus optional multi-valued park/pen/stage/breed/sex membership predicates (OR within a dimension, AND across dimensions; an empty array means "no filter")
+    -- Multi-valued filters. Each dimension is an ARRAY bind: empty means "no filter on this
+    -- dimension"; non-empty matches ANY listed value. Columns stay bare and the CAST sits on the
+    -- typed bind array (text[] -> uuid[]), per the scale rule on predicate casts.
+    AND (cardinality($3::text[]) = 0 OR g.park_id = ANY($3::text[]::uuid[]))
+    AND (cardinality($5::text[]) = 0 OR COALESCE(g.management_stage, '') = ANY($5::text[]))
+    AND (cardinality($6::text[]) = 0 OR COALESCE(g.breed, '') = ANY($6::text[]))
+    AND (cardinality($7::text[]) = 0 OR g.sex = ANY($7::text[]))
+    -- Pen filter: parallel arrays of shed uuid ($4) and partition label ($8), one entry per
+    -- selected pen. An entry with an empty partition selects the WHOLE shed (the parent
+    -- aggregate), never "the non-partitioned bucket". Partitions are compared on the NORMALIZED
+    -- key so a caller passing 'Part 3' or '3' selects the same pen, matching oploc.SamePartition.
+    AND (cardinality($4::text[]) = 0 OR EXISTS (
+      SELECT 1
+      FROM unnest($4::text[]::uuid[], $8::text[]) AS pen(shed_id, partition_label)
+      WHERE g.shed_id = pen.shed_id
+        AND (pen.partition_label = ''
+             OR ` + partitionKeyExpr + ` = regexp_replace(lower(btrim(pen.partition_label)), '^part[[:space:]]+', ''))
+    ))
   GROUP BY g.park_id, g.shed_id, COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex,
            ` + partitionKeyExpr + `
 )`
@@ -3010,15 +3034,28 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		lifecycle = "alive"
 	}
 
+	// Pen filter travels as two PARALLEL arrays (shed uuid + partition label, same index = one
+	// pen), matching the unnest(...) pair in the SQL. Both are always non-nil so cardinality()
+	// reads 0 for "no filter" instead of NULL.
+	penSheds := make([]string, 0, len(req.Pens))
+	penPartitions := make([]string, 0, len(req.Pens))
+	for _, pen := range req.Pens {
+		if pen.ShedID == "" {
+			continue
+		}
+		penSheds = append(penSheds, pen.ShedID)
+		penPartitions = append(penPartitions, pen.PartitionLabel)
+	}
+
 	grainArgs := []any{
 		req.TenantID,
 		lifecycle,
-		ptrValue(req.ParkID),
-		ptrValue(req.ShedID),
-		ptrValue(req.ManagementStage),
-		ptrValue(req.Breed),
-		ptrValue(req.Sex),
-		ptrValue(req.PartitionLabel),
+		compactStrings(req.ParkIDs),
+		penSheds,
+		compactStrings(req.ManagementStages),
+		compactStrings(req.Breeds),
+		compactStrings(req.Sexes),
+		penPartitions,
 	}
 
 	batch := &pgx.Batch{}

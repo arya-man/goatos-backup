@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
@@ -19,15 +20,15 @@ func TestGetBreakdownPassesEveryFilterThrough(t *testing.T) {
 	svc := NewHerdRegisterService(repo)
 
 	want := domain.CountsBreakdownQuery{
-		TenantID:        "tenant-1",
-		LifecycleStatus: strptr("alive"),
-		ParkID:          strptr("park-1"),
-		ShedID:          strptr("shed-1"),
-		ManagementStage: strptr("K1"),
-		Breed:           strptr("Beetal"),
-		Sex:             strptr("female"),
-		Limit:           25,
-		Offset:          50,
+		TenantID:         "tenant-1",
+		LifecycleStatus:  strptr("alive"),
+		ParkIDs:          []string{"park-1", "park-2"},
+		Pens:             []domain.CountsBreakdownPen{{ShedID: "shed-1"}, {ShedID: "shed-2", PartitionLabel: "Part 3"}},
+		ManagementStages: []string{"K1", "K2"},
+		Breeds:           []string{"Beetal"},
+		Sexes:            []string{"female"},
+		Limit:            25,
+		Offset:           50,
 	}
 
 	if _, err := svc.GetBreakdown(context.Background(), want); err != nil {
@@ -38,18 +39,21 @@ func TestGetBreakdownPassesEveryFilterThrough(t *testing.T) {
 	if got.TenantID != want.TenantID {
 		t.Errorf("tenant: got %q want %q", got.TenantID, want.TenantID)
 	}
-	for name, pair := range map[string][2]*string{
-		"lifecycle_status": {got.LifecycleStatus, want.LifecycleStatus},
-		"park_id":          {got.ParkID, want.ParkID},
-		"shed_id":          {got.ShedID, want.ShedID},
-		"management_stage": {got.ManagementStage, want.ManagementStage},
-		"breed":            {got.Breed, want.Breed},
-		"sex":              {got.Sex, want.Sex},
+	if got.LifecycleStatus == nil || want.LifecycleStatus == nil || *got.LifecycleStatus != *want.LifecycleStatus {
+		t.Errorf("lifecycle_status: got %v want %v", got.LifecycleStatus, want.LifecycleStatus)
+	}
+	for name, pair := range map[string][2][]string{
+		"park_ids":          {got.ParkIDs, want.ParkIDs},
+		"management_stages": {got.ManagementStages, want.ManagementStages},
+		"breeds":            {got.Breeds, want.Breeds},
+		"sexes":             {got.Sexes, want.Sexes},
 	} {
-		gotVal, wantVal := pair[0], pair[1]
-		if gotVal == nil || wantVal == nil || *gotVal != *wantVal {
-			t.Errorf("%s: got %v want %v", name, gotVal, wantVal)
+		if !reflect.DeepEqual(pair[0], pair[1]) {
+			t.Errorf("%s: got %v want %v", name, pair[0], pair[1])
 		}
+	}
+	if !reflect.DeepEqual(got.Pens, want.Pens) {
+		t.Errorf("pens: got %v want %v", got.Pens, want.Pens)
 	}
 	if got.Limit != want.Limit || got.Offset != want.Offset {
 		t.Errorf("paging: got limit=%d offset=%d want limit=%d offset=%d", got.Limit, got.Offset, want.Limit, want.Offset)

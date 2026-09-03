@@ -87,12 +87,16 @@ type MilkPreparationProofValidator interface {
 }
 
 type MilkPreparationVerificationEnqueueRequest struct {
-	TenantID       string
-	CompletionID   string
-	ParkID         string
-	OperatorID     string
-	AttemptNo      int32
-	StepProofs     []domain.MilkPreparationStepProof
+	TenantID     string
+	CompletionID string
+	ParkID       string
+	OperatorID   string
+	AttemptNo    int32
+	StepProofs   []domain.MilkPreparationStepProof
+	// GoatMilkUsed and Answers carry the operator's entered quantities so the verifier item can
+	// state what was claimed (milk litres, citric acid grams) beside the step videos.
+	GoatMilkUsed   bool
+	Answers        domain.MilkPreparationAnswers
 	CapturedAt     time.Time
 	IdempotencyKey string
 }
@@ -172,6 +176,7 @@ func (s *HerdRegisterService) SubmitMilkPreparation(ctx context.Context, in doma
 		if err := s.milkPreparationEnqueuer.EnqueueMilkPreparationVerification(ctx, MilkPreparationVerificationEnqueueRequest{
 			TenantID: in.TenantID, CompletionID: result.CompletionID, ParkID: in.ParkID,
 			OperatorID: in.SubmittedBy, AttemptNo: result.AttemptNo, StepProofs: steps,
+			GoatMilkUsed: in.GoatMilkUsed, Answers: in.Answers,
 			CapturedAt: in.SubmittedAt, IdempotencyKey: key,
 		}); err != nil {
 			return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: enqueue milk preparation verification: %w", err)
