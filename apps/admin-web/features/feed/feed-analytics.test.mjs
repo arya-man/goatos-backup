@@ -93,7 +93,8 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
   assert.match(source, /const stockOnly = allowedTabs\.length === 1 && allowedTabs\[0\] === "items";/);
   assert.match(source, /const wantDirected = !stockOnly && \(tab === "overview" \|\| tab === "items" \|\| tab === "peranimal"\);/);
   assert.match(source, /\{!stockOnly \? \(\s*<>\s*<p className="muted small"[\s\S]*?<SegmentedLinks[\s\S]*?<SegmentedLinks[\s\S]*?<\/>\s*\) : null\}/);
-  assert.match(source, /\{stockOnly && tab === "items" \? <StockCards stock=\{stock\?\.ok \? stock\.data : null\} pageContract=\{pageContract\} \/> : null\}/);
+  assert.match(source, /const failed = \[directed, execution, experiment, shedFeed, stockOnly \? stock : null\]\.some/s);
+  assert.match(source, /\{stockOnly && tab === "items" && !failed \? \(\s*<StockCards stock=\{stock\?\.ok \? stock\.data : null\} pageContract=\{pageContract\} \/>/s);
   assert.match(source, /\{tab === "items" && !stockOnly \? \(/);
 });
 

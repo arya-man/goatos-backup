@@ -385,9 +385,11 @@ export async function FeedAnalyticsPage({
   const nonNull = [directed, execution, experiment, stock, shedFeed].filter((r) => r !== null);
   if (firstAuthRequiredError(...nonNull)) redirect(INTERNAL_LOGIN_PATH);
 
-  // Stock is deliberately absent from the failure gate: the rest of the page
-  // must stay useful when the purchase ledger is not bootstrapped yet.
-  const failed = [directed, execution, experiment, shedFeed].some((r) => r !== null && !r.ok);
+  // For the full feed analytics page, stock is supporting context and should not blank the
+  // charts. For a stock-only page, it is the page, so failures must be visible.
+  const failed = [directed, execution, experiment, shedFeed, stockOnly ? stock : null].some(
+    (r) => r !== null && !r.ok,
+  );
 
   return (
     <div className="pagegrid">
@@ -431,7 +433,9 @@ export async function FeedAnalyticsPage({
         </section>
       ) : null}
 
-      {stockOnly && tab === "items" ? <StockCards stock={stock?.ok ? stock.data : null} pageContract={pageContract} /> : null}
+      {stockOnly && tab === "items" && !failed ? (
+        <StockCards stock={stock?.ok ? stock.data : null} pageContract={pageContract} />
+      ) : null}
 
       {!stockOnly && directed?.ok && (tab === "overview" || tab === "items" || tab === "peranimal") ? (
         <DirectedTabs
