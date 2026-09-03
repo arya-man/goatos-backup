@@ -190,9 +190,9 @@ func TestVaccinationCommandBoardCohortMatrixReconcilesWithKPIsStatusBucketsCross
 	if verified != k.DosesVerified {
 		t.Errorf("cohort matrix verified total = %d but KPI doses_verified = %d", verified, k.DosesVerified)
 	}
-	if pending != k.OverdueNotGiven+k.ScheduledAhead {
-		t.Errorf("cohort matrix pending total = %d but KPI overdue_not_given + scheduled_ahead = %d",
-			pending, k.OverdueNotGiven+k.ScheduledAhead)
+	if pending != k.OverdueNotGiven {
+		t.Errorf("cohort matrix pending total = %d but KPI overdue_not_given = %d",
+			pending, k.OverdueNotGiven)
 	}
 
 	// (c) The three buckets are disjoint and never exceed the obligation total in the cell.

@@ -248,8 +248,8 @@ FROM per_animal
 //	  verified  = comp.has_accepted                                  (nobody owes anything)
 //	  submitted = NOT has_accepted AND has_recorded_unverified       (the VERIFIER owes review)
 //	  pending   = NOT has_accepted AND NOT has_recorded_unverified
-//	              AND status IN (open set) AND due business date <= as-of business date
-//	                                                                (the OPERATOR owes work)
+//	              AND status IN (open set) AND due business date < as-of business date
+//	                                                                (the OPERATOR owes late work)
 //	has_accepted is checked first in every branch, so no obligation lands in two buckets, and
 //	pending + submitted + verified <= the cell's obligation total.
 //	Reconciliation key sets, shown identical: submitted_count's key set is
@@ -347,7 +347,7 @@ narrowed AS (
       NOT COALESCE(comp.has_accepted, false)
       AND NOT COALESCE(comp.has_recorded_unverified, false)
       AND oi.status IN ('scheduled','due','in_progress','deferred','missed')
-      AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+      AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
     )::bigint AS pending_count,
     COUNT(*) FILTER (WHERE
       NOT COALESCE(comp.has_accepted, false) AND COALESCE(comp.has_recorded_unverified, false)

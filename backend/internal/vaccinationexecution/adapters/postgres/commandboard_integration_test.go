@@ -1458,9 +1458,9 @@ func TestVaccinationCommandBoardDueStatusEveryStatusBucketsExhaustiveOverTargets
 		if verified != k.DosesVerified {
 			t.Fatalf("cohort matrix verified_count total = %d but KPI doses_verified = %d", verified, k.DosesVerified)
 		}
-		if pending != k.OverdueNotGiven+k.ScheduledAhead {
-			t.Fatalf("cohort matrix pending_count total = %d but KPI overdue_not_given + scheduled_ahead = %d",
-				pending, k.OverdueNotGiven+k.ScheduledAhead)
+		if pending != k.OverdueNotGiven {
+			t.Fatalf("cohort matrix pending_count total = %d but KPI overdue_not_given = %d",
+				pending, k.OverdueNotGiven)
 		}
 	})
 }
