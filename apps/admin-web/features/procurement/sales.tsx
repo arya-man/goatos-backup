@@ -162,17 +162,17 @@ function OverviewSections({
                     ? copy(pageContract, "kpi.over35.none")
                     : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)} ${kgSuffix}+`}
               </div>
-              {over35.enabled ? (
-                <SalesReadyToleranceControl
-                  valueG={over35.toleranceG}
-                  maxG={OVER35_MAX_TOLERANCE_G}
-                  preserveQuery={over35.preserveQuery}
-                  label={copy(pageContract, "kpi.over35.tolerance")}
-                  kgSuffix={kgSuffix}
-                />
-              ) : null}
             </div>
           </section>
+          {over35.enabled ? (
+            <SalesReadyToleranceControl
+              valueG={over35.toleranceG}
+              maxG={OVER35_MAX_TOLERANCE_G}
+              preserveQuery={over35.preserveQuery}
+              label={copy(pageContract, "kpi.over35.tolerance")}
+              kgSuffix={kgSuffix}
+            />
+          ) : null}
 
 
           {/* 2 — month by month. Three separate charts: rupees, heads and kg never share an axis.
