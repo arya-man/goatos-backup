@@ -88,7 +88,9 @@ private fun LoadStep(state: FeedPurchaseCreateUiState, onEvent: (FeedPurchaseCre
             error = e[PurchaseField.VENDOR],
             placeholder = HINT_PICK_VENDOR,
         )
-        VendorsTextField(v[PurchaseField.VENDOR].orEmpty(), { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.VENDOR, it)) }, LABEL_VENDOR_TYPED, supporting = HINT_VENDOR_TYPED)
+        // The typed box carries only a NEW name: a vendor picked above is shown there, not echoed here.
+        val typed = v[PurchaseField.VENDOR].orEmpty().takeUnless { it in state.vendorSuggestions }.orEmpty()
+        VendorsTextField(typed, { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.VENDOR, it)) }, LABEL_VENDOR_TYPED, supporting = HINT_VENDOR_TYPED)
         VendorsTextField(v[PurchaseField.QUANTITY_KG].orEmpty(), { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.QUANTITY_KG, it)) }, LABEL_QUANTITY, required = true, keyboard = KeyboardType.Decimal, error = e[PurchaseField.QUANTITY_KG])
         VendorsDateField(LABEL_BOUGHT_ON, v[PurchaseField.PURCHASE_DATE].orEmpty(), { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.PURCHASE_DATE, it)) }, required = true, error = e[PurchaseField.PURCHASE_DATE], maxIso = state.today)
     }

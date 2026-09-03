@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
@@ -273,13 +274,17 @@ internal fun VendorsSegmented(
                     .selectable(selected = selected, role = Role.RadioButton, onClick = { onSelect(option.value) }),
                 contentAlignment = Alignment.Center,
             ) {
+                // Four options on one phone-width row (the vendor statuses) need the smaller
+                // pill face and a tighter inset, or the last word ellipsises ("Negoti…").
+                val crowded = options.size > 3
                 Text(
                     text = option.label,
                     color = if (selected) MeshaColors.OnBrand else MeshaColors.Ink,
-                    style = MeshaType.pillStrong,
+                    style = if (crowded) MeshaType.pill else MeshaType.pillStrong,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 8.dp),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = if (crowded) 2.dp else 8.dp),
                 )
             }
         }

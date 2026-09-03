@@ -55,6 +55,8 @@ class MeshaIconsNavKeyTest {
         // bar, so both need their own glyph.
         "vendors",
         "feed_purchases",
+        // Sales tab (maintainer instruction 2026-09-04): the third tab on the same bar.
+        "sales",
     )
 
     /** The verifier drawer's own key namespace (bootstrap_copy.go: `verifyModuleKey = "verify_" + normalized`). */

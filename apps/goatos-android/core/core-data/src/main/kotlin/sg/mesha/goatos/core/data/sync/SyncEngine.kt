@@ -159,6 +159,8 @@ class SyncEngine(
     // register without the vendor it just recorded until the next refresh. Same defect class as
     // feedRepository/toxinRepository above.
     private val vendorsRepository: sg.mesha.goatos.core.data.VendorsRepository? = null,
+    // Sales (maintainer instruction 2026-09-04): the recorded deal reconciles into Room the same way.
+    private val salesRepository: sg.mesha.goatos.core.data.SalesRepository? = null,
     private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
@@ -537,6 +539,7 @@ class SyncEngine(
         OutboxOpType.CLOCK_OUT -> dispatchClockPunch(item, clockIn = false)
         OutboxOpType.VENDOR_CREATE -> dispatchVendorCreate(item)
         OutboxOpType.FEED_PURCHASE_CREATE -> dispatchFeedPurchaseCreate(item)
+        OutboxOpType.SALES_DEAL_CREATE -> dispatchSalesDealCreate(item)
     }
 
     private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
@@ -712,6 +715,15 @@ class SyncEngine(
                     runCatching {
                         vendorsRepository?.persistServerFeedPurchase(
                             syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedPurchaseDto>(resultJson),
+                        )
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            OutboxOpType.SALES_DEAL_CREATE -> {
+                item.resultJson?.let { resultJson ->
+                    runCatching {
+                        salesRepository?.persistServerDeal(
+                            syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.SalesDealDto>(resultJson),
                         )
                     }.onFailure { reportCacheReconcileFailure(item, it) }
                 }
@@ -978,6 +990,13 @@ class SyncEngine(
     private suspend fun dispatchFeedPurchaseCreate(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<FeedPurchaseCreatePayload>(item.payloadJson)
         val created = api.createFeedPurchase(item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(created)
+    }
+
+    /** A sale recorded on the phone; the stored key rides as the backend's Idempotency-Key. */
+    private suspend fun dispatchSalesDealCreate(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<SalesDealCreatePayload>(item.payloadJson)
+        val created = api.createSalesDeal(item.idempotencyKey, payload.request)
         return syncJson.encodeToString(created)
     }
 

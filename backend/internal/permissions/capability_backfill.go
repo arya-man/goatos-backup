@@ -159,6 +159,11 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
+		// Sales on this desk too (maintainer instruction 2026-09-04): the Procurement phone
+		// module's Sales tab records a sale and tags its animals; the web pages follow the same
+		// permissions.
+		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
 	),
 	// Web-only except Vendors. Procurement Director keeps Sales Config, Vendors, Feed Purchases,
 	// and sees Feed Analytics stock only (the Hemant case). Source Entry is intentionally absent.

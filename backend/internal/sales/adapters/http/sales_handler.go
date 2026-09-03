@@ -58,6 +58,7 @@ func NewSalesHandler(service SalesService, log ...*slog.Logger) *SalesHandler {
 // table is matched by method + pattern, and a mismatch serves the route ungated.
 func Register(mux *http.ServeMux, h *SalesHandler) {
 	mux.HandleFunc("GET /sales/overview", h.GetOverview)
+	mux.HandleFunc("GET /sales/options", h.GetOptions)
 	mux.HandleFunc("GET /sales/deals", h.ListDeals)
 	mux.HandleFunc("POST /sales/deals", h.CreateDeal)
 	mux.HandleFunc("POST /sales/deals/{deal_id}/payments", h.RecordDealPayment)
@@ -87,6 +88,31 @@ func (h *SalesHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, toOverviewPayload(overview))
+}
+
+// GetOptions serves GET /sales/options: the vocabularies a record-sale form renders. Static per
+// build (they mirror the sales_deals CHECK constraints), so no tenant read is needed.
+func (h *SalesHandler) GetOptions(w http.ResponseWriter, r *http.Request) {
+	httpresponse.WriteJSON(w, http.StatusOK, buildSalesOptionsPayload())
+}
+
+func buildSalesOptionsPayload() salesOptionsPayload {
+	statuses := make([]salesStatusOptionPayload, 0, len(domain.Statuses))
+	for _, s := range domain.Statuses {
+		statuses = append(statuses, salesStatusOptionPayload{Key: s, Label: s, Tone: domain.StatusTone(s)})
+	}
+	breeds := make(map[string][]string, len(domain.ProductTypes))
+	for _, p := range domain.ProductTypes {
+		breeds[p] = append([]string(nil), domain.BreedsByProduct[p]...)
+	}
+	return salesOptionsPayload{
+		Farms:                append([]string(nil), domain.Farms...),
+		ProductTypes:         append([]string(nil), domain.ProductTypes...),
+		Breeds:               breeds,
+		Statuses:             statuses,
+		DefaultStatus:        domain.StatusDealClosed,
+		MaxSaleDateDaysAhead: domain.MaxSaleDateDaysAhead,
+	}
 }
 
 // ListDeals serves GET /sales/deals.

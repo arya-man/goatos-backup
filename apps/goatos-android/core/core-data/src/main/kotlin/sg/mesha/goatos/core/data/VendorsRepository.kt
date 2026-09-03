@@ -42,6 +42,9 @@ private const val VENDORS_CACHED_QUERIES = 6
 /** Bump whenever the cached row JSON changes shape incompatibly (see PACKING_CACHE_SHAPE's kdoc). */
 private const val VENDORS_CACHE_SHAPE = "vendors-v1"
 
+/** Blob-cache key prefix of one feed purchase's detail row (written by the ledger page and by a landed create). */
+private const val PURCHASE_KEY_PREFIX = "purchase:"
+
 /** Whole-filter totals from the last ledger refresh, never page-local sums. */
 data class FeedPurchaseTotals(val total: Int = 0, val quantityKg: Double = 0.0, val spendRupees: Double = 0.0)
 
@@ -276,7 +279,6 @@ class DefaultVendorsRepository(
     private companion object {
         const val LOG_TAG = "GoatOsVendors"
         const val VENDOR_KEY_PREFIX = "vendor:"
-        const val PURCHASE_KEY_PREFIX = "purchase:"
         const val CATALOG_KEY = "catalog"
         const val OPTIONS_KEY = "options"
     }
@@ -407,6 +409,11 @@ private class FeedPurchaseRemoteMediator(
                         )
                     },
                 )
+                // Every row also lands in the detail blob: the backend has no per-purchase read, so
+                // the purchase screen opens from the row the ledger page carried.
+                response.purchases.forEach { purchase ->
+                    database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(PURCHASE_KEY_PREFIX + purchase.feedPurchaseId, json.encodeToString(purchase), now))
+                }
                 database.feedPurchaseRemoteKeyDao().upsert(
                     FeedPurchaseRemoteKeyEntity(queryKey, nextOffset.toString(), endReached, now),
                 )

@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,7 +60,16 @@ fun FeedPurchasesListScreen(
             if (state.filters.isNotEmpty()) {
                 VendorsFilterRow(filters = state.filters, onSelect = { onEvent(FeedPurchasesListEvent.SelectDelivery(it)) })
             }
+            // A refresh that inserts rows ABOVE the first visible one (a sale recorded a moment
+            // ago) keeps the old row anchored; snap to the top so the new row is seen, but only
+            // when the person is already near the top -- never yank a deliberate scroll.
+            val listState = rememberLazyListState()
+            val firstKey = if (rows.itemCount > 0) rows.peek(0)?.listKey else null
+            LaunchedEffect(firstKey) {
+                if (firstKey != null && listState.firstVisibleItemIndex in 1..3) listState.scrollToItem(0)
+            }
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),

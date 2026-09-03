@@ -554,6 +554,15 @@ object AppModule {
     ): sg.mesha.goatos.core.data.VendorsRepository =
         sg.mesha.goatos.core.data.DefaultVendorsRepository(api = api, database = database)
 
+    // Sales (maintainer instruction 2026-09-04): the Procurement module's Sales tab.
+    @Provides
+    @Singleton
+    fun provideSalesRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): sg.mesha.goatos.core.data.SalesRepository =
+        sg.mesha.goatos.core.data.DefaultSalesRepository(api = api, database = database)
+
     // App-scoped optimistic overlay for feed completions (offline-first badge ahead of the next
     // refresh). A process singleton, not persisted — the outbox is the durable command record.
     @Provides
@@ -871,6 +880,7 @@ object AppModule {
         // Vendors (2026-09-03): same defect class -- without it a recorded vendor/purchase never
         // reconciles into Room after its write lands.
         vendorsRepository: sg.mesha.goatos.core.data.VendorsRepository,
+        salesRepository: sg.mesha.goatos.core.data.SalesRepository,
     ): SyncEngine {
         val pcCareRepository = DeferredPcCareRepository(pcCareRepositoryProvider)
         return SyncEngine(
@@ -894,6 +904,7 @@ object AppModule {
         pcCareRepository = pcCareRepository,
         toxinRepository = toxinRepository,
         vendorsRepository = vendorsRepository,
+        salesRepository = salesRepository,
         telemetry = outboxTelemetry,
         // Whole-page-blob reconcile: these opTypes affect cached lists/envelopes with no server-truth
         // row to write directly into. The reconcile is "refresh the page" or "forget the row",

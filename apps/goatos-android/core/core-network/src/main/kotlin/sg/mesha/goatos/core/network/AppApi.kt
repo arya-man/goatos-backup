@@ -74,6 +74,22 @@ import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedPurchasePageDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
+import sg.mesha.goatos.core.network.dto.SaleShedGroupDto
+import sg.mesha.goatos.core.network.dto.SaleAllocationDto
+import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
+import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
+import sg.mesha.goatos.core.network.dto.SaleLocationsDto
+import sg.mesha.goatos.core.network.dto.SalePreviewDto
+import sg.mesha.goatos.core.network.dto.SalesDealDto
+import sg.mesha.goatos.core.network.dto.SalesDealPageDto
+import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
+import sg.mesha.goatos.core.network.dto.SalesOptionsDto
+import sg.mesha.goatos.core.network.dto.SalesStatusOptionDto
+import sg.mesha.goatos.core.network.dto.SaleLocationParkDto
+import sg.mesha.goatos.core.network.dto.SaleLocationEntryDto
+import sg.mesha.goatos.core.network.dto.SaleCandidateDto
+import sg.mesha.goatos.core.network.dto.VendorOptionDto
+import sg.mesha.goatos.core.network.dto.VendorOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -1389,6 +1405,52 @@ interface AppApi {
         request: FeedPurchaseWriteDto,
     ): FeedPurchaseDto
 
+    // Sales (maintainer instruction 2026-09-04): the same routes the web's /sales/config uses.
+
+    /** GET /sales/deals — one bounded page of the ledger, newest sale first. Offset-paged. */
+    suspend fun getSalesDeals(
+        farm: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): SalesDealPageDto
+
+    /** GET /sales/options — farms, products, breeds per product, statuses with tones. */
+    suspend fun getSalesOptions(): SalesOptionsDto
+
+    /** GET /procurement/vendor-options — the ACTIVE register as the buyer picklist. */
+    suspend fun getVendorOptions(): VendorOptionsDto
+
+    /** POST /sales/deals — records a sale. The `Idempotency-Key` is REQUIRED. */
+    suspend fun createSalesDeal(
+        idempotencyKey: String,
+        request: SalesDealWriteDto,
+    ): SalesDealDto
+
+    /** GET /admin/goats/sale-locations — the park/pen catalog the tag-animals picker offers. */
+    suspend fun getSaleLocations(): SaleLocationsDto
+
+    /** GET /admin/goats/sale-candidates — a cursor page of animals that could be sold. */
+    suspend fun getSaleCandidates(
+        parkId: String,
+        shedId: String? = null,
+        partitionLabels: List<String> = emptyList(),
+        query: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): SaleCandidatePageDto
+
+    /** GET /admin/goats/sale-allocations/{deal} — what is already tagged to this sale. */
+    suspend fun getSaleAllocation(salesDealId: String): SaleAllocationDto
+
+    /** POST /admin/goats/sale-allocations/preview — the review step; mutates nothing. */
+    suspend fun previewSaleAllocation(request: SaleAllocationRequestDto): SalePreviewDto
+
+    /** POST /admin/goats/sale-allocations/confirm — marks the picked animals sold. Idempotency-Key. */
+    suspend fun confirmSaleAllocation(
+        idempotencyKey: String,
+        request: SaleAllocationRequestDto,
+    ): SaleAllocationDto
+
     suspend fun getFeedDistributionCaptures(
         parkId: String?,
         shedId: String,
@@ -2564,6 +2626,51 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun createFeedPurchase(idempotencyKey: String, request: FeedPurchaseWriteDto): FeedPurchaseDto =
         fakeFeedPurchase().copy(feedPurchaseId = "purchase-new", feedItem = request.feedItem, quantityKg = request.quantityKg)
+
+    override suspend fun getSalesDeals(farm: String?, limit: Int?, offset: Int?): SalesDealPageDto =
+        SalesDealPageDto(deals = listOf(fakeSalesDeal()), total = 1, limit = limit ?: 20, offset = offset ?: 0)
+
+    override suspend fun getSalesOptions(): SalesOptionsDto = SalesOptionsDto(
+        farms = listOf("CBE", "CPT"),
+        productTypes = listOf("Sheep", "Goat", "Manure"),
+        breeds = mapOf("Sheep" to listOf("Anantapur"), "Goat" to listOf("Malai", "Sirohi"), "Manure" to listOf("Manure")),
+        statuses = listOf(SalesStatusOptionDto("Deal Closed", "Deal Closed", "ok"), SalesStatusOptionDto("Advance Paid", "Advance Paid", "warn")),
+        defaultStatus = "Deal Closed",
+    )
+
+    override suspend fun getVendorOptions(): VendorOptionsDto =
+        VendorOptionsDto(vendors = listOf(VendorOptionDto("vendor-1", "Kumar Traders", "Sheep Agent", "Hosur", "TN")))
+
+    override suspend fun createSalesDeal(idempotencyKey: String, request: SalesDealWriteDto): SalesDealDto =
+        fakeSalesDeal().copy(dealId = "deal-new", buyerName = request.buyerName, salesValue = request.salesValue, paymentBalance = request.salesValue)
+
+    override suspend fun getSaleLocations(): SaleLocationsDto = SaleLocationsDto(
+        parks = listOf(SaleLocationParkDto("park-1", "CBE")),
+        locations = listOf(SaleLocationEntryDto("shed-1", "park-1", "1", "Castro 1")),
+    )
+
+    override suspend fun getSaleCandidates(parkId: String, shedId: String?, partitionLabels: List<String>, query: String?, limit: Int?, cursor: String?): SaleCandidatePageDto =
+        SaleCandidatePageDto(candidates = listOf(fakeSaleCandidate()))
+
+    override suspend fun getSaleAllocation(salesDealId: String): SaleAllocationDto = SaleAllocationDto(salesDealId = salesDealId)
+
+    override suspend fun previewSaleAllocation(request: SaleAllocationRequestDto): SalePreviewDto =
+        SalePreviewDto(salesDealId = request.salesDealId, sellable = request.goatIds.size, shedGroups = listOf(SaleShedGroupDto(parkName = "CBE", operationalLocationDisplay = "Castro 1", animals = request.goatIds.size, tagNumbers = listOf("155"))))
+
+    override suspend fun confirmSaleAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): SaleAllocationDto =
+        SaleAllocationDto(salesDealId = request.salesDealId, allocated = request.goatIds.size)
+
+    private fun fakeSalesDeal(): SalesDealDto = SalesDealDto(
+        dealId = "deal-1", saleDate = "2026-09-01", farm = "CBE", buyerName = "Kumar Traders", buyerPlace = "Hosur",
+        buyerVendorId = "vendor-1", productType = "Goat", breed = "Malai", animalCount = 12.0, totalWeightKg = 300.0,
+        salesValue = 150000.0, paymentReceived = 50000.0, paymentBalance = 100000.0, status = "Advance Paid",
+    )
+
+    private fun fakeSaleCandidate(): SaleCandidateDto = SaleCandidateDto(
+        goatId = "goat-1", displayId = "G-1", tagNumber = "155", parkId = "park-1", parkName = "CBE",
+        shedId = "shed-1", shedName = "Castro", partitionLabel = "1", operationalLocationDisplay = "Castro 1",
+        breed = "Malai", sex = "male",
+    )
 
     private fun fakeVendor(): VendorDto = VendorDto(
         vendorId = "vendor-1", recordType = "Feed Agent", businessName = "Kumar Traders",

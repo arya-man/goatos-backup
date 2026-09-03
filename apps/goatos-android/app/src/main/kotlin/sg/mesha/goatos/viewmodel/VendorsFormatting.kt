@@ -34,7 +34,7 @@ internal fun indianNumber(value: Double, maxFraction: Int = 1): String {
     val grouped = if (whole.length > 3) {
         val head = whole.dropLast(3)
         val tail = whole.takeLast(3)
-        val groups = mutableListOf<String>()
+        val groups = mutableListOf<String>() // mobile-guard:ignore: local digit-grouping scratch list, bounded by the number's length and dropped on return
         var rest = head
         while (rest.length > 2) {
             groups.add(0, rest.takeLast(2))

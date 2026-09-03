@@ -206,3 +206,81 @@ interface VendorsBlobCacheDao : JsonBlobCacheDao<VendorsBlobCacheEntity> {
     )
     override suspend fun deleteOldest(n: Int)
 }
+
+// ---------------------------------------------------------------------------------------------
+// Sales (maintainer instruction 2026-09-04): the Procurement module's Sales tab caches the deals
+// ledger the same way as the feed purchase ledger -- one row per (scope, deal), offset cursors
+// per scope -- and shares `vendors_blob_cache` for options, the buyer picklist and deal detail.
+// ---------------------------------------------------------------------------------------------
+
+@Entity(
+    tableName = "sales_deal_items",
+    primaryKeys = ["queryKey", "grainKey"],
+    indices = [
+        Index(value = ["queryKey", "sortIndex"]),
+        Index(value = ["grainKey"]),
+    ],
+)
+data class SalesDealItemEntity(
+    val queryKey: String,
+    /** The DEAL id -- the row grain the ledger pages by. */
+    val grainKey: String,
+    val sortIndex: Int,
+    val dtoJson: String,
+    val updatedAt: Long,
+)
+
+@Entity(tableName = "sales_deal_remote_keys")
+data class SalesDealRemoteKeyEntity(
+    @PrimaryKey val queryKey: String,
+    val nextCursor: String,
+    val endReached: Boolean,
+    val updatedAt: Long,
+)
+
+@Dao
+interface SalesDealItemDao {
+    @Query(
+        "SELECT * FROM sales_deal_items WHERE queryKey = :queryKey ORDER BY sortIndex ASC",
+    )
+    fun pagingSource(queryKey: String): PagingSource<Int, SalesDealItemEntity>
+
+    @Query("SELECT * FROM sales_deal_items WHERE grainKey = :dealId")
+    suspend fun rowsForDeal(dealId: String): List<SalesDealItemEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(items: List<SalesDealItemEntity>)
+
+    @Query("DELETE FROM sales_deal_items WHERE queryKey = :queryKey")
+    suspend fun deleteQuery(queryKey: String)
+
+    @Query("SELECT COUNT(*) FROM sales_deal_items WHERE queryKey = :queryKey")
+    suspend fun countForQuery(queryKey: String): Int
+
+    @Query(
+        "DELETE FROM sales_deal_items WHERE queryKey NOT IN " +
+            "(SELECT queryKey FROM sales_deal_remote_keys ORDER BY updatedAt DESC LIMIT :keepQueries)",
+    )
+    suspend fun deleteRowsOutsideNewestQueries(keepQueries: Int)
+}
+
+@Dao
+interface SalesDealRemoteKeyDao {
+    @Query("SELECT * FROM sales_deal_remote_keys WHERE queryKey = :queryKey")
+    suspend fun get(queryKey: String): SalesDealRemoteKeyEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(key: SalesDealRemoteKeyEntity)
+
+    @Query("DELETE FROM sales_deal_remote_keys WHERE queryKey = :queryKey")
+    suspend fun delete(queryKey: String)
+
+    @Query("DELETE FROM sales_deal_remote_keys")
+    suspend fun deleteAll()
+
+    @Query(
+        "DELETE FROM sales_deal_remote_keys WHERE queryKey NOT IN " +
+            "(SELECT queryKey FROM sales_deal_remote_keys ORDER BY updatedAt DESC LIMIT :keepQueries)",
+    )
+    suspend fun deleteOutsideNewestQueries(keepQueries: Int)
+}

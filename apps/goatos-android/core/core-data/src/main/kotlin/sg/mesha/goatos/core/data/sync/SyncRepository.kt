@@ -580,6 +580,12 @@ interface SyncRepository {
         request: sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto,
     ): AppResult<String> = AppResult.Err("feed purchase sync is not configured")
 
+    /** A sale recorded on the phone (`POST /sales/deals`); [clientId] is stable across retries. */
+    suspend fun enqueueSalesDealCreate(
+        clientId: String,
+        request: sg.mesha.goatos.core.network.dto.SalesDealWriteDto,
+    ): AppResult<String> = AppResult.Err("sales sync is not configured")
+
     suspend fun enqueueMilkPreparationSubmit(
         groupKey: String,
         idempotencyKey: String,
@@ -1559,6 +1565,16 @@ class DefaultSyncRepository(
         groupKey = feedPurchaseCreateGroupKey(clientId.trim()),
         idempotencyKey = feedPurchaseCreateIdempotencyKey(clientId.trim()),
         payloadJson = syncJson.encodeToString(FeedPurchaseCreatePayload(clientId = clientId.trim(), request = request)),
+    )
+
+    override suspend fun enqueueSalesDealCreate(
+        clientId: String,
+        request: sg.mesha.goatos.core.network.dto.SalesDealWriteDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SALES_DEAL_CREATE,
+        groupKey = salesDealCreateGroupKey(clientId.trim()),
+        idempotencyKey = salesDealCreateIdempotencyKey(clientId.trim()),
+        payloadJson = syncJson.encodeToString(SalesDealCreatePayload(clientId = clientId.trim(), request = request)),
     )
 
     override suspend fun enqueueMilkPreparationSubmit(

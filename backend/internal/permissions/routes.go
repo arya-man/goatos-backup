@@ -323,6 +323,7 @@ var protectedRoutes = []Route{
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --
 	// see SalesRead's doc comment.
 	{OperationID: "listSalesOverview", Method: "GET", Pattern: "/sales/overview", Permissions: []string{SalesRead}},
+	{OperationID: "listSalesOptions", Method: "GET", Pattern: "/sales/options", Permissions: []string{SalesRead}},
 	{OperationID: "listSalesDeals", Method: "GET", Pattern: "/sales/deals", Permissions: []string{SalesRead}},
 	{OperationID: "createSalesDeal", Method: "POST", Pattern: "/sales/deals", Permissions: []string{SalesWrite}},
 	// A buyer receipt is a money write on the same ledger, so it carries the same write permission

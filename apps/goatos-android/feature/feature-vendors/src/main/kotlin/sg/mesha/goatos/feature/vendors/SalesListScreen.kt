@@ -1,6 +1,6 @@
 package sg.mesha.goatos.feature.vendors
 
-// telemetry:exempt pure stateless renderer; VendorsListViewModel (in :app) owns the vendors_*
+// telemetry:exempt pure stateless renderer; SalesListViewModel (in :app) owns the vendors_*
 // AnalyticsEventsVendors + CrashReporter wiring for every read refresh and row open.
 
 import androidx.compose.foundation.background
@@ -14,10 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,42 +38,27 @@ import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 
-/**
- * The Vendors module's register list (`/vendors`): every counterparty the farm buys from, searched
- * and narrowed by status. Paged (~20 rows) with stable vendor-id keys and a PASSIVE loading
- * footer — never a "Load more" button (docs/decisions/mobile-data-fetch-anti-patterns.md).
- */
+/** The Procurement module's third tab (`/vendors/sales`): the sales ledger. */
 @Composable
-fun VendorsListScreen(
-    state: VendorsListUiState,
-    rows: LazyPagingItems<VendorCardUi>,
-    onEvent: (VendorsListEvent) -> Unit = {},
+fun SalesListScreen(
+    state: SalesListUiState,
+    rows: LazyPagingItems<SaleCardUi>,
+    onEvent: (SalesListEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    RefreshOnResume { onEvent(VendorsListEvent.Refresh) }
+    RefreshOnResume { onEvent(SalesListEvent.Refresh) }
     Box(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         Column(Modifier.fillMaxSize()) {
             MeshaScreenHeader(
                 title = state.title,
                 subtitle = state.countLine.ifBlank { null },
                 below = {
-                    SyncStatusIndicator(
-                        isRefreshing = state.isRefreshing,
-                        lastSyncedAt = state.lastSyncedAt,
-                        hasData = rows.itemCount > 0,
-                    )
+                    SyncStatusIndicator(isRefreshing = state.isRefreshing, lastSyncedAt = state.lastSyncedAt, hasData = rows.itemCount > 0)
                 },
-                actions = {
-                    SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(VendorsListEvent.Refresh) })
-                },
-            )
-            VendorsSearchField(
-                value = state.search,
-                placeholder = SEARCH_PLACEHOLDER,
-                onValueChange = { onEvent(VendorsListEvent.SearchChanged(it)) },
+                actions = { SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(SalesListEvent.Refresh) }) },
             )
             if (state.filters.isNotEmpty()) {
-                VendorsFilterRow(filters = state.filters, onSelect = { onEvent(VendorsListEvent.SelectStatus(it)) })
+                VendorsFilterRow(filters = state.filters, onSelect = { onEvent(SalesListEvent.SelectFarm(it)) })
             }
             // A refresh that inserts rows ABOVE the first visible one (a sale recorded a moment
             // ago) keeps the old row anchored; snap to the top so the new row is seen, but only
@@ -96,17 +79,14 @@ fun VendorsListScreen(
                         EmptyState(
                             title = state.emptyMessage,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = MeshaDimens.gutter),
-                            icon = if (state.isErrorEmpty) MeshaIcons.Warn else MeshaIcons.Store,
+                            icon = if (state.isErrorEmpty) MeshaIcons.Warn else MeshaIcons.Sale,
                             tone = if (state.isErrorEmpty) EmptyTone.Warn else EmptyTone.Neutral,
                         )
                     }
                 }
                 items(count = rows.itemCount, key = rows.itemKey { it.listKey }) { index ->
-                    rows[index]?.let { card ->
-                        VendorCard(card) { onEvent(VendorsListEvent.OpenVendor(card.vendorId)) }
-                    }
+                    rows[index]?.let { card -> SaleCard(card) { onEvent(SalesListEvent.OpenSale(card.dealId)) } }
                 }
-                // Passive loading footer: the next page is already in flight while this spins.
                 if (rows.loadState.append is LoadState.Loading) {
                     item(key = "loading_footer") {
                         Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
@@ -119,7 +99,7 @@ fun VendorsListScreen(
         if (state.canAdd) {
             VendorsAddButton(
                 label = ADD_LABEL,
-                onClick = { onEvent(VendorsListEvent.AddVendor) },
+                onClick = { onEvent(SalesListEvent.AddSale) },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(MeshaDimens.gutter),
             )
         }
@@ -127,31 +107,20 @@ fun VendorsListScreen(
 }
 
 @Composable
-private fun VendorCard(card: VendorCardUi, onClick: () -> Unit) {
+private fun SaleCard(card: SaleCardUi, onClick: () -> Unit) {
     VendorsCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            VendorsIconTile(icon = MeshaIcons.Store, tint = MeshaColors.BrandD, background = MeshaColors.BrandTint)
+            VendorsIconTile(icon = MeshaIcons.Sale, tint = MeshaColors.Teal, background = MeshaColors.TealX)
             Column(Modifier.weight(1f)) {
-                Text(text = card.name, color = MeshaColors.Ink, style = MeshaType.listTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = card.buyer, color = MeshaColors.Ink, style = MeshaType.listTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(2.dp))
-                Text(text = card.typeLine, color = MeshaColors.Muted, style = MeshaType.cardSubtitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = card.productLine, color = MeshaColors.Muted, style = MeshaType.cardSubtitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             VendorsChip(label = card.statusLabel, tone = card.statusTone)
         }
-        if (card.capacityLine.isNotBlank() || card.hasVoiceNote) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (card.capacityLine.isNotBlank()) {
-                    Icon(MeshaIcons.Package, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.width(MeshaDimens.iconSm).height(MeshaDimens.iconSm))
-                    Text(text = card.capacityLine, color = MeshaColors.Ink, style = MeshaType.rowCaption, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                }
-                if (card.hasVoiceNote) {
-                    Icon(MeshaIcons.Microphone, contentDescription = VOICE_NOTE_HINT, tint = MeshaColors.Teal, modifier = Modifier.width(MeshaDimens.iconSm).height(MeshaDimens.iconSm))
-                }
-            }
-        }
+        Text(text = card.valueLine, color = MeshaColors.Ink, style = MeshaType.rowValue, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text = card.metaLine, color = MeshaColors.Muted, style = MeshaType.rowCaption, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
-private const val SEARCH_PLACEHOLDER = "Search by business, contact or phone"
-private const val ADD_LABEL = "Add vendor"
-private const val VOICE_NOTE_HINT = "Has a voice note"
+private const val ADD_LABEL = "Record sale"

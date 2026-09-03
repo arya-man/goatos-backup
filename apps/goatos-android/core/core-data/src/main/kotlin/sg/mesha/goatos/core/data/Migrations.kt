@@ -1464,29 +1464,64 @@ val MIGRATION_53_54: Migration = object : Migration(53, 54) {
  */
 val MIGRATION_54_55: Migration = object : Migration(54, 55) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        for (table in listOf("vendor_items", "feed_purchase_items")) {
-            db.execSQL(
-                "CREATE TABLE IF NOT EXISTS `$table` " +
-                    "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
-                    "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
-                    "PRIMARY KEY(`queryKey`, `grainKey`))",
-            )
-            db.execSQL(
-                "CREATE INDEX IF NOT EXISTS `index_${table}_queryKey_sortIndex` ON `$table` (`queryKey`, `sortIndex`)",
-            )
-            db.execSQL("CREATE INDEX IF NOT EXISTS `index_${table}_grainKey` ON `$table` (`grainKey`)")
-        }
-        for (table in listOf("vendor_remote_keys", "feed_purchase_remote_keys")) {
-            db.execSQL(
-                "CREATE TABLE IF NOT EXISTS `$table` " +
-                    "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
-                    "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
-            )
-        }
+        // Spelled out per table (no loop) so the static room-migration guard can see each CREATE.
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `vendor_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_vendor_items_queryKey_sortIndex` ON `vendor_items` (`queryKey`, `sortIndex`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_vendor_items_grainKey` ON `vendor_items` (`grainKey`)")
+        // Spelled out per table (no loop) so the static room-migration guard can see each CREATE.
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_purchase_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_purchase_items_queryKey_sortIndex` ON `feed_purchase_items` (`queryKey`, `sortIndex`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_purchase_items_grainKey` ON `feed_purchase_items` (`grainKey`)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `vendor_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_purchase_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS `vendors_blob_cache` " +
                 "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
                 "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}
+
+/**
+ * v56 (maintainer instruction 2026-09-04): the Sales tab of the Procurement phone module adds
+ * the deals ledger pair (`sales_deal_items` + `sales_deal_remote_keys`), the exact shape of the
+ * feed purchase pair. Options, the buyer picklist and deal detail share `vendors_blob_cache`.
+ * Additive only; nothing existing is touched.
+ */
+val MIGRATION_55_56: Migration = object : Migration(55, 56) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `sales_deal_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_sales_deal_items_queryKey_sortIndex` ON `sales_deal_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_sales_deal_items_grainKey` ON `sales_deal_items` (`grainKey`)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `sales_deal_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
         )
     }
 }

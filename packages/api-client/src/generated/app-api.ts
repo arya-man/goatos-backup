@@ -3073,6 +3073,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The record-sale vocabularies.
+         * @description Farms, product types, the breeds each product is sold under, the deal statuses with their chip tones, the default status and the sale-date horizon. Backend-owned so the phone's record-sale form and the web drawer offer the same words (maintainer instruction 2026-09-04).
+         */
+        get: operations["listSalesOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/deals": {
         parameters: {
             query?: never;
@@ -6587,6 +6607,23 @@ export interface components {
         SalesDealStatusWrite: {
             /** @enum {string} */
             status: "Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid";
+        };
+        SalesStatusOption: {
+            key: string;
+            label: string;
+            /** @description Chip tone every surface renders this status in (ok, dng, info, warn). */
+            tone: string;
+        };
+        SalesOptions: {
+            farms: string[];
+            product_types: string[];
+            /** @description Breeds keyed by product type, in offer order. */
+            breeds: {
+                [key: string]: string[];
+            };
+            statuses: components["schemas"]["SalesStatusOption"][];
+            default_status: string;
+            max_sale_date_days_ahead: number;
         };
         SalesDealPage: {
             deals: components["schemas"]["SalesDeal"][];
@@ -20592,6 +20629,29 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSalesOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The vocabularies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesOptions"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];

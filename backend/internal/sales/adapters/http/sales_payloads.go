@@ -8,6 +8,26 @@ import (
 // move together. A rename on one side only is the "contract lie" failure mode: the client
 // compiles, renders nothing, and nothing errors.
 
+// salesOptionsPayload is GET /sales/options: the record-sale vocabularies, backend-owned so the
+// phone renders the same farms, products, breeds and statuses the web drawer does.
+type salesOptionsPayload struct {
+	Farms        []string `json:"farms"`
+	ProductTypes []string `json:"product_types"`
+	// Breeds keyed by product type, in offer order.
+	Breeds   map[string][]string        `json:"breeds"`
+	Statuses []salesStatusOptionPayload `json:"statuses"`
+	// DefaultStatus is what a blank status resolves to on the write.
+	DefaultStatus string `json:"default_status"`
+	// MaxSaleDateDaysAhead is how far past today a sale date may sit (the web caps at 60).
+	MaxSaleDateDaysAhead int `json:"max_sale_date_days_ahead"`
+}
+
+type salesStatusOptionPayload struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Tone  string `json:"tone"`
+}
+
 // dealPayload is the wire shape of one ledger row.
 type dealPayload struct {
 	DealID   string `json:"deal_id"`

@@ -274,6 +274,31 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
+    fun `migration 55 to 56 adds the sales deals ledger pair and keeps the vendors tables`() {
+        helper.createDatabase(DB_NAME, 55).apply {
+            execSQL(
+                "INSERT INTO `vendor_items` " +
+                    "(`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('scope-1', 'vendor-1', 0, '{}', 1)",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 56, true, MIGRATION_55_56)
+        for (table in listOf("sales_deal_items", "sales_deal_remote_keys")) {
+            db.query("SELECT COUNT(*) FROM `$table`").use { cursor ->
+                assertEquals("$table exists and is empty", true, cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
+        db.query("SELECT `dtoJson` FROM `vendor_items` WHERE `queryKey`='scope-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{}", cursor.getString(0))
+        }
+        db.close()
+    }
+
+    @Test
     fun `migration 54 to 55 creates the five vendors tables and preserves existing toxin rows`() {
         helper.createDatabase(DB_NAME, 54).apply {
             execSQL(
@@ -370,6 +395,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_52_53.migrate(db)
         MIGRATION_53_54.migrate(db)
         MIGRATION_54_55.migrate(db)
+        MIGRATION_55_56.migrate(db)
         return db
     }
 

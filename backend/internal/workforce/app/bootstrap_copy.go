@@ -386,11 +386,13 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "toxin", labelKey: "nav.toxin", href: "/toxin", shared_key: "", priority: 1, requiredPermission: permissions.ToxinRead}, //nav-composition:ignore: registry entry
 		},
 	},
-	// Vendors (module_key vendors, maintainer decision 2026-09-03): the procurement desk's phone
-	// module -- the vendor register and the feed purchase ledger, view and add. Two tabs, one per
-	// ledger, each gated on the SAME read permission its backing routes require. Offered on
-	// VendorRead the per-person way (ceo_internal, procurement_director, procurement_manager hold
-	// it); no job outside procurement carries it, so nothing widens.
+	// Procurement (module_key vendors, maintainer decisions 2026-09-03 and 2026-09-04): the
+	// procurement desk's phone module -- the vendor register, the feed purchase ledger and the
+	// sales ledger, view and add. Three tabs, one per ledger, each gated on the SAME read
+	// permission its backing routes require. Offered on VendorRead the per-person way
+	// (ceo_internal, procurement_director, procurement_manager hold it); no job outside
+	// procurement carries it, so nothing widens. The module KEY stays `vendors` (it is the
+	// person_module_access tick and the web capability key); only the shown word changed.
 	"vendors": {
 		key:         "vendors",
 		labelKey:    "module.vendors",
@@ -400,6 +402,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		contributions: []moduleNavContribution{
 			{key: "vendors", labelKey: "nav.vendors", href: "/vendors", shared_key: "", priority: 1, requiredPermission: permissions.VendorRead},                                    //nav-composition:ignore: registry entry
 			{key: "feed_purchases", labelKey: "nav.feed_purchases", href: "/vendors/feed-purchases", shared_key: "", priority: 2, requiredPermission: permissions.FeedPurchaseRead}, //nav-composition:ignore: registry entry
+			{key: "sales", labelKey: "nav.sales", href: "/vendors/sales", shared_key: "", priority: 3, requiredPermission: permissions.SalesRead},                                   //nav-composition:ignore: registry entry
 		},
 	},
 	// PC Care (module_key pc_care, maintainer decision 2026-08-21): planner-assigned deworming /
@@ -1607,9 +1610,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "Approvals",
 		"module.toxin":          "Toxin",
 		"nav.toxin":             "Tests",
-		"module.vendors":        "Vendors",
+		"module.vendors":        "Procurement",
 		"nav.vendors":           "Vendors",
 		"nav.feed_purchases":    "Feed Purchases",
+		"nav.sales":             "Sales",
 		"module.clock":          "Clock In / Out",
 		"nav.clock":             "My Clock",
 		"nav.clock_team":        "Team",
@@ -1662,9 +1666,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "अनुमोदन",
 		"module.toxin":          "टॉक्सिन",
 		"nav.toxin":             "जाँच",
-		"module.vendors":        "विक्रेता",
+		"module.vendors":        "खरीद",
 		"nav.vendors":           "विक्रेता",
 		"nav.feed_purchases":    "चारा खरीद",
+		"nav.sales":             "बिक्री",
 		"module.clock":          "हाज़िरी",
 		"nav.clock":             "मेरी हाज़िरी",
 		"nav.clock_team":        "टीम",
@@ -1717,9 +1722,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "ಅನುಮೋದನೆ",
 		"module.toxin":          "ಟಾಕ್ಸಿನ್",
 		"nav.toxin":             "ಪರೀಕ್ಷೆಗಳು",
-		"module.vendors":        "ಮಾರಾಟಗಾರರು",
+		"module.vendors":        "ಖರೀದಿ",
 		"nav.vendors":           "ಮಾರಾಟಗಾರರು",
 		"nav.feed_purchases":    "ಮೇವು ಖರೀದಿ",
+		"nav.sales":             "ಮಾರಾಟ",
 		"module.clock":          "ಹಾಜರಾತಿ",
 		"nav.clock":             "ನನ್ನ ಹಾಜರಾತಿ",
 		"nav.clock_team":        "ತಂಡ",
@@ -1772,9 +1778,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "ఆమోదం",
 		"module.toxin":          "టాక్సిన్",
 		"nav.toxin":             "పరీక్షలు",
-		"module.vendors":        "విక్రేతలు",
+		"module.vendors":        "కొనుగోళ్లు",
 		"nav.vendors":           "విక్రేతలు",
 		"nav.feed_purchases":    "దాణా కొనుగోళ్లు",
+		"nav.sales":             "అమ్మకాలు",
 		"module.clock":          "హాజరు",
 		"nav.clock":             "నా హాజరు",
 		"nav.clock_team":        "బృందం",

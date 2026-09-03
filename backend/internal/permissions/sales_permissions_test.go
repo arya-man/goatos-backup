@@ -12,7 +12,12 @@ func TestSalesRolePermissions(t *testing.T) {
 	if !RolesAuthorize([]string{RoleCEOInternal}, []string{SalesRead, SalesWrite}, false) {
 		t.Fatal("CEO/CXO should read and write sales")
 	}
-	for _, role := range []string{RoleOperator, RoleParkHead, RolePCDirector, RoleGrowthDirector, RoleVerifier, RoleProcurementManager} {
+	// procurement_manager joined the selling side on 2026-09-04 (the Procurement phone module's
+	// Sales tab), alongside the director it reports to.
+	if !RolesAuthorize([]string{RoleProcurementManager}, []string{SalesRead, SalesWrite, SalesAllocateAnimals}, false) {
+		t.Fatal("procurement_manager should read and write sales and tag the animals of a sale")
+	}
+	for _, role := range []string{RoleOperator, RoleParkHead, RolePCDirector, RoleGrowthDirector, RoleVerifier, RoleFeedDirector} {
 		if RolesAuthorize([]string{role}, []string{SalesRead}, false) {
 			t.Fatalf("%s must not read sales", role)
 		}

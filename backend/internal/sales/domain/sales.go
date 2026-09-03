@@ -45,6 +45,37 @@ var (
 	Statuses     = []string{StatusDealClosed, StatusDealFailed, StatusInDiscussion, StatusAdvancePaid}
 )
 
+// MaxSaleDateDaysAhead is how far past today a sale may be dated: a short horizon so a typo
+// cannot date a sale into next year, the same 60 days the web drawer caps at.
+const MaxSaleDateDaysAhead = 60
+
+// BreedsByProduct is the breed vocabulary each product type is sold under (maintainer
+// instruction 2026-09-04: the phone's record-sale form offers the SAME breeds the web drawer
+// does, from the backend, so the two surfaces cannot drift). The web page contract keeps its own
+// literal copy because the contract compiler must not import a feature package; TestSalesOptions
+// pins the two lists equal.
+var BreedsByProduct = map[string][]string{
+	ProductSheep:  {"Anantapur", "Kenguri", "Nipani"},
+	ProductGoat:   {"Malai", "Sojat", "Osmanabadi", "Beetle", "Sirohi"},
+	ProductManure: {ProductManure},
+}
+
+// StatusTone is the chip tone every surface renders a deal status in (the web's
+// sales_deal_statuses group): ok / dng / info / warn.
+func StatusTone(status string) string {
+	switch status {
+	case StatusDealClosed:
+		return "ok"
+	case StatusDealFailed:
+		return "dng"
+	case StatusInDiscussion:
+		return "info"
+	case StatusAdvancePaid:
+		return "warn"
+	}
+	return ""
+}
+
 // IsFarm reports whether raw is one of the two farms, exactly as stored.
 func IsFarm(raw string) bool { return raw == FarmCBE || raw == FarmCPT }
 

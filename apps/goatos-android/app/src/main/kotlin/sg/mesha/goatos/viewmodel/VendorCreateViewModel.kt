@@ -244,7 +244,7 @@ class VendorCreateViewModel @Inject constructor(
     }
 
     private fun validate(step: Int, v: Map<VendorField, String>): Map<VendorField, String> {
-        val errors = mutableMapOf<VendorField, String>()
+        val errors = mutableMapOf<VendorField, String>() // mobile-guard:ignore: per-call validation result, at most one entry per form field, returned and dropped
         fun blank(f: VendorField) = v[f].isNullOrBlank()
         when (step) {
             0 -> {
@@ -259,10 +259,9 @@ class VendorCreateViewModel @Inject constructor(
             }
             else -> {
                 val qty = v[VendorField.CAPACITY_QUANTITY].orEmpty().trim()
-                val unit = v[VendorField.CAPACITY_UNIT].orEmpty()
+                // Capacity is optional in every part (maintainer instruction 2026-09-03); only a
+                // typed quantity is shape-checked.
                 if (qty.isNotBlank() && (qty.toDoubleOrNull() == null || qty.toDouble() <= 0.0)) errors[VendorField.CAPACITY_QUANTITY] = MORE_THAN_ZERO
-                if (qty.isNotBlank() && unit.isBlank()) errors[VendorField.CAPACITY_UNIT] = UNIT_NEEDED
-                if (qty.isBlank() && unit.isNotBlank()) errors[VendorField.CAPACITY_QUANTITY] = QUANTITY_NEEDED
                 val price = v[VendorField.PRICE_PER_GOAT].orEmpty().trim()
                 if (price.isNotBlank() && !Regex("""^\d{1,10}(\.\d{1,2})?$""").matches(price)) errors[VendorField.PRICE_PER_GOAT] = AMOUNT
                 val eta = v[VendorField.ETA_DAYS].orEmpty().trim()
@@ -306,8 +305,6 @@ class VendorCreateViewModel @Inject constructor(
         const val PROOF_ROW_SETTLE_STEP_MS = 100L
         const val REQUIRED = "Required"
         const val MORE_THAN_ZERO = "Must be more than zero"
-        const val UNIT_NEEDED = "Pick the unit"
-        const val QUANTITY_NEEDED = "Enter the quantity"
         const val AMOUNT = "Enter an amount, up to two decimals"
         const val WHOLE_DAYS = "Whole days, zero or more"
         const val MESSAGE_QUEUED = "Vendor saved. It will reach the register when the phone is online."

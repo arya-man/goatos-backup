@@ -321,6 +321,9 @@ enum class OutboxOpType {
 
     /** A feed purchase recorded on the phone (`POST /procurement/feed-purchases`, Idempotency-Key). */
     FEED_PURCHASE_CREATE,
+
+    /** A sale recorded on the phone (`POST /sales/deals`, Idempotency-Key; maintainer instruction 2026-09-04). */
+    SALES_DEAL_CREATE,
 }
 
 /**

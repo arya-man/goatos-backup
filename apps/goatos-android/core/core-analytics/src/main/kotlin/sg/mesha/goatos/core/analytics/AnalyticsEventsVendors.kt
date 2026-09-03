@@ -33,6 +33,21 @@ object AnalyticsEventsVendors {
     /** A feed purchase write was durably queued on the outbox. */
     const val VENDORS_PURCHASE_QUEUED = "vendors_purchase_queued"
 
+    /** The sales ledger (L0) was opened or resumed (Sales tab, 2026-09-04). */
+    const val VENDORS_SALES_VIEWED = "vendors_sales_viewed"
+
+    /** A sale row was opened. */
+    const val VENDORS_SALE_OPENED = "vendors_sale_opened"
+
+    /** A sale write was durably queued on the outbox. */
+    const val VENDORS_SALE_QUEUED = "vendors_sale_queued"
+
+    /** The tag-animals flow was opened for a sale. */
+    const val VENDORS_TAG_ANIMALS_OPENED = "vendors_tag_animals_opened"
+
+    /** Animals were marked sold against a sale; reason carries the count. */
+    const val VENDORS_TAG_ANIMALS_CONFIRMED = "vendors_tag_animals_confirmed"
+
     /** Any failure on a Vendors surface; reason carries the bounded cause. */
     const val VENDORS_FAILURE = "vendors_failure"
 

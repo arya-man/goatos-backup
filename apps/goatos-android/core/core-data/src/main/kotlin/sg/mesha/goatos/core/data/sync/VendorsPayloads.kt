@@ -3,6 +3,7 @@ package sg.mesha.goatos.core.data.sync
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
 import sg.mesha.goatos.core.network.dto.VendorWriteDto
 
 /**
@@ -48,4 +49,17 @@ data class VendorCreatePayload(
 data class FeedPurchaseCreatePayload(
     @SerialName("client_id") val clientId: String,
     @SerialName("request") val request: FeedPurchaseWriteDto,
+)
+
+/** Group key for one recorded sale's create — its own lane; nothing precedes it. */
+fun salesDealCreateGroupKey(clientId: String): String = "sales:deal:$clientId"
+
+/** STABLE per client id; sent VERBATIM as the backend's required `Idempotency-Key`. */
+fun salesDealCreateIdempotencyKey(clientId: String): String = "sales:deal-create:$clientId"
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SALES_DEAL_CREATE]. */
+@Serializable
+data class SalesDealCreatePayload(
+    @SerialName("client_id") val clientId: String,
+    @SerialName("request") val request: SalesDealWriteDto,
 )

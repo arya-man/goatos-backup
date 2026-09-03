@@ -1104,6 +1104,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		// The feed purchase ledger and its entry form: buying feed is this desk's job, and the
 		// vendors it is bought from are already in this role's register.
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
+		// Sales (maintainer instruction 2026-09-04): the Procurement phone module carries a Sales
+		// tab -- the sales done, recording a sale, and tagging the animals it is made of -- for
+		// the CXO, the procurement director and this desk alike, so the manager now holds the
+		// same three sales authorities the director already held.
+		SalesRead: {}, SalesWrite: {}, SalesAllocateAnimals: {},
 	},
 	// RoleProcurementDirector: admin-web bootstrap plus stock-only Feed Analytics. AppBootstrap
 	// (maintainer decision 2026-09-03): the Procurement phone module is offered on VendorRead.

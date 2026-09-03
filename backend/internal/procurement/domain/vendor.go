@@ -345,17 +345,14 @@ func (w VendorWrite) Validate() error {
 			return ErrVendorValidation{Field: "price_per_goat", Reason: "must be a non-negative amount"}
 		}
 	}
-	// Capacity travels as a pair: a number with no unit is not a capacity and a unit with no number
-	// says nothing, so one without the other is refused rather than half-stored.
+	// Capacity is OPTIONAL in every part (maintainer instruction 2026-09-03: "keep capacity as
+	// optional only"): quantity, unit and frequency are each recorded when given and never
+	// required together. A quantity that IS entered must still be a real positive amount; that
+	// is a shape check on typed input, not a required-ness rule.
 	if w.CapacityQuantity != nil {
 		if !capacityPattern.MatchString(*w.CapacityQuantity) || *w.CapacityQuantity == "0" {
 			return ErrVendorValidation{Field: "capacity_quantity", Reason: "must be more than zero"}
 		}
-		if w.CapacityUnit == "" {
-			return ErrVendorValidation{Field: "capacity_unit", Reason: "required with a quantity"}
-		}
-	} else if w.CapacityUnit != "" {
-		return ErrVendorValidation{Field: "capacity_quantity", Reason: "required with a unit"}
 	}
 	for field, value := range map[string]string{
 		"capacity_unit":    w.CapacityUnit,
@@ -381,15 +378,16 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 // CapacityDisplay composes the ONE capacity sentence every surface renders ("5,000 kg · Every 2
 // weeks"), from the stored values and the catalog labels the caller resolved. Backend-owned so the
 // phone and the web cannot phrase the same fact two ways. Empty when no capacity is recorded; a
-// frequency with no quantity still reads ("Every 2 weeks") because it is a real fact on its own.
+// frequency with no quantity still reads ("Every 2 weeks") because it is a real fact on its own,
+// and a quantity with no unit reads as the bare number ("5,000") since every part is optional.
 func (v Vendor) CapacityDisplay(unitLabel, frequencyLabel string) string {
 	parts := make([]string, 0, 2)
-	if v.CapacityQuantity != nil && v.CapacityUnit != nil {
+	if v.CapacityQuantity != nil {
 		unit := strings.TrimSpace(unitLabel)
-		if unit == "" {
+		if unit == "" && v.CapacityUnit != nil {
 			unit = *v.CapacityUnit
 		}
-		parts = append(parts, formatCapacityQuantity(*v.CapacityQuantity)+" "+unit)
+		parts = append(parts, strings.TrimSpace(formatCapacityQuantity(*v.CapacityQuantity)+" "+unit))
 	}
 	if v.SupplyFrequency != nil && *v.SupplyFrequency != "" {
 		freq := strings.TrimSpace(frequencyLabel)

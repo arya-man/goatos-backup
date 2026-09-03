@@ -7987,6 +7987,30 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /sales/options:
+    get:
+      tags:
+        - Sales
+      operationId: listSalesOptions
+      summary: The record-sale vocabularies.
+      description: >-
+        Farms, product types, the breeds each product is sold under, the deal statuses with their
+        chip tones, the default status and the sale-date horizon. Backend-owned so the phone's
+        record-sale form and the web drawer offer the same words (maintainer instruction
+        2026-09-04).
+      responses:
+        "200":
+          description: The vocabularies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesOptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/deals:
     get:
       tags:
@@ -16038,6 +16062,44 @@ components:
       required: [status]
       properties:
         status: { type: string, enum: [Deal Closed, Deal Failed, In Discussion, Advance Paid] }
+    SalesStatusOption:
+      type: object
+      required: [key, label, tone]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        tone:
+          type: string
+          description: Chip tone every surface renders this status in (ok, dng, info, warn).
+    SalesOptions:
+      type: object
+      required: [farms, product_types, breeds, statuses, default_status, max_sale_date_days_ahead]
+      properties:
+        farms:
+          type: array
+          items:
+            type: string
+        product_types:
+          type: array
+          items:
+            type: string
+        breeds:
+          type: object
+          description: Breeds keyed by product type, in offer order.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        statuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesStatusOption"
+        default_status:
+          type: string
+        max_sale_date_days_ahead:
+          type: integer
     SalesDealPage:
       type: object
       required: [deals, total, limit, offset]

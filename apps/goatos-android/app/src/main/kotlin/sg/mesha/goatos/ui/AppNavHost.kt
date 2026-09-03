@@ -106,6 +106,14 @@ import sg.mesha.goatos.feature.vendors.VendorDetailEvent
 import sg.mesha.goatos.feature.vendors.VendorDetailScreen
 import sg.mesha.goatos.feature.vendors.VendorsListEvent
 import sg.mesha.goatos.feature.vendors.VendorsListScreen
+import sg.mesha.goatos.feature.vendors.SalesListEvent
+import sg.mesha.goatos.feature.vendors.SalesListScreen
+import sg.mesha.goatos.feature.vendors.SaleDetailEvent
+import sg.mesha.goatos.feature.vendors.SaleDetailScreen
+import sg.mesha.goatos.feature.vendors.SaleCreateEvent
+import sg.mesha.goatos.feature.vendors.SaleCreateScreen
+import sg.mesha.goatos.feature.vendors.SaleTagAnimalsEvent
+import sg.mesha.goatos.feature.vendors.SaleTagAnimalsScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
@@ -223,6 +231,10 @@ import sg.mesha.goatos.viewmodel.FeedPurchasesListViewModel
 import sg.mesha.goatos.viewmodel.VendorCreateViewModel
 import sg.mesha.goatos.viewmodel.VendorDetailViewModel
 import sg.mesha.goatos.viewmodel.VendorsListViewModel
+import sg.mesha.goatos.viewmodel.SalesListViewModel
+import sg.mesha.goatos.viewmodel.SaleDetailViewModel
+import sg.mesha.goatos.viewmodel.SaleCreateViewModel
+import sg.mesha.goatos.viewmodel.SaleTagAnimalsViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
 import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
@@ -543,6 +555,18 @@ object Routes {
 
     fun vendorDetailRoute(vendorId: String): String = "/vendors/vendor/${Uri.encode(vendorId)}"
     fun feedPurchaseDetailRoute(purchaseId: String): String = "/vendors/feed-purchases/purchase/${Uri.encode(purchaseId)}"
+
+    // Sales tab (maintainer instruction 2026-09-04): the THIRD L0 of the Procurement module
+    // ({key:"sales", href:"/vendors/sales"}), its record wizard, the sale drill and the
+    // tag-animals drill under it. The literal `/sale/` segment keeps the L0 from ever reading
+    // as a deal id.
+    const val VENDORS_SALES = "/vendors/sales"
+    const val SALE_NEW = "/vendors/sales/new"
+    const val SALE_ID_ARG = "deal_id"
+    const val SALE_DETAIL = "/vendors/sales/sale/{$SALE_ID_ARG}"
+    const val SALE_TAG_ANIMALS = "/vendors/sales/sale/{$SALE_ID_ARG}/tag"
+    fun saleDetailRoute(dealId: String): String = "/vendors/sales/sale/${Uri.encode(dealId)}"
+    fun saleTagAnimalsRoute(dealId: String): String = "/vendors/sales/sale/${Uri.encode(dealId)}/tag"
 
     // Clock module (backend module `clock`, maintainer decision 2026-08-27 —
     // docs/features/clock-in-out/plan.md). TWO L0 roots whose hrefs match the backend-composed
@@ -3339,6 +3363,90 @@ fun AppNavHost(
                 },
             )
         }
+        // --- Sales (Procurement module, maintainer instruction 2026-09-04) -------------------
+        composable(Routes.VENDORS_SALES) {
+            val vm: SalesListViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bind(SALES_TAB_TITLE) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
+            SalesListScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        SalesListEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is SalesListEvent.SelectFarm -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is SalesListEvent.OpenSale -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.saleDetailRoute(event.dealId)) { launchSingleTop = true }
+                        }
+                        SalesListEvent.AddSale -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.SALE_NEW) { launchSingleTop = true }
+                        }
+                    }
+                },
+            )
+        }
+        composable(Routes.SALE_NEW) {
+            val vm: SaleCreateViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            SaleCreateScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        SaleCreateEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.SALE_DETAIL,
+            arguments = listOf(navArgument(Routes.SALE_ID_ARG) { type = NavType.StringType }),
+        ) { entry ->
+            val vm: SaleDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            SaleDetailScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        SaleDetailEvent.Back -> navController.popBackStack()
+                        SaleDetailEvent.TagAnimals -> {
+                            vm.onEvent(event)
+                            val dealId = entry.arguments?.getString(Routes.SALE_ID_ARG).orEmpty()
+                            navController.navigate(Routes.saleTagAnimalsRoute(dealId)) { launchSingleTop = true }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.SALE_TAG_ANIMALS,
+            arguments = listOf(navArgument(Routes.SALE_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: SaleTagAnimalsViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            SaleTagAnimalsScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        SaleTagAnimalsEvent.Back, SaleTagAnimalsEvent.Done -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
 
         // --- Clock In / Clock Out (module clock, maintainer decision 2026-08-27) -----------
         // TWO L0 bottom-bar roots (My Clock for everyone; Team for leadership, offered only when
@@ -4052,6 +4160,7 @@ private const val TOXIN_TAB_TITLE = "Tests"
 /** The backend's `nav.vendors` / `nav.feed_purchases` labels, mirrored so each L0 header matches its nav item. */
 private const val VENDORS_TAB_TITLE = "Vendors"
 private const val FEED_PURCHASES_TAB_TITLE = "Feed Purchases"
+private const val SALES_TAB_TITLE = "Sales"
 
 private fun NavGraphBuilder.pcCareCategoryComposable(
     route: String,

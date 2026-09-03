@@ -146,6 +146,9 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // RETURNED row straight into the Room detail/list caches -- the toxin/packing shape.
         OutboxOpType.VENDOR_CREATE -> overlayDirectReconcileLifecycle()
         OutboxOpType.FEED_PURCHASE_CREATE -> overlayDirectReconcileLifecycle()
+        // Sales (maintainer instruction 2026-09-04): the same shape -- queued banner at once, the
+        // server's returned deal written straight into the Room ledger/detail caches.
+        OutboxOpType.SALES_DEAL_CREATE -> overlayDirectReconcileLifecycle()
 
         // Clock punches (module clock, maintainer decision 2026-08-27): the punch button follows
         // the EXACT outbox item (disabled while pending), success re-fetches the status blob via

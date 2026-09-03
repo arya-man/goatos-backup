@@ -2915,7 +2915,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.capacity_unit":     "Unit",
 			"field.supply_frequency":  "How often",
 			"field.voice_note":        "Voice note",
-			"hint.capacity":           "Leave blank if not known. A quantity needs its unit.",
+			"hint.capacity":           "Optional. Fill in whatever is known.",
 			"voice_note.none":         "No voice note recorded. Notes are recorded from the phone.",
 			"voice_note.unavailable":  "The voice note could not be loaded right now.",
 			"voice_note.play":         "Load voice note",

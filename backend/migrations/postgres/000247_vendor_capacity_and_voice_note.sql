@@ -14,9 +14,10 @@
 --   supply_frequency    how often that capacity is available -- a catalog vocabulary
 --   voice_note_proof_ref an audio note recorded on the phone (proof_artifacts, proof_type 'audio')
 --
--- Quantity and unit travel together: a number with no unit is not a capacity, and a unit with no
--- number says nothing, so the CHECK below refuses one without the other. Frequency is independent
--- (a vendor may have a known capacity and an unknown cadence).
+-- Every part is OPTIONAL on its own (maintainer instruction 2026-09-03, "keep capacity as optional
+-- only"): quantity, unit and frequency are each recorded when given and none is required with
+-- another. The CHECK below only refuses a non-positive quantity -- "can supply nothing" is not a
+-- capacity worth recording.
 --
 -- Both vocabularies are catalog DATA, like record_type, per the AGENTS.md rule that business
 -- vocabularies come from Postgres. Values are stable keys the app stores; labels are what the
@@ -31,10 +32,7 @@ ALTER TABLE public.procurement_vendors
 ALTER TABLE public.procurement_vendors
   DROP CONSTRAINT IF EXISTS procurement_vendors_capacity_check,
   ADD CONSTRAINT procurement_vendors_capacity_check
-    CHECK (
-      (capacity_quantity IS NULL AND capacity_unit IS NULL)
-      OR (capacity_quantity > 0 AND btrim(coalesce(capacity_unit, '')) <> '')
-    );
+    CHECK (capacity_quantity IS NULL OR capacity_quantity > 0);
 
 ALTER TABLE public.procurement_vendor_catalog
   DROP CONSTRAINT IF EXISTS procurement_vendor_catalog_kind_check,
@@ -69,7 +67,7 @@ ON CONFLICT (tenant_id, kind, value) DO UPDATE
 SET label = EXCLUDED.label, sort_order = EXCLUDED.sort_order, is_active = true, updated_at = now();
 
 COMMENT ON COLUMN public.procurement_vendors.capacity_quantity IS
-  'How much the vendor can supply per delivery, in capacity_unit. NULL with capacity_unit NULL = not recorded.';
+  'How much the vendor can supply per delivery, in capacity_unit when one is recorded. NULL = not recorded.';
 COMMENT ON COLUMN public.procurement_vendors.supply_frequency IS
   'How often that capacity is available: a procurement_vendor_catalog value of kind supply_frequency.';
 COMMENT ON COLUMN public.procurement_vendors.voice_note_proof_ref IS

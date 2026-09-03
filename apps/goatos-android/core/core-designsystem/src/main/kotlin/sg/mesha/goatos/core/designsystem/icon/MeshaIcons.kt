@@ -158,6 +158,12 @@ object MeshaIcons {
         "M5 11.5v8h14v-8",
         "M10 19.5v-5h4v5",
     )
+    /** Sales: a price tag -- an animal sold and the money it made. */
+    val Sale: ImageVector = strokeIcon(
+        "sale",
+        "M20.5 13.5 13.5 20.5a1.5 1.5 0 0 1-2.1 0l-7.9-7.9V4.5h8.1l7.9 7.9a1.5 1.5 0 0 1 0 2.1z",
+        "M8 8h.01",
+    )
     /** A microphone: the vendor voice note. */
     val Microphone: ImageVector = strokeIcon(
         "microphone",
@@ -376,6 +382,8 @@ object MeshaIcons {
         // its Feed Purchases tab the package, so the two tabs on one bar never share a mark.
         "vendors" -> Store
         "feed_purchases" -> Package
+        // The Sales tab (maintainer instruction 2026-09-04) wears the price tag.
+        "sales" -> Sale
         "pc_ticks" -> Tick
         "pc_hoof_trimming" -> HoofTrimming
         "pc_hair_trimming" -> HairTrimming

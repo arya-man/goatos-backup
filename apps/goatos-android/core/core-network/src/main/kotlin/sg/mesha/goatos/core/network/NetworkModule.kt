@@ -87,6 +87,16 @@ import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedPurchasePageDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
+import sg.mesha.goatos.core.network.dto.SaleAllocationDto
+import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
+import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
+import sg.mesha.goatos.core.network.dto.SaleLocationsDto
+import sg.mesha.goatos.core.network.dto.SalePreviewDto
+import sg.mesha.goatos.core.network.dto.SalesDealDto
+import sg.mesha.goatos.core.network.dto.SalesDealPageDto
+import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
+import sg.mesha.goatos.core.network.dto.SalesOptionsDto
+import sg.mesha.goatos.core.network.dto.VendorOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto
@@ -918,6 +928,51 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: FeedPurchaseWriteDto,
     ): FeedPurchaseDto
+
+    // Sales (maintainer instruction 2026-09-04): the same routes the web's /sales/config uses.
+    @GET("sales/deals")
+    suspend fun getSalesDeals(
+        @Query("farm") farm: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): SalesDealPageDto
+
+    @GET("sales/options")
+    suspend fun getSalesOptions(): SalesOptionsDto
+
+    @GET("procurement/vendor-options")
+    suspend fun getVendorOptions(): VendorOptionsDto
+
+    @POST("sales/deals")
+    suspend fun createSalesDeal(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesDealWriteDto,
+    ): SalesDealDto
+
+    @GET("admin/goats/sale-locations")
+    suspend fun getSaleLocations(): SaleLocationsDto
+
+    @GET("admin/goats/sale-candidates")
+    suspend fun getSaleCandidates(
+        @Query("park_id") parkId: String,
+        @Query("shed_id") shedId: String?,
+        @Query("partition_label") partitionLabels: List<String>,
+        @Query("q") query: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): SaleCandidatePageDto
+
+    @GET("admin/goats/sale-allocations/{sales_deal_id}")
+    suspend fun getSaleAllocation(@Path("sales_deal_id") salesDealId: String): SaleAllocationDto
+
+    @POST("admin/goats/sale-allocations/preview")
+    suspend fun previewSaleAllocation(@Body request: SaleAllocationRequestDto): SalePreviewDto
+
+    @POST("admin/goats/sale-allocations/confirm")
+    suspend fun confirmSaleAllocation(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SaleAllocationRequestDto,
+    ): SaleAllocationDto
 
     @GET("feed-direction/distribution/captures")
     suspend fun getFeedDistributionCaptures(
@@ -1838,6 +1893,28 @@ class RetrofitAppApi(
 
     override suspend fun createFeedPurchase(idempotencyKey: String, request: FeedPurchaseWriteDto): FeedPurchaseDto =
         service.createFeedPurchase(idempotencyKey, request)
+
+    override suspend fun getSalesDeals(farm: String?, limit: Int?, offset: Int?): SalesDealPageDto =
+        service.getSalesDeals(farm, limit, offset)
+
+    override suspend fun getSalesOptions(): SalesOptionsDto = service.getSalesOptions()
+
+    override suspend fun getVendorOptions(): VendorOptionsDto = service.getVendorOptions()
+
+    override suspend fun createSalesDeal(idempotencyKey: String, request: SalesDealWriteDto): SalesDealDto =
+        service.createSalesDeal(idempotencyKey, request)
+
+    override suspend fun getSaleLocations(): SaleLocationsDto = service.getSaleLocations()
+
+    override suspend fun getSaleCandidates(parkId: String, shedId: String?, partitionLabels: List<String>, query: String?, limit: Int?, cursor: String?): SaleCandidatePageDto =
+        service.getSaleCandidates(parkId, shedId, partitionLabels, query, limit, cursor)
+
+    override suspend fun getSaleAllocation(salesDealId: String): SaleAllocationDto = service.getSaleAllocation(salesDealId)
+
+    override suspend fun previewSaleAllocation(request: SaleAllocationRequestDto): SalePreviewDto = service.previewSaleAllocation(request)
+
+    override suspend fun confirmSaleAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): SaleAllocationDto =
+        service.confirmSaleAllocation(idempotencyKey, request)
 
     override suspend fun getFeedDistributionCaptures(
         parkId: String?,

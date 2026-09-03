@@ -332,7 +332,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
     }
 
     private fun validate(step: Int, v: Map<PurchaseField, String>): Map<PurchaseField, String> {
-        val errors = mutableMapOf<PurchaseField, String>()
+        val errors = mutableMapOf<PurchaseField, String>() // mobile-guard:ignore: per-call validation result, at most one entry per form field, returned and dropped
         fun money(f: PurchaseField) {
             val raw = v[f].orEmpty().trim()
             if (raw.isNotBlank() && (raw.toDoubleOrNull() == null || raw.toDouble() < 0.0)) errors[f] = AMOUNT

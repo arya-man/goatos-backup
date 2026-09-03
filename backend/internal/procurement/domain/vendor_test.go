@@ -2,10 +2,10 @@ package domain
 
 import "testing"
 
-// TestVendorCapacityTravelsAsAPair pins the 2026-09-03 capacity rules: quantity and unit are
-// accepted together, refused apart, zero is not a capacity, and the display line is composed
-// from labels with Indian digit grouping.
-func TestVendorCapacityTravelsAsAPair(t *testing.T) {
+// TestVendorCapacityIsOptionalInEveryPart pins the 2026-09-03 capacity rules: quantity, unit
+// and frequency are each optional on their own ("keep capacity as optional only"), zero is not a
+// capacity, and the display line is composed from labels with Indian digit grouping.
+func TestVendorCapacityIsOptionalInEveryPart(t *testing.T) {
 	base := func() VendorWrite {
 		return VendorWrite{RecordType: "Feed Agent", BusinessName: "Ravi Feeds", Status: "active", State: "KA"}
 	}
@@ -17,13 +17,13 @@ func TestVendorCapacityTravelsAsAPair(t *testing.T) {
 	}
 	unitOnly := base()
 	unitOnly.CapacityUnit = "kg"
-	if err := unitOnly.Normalize().Validate(); err == nil {
-		t.Fatal("a unit with no quantity was accepted")
+	if err := unitOnly.Normalize().Validate(); err != nil {
+		t.Fatalf("a unit with no quantity must be accepted: %v", err)
 	}
 	qtyOnly := base()
 	qtyOnly.CapacityQuantity = &q
-	if err := qtyOnly.Normalize().Validate(); err == nil {
-		t.Fatal("a quantity with no unit was accepted")
+	if err := qtyOnly.Normalize().Validate(); err != nil {
+		t.Fatalf("a quantity with no unit must be accepted: %v", err)
 	}
 	zero := "0"
 	z := base()
@@ -46,6 +46,10 @@ func TestVendorCapacityTravelsAsAPair(t *testing.T) {
 	only := Vendor{SupplyFrequency: &freq}
 	if got := only.CapacityDisplay("", ""); got != "per_2_weeks" {
 		t.Fatalf("frequency-only display = %q", got)
+	}
+	bare := Vendor{CapacityQuantity: &qty}
+	if got := bare.CapacityDisplay("", ""); got != "12,500.5" {
+		t.Fatalf("quantity-only display = %q", got)
 	}
 	if got := (Vendor{}).CapacityDisplay("", ""); got != "" {
 		t.Fatalf("empty display = %q", got)
