@@ -3270,13 +3270,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.deals":               "Closed deals",
 			"kpi.live_weight":         "Live weight sold",
 			// Over 35 kg (maintainer request 2026-09-03): the sale-weight count from the Weights
-			// pages, on a FIXED last-six-weeks window because this page has no time filter; the
-			// window is printed on the card so nobody reads it as all-time. Same basis as the
-			// Weights cards: every kid weighed in the window at its latest weight, a whole pen
-			// counted at its average.
+			// pages. Same basis as the Weights cards: every kid weighed in the sale-ready window
+			// at its latest weight, a whole pen counted at its average.
 			"kpi.over35":               "Over 35 kg",
-			"kpi.over35.sub":           "last 6 weeks · a whole pen counts at its average",
-			"kpi.over35.none":          "nothing weighed in the last 6 weeks",
+			"kpi.over35.sub":           "sale-ready window · a whole pen counts at its average",
+			"kpi.over35.none":          "nothing weighed in the sale-ready window",
 			"kpi.over35.tolerance":     "Error margin",
 			"kpi.over35.apply":         "Apply",
 			"disabled.weights":         "Your current role can view sales but not weighing.",

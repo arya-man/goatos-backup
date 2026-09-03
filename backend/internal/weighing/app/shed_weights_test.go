@@ -191,6 +191,24 @@ func TestGetShedWeightsPassesSaleThresholdTolerance(t *testing.T) {
 	}
 }
 
+func TestGetShedWeightsClampsSaleReadyWindowToReliableAnchor(t *testing.T) {
+	repo := &shedWeightsRepo{parks: []domain.WeighingPark{{ParkID: swParkA, Name: "Coimbatore"}}}
+	svc := NewService(repo)
+	ctx := swContext(permissions.ActiveGrant{
+		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: swParkA,
+	})
+
+	if _, err := svc.GetShedWeights(ctx, swActor(), "", "2026-07-23", "2026-09-03", "", "", "", "0"); err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	if got := repo.gotStart.Format("2006-01-02"); got != "2026-08-01" {
+		t.Fatalf("sale-ready period start = %s, want 2026-08-01", got)
+	}
+	if got := repo.gotEnd.Format("2006-01-02"); got != "2026-09-04" {
+		t.Fatalf("sale-ready period end = %s, want 2026-09-04", got)
+	}
+}
+
 func TestGetShedWeightsRejectsInvalidSaleThresholdTolerance(t *testing.T) {
 	repo := &shedWeightsRepo{}
 	svc := NewService(repo)

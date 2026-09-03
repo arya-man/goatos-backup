@@ -78,7 +78,7 @@ type Over35Card = {
   preserveQuery: [string, string][];
 };
 
-/** Six weeks back from today, in the farm's calendar: the fixed window the card names. */
+/** The nominal sale-ready lookback; backend clamps tolerance reads to reliable weighing data. */
 const OVER35_WINDOW_DAYS = 42;
 const OVER35_MAX_TOLERANCE_G = 1000;
 
@@ -160,7 +160,7 @@ function OverviewSections({
                   ? over35.disabledReason
                   : over35.count == null
                     ? copy(pageContract, "kpi.over35.none")
-                    : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)} ${kgSuffix}+`}
+                    : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)}+`}
               </div>
             </div>
           </section>
@@ -170,7 +170,6 @@ function OverviewSections({
               maxG={OVER35_MAX_TOLERANCE_G}
               preserveQuery={over35.preserveQuery}
               label={copy(pageContract, "kpi.over35.tolerance")}
-              kgSuffix={kgSuffix}
             />
           ) : null}
 
@@ -516,7 +515,7 @@ export async function SalesPage({
   const over35Params = {
     from: over35From,
     to: over35To,
-    sale_threshold_tolerance_g: over35ToleranceG ? String(over35ToleranceG) : undefined,
+    sale_threshold_tolerance_g: String(over35ToleranceG),
   };
   const [overviewResult, dealsResult, vendorOptionsResult, weightsResult] = await Promise.all([
     getSalesOverview({ farm }),

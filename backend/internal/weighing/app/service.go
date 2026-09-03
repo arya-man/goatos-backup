@@ -1544,6 +1544,7 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.ShedWeights{}, ports.ErrForbidden
 	}
+	saleReadyWindow := strings.TrimSpace(saleThresholdToleranceGrams) != ""
 	toleranceKg, err := parseSaleThresholdToleranceKg(saleThresholdToleranceGrams)
 	if err != nil {
 		return domain.ShedWeights{}, err
@@ -1572,7 +1573,21 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 	if windowErr != nil {
 		return domain.ShedWeights{}, windowErr
 	}
+	if saleReadyWindow {
+		periodStart = clampSaleReadyPeriodStart(periodStart)
+		if !periodEndExclusive.After(periodStart) {
+			return domain.ShedWeights{}, ports.ErrInvalidArgument
+		}
+	}
 	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex, origin, strings.TrimSpace(weighingCategory), toleranceKg)
+}
+
+func clampSaleReadyPeriodStart(periodStart time.Time) time.Time {
+	anchor := time.Date(2026, time.August, 1, 0, 0, 0, 0, biztime.DefaultLocation())
+	if periodStart.Before(anchor) {
+		return anchor
+	}
+	return periodStart
 }
 
 // GetWeighingDates serves the NARROW read the Weights screens resolve their landing window from:

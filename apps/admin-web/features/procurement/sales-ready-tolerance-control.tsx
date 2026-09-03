@@ -10,21 +10,20 @@ type Props = {
   maxG: number;
   preserveQuery: [string, string][];
   label: string;
-  kgSuffix: string;
 };
 
 function thresholdFromTolerance(valueG: number): number {
   return Math.max(0, 35 - valueG / 1000);
 }
 
-function thresholdLabel(valueG: number, kgSuffix: string): string {
+function thresholdLabel(valueG: number): string {
   return `${thresholdFromTolerance(valueG).toLocaleString("en-IN", {
     maximumFractionDigits: 1,
     minimumFractionDigits: 0,
-  })} ${kgSuffix}+`;
+  })}+`;
 }
 
-export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label, kgSuffix }: Props) {
+export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label }: Props) {
   const router = useRouter();
   const [draftG, setDraftG] = useState(valueG);
   const [, startTransition] = useTransition();
@@ -53,7 +52,7 @@ export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label,
     <div className="sales-ready-tolerance" aria-label={label}>
       <div className="sales-ready-tolerance-head">
         <span>{label}</span>
-        <strong>{thresholdLabel(draftG, kgSuffix)}</strong>
+        <strong>{thresholdLabel(draftG)}</strong>
       </div>
       <div className="sales-ready-tolerance-row">
         <input
