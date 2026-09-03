@@ -65,6 +65,20 @@ var Weighing = domain.CategoryDefinition{
 	PageKey: "weighing", PageLabel: "Weighing", PageOrder: 1,
 }
 
+// WeighingFasting is the feed & water removal precondition proof (maintainer
+// decision 2026-09-03): two live-camera videos — feed removed, water removed —
+// recorded the evening before a weigh date, reviewed post-hoc. Its own page
+// under the Weighing module so removal footage never appears under a weight
+// label.
+var WeighingFasting = domain.CategoryDefinition{
+	Vertical: weighingdomain.VerificationVerticalWeighing, Module: weighingdomain.VerificationModuleWeighing,
+	Category:         weighingdomain.VerificationCategoryFasting,
+	ExpectedMedia:    []string{"video", "video"},
+	MediaLabels:      []string{"Feed removal video", "Water removal video"},
+	NavigationModule: "weighing", NavigationModuleLabel: "Weighing",
+	PageKey: "weighing_fasting", PageLabel: "Feed & Water Removal", PageOrder: 2,
+}
+
 var HealthAdults = domain.CategoryDefinition{
 	Vertical: "health", Module: "health", Category: "health_adults",
 	ExpectedMedia: []string{"video"}, MediaLabels: []string{"Health case video"},
@@ -219,6 +233,7 @@ func All() []domain.CategoryDefinition {
 	out := []domain.CategoryDefinition{
 		Vaccination,
 		Weighing,
+		WeighingFasting,
 		HealthAdults,
 		HealthKids,
 		Shifting,

@@ -225,10 +225,33 @@ type CreateTaskInput struct {
 	PartitionLabel      string
 	PlannedBusinessDate string
 	AssigneeUserIDs     []string
-	IdempotencyKey      string
-	ActorID             string
-	ActorType           string
-	TraceID             string
+	// FeedRemovalRequired (deworming only) asks for the evening-before feed & water removal
+	// precondition: a linked feed_water_removal task in the same transaction, one day earlier.
+	FeedRemovalRequired bool
+	// RemovalOperatorUserIDs are the operators for that removal task (>=1 when the toggle is on).
+	RemovalOperatorUserIDs []string
+	IdempotencyKey         string
+	ActorID                string
+	ActorType              string
+	TraceID                string
+}
+
+// dedupUUIDList trims, validates and de-duplicates a client-supplied user-id list.
+func dedupUUIDList(ids []string) ([]string, error) {
+	out := make([]string, 0, len(ids))
+	seen := map[string]struct{}{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if !uuidutil.IsUUIDString(id) {
+			return nil, ports.ErrInvalidArgument
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out, nil
 }
 
 // CreateTask plans one task. Write authority is PCCarePlan alone (CEO), park-scoped.
@@ -258,18 +281,9 @@ func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateT
 	if strings.TrimSpace(in.IdempotencyKey) == "" {
 		return ports.TaskRow{}, ports.ErrIdempotencyRequired
 	}
-	assignees := make([]string, 0, len(in.AssigneeUserIDs))
-	seen := map[string]struct{}{}
-	for _, id := range in.AssigneeUserIDs {
-		id = strings.TrimSpace(id)
-		if !uuidutil.IsUUIDString(id) {
-			return ports.TaskRow{}, ports.ErrInvalidArgument
-		}
-		if _, dup := seen[id]; dup {
-			continue
-		}
-		seen[id] = struct{}{}
-		assignees = append(assignees, id)
+	assignees, err := dedupUUIDList(in.AssigneeUserIDs)
+	if err != nil {
+		return ports.TaskRow{}, err
 	}
 	if len(assignees) == 0 {
 		return ports.TaskRow{}, domain.ErrAssigneesRequired
@@ -278,19 +292,45 @@ func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateT
 	if err != nil {
 		return ports.TaskRow{}, ports.ErrInvalidArgument
 	}
+
+	// Feed & water removal precondition (maintainer decision 2026-09-03). The fields are honored
+	// on deworming ONLY, and validate-or-reject on every other category — a dropped toggle would
+	// read to the planner as accepted while creating no removal task.
+	var removalOperators []string
+	if in.FeedRemovalRequired || len(in.RemovalOperatorUserIDs) > 0 {
+		if in.Category != domain.CategoryDeworming || !in.FeedRemovalRequired {
+			return ports.TaskRow{}, domain.ErrFeedRemovalNotApplicable
+		}
+		removalOperators, err = dedupUUIDList(in.RemovalOperatorUserIDs)
+		if err != nil {
+			return ports.TaskRow{}, err
+		}
+		if len(removalOperators) == 0 {
+			return ports.TaskRow{}, domain.ErrRemovalOperatorsRequired
+		}
+		// 20:00 IST planning cutoff: the removal happens the EVENING BEFORE the deworming, so
+		// the earliest deworming date is tomorrow before 20:00 IST and the day after tomorrow
+		// from 20:00 on. Business-DAY comparison on the service's injectable clock.
+		if planned.Before(domain.EarliestFeedRemovalDewormingDate(s.now())) {
+			return ports.TaskRow{}, domain.ErrFastingWindowClosed
+		}
+	}
+
 	return s.store.CreateTask(ctx, ports.CreateTaskParams{
-		TenantID:            actor.TenantID,
-		Category:            in.Category,
-		ParkID:              in.ParkID,
-		ShedID:              in.ShedID,
-		PartitionLabel:      strings.TrimSpace(in.PartitionLabel),
-		PlannedBusinessDate: planned,
-		AssigneeUserIDs:     assignees,
-		IdempotencyKey:      strings.TrimSpace(in.IdempotencyKey),
-		CreatedBy:           actor.UserID,
-		ActorID:             in.ActorID,
-		ActorType:           in.ActorType,
-		TraceID:             in.TraceID,
+		TenantID:               actor.TenantID,
+		Category:               in.Category,
+		ParkID:                 in.ParkID,
+		ShedID:                 in.ShedID,
+		PartitionLabel:         strings.TrimSpace(in.PartitionLabel),
+		PlannedBusinessDate:    planned,
+		AssigneeUserIDs:        assignees,
+		FeedRemovalRequired:    in.FeedRemovalRequired,
+		RemovalOperatorUserIDs: removalOperators,
+		IdempotencyKey:         strings.TrimSpace(in.IdempotencyKey),
+		CreatedBy:              actor.UserID,
+		ActorID:                in.ActorID,
+		ActorType:              in.ActorType,
+		TraceID:                in.TraceID,
 	})
 }
 
@@ -346,6 +386,7 @@ func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, cat
 		Category:          category,
 		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
 		CurrentOrCarry:    currentOrCarry,
+		Now:               s.now(),
 		Limit:             clampLimit(limit),
 		Cursor:            strings.TrimSpace(cursor),
 	})
@@ -372,6 +413,7 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
 		CurrentOrCarry:    true,
 		AssigneeUserID:    actor.UserID,
+		Now:               s.now(),
 		Limit:             clampLimit(limit),
 		Cursor:            strings.TrimSpace(cursor),
 	})
@@ -538,7 +580,7 @@ func (s *Service) RegisterTaskProof(ctx context.Context, actor domain.Actor, in 
 		switch strings.TrimSpace(in.SlotKey) {
 		case domain.SlotStockFridgePhoto:
 			requiredKind = "photo"
-		case domain.SlotStockFridgeVideo:
+		case domain.SlotStockFridgeVideo, domain.SlotFeedVideo, domain.SlotWaterVideo:
 			requiredKind = "video"
 		}
 		if requiredKind != "" {

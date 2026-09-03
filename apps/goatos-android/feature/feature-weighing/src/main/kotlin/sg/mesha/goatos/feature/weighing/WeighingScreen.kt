@@ -422,6 +422,10 @@ data class WeighingDraftUiRow(
 @Composable
 fun WeighingScreen(
     state: WeighingUiState,
+    /** Feed & water removal cards (maintainer decision 2026-09-03), rendered ABOVE the shed work
+     *  list. Owned by their own state holder; empty for anyone without a removal duty. */
+    fastingCards: List<WeighingFastingCardUiRow> = emptyList(),
+    onOpenFastingCard: (WeighingFastingCardUiRow) -> Unit = {},
     onScanInputChange: (String) -> Unit = {},
     onScanSubmit: () -> Unit = {},
     onWeightChange: (String) -> Unit = {},
@@ -593,6 +597,14 @@ fun WeighingScreen(
                     state.message?.takeIf { it.isNotBlank() }?.let {
                         MessageStrip(it)
                     }
+                }
+            }
+            if (!state.plannerMode && !state.hasScope && fastingCards.isNotEmpty()) {
+                item(key = "fasting-cards") {
+                    WeighingFastingSection(
+                        cards = fastingCards,
+                        onOpenCard = onOpenFastingCard,
+                    )
                 }
             }
             if (!state.plannerMode && !state.hasScope && state.assignments.isNotEmpty()) {

@@ -345,6 +345,27 @@ interface SyncRepository {
     ): AppResult<String> = AppResult.Err("weighing scope submit sync is not configured")
 
     /**
+     * Enqueues ONE shed's feed & water removal submit
+     * (`POST /app/weighing/fasting/{fasting_task_id}/sheds/{campaign_shed_id}/submit`,
+     * maintainer correction #2, 2026-09-03: the submit is PER SHED). The two fresh clips are
+     * passed by REFERENCE to their PROOF_UPLOAD outbox rows — outbox item ids, NEVER proof ids;
+     * the dispatcher resolves each uploaded proof id at drain time. Each upload sits on its own
+     * per-slot upload group, so a pending clip suspends this submit on the proof-dependency wait
+     * rather than queueing behind (or blocking) the other clip. [groupKey] is scoped to the
+     * (fasting task, campaign shed) pair; [idempotencyKey] MUST be a STABLE caller-persisted key
+     * derived from the shed + its two clip outbox ids, so a retry replays for free while a
+     * post-rework re-shoot (new proofs) is a new act under a new key.
+     */
+    suspend fun enqueueWeighingFastingSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        fastingTaskId: String,
+        campaignShedId: String,
+        feedProofOutboxItemId: String,
+        waterProofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("removal submit sync is not configured")
+
+    /**
      * Enqueues a Shifting EXECUTION "Mark done" (`POST /app/counts/shifting-events/{id}/complete`) —
      * the write that RELOCATES the animals.
      *
@@ -1224,6 +1245,27 @@ class DefaultSyncRepository(
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(
             WeighingScopeSubmitPayload(campaignId = campaignId, campaignShedId = campaignShedId, request = request),
+        ),
+    )
+
+    override suspend fun enqueueWeighingFastingSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        fastingTaskId: String,
+        campaignShedId: String,
+        feedProofOutboxItemId: String,
+        waterProofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WEIGHING_FASTING_SUBMIT,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            WeighingFastingSubmitPayload(
+                fastingTaskId = fastingTaskId,
+                campaignShedId = campaignShedId,
+                feedProofOutboxItemId = feedProofOutboxItemId,
+                waterProofOutboxItemId = waterProofOutboxItemId,
+            ),
         ),
     )
 

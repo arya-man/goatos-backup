@@ -214,4 +214,15 @@ data class PcCareCreateTaskRequestDto(
     @SerialName("partition_label") val partitionLabel: String = "",
     @SerialName("planned_business_date") val plannedBusinessDate: String,
     @SerialName("assignee_user_ids") val assigneeUserIds: List<String>,
+    /**
+     * Deworming only (maintainer decision 2026-09-03): tablets given in feed need feed & water
+     * removed the evening before. True makes the SAME write also create the linked
+     * feed_water_removal task for the evening before the deworming date. On any other category
+     * the server refuses with 422 feed_removal_not_applicable; injection deworming simply omits
+     * it (null is dropped by explicitNulls=false, so an older payload shape is unchanged).
+     */
+    @SerialName("feed_removal_required") val feedRemovalRequired: Boolean? = null,
+    /** Who removes feed & water the evening before. Required (server 422
+     *  removal_operators_required) when [feedRemovalRequired] is true. */
+    @SerialName("removal_operator_user_ids") val removalOperatorUserIds: List<String>? = null,
 )

@@ -312,7 +312,9 @@ class WeighingPlanWizardEditHydrationTest {
      * Implements only the planner-catalog and park-bucket surface for real; everything else
      * returns an inert default because this test never exercises it.
      */
-    private class RaceReproducingWeighingRepository(
+    // internal (not private): WeighingPlanWizardFastingOperatorTest reuses this full fake for the
+    // create-mode commit gate rather than duplicating a ~250-line WeighingRepository stub.
+    internal class RaceReproducingWeighingRepository(
         private val godel1Category: String = "individual_animal",
         private val godel1OperatorUserId: String = "user-pramod",
         private val godel1ScheduledCategory: String = "",
@@ -496,8 +498,13 @@ class WeighingPlanWizardEditHydrationTest {
         override suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?> =
             AppResult.Ok(null)
 
-        override suspend fun createPlan(draft: WeighingPlanDraft, publish: Boolean): AppResult<String> =
-            AppResult.Ok("campaign-new")
+        var lastCreateDraft: WeighingPlanDraft? = null
+            private set
+
+        override suspend fun createPlan(draft: WeighingPlanDraft, publish: Boolean): AppResult<String> {
+            lastCreateDraft = draft
+            return AppResult.Ok("campaign-new")
+        }
 
         override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> =
             AppResult.Ok(null)

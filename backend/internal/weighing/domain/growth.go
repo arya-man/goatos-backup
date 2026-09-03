@@ -237,12 +237,12 @@ type GrowthADG struct {
 	// LosingAnimals names the animals whose latest pair shows a LOSS. Returned so the headline
 	// count is drillable: a tappable "15 losing" that leads nowhere specific is a dead end, and
 	// the whole point of surfacing it is to let someone go and look at those animals.
-	LosingAnimals   []GrowthLosingAnimal       `json:"losing_animals"`
-	PeriodStart     string                     `json:"period_start"`
-	PeriodEnd       string                     `json:"period_end"`
-	Headline        GrowthADGHeadline          `json:"headline"`
-	Eligibility     GrowthEligibility          `json:"eligibility"`
-	Trend           []GrowthTrendPoint         `json:"trend"`
+	LosingAnimals []GrowthLosingAnimal `json:"losing_animals"`
+	PeriodStart   string               `json:"period_start"`
+	PeriodEnd     string               `json:"period_end"`
+	Headline      GrowthADGHeadline    `json:"headline"`
+	Eligibility   GrowthEligibility    `json:"eligibility"`
+	Trend         []GrowthTrendPoint   `json:"trend"`
 	// WeeklyGain is the same statistic as Headline.AverageADGGPerDay, cut by calendar week.
 	// Read it, not Trend, whenever the number must agree with the headline.
 	WeeklyGain      []GrowthWeeklyGainPoint    `json:"weekly_gain"`

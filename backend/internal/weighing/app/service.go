@@ -21,6 +21,11 @@ type Service struct {
 	enqueuer               VerificationEnqueuer
 	verificationWithdrawer VerificationWithdrawer
 	processState           ports.WeighingProcessStateReader
+	fasting                ports.FastingStore
+	// now is the service clock behind the fasting create cutoff and the
+	// fasting card's 20:00 IST visibility window. Injectable so tests pin it;
+	// defaults to time.Now.
+	now func() time.Time
 }
 
 type exportReader interface {
@@ -28,7 +33,30 @@ type exportReader interface {
 }
 
 func NewService(repo ports.Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{repo: repo, now: time.Now}
+}
+
+// WithFastingStore wires the feed & water removal task store. Optional
+// injection like the verification seams, so existing planner/execution fakes
+// keep compiling unchanged; the fasting routes answer not-found without it.
+func (s *Service) WithFastingStore(store ports.FastingStore) *Service {
+	s.fasting = store
+	return s
+}
+
+// WithClock pins the service clock; tests only.
+func (s *Service) WithClock(now func() time.Time) *Service {
+	if now != nil {
+		s.now = now
+	}
+	return s
+}
+
+func (s *Service) clock() time.Time {
+	if s.now == nil {
+		return time.Now()
+	}
+	return s.now()
 }
 
 type VerificationEnqueuer interface {
@@ -223,6 +251,14 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 	if err := validateCreate(cmd); err != nil {
 		return domain.Campaign{}, err
 	}
+	// FASTING CREATE CUTOFF (maintainer decision 2026-09-03): the weigh date
+	// must still have a fastable evening ahead of it. Strictly before 20:00 IST
+	// the earliest weigh date is tomorrow; at or after 20:00 it is the day
+	// after. Checked here, on the service clock, so the repository and its
+	// tests never read time.Now themselves.
+	if !domain.WeighDateAllowsFastingCreate(cmd.StartBusinessDate, s.clock()) {
+		return domain.Campaign{}, ports.ErrFastingWindowClosed
+	}
 	// The WeighingPlan role check is park-blind. The campaign names its own park, so a planner
 	// scoped to one park could otherwise CREATE weighing work in another park's sheds.
 	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, cmd.ParkID, permissions.WeighingPlan); err != nil {
@@ -260,6 +296,25 @@ func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campai
 	}
 	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, parkID, permissions.WeighingPlan); err != nil {
 		return domain.Campaign{}, err
+	}
+	// FASTING RULES ON EDIT: an edit that keeps the current weigh date is
+	// always allowed (the date was valid when planned), but a MOVED date must
+	// itself still be fastable (create cutoff), and a date can no longer move
+	// at all once the fasting task was submitted — the fast was performed for
+	// the planned night and cannot be transplanted onto another one.
+	if s.fasting != nil {
+		currentDate, fastingSubmitted, hasFasting, err := s.fasting.CampaignStartDate(ctx, actor.TenantID, campaignID)
+		if err != nil {
+			return domain.Campaign{}, err
+		}
+		if hasFasting && cmd.StartBusinessDate != currentDate {
+			if fastingSubmitted {
+				return domain.Campaign{}, ports.ErrFastingSubmittedDateLocked
+			}
+			if !domain.WeighDateAllowsFastingCreate(cmd.StartBusinessDate, s.clock()) {
+				return domain.Campaign{}, ports.ErrFastingWindowClosed
+			}
+		}
 	}
 	if cmd.PlannedCapPerDay <= 0 {
 		cmd.PlannedCapPerDay = 100
@@ -1233,6 +1288,18 @@ func normalizeProofArtifactIDs(primary string, ids []string) []string {
 
 func validateCreate(cmd domain.CreateCampaign) error {
 	if !uuidutil.IsUUIDString(cmd.TenantID) || !uuidutil.IsUUIDString(cmd.ParkID) || !uuidutil.IsUUIDString(cmd.OperatorUserID) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+		return ports.ErrInvalidArgument
+	}
+	// The feed & water removal operator is MANDATORY on every new weighing
+	// task (maintainer decision 2026-09-03): a weighing whose animals were not
+	// fasted overnight produces wrong weights, so a task with nobody assigned
+	// to tonight's removal is not a plannable task. A present-but-malformed id
+	// is the ordinary invalid-argument; an absent one gets its own named error
+	// so the planner is told which assignment is missing.
+	if strings.TrimSpace(cmd.FastingOperatorUserID) == "" {
+		return ports.ErrFastingOperatorRequired
+	}
+	if !uuidutil.IsUUIDString(cmd.FastingOperatorUserID) {
 		return ports.ErrInvalidArgument
 	}
 	if len(cmd.Sheds) == 0 {

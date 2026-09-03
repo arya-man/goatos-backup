@@ -50,6 +50,10 @@ type Service interface {
 	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error
+	// Fasting (feed & water removal) precondition cards, maintainer decision
+	// 2026-09-03 (weighing/domain/fasting.go).
+	ListMyFastingShedCards(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.FastingShedCardPage, error)
+	SubmitFastingShed(ctx context.Context, actor domain.Actor, cmd domain.SubmitFastingShed) (domain.FastingShedCard, error)
 }
 
 type Handler struct {
@@ -115,6 +119,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// so the href carries the module scoping and the nav tab can stay labelled
 	// just "Alerts" (maintainer ruling 2026-08-03).
 	mux.HandleFunc("GET /app/weighing/alerts", h.ListAlerts)
+	// FASTING (feed & water removal) precondition tasks. The list serves the
+	// removal operator's own cards, time-gated to 20:00 IST the evening before
+	// the weigh date; submit carries the two mandatory live-camera videos.
+	mux.HandleFunc("GET /app/weighing/fasting", h.ListMyFastingShedCards)
+	mux.HandleFunc("POST /app/weighing/fasting/{fasting_task_id}/sheds/{campaign_shed_id}/submit", h.SubmitFastingShed)
 	mux.HandleFunc("GET /app/weighing/weight-history", h.GetWeightHistory)
 	mux.HandleFunc("GET /app/weighing/leadership/growth", h.GetLeadershipGrowthADG)
 	mux.HandleFunc("GET /app/weighing/shed-weights", h.GetShedWeights)
@@ -272,13 +281,16 @@ type errorEnvelope struct {
 }
 
 type createCampaignRequest struct {
-	ParkID            string                      `json:"park_id"`
-	PeriodStartDate   string                      `json:"period_start_date"`
-	PeriodEndDate     string                      `json:"period_end_date"`
-	StartBusinessDate string                      `json:"start_business_date"`
-	PlannedCapPerDay  int                         `json:"planned_cap_per_day"`
-	OperatorUserID    string                      `json:"operator_user_id"`
-	Sheds             []domain.CreateCampaignShed `json:"sheds"`
+	ParkID            string `json:"park_id"`
+	PeriodStartDate   string `json:"period_start_date"`
+	PeriodEndDate     string `json:"period_end_date"`
+	StartBusinessDate string `json:"start_business_date"`
+	PlannedCapPerDay  int    `json:"planned_cap_per_day"`
+	OperatorUserID    string `json:"operator_user_id"`
+	// FastingOperatorUserID is the feed & water removal operator, mandatory on
+	// create (maintainer decision 2026-09-03, domain/fasting.go).
+	FastingOperatorUserID string                      `json:"fasting_operator_user_id"`
+	Sheds                 []domain.CreateCampaignShed `json:"sheds"`
 }
 
 // animalObservationRequest is the free-flow scan write request. It carries the
@@ -379,7 +391,8 @@ func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := h.service.CreateCampaign(r.Context(), actor(r), domain.CreateCampaign{
 		ParkID: req.ParkID, PeriodStartDate: req.PeriodStartDate, PeriodEndDate: req.PeriodEndDate, StartBusinessDate: req.StartBusinessDate,
-		PlannedCapPerDay: req.PlannedCapPerDay, OperatorUserID: req.OperatorUserID, IdempotencyKey: r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
+		PlannedCapPerDay: req.PlannedCapPerDay, OperatorUserID: req.OperatorUserID, FastingOperatorUserID: req.FastingOperatorUserID,
+		IdempotencyKey: r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
 	})
 	h.respond(w, r, map[string]any{"campaign": c, "trace_id": traceID(r)}, err)
 }
@@ -391,7 +404,8 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := h.service.UpdateCampaign(r.Context(), actor(r), r.PathValue("campaign_id"), domain.UpdateCampaign{
 		ParkID: req.ParkID, PeriodStartDate: req.PeriodStartDate, PeriodEndDate: req.PeriodEndDate, StartBusinessDate: req.StartBusinessDate,
-		PlannedCapPerDay: req.PlannedCapPerDay, OperatorUserID: req.OperatorUserID, IdempotencyKey: r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
+		PlannedCapPerDay: req.PlannedCapPerDay, OperatorUserID: req.OperatorUserID, FastingOperatorUserID: req.FastingOperatorUserID,
+		IdempotencyKey: r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
 	})
 	h.respond(w, r, map[string]any{"campaign": c, "trace_id": traceID(r)}, err)
 }
@@ -789,6 +803,22 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_video_missing", Message: "This pen's video is not ready yet. Wait for the video to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrRejectedProofReuse):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_rejected_proof_reuse", Message: "This video was sent back. Record a new video for this pen, then submit again.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrFastingWindowClosed):
+		// 422: the request is well-formed; the chosen date's removal evening has
+		// already begun (or passed), so the remedy is picking a later date.
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_window_closed", Message: "Feed and water must be removed the evening before, and that evening is no longer available for this date. Pick a later date.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrFastingOperatorRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_operator_required", Message: "Choose who will remove feed and water the evening before this weighing.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrFastingNotAssigned):
+		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{Code: "fasting_not_assigned", Message: "This feed and water removal is assigned to someone else.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrFastingProofRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_required", Message: "Two videos are needed: one of the feed being removed and one of the water being removed.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrFastingProofInvalid):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_invalid", Message: "One of the videos is not ready or was not recorded with the app camera. Record both videos in the app, wait for them to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrFastingAlreadySubmitted):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "fasting_already_submitted", Message: "This feed and water removal was already submitted.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrFastingSubmittedDateLocked):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "fasting_date_locked", Message: "Feed and water were already removed for this weighing's night, so its date cannot be moved. Plan the new date as its own task.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrOperatorOutsidePark):
 		// Farm language, not a rule name: the planner picked someone who does not work that park.
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "operator_outside_park", Message: "One of the people chosen does not work in this park. Pick someone from this park, or a director who covers both.", TraceID: traceID(r)}, nil)

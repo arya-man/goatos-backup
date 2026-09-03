@@ -586,8 +586,8 @@ class PcCareTaskViewModel @Inject constructor(
                         photoCaptureSource.capturePhoto(
                             PhotoCaptureContext(
                                 title = slotDto.label,
-                                instruction = slotDto.description.ifBlank { "Show vaccine stock in the fridge" },
-                                prompt = ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
+                                instruction = slotDto.description.ifBlank { slotDto.label },
+                                prompt = if (pcCareIsFeedWaterRemoval(detail)) null else ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
                             ),
                         )?.let {
                             PcCareCapturedTaskProof(
@@ -603,8 +603,8 @@ class PcCareTaskViewModel @Inject constructor(
                             ProofCaptureContext(
                                 title = slotDto.label,
                                 primaryTag = detail.taskLabel.ifBlank { detail.operationalLocationDisplay.ifBlank { detail.shedLabel } },
-                                workLabel = slotDto.description.ifBlank { "Show vaccine stock in the fridge" },
-                                prompt = ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
+                                workLabel = slotDto.description.ifBlank { slotDto.label },
+                                prompt = if (pcCareIsFeedWaterRemoval(detail)) null else ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
                                 headerTitle = categoryTitle.ifBlank { null },
                             ),
                         )?.let {
@@ -807,7 +807,17 @@ class PcCareTaskViewModel @Inject constructor(
             )
         }
         val evaluation = if (taskProofMode) {
-            pcCareEvaluateTaskProofSubmit(pcCareTaskProofExpectedSlots(detail), latestProofs, detail.taskProofs, local.value.capturingSlotKey)
+            pcCareEvaluateTaskProofSubmit(
+                pcCareTaskProofExpectedSlots(detail),
+                latestProofs,
+                detail.taskProofs,
+                local.value.capturingSlotKey,
+                missingCopy = if (pcCareIsFeedWaterRemoval(detail)) {
+                    "Record the feed removal and water removal videos first" // mobile-contract:ignore: device-local pre-sync gate copy
+                } else {
+                    "Record the fridge stock photo and video first" // mobile-contract:ignore: device-local pre-sync gate copy
+                },
+            )
         } else {
             pcCareEvaluateSubmit(detail.expectedSlots, latestAnimals, latestProofs, json)
         }
@@ -850,7 +860,17 @@ class PcCareTaskViewModel @Inject constructor(
             return
         }
         val evaluation = if (pcCareIsTaskProofMode(detail)) {
-            pcCareEvaluateTaskProofSubmit(pcCareTaskProofExpectedSlots(detail), latestProofs, detail.taskProofs, local.value.capturingSlotKey)
+            pcCareEvaluateTaskProofSubmit(
+                pcCareTaskProofExpectedSlots(detail),
+                latestProofs,
+                detail.taskProofs,
+                local.value.capturingSlotKey,
+                missingCopy = if (pcCareIsFeedWaterRemoval(detail)) {
+                    "Record the feed removal and water removal videos first" // mobile-contract:ignore: device-local pre-sync gate copy
+                } else {
+                    "Record the fridge stock photo and video first" // mobile-contract:ignore: device-local pre-sync gate copy
+                },
+            )
         } else {
             pcCareEvaluateSubmit(detail.expectedSlots, latestAnimals, latestProofs, json)
         }
@@ -1053,7 +1073,11 @@ class PcCareTaskViewModel @Inject constructor(
     private fun pcCareStockSlotMatchesMime(fieldKey: String, mimeType: String): Boolean =
         when (fieldKey) {
             PC_CARE_SLOT_STOCK_FRIDGE_PHOTO -> mimeType.startsWith("image/", ignoreCase = true)
-            PC_CARE_SLOT_STOCK_FRIDGE_VIDEO -> mimeType.startsWith("video/", ignoreCase = true)
+            PC_CARE_SLOT_STOCK_FRIDGE_VIDEO,
+            // Both removal slots are VIDEO (backend slot contract, maintainer decision 2026-09-03).
+            PC_CARE_SLOT_FEED_VIDEO,
+            PC_CARE_SLOT_WATER_VIDEO,
+            -> mimeType.startsWith("video/", ignoreCase = true)
             else -> false
         }
 
@@ -1061,10 +1085,19 @@ class PcCareTaskViewModel @Inject constructor(
 
     private fun pcCareIsTaskProofMode(detail: PcCareTaskDto?): Boolean =
         // The route category settles the fridge-stock face before the detail arrives, so the
-        // scan-and-record row never flashes on the way in.
+        // scan-and-record row never flashes on the way in. feed_water_removal (maintainer
+        // decision 2026-09-03) is the second task_proof face; its cards live in the Deworming
+        // tab, so its own capture_mode/category is what settles it.
         routeCategory == PC_CARE_CATEGORY_INVENTORY_VACCINE ||
+            routeCategory == PC_CARE_CATEGORY_FEED_WATER_REMOVAL ||
             detail?.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF ||
-            detail?.category == PC_CARE_CATEGORY_INVENTORY_VACCINE
+            detail?.category == PC_CARE_CATEGORY_INVENTORY_VACCINE ||
+            detail?.category == PC_CARE_CATEGORY_FEED_WATER_REMOVAL
+
+    /** True on the feed & water removal face — two backend-served VIDEO slots, no fridge pair. */
+    private fun pcCareIsFeedWaterRemoval(detail: PcCareTaskDto?): Boolean =
+        routeCategory == PC_CARE_CATEGORY_FEED_WATER_REMOVAL ||
+            detail?.category == PC_CARE_CATEGORY_FEED_WATER_REMOVAL
 
     private fun pcCareEffectiveExpectedSlots(detail: PcCareTaskDto?): List<PcCareSlotDto> {
         if (detail == null) return emptyList()
@@ -1074,6 +1107,16 @@ class PcCareTaskViewModel @Inject constructor(
 
     private fun pcCareTaskProofExpectedSlots(detail: PcCareTaskDto): List<PcCareSlotDto> {
         val byKey = detail.expectedSlots.associateBy { it.fieldKey }
+        if (pcCareIsFeedWaterRemoval(detail)) {
+            // The removal card's slot set is BACKEND-SERVED (feed_video + water_video with their
+            // own labels/descriptions); the fallbacks below only cover a detail cached by an
+            // older server that had not sent slots yet.
+            if (detail.expectedSlots.isNotEmpty()) return detail.expectedSlots
+            return listOf(
+                PcCareSlotDto(fieldKey = PC_CARE_SLOT_FEED_VIDEO, label = "Feed removal video"),
+                PcCareSlotDto(fieldKey = PC_CARE_SLOT_WATER_VIDEO, label = "Water removal video"),
+            )
+        }
         return listOf(
             byKey[PC_CARE_SLOT_STOCK_FRIDGE_PHOTO] ?: PcCareSlotDto(
                 fieldKey = PC_CARE_SLOT_STOCK_FRIDGE_PHOTO,
@@ -1155,7 +1198,17 @@ class PcCareTaskViewModel @Inject constructor(
             emptyList()
         }
         val evaluation = if (taskProofMode) {
-            pcCareEvaluateTaskProofSubmit(expectedSlots, proofs, detail?.taskProofs.orEmpty(), bits.capturingSlotKey)
+            pcCareEvaluateTaskProofSubmit(
+                expectedSlots,
+                proofs,
+                detail?.taskProofs.orEmpty(),
+                bits.capturingSlotKey,
+                missingCopy = if (pcCareIsFeedWaterRemoval(detail)) {
+                    "Record the feed removal and water removal videos first" // mobile-contract:ignore: device-local pre-sync gate copy
+                } else {
+                    "Record the fridge stock photo and video first" // mobile-contract:ignore: device-local pre-sync gate copy
+                },
+            )
         } else {
             pcCareEvaluateSubmit(expectedSlots, animals, proofs, json)
         }
@@ -1212,14 +1265,29 @@ class PcCareTaskViewModel @Inject constructor(
                 )
             },
             taskProofMode = taskProofMode,
-            taskProofSlot = if (taskProofMode) {
+            // The removal face renders the GENERIC slot list; the fridge face keeps its
+            // dedicated photo/video pair. Never both.
+            taskProofSlots = if (taskProofMode && pcCareIsFeedWaterRemoval(detail)) {
+                expectedSlots.map { slot ->
+                    pcCareBuildTaskProofSlot(
+                        slot = slot,
+                        proofs = proofs,
+                        taskProofs = detail?.taskProofs.orEmpty(),
+                        capturingSlotKey = bits.capturingSlotKey,
+                        remotePreviewUrls = bits.taskProofPreviewUrls,
+                    )
+                }
+            } else {
+                emptyList()
+            },
+            taskProofSlot = if (taskProofMode && !pcCareIsFeedWaterRemoval(detail)) {
                 expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO }?.let { slot ->
                     pcCareBuildTaskProofSlot(slot, proofs, detail?.taskProofs.orEmpty(), bits.capturingSlotKey, bits.taskProofPreviewUrls)
                 }
             } else {
                 null
             },
-            taskProofPhotoSlot = if (taskProofMode) {
+            taskProofPhotoSlot = if (taskProofMode && !pcCareIsFeedWaterRemoval(detail)) {
                 expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO }?.let { slot ->
                     pcCareBuildTaskProofSlot(
                         slot = slot,
@@ -1232,7 +1300,7 @@ class PcCareTaskViewModel @Inject constructor(
             } else {
                 null
             },
-            taskProofVideoSlot = if (taskProofMode) {
+            taskProofVideoSlot = if (taskProofMode && !pcCareIsFeedWaterRemoval(detail)) {
                 expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_VIDEO }?.let { slot ->
                     pcCareBuildTaskProofSlot(
                         slot = slot,
@@ -1301,6 +1369,9 @@ class PcCareTaskViewModel @Inject constructor(
         internal const val PC_CARE_CAPTURE_MODE_ROSTER = "roster_pick"
         internal const val PC_CARE_CAPTURE_MODE_TASK_PROOF = "task_proof"
         internal const val PC_CARE_CATEGORY_INVENTORY_VACCINE = "inventory_vaccine"
+        internal const val PC_CARE_CATEGORY_FEED_WATER_REMOVAL = "feed_water_removal"
+        internal const val PC_CARE_SLOT_FEED_VIDEO = "feed_video"
+        internal const val PC_CARE_SLOT_WATER_VIDEO = "water_video"
         internal const val PC_CARE_SLOT_STOCK_FRIDGE_PHOTO = "stock_fridge_photo"
         internal const val PC_CARE_SLOT_STOCK_FRIDGE_VIDEO = "stock_fridge_video"
 
@@ -1795,9 +1866,12 @@ internal fun pcCareEvaluateTaskProofSubmit(
     proofs: List<ProofCaptureRow>,
     taskProofs: List<PcCareTaskProofDto>,
     capturingSlotKey: String?,
+    /** Farm copy naming the missing evidence — the fridge face's wording by default; the feed &
+     *  water removal face passes its own (two videos, no photo). */
+    missingCopy: String = "Record the fridge stock photo and video first", // mobile-contract:ignore: device-local pre-sync gate copy
 ): PcCareSubmitEvaluation {
     if (expectedSlots.isEmpty()) {
-        return PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock photo and video first") // mobile-contract:ignore: device-local pre-sync gate copy
+        return PcCareSubmitEvaluation(ready = false, blockedReason = missingCopy)
     }
     expectedSlots.forEach { slot ->
         if (taskProofs.any { it.slotKey == slot.fieldKey && it.proofRef.isNotBlank() }) return@forEach
@@ -1811,7 +1885,7 @@ internal fun pcCareEvaluateTaskProofSubmit(
         if (localRow?.syncStatus == CaptureSyncStatus.SYNCED && !localRow.serverProofId.isNullOrBlank()) return@forEach
         if (localRow?.outboxItemId?.isNotBlank() == true) return@forEach
         if (capturingSlotKey == slot.fieldKey) return PcCareSubmitEvaluation(ready = false, blockedReason = "Proof is still recording") // mobile-contract:ignore: device-local pre-sync gate copy
-        return PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock photo and video first") // mobile-contract:ignore: device-local pre-sync gate copy
+        return PcCareSubmitEvaluation(ready = false, blockedReason = missingCopy)
     }
     return PcCareSubmitEvaluation(ready = true)
 }

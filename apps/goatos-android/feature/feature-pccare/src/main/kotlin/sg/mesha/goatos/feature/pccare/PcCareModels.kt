@@ -153,6 +153,13 @@ data class PcCareTaskUiState(
     val taskProofSlot: PcCareSlotChipUi? = null,
     val taskProofPhotoSlot: PcCareSlotChipUi? = null,
     val taskProofVideoSlot: PcCareSlotChipUi? = null,
+    /**
+     * GENERIC task-level proof slots, one card per backend-served expected slot, all VIDEO —
+     * the feed & water removal face (category feed_water_removal, maintainer decision
+     * 2026-09-03). Empty on the fridge-stock face, which keeps its dedicated photo/video pair
+     * above. Labels/descriptions are backend-owned and rendered verbatim.
+     */
+    val taskProofSlots: List<PcCareSlotChipUi> = emptyList(),
     val animalCountLabel: String = "",
     val submitEnabled: Boolean = false,
     /** Why submit is blocked ("2 animals still need videos"); blank when submittable. */
@@ -313,6 +320,19 @@ data class PcCarePlanUiState(
     val selectedPartitionLabel: String = "",
     val selectedPenLabel: String = "",
     val selectedOperatorIds: Set<String> = emptySet(),
+    // -- Feed & water removal before deworming (maintainer decision 2026-09-03) ---------------
+    /** True only on the deworming wizard: the toggle + removal-people section is offered. */
+    val feedRemovalOffered: Boolean = false,
+    /** The planner's answer to "Feed removed before deworming?". */
+    val feedRemovalRequired: Boolean = false,
+    /** Who removes feed & water the evening before; required when the toggle is ON. */
+    val selectedRemovalOperatorIds: Set<String> = emptySet(),
+    /**
+     * The earliest date the day picker may offer while the toggle is ON (a removal evening must
+     * still be ahead of the chosen day — the 20:00 IST rule, mirrored client-side; the server
+     * still enforces it). Blank = no restriction (toggle OFF, or not a deworming wizard).
+     */
+    val minSelectableDateIso: String = "",
     val creating: Boolean = false,
     /** Non-blank once the wizard's create landed — the wizard screen pops back on it. */
     val createdTaskId: String = "",
@@ -329,6 +349,8 @@ sealed interface PcCarePlanEvent {
     data class SelectPen(val shedId: String, val partitionLabel: String) : PcCarePlanEvent
     data object LoadMorePens : PcCarePlanEvent
     data class ToggleOperator(val userId: String) : PcCarePlanEvent
+    data object ToggleFeedRemoval : PcCarePlanEvent
+    data class ToggleRemovalOperator(val userId: String) : PcCarePlanEvent
     data object NextStep : PcCarePlanEvent
     data object PreviousStep : PcCarePlanEvent
     data object Create : PcCarePlanEvent

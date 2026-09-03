@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.data.PcCareRepository
 import sg.mesha.goatos.core.data.PcCareWorklistQuery
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
+import sg.mesha.goatos.core.network.userFacingMessage
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.feature.pccare.PcCarePlanEvent
 import sg.mesha.goatos.feature.pccare.PcCarePlanOption
@@ -101,6 +102,8 @@ class PcCarePlanViewModel @Inject constructor(
             is PcCarePlanEvent.SelectPen -> selectPen(event.shedId, event.partitionLabel)
             PcCarePlanEvent.LoadMorePens -> loadPens(append = true)
             is PcCarePlanEvent.ToggleOperator -> toggleOperator(event.userId)
+            PcCarePlanEvent.ToggleFeedRemoval -> toggleFeedRemoval()
+            is PcCarePlanEvent.ToggleRemovalOperator -> toggleRemovalOperator(event.userId)
             PcCarePlanEvent.NextStep -> nextStep()
             PcCarePlanEvent.PreviousStep -> previousStep()
             PcCarePlanEvent.Create -> create()
@@ -142,6 +145,13 @@ class PcCarePlanViewModel @Inject constructor(
                 selectedPartitionLabel = "",
                 selectedPenLabel = "",
                 selectedOperatorIds = emptySet(),
+                // Feed & water removal is a DEWORMING question only (maintainer decision
+                // 2026-09-03): tablets given in feed need feed & water removed the evening
+                // before; injection deworming and every other category never see the toggle.
+                feedRemovalOffered = categoryKey == CATEGORY_DEWORMING,
+                feedRemovalRequired = false,
+                selectedRemovalOperatorIds = emptySet(),
+                minSelectableDateIso = "",
                 creating = false,
                 createdTaskId = "",
                 message = null,
@@ -231,6 +241,11 @@ class PcCarePlanViewModel @Inject constructor(
     private fun selectCreateDate(date: LocalDate) {
         val today = LocalDate.now(ZoneId.of(INDIA_ZONE))
         if (date < today || date > today.plusDays(FUTURE_WINDOW_DAYS)) return
+        // With the removal toggle ON, the chosen day must still have a removal evening ahead of
+        // it (client mirror of the server's 20:00 IST rule; the server still refuses with its
+        // own farm copy).
+        val minIso = _state.value.minSelectableDateIso
+        if (_state.value.feedRemovalRequired && minIso.isNotBlank() && date.toString() < minIso) return
         _state.update { it.copy(selectedDate = date.toString(), pens = emptyList(), selectedShedId = "", selectedPartitionLabel = "", selectedPenLabel = "") }
     }
 
@@ -271,13 +286,61 @@ class PcCarePlanViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Flips "Feed removed before deworming?" (maintainer decision 2026-09-03). Turning it ON
+     * applies the 20:00 IST picker rule: a selected day whose removal evening has already begun
+     * is MOVED to the earliest allowed day, and the move is said out loud rather than silently
+     * applied — the server would refuse the old day anyway (422, its own farm copy).
+     */
+    private fun toggleFeedRemoval() {
+        val current = _state.value
+        if (!current.feedRemovalOffered) return
+        val next = !current.feedRemovalRequired
+        if (!next) {
+            _state.update {
+                it.copy(feedRemovalRequired = false, selectedRemovalOperatorIds = emptySet(), minSelectableDateIso = "")
+            }
+            return
+        }
+        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(ZoneId.of(INDIA_ZONE)))
+        val earliestIso = earliest.toString()
+        val selected = current.selectedDate
+        val bumped = selected.isNotBlank() && selected < earliestIso
+        _state.update {
+            it.copy(
+                feedRemovalRequired = true,
+                minSelectableDateIso = earliestIso,
+                selectedDate = if (bumped) earliestIso else it.selectedDate,
+                message = if (bumped) {
+                    "Feed & water must be removed the evening before, so the day moved to the earliest possible one."
+                } else {
+                    it.message
+                },
+            )
+        }
+    }
+
+    private fun toggleRemovalOperator(userId: String) {
+        _state.update {
+            val selected = it.selectedRemovalOperatorIds
+            it.copy(selectedRemovalOperatorIds = if (userId in selected) selected - userId else selected + userId)
+        }
+    }
+
     private fun nextStep() {
         val current = _state.value
         val next = when (current.step) {
             PcCarePlanStep.DATE -> if (current.selectedDate.isBlank()) null else PcCarePlanStep.PARK
             PcCarePlanStep.PARK -> if (current.selectedParkId.isBlank()) null else PcCarePlanStep.PEN
             PcCarePlanStep.PEN -> if (current.selectedShedId.isBlank()) null else PcCarePlanStep.OPERATORS
-            PcCarePlanStep.OPERATORS -> if (current.selectedOperatorIds.isEmpty()) null else PcCarePlanStep.REVIEW
+            PcCarePlanStep.OPERATORS -> when {
+                current.selectedOperatorIds.isEmpty() -> null
+                current.feedRemovalRequired && current.selectedRemovalOperatorIds.isEmpty() -> {
+                    _state.update { it.copy(message = "Pick who removes feed & water the evening before") }
+                    return
+                }
+                else -> PcCarePlanStep.REVIEW
+            }
             else -> null
         }
         if (next == null) {
@@ -357,6 +420,10 @@ class PcCarePlanViewModel @Inject constructor(
             _state.update { it.copy(message = "Complete every step first") }
             return
         }
+        if (current.feedRemovalRequired && current.selectedRemovalOperatorIds.isEmpty()) {
+            _state.update { it.copy(message = "Pick who removes feed & water the evening before") }
+            return
+        }
         _state.update { it.copy(creating = true) }
         viewModelScope.launch {
             try {
@@ -370,6 +437,12 @@ class PcCarePlanViewModel @Inject constructor(
                         partitionLabel = current.selectedPartitionLabel,
                         plannedBusinessDate = current.selectedDate,
                         assigneeUserIds = current.selectedOperatorIds.toList(),
+                        // Sent ONLY when the toggle was offered and turned on; null keeps every
+                        // other category's payload byte-identical to before this feature.
+                        feedRemovalRequired = if (current.feedRemovalRequired) true else null,
+                        removalOperatorUserIds = current.selectedRemovalOperatorIds
+                            .takeIf { current.feedRemovalRequired }
+                            ?.toList(),
                     ),
                 )
                 analytics.track(
@@ -403,8 +476,15 @@ class PcCarePlanViewModel @Inject constructor(
                     AnalyticsEvents.PC_CARE_FAILURE,
                     mapOf(AnalyticsEvents.Params.REASON to (error.message ?: "create_failed").take(MAX_REASON_CHARS)),
                 )
-                // The key is deliberately KEPT: retrying is the same planned task.
-                _state.update { it.copy(creating = false, message = "Couldn't create the task. Try again.") }
+                // The key is deliberately KEPT: retrying is the same planned task. The SERVER's
+                // own sentence is surfaced verbatim where one exists (fasting_window_closed,
+                // removal_operators_required, feed_removal_not_applicable all carry farm copy).
+                _state.update {
+                    it.copy(
+                        creating = false,
+                        message = error.userFacingMessage("Couldn't create the task. Try again."),
+                    )
+                }
             }
         }
     }
@@ -421,6 +501,7 @@ class PcCarePlanViewModel @Inject constructor(
 
     private companion object {
         const val INDIA_ZONE = "Asia/Kolkata"
+        const val CATEGORY_DEWORMING = "deworming"
         const val PAST_WINDOW_DAYS = 30L
         const val FUTURE_WINDOW_DAYS = 14L
         const val MAX_REASON_CHARS = 96

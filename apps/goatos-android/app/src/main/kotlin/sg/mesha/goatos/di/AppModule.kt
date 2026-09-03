@@ -657,6 +657,17 @@ object AppModule {
         proofAttachTelemetry = weighingProofAttachTelemetryReporter(analytics, crashReporter),
     )
 
+    @Provides
+    @Singleton
+    fun provideWeighingFastingRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): sg.mesha.goatos.core.data.weighing.WeighingFastingRepository =
+        sg.mesha.goatos.core.data.weighing.DefaultWeighingFastingRepository(
+            api = api,
+            dao = database.weighingFastingCardDao(),
+        )
+
     // --- MOB-002 capture (docs/mobile/proof-capture-sync-and-e2e.md) -------------------
     // Room-first SSOT behind Submit's `goat_scan`/`video_proof` recording-form controls.
     // BtHidScanSource wraps the SAME RfidReaderPort singleton the shed-roster Scan screen
@@ -857,6 +868,10 @@ object AppModule {
         weighingShedObservationDao = database.weighingShedObservationDao(),
         healthDiagnosisRunDao = database.healthDiagnosisRunDao(),
         weighingTransitionEpochDao = database.weighingTransitionEpochDao(),
+        // Same rationale as feedRepository below: a nullable constructor default would silently
+        // no-op the WEIGHING_FASTING_SUBMIT reconcile in production, leaving the removal card
+        // reading "Record tonight's removal" after its submit already landed.
+        weighingFastingCardDao = database.weighingFastingCardDao(),
         // Without this, feedRepository defaults to null in the constructor and
         // FEED_DISTRIBUTION_COMPLETE/FEED_PACKING_COMPLETE reconciliation silently no-ops in
         // production (feedRepository?.persist... does nothing) — the exact bug this wiring fixes.

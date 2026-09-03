@@ -48,19 +48,28 @@ func (r *Repository) WithProofURLResolver(resolver ProofURLResolver) *Repository
 // requires the caller to be the assignee, so a CPT operator handed a CBE bucket would both SEE and
 // be able to weigh another park's shed. Blocked here, at the write, rather than trusted to the
 // planner UI.
-func (r *Repository) assertOperatorsScopedToPark(ctx context.Context, tx pgx.Tx, tenantID, parkID string, sheds []domain.CreateCampaignShed) error {
-	ids := make([]string, 0, len(sheds))
-	seen := make(map[string]struct{}, len(sheds))
-	for _, shed := range sheds {
-		id := strings.TrimSpace(shed.OperatorUserID)
+func (r *Repository) assertOperatorsScopedToPark(ctx context.Context, tx pgx.Tx, tenantID, parkID string, sheds []domain.CreateCampaignShed, extraOperatorIDs ...string) error {
+	ids := make([]string, 0, len(sheds)+len(extraOperatorIDs))
+	seen := make(map[string]struct{}, len(sheds)+len(extraOperatorIDs))
+	appendID := func(raw string) {
+		id := strings.TrimSpace(raw)
 		if id == "" {
-			continue
+			return
 		}
 		if _, dup := seen[id]; dup {
-			continue
+			return
 		}
 		seen[id] = struct{}{}
 		ids = append(ids, id)
+	}
+	for _, shed := range sheds {
+		appendID(shed.OperatorUserID)
+	}
+	// The fasting (feed & water removal) operator is asserted through the SAME
+	// park-scope rule as the bucket operators: a removal card handed to another
+	// park's operator would be work at sheds they cannot legitimately reach.
+	for _, id := range extraOperatorIDs {
+		appendID(id)
 	}
 	if len(ids) == 0 {
 		return nil
@@ -110,7 +119,7 @@ func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampai
 	if existing, ok, err := r.campaignByIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, requestFingerprint, canonicalFingerprint); err != nil || ok {
 		return existing, err
 	}
-	if err := r.assertOperatorsScopedToPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.Sheds); err != nil {
+	if err := r.assertOperatorsScopedToPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.Sheds, cmd.FastingOperatorUserID); err != nil {
 		return domain.Campaign{}, err
 	}
 	var c domain.Campaign
@@ -172,6 +181,15 @@ RETURNING campaign_shed_id::text, $1::text, $3::text, $4, $5, expected_animal_co
 		}
 		applyShedPartitionDisplayWithStoredLabel(&cs, shed.PartitionLabel)
 		c.Sheds = append(c.Sheds, cs)
+	}
+	// The fasting task is part of the SAME create transaction: a weighing task
+	// without tonight's removal assignment must not exist for even one commit.
+	if err := r.createFastingTaskTx(ctx, tx, cmd, c.CampaignID); err != nil {
+		return domain.Campaign{}, err
+	}
+	if strings.TrimSpace(cmd.FastingOperatorUserID) != "" {
+		c.FastingOperatorUserID = cmd.FastingOperatorUserID
+		c.FastingStatus = domain.FastingStatusOpen
 	}
 	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, requestFingerprint, "weighing_campaign", c.CampaignID, c); err != nil {
 		return domain.Campaign{}, err
@@ -259,7 +277,7 @@ func (r *Repository) UpdateCampaign(ctx context.Context, campaignID string, cmd 
 		return existing, err
 	}
 	// Editing a task must not smuggle in a cross-park assignee either.
-	if err := r.assertOperatorsScopedToPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.Sheds); err != nil {
+	if err := r.assertOperatorsScopedToPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.Sheds, cmd.FastingOperatorUserID); err != nil {
 		return domain.Campaign{}, err
 	}
 	// A task that already holds FINISHED work cannot be moved to another day or
@@ -436,6 +454,11 @@ RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, sh
 		}
 	}
 
+	// Keep the fasting row aligned with the edit (new date / park / removal
+	// operator), in the SAME transaction as the campaign change.
+	if err := r.syncFastingTaskOnUpdateTx(ctx, tx, cmd, campaignID); err != nil {
+		return domain.Campaign{}, err
+	}
 	c, err := r.getCampaignTx(ctx, tx, cmd.TenantID, campaignID)
 	if err != nil {
 		return domain.Campaign{}, err
@@ -630,11 +653,19 @@ SELECT weighing_campaigns.campaign_id::text, weighing_campaigns.tenant_id::text,
   weighing_campaigns.operator_user_id::text, weighing_campaigns.created_by::text,
   weighing_campaigns.created_at, weighing_campaigns.updated_at, weighing_campaigns.row_version,
   COALESCE(weighing_campaigns.close_reason, ''),
-  COALESCE(weighing_campaigns.closure_kind, '')
+  COALESCE(weighing_campaigns.closure_kind, ''),
+  COALESCE(ft.operator_user_id::text, ''),
+  COALESCE(ft.status, '')
 FROM weighing_campaigns
 LEFT JOIN locations park
        ON park.tenant_id=weighing_campaigns.tenant_id
       AND park.location_id=weighing_campaigns.park_id
+-- Fasting echo: at most one row per campaign (UNIQUE (tenant_id, campaign_id)
+-- on weighing_fasting_tasks, migration 000246), so this join cannot multiply
+-- campaign rows. Lets the edit wizard prefill the removal operator.
+LEFT JOIN weighing_fasting_tasks ft
+       ON ft.tenant_id=weighing_campaigns.tenant_id
+      AND ft.campaign_id=weighing_campaigns.campaign_id
 WHERE weighing_campaigns.tenant_id=$1::uuid
   AND (
     $6::uuid IS NULL
@@ -702,7 +733,7 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 	ids := make([]string, 0, limit+1)
 	for rows.Next() {
 		var c domain.Campaign
-		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.ParkName, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind); err != nil {
+		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.ParkName, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind, &c.FastingOperatorUserID, &c.FastingStatus); err != nil {
 			return domain.CampaignPage{}, err
 		}
 		out = append(out, c)
@@ -3567,8 +3598,11 @@ func (r *Repository) getCampaign(ctx context.Context, tenantID, campaignID strin
 
 func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) (domain.Campaign, error) {
 	var c domain.Campaign
-	err := tx.QueryRow(ctx, `SELECT campaign_id::text, tenant_id::text, park_id::text, period_start_date::text, period_end_date::text, start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text, created_at, updated_at, row_version, COALESCE(close_reason, ''), COALESCE(closure_kind, '') FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, tenantID, campaignID).
-		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind)
+	// The fasting echo (LEFT JOIN, at most one row per campaign via the
+	// UNIQUE (tenant_id, campaign_id) on weighing_fasting_tasks) lets the edit
+	// wizard prefill the removal operator; blank on pre-feature campaigns.
+	err := tx.QueryRow(ctx, `SELECT c.campaign_id::text, c.tenant_id::text, c.park_id::text, c.period_start_date::text, c.period_end_date::text, c.start_business_date::text, c.status, c.planned_cap_per_day, c.operator_user_id::text, c.created_by::text, c.created_at, c.updated_at, c.row_version, COALESCE(c.close_reason, ''), COALESCE(c.closure_kind, ''), COALESCE(ft.operator_user_id::text, ''), COALESCE(ft.status, '') FROM weighing_campaigns c LEFT JOIN weighing_fasting_tasks ft ON ft.tenant_id=c.tenant_id AND ft.campaign_id=c.campaign_id WHERE c.tenant_id=$1::uuid AND c.campaign_id=$2::uuid`, tenantID, campaignID).
+		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind, &c.FastingOperatorUserID, &c.FastingStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Campaign{}, ports.ErrNotFound
 	}

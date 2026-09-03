@@ -273,6 +273,44 @@ class GoatDatabaseMigrationTest {
         db.close()
     }
 
+    @Test
+    fun `migration 54 to 55 creates the per-shed fasting tables and preserves existing rows`() {
+        helper.createDatabase(DB_NAME, 54).apply {
+            // A pre-upgrade row proves the additive migration touches nothing existing.
+            execSQL(
+                "INSERT INTO `clock_blob_cache` (`cacheKey`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('status', '{}', 1)",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 55, true, MIGRATION_54_55)
+        // The new cache tables exist, empty, and are keyed PER SHED — the composite insert
+        // below only works on the per-shed shape (maintainer correction #2, 2026-09-03).
+        db.query("SELECT COUNT(*) FROM `weighing_fasting_card`").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        db.execSQL(
+            "INSERT INTO `weighing_fasting_card` " +
+                "(`fastingTaskId`, `campaignShedId`, `sortIndex`, `status`, `removalBusinessDate`, `dtoJson`, `updatedAt`) " +
+                "VALUES ('task-1', 'shed-1', 0, 'open', '2026-09-03', '{}', 2)",
+        )
+        db.query("SELECT `campaignShedId` FROM `weighing_fasting_card` WHERE `fastingTaskId`='task-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("shed-1", cursor.getString(0))
+        }
+        db.query("SELECT COUNT(*) FROM `weighing_fasting_remote_key`").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        db.query("SELECT `dtoJson` FROM `clock_blob_cache` WHERE `cacheKey`='status'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{}", cursor.getString(0))
+        }
+        db.close()
+    }
+
     /** The real v1 (bootstrap-cache-only) schema, then the actual migration objects applied in order. */
     private fun buildV1ThenMigrate(): SupportSQLiteDatabase {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -344,6 +382,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_51_52.migrate(db)
         MIGRATION_52_53.migrate(db)
         MIGRATION_53_54.migrate(db)
+        MIGRATION_54_55.migrate(db)
         return db
     }
 

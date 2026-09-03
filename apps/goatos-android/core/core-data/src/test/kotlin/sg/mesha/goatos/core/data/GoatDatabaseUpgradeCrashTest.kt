@@ -141,6 +141,32 @@ class GoatDatabaseUpgradeCrashTest {
             val row = dao.observe("center-1").first()
             assertEquals(7L, row?.updatedAt)
 
+            // The feed & water removal tables (MIGRATION_54_55, per-shed grain) are
+            // present and usable post-upgrade — a write+read round-trip
+            // proves the table AND its remote-key sibling came out of the migration with the
+            // shape Room expects (docs/decisions/room-migration-safety.md).
+            upgraded.weighingFastingCardDao().upsert(
+                sg.mesha.goatos.core.data.weighing.WeighingFastingCardEntity(
+                    fastingTaskId = "fasting-1",
+                    campaignShedId = "shed-1",
+                    sortIndex = 0L,
+                    status = "open",
+                    removalBusinessDate = "2026-09-03",
+                    dtoJson = "{}",
+                    updatedAt = 54L,
+                ),
+            )
+            assertEquals("open", upgraded.weighingFastingCardDao().getCard("fasting-1", "shed-1")?.status)
+            upgraded.weighingFastingCardDao().upsertRemoteKey(
+                sg.mesha.goatos.core.data.weighing.WeighingFastingRemoteKeyEntity(
+                    scopeKey = "mine",
+                    nextCursor = null,
+                    endReached = true,
+                    updatedAt = 54L,
+                ),
+            )
+            assertEquals(true, upgraded.weighingFastingCardDao().remoteKey("mine")?.endReached)
+
             upgraded.feedTransportScopedItemDao().upsertAll(
                 listOf(
                     FeedTransportScopedItemEntity(
@@ -1200,7 +1226,7 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41,
             MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46,
             MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51,
-            MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54,
+            MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —

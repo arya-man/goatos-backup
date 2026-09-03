@@ -15,16 +15,12 @@ import (
 
 const pcCareTaskProofAction = "pc_care.task.proof_recorded"
 
-// RegisterTaskProof stores one task-level proof ref. It is currently used by
-// inventory_vaccine, where the expected proof is a fridge-stock video/photo for
-// the whole task rather than a per-animal clip.
+// RegisterTaskProof stores one task-level proof ref for the task-proof capture-mode
+// categories: inventory_vaccine's fridge-stock evidence and feed_water_removal's two removal
+// videos — whole-task proof rather than a per-animal clip.
 func (r *Repository) RegisterTaskProof(ctx context.Context, p ports.RegisterTaskProofParams) error {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-
-	if !domain.IsValidSlotForCategory(domain.CategoryInventoryVaccine, strings.TrimSpace(p.SlotKey)) {
-		return domain.ErrInvalidSlotForCategory
-	}
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -37,11 +33,14 @@ func (r *Repository) RegisterTaskProof(ctx context.Context, p ports.RegisterTask
 		}
 	}()
 
+	// Slot validity is judged against the TASK's actual category, under the capture lock —
+	// never against a hardcoded category, which would misfile one category's slot into another.
 	category, err := lockTaskForCapture(ctx, tx, p.TenantID, p.TaskID)
 	if err != nil {
 		return err
 	}
-	if category != domain.CategoryInventoryVaccine {
+	if domain.CaptureModeForCategory(category) != domain.CaptureModeTaskProof ||
+		!domain.IsValidSlotForCategory(category, strings.TrimSpace(p.SlotKey)) {
 		return domain.ErrInvalidSlotForCategory
 	}
 
@@ -153,29 +152,37 @@ ORDER BY p.slot_key`, tenantID, taskID)
 	return out, nil
 }
 
-func (r *Repository) inventoryTaskProofMediaRefs(ctx context.Context, tx pgx.Tx, tenantID, taskID string) ([]ports.LabeledRef, int, error) {
+// taskProofMediaRefs composes the labeled media set for a task-proof capture-mode submit:
+// EVERY slot the category declares must carry a proof (a missing one is ErrProofIncomplete),
+// returned in the category's declared slot order.
+func (r *Repository) taskProofMediaRefs(ctx context.Context, tx pgx.Tx, tenantID, taskID, category string) ([]ports.LabeledRef, int, error) {
+	slots := domain.SlotsForCategory(category)
+	slotKeys := make([]string, 0, len(slots))
+	for _, slot := range slots {
+		slotKeys = append(slotKeys, slot.FieldKey)
+	}
 	rows, err := tx.Query(ctx, `
 SELECT slot_key, proof_ref
 FROM pc_care_task_proofs
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND slot_key = ANY($3)`,
-		tenantID, taskID, []string{domain.SlotStockFridgePhoto, domain.SlotStockFridgeVideo})
+		tenantID, taskID, slotKeys)
 	if err != nil {
-		return nil, 0, fmt.Errorf("pccare: read inventory task proof: %w", err)
+		return nil, 0, fmt.Errorf("pccare: read task proof: %w", err)
 	}
 	defer rows.Close()
 	bySlot := map[string]string{}
 	for rows.Next() {
 		var slotKey, proofRef string
 		if err := rows.Scan(&slotKey, &proofRef); err != nil {
-			return nil, 0, fmt.Errorf("pccare: scan inventory task proof: %w", err)
+			return nil, 0, fmt.Errorf("pccare: scan task proof: %w", err)
 		}
 		bySlot[slotKey] = proofRef
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("pccare: iterate inventory task proof: %w", err)
+		return nil, 0, fmt.Errorf("pccare: iterate task proof: %w", err)
 	}
-	out := make([]ports.LabeledRef, 0, len(domain.SlotsForCategory(domain.CategoryInventoryVaccine)))
-	for _, slot := range domain.SlotsForCategory(domain.CategoryInventoryVaccine) {
+	out := make([]ports.LabeledRef, 0, len(slots))
+	for _, slot := range slots {
 		proofRef := strings.TrimSpace(bySlot[slot.FieldKey])
 		if proofRef == "" {
 			return nil, 0, domain.ErrProofIncomplete

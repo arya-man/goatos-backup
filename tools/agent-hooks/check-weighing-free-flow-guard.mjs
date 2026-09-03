@@ -119,6 +119,14 @@ const WRITE_FN_NAMES = [
   "classifyAnimalObservationRejection",
   "classifyShedObservationRejection",
   "SubmitIndividualScope",
+  // Fasting (feed & water removal) precondition writes (maintainer decision
+  // 2026-09-03, weighing/domain/fasting.go). They accept NO animal identity at
+  // all — a fasting task is campaign-grained — and must stay that way.
+  "SubmitFastingTask",
+  "createFastingTaskTx",
+  "syncFastingTaskOnUpdateTx",
+  "ApplyFastingVerdict",
+  "sweepFastingGate",
 ];
 
 const FORBIDDEN_TABLE_RE = /\b(?:FROM|JOIN)\s+(vaccination_\w+|sop_submissions\w*|sop_submission_items\w*|protocol_rules\w*|vaccination_completions\w*)\b/i;
@@ -333,6 +341,14 @@ const WRITE_PATH_ALLOWED_TABLES = new Set([
   "audit_log",
   // Weighing's own idempotency ledger (module-scoped table, not a herd table).
   "weighing_idempotency_records",
+  // Fasting (feed & water removal) precondition tasks (migration 000246,
+  // maintainer decision 2026-09-03). Campaign-grained, weighing-owned: a
+  // campaign id, a park, one operator and two proof refs. No animal identity,
+  // no herd table, no other module's rules on any path.
+  "weighing_fasting_tasks",
+  // Per-shed removal evidence (migration 000248, maintainer correction
+  // 2026-09-03): one feed + one water video PER SHED. Same isolation terms.
+  "weighing_fasting_shed_proofs",
   // Shed -> procurement-load mapping for load-wise growth on the Weights screen
   // (000131, maintainer decision 2026-08-08). WEIGHING-OWNED, and that is the whole
   // point of it: the farm's mapping is SHED-level ("Castro 1 + Castro 2 came from

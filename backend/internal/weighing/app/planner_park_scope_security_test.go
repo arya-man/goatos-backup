@@ -94,7 +94,7 @@ func TestPlannerParkBucketsRefusesAnotherParksSheds(t *testing.T) {
 }
 
 func TestCreateCampaignRefusesAnotherParksCampaign(t *testing.T) {
-	svc := NewService(&plannerCatalogRepo{})
+	svc := NewService(&plannerCatalogRepo{}).WithClock(beforeCutoffClock("2026-08-10"))
 
 	// WeighingPlan is CEO-only (see permissions.rolePermissions), so the create/update/publish
 	// surfaces need a CEO actor to get PAST the flat role gate and reach the park check that is
@@ -110,13 +110,14 @@ func TestCreateCampaignRefusesAnotherParksCampaign(t *testing.T) {
 	}
 
 	_, err := svc.CreateCampaign(ctx, actor, domain.CreateCampaign{
-		ParkID:            plannerScopeParkOthers,
-		PeriodStartDate:   "2026-08-10",
-		PeriodEndDate:     "2026-08-10",
-		StartBusinessDate: "2026-08-10",
-		OperatorUserID:    securityActorID,
-		IdempotencyKey:    "planner-park-scope-test",
-		PlannedCapPerDay:  100,
+		ParkID:                plannerScopeParkOthers,
+		PeriodStartDate:       "2026-08-10",
+		PeriodEndDate:         "2026-08-10",
+		StartBusinessDate:     "2026-08-10",
+		OperatorUserID:        securityActorID,
+		FastingOperatorUserID: securityActorID,
+		IdempotencyKey:        "planner-park-scope-test",
+		PlannedCapPerDay:      100,
 		Sheds: []domain.CreateCampaignShed{{
 			LocationID:       securityShed,
 			LocationType:     "shed",

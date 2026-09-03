@@ -299,6 +299,15 @@ data class WeighingCreateCampaignRequestDto(
     @SerialName("start_business_date") val startBusinessDate: String,
     @SerialName("planned_cap_per_day") val plannedCapPerDay: Int,
     @SerialName("operator_user_id") val operatorUserId: String,
+    /**
+     * The feed & water removal operator (maintainer decision 2026-09-03): the person who removes
+     * feed and water from the selected sheds the evening before the weigh date and submits two
+     * live-camera videos before midnight IST. REQUIRED by the contract — the server refuses a
+     * blank with 422 `fasting_operator_required`, and a weigh date whose removal evening has
+     * already begun with 422 `fasting_window_closed`. No default on purpose: every caller must
+     * decide it, never inherit an accidental blank.
+     */
+    @SerialName("fasting_operator_user_id") val fastingOperatorUserId: String,
     @SerialName("sheds") val sheds: List<WeighingCreateCampaignShedDto>,
 )
 
@@ -310,6 +319,73 @@ data class WeighingCreateCampaignShedDto(
     @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("weighing_category") val weighingCategory: String,
     @SerialName("operator_user_id") val operatorUserId: String? = null,
+)
+
+/**
+ * ONE feed & water removal card — ONE CARD PER SHED (`GET /app/weighing/fasting`, maintainer
+ * correction #2, 2026-09-03: the list serves one card per shed, never an umbrella card the sheds
+ * hide inside).
+ *
+ * Field names match contracts/openapi/app-api.yaml#WeighingFastingShedCard VERBATIM. Every
+ * visible string the card renders is backend-owned: [subjectLabel] is the card title rendered
+ * verbatim (e.g. "Remove feed & water · Castro 1"), [shedLabel] names the shed, and
+ * [reworkReason] is the verifier's own sentence about THIS shed. The serve window (from
+ * 20:00 IST the evening before) is decided by the SERVER — a card that arrives is a card to
+ * show; the client derives no gate from its own clock.
+ */
+@Serializable
+data class WeighingFastingShedCardDto(
+    /** The round (one park, one weigh night) this shed card belongs to. */
+    @SerialName("fasting_task_id") val fastingTaskId: String = "",
+    @SerialName("campaign_shed_id") val campaignShedId: String = "",
+    /** The shed's evidence row id; absent until first submitted. */
+    @SerialName("fasting_shed_id") val fastingShedId: String? = null,
+    /** The shed this card is for, named by the backend; rendered verbatim. */
+    @SerialName("shed_label") val shedLabel: String = "",
+    /** BACKEND-OWNED card title. Rendered verbatim; the client composes no title of its own. */
+    @SerialName("subject_label") val subjectLabel: String = "",
+    @SerialName("park_name") val parkName: String? = null,
+    /** open | pending_verification | completed | rework. */
+    @SerialName("status") val status: String = "",
+    /** The verifier's rejection for THIS shed, rendered verbatim. */
+    @SerialName("rework_reason") val reworkReason: String? = null,
+    @SerialName("feed_proof_ref") val feedProofRef: String? = null,
+    @SerialName("water_proof_ref") val waterProofRef: String? = null,
+    /** The original weigh date chosen at create; immutable audit anchor. */
+    @SerialName("planned_weigh_date") val plannedWeighDate: String = "",
+    /** The CURRENT weigh date; rolls forward with the work when midnight passes unsubmitted. */
+    @SerialName("weigh_business_date") val weighBusinessDate: String = "",
+    /** The evening the removal happens on (weigh date - 1); server-composed. */
+    @SerialName("removal_business_date") val removalBusinessDate: String = "",
+    /** The ROUND's stamp — set only when EVERY shed of the round is submitted. */
+    @SerialName("submitted_at") val submittedAt: String? = null,
+    @SerialName("row_version") val rowVersion: Int = 0,
+)
+
+/** ONE keyset page of the caller's per-shed removal cards, newest window first. */
+@Serializable
+data class WeighingFastingShedCardListResponseDto(
+    @SerialName("fasting_shed_cards") val fastingShedCards: List<WeighingFastingShedCardDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+    @SerialName("trace_id") val traceId: String? = null,
+)
+
+/**
+ * The PER-SHED removal submit body
+ * (`POST /app/weighing/fasting/{fasting_task_id}/sheds/{campaign_shed_id}/submit`): THIS shed's
+ * feed-removal and water-removal videos — MANDATORY, completed live-camera VIDEO proofs from the
+ * /app/proofs pipeline, the two clips distinct and unused by any sibling shed of the round.
+ */
+@Serializable
+data class SubmitWeighingFastingShedRequestDto(
+    @SerialName("feed_proof_ref") val feedProofRef: String,
+    @SerialName("water_proof_ref") val waterProofRef: String,
+)
+
+@Serializable
+data class WeighingFastingShedCardResponseDto(
+    @SerialName("fasting_shed_card") val fastingShedCard: WeighingFastingShedCardDto = WeighingFastingShedCardDto(),
+    @SerialName("trace_id") val traceId: String? = null,
 )
 
 @Serializable

@@ -55,23 +55,29 @@ func (r *Repository) CreateTask(ctx context.Context, p ports.CreateTaskParams) (
 	}
 
 	// Every named assignee must be a real, active workforce member of this tenant. Assigning a
-	// task to an id nothing resolves would create work no phone ever lists.
+	// task to an id nothing resolves would create work no phone ever lists. The removal
+	// operators are held to the identical bar — one set-based check over the union.
+	verifyUserIDs := append(append([]string{}, p.AssigneeUserIDs...), p.RemovalOperatorUserIDs...)
 	var assigneeCount int
-	if err := tx.QueryRow(ctx, `
-SELECT count(*)::int
-FROM workforce_members m
-WHERE m.tenant_id = $1::uuid AND m.status = 'active' AND m.user_id = ANY($2::uuid[])`,
-		p.TenantID, p.AssigneeUserIDs).Scan(&assigneeCount); err != nil {
+	if err := tx.QueryRow(ctx, activeMembersCountSQL,
+		p.TenantID, verifyUserIDs).Scan(&assigneeCount); err != nil {
 		return ports.TaskRow{}, fmt.Errorf("pccare: verify assignees: %w", err)
 	}
-	if assigneeCount != len(p.AssigneeUserIDs) {
+	if assigneeCount != len(distinctIDs(verifyUserIDs)) {
 		return ports.TaskRow{}, ports.ErrInvalidArgument
 	}
 
-	fingerprint := requestFingerprint(
+	// The fingerprint gains the removal fields ONLY when the toggle rides the request, so a
+	// replay of a pre-existing plain create hashes exactly as it always did, while the same key
+	// re-sent with a different removal payload is a same-key/different-payload conflict.
+	fingerprintParts := []string{
 		p.Category, p.ParkID, p.ShedID, domain.PartitionMatchKey(p.PartitionLabel),
 		plannedDate, strings.Join(p.AssigneeUserIDs, ","),
-	)
+	}
+	if p.FeedRemovalRequired {
+		fingerprintParts = append(fingerprintParts, "feed_removal", strings.Join(p.RemovalOperatorUserIDs, ","))
+	}
+	fingerprint := requestFingerprint(fingerprintParts...)
 	reservation, err := reserveIdempotency(ctx, tx, p.TenantID, pcCareCreateIdemScope, p.IdempotencyKey, fingerprint)
 	if err != nil {
 		return ports.TaskRow{}, err
@@ -142,6 +148,54 @@ SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`,
 		return ports.TaskRow{}, fmt.Errorf("pccare: write create audit: %w", err)
 	}
 
+	// Feed & water removal precondition (maintainer decision 2026-09-03): the SAME transaction
+	// that plans a tablet-in-feed deworming plans the evening-before removal — same pen, one day
+	// earlier, its own operators, gates_task_id pointing back at the deworming so the midnight
+	// gate can hold the deworming until the removal is submitted.
+	if p.FeedRemovalRequired {
+		removalDate := p.PlannedBusinessDate.AddDate(0, 0, -1).Format("2006-01-02")
+		var removalTaskID string
+		err = tx.QueryRow(ctx, removalTaskInsertSQL,
+			p.TenantID, domain.CategoryFeedWaterRemoval, p.ParkID, p.ShedID, p.PartitionLabel,
+			removalDate, taskID, p.IdempotencyKey+":fasting", p.CreatedBy).Scan(&removalTaskID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// A live removal task already covers this pen on the evening-before date (e.g. a
+			// canceled deworming left its removal row live). The pair cannot be planned whole,
+			// so the WHOLE create rolls back rather than shipping a deworming with no gate.
+			return ports.TaskRow{}, domain.ErrTaskAlreadyPlanned
+		}
+		if err != nil {
+			return ports.TaskRow{}, fmt.Errorf("pccare: insert removal task: %w", err)
+		}
+		if _, err := tx.Exec(ctx, removalAssigneesInsertSQL,
+			p.TenantID, removalTaskID, p.RemovalOperatorUserIDs); err != nil {
+			return ports.TaskRow{}, fmt.Errorf("pccare: insert removal task assignees: %w", err)
+		}
+		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+			TenantID:     p.TenantID,
+			ActorID:      p.ActorID,
+			ActorType:    actorType,
+			Action:       pcCareCreatedAction,
+			ResourceType: pcCareTaskResourceType,
+			ResourceID:   removalTaskID,
+			ScopeType:    "shed",
+			ScopeID:      p.ShedID,
+			AfterState: map[string]any{
+				"category":              domain.CategoryFeedWaterRemoval,
+				"park_id":               p.ParkID,
+				"shed_id":               p.ShedID,
+				"partition_label":       p.PartitionLabel,
+				"planned_business_date": removalDate,
+				"assignee_user_ids":     p.RemovalOperatorUserIDs,
+				"gates_task_id":         taskID,
+			},
+			Metadata: map[string]any{"source": "pc-care-planner"},
+			TraceID:  p.TraceID,
+		}); err != nil {
+			return ports.TaskRow{}, fmt.Errorf("pccare: write removal create audit: %w", err)
+		}
+	}
+
 	if err := completeIdempotency(ctx, tx, p.TenantID, pcCareCreateIdemScope, p.IdempotencyKey, pcCareTaskResourceType, taskID); err != nil {
 		return ports.TaskRow{}, fmt.Errorf("pccare: complete create idempotency: %w", err)
 	}
@@ -152,8 +206,51 @@ SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`,
 	return r.GetTask(ctx, p.TenantID, taskID, nil, true)
 }
 
+// distinctIDs de-duplicates an id list (the create's union assignee-existence check compares a
+// DISTINCT count against it).
+func distinctIDs(ids []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 // CancelTask flips work_state -> canceled. Only an unsubmitted task can be canceled; a locked
 // (pending_verification) or terminal task is a stale-guarded no-op.
+
+// removalTaskInsertSQL / removalAssigneesInsertSQL are the linked
+// feed_water_removal create (maintainer decision 2026-09-03) — package-level so
+// query-plan tests and the scale guard can reach them.
+// activeMembersCountSQL verifies every named assignee (task + removal
+// operators, one set-based read) resolves to an active workforce member.
+const activeMembersCountSQL = `
+SELECT count(DISTINCT m.user_id)::int
+FROM workforce_members m
+WHERE m.tenant_id = $1::uuid AND m.status = 'active' AND m.user_id = ANY($2::uuid[])`
+
+const removalTaskInsertSQL = `
+INSERT INTO pc_care_tasks (
+  tenant_id, category, park_id, shed_id, partition_label,
+  planned_business_date, due_business_date, gates_task_id, idempotency_key, created_by
+) VALUES (
+  $1::uuid, $2, $3::uuid, $4::uuid, nullif($5::text, ''),
+  $6::date, $6::date, $7::uuid, $8, $9::uuid
+)
+ON CONFLICT (tenant_id, category, park_id, shed_id, partition_key, planned_business_date)
+  WHERE work_state <> 'canceled'
+DO NOTHING
+RETURNING task_id::text`
+
+const removalAssigneesInsertSQL = `
+INSERT INTO pc_care_task_assignees (tenant_id, task_id, operator_user_id)
+SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`
+
 func (r *Repository) CancelTask(ctx context.Context, tenantID, taskID, actorID, traceID string) error {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -187,6 +284,19 @@ RETURNING coalesce(shed_id::text, ''), park_id::text`, tenantID, taskID).Scan(&s
 	}
 	if err != nil {
 		return fmt.Errorf("pccare: cancel task: %w", err)
+	}
+	// CANCEL CASCADES TO THE LINKED REMOVAL (maintainer decision 2026-09-03):
+	// a canceled deworming's evening feed & water removal serves nothing, and
+	// leaving it live would 409 any re-plan of the same pen/date. Only a
+	// not-yet-submitted removal is canceled — submitted evidence is history.
+	if _, err := tx.Exec(ctx, `
+UPDATE pc_care_tasks
+SET work_state = 'canceled', terminal_at = now(), updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND gates_task_id = $2::uuid
+  AND work_state IN ('scheduled', 'delayed')
+  AND status IN ('open', 'rework')
+  AND submitted_at IS NULL`, tenantID, taskID); err != nil {
+		return fmt.Errorf("pccare: cancel linked removal task: %w", err)
 	}
 	// A per-vaccine stock task has no shed; its audit scope is the park.
 	scopeType, scopeID := "shed", shedID
@@ -405,9 +515,28 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	        ))
 	      )
   AND t.work_state <> 'canceled'
+	  -- Evening visibility (maintainer decision 2026-09-03), the shiftingActionsVisibleSQL shape:
+	  -- a feed & water removal card surfaces on the list only from 20:00 IST of its due day —
+	  -- the work is "tonight, after the animals' last feed", so an all-day card would invite
+	  -- removing feed at 9 AM. $15 carries the CALLER's clock (deterministic in tests); the IST
+	  -- wall-clock comparison mirrors counts' actions lead-time predicate. Other categories pass
+	  -- through untouched, and detail/get-by-id reads never apply this — visibility narrows the
+	  -- LIST, not the record. Computed predicate over a page already narrowed by
+	  -- pc_care_tasks_serving_idx to one park-day, so the extra work is bounded by that page.
+	  AND (
+	        t.category <> 'feed_water_removal'
+	        OR ($15::timestamptz AT TIME ZONE 'Asia/Kolkata') >= (t.due_business_date + TIME '20:00')
+	      )
   AND ($3::bool OR t.park_id = ANY($4::uuid[]))
   AND ($5::text = '' OR t.park_id = nullif($5::text, '')::uuid)
-  AND ($6::text = '' OR t.category = $6)
+  -- The Deworming TAB also lists the linked feed & water removal cards
+  -- (maintainer decision 2026-09-03, "cards are separate, each in each
+  -- category"): the removal is deworming's own evening precondition and the
+  -- pc_care bar stays locked to its four tabs, so the removal card surfaces
+  -- under Deworming rather than growing a fifth tab. Every other category
+  -- filter is exact.
+  AND ($6::text = '' OR t.category = $6
+       OR ($6::text = 'deworming' AND t.category = 'feed_water_removal'))
 	  AND ($7::text = '' OR EXISTS (
 	        SELECT 1 FROM pc_care_task_assignees mine
 	        WHERE mine.tenant_id = t.tenant_id AND mine.task_id = t.task_id
@@ -419,10 +548,17 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	      )
 	ORDER BY park.name, coalesce(shed.name, coalesce(t.vaccine_label, '')), t.partition_key, t.category, t.task_id
 	LIMIT $8`
+	now := q.Now
+	if now.IsZero() {
+		// Defensive fallback for internal callers that never set a clock; the service always
+		// fills Now from its injectable clock.
+		now = time.Now()
+	}
 	rows, err := r.pool.Query(ctx, "SELECT"+taskSelectColumns+taskFromJoins+listTasksPageSQL,
 		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
 		q.ParkID, q.Category, q.AssigneeUserID, limit+1,
-		afterPark, afterShed, afterPartition, afterCategory, afterTask, q.CurrentOrCarry)
+		afterPark, afterShed, afterPartition, afterCategory, afterTask, q.CurrentOrCarry,
+		now)
 	if err != nil {
 		return ports.TaskPage{}, fmt.Errorf("pccare: list tasks: %w", err)
 	}

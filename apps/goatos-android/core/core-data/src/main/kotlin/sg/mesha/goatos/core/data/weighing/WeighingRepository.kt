@@ -387,6 +387,13 @@ data class WeighingPlanDraft(
     val startBusinessDate: String,
     val plannedCapPerDay: Int,
     val operatorUserId: String,
+    /**
+     * The feed & water removal operator (maintainer decision 2026-09-03): who removes feed and
+     * water from the selected sheds the evening before the weigh date. MANDATORY on the create
+     * contract — the wizard refuses to save without one, and the server re-refuses a blank with
+     * its own farm copy (422 fasting_operator_required).
+     */
+    val fastingOperatorUserId: String,
     val sheds: List<WeighingPlannerShed>,
 )
 
@@ -2702,6 +2709,7 @@ private fun WeighingPlanDraft.toCreateRequest(): WeighingCreateCampaignRequestDt
         startBusinessDate = startBusinessDate,
         plannedCapPerDay = plannedCapPerDay,
         operatorUserId = operatorUserId,
+        fastingOperatorUserId = fastingOperatorUserId,
         sheds = sheds.map {
             WeighingCreateCampaignShedDto(
                 locationId = it.locationId,

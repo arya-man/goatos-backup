@@ -1596,6 +1596,7 @@ class WeighingRepositoryTest {
         startBusinessDate = "2026-07-27",
         plannedCapPerDay = 100,
         operatorUserId = "operator-amit",
+        fastingOperatorUserId = "operator-fasting",
         sheds = listOf(
             WeighingPlannerShed(locationId = "shed-castro-1", name = "Castro 1", kidCount = 80, category = "individual_animal"),
             WeighingPlannerShed(locationId = "shed-castro-2", name = "Castro 2", kidCount = 64, category = "per_shed_partition"),

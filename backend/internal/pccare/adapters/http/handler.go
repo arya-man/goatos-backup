@@ -288,6 +288,11 @@ type createTaskRequest struct {
 	PartitionLabel      string   `json:"partition_label"`
 	PlannedBusinessDate string   `json:"planned_business_date"`
 	AssigneeUserIDs     []string `json:"assignee_user_ids"`
+	// FeedRemovalRequired (deworming only) also plans the evening-before feed & water removal
+	// task in the same write; RemovalOperatorUserIDs (>=1 when the toggle is on) are its
+	// operators. On any other category these fields are rejected, never dropped.
+	FeedRemovalRequired    bool     `json:"feed_removal_required"`
+	RemovalOperatorUserIDs []string `json:"removal_operator_user_ids"`
 }
 
 type scanAnimalRequest struct {
@@ -449,13 +454,15 @@ func (h *Handler) PostCreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task, err := h.service.CreateTask(r.Context(), a, app.CreateTaskInput{
-		Category:            body.Category,
-		ParkID:              body.ParkID,
-		ShedID:              body.ShedID,
-		PartitionLabel:      body.PartitionLabel,
-		PlannedBusinessDate: body.PlannedBusinessDate,
-		AssigneeUserIDs:     body.AssigneeUserIDs,
-		IdempotencyKey:      key,
+		Category:               body.Category,
+		ParkID:                 body.ParkID,
+		ShedID:                 body.ShedID,
+		PartitionLabel:         body.PartitionLabel,
+		PlannedBusinessDate:    body.PlannedBusinessDate,
+		AssigneeUserIDs:        body.AssigneeUserIDs,
+		FeedRemovalRequired:    body.FeedRemovalRequired,
+		RemovalOperatorUserIDs: body.RemovalOperatorUserIDs,
+		IdempotencyKey:         key,
 		ActorID:             a.UserID,
 		ActorType:           "human",
 		TraceID:             httpmiddleware.TraceIDFromContext(r.Context()),
@@ -790,6 +797,12 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "reason_required", Message: "say why this is being sent back"}, nil)
 	case errors.Is(err, domain.ErrAssigneesRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "assignees_required", Message: "assign at least one operator"}, nil)
+	case errors.Is(err, domain.ErrFastingWindowClosed):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "fasting_window_closed", Message: "feed & water removal happens the evening before, and there is no evening left before this date — pick a later deworming date"}, nil)
+	case errors.Is(err, domain.ErrRemovalOperatorsRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "removal_operators_required", Message: "name at least one operator for the feed & water removal"}, nil)
+	case errors.Is(err, domain.ErrFeedRemovalNotApplicable):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "feed_removal_not_applicable", Message: "feed & water removal applies to deworming only"}, nil)
 	case errors.Is(err, ports.ErrShedNotInPark), errors.Is(err, ports.ErrInvalidPartition):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, err.Error(), nil)
 	case errors.Is(err, ports.ErrInvalidArgument), errors.Is(err, ports.ErrIdempotencyRequired):

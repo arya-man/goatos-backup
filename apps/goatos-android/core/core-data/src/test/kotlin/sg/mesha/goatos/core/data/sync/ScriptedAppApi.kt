@@ -23,6 +23,8 @@ import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
+import sg.mesha.goatos.core.network.dto.SubmitWeighingFastingShedRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingFastingShedCardResponseDto
 
 /**
  * Test double for [AppApi]: delegates to [FakeAppApi] by default (via Kotlin interface
@@ -43,6 +45,19 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     var completeHealthWorkItemFn: (suspend (String, String, HealthCompleteRequestDto) -> HealthCompleteResponseDto)? = null
     var openHealthCaseFn: (suspend (String, HealthOpenCaseRequestDto) -> HealthOpenCaseResponseDto)? = null
     var registerPcCareTaskProofFn: (suspend (String, String, String, PcCareSlotProofRequestDto) -> Unit)? = null
+    var submitWeighingFastingShedFn: (suspend (String, String, String, SubmitWeighingFastingShedRequestDto) -> WeighingFastingShedCardResponseDto)? = null
+
+    /** One recorded per-shed fasting submit — asserts the outbox sends the SAME key on every
+     *  retry and the RESOLVED proof ids in the body. */
+    data class FastingShedSubmitCall(
+        val fastingTaskId: String,
+        val campaignShedId: String,
+        val idempotencyKey: String,
+        val request: SubmitWeighingFastingShedRequestDto,
+    )
+
+    val fastingSubmitCalls: MutableList<FastingShedSubmitCall> =
+        java.util.concurrent.CopyOnWriteArrayList<FastingShedSubmitCall>()
     val healthOpenCalls: MutableList<Pair<String, HealthOpenCaseRequestDto>> =
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, HealthOpenCaseRequestDto>>()
     val healthCompleteCalls: MutableList<Pair<String, String>> =
@@ -77,6 +92,17 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
      *  plain ArrayList raced and intermittently dropped a call (250-row drain read 249). */
     val submitCalls: MutableList<Pair<String, String>> =
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+
+    override suspend fun submitWeighingFastingShed(
+        fastingTaskId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: SubmitWeighingFastingShedRequestDto,
+    ): WeighingFastingShedCardResponseDto {
+        fastingSubmitCalls += FastingShedSubmitCall(fastingTaskId, campaignShedId, idempotencyKey, request)
+        return submitWeighingFastingShedFn?.invoke(fastingTaskId, campaignShedId, idempotencyKey, request)
+            ?: delegate.submitWeighingFastingShed(fastingTaskId, campaignShedId, idempotencyKey, request)
+    }
 
     override suspend fun submitAppTask(
         taskId: String,

@@ -87,9 +87,15 @@ type Campaign struct {
 	// approved and the task closed itself), 'early' or 'abandoned' (a leader
 	// ended it, and CloseReason says why). Empty on a live task, and also on a
 	// task closed before the column existed — never read empty as 'early'.
-	ClosureKind string         `json:"closure_kind,omitempty"`
-	Sheds       []CampaignShed `json:"sheds,omitempty"`
-	Progress    Progress       `json:"progress"`
+	ClosureKind string `json:"closure_kind,omitempty"`
+	// FastingOperatorUserID / FastingStatus echo the campaign's feed & water
+	// removal task (maintainer decision 2026-09-03, domain/fasting.go) so the
+	// EDIT wizard can prefill the removal assignment and monitor surfaces can
+	// show whether tonight's removal happened. Blank on pre-feature campaigns.
+	FastingOperatorUserID string         `json:"fasting_operator_user_id,omitempty"`
+	FastingStatus         string         `json:"fasting_status,omitempty"`
+	Sheds                 []CampaignShed `json:"sheds,omitempty"`
+	Progress              Progress       `json:"progress"`
 }
 
 type CampaignPage struct {
@@ -754,9 +760,16 @@ type CreateCampaign struct {
 	StartBusinessDate string
 	PlannedCapPerDay  int
 	OperatorUserID    string
-	IdempotencyKey    string
-	Sheds             []CreateCampaignShed
-	CreatedBy         string
+	// FastingOperatorUserID is the SECOND operator assigned at create: the
+	// person who removes feed and water the evening before the weigh date
+	// (maintainer decision 2026-09-03, see domain/fasting.go). Required on
+	// create; park-scoped exactly like bucket operators. The evening shift and
+	// the weighing shift are different people, which is why this is its own
+	// assignment and never defaults to the weighing operator.
+	FastingOperatorUserID string
+	IdempotencyKey        string
+	Sheds                 []CreateCampaignShed
+	CreatedBy             string
 }
 
 type UpdateCampaign = CreateCampaign
