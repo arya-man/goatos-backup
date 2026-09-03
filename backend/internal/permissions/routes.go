@@ -289,7 +289,12 @@ var protectedRoutes = []Route{
 	// 2026-08-31). The read is the Sales page's data, so it rides SalesRead; the cost entry is
 	// supplier money and carries the dedicated buying-desk permission, the same split feed
 	// purchases keep (see LoadCostWrite's doc comment).
-	{OperationID: "listLoadwiseSales", Method: "GET", Pattern: "/procurement/loadwise-sales", Permissions: []string{SalesRead}},
+	// AnyPermissions rather than Permissions: the Weighing Comparison page (maintainer request
+	// 2026-09-03) reads each purchased load's purchase weight from this same endpoint to set the
+	// latest weighing beside it, and its audience is the weighing-oversight holder (Growth
+	// Director, WeighingMonitor) who does not hold SalesRead. This is a read-only reporting
+	// widening; the cost write below keeps its dedicated permission.
+	{OperationID: "listLoadwiseSales", Method: "GET", Pattern: "/procurement/loadwise-sales", AnyPermissions: []string{SalesRead, WeighingMonitor}},
 	{OperationID: "setLoadCost", Method: "PUT", Pattern: "/procurement/loads/{load_id}/cost", Permissions: []string{LoadCostWrite}},
 
 	// TOXIN (maintainer decision 2026-08-25): the aflatoxin strip-test module. The task
@@ -313,6 +318,8 @@ var protectedRoutes = []Route{
 	// A buyer receipt is a money write on the same ledger, so it carries the same write permission
 	// as recording the deal itself.
 	{OperationID: "recordSalesDealPayment", Method: "POST", Pattern: "/sales/deals/{deal_id}/payments", Permissions: []string{SalesWrite}},
+	{OperationID: "updateSalesDealPayment", Method: "PUT", Pattern: "/sales/deals/{deal_id}/payments/{payment_id}", Permissions: []string{SalesWrite}},
+	{OperationID: "deleteSalesDealPayment", Method: "DELETE", Pattern: "/sales/deals/{deal_id}/payments/{payment_id}", Permissions: []string{SalesWrite}},
 	{OperationID: "setSalesDealStatus", Method: "POST", Pattern: "/sales/deals/{deal_id}/status", Permissions: []string{SalesWrite}},
 	{OperationID: "listSalesBuyerLeads", Method: "GET", Pattern: "/sales/buyer-leads", Permissions: []string{SalesRead}},
 	{OperationID: "createSalesBuyerLead", Method: "POST", Pattern: "/sales/buyer-leads", Permissions: []string{SalesWrite}},
@@ -656,6 +663,12 @@ var protectedRoutes = []Route{
 	{OperationID: "appRegisterPCCareSlotProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
 	{OperationID: "appRegisterPCCareTaskProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
 	{OperationID: "appSubmitPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/submit", Permissions: []string{PCCareExecute}},
+	// Vaccine-stock verdict (maintainer decision 2026-09-02): the PC Director alone approves or
+	// rejects a submitted inventory_vaccine stock task. Deliberately NOT verification.verdict —
+	// stock work never reaches the tenant verifier (the toxin-module approval-gate shape), and
+	// deliberately NOT PCCareExecute — the operators who filmed the fridge must not accept
+	// their own evidence.
+	{OperationID: "appRecordPCCareStockVerdict", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/stock-verdict", Permissions: []string{PCCareStockApprove}},
 
 	// Authored feed configuration (/feed-config/*), the surface behind the Feed Config screen.
 	//

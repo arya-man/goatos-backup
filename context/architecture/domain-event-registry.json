@@ -1194,7 +1194,7 @@
     },
     {
       "eventType": "pc_care.task.pending_verification",
-      "producer": "PC Care operator submit: pccare.Repository.SubmitTask flips pc_care_tasks to pending_verification, stamps submitted animals, records audit/idempotency, and writes this transactional outbox event in the same commit. The durable consumer enqueues exactly one generic verification item keyed by task row_version.",
+      "producer": "PC Care operator submit: pccare.Repository.SubmitTask flips pc_care_tasks to pending_verification, stamps submitted animals, records audit/idempotency, and writes this transactional outbox event in the same commit. The durable consumer enqueues exactly one generic verification item keyed by task row_version for the four verifier-reviewed categories; an inventory_vaccine stock task is SKIPPED (maintainer decision 2026-09-02) because the PC Director judges it on the stock-verdict route, never the verifier.",
       "producerFiles": [
         "backend/internal/pccare/adapters/postgres/submit.go"
       ],
@@ -1202,7 +1202,7 @@
         {
           "module": "verification",
           "file": "backend/internal/pccare/app/verification_handler.go",
-          "notes": "PCCarePendingVerificationHandler consumes pc_care.task.pending_verification and calls the PC Care verification bridge, which maps the task media set to verification.CreateItem idempotently."
+          "notes": "PCCarePendingVerificationHandler consumes pc_care.task.pending_verification and calls the PC Care verification bridge, which maps the task media set to verification.CreateItem idempotently. Director-approved categories (inventory_vaccine) are skipped here AND in the bridge: their approval is the pc_care stock-verdict HTTP route (pc_care.stock_approve), not a verification item."
         }
       ],
       "owningDoc": "docs/decisions/pc-care-module.md",
@@ -1217,7 +1217,7 @@
     },
     {
       "eventType": "pc_care.task.completed",
-      "producer": "PC Care verifier approval (maintainer decision 2026-08-21): pccare.Repository.ApplyVerifiedTask, consuming verification.verdict.approved for a pc_care item (source.module=pc_care, source.ref_type=pc_care_task), flips the pc_care_tasks row status 'pending_verification' -> 'completed' AND work_state -> 'completed', stamps verified_by/verified_at, and writes the audit row + transactional outbox message in one transaction. Emitted ONLY at verifier approval, never at operator submit. Grain is the TASK (one per category x pen x planned business date); the payload carries task_id, category, park_id, shed_id, planned_business_date, verified_by.",
+      "producer": "PC Care approval: pccare.Repository.ApplyVerifiedTask, invoked EITHER by the verification.verdict.approved consumer for a pc_care item (source.module=pc_care, source.ref_type=pc_care_task; the four verifier-reviewed categories, maintainer decision 2026-08-21) OR by the PC Director's stock-verdict HTTP route for an inventory_vaccine task (maintainer decision 2026-09-02; pc_care.stock_approve, the toxin approval-gate shape), flips the pc_care_tasks row status 'pending_verification' -> 'completed' AND work_state -> 'completed', stamps verified_by/verified_at, and writes the audit row + transactional outbox message in one transaction. Emitted ONLY at verifier approval, never at operator submit. Grain is the TASK (one per category x pen x planned business date); the payload carries task_id, category, park_id, shed_id, planned_business_date, verified_by.",
       "producerFiles": [
         "backend/internal/pccare/adapters/postgres/verification_verdict.go"
       ],

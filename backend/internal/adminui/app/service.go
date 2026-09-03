@@ -134,8 +134,14 @@ func navigation() domain.NavigationContract {
 			{
 				ID: "weighing", Label: "Weight", Icon: "scale", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
-					navLeafDomain("weighing-weights", "Weights", "/weighing/weights", "weighing.weights", nil),
-					navLeafDomain("weighing-analytics", "Weights analytics", "/weighing/analytics", "weighing.analytics", nil),
+					// Weights is parked from the sidebar (maintainer request 2026-09-03: the Weight
+					// menu carries ADG Analytics and the SOP only). The page itself stays
+					// served at /weighing/weights for deep links; keep the restore line so scope
+					// guards can tell it is withheld deliberately, not lost. The load comparison
+					// is the Load-wise TAB on ADG Analytics (maintainer request, same day),
+					// not a leaf of its own.
+					// navLeafDomain("weighing-weights", "Weights", "/weighing/weights", "weighing.weights", nil),
+					navLeafDomain("weighing-analytics", "ADG Analytics", "/weighing/analytics", "weighing.analytics", nil),
 					navLeaf("weighing-sops", "Weighing SOP", "/weighing/sops", nil),
 				},
 			},
@@ -143,7 +149,7 @@ func navigation() domain.NavigationContract {
 				ID: "sales", Label: "Sales", Icon: "banknote", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeaf("sales-board", "Sales", "/sales", nil),
-					navLeaf("sales-loads", "Purchase & born", "/sales/loads", nil),
+					navLeaf("sales-loads", "Purchase and Born", "/sales/loads", nil),
 					navLeaf("sales-config", "Sales Config", "/sales/config", nil),
 				},
 			},
@@ -406,7 +412,7 @@ func pages() []domain.PageContract {
 		// counts on one side, money on the other. Its OWN page under Sales, with the
 		// Purchased / Farm born tabs at the top. Served whole (newest 60 loads) by the
 		// procurement read; a row click opens the load-cost drawer, so the row key is the load id.
-		page("sales-loads", "/sales/loads", "/sales/loads", "Purchase & born", "Every purchased load reconciled — bought, sold, died, still on farm — and the money on each side.", "module-surface",
+		page("sales-loads", "/sales/loads", "/sales/loads", "Purchase and Born", "Every purchased load reconciled — bought, sold, died, still on farm — and the money on each side.", "module-surface",
 			[]domain.TableContract{
 				withoutRowClick(loadwiseTable()),
 			}),
@@ -417,7 +423,7 @@ func pages() []domain.PageContract {
 		// ledger (row click opens the deal, which carries the payment and status edits) and the
 		// load list (row click opens the cost drawer) -- because a row that opens a form must
 		// declare the param that form opens on.
-		page("sales-config", "/sales/config", "/sales/config", "Sales Config", "Record a sale, tag its animals, enter buyer leads, quotes, tag lists and weight checks, and cost a purchased load. Sales and Purchase & born show these facts; this is where they are entered and changed.", "module-surface",
+		page("sales-config", "/sales/config", "/sales/config", "Sales Config", "Record a sale, tag its animals, enter buyer leads, quotes, tag lists and weight checks, and cost a purchased load. The sales board and Purchase and Born show these facts; this is where they are entered and changed.", "module-surface",
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				loadwiseTable(),
@@ -502,7 +508,7 @@ func pages() []domain.PageContract {
 		// Weights analytics -- six tabs over the SAME reads the Weights page uses, so the two
 		// screens can never disagree about a number. It declares ONE table (the shed-wise tab's
 		// figures); every other tab is a chart, and a chart is not a TableContract.
-		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — Weights analytics", "Growth cut six ways: overall, by breed, by farm-born vs purchased, by shed type, by weight band and by week.", "module-surface",
+		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — ADG Analytics", "Growth cut seven ways: overall, by breed, by farm-born vs purchased, by shed type, by weight band, by week and by purchased load.", "module-surface",
 			// The shed table on the General tab, which is the Weights page's own table read from
 			// the same endpoint -- so the two screens cannot disagree about a shed's figures.
 			//
@@ -514,8 +520,26 @@ func pages() []domain.PageContract {
 			//
 			// The four analysis tabs declare NOTHING here on purpose: every one of them is a
 			// CHART, and a TableContract for a chart would be a contract nothing can honour.
+			// The Load-wise tab is the exception below: it carries a real table.
+			//
+			// NO workflow column and SORTABLE on the two measures (maintainer request 2026-09-03):
+			// this table answers "which pens are heavy / growing", so it sorts on average weight
+			// and daily gain, and the bucket's workflow state -- an execution fact -- stays on
+			// the Weights page where the work is followed. Sorting is client-side over the rows
+			// already served; the window is still the backend's.
 			[]domain.TableContract{
-				tableP("shed-weights", "Sheds", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "daily_gain", "total_weight", "last_weighed", "workflow"}, "location_id", []int{10, 25, 50}),
+				sortable(tableP("shed-weights", "Sheds", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "daily_gain", "total_weight", "last_weighed"}, "location_id", []int{10, 25, 50}), "average_weight", "daily_gain"),
+				// The Load-wise tab's table (maintainer request 2026-09-03) -- one row per
+				// purchased load: the average weight the load arrived at against the latest
+				// weighing of the animals that came off it, and how many times over the arrival
+				// weight the load now stands (a growth multiple such as 1.5x). The purchase side
+				// is the procurement load ledger (/procurement/loadwise-sales, purchase_weight_kg
+				// over purchased animals); the weighing side is the SAME /weighing/shed-weights
+				// by-load read the Weights page's load chart uses, matched by load reference --
+				// so this tab can never disagree with either source about a number. A load with
+				// no weighing attribution, or no recorded purchase weight, reports absence, never
+				// a zero or an invented multiple. No row click: there is no load record to open.
+				withoutRowClick(tableP("load-comparison", "Loads", "/procurement/loadwise-sales", []string{"load", "vendor", "animals", "purchased_avg", "latest_avg", "multiple"}, "", []int{10, 25, 50})),
 			}),
 		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-shed milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
 			[]domain.TableContract{tableP("milk-preparation", "Milk preparation worklist", "/counts/milk-preparation", []string{"park", "shed", "cohort", "head_count", "session_1", "session_2", "session_3", "session_4", "daily_total", "status"}, "milk_preparation_row", []int{10, 25, 50})}),
@@ -776,7 +800,7 @@ func sortable(t domain.TableContract, keys ...string) domain.TableContract {
 	return t
 }
 
-// loadwiseTable builds the load-wise reconciliation table, shared by Purchase & born and Sales
+// loadwiseTable builds the load-wise reconciliation table, shared by Purchase and Born and Sales
 // Config (both render the same rows for different reasons -- one to read them, one to open the
 // cost form).
 //
@@ -932,7 +956,7 @@ func weighingWeightsCopy() map[string]string {
 		"kpi.average.sub":           "per kid, across every shed",
 		"kpi.over30.label":          "Over 30 kg",
 		"kpi.over35.label":          "Over 35 kg",
-		"kpi.threshold.basis":       "weighed one by one",
+		"kpi.threshold.basis":       "weighed · a whole pen counts at its average",
 		"kpi.sheds.label":           "Sheds weighed",
 		"chart.average.title":       "Average weight by shed",
 		"chart.average.caption":     "Heaviest first. Scroll for the rest.",
@@ -962,7 +986,7 @@ func weighingWeightsCopy() map[string]string {
 		"empty.filtered.title":       "No data available",
 		"empty.filtered.body":        "No shed matches these filters.",
 		"note.total_weight":          "Total weight covers the kids actually weighed. Weighing is free flow, so it is not the whole shed.",
-		"note.threshold_basis":       "Counted from kids weighed one by one. A shed weighed as one total reports an average, so it cannot say how many of its kids cleared the mark.",
+		"note.threshold_basis":       "Over 30 kg and over 35 kg count every kid weighed. A pen weighed as one total counts whole at its average: all of its kids clear the mark when the average does, and none when it does not.",
 		"section.losing.title":       "Kids losing weight",
 		"section.losing.aria":        "Kids losing weight",
 		"section.losing.caption":     "Latest weigh lower than the one before it.",
@@ -3078,7 +3102,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.sales_entry.subtitle":    "Record a sale, then tag the animals it is made of. Click any sale below to add a payment or change its status.",
 			"section.pipeline_entry.title":    "Pipeline and evidence",
 			"section.pipeline_entry.subtitle": "Buyer and farmer-group leads, market quotes, sold-animal tag lists and weight checks.",
-			"section.load_entry.title":        "Purchase and born",
+			"section.load_entry.title":        "Purchase and Born",
 			"section.load_entry.subtitle":     "What each purchased load cost to buy and bring in. Click a load to record or change its cost.",
 			"section.load_entry.row_hint":     "click a load to record its cost",
 			"section.sales_entry.row_hint":    "click a sale to add a payment or change its status",
@@ -3086,7 +3110,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Where the entered facts are READ back. Named so the person who just recorded
 			// something knows where it shows up, without guessing from the sidebar.
 			"link.sales_board": "See the sales board",
-			"link.sales_loads": "See purchase and born",
+			"link.sales_loads": "See Purchase and Born",
 			// A short lead-in for the two links, NOT a second copy of the subtitle: the header
 			// already says what this page is for, and repeating that sentence four lines later
 			// reads as a mistake.
@@ -3237,6 +3261,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.period":               "Covering",
 			"kpi.deals":                "Closed deals",
 			"kpi.live_weight":          "Live weight sold",
+			// Over 35 kg (maintainer request 2026-09-03): the sale-weight count from the Weights
+			// pages, on a FIXED last-six-weeks window because this page has no time filter; the
+			// window is printed on the card so nobody reads it as all-time. Same basis as the
+			// Weights cards: every kid weighed in the window at its latest weight, a whole pen
+			// counted at its average.
+			"kpi.over35":               "Over 35 kg",
+			"kpi.over35.sub":           "last 6 weeks · a whole pen counts at its average",
+			"kpi.over35.none":          "nothing weighed in the last 6 weeks",
+			"disabled.weights":         "Your current role can view sales but not weighing.",
 			"value.kg_suffix":          "kg",
 			"value.per_kg_suffix":      "per kg",
 			"value.none":               "Not recorded",
@@ -3337,18 +3370,23 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.shed":                "Shed",
 			"field.search_tag":          "Find a tag",
 			"value.choose_park":         "Choose a park",
-			"value.search_tag_hint":     "RFID or animal ID",
-			"value.all_sheds":           "All sheds",
-			"label.selected":            "selected",
-			"label.still_to_pick":       "still to pick",
-			"label.all_picked":          "All picked",
-			"label.cannot_sell":         "Cannot be sold yet",
-			"label.marked_sold":         "animals are tagged to this sale and marked sold.",
-			"hint.review":               "Check the animals below before confirming. Once confirmed they leave the herd.",
-			"hint.pick_all_prefix":      "Pick all",
-			"hint.pick_all_suffix":      "animals for this sale before confirming.",
-			"hint.too_many":             "That is more animals than this sale is for.",
-			"hint.sale_no_count":        "This sale does not say how many animals it is for, so animals cannot be tagged to it.",
+			// An empty park list must say WHY. "Cannot be read" is a grant/plumbing fact a
+			// person can act on; "no sheds" is a farm fact. One sentence for both would
+			// leave the reader guessing which of the two they are looking at.
+			"empty.parks":             "No parks with sheds to sell from.",
+			"empty.parks_unavailable": "Parks could not be loaded. Tagging animals needs herd allocation access.",
+			"value.search_tag_hint":   "RFID or animal ID",
+			"value.all_sheds":         "All sheds",
+			"label.selected":          "selected",
+			"label.still_to_pick":     "still to pick",
+			"label.all_picked":        "All picked",
+			"label.cannot_sell":       "Cannot be sold yet",
+			"label.marked_sold":       "animals are tagged to this sale and marked sold.",
+			"hint.review":             "Check the animals below before confirming. Once confirmed they leave the herd.",
+			"hint.pick_all_prefix":    "Pick all",
+			"hint.pick_all_suffix":    "animals for this sale before confirming.",
+			"hint.too_many":           "That is more animals than this sale is for.",
+			"hint.sale_no_count":      "This sale does not say how many animals it is for, so animals cannot be tagged to it.",
 
 			// Filters.
 			"filter.farm":  "Farm",
@@ -3371,13 +3409,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.note":                       "Note",
 			"hint.record_payment":              "Record each amount as the buyer hands it over — the balance updates itself.",
 			"action.record_deal_payment.label": "Add payment",
+			"action.update_deal_payment.label": "Save payment",
+			"action.delete_deal_payment.label": "Remove payment",
 			"field.status":                     "Deal status",
 			"hint.status":                      "Leave as Deal Closed for a finished sale. Pick Advance Paid or In Discussion to record an expected sale — close it on the day the animals leave.",
 			"action.update_deal_status.label":  "Update status",
 			"action.deal_status_updated":       "Deal status updated.",
 			"action.deal_status_update_failed": "Could not update the deal status. Try again.",
 			"action.payment_recorded":          "Payment recorded.",
+			"action.payment_updated":           "Payment updated.",
+			"action.payment_deleted":           "Payment removed.",
 			"action.payment_record_failed":     "Could not record this payment. Check the fields and try again.",
+			"action.payment_update_failed":     "Could not update this payment. Check the fields and try again.",
+			"action.payment_delete_failed":     "Could not remove this payment. Try again.",
 			"drawer.record_sale.title":         "Record a sale",
 			"drawer.detail.title":              "Sale details",
 			"field.sale_date":                  "Sale date",
@@ -3797,7 +3841,9 @@ func pageSpecificCopy(id string) map[string]string {
 	// sections are its own.
 	//
 	// COPY FIREWALL: farm language throughout. A reader sees breeds, sheds and weeks -- never
-	// "bucket", "observation", "read model", "ADG" or "lump-sum grain".
+	// "bucket", "observation", "read model" or "lump-sum grain". The ONE technical term allowed
+	// is "ADG" in the page/leaf NAME ("ADG Analytics", maintainer request 2026-09-03) -- the
+	// maintainer named the screen; body copy still says "gain".
 	//
 	// THE ONE WORD THIS PAGE LIVES ON IS *GAIN*, and every gain figure on every tab is the SAME
 	// statistic the headline reports (maintainer decision 2026-08-26): the animal-weighted mean
@@ -3821,7 +3867,17 @@ func pageSpecificCopy(id string) map[string]string {
 			// touch.
 			"kpi.kids.split.total_sub": "weighed in the selected period",
 
-			"tab.aria":    "Weights analytics view",
+			// The pens table's own weight filter (maintainer request 2026-09-03): the feed
+			// config's more-than / less-than control, applied with ONE button, so a reader can
+			// ask "which pens average over 30 kg" without leaving the tab. The vocabulary is
+			// the weight_kg_compare option group; the value is typed, never enumerated.
+			"filter.apply":             "Apply",
+			"filter.pens_bar_aria":     "Filter pens",
+			"filter.weight.label":      "Average weight (kg)",
+			"filter.weight.value_aria": "Average weight in kilograms",
+			"filter.weight.note":       "Only pens whose average weight matches",
+
+			"tab.aria":    "ADG Analytics view",
 			"tab.general": "General",
 			"tab.breed":   "Breed-wise",
 			"tab.birth":   "Birth-wise",
@@ -3897,6 +3953,51 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.time.breed.aria":    "Daily gain by breed and week",
 			"empty.time.breed.body":      "No breed has a kid or a single-breed shed weighed twice in this period.",
 			"note.time.gaps":             "A week nobody weighed in has no bar. It is left out rather than drawn as zero, which would read as a week the kids stopped growing.",
+
+			// ---------------------------------------------------------------------------
+			// LOAD-WISE (maintainer request 2026-09-03). One chart and one table: per
+			// purchased load, the average weight an animal arrived at against its latest
+			// weighing, and the growth multiple between the two (1.5x, 2x). Absence copy
+			// is load-bearing: a load with no tagged shed has no latest weight, and a
+			// load with no recorded purchase weight has no multiple — neither is ever
+			// shown as zero.
+			// ---------------------------------------------------------------------------
+			"tab.load": "Load-wise",
+
+			"section.load.title":   "Purchased weight against the latest weighing",
+			"section.load.caption": "Average weight per animal in each purchased load — as bought, and at its latest weighing. The figure above each pair is how many times the arrival weight the load now stands at.",
+			"section.load.aria":    "Purchased weight against latest weighing by load",
+
+			"legend.load.purchased": "At purchase",
+			"legend.load.latest":    "Latest weighing",
+
+			// The growth multiple. Composed as value + suffix ("1.8" + "x"); the dash is
+			// what renders when either side of the division is missing.
+			"load.multiple.suffix": "x",
+			"load.no_figure":       "—",
+			"unit.kg_per_head":     "kg/animal",
+
+			"table.loads.title":         "Loads",
+			"table.loads.load":          "Load",
+			"table.loads.vendor":        "Source",
+			"table.loads.animals":       "Animals bought",
+			"table.loads.purchased_avg": "At purchase",
+			"table.loads.latest_avg":    "Latest weighing",
+			"table.loads.multiple":      "Growth multiple",
+
+			// Three honesty notes. The denominators differ once part of a load is sold; the
+			// page's other filters cannot slice a load that is bought whole; and the latest
+			// weighing deliberately ignores the selected period, or a narrow window would
+			// erase a load's newest weigh and read as the animals shrinking.
+			"note.load.denominator": "At purchase averages over every animal bought; the latest weighing averages over the animals weighed in the load's sheds — sold or lost animals are no longer in it.",
+			"note.load.filters":     "This tab narrows by park only. A load is bought whole, so the sex, origin, weighing-mode and period filters do not apply here; the latest weighing is each shed's newest weigh on record.",
+
+			"empty.load.body": "No purchased loads recorded yet. When one is, its arrival weight and latest weighing will be compared here.",
+
+			// The weighing side failed but the purchase ledger answered (or the other way
+			// round): name the half that is missing instead of blanking the tab.
+			"error.load.weighing_unavailable": "The latest weighing figures could not be loaded. The purchase-side figures below are complete.",
+			"error.load.loads_unavailable":    "The purchase ledger could not be loaded, so there is nothing to compare yet. Try again.",
 		} {
 			analytics[key] = value
 		}
@@ -4059,14 +4160,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.gender_label":     "Gender",
 			"filter.all_option":       "All",
 			"filter.clear_all":        "Clear all",
-			"filter.scope_readonly":   "Park scope is set in the top bar.",
-			"chart.breed.title":       "Count by breed",
-			"chart.breed.caption":     "animals by breed",
-			"chart.stage.title":       "Count by stage",
-			"chart.stage.caption":     "where they are",
-			"chart.gender.title":      "Gender split",
-			"chart.gender.caption":    "animals by sex",
-			"chart.shed.title":        "Shed occupancy",
+			"filter.apply":            "Apply filters",
+			// Suffix rendered after the selection count on a multi-select filter button ("3 selected").
+			"filter.selected_count": "selected",
+			"filter.scope_readonly": "Park scope is set in the top bar.",
+			"chart.breed.title":     "Count by breed",
+			"chart.breed.caption":   "animals by breed",
+			"chart.stage.title":     "Count by stage",
+			"chart.stage.caption":   "where they are",
+			"chart.gender.title":    "Gender split",
+			"chart.gender.caption":  "animals by sex",
+			"chart.shed.title":      "Shed occupancy",
 			// PENS, not sheds (maintainer decision 2026-08-12): each bar is one pen, named with its
 			// park because 66 of 154 shed names exist in both. The caption has to say so — a reader
 			// counting twelve bars against a 44-shed estate would otherwise draw the wrong conclusion
@@ -4195,7 +4299,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"crumb": "Feed",
 			// The one word this page lives or dies on: DIRECTED. The sheet's
 			// instruction, never a measured weight — leftovers are not captured.
-			"banner.basis":                   "Figures show feed as DIRECTED on the daily sheet, up to yesterday. Leftovers are not measured yet, so read quantities as instructions, not consumption.",
+			"banner.basis":                   "Figures show feed as DIRECTED on the daily sheet, plus the milk the crew prepared. The two daily charts run through today, whose sheet is already issued; the tiles and the execution figures describe yesterday, the last finished day. Leftovers are not measured yet, so read quantities as instructions, not consumption.",
 			"tab.overview":                   "Overview",
 			"tab.items":                      "Stock",
 			"tab.peranimal":                  "Per Animal",
@@ -4274,9 +4378,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.adherence.label":            "Execution verified",
 			"kpi.adherence.sub":              "Packing + distribution approved by the verifier",
 			"chart.daily.title":              "Daily directed feed",
-			"chart.daily.hint":               "Total kg on the issued sheet per day, stacked by feed item",
+			"chart.daily.hint":               "Total kg fed per day, stacked by feed item — the issued sheet plus the milk the crew prepared",
 			"chart.mix.title":                "Feed mix",
-			"chart.mix.hint":                 "Share of directed kg over the window",
+			"chart.mix.hint":                 "Share of the fed kg over the window, sheet and milk together",
 			"chart.item.hint":                "Directed kg per day",
 			"chart.perhead.title":            "Ration per animal",
 			"chart.perhead.hint":             "Grams per head per day by feed item",
@@ -8172,6 +8276,20 @@ func weighingWeightsOptionGroups() []domain.OptionGroup {
 		// window is now picked from a calendar, and a stale option group reads to the next author as
 		// a control that still exists somewhere.
 		{ID: "weighing_parks", Options: []domain.Option{}},
+		{
+			// The pens table's average-weight comparison vocabulary, the feed config's grams
+			// filter re-used for kilograms. Backend-owned like every option group: the keys are
+			// the operators the page honours, the labels the reader's words for them.
+			ID: "weight_kg_compare",
+			Options: []domain.Option{
+				option("gt", "More than", "", ""),
+				option("gte", "At least", "", ""),
+				option("eq", "Exactly", "", ""),
+				option("lte", "At most", "", ""),
+				option("lt", "Less than", "", ""),
+				option("neq", "Not", "", ""),
+			},
+		},
 	}
 }
 

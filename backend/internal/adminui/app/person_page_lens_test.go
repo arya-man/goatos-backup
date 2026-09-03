@@ -60,7 +60,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 	// visible, they carry reads he has always held, and Feed SOP opens instead of 403ing.
 	want := []string{
 		"/sales",
-		// Purchase & born (maintainer decision 2026-08-31). It rides SalesRead, which this
+		// Purchase and Born (maintainer decision 2026-08-31). It rides SalesRead, which this
 		// director already holds, and he is precisely the desk that records a load's landed
 		// cost -- LoadCostWrite is granted exactly where FeedPurchaseWrite is.
 		"/sales/loads",

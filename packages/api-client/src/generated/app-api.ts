@@ -2546,9 +2546,29 @@ export interface paths {
         put?: never;
         /**
          * Submit the whole task for verifier review (any assignee).
-         * @description Refused until every scanned animal carries its full slot set (422 proof_incomplete) and while no animal is scanned (422 no_animals). For inventory_vaccine, refused until the task-level stock_fridge_photo and stock_fridge_video proofs are present; the task has no animal rows. On success the task flips to pending_verification, locks for every assignee, and ONE verification item carries the animal clips or fridge stock proof. Verifier approve completes the task; reject returns it for rework.
+         * @description Refused until every scanned animal carries its full slot set (422 proof_incomplete) and while no animal is scanned (422 no_animals). For inventory_vaccine, refused until the task-level stock_fridge_photo and stock_fridge_video proofs are present; the task has no animal rows. On success the task flips to pending_verification and locks for every assignee. For the four verifier-reviewed categories ONE verification item carries the animal clips and the verifier's approve completes the task / reject returns it for rework. An inventory_vaccine stock task never reaches the verifier: the PC DIRECTOR judges the fridge proof on /app/pc-care/tasks/{task_id}/stock-verdict (maintainer decision 2026-09-02).
          */
         post: operations["appSubmitPCCareTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/stock-verdict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The PC Director's approve/reject on a submitted vaccine-stock task.
+         * @description Maintainer decision 2026-09-02. The vaccine-stock fridge check is recorded by the park's own vaccination operators and judged by the PC DIRECTOR here — never by the tenant verifier (the toxin-module approval-gate shape; verification.verdict stays verifier-only). Gated on pc_care.stock_approve, held by pc_director alone, so the operators who filmed the fridge cannot accept their own evidence. Approve completes the task (both state columns, pc_care.task.completed emitted); reject requires a reason and returns the task to the operators as rework. State-guarded and idempotent — repeating a verdict the task already carries echoes the task; a conflicting verdict is 409 verdict_not_pending.
+         */
+        post: operations["appRecordPCCareStockVerdict"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3049,6 +3069,30 @@ export interface paths {
          */
         post: operations["recordSalesDealPayment"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/deals/{deal_id}/payments/{payment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Edit one payment receipt on a sales deal.
+         * @description Replaces the receipt's business date, amount and note, then adjusts the deal's `payment_received` by the old/new amount delta inside the same transaction. The `Idempotency-Key` header is REQUIRED so a retry of the edit cannot apply the delta twice.
+         */
+        put: operations["updateSalesDealPayment"];
+        post?: never;
+        /**
+         * Remove one payment receipt from a sales deal.
+         * @description Deletes one receipt and subtracts its amount from the deal's `payment_received` inside the same transaction. The `Idempotency-Key` header is REQUIRED so a retry returns the already updated deal rather than trying to remove the receipt twice.
+         */
+        delete: operations["deleteSalesDealPayment"];
         options?: never;
         head?: never;
         patch?: never;
@@ -12061,9 +12105,11 @@ export interface components {
              * @description Weighted mean over ANIMALS (total / animals), never the mean of per-shed averages. Null when nothing was weighed, so a client never renders 0.0 kg for "no data".
              */
             average_weight_kg?: number | null;
+            /** @description Animals at or above 30 kg: each scanned tag at its latest weight in the window, plus every whole-shed pen counted all-or-none at the pen's latest average (a pen averaging 31 kg contributes all of its animals; one averaging 29 kg contributes none). */
             at_or_above_30kg: number;
+            /** @description Same basis as at_or_above_30kg, against 35 kg. */
             at_or_above_35kg: number;
-            /** @description The real denominator for the two threshold counts: animals in PER-ANIMAL sheds only. A whole-shed weigh reports one average and cannot say how many of its animals cleared a threshold, so it contributes nothing here. Rendering the counts against animals_weighed instead would understate the share. */
+            /** @description The denominator for the two threshold counts. Since the whole-shed pens joined them it equals animals_weighed; it stays here so the denominator always travels with the counts. */
             threshold_basis_animals: number;
         };
         WeighingShedWeightsResponse: {
@@ -19391,6 +19437,60 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    appRecordPCCareStockVerdict: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    verdict: "approve" | "reject";
+                    /** @description Mandatory on reject — shown verbatim to the operators re-recording. */
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The task after the verdict. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTask"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The task is not awaiting approval (verdict_not_pending). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Not a vaccine stock task (not_stock_task), unknown verdict (invalid_verdict), or a reject without a reason (reason_required). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
     listFeedConfigRationRates: {
         parameters: {
             query: {
@@ -20096,7 +20196,10 @@ export interface operations {
     };
     listLoadwiseSales: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Optional park filter. Serves only loads whose agree-or-go-bare farm label names this park; a load whose animals disagree about their park (bare farm) is claimed by neither park and appears only in the unfiltered read. `total_loads` and the summary follow the filter. A malformed value is rejected, never silently ignored. */
+                park_id?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -20256,6 +20359,72 @@ export interface operations {
         };
         responses: {
             /** @description The deal after the receipt, with its full payment history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateSalesDealPayment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                deal_id: string;
+                payment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDealPaymentWrite"];
+            };
+        };
+        responses: {
+            /** @description The deal after the receipt edit, with its full payment history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    deleteSalesDealPayment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                deal_id: string;
+                payment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deal after the receipt removal, with its full payment history. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -21784,12 +21953,18 @@ export interface operations {
     getCountsBreakdown: {
         parameters: {
             query?: {
-                park_id?: string;
+                /** @description Repeatable. Each occurrence adds a park to the match set (rows in ANY listed park match); a single occurrence behaves exactly as the old single-valued form, and omitting it means no park filter. */
+                park_id?: string[];
                 shed_id?: string;
                 partition_label?: string | null;
-                management_stage?: string;
-                breed?: string;
-                sex?: string;
+                /** @description Repeatable pen filter. Each value selects one pen in the facet-key convention the response's own `facets.sheds[].key` uses — "<shed_uuid>" for a whole shed (every partition of it) or "<shed_uuid>#<partition>" for one pen, where the partition half is matched on the normalized key so "Part 3" and "3" select the same pen. Rows in ANY listed pen match. */
+                pen?: string[];
+                /** @description Repeatable. Each occurrence adds a raw management stage to the match set; a single occurrence behaves exactly as the old single-valued form. */
+                management_stage?: string[];
+                /** @description Repeatable. Each occurrence adds a breed to the match set; a single occurrence behaves exactly as the old single-valued form. */
+                breed?: string[];
+                /** @description Repeatable. Each occurrence adds a sex to the match set; a single occurrence behaves exactly as the old single-valued form. */
+                sex?: string[];
                 lifecycle_status?: string;
                 limit?: number;
                 offset?: number;

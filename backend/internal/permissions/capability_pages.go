@@ -81,10 +81,10 @@ var modulePages = []ModulePage{
 	{Key: "procurement-source-entry", Module: "procurement", Label: "Source Entry", Href: "/procurement/source-entry", Permissions: []string{ProcurementRead}},
 	{Key: "procurement-vendors", Module: "vendors", Label: "Vendors", Href: "/procurement/vendors", Permissions: []string{VendorRead}},
 	{Key: "sales-board", Module: "sales", Label: "Sales", Href: "/sales", Permissions: []string{SalesRead}},
-	// Purchase & born: per-load reconciliation and profit (maintainer decision 2026-08-31). Its
+	// Purchase and Born: per-load reconciliation and profit (maintainer decision 2026-08-31). Its
 	// READ is the same commercial fact the board carries, so it ticks with the sales module; the
 	// load-cost write on it is gated separately on LoadCostWrite.
-	{Key: "sales-loads", Module: "sales", Label: "Purchase & born", Href: "/sales/loads", Permissions: []string{SalesRead}},
+	{Key: "sales-loads", Module: "sales", Label: "Purchase and Born", Href: "/sales/loads", Permissions: []string{SalesRead}},
 	// Sales Config: every sales entry form in one place (maintainer decision 2026-09-01). Ticked
 	// with the sales module and reached on SalesRead -- the WRITES on it carry their own keys
 	// (SalesWrite, and LoadCostWrite for a load's cost), so a read-only holder sees the page with
@@ -100,8 +100,10 @@ var modulePages = []ModulePage{
 
 	{Key: "herd-signals", Module: "herd_signals", Label: "Live Monitor", Href: "/herd-signals", Permissions: []string{HerdSignalsRead}},
 
-	{Key: "weighing-weights", Module: "weighing", Label: "Weights", Href: "/weighing/weights", Permissions: []string{WeighingMonitor}},
-	{Key: "weighing-analytics", Module: "weighing", Label: "Weights analytics", Href: "/weighing/analytics", Permissions: []string{WeighingMonitor}},
+	// weighing-weights is parked from the sidebar (maintainer request 2026-09-03), so it has no
+	// catalog row: a tickable page must be a nav leaf. The page stays served for deep links.
+	// The load comparison is ADG Analytics' Load-wise tab, not a page of its own.
+	{Key: "weighing-analytics", Module: "weighing", Label: "ADG Analytics", Href: "/weighing/analytics", Permissions: []string{WeighingMonitor}},
 	{Key: "weighing-sops", Module: "weighing", Label: "Weighing SOP", Href: "/weighing/sops", Permissions: []string{SOPRead}},
 
 	{Key: "feed-config", Module: "feed_direction", Label: "Feed Config", Href: "/feed/config", Permissions: []string{FeedConfigRead}},

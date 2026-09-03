@@ -844,6 +844,11 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileVerificationReviewControls(out[i].Controls, input, out[i].Copy)
 		case "health-config":
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
+		case "sales":
+			// READ card, not a write: /sales stays read-only by contract (below). The Over 35 kg
+			// card reads weighing, which is a different desk's permission, so it is declared here
+			// and gated the same way a write would be -- see compileSalesWeightCards.
+			out[i].Controls = compileSalesWeightCards(out[i].Controls, input, out[i].Copy)
 		case "sales-config":
 			// Sales Config is the ONLY sales write surface (maintainer decision 2026-09-01).
 			// /sales and /sales/loads are deliberately absent from this switch: a page that
@@ -923,6 +928,31 @@ func compileHealthConfigControls(controls []domain.Control, input BootstrapInput
 // disabled one carrying "your role can view sales but not record them" is an answer. Same shape as
 // compileHealthConfigControls. The route behind it requires the same permission, so a principal
 // who defeats the disabled state still gets 403; the control is the honest label, not the lock.
+// compileSalesWeightCards declares the Sales board's "Over 35 kg" card (maintainer request
+// 2026-09-03): how many kids weighed in the last six weeks stand at or above the sale weight.
+// Sales has no time filter, so the window is fixed and named on the card.
+//
+// It is a READ control with no Action, so TestSalesReadPagesCarryNoWriteControl is untouched and
+// /sales stays read-only. It is gated all the same, because the figure comes from
+// /weighing/shed-weights, which needs WeighingMonitor -- a permission the sales desk does not
+// hold. Role-scoped UI is capability-gated (2026-08-12): the page renders the card only when
+// this control is enabled and shows the backend's reason otherwise, and the endpoint enforces
+// the same permission, so a principal who defeats the disabled state still gets 403.
+func compileSalesWeightCards(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.WeighingMonitor})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.weights", "Your current role can view sales but not weighing.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "weights_over_35_card",
+		Label:          controlCopy(copy, "kpi.over35", "Over 35 kg"),
+		Kind:           "summary_card",
+		Enabled:        allowed,
+		DisabledReason: reason,
+	})
+}
+
 func compileSalesConfigControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
 	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps the control
 	// enabled, matching compileConfigControls and compileHealthConfigControls.
@@ -972,6 +1002,22 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /sales/deals/{deal_id}/payments",
+	})
+	controls = upsertControl(controls, domain.Control{
+		ID:             "update_sales_deal_payment",
+		Label:          controlCopy(copy, "action.update_deal_payment.label", "Save payment"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /sales/deals/{deal_id}/payments/{payment_id}",
+	})
+	controls = upsertControl(controls, domain.Control{
+		ID:             "delete_sales_deal_payment",
+		Label:          controlCopy(copy, "action.delete_deal_payment.label", "Remove payment"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "DELETE /sales/deals/{deal_id}/payments/{payment_id}",
 	})
 	// The lifecycle edit that closes an expected sale on the day it happens. Same authority as
 	// recording the deal.
@@ -1712,7 +1758,7 @@ func permissionsForNav(id string) []string {
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.
 		//
-		// Purchase & born reads the same commercial facts per load, so it rides the same
+		// Purchase and Born reads the same commercial facts per load, so it rides the same
 		// permission. Sales Config rides it too rather than SalesWrite: a sales reader who cannot
 		// record still reaches the page and sees each control DISABLED with its reason, which is
 		// the health-config shape -- a missing leaf reads as a broken product, a disabled button
@@ -1755,6 +1801,9 @@ func permissionsForNav(id string) []string {
 		// oversight read-out, not a planning surface, so it must not gate on
 		// WeighingPlan (CEO-only): the Growth Director owns weighing oversight and
 		// would otherwise be locked out of the estate they are accountable for.
+		// ADG Analytics' Load-wise tab reads /procurement/loadwise-sales for the
+		// purchase side; that route accepts WeighingMonitor as an alternate
+		// permission for exactly this screen (permissions/routes.go).
 		return []string{permissions.WeighingMonitor}
 	case "people":
 		// The staff directory. Before this case existed the leaf fell through to

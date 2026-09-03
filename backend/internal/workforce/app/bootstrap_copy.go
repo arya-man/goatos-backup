@@ -97,8 +97,17 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:            moduleStatusAvailable,
 		priority:          1,
 		contributions: []moduleNavContribution{
-			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", hrefIfRole: "/pc/vaccine-stock", labelKeyIfRole: "nav.stock", hrefRole: permissions.RolePCDirector, shared_key: "", priority: 1, requiredPermission: permissions.TaskExecute}, //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction, excludedPermission: permissions.TaskExecute},                                                 //nav-composition:ignore: registry entry
+			// The PC Director does not SCAN, but oversees the day's scheduled sheds like the
+			// CXO does — through Calendar (maintainer decision 2026-09-02). His tab #1 is
+			// swapped from the operator scan Drive to /calendar; Stock is his own tab below,
+			// and the read-only oversight/approval is capability-driven, not a scan surface.
+			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", hrefIfRole: "/calendar", labelKeyIfRole: "nav.calendar", hrefRole: permissions.RolePCDirector, shared_key: "", priority: 1, requiredPermission: permissions.TaskExecute}, //nav-composition:ignore: registry entry
+			// Vaccine-stock tab. For the park's own vaccination OPERATORS it is the capture face
+			// (film the fridge); for the PC Director it is the approver face (canApproveVaccineStock),
+			// same route, same tab — the backend flag decides the face (maintainer decision
+			// 2026-09-02). Gated on PCCareExecute, held by both.
+			{key: "vaccine_stock", labelKey: "nav.stock", href: "/pc/vaccine-stock", shared_key: "", priority: 2, requiredPermission: permissions.PCCareExecute},                                             //nav-composition:ignore: registry entry
+			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 3, requiredPermission: permissions.CalendarAction, excludedPermission: permissions.TaskExecute}, //nav-composition:ignore: registry entry
 			// Leadership's Videos tab is a REVIEW/audit surface (context/architecture/
 			// verifier-app-and-flow.md; verdict-exclusivity rule in AGENTS.md): it must show the
 			// complete evidence trail -- pending, approved, rejected, AND already-closed proofs --
@@ -114,7 +123,11 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// "/verify/action" or otherwise flip OpenOnly for the action queue itself -- the verifier's
 			// action queue must stay open-items-only (see the reviewContributions entry below and
 			// ListActionQueue in verification/adapters/http/handler.go).
-			{key: "videos", labelKey: "nav.videos", href: "/vaccination/videos", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct}, //nav-composition:ignore: registry entry
+			// Videos is the leadership proof-review/audit surface. The PC Director is EXCLUDED
+			// (maintainer decision 2026-09-02): his vaccination bar is oversight + stock approval,
+			// not the proof-video log. Keyed on PCCareStockApprove, which only pc_director holds,
+			// so park_head/CEO keep Videos.
+			{key: "videos", labelKey: "nav.videos", href: "/vaccination/videos", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct, excludedPermission: permissions.PCCareStockApprove}, //nav-composition:ignore: registry entry
 			// Vaccination's OWN alerts feed. The href names the feature that owns it, the same
 			// way weighing's does: alerts are feature-scoped by rule, and a generically-named
 			// "/alerts" is what once got copied into weighing's bar, where it 403'd for a
@@ -930,6 +943,16 @@ func canExecutePCCare(grants []domain.GrantSummary, grantedModules []string) boo
 
 func canExecutePCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
 	return hasPermission(grants, permissions.PCCareExecute) && canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
+}
+
+// canApproveVaccineStock decides the FACE of the vaccine-stock tab (maintainer decision
+// 2026-09-02): TRUE renders the PC Director's approver face — read-only cards, and
+// approve/reject on a submitted task's videos — FALSE the operator capture worklist. Both
+// halves of the capability-gated lock apply: this flag only shapes the client, while the
+// stock-verdict route independently requires pc_care.stock_approve and the capture writes
+// still require task-assignee membership (the director is no longer an assignee).
+func canApproveVaccineStockFrom(grants []domain.GrantSummary) bool {
+	return hasPermission(grants, permissions.PCCareStockApprove)
 }
 
 // canPlanPCCare gates the "Plan a care task" wizard entry on the monitor list (CEO-only via

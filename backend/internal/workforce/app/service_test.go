@@ -230,6 +230,9 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drive", Href: "/vaccination"},
+		// Vaccine-stock capture tab (maintainer decision 2026-09-02): the park's own
+		// vaccination operators record the fridge proof, so the operator bar carries Stock.
+		{Key: "vaccine_stock", Label: "Stock", Href: "/pc/vaccine-stock"},
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
@@ -265,6 +268,8 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "ड्राइव", Href: "/vaccination"},
+		// Vaccine-stock capture tab (maintainer decision 2026-09-02), localized like its peers.
+		{Key: "vaccine_stock", Label: "स्टॉक", Href: "/pc/vaccine-stock"},
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). The Hindi label went generic with it.
@@ -470,6 +475,9 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drive", Href: "/vaccination"},
+		// Vaccine-stock capture tab (maintainer decision 2026-09-02): the park's own
+		// vaccination operators record the fridge proof, so the operator bar carries Stock.
+		{Key: "vaccine_stock", Label: "Stock", Href: "/pc/vaccine-stock"},
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
@@ -565,6 +573,9 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drive", Href: "/vaccination"},
+				// Vaccine-stock capture tab (maintainer decision 2026-09-02): operators film
+				// the fridge, the PC Director judges — so the operator bar carries Stock.
+				{Key: "vaccine_stock", Label: "Stock", Href: "/pc/vaccine-stock"},
 				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
 				// "You" carries shared_key "you" so it dedupes across modules like the
 				// leadership entries -- the objection was the per-feature REPETITION, not its
@@ -618,16 +629,12 @@ func TestVisibleNavigationFor(t *testing.T) {
 				grantWithRole(permissions.RoleVerifier),
 			},
 			modules: []string{"vaccination"},
+			// Maintainer decision 2026-09-02: the PC Director does not scan. His bar is Calendar
+			// (scheduled-shed oversight, like the CXO) + Stock (approver face) + Alerts. Videos
+			// (the proof-video log) is dropped for him even though he holds VerificationAct.
 			want: []domain.BootstrapNavigationItem{
-				{Key: "vaccination", Label: "Stock", Href: "/pc/vaccine-stock"},
-				{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
-				// MAINTAINER DECISION 2026-08-06: leadership and verifier are SEPARATE SURFACES.
-				// Leadership videos nav points to /vaccination/videos (leadership-owned),
-				// NEVER to /verify (verifier-owned). The verifier bar is [Verify, Alerts, You].
-				// "You" carries shared_key "you" so it dedupes across modules like the
-				// leadership entries -- the objection was the per-feature REPETITION, not its
-				// presence. The alerts tab label never names the feature; the href's category
-				// still scopes it. This registry bar always carried its own "you" entry.
+				{Key: "vaccination", Label: "Calendar", Href: "/calendar"},
+				{Key: "vaccine_stock", Label: "Stock", Href: "/pc/vaccine-stock"},
 				{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -640,6 +647,9 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"counts", "vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drive", Href: "/vaccination"},
+				// Vaccine-stock capture tab (maintainer decision 2026-09-02): operators film
+				// the fridge, the PC Director judges — so the operator bar carries Stock.
+				{Key: "vaccine_stock", Label: "Stock", Href: "/pc/vaccine-stock"},
 				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
 				// "You" carries shared_key "you" so it dedupes across modules like the
 				// leadership entries -- the objection was the per-feature REPETITION, not its
@@ -825,17 +835,22 @@ func TestBootstrapNavComposition(t *testing.T) {
 
 	t.Run("operator vaccination module gets only vaccination tabs", func(t *testing.T) {
 		nav := visibleNavigationFor(operatorGrants, []string{"vaccination"}, "")
-		if len(nav) != 3 {
-			t.Fatalf("operator nav length=%d want 3 (drives + alerts + you)", len(nav))
+		if len(nav) != 4 {
+			t.Fatalf("operator nav length=%d want 4 (drives + stock + alerts + you)", len(nav))
 		}
 		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
 			t.Fatalf("first nav item=%#v want shed-first vaccination root at /vaccination", nav[0])
 		}
-		if nav[1].Key != "alerts" || nav[1].Href != "/vaccination/alerts" {
-			t.Fatalf("second nav item=%#v want alerts inside the Vaccination module bar", nav[1])
+		// Vaccine-stock capture tab (maintainer decision 2026-09-02): the park's operators
+		// record the fridge proof; the PC Director's bar swaps tab #1 to Stock instead.
+		if nav[1].Key != "vaccine_stock" || nav[1].Href != "/pc/vaccine-stock" {
+			t.Fatalf("second nav item=%#v want the operator Stock tab at /pc/vaccine-stock", nav[1])
 		}
-		if nav[2].Key != "you" || nav[2].Href != "/you" {
-			t.Fatalf("last nav item=%#v want the composed You tab at /you", nav[2])
+		if nav[2].Key != "alerts" || nav[2].Href != "/vaccination/alerts" {
+			t.Fatalf("third nav item=%#v want alerts inside the Vaccination module bar", nav[2])
+		}
+		if nav[3].Key != "you" || nav[3].Href != "/you" {
+			t.Fatalf("last nav item=%#v want the composed You tab at /you", nav[3])
 		}
 		for _, item := range nav {
 			if item.Key == "calendar" || item.Href == "/calendar" || item.Key == "weighing" || item.Href == "/weighing" {

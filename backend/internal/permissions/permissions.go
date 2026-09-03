@@ -281,11 +281,21 @@ const (
 	PCCareMonitor          = "pc_care.monitor"
 	PCCareExecute          = "pc_care.execute"
 	PCCareOverseeOperators = "pc_care.oversee_operators"
-	CalendarRead           = "calendar.read"
-	CalendarAction         = "calendar.action"
-	ProcurementRead        = "procurement.read"
-	ProcurementWrite       = "procurement.write"
-	ProcurementReview      = "procurement.review"
+	// PCCareStockApprove (maintainer decision 2026-09-02): the vaccine-stock fridge check
+	// (category inventory_vaccine) is RECORDED BY PARK OPERATORS and APPROVED BY THE PC
+	// DIRECTOR — the director cannot be in both farms, so the park's own vaccination
+	// operators film the fridge and the director judges the videos. This capability gates
+	// the approve/reject on a submitted stock task. It rides its OWN route, deliberately NOT
+	// verification.verdict (the toxin-module shape): the tenant verifier never sees stock
+	// work, and the verdict-exclusivity lock on verification.verdict stays intact. Granted
+	// to pc_director ONLY — not the CEO, and never to an operator: the person who filmed the
+	// fridge must not be able to accept their own evidence.
+	PCCareStockApprove = "pc_care.stock_approve"
+	CalendarRead       = "calendar.read"
+	CalendarAction     = "calendar.action"
+	ProcurementRead    = "procurement.read"
+	ProcurementWrite   = "procurement.write"
+	ProcurementReview  = "procurement.review"
 	// VendorRead gates the procurement VENDOR REGISTER (/procurement/vendors): the farm's
 	// counterparty contact book -- livestock agents and stockists, transport, feed, manure, pellet
 	// factories, labour, insurance, test labs and site trades.
@@ -843,6 +853,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		// assigned to (like the Growth Director weighs their own sheds). NOT PCCarePlan:
 		// planning a PC Care task is CEO-only, the weighing.plan precedent.
 		PCCareMonitor: {}, PCCareExecute: {}, PCCareOverseeOperators: {},
+		// Vaccine-stock approval (maintainer decision 2026-09-02): park operators record the
+		// fridge videos; the PC Director alone approves or rejects the submitted stock task.
+		// See the PCCareStockApprove constant for why this is not verification.verdict.
+		PCCareStockApprove: {},
 	},
 	// RoleGrowthDirector runs Weighing and ONLY Weighing. The role key existed with no entry in
 	// this map, which meant every RoleHasPermission check returned false and a growth_director

@@ -5,7 +5,7 @@
 // RULE 1 — ONE SIDEBAR LABEL SIZE. The left rail stacks three kinds of row in one
 // column: flat lens links (`.nav` — Control Tower, Verify), vertical group headers
 // (`.ggrp` — Counts, Weight, Sales) and their leaves (`.leaf` — Sales board,
-// Purchase & born). They are all navigation labels, so they are all ONE size. They
+// Purchase and Born). They are all navigation labels, so they are all ONE size. They
 // had drifted to 14 / 11 / 13px, which made a single list read as three lists
 // stacked and made a group header look like a caption for the row above it rather
 // than a peer of it. `Verify` is the reference row; every label is 14px.
@@ -13,9 +13,9 @@
 // Only SIZE is unified here. Weight, letter-spacing and text-transform stay
 // per-row on purpose — a group header is still bolder than its leaves.
 //
-// RULE 2 — PURCHASE & BORN IS NOT SHOUTED. The generic `.crumb` rule uppercases
+// RULE 2 — PURCHASE AND BORN IS NOT SHOUTED. The generic `.crumb` rule uppercases
 // every breadcrumb, which rendered the Sales load page's own name as
-// "SALES · PURCHASE & BORN". A load is bought or born; those are ordinary farm
+// "SALES · PURCHASE AND BORN". A load is bought or born; those are ordinary farm
 // words, not a system code, and the page turns the transform off for its own
 // crumb. Two halves must both hold, because either one alone is inert:
 //   (a) the CSS override `.sales-loads-page .crumb { text-transform: none }`
@@ -83,7 +83,7 @@ function crumbFailures(css, page) {
   const failures = [];
   const body = ruleBody(css, ".sales-loads-page .crumb");
   if (body === null || !/text-transform\s*:\s*none/.test(body)) {
-    failures.push(`${CSS}: missing \`.sales-loads-page .crumb { text-transform: none }\` — without it the generic .crumb rule renders the page as "PURCHASE & BORN"`);
+    failures.push(`${CSS}: missing \`.sales-loads-page .crumb { text-transform: none }\` — without it the generic .crumb rule renders the page as "PURCHASE AND BORN"`);
   }
   if (!/className=\{?["'`][^"'`]*\bsales-loads-page\b/.test(page)) {
     failures.push(`${PAGE}: page root no longer carries the \`sales-loads-page\` class — the crumb override matches nothing and the label goes back to capitals`);

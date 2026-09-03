@@ -1016,7 +1016,7 @@ admin-web-date-format-guard:
 	node tools/agent-hooks/check-admin-web-date-format.mjs
 
 # sidebar-typography-guard: one font size for every admin-web sidebar label
-# (.nav / .ggrp / .leaf), and the Purchase & born crumb kept out of capitals
+# (.nav / .ggrp / .leaf), and the Purchase and Born crumb kept out of capitals
 # (maintainer, 2026-09-02).
 .PHONY: sidebar-typography-guard
 sidebar-typography-guard:
