@@ -376,6 +376,130 @@ func TestSalesLoadsNavLeafRidesSalesRead(t *testing.T) {
 //
 // Run with the CEO's grants deliberately: he holds SalesWrite and LoadCostWrite, so if the write
 // were still compiled onto these pages for anybody it would be for him.
+// The Over 35 kg card on /sales reads weighing, which the sales desk cannot: the card is a READ
+// control gated on WeighingMonitor, declared for everyone who reaches the page and disabled with
+// the backend's reason for those who may not read weights. The procurement director row is the
+// mutation test -- it holds every sales permission there is, so gating the card on any sales
+// key would turn it green for a role the weighing endpoint refuses.
+func TestSalesOver35CardIsGatedOnWeighingMonitor(t *testing.T) {
+	cases := []struct {
+		role    string
+		enabled bool
+	}{
+		{permissions.RoleCEOInternal, true},
+		{permissions.RoleGrowthDirector, true},
+		{permissions.RoleProcurementDirector, false},
+	}
+	for _, tc := range cases {
+		resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+			TenantID: "00000000-0000-4000-8000-000000000001",
+			ActorID:  "00000000-0000-4000-8000-000000000099",
+			Grants: []permissions.ActiveGrant{
+				{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			},
+		})
+		var page *domain.PageContract
+		for i := range resp.Pages {
+			if resp.Pages[i].RouteID == "sales" {
+				page = &resp.Pages[i]
+			}
+		}
+		if page == nil {
+			// A role without SalesRead never reaches the page; nothing to gate.
+			if tc.role == permissions.RoleGrowthDirector {
+				continue
+			}
+			t.Fatalf("%s: /sales contract missing", tc.role)
+		}
+		var card *domain.Control
+		for i := range page.Controls {
+			if page.Controls[i].ID == "weights_over_35_card" {
+				card = &page.Controls[i]
+			}
+		}
+		if card == nil {
+			t.Fatalf("%s: /sales must declare weights_over_35_card", tc.role)
+		}
+		if card.Enabled != tc.enabled {
+			t.Fatalf("%s: weights_over_35_card enabled=%v, want %v", tc.role, card.Enabled, tc.enabled)
+		}
+		if !tc.enabled && card.DisabledReason == "" {
+			t.Fatalf("%s: a disabled card must carry the backend's reason", tc.role)
+		}
+		if card.Action != "" {
+			t.Fatalf("%s: weights_over_35_card is a read card and must declare no Action, got %q", tc.role, card.Action)
+		}
+	}
+}
+
+// The Comparison tab's value chart is priced from the SalesRead-only loadwise read, so it is
+// gated on SalesRead: the Growth Director reaches the tab on WeighingMonitor and must see the
+// chart disabled with a reason, never the money. The growth-director row is the mutation test.
+func TestLoadValueChartIsGatedOnSalesRead(t *testing.T) {
+	for _, tc := range []struct {
+		role    string
+		enabled bool
+	}{
+		{permissions.RoleCEOInternal, true},
+		{permissions.RoleGrowthDirector, false},
+	} {
+		resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+			TenantID: "00000000-0000-4000-8000-000000000001",
+			ActorID:  "00000000-0000-4000-8000-000000000099",
+			Grants: []permissions.ActiveGrant{
+				{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			},
+		})
+		page := pageByRouteID(t, resp.Pages, "weighing-analytics")
+		var chart *domain.Control
+		for i := range page.Controls {
+			if page.Controls[i].ID == "load_value_chart" {
+				chart = &page.Controls[i]
+			}
+		}
+		if chart == nil {
+			t.Fatalf("%s: /weighing/analytics must declare load_value_chart", tc.role)
+		}
+		if chart.Enabled != tc.enabled || (!tc.enabled && chart.DisabledReason == "") || chart.Action != "" {
+			t.Fatalf("%s: load_value_chart enabled=%v reason=%q action=%q, want enabled=%v with a reason and no action",
+				tc.role, chart.Enabled, chart.DisabledReason, chart.Action, tc.enabled)
+		}
+	}
+}
+
+// The loads chart's "weighs now" series reads weighing too, and is gated the same way.
+func TestLoadsWeighsNowSeriesIsGatedOnWeighingMonitor(t *testing.T) {
+	for _, tc := range []struct {
+		role    string
+		enabled bool
+	}{
+		{permissions.RoleCEOInternal, true},
+		{permissions.RoleProcurementDirector, false},
+	} {
+		resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+			TenantID: "00000000-0000-4000-8000-000000000001",
+			ActorID:  "00000000-0000-4000-8000-000000000099",
+			Grants: []permissions.ActiveGrant{
+				{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			},
+		})
+		page := pageByRouteID(t, resp.Pages, "sales-loads")
+		var series *domain.Control
+		for i := range page.Controls {
+			if page.Controls[i].ID == "weights_current_average_series" {
+				series = &page.Controls[i]
+			}
+		}
+		if series == nil {
+			t.Fatalf("%s: /sales/loads must declare weights_current_average_series", tc.role)
+		}
+		if series.Enabled != tc.enabled || (!tc.enabled && series.DisabledReason == "") || series.Action != "" {
+			t.Fatalf("%s: weights_current_average_series enabled=%v reason=%q action=%q, want enabled=%v with a reason and no action",
+				tc.role, series.Enabled, series.DisabledReason, series.Action, tc.enabled)
+		}
+	}
+}
+
 func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",

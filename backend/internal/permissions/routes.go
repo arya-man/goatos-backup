@@ -289,7 +289,15 @@ var protectedRoutes = []Route{
 	// 2026-08-31). The read is the Sales page's data, so it rides SalesRead; the cost entry is
 	// supplier money and carries the dedicated buying-desk permission, the same split feed
 	// purchases keep (see LoadCostWrite's doc comment).
+	// AnyPermissions rather than Permissions: the Weighing Comparison page (maintainer request
+	// 2026-09-03) reads each purchased load's purchase weight from this same endpoint to set the
+	// latest weighing beside it, and its audience is the weighing-oversight holder (Growth
+	// Director, WeighingMonitor) who does not hold SalesRead. This is a read-only reporting
+	// widening; the cost write below keeps its dedicated permission.
 	{OperationID: "listLoadwiseSales", Method: "GET", Pattern: "/procurement/loadwise-sales", Permissions: []string{SalesRead}},
+	// The NARROW load read for the ADG Analytics Comparison tab (identity, counts, bought-at
+	// weight; no money). WeighingMonitor may read it; the priced read above stays SalesRead.
+	{OperationID: "listLoadwiseWeights", Method: "GET", Pattern: "/procurement/loadwise-weights", AnyPermissions: []string{SalesRead, WeighingMonitor}},
 	{OperationID: "setLoadCost", Method: "PUT", Pattern: "/procurement/loads/{load_id}/cost", Permissions: []string{LoadCostWrite}},
 
 	// TOXIN (maintainer decision 2026-08-25): the aflatoxin strip-test module. The task

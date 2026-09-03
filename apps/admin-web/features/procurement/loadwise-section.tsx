@@ -42,11 +42,29 @@ function shortDate(date: string): string {
  * One load's display identity: its farm load NUMBER when known ("Load 131 · Krishnamorrthy"),
  * else the vendor and purchase date. The number prefix arrives from the contract copy.
  */
+/**
+ * The "weighs now" figure for a load that has NOT sold: matched on the farm's load number, which
+ * is the identity the weighing side's shed-to-load tags carry. A load that has sold (any sale
+ * weight recorded) gets nothing here on purpose -- its animals have left, and the pens it sat in
+ * may now hold another load.
+ */
+function currentWeightFor(load: LoadwiseLoad, weights: LoadCurrentWeights) {
+  if (load.avg_sale_weight_kg != null || !load.load_ref) return null;
+  return weights[load.load_ref] ?? null;
+}
+
 function loadLabel(load: LoadwiseLoad, loadWord: string, none: string): string {
   const vendor = load.vendor_name.trim() === "" ? none : load.vendor_name;
   if (load.load_ref) return `${loadWord} ${load.load_ref} · ${vendor}`;
   return load.purchase_date ? `${vendor} · ${humanDate(load.purchase_date)}` : vendor;
 }
+
+/**
+ * What a load's animals weigh NOW, keyed by the farm's load number: the latest weighing of the
+ * pens the load was placed into, weighted by head count (the weighing read's by_load). Null when
+ * the caller may not read weighing or the read failed; the chart then draws no third bar.
+ */
+export type LoadCurrentWeights = Record<string, { averageKg: number; animals: number }>;
 
 export function LoadwiseSection({
   pageContract,
@@ -54,7 +72,9 @@ export function LoadwiseSection({
   loadwise,
   canRecordCost,
   costHref,
+  currentWeights = null,
 }: {
+  currentWeights?: LoadCurrentWeights | null;
   pageContract: AdminUiPageContract;
   /** The validated ?view= tab key (an option key of sales_views). The PAGE owns the tab chips. */
   view: string;
@@ -81,6 +101,10 @@ export function LoadwiseSection({
   const weightSeries: GroupedSeries[] = [
     { key: "avg_purchase_weight_kg", label: copy(pageContract, "chart.series.avg_purchase_weight"), tone: "info" },
     { key: "avg_sale_weight_kg", label: copy(pageContract, "chart.series.avg_sale_weight"), tone: "ok" },
+    // Third bar (maintainer request 2026-09-03): a load that has sold nothing shows what its
+    // animals weigh NOW, so an unsold load is not a lone "bought at" bar with nothing to read it
+    // against. Drawn only when the contract enabled the weighing read for this principal.
+    ...(currentWeights ? [{ key: "current_avg_weight_kg", label: copy(pageContract, "chart.series.current_avg_weight"), tone: "teal" as const }] : []),
   ];
   const perKgSeries: GroupedSeries[] = [
     { key: "landed_price_per_kg", label: copy(pageContract, "chart.series.landing_price_per_kg"), tone: "info" },
@@ -246,7 +270,11 @@ export function LoadwiseSection({
               key: load.load_id,
               axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
               label: loadLabel(load, loadWord, none),
-              values: [load.avg_purchase_weight_kg ?? null, load.avg_sale_weight_kg ?? null],
+              values: [
+                load.avg_purchase_weight_kg ?? null,
+                load.avg_sale_weight_kg ?? null,
+                ...(currentWeights ? [currentWeightFor(load, currentWeights)?.averageKg ?? null] : []),
+              ],
               displays: [
                 load.avg_purchase_weight_kg == null
                   ? copy(pageContract, "value.weight_missing")
@@ -254,6 +282,18 @@ export function LoadwiseSection({
                 load.avg_sale_weight_kg == null
                   ? copy(pageContract, "value.not_sold_yet")
                   : `${num(load.avg_sale_weight_kg, 1)} ${copy(pageContract, "value.kg")}`,
+                ...(currentWeights
+                  ? [
+                      load.avg_sale_weight_kg != null
+                        ? copy(pageContract, "value.sold_no_now")
+                        : (() => {
+                            const now = currentWeightFor(load, currentWeights);
+                            return now == null
+                              ? copy(pageContract, "value.not_weighed_yet")
+                              : `${num(now.averageKg, 1)} ${copy(pageContract, "value.kg")} · ${num(now.animals)} ${copy(pageContract, "value.weighed_now")}`;
+                          })(),
+                    ]
+                  : []),
               ],
               // The sale average is over the animals actually WEIGHED on the way out, which is
               // fewer than sold on some loads. Saying so here is the difference between a sample

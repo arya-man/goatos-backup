@@ -39,7 +39,7 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 		label string
 	}{
 		{"counts", "Counts"},
-		{"weighing", "Weight"},
+		{"weighing", "Weighing"},
 		{"sales", "Sales"},
 		{"feed", "Feed"},
 		{"pc", "Preventive Care"},

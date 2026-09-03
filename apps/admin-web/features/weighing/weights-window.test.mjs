@@ -64,7 +64,11 @@ test("weights analytics time-wise uses the same selected/default period as every
   assert.doesNotMatch(analyticsSource, /trendWindow/);
   assert.doesNotMatch(analyticsSource, /tab === "time" \?[^:]+: window/);
   assert.match(analyticsSource, /const readWindow = window;/);
-  assert.match(analyticsSource, /getShedWeights\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  // The ONE deliberate exception is the Load-wise tab (maintainer request 2026-09-03): a purchase
+  // load is bought whole, so that tab's shed read carries park-only scope over an all-time window
+  // and its caption says so. Every other tab still reads the page's own scope and window.
+  assert.match(analyticsSource, /const shedParams = wantsLoads\s*\n\s*\? \{ park_id: parkFilter \|\| undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today \}\s*\n\s*: \{ \.\.\.scope, \.\.\.readWindow \};/);
+  assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
   assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
   assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
   assert.doesNotMatch(contract, /last 12 weeks/);
@@ -98,7 +102,9 @@ test("weights analytics sends the weighing mode through every tab read", () => {
   assert.match(analyticsSource, /const weighingCategoryFilter = modeFilter !== "all" \? modeFilter : "";/);
   assert.match(analyticsSource, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
   assert.match(analyticsSource, /weighing_category: weighingCategoryFilter \|\| undefined/);
-  assert.match(analyticsSource, /getShedWeights\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  // The shed read routes through shedParams so the Load-wise tab can drop the page filters a
+  // whole load cannot honour; on every other tab shedParams IS { ...scope, ...readWindow }.
+  assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
   assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
   assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
   assert.match(analyticsSource, /weighingCategory=\{modeFilter !== "all" \? modeFilter : undefined\}/);

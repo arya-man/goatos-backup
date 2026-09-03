@@ -63,7 +63,7 @@ export type DataTableColumnMeta = {
  */
 export function columnsFromContract<Row>(
   contract: AdminUiTableContract,
-  cells: Record<string, { cell: (row: Row) => React.ReactNode; meta?: DataTableColumnMeta; sortValue?: (row: Row) => string | number }>,
+  cells: Record<string, { cell: (row: Row) => React.ReactNode; meta?: DataTableColumnMeta; sortValue?: (row: Row) => string | number | undefined }>,
 ): ColumnDef<Row>[] {
   return contract.columns
     .filter((column) => column.visible)
@@ -80,6 +80,9 @@ export function columnsFromContract<Row>(
         // would order by the fallback copy instead of the underlying value.
         accessorFn: spec.sortValue ?? (() => ""),
         enableSorting: column.sortable,
+        // A row whose sort value is ABSENT (no gain, never weighed) sits last whichever way the
+        // column is sorted: it is missing, not zero, and must never land between two measured rows.
+        sortUndefined: "last",
         meta: spec.meta,
         cell: (ctx) => spec.cell(ctx.row.original),
       } satisfies ColumnDef<Row>;

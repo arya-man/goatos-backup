@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -27,9 +28,15 @@ func NewLoadwiseService(repo ports.LoadwiseRepository) *LoadwiseService {
 	return &LoadwiseService{repo: repo}
 }
 
-// LoadwiseSales returns the load-wise reconciliation read.
-func (s *LoadwiseService) LoadwiseSales(ctx context.Context, tenantID string) (domain.LoadwiseSales, error) {
-	return s.repo.LoadwiseSales(ctx, tenantID, loadwiseServedLoads)
+// LoadwiseSales returns the load-wise reconciliation read, optionally narrowed to one park. A
+// present-but-malformed park id is rejected rather than silently served unfiltered — a filter
+// that quietly falls back to All Parks is the exact defect the park parameter exists to fix.
+func (s *LoadwiseService) LoadwiseSales(ctx context.Context, tenantID, parkID string) (domain.LoadwiseSales, error) {
+	parkID = strings.TrimSpace(parkID)
+	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+		return domain.LoadwiseSales{}, domain.ErrLoadwiseValidation{Field: "park_id", Reason: "is not a park this farm knows"}
+	}
+	return s.repo.LoadwiseSales(ctx, tenantID, parkID, loadwiseServedLoads)
 }
 
 // SetLoadCost validates and records (or clears) one load's landed cost.

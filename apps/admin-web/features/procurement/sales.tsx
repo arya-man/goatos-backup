@@ -18,7 +18,8 @@ import {
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError, listProcurementVendorOptions } from "@/lib/api/server";
+import { firstAuthRequiredError, getShedWeights, listProcurementVendorOptions } from "@/lib/api/server";
+import { istDayPlus, todayIso } from "@/lib/format";
 import type { ProcurementVendorOptions } from "@/lib/api/server";
 import { getSalesOverview, listSalesDeals } from "@/lib/api/procurement-server";
 import type { SalesDeal, SalesOverview } from "@/lib/api/procurement";
@@ -28,7 +29,6 @@ import {
   humanDate,
   inr,
   inrCompact,
-  marketLossPerKg,
   monthLabel,
   monthlyAnimalRevenueTotal,
   monthlyAnimalsTotal,
@@ -60,14 +60,32 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
   return qs ? `${PAGE_PATH}?${qs}` : PAGE_PATH;
 }
 
+/**
+ * The Over 35 kg card's figure (maintainer request 2026-09-03). `count` is null when the read
+ * failed or the caller may not read weighing; the card then shows the backend's reason rather
+ * than a zero that would claim no kid is ready for sale.
+ */
+type Over35Card = {
+  enabled: boolean;
+  disabledReason: string;
+  count: number | null;
+  from: string;
+  to: string;
+};
+
+/** Six weeks back from today, in the farm's calendar: the fixed window the card names. */
+const OVER35_WINDOW_DAYS = 42;
+
 function OverviewSections({
   overview,
   pageContract,
   buyersHref,
   buyersPage,
+  over35,
 }: {
   overview: SalesOverview;
   pageContract: AdminUiPageContract;
+  over35: Over35Card;
   /** Link builder for the buyer board's pager, preserving every other selected search param. */
   buyersHref: (page: number) => string;
   /** 1-based buyer board page, already clamped by the caller. */
@@ -91,7 +109,7 @@ function OverviewSections({
   return (
     <>
           {/* 1 — headline figures, verbatim from the overview summary. */}
-          <section className="grid g4 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
+          <section className="grid g5 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
             <div className="kpi">
               <div className="lab">{copy(pageContract, "kpi.revenue")}</div>
               <div className="val">{inr(summary.revenue)}</div>
@@ -124,14 +142,23 @@ function OverviewSections({
                 {inr(summary.manure_revenue)} · {copy(pageContract, "kpi.manure.detail")}
               </div>
             </div>
+            {/* Over 35 kg: the Weights pages' sale-weight count on a FIXED six-week window, because
+                this page has no time filter. The window is printed so it never reads as all-time.
+                Gated by the page contract (weighing is another desk's permission): a role that may
+                not read weights sees the backend's reason, never a zero. */}
+            <div className="kpi">
+              <div className="lab">{copy(pageContract, "kpi.over35")}</div>
+              <div className="val">{over35.count == null ? none : num(over35.count)}</div>
+              <div className="dl">
+                {!over35.enabled
+                  ? over35.disabledReason
+                  : over35.count == null
+                    ? copy(pageContract, "kpi.over35.none")
+                    : `${copy(pageContract, "kpi.over35.sub")} · ${humanDate(over35.from)} – ${humanDate(over35.to)}`}
+              </div>
+            </div>
           </section>
 
-          <p className="muted small" style={{ margin: "6px 0 14px" }}>
-            {copy(pageContract, "kpi.period")}:{" "}
-            {summary.period_from ? `${humanDate(summary.period_from)} – ${humanDate(summary.period_to)}` : none}
-            {" · "}
-            {copy(pageContract, "kpi.live_weight")}: {num(summary.live_weight_kg)} {kgSuffix}
-          </p>
 
           {/* 2 — month by month. Three separate charts: rupees, heads and kg never share an axis.
               Stacked full-width so every column carries its month label and value. */}
@@ -208,71 +235,8 @@ function OverviewSections({
             />
           </section>
 
-          {/* 4 — market reality check. */}
-          <section className="card" aria-label={copy(pageContract, "section.market.title")}>
-            <div className="hd">
-              <h3>{copy(pageContract, "section.market.title")}</h3>
-              <div className="sp" style={{ flex: 1 }} />
-              <span className="muted small">{copy(pageContract, "section.market.subtitle")}</span>
-            </div>
-            {overview.market_benchmarks.length === 0 ? (
-              <div className="empty">{copy(pageContract, "empty.market")}</div>
-            ) : (
-              <div className="twrap sales-market-wrap" tabIndex={0}>
-                <table className="sales-market-table">
-                  <thead>
-                    <tr>
-                      <th>{copy(pageContract, "column.market")}</th>
-                      <th>{copy(pageContract, "column.category")}</th>
-                      <th>{copy(pageContract, "column.breed")}</th>
-                      <th>{copy(pageContract, "column.source")}</th>
-                      <th>{copy(pageContract, "column.ex_farm_rate")}</th>
-                      <th>{copy(pageContract, "column.transport_rate")}</th>
-                      <th>{copy(pageContract, "column.landing_cost_per_kg")}</th>
-                      <th>{copy(pageContract, "column.market_price_per_kg")}</th>
-                      <th>{copy(pageContract, "column.market_gap")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {overview.market_benchmarks.map((benchmark, index) => {
-                      const loss = marketLossPerKg(benchmark.landing_cost_per_kg, benchmark.market_price_per_kg);
-                      return (
-                        <tr key={`${benchmark.breed}|${benchmark.market ?? ""}|${benchmark.source ?? ""}|${index}`}>
-                          <td>{benchmark.market ?? none}</td>
-                          <td>{benchmark.category ?? none}</td>
-                          <td>
-                            <b>{benchmark.breed}</b>
-                          </td>
-                          <td>{benchmark.source ?? none}</td>
-                          <td>{benchmark.ex_farm_rate ?? none}</td>
-                          <td>{benchmark.transport_rate ?? none}</td>
-                          <td className="num">
-                            {benchmark.landing_cost_per_kg == null
-                              ? none
-                              : `${inr(benchmark.landing_cost_per_kg)} ${perKgSuffix}`}
-                          </td>
-                          <td className="num">
-                            {benchmark.market_price_per_kg == null
-                              ? none
-                              : `${inr(benchmark.market_price_per_kg)} ${perKgSuffix}`}
-                          </td>
-                          <td className="num">
-                            {loss == null ? (
-                              <span className="muted">{none}</span>
-                            ) : (
-                              <Tag tone={loss > 0 ? "dng" : "ok"}>
-                                {inr(loss)} {perKgSuffix}
-                              </Tag>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          {/* The market benchmark table was removed from this board (maintainer request
+              2026-09-03); the quotes are still entered and kept on /sales/config. */}
 
           {/* 5 — buyers. */}
           <section className="card" aria-label={copy(pageContract, "section.buyers.title")}>
@@ -526,7 +490,13 @@ export async function SalesPage({
   // The pipeline lead lists and the tag-animals location catalog are deliberately NOT read here
   // any more: they fed ENTRY forms, and entry moved to /sales/config (maintainer decision
   // 2026-09-01). Fetch = render — this page renders no form, so it asks for no form's data.
-  const [overviewResult, dealsResult, vendorOptionsResult] = await Promise.all([
+  // The Over 35 kg card reads weighing only when the contract enables it: fetch = render, and a
+  // role the weighing endpoint would refuse is never asked to make that call.
+  const over35Control = pageContract.controls.find((item) => item.id === "weights_over_35_card");
+  const over35Enabled = over35Control?.enabled ?? false;
+  const over35To = todayIso();
+  const over35From = istDayPlus(over35To, -OVER35_WINDOW_DAYS);
+  const [overviewResult, dealsResult, vendorOptionsResult, weightsResult] = await Promise.all([
     getSalesOverview({ farm }),
     listSalesDeals({ farm, limit, offset }),
     // The deal drawer here is a READ-ONLY detail, and it still names the buyer's vendor. Resolving
@@ -534,6 +504,9 @@ export async function SalesPage({
     // opens the drawer without an RSC request. ONE bounded read, never a paged walk of
     // /procurement/vendors: that is the banned SSR full-walk shape.
     listProcurementVendorOptions(),
+    // Unscoped first: the response also carries the park vocabulary this page's farm code is
+    // matched against, so a farm-scoped card needs exactly one more read, below.
+    over35Enabled ? getShedWeights({ from: over35From, to: over35To }) : Promise.resolve(null),
   ]);
 
   if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
@@ -542,6 +515,29 @@ export async function SalesPage({
   // The drawer renders a stated error for that case rather than an empty dropdown, which would read
   // as "there are no vendors" and send the person to add one that already exists.
   const vendorOptions: ProcurementVendorOptions | null = vendorOptionsResult.ok ? vendorOptionsResult.data : null;
+
+  // Farm scope for the card. The weighing park vocabulary names parks by their code (CBE, CPT),
+  // the same code this page's farm filter carries, so the selected farm resolves to a park id
+  // and the count is re-read for that park alone. An unknown farm code keeps the all-parks
+  // figure rather than showing a zero for a park that was never asked about.
+  let over35Count: number | null = null;
+  if (weightsResult?.ok) {
+    over35Count = weightsResult.data.summary.at_or_above_35kg;
+    if (farm !== DEFAULT_FARM) {
+      const park = weightsResult.data.parks.find((item) => item.name === farm);
+      if (park) {
+        const scoped = await getShedWeights({ from: over35From, to: over35To, park_id: park.park_id });
+        over35Count = scoped.ok ? scoped.data.summary.at_or_above_35kg : null;
+      }
+    }
+  }
+  const over35: Over35Card = {
+    enabled: over35Enabled,
+    disabledReason: over35Control?.disabled_reason ?? "",
+    count: over35Count,
+    from: over35From,
+    to: over35To,
+  };
 
   const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;
   const deals: SalesDeal[] = dealsResult.ok ? dealsResult.data.deals : [];
@@ -608,6 +604,7 @@ export async function SalesPage({
           pageContract={pageContract}
           buyersPage={buyersPage}
           buyersHref={(page) => hrefWithQuery(sp, { buyers_page: page > 1 ? String(page) : null })}
+          over35={over35}
         />
       ) : null}
 

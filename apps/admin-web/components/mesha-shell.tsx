@@ -240,7 +240,9 @@ export function MeshaShell({
   // selector is hidden for them, because two controls writing one parameter fight each other and
   // the reader has no way to tell which one won. Weights analytics carries the same filter bar as
   // Weights beside it, so it belongs here for the same reason.
-  const PAGES_OWNING_PARK_SCOPE = ["/counts/breakdown", "/weighing/weights", "/weighing/analytics"];
+  // Sales too (maintainer request 2026-09-03): its farm chips ARE its park choice, on the page's
+  // own `farm` parameter, so the top-bar chip was a second answer the page never read.
+  const PAGES_OWNING_PARK_SCOPE = ["/counts/breakdown", "/weighing/weights", "/weighing/analytics", "/sales"];
   const lockTopBarParkSelector = PAGES_OWNING_PARK_SCOPE.includes(pathname);
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);

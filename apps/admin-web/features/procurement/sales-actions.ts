@@ -294,6 +294,9 @@ export async function updateSalesDealPaymentAction(formData: FormData): Promise<
       amount_rupees: amountRupees,
       note,
     },
+    // A FRESH key per submit (guard test in sales-actions.test.mjs, landed on main as d015e8480 and
+    // reintroduced as a stable hash by the merge): a deterministic key turns a later legitimate edit
+    // back to an earlier value, or a repeated delete, into an idempotent replay the backend skips.
     randomUUID(),
   );
   if (!result.ok) {

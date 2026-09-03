@@ -1812,7 +1812,6 @@ func TestCountsBreakdownMultiPenFilterSelectsExactPens(t *testing.T) {
 		t.Errorf("normalized pen filter total_count=%d, want 3", normalized.TotalCount)
 	}
 }
-
 // A WILDCARD-SHED pen (empty ShedID + a partition) narrows the whole query to that partition
 // across every shed — the CEO assistant's partition-named-without-its-shed scope, which the
 // retired scalar PartitionLabel filter used to honor at query level. TotalCount must move with

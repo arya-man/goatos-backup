@@ -2988,6 +2988,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/loadwise-weights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The purchased loads, unpriced, for the ADG Analytics Comparison tab.
+         * @description The SAME loads, park filter and window as listLoadwiseSales, projected down to identity, head counts and the bought-at weight -- and nothing priced. It exists so a principal who may monitor weighing but may not read sales money (the Growth Director) can put a load's purchase weight beside its latest weighing without receiving purchase cost, sale value or profit. The priced read stays behind sales read access.
+         */
+        get: operations["listLoadwiseWeights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/loads/{load_id}/cost": {
         parameters: {
             query?: never;
@@ -6080,6 +6100,10 @@ export interface components {
             sale_price_per_kg?: number | null;
             /** @description The denominator behind avg_sale_weight_kg -- the animals that carry a sale weight. Published so a client can say the average is over a sample rather than imply a total. */
             sold_weighed_animals?: number | null;
+            /** @description Of `remaining`, the sheep. With remaining_goats it lets a client value today's stock at a per-species live-weight rate; an animal of any other species is in `remaining` and in neither count. */
+            remaining_sheep: number;
+            /** @description Of `remaining`, the goats. See remaining_sheep. */
+            remaining_goats: number;
             /**
              * Format: date
              * @description The day the animals REACHED THE FARM. Not the purchase date: the farm warms animals up at the source, so a load is bought a day or more before it lands here, and the fattening clock starts on arrival.
@@ -6134,6 +6158,33 @@ export interface components {
             remaining_value: number;
             /** @description Sums only the loads that HAVE a profit figure (a recorded cost) — the same key set as costed_loads, so priced and unpriced loads are never mixed into one total. */
             profit_loss: number;
+        };
+        LoadwiseWeights: {
+            loads: components["schemas"]["LoadwiseWeightLoad"][];
+            /** @description Same as listLoadwiseSales' total_loads for the same filter. */
+            total_loads: number;
+        };
+        /** @description One purchased load with no priced field. See listLoadwiseWeights. */
+        LoadwiseWeightLoad: {
+            /** Format: uuid */
+            load_id: string;
+            /** @description The farm's own load number, rendered verbatim. Absent when unrecorded. */
+            load_ref?: string;
+            vendor_name: string;
+            /** Format: date */
+            purchase_date?: string;
+            /** @description The agree-or-go-bare park code (CBE/CPT), "" when bare. */
+            farm?: string;
+            purchased: number;
+            /** @description Animals still alive on farm. */
+            remaining: number;
+            remaining_sheep: number;
+            remaining_goats: number;
+            /**
+             * Format: double
+             * @description Average bought-at weight per animal; absent when no purchase weight is recorded.
+             */
+            avg_purchase_weight_kg?: number;
         };
         LoadwiseSales: {
             loads: components["schemas"]["LoadwiseLoad"][];
@@ -12147,9 +12198,11 @@ export interface components {
              * @description Weighted mean over ANIMALS (total / animals), never the mean of per-shed averages. Null when nothing was weighed, so a client never renders 0.0 kg for "no data".
              */
             average_weight_kg?: number | null;
+            /** @description Animals at or above 30 kg: each scanned tag at its latest weight in the window, plus every whole-shed pen counted all-or-none at the pen's latest average (a pen averaging 31 kg contributes all of its animals; one averaging 29 kg contributes none). */
             at_or_above_30kg: number;
+            /** @description Same basis as at_or_above_30kg, against 35 kg. */
             at_or_above_35kg: number;
-            /** @description The real denominator for the two threshold counts: animals in PER-ANIMAL sheds only. A whole-shed weigh reports one average and cannot say how many of its animals cleared a threshold, so it contributes nothing here. Rendering the counts against animals_weighed instead would understate the share. */
+            /** @description The denominator for the two threshold counts. Since the whole-shed pens joined them it equals animals_weighed; it stays here so the denominator always travels with the counts. */
             threshold_basis_animals: number;
         };
         WeighingShedWeightsResponse: {
@@ -20304,7 +20357,10 @@ export interface operations {
     };
     listLoadwiseSales: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Optional park filter. Serves only loads whose agree-or-go-bare farm label names this park; a load whose animals disagree about their park (bare farm) is claimed by neither park and appears only in the unfiltered read. `total_loads` and the summary follow the filter. A malformed value is rejected, never silently ignored. */
+                park_id?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -20318,6 +20374,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoadwiseSales"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listLoadwiseWeights: {
+        parameters: {
+            query?: {
+                /** @description Same semantics as on listLoadwiseSales. */
+                park_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The unpriced load rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoadwiseWeights"];
                 };
             };
             401: components["responses"]["Unauthorized"];

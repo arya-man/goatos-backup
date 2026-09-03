@@ -13,7 +13,7 @@ import {
   request,
   type ApiResult,
 } from "@/lib/api/server";
-import type { LoadCostWrite, LoadwiseSales,
+import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights,
   FeedPurchase,
   FeedPurchaseOptions,
   FeedPurchasePage,
@@ -246,13 +246,39 @@ export async function getSalesOverview(
 }
 
 // The load-wise reconciliation: every purchased load's counts and money, served whole (the
-// newest window) by the procurement read. ONE bounded request, never a paged walk.
-export async function getLoadwiseSales(): Promise<ApiResult<LoadwiseSales>> {
+// newest window) by the procurement read. ONE bounded request, never a paged walk. park_id is
+// the top-bar park selector's value (a location UUID); the backend narrows rows, totals and
+// summary together so the page cannot show a filtered chart over unfiltered tiles.
+export async function getLoadwiseSales(
+  params: { park_id?: string } = {},
+): Promise<ApiResult<LoadwiseSales>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<LoadwiseSales>("/procurement/loadwise-sales", { cache: "no-store" }),
+    client.request<LoadwiseSales>("/procurement/loadwise-sales", {
+      cache: "no-store",
+      query: compactQuery({ park_id: params.park_id }),
+    }),
+  );
+}
+
+/**
+ * The UNPRICED load read for the ADG Analytics Comparison tab: identity, head counts and the
+ * bought-at weight, and nothing costed. A principal who may monitor weighing but may not read
+ * sales money is served this and only this; getLoadwiseSales stays behind sales read access.
+ */
+export async function getLoadwiseWeights(
+  params: { park_id?: string } = {},
+): Promise<ApiResult<LoadwiseWeights>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LoadwiseWeights>("/procurement/loadwise-weights", {
+      cache: "no-store",
+      query: compactQuery({ park_id: params.park_id }),
+    }),
   );
 }
 

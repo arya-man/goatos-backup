@@ -22,7 +22,9 @@ import { resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
 const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "nor", "of", "on", "or", "per", "the", "to", "with"]);
-const ALLOWED_ACRONYMS = new Set(["CEO", "COO", "CXO", "DLQ", "ET", "FMD", "HF", "HRMS", "ID", "KPI", "ORS", "PPR", "RFID", "SOP", "TT", "UHT"]);
+// "ADG" is allowed because the maintainer named the weighing analytics screen
+// "ADG Analytics" (2026-09-03); body copy under it still says "gain".
+const ALLOWED_ACRONYMS = new Set(["ADG", "CEO", "COO", "CXO", "DLQ", "ET", "FMD", "HF", "HRMS", "ID", "KPI", "ORS", "PPR", "RFID", "SOP", "TT", "UHT"]);
 
 function stripPlaceholders(value) {
   return value

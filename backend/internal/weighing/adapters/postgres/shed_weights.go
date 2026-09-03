@@ -47,9 +47,12 @@ import (
 //	  selected-window growth endpoint, plus whole-shed pens with first/latest weighed dates
 //	  in the selected window. It is a weighted mean over ANIMALS, never an average of
 //	  per-shed averages.
-//	  at_or_above_30kg / 35kg range over a STRICTLY NARROWER key set: individual_animal
-//	  sheds only. That is why threshold_basis_animals is returned as their own denominator
-//	  rather than reusing animals_weighed, which spans both categories.
+//	  at_or_above_30kg / 35kg range over the SAME key set as animals_weighed: each individual
+//	  tag at its latest selected-window weight, plus each whole-shed pen counted ALL-OR-NONE
+//	  at the pen's latest average (maintainer decision 2026-09-03, "include lump-sum also";
+//	  the identical trade the band board took on 2026-09-01). threshold_basis_animals is
+//	  therefore equal to animals_weighed and travels with the counts so a renderer never
+//	  pairs them with a narrower denominator, which is what the pre-2026-09-03 shape needed.
 //
 //	DISJOINT SOURCES, NOT DOUBLE-COUNTED: weighing_category is fixed at bucket creation and
 //	the write path only ever inserts into ONE of weighing_observations (per-animal) or
@@ -258,10 +261,12 @@ per_bucket AS (
          COALESCE(ind.avg_kg,  lump.avg_kg)          AS avg_kg,
          COALESCE(ind.total_kg, lump.total_kg)       AS total_kg,
          COALESCE(ind.last_weighed, lump.last_weighed) AS last_weighed,
-         COALESCE(ind.ge_lower, 0)                   AS ge_lower,
-         COALESCE(ind.ge_upper, 0)                   AS ge_upper,
-         CASE WHEN s.weighing_category = 'individual_animal'
-              THEN COALESCE(ind.animals, 0) ELSE 0 END AS threshold_basis
+         -- A whole-shed pen clears a threshold with ALL its animals when its average does,
+         -- and with none when it does not: one shed average cannot be split into the kids
+         -- above and below a line, so the pen is counted whole or not at all.
+         COALESCE(ind.ge_lower, CASE WHEN lump.avg_kg >= $5::numeric THEN lump.animals END, 0) AS ge_lower,
+         COALESCE(ind.ge_upper, CASE WHEN lump.avg_kg >= $6::numeric THEN lump.animals END, 0) AS ge_upper,
+         COALESCE(ind.animals, lump.animals, 0)      AS threshold_basis
   FROM scoped s
   LEFT JOIN ind  ON ind.campaign_shed_id  = s.campaign_shed_id
   LEFT JOIN lump ON lump.campaign_shed_id = s.campaign_shed_id
@@ -316,7 +321,7 @@ summary_individual AS (
 ),
 summary_lump_points AS (
   SELECT s.park_id, s.location_id, COALESCE(s.partition_label, '') AS partition_label,
-         sh.shed_observation_id, sh.animal_count, sh.weight_kg, sh.accepted_at,
+         sh.shed_observation_id, sh.animal_count, sh.weight_kg, sh.average_weight_kg, sh.accepted_at,
          (sh.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
   FROM scoped s
   JOIN weighing_shed_observations sh
@@ -334,7 +339,7 @@ summary_lump_points AS (
 ),
 summary_lump_latest AS (
   SELECT DISTINCT ON (park_id, location_id, partition_label)
-         park_id, location_id, partition_label, animal_count, weight_kg, d
+         park_id, location_id, partition_label, animal_count, weight_kg, average_weight_kg, d
   FROM summary_lump_points
   ORDER BY park_id, location_id, partition_label, accepted_at DESC, shed_observation_id DESC
 ),
@@ -347,8 +352,16 @@ summary_lump_first AS (
 summary_lump AS (
   -- Same whole-shed denominator as growth.go: a pen contributes only when there
   -- is a prior point and a latest point, and it contributes the latest head count.
+  --
+  -- THRESHOLDS COUNT THE PEN WHOLE OR NOT AT ALL (maintainer decision 2026-09-03). A pen
+  -- whose latest average clears 30 kg puts every one of its animals over the line; a pen
+  -- under it puts none. Splitting the head count by the average would invent a
+  -- distribution nobody measured -- the same all-at-the-pen-average trade the band
+  -- board recorded on 2026-09-01, extended to the two sale-threshold cards.
   SELECT COALESCE(sum(l.animal_count), 0)::int AS animals,
-         sum(l.weight_kg) AS total_kg
+         sum(l.weight_kg) AS total_kg,
+         COALESCE(sum(l.animal_count) FILTER (WHERE l.average_weight_kg >= $5::numeric), 0)::int AS ge_lower,
+         COALESCE(sum(l.animal_count) FILTER (WHERE l.average_weight_kg >= $6::numeric), 0)::int AS ge_upper
   FROM summary_lump_latest l
   JOIN summary_lump_first f
     ON f.park_id = l.park_id
@@ -362,9 +375,9 @@ summary_rollup AS (
     COALESCE(si.animals, 0) AS individual_animals_weighed,
     COALESCE(sl.animals, 0) AS lump_sum_animals_weighed,
     COALESCE(si.total_kg, 0) + COALESCE(sl.total_kg, 0) AS total_weight_kg,
-    COALESCE(si.ge_lower, 0) AS ge_lower,
-    COALESCE(si.ge_upper, 0) AS ge_upper,
-    COALESCE(si.animals, 0) AS threshold_basis
+    COALESCE(si.ge_lower, 0) + COALESCE(sl.ge_lower, 0) AS ge_lower,
+    COALESCE(si.ge_upper, 0) + COALESCE(sl.ge_upper, 0) AS ge_upper,
+    COALESCE(si.animals, 0) + COALESCE(sl.animals, 0) AS threshold_basis
   FROM summary_individual si CROSS JOIN summary_lump sl
 )
 SELECT b.location_id, b.park_id,

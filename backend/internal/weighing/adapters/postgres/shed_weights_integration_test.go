@@ -143,6 +143,67 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'WINDOW-NEW-A', 29.0, $4::uuid, $5::uuid, 
 	}
 }
 
+// SALE THRESHOLDS COUNT WHOLE-SHED PENS TOO (maintainer decision 2026-09-03, "in 30 kg and
+// 35 kg above include lump-sum also"). Until then at_or_above_30kg / 35kg read per-animal sheds
+// only, so a farm that weighs most kids by the pen read the two cards from a third of the herd.
+//
+// A pen is counted ALL-OR-NONE at its latest average: the pen below averages 31 kg with 4
+// animals, so it adds 4 to the 30 kg count and 0 to the 35 kg count. The denominator carried
+// beside the counts must widen with them, or a renderer would print "6 of 2".
+//
+// Delta-asserted against the same query before the pen is seeded, so the shared fixture's own
+// scans cannot shift the expectation.
+func TestShedWeightsSaleThresholdsCountWholeShedPensAtThePenAverage(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	lgSeedSecondCampaign(t, ctx, pool)
+
+	aug1 := time.Date(2026, 8, 1, 6, 0, 0, 0, time.UTC)
+	aug8 := time.Date(2026, 8, 8, 6, 0, 0, 0, time.UTC)
+	from := time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+
+	// Two scanned kids with a prior weigh and a window endpoint: one clears 30 only, one clears 35.
+	seedShedWeightScan(t, ctx, pool, "THRESH-A", 28.0, aug1)
+	seedShedWeightScan(t, ctx, pool, "THRESH-A", 32.0, aug8)
+	seedShedWeightScan(t, ctx, pool, "THRESH-B", 30.0, aug1)
+	seedShedWeightScan(t, ctx, pool, "THRESH-B", 36.0, aug8)
+
+	before, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
+	if err != nil {
+		t.Fatalf("GetShedWeights before pen: %v", err)
+	}
+	if before.Summary.AtOrAbove30Kg < 2 || before.Summary.AtOrAbove35Kg < 1 {
+		t.Fatalf("scanned kids must still count: got >=30 %d, >=35 %d", before.Summary.AtOrAbove30Kg, before.Summary.AtOrAbove35Kg)
+	}
+
+	// One whole-shed pen weighed twice in the window, 20.0 -> 31.0 kg average over 4 animals.
+	seedLumpSumObservation(t, ctx, pool, repoShedScope, 4, 20.0, aug1)
+	seedLumpSumObservation(t, ctx, pool, lgPerShedBkt2, 4, 31.0, aug8)
+
+	after, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "")
+	if err != nil {
+		t.Fatalf("GetShedWeights after pen: %v", err)
+	}
+	if got := after.Summary.AtOrAbove30Kg - before.Summary.AtOrAbove30Kg; got != 4 {
+		t.Fatalf("a pen averaging 31 kg must add ALL 4 of its animals to the 30 kg count, added %d", got)
+	}
+	if got := after.Summary.AtOrAbove35Kg - before.Summary.AtOrAbove35Kg; got != 0 {
+		t.Fatalf("a pen averaging 31 kg must add NONE of its animals to the 35 kg count, added %d", got)
+	}
+	if got := after.Summary.LumpSumAnimalsWeighed - before.Summary.LumpSumAnimalsWeighed; got != 4 {
+		t.Fatalf("the pen must join the lump-sum denominator with its 4 animals, added %d", got)
+	}
+	if after.Summary.ThresholdBasisAnimals != after.Summary.AnimalsWeighed {
+		t.Fatalf("threshold basis must widen with the counts: basis %d, animals weighed %d",
+			after.Summary.ThresholdBasisAnimals, after.Summary.AnimalsWeighed)
+	}
+}
+
 // STATUS MATRIX. weighing_campaign_sheds.status spans pending / in_progress / completed /
 // canceled. Canceled is work that was called off, so it must leave sheds_in_scope entirely --
 // counting it inflates the "N of M sheds weighed" denominator with sheds nobody intended to

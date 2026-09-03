@@ -56,6 +56,11 @@ type LoadwiseLoad struct {
 	Mortality  int // exit_reason = died
 	OtherExits int // culled / transferred / lost — real outcomes, not discrepancies
 	Remaining  int // still alive on farm
+	// Remaining split by species (maintainer request 2026-09-03): the Comparison tab values the
+	// stock still on farm at a live-weight rate per species, so the head count arrives split.
+	// An animal with any other species value is in Remaining and in neither of these.
+	RemainingSheep int
+	RemainingGoats int
 	// Unaccounted is Purchased minus every outcome above. Non-zero means the load and the register
 	// disagree — animals the load declares that nothing accounts for (positive), or more animals
 	// attributed than the load declares (negative). Either way the row shows it in red; it is

@@ -7769,6 +7769,18 @@ paths:
         `remaining_value` prices the animals still on farm at `avg_sold_price`, whose
         `price_basis` is `load` (its own priced sales), `overall` (the tenant-wide average) or
         `none` (no estimate). The `summary` aggregates exactly the served rows.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: >-
+            Optional park filter. Serves only loads whose agree-or-go-bare farm label names
+            this park; a load whose animals disagree about their park (bare farm) is claimed
+            by neither park and appears only in the unfiltered read. `total_loads` and the
+            summary follow the filter. A malformed value is rejected, never silently ignored.
       responses:
         "200":
           description: The load-wise reconciliation.
@@ -7776,6 +7788,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LoadwiseSales"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/loadwise-weights:
+    get:
+      tags:
+        - Procurement
+      operationId: listLoadwiseWeights
+      summary: The purchased loads, unpriced, for the ADG Analytics Comparison tab.
+      description: >-
+        The SAME loads, park filter and window as listLoadwiseSales, projected down to identity,
+        head counts and the bought-at weight -- and nothing priced. It exists so a principal who
+        may monitor weighing but may not read sales money (the Growth Director) can put a load's
+        purchase weight beside its latest weighing without receiving purchase cost, sale value or
+        profit. The priced read stays behind sales read access.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Same semantics as on listLoadwiseSales.
+      responses:
+        "200":
+          description: The unpriced load rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoadwiseWeights"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -15080,7 +15125,8 @@ components:
       description: One procurement load's reconciliation row on the Sales page.
       required:
         [load_id, vendor_name, status, declared_count, purchased, sold, mortality, other_exits,
-         remaining, unaccounted, sold_value, sold_priced, price_basis, row_version]
+         remaining, remaining_sheep, remaining_goats, unaccounted, sold_value, sold_priced,
+         price_basis, row_version]
       # profit_loss is nullable-by-absence (no recorded cost), so it is deliberately not required.
       properties:
         load_id: { type: string, format: uuid }
@@ -15174,6 +15220,15 @@ components:
           description: >-
             The denominator behind avg_sale_weight_kg -- the animals that carry a sale weight.
             Published so a client can say the average is over a sample rather than imply a total.
+        remaining_sheep:
+          type: integer
+          description: >-
+            Of `remaining`, the sheep. With remaining_goats it lets a client value today's stock
+            at a per-species live-weight rate; an animal of any other species is in `remaining`
+            and in neither count.
+        remaining_goats:
+          type: integer
+          description: Of `remaining`, the goats. See remaining_sheep.
         arrived_on:
           type: string
           format: date
@@ -15272,6 +15327,41 @@ components:
           description: >-
             Sums only the loads that HAVE a profit figure (a recorded cost) — the same key set as
             costed_loads, so priced and unpriced loads are never mixed into one total.
+    LoadwiseWeights:
+      type: object
+      additionalProperties: false
+      required: [loads, total_loads]
+      properties:
+        loads:
+          type: array
+          items:
+            $ref: "#/components/schemas/LoadwiseWeightLoad"
+        total_loads:
+          type: integer
+          description: Same as listLoadwiseSales' total_loads for the same filter.
+    LoadwiseWeightLoad:
+      type: object
+      additionalProperties: false
+      description: One purchased load with no priced field. See listLoadwiseWeights.
+      required: [load_id, vendor_name, purchased, remaining, remaining_sheep, remaining_goats]
+      properties:
+        load_id: { type: string, format: uuid }
+        load_ref:
+          type: string
+          description: The farm's own load number, rendered verbatim. Absent when unrecorded.
+        vendor_name: { type: string }
+        purchase_date: { type: string, format: date }
+        farm:
+          type: string
+          description: The agree-or-go-bare park code (CBE/CPT), "" when bare.
+        purchased: { type: integer }
+        remaining: { type: integer, description: Animals still alive on farm. }
+        remaining_sheep: { type: integer }
+        remaining_goats: { type: integer }
+        avg_purchase_weight_kg:
+          type: number
+          format: double
+          description: Average bought-at weight per animal; absent when no purchase weight is recorded.
     LoadwiseSales:
       type: object
       required: [loads, total_loads, summary]
@@ -29826,15 +29916,18 @@ components:
             Null when nothing was weighed, so a client never renders 0.0 kg for "no data".
         at_or_above_30kg:
           type: integer
+          description: >-
+            Animals at or above 30 kg: each scanned tag at its latest weight in the window, plus
+            every whole-shed pen counted all-or-none at the pen's latest average (a pen averaging
+            31 kg contributes all of its animals; one averaging 29 kg contributes none).
         at_or_above_35kg:
           type: integer
+          description: Same basis as at_or_above_30kg, against 35 kg.
         threshold_basis_animals:
           type: integer
           description: >-
-            The real denominator for the two threshold counts: animals in PER-ANIMAL sheds only.
-            A whole-shed weigh reports one average and cannot say how many of its animals cleared
-            a threshold, so it contributes nothing here. Rendering the counts against
-            animals_weighed instead would understate the share.
+            The denominator for the two threshold counts. Since the whole-shed pens joined them it
+            equals animals_weighed; it stays here so the denominator always travels with the counts.
     WeighingShedWeightsResponse:
       type: object
       additionalProperties: false

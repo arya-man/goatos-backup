@@ -16,7 +16,7 @@ import (
 
 // LoadwiseService is the behaviour this transport depends on.
 type LoadwiseService interface {
-	LoadwiseSales(ctx context.Context, tenantID string) (domain.LoadwiseSales, error)
+	LoadwiseSales(ctx context.Context, tenantID, parkID string) (domain.LoadwiseSales, error)
 	SetLoadCost(ctx context.Context, tenantID, loadID string, edit domain.LoadCostEdit, actorID string) error
 }
 
@@ -40,6 +40,7 @@ func NewLoadwiseHandler(service LoadwiseService, log ...*slog.Logger) *LoadwiseH
 // table is matched by method + pattern, and a mismatch serves the route ungated.
 func RegisterLoadwise(mux *http.ServeMux, h *LoadwiseHandler) {
 	mux.HandleFunc("GET /procurement/loadwise-sales", h.LoadwiseSales)
+	mux.HandleFunc("GET /procurement/loadwise-weights", h.LoadwiseWeights)
 	mux.HandleFunc("PUT /procurement/loads/{load_id}/cost", h.SetLoadCost)
 }
 
@@ -93,6 +94,11 @@ type loadwiseLoadPayload struct {
 	// The load's AGE: whole days since it was bought, at today's business date. A different clock
 	// from fattening_days, which starts on arrival and stops at sale.
 	DaysSincePurchase *int `json:"days_since_purchase,omitempty"`
+
+	// The remaining animals by species, for valuing today's stock at a per-species live-weight
+	// rate. They add up to at most `remaining`.
+	RemainingSheep int `json:"remaining_sheep"`
+	RemainingGoats int `json:"remaining_goats"`
 
 	SoldValue      float64  `json:"sold_value"`
 	SoldPriced     int      `json:"sold_priced"`
@@ -169,9 +175,10 @@ type loadwisePayload struct {
 	Summary             loadwiseSummaryPayload `json:"summary"`
 }
 
-// LoadwiseSales serves GET /procurement/loadwise-sales.
+// LoadwiseSales serves GET /procurement/loadwise-sales. park_id optionally narrows the rows to
+// loads whose farm label names that park — the same `park` value the top-bar selector writes.
 func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) {
-	out, err := h.service.LoadwiseSales(r.Context(), tenantID(r))
+	out, err := h.service.LoadwiseSales(r.Context(), tenantID(r), r.URL.Query().Get("park_id"))
 	if err != nil {
 		h.writeErr(w, r, app.LoadwiseHTTPError(err))
 		return
@@ -211,6 +218,9 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			DaysOnFarmSoFar:     l.DaysOnFarmSoFar,
 			DaysSincePurchase:   l.DaysSincePurchase,
 
+			RemainingSheep: l.RemainingSheep,
+			RemainingGoats: l.RemainingGoats,
+
 			SoldValue:      l.SoldValue,
 			SoldPriced:     l.SoldPriced,
 			AvgSoldPrice:   l.AvgSoldPrice,
@@ -245,6 +255,58 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			ProfitLoss:     out.Summary.ProfitLoss,
 		},
 	})
+}
+
+// loadwiseWeightLoadPayload is the NARROW projection of a load for the ADG Analytics Comparison
+// tab: identity, head counts and the bought-at weight, and NOTHING priced. It exists because
+// that tab is a weighing screen read by the Growth Director, whose WeighingMonitor grant must
+// not become a door to purchase cost, sale value and profit (review finding on PR 174). The
+// money read stays SalesRead-only; a screen that wants both holds both permissions.
+type loadwiseWeightLoadPayload struct {
+	LoadID       string `json:"load_id"`
+	LoadRef      string `json:"load_ref,omitempty"`
+	VendorName   string `json:"vendor_name"`
+	PurchaseDate string `json:"purchase_date,omitempty"`
+	Farm         string `json:"farm,omitempty"`
+
+	Purchased      int `json:"purchased"`
+	Remaining      int `json:"remaining"`
+	RemainingSheep int `json:"remaining_sheep"`
+	RemainingGoats int `json:"remaining_goats"`
+
+	AvgPurchaseWeightKg *float64 `json:"avg_purchase_weight_kg,omitempty"`
+}
+
+type loadwiseWeightsPayload struct {
+	Loads      []loadwiseWeightLoadPayload `json:"loads"`
+	TotalLoads int                         `json:"total_loads"`
+}
+
+// LoadwiseWeights serves GET /procurement/loadwise-weights: the same loads, the same park filter
+// and the same window as LoadwiseSales, projected down to the fields the weight comparison
+// needs. Same service call, so the two reads can never disagree about which loads exist.
+func (h *LoadwiseHandler) LoadwiseWeights(w http.ResponseWriter, r *http.Request) {
+	out, err := h.service.LoadwiseSales(r.Context(), tenantID(r), r.URL.Query().Get("park_id"))
+	if err != nil {
+		h.writeErr(w, r, app.LoadwiseHTTPError(err))
+		return
+	}
+	loads := make([]loadwiseWeightLoadPayload, 0, len(out.Loads))
+	for _, l := range out.Loads {
+		loads = append(loads, loadwiseWeightLoadPayload{
+			LoadID:              l.LoadID,
+			LoadRef:             l.LoadRef,
+			VendorName:          l.VendorName,
+			PurchaseDate:        l.PurchaseDate,
+			Farm:                l.Farm,
+			Purchased:           l.Purchased,
+			Remaining:           l.Remaining,
+			RemainingSheep:      l.RemainingSheep,
+			RemainingGoats:      l.RemainingGoats,
+			AvgPurchaseWeightKg: l.AvgPurchaseWeightKg,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, loadwiseWeightsPayload{Loads: loads, TotalLoads: out.TotalLoads})
 }
 
 type loadCostWritePayload struct {
