@@ -269,6 +269,7 @@ internal fun buildPcCareTaskViewModel(
     reader: PcCareFakeReaderPort = PcCareFakeReaderPort(),
     analytics: FakeAnalyticsPort = FakeAnalyticsPort(),
     syncRepository: SyncRepository = MinimalPcCareSyncRepository(),
+    approveView: Boolean = false,
 ): PcCareTaskViewModel = PcCareTaskViewModel(
     repository = repo,
     proofCaptureRepository = proofRepo,
@@ -279,5 +280,11 @@ internal fun buildPcCareTaskViewModel(
     syncRepository = syncRepository,
     analytics = analytics,
     crashReporter = NoopCrashReporter(),
-    savedStateHandle = SavedStateHandle(mapOf("task_id" to "task-1", "title" to "Hoof trimming")),
+    savedStateHandle = SavedStateHandle(
+        buildMap {
+            put("task_id", "task-1")
+            put("title", "Hoof trimming")
+            if (approveView) put("approve", "1")
+        },
+    ),
 )

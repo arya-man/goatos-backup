@@ -70,6 +70,7 @@ import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
 import sg.mesha.goatos.core.network.dto.PcCareScanRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareScanResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareStockVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
@@ -818,6 +819,14 @@ interface AppApiService {
     suspend fun cancelPcCareTask(
         @Path("task_id") taskId: String,
     ): Unit
+
+    // The PC Director's approve/reject on a submitted vaccine-stock task (maintainer decision
+    // 2026-09-02): gated server-side on pc_care.stock_approve — never the verifier's route.
+    @POST("app/pc-care/tasks/{task_id}/stock-verdict")
+    suspend fun recordPcCareStockVerdict(
+        @Path("task_id") taskId: String,
+        @Body request: PcCareStockVerdictRequestDto,
+    ): PcCareTaskDto
 
     // ------------------------------------------------------------------
     // Toxin (aflatoxin strip test, maintainer decision 2026-08-25)
@@ -1699,6 +1708,11 @@ class RetrofitAppApi(
     ): PcCareTaskDto = service.createPcCareTask(idempotencyKey, request)
 
     override suspend fun cancelPcCareTask(taskId: String) = service.cancelPcCareTask(taskId)
+
+    override suspend fun recordPcCareStockVerdict(
+        taskId: String,
+        request: PcCareStockVerdictRequestDto,
+    ): PcCareTaskDto = service.recordPcCareStockVerdict(taskId, request)
 
     override suspend fun getToxinTasks(
         filter: String?,

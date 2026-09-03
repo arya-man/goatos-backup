@@ -221,6 +221,34 @@ internal fun PcCarePrimaryButton(
     }
 }
 
+/** Danger action, the SAME size as [PcCarePrimaryButton] (52dp), with a danger outline. */
+@Composable
+internal fun PcCareDangerButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .heightIn(min = 52.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(MeshaColors.Surf2)
+            .border(1.dp, if (enabled) MeshaColors.Danger else MeshaColors.Hair, RoundedCornerShape(15.dp))
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (enabled) MeshaColors.Danger else MeshaColors.Faint,
+            style = MeshaType.button,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** Secondary (ghost) wizard action, matching the weighing surfaces. */
 @Composable
 internal fun PcCareGhostButton(

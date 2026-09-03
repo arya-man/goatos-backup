@@ -15,20 +15,38 @@ type ReconcileInventoryVaccineTasksResult struct {
 	AssigneesInserted     int64
 	RequirementsUpserted  int64
 	LegacyShedTasksClosed int64
-	DirectorAssigneeCount int
+	// DirectorAssigneesRemoved counts pc_director assignee rows stripped from unfinished
+	// per-vaccine stock tasks during the 2026-09-02 operator cutover.
+	DirectorAssigneesRemoved int64
+	// ParksMissingOperators counts parks that needed a stock task on this pass but have NO
+	// active vaccination operator — those tasks are NOT created (never a fallback assignee)
+	// and the caller must surface this loudly as a park-config gap.
+	ParksMissingOperators int
 }
 
-// ReconcileInventoryVaccineTasks creates PC-director fridge-stock tasks seven days before
-// vaccination drive dates. The source is vaccination_drive_assignments, the same durable drive plan
-// used by operator vaccination screens, so direct DB edits are picked up by the kernel's periodic
-// pass without depending on Pub/Sub events.
+// ReconcileInventoryVaccineTasks creates fridge-stock tasks seven days before vaccination drive
+// dates. The source is vaccination_drive_assignments, the same durable drive plan used by
+// operator vaccination screens, so direct DB edits are picked up by the kernel's periodic pass
+// without depending on Pub/Sub events.
 //
 // GRAIN (maintainer decision 2026-08-27): one task per (park, vaccine, task date), NEVER per shed.
-// Stock lives in the park's fridge, so the director's question is "are there N doses of FMD for
-// everything scheduled that day?" — which sheds those doses are for is irrelevant to the fridge.
+// Stock lives in the park's fridge, so the question is "are there N doses of FMD for everything
+// scheduled that day?" — which sheds those doses are for is irrelevant to the fridge.
 // Doses are counted at the obligation grain (count(DISTINCT obligation_id)) summed across every
 // shed of that park's drives on the target date, so one animal is one dose no matter how the
 // drive is split across pens.
+//
+// ASSIGNEES (maintainer decision 2026-09-02, SUPERSEDING the PC-director assignment): each
+// park's task is assigned to that PARK'S OWN VACCINATION OPERATORS — the director cannot be in
+// both farms, so the people who work vaccination there film the fridge, and the PC Director
+// approves the submitted videos on the stock-verdict route. The operator pool is the same
+// position/duty definition the vaccination drive planner uses (active non-director positions
+// scoped to the park whose duties execute preventive_care/vaccination), without the per-day
+// absence/week-off filters — the task is multi-assignee and lives for days, so any teammate can
+// record it. A park with NO such operator gets NO task and is reported loudly
+// (ParksMissingOperators); a fallback assignee is never invented. The same pass strips any
+// remaining pc_director assignee off unfinished per-vaccine tasks so an installed APK cannot
+// keep offering the director a camera.
 //
 // Cutover: any still-open legacy per-shed inventory task (shed_id IS NOT NULL) is canceled on
 // every pass; the per-vaccine tasks replace them. Canceling repeatedly is a no-op because the
@@ -43,21 +61,11 @@ func (r *Repository) ReconcileInventoryVaccineTasks(ctx context.Context, tenantI
 
 	var result ReconcileInventoryVaccineTasksResult
 	err := r.pool.QueryRow(ctx, `-- scale-guard:ignore: bounded kernel reconciliation over a seven-day window; materializes tasks/requirements for readers.
--- projection-review: membership=vaccination_drive_assignments exact assignment or exact assignment_members when present; group_key=tenant_id + park_id + lower(btrim(vaccine_label)) + task_date; join_cardinality=protocol_rule_dimensions collapsed by LATERAL LIMIT 1 and obligations deduped by count(DISTINCT obligation_id); pagination=single bounded kernel reconciliation over as_of..as_of+7 before task listing; scope=park-level fridge stock tasks and legacy shed-scoped rows canceled during cutover.
-WITH directors AS (
-  SELECT array_agg(m.user_id ORDER BY m.display_name, m.user_id) AS user_ids,
-         min(m.user_id::text) AS created_by,
-         count(*)::int AS n
-  FROM workforce_members m
-  WHERE m.tenant_id = $1::uuid
-    AND m.status = 'active'
-    AND m.user_id IS NOT NULL
-    AND m.primary_role_hint = 'pc_director'
-),
+-- projection-review: membership=vaccination_drive_assignments exact assignment or exact assignment_members when present; group_key=tenant_id + park_id + lower(btrim(vaccine_label)) + task_date; join_cardinality=protocol_rule_dimensions collapsed by LATERAL LIMIT 1, obligations deduped by count(DISTINCT obligation_id), and stock_operators collapsed to one row per park (array_agg DISTINCT over the position/duty fan-out); pagination=single bounded kernel reconciliation over as_of..as_of+7 before task listing; scope=park-level fridge stock tasks assigned to that park's own vaccination operators, legacy shed-scoped rows and director assignees retired during cutover.
 -- One row per (park, vaccine, task_date): the doses needed across EVERY shed of that park's
 -- drives on the target date. The vaccine label resolution mirrors the operator screens'
 -- protocol_rule_dimensions-first fallback chain.
-source_requirements AS (
+WITH source_requirements AS (
   SELECT
     v.tenant_id,
     v.park_id,
@@ -123,12 +131,59 @@ source_requirements AS (
     )
   GROUP BY v.tenant_id, v.park_id, (v.planned_date - 7), 4
 ),
+requirement_parks AS (
+  SELECT DISTINCT tenant_id, park_id FROM source_requirements WHERE required_doses > 0
+),
+-- Each park's vaccination operator pool: active non-director positions scoped to the park whose
+-- duties execute preventive_care/vaccination — the drive planner's candidate definition, minus
+-- the per-day absence/week-off filters (the task is multi-assignee and lives for days).
+stock_operators AS (
+  SELECT rp.park_id,
+         array_agg(DISTINCT wm.user_id) AS user_ids,
+         min(wm.user_id::text) AS created_by
+  FROM requirement_parks rp
+  JOIN locations park_loc
+    ON park_loc.tenant_id = rp.tenant_id
+   AND park_loc.location_id = rp.park_id
+   AND park_loc.status = 'active'
+  JOIN workforce_positions wp
+    ON wp.tenant_id = rp.tenant_id
+   AND wp.status = 'active'
+   AND wp.valid_from <= $2::date + interval '1 day'
+   AND (wp.valid_to IS NULL OR wp.valid_to > $2::date)
+   AND wp.position_tier <> 'director'
+   AND (
+     (wp.scope_type = 'center' AND wp.scope_id IN (rp.park_id, park_loc.parent_location_id))
+     OR (wp.scope_type = 'shed' AND wp.scope_id IN (
+       SELECT l.location_id
+       FROM locations l
+       WHERE l.tenant_id = rp.tenant_id
+         AND l.parent_location_id = rp.park_id
+         AND l.location_type = 'shed'
+         AND l.status = 'active'
+     ))
+   )
+  JOIN position_module_duties pmd
+    ON pmd.tenant_id = wp.tenant_id
+   AND pmd.position_code = wp.position_code
+   AND pmd.status = 'active'
+   AND pmd.effective_from <= $2::date + interval '1 day'
+   AND (pmd.effective_to IS NULL OR pmd.effective_to > $2::date)
+   AND pmd.duty_type = 'execute'
+   AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+  JOIN workforce_members wm
+    ON wm.tenant_id = wp.tenant_id
+   AND wm.workforce_member_id = wp.workforce_member_id
+   AND wm.status = 'active'
+   AND wm.user_id IS NOT NULL
+  GROUP BY rp.park_id
+),
+-- A park with no operator pool creates NO task (the inner join) — never a fallback assignee.
 source_tasks AS (
-  SELECT tenant_id, park_id, task_date, vaccine_label,
-         (SELECT created_by FROM directors) AS created_by
-  FROM source_requirements
-  WHERE required_doses > 0
-    AND (SELECT n FROM directors) > 0
+  SELECT sr.tenant_id, sr.park_id, sr.task_date, sr.vaccine_label, so.created_by
+  FROM source_requirements sr
+  JOIN stock_operators so ON so.park_id = sr.park_id
+  WHERE sr.required_doses > 0
 ),
 inserted_tasks AS (
   INSERT INTO pc_care_tasks (
@@ -200,9 +255,28 @@ legacy_shed_tasks AS (
 ),
 inserted_assignees AS (
   INSERT INTO pc_care_task_assignees (tenant_id, task_id, operator_user_id)
-  SELECT lt.tenant_id, lt.task_id, unnest((SELECT user_ids FROM directors))
+  SELECT lt.tenant_id, lt.task_id, unnest(so.user_ids)
   FROM live_tasks lt
+  JOIN stock_operators so ON so.park_id = lt.park_id
   ON CONFLICT DO NOTHING
+  RETURNING 1
+),
+-- 2026-09-02 cutover: strip any remaining pc_director assignee off UNFINISHED per-vaccine
+-- stock tasks — the director judges the videos and must not be offered a camera. A submitted
+-- or completed task keeps its assignee history untouched.
+removed_director_assignees AS (
+  DELETE FROM pc_care_task_assignees a
+  USING pc_care_tasks t, workforce_members dm
+  WHERE t.tenant_id = $1::uuid
+    AND t.category = $4
+    AND t.vaccine_label IS NOT NULL
+    AND t.status IN ('open', 'rework')
+    AND t.work_state IN ('scheduled', 'delayed')
+    AND a.tenant_id = t.tenant_id
+    AND a.task_id = t.task_id
+    AND dm.tenant_id = a.tenant_id
+    AND dm.user_id = a.operator_user_id
+    AND dm.primary_role_hint = 'pc_director'
   RETURNING 1
 ),
 requirement_source AS (
@@ -280,13 +354,17 @@ SELECT
   (SELECT count(*) FROM inserted_assignees)::bigint,
   (SELECT count(*) FROM upserted_requirements)::bigint,
   (SELECT count(*) FROM canceled_legacy_shed_tasks)::bigint,
-  coalesce((SELECT n FROM directors), 0)::int`,
+  (SELECT count(*) FROM removed_director_assignees)::bigint,
+  (SELECT count(*)::int
+   FROM requirement_parks rp
+   WHERE NOT EXISTS (SELECT 1 FROM stock_operators so WHERE so.park_id = rp.park_id))`,
 		tenantID, asOfDate, latestVaccinationDate, domain.CategoryInventoryVaccine).Scan(
 		&result.TasksCreated,
 		&result.AssigneesInserted,
 		&result.RequirementsUpserted,
 		&result.LegacyShedTasksClosed,
-		&result.DirectorAssigneeCount,
+		&result.DirectorAssigneesRemoved,
+		&result.ParksMissingOperators,
 	)
 	if err != nil {
 		return result, fmt.Errorf("pccare: reconcile inventory vaccine tasks: %w", err)

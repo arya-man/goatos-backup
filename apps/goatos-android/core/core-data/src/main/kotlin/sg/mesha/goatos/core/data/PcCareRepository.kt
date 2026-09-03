@@ -35,6 +35,7 @@ import sg.mesha.goatos.core.network.dto.PcCareAnimalRowDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
+import sg.mesha.goatos.core.network.dto.PcCareStockVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 
 /** One screen-page of PC Care tasks — bounds BOTH the network request and the Room window
@@ -193,6 +194,14 @@ interface PcCareRepository {
     suspend fun createTask(idempotencyKey: String, request: PcCareCreateTaskRequestDto): PcCareTaskDto
 
     suspend fun cancelTask(taskId: String)
+
+    /**
+     * The PC Director's approve/reject on a submitted vaccine-stock task (maintainer decision
+     * 2026-09-02). A live online call — the director is looking at the videos when deciding —
+     * whose echoed task is written through to the Room caches so every list re-renders the new
+     * status immediately.
+     */
+    suspend fun recordStockVerdict(taskId: String, verdict: String, reason: String): AppResult<PcCareTaskDto>
 }
 
 class DefaultPcCareRepository(
@@ -452,6 +461,38 @@ class DefaultPcCareRepository(
         api.cancelPcCareTask(taskId)
         detailDao.delete(taskId)
     }
+
+    override suspend fun recordStockVerdict(
+        taskId: String,
+        verdict: String,
+        reason: String,
+    ): AppResult<PcCareTaskDto> = try { // offline-first-guard:ignore: a live judgement on live videos; the echoed task is written through to Room below
+        val task = api.recordPcCareStockVerdict(
+            taskId,
+            PcCareStockVerdictRequestDto(verdict = verdict, reason = reason),
+        )
+        upsertDetail(task)
+        persistTaskSubmitResult(taskId, task.status, task.rowVersion, task.animalCount)
+        AppResult.Ok(task)
+    } catch (t: Throwable) {
+        if (t is CancellationException) throw t
+        AppResult.Err(stockVerdictFailureMessage(t), t)
+    }
+
+    /** Farm-worded failure copy for the director's verdict call — never technical wording. */
+    private fun stockVerdictFailureMessage(t: Throwable): String =
+        when (httpStatusCodeOf(t)) {
+            409 -> "This task is not awaiting approval"
+            else -> "Could not save the decision. Check the connection and try again"
+        }
+
+    private fun httpStatusCodeOf(t: Throwable): Int? =
+        if (t.javaClass.name == "retrofit2.HttpException") {
+            // exception:exempt reflection probe on an optional dependency; a failed probe just falls back to generic copy
+            runCatching { t.javaClass.getMethod("code").invoke(t) as? Int }.getOrNull()
+        } else {
+            null
+        }
 
     private suspend fun upsertDetail(dto: PcCareTaskDto) {
         detailDao.upsert(

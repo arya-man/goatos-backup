@@ -582,6 +582,9 @@ object AnalyticsEvents {
     /** Stock proof submit write was enqueued or failed. */
     const val PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED = "pc_care_stock_proof_submit_enqueued"
 
+    /** The PC Director's stock verdict (approve/reject) was sent, landed, or failed. */
+    const val PC_CARE_STOCK_VERDICT = "pc_care_stock_verdict"
+
     /** A scanned tag was accepted into the task (queued durably for sync). */
     const val PC_CARE_SCAN_ACCEPTED = "pc_care_scan_accepted"
 

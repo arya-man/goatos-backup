@@ -74,7 +74,9 @@ class AppProofMediaProcessor @Inject constructor(
         val outputWidth = outputBitmap.width
         val outputHeight = outputBitmap.height
         return try {
-            drawAuditOverlayAtBottomRight(
+            // Photo overlay sits TOP-LEFT, the same corner as the video overlay
+            // (drawAuditOverlayAtTopLeft in processVideo) so both proofs read identically.
+            drawAuditOverlayAtTopLeft(
                 canvas = Canvas(outputBitmap),
                 width = outputBitmap.width,
                 height = outputBitmap.height,
@@ -239,22 +241,6 @@ class AppProofMediaProcessor @Inject constructor(
                 maxHeightFraction = VIDEO_OVERLAY_MAX_HEIGHT_FRACTION,
             )
         }
-
-    private fun drawAuditOverlayAtBottomRight(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        lines: List<String>,
-        textScale: Float,
-        maxWidthFraction: Float = DEFAULT_OVERLAY_MAX_WIDTH_FRACTION,
-        maxHeightFraction: Float = DEFAULT_OVERLAY_MAX_HEIGHT_FRACTION,
-    ) {
-        val layout = overlayLayout(lines, width, height, textScale, maxWidthFraction, maxHeightFraction)
-        canvas.save()
-        canvas.translate((width - layout.width).toFloat(), (height - layout.height).toFloat())
-        drawAuditOverlay(canvas, layout)
-        canvas.restore()
-    }
 
     private fun drawAuditOverlayAtTopLeft(
         canvas: Canvas,

@@ -99,6 +99,21 @@ class PcCareTaskViewModel @Inject constructor(
     /** Oversight drill (planner/monitor list tap): the screen is read-only regardless of status. */
     private val monitorView: Boolean = savedStateHandle.get<String>(ARG_MONITOR) == "1"
 
+    /**
+     * PC Director's stock-approval drill (maintainer decision 2026-09-02): the screen stays
+     * read-only like any monitor view, and ADDITIONALLY offers the approve/send-back verdict
+     * bar once the task is in review. Set from the backend's pc_care_stock_approve capability
+     * flag by the host — the server independently gates the verdict route.
+     */
+    private val approveView: Boolean = savedStateHandle.get<String>(ARG_APPROVE) == "1"
+
+    /**
+     * The category the launching tab carried on the route (e.g. inventory_vaccine). Known
+     * BEFORE the task detail loads, so the screen can pick the task-proof (fridge stock) face
+     * immediately instead of flashing the scan-and-record row while the detail is in flight.
+     */
+    private val routeCategory: String = savedStateHandle.get<String>(ARG_CATEGORY).orEmpty()
+
     private val json = Json { ignoreUnknownKeys = true }
 
     private data class LocalBits(
@@ -117,6 +132,10 @@ class PcCareTaskViewModel @Inject constructor(
         val readerStatusLabel: String = "",
         val readerConnected: Boolean = false,
         val taskProofPreviewUrls: Map<String, TaskProofPreviewUrl> = emptyMap(),
+        // PC Director's stock verdict (approve view only).
+        val verdictInFlight: Boolean = false,
+        val showRejectDialog: Boolean = false,
+        val rejectReasonInput: String = "",
     )
 
     private val local = MutableStateFlow(LocalBits())
@@ -255,6 +274,75 @@ class PcCareTaskViewModel @Inject constructor(
             // Handled by the host (navigates to the reader pairing screen).
             PcCareTaskEvent.ReconnectReader -> Unit
             PcCareTaskEvent.Back -> Unit
+            // PC Director's stock verdict (maintainer decision 2026-09-02).
+            PcCareTaskEvent.ApproveStock -> sendStockVerdict(STOCK_VERDICT_APPROVE, "")
+            PcCareTaskEvent.OpenRejectStock ->
+                local.update { it.copy(showRejectDialog = true) }
+            PcCareTaskEvent.DismissRejectStock ->
+                local.update { it.copy(showRejectDialog = false) }
+            is PcCareTaskEvent.RejectStockReasonChanged ->
+                local.update { it.copy(rejectReasonInput = event.value) }
+            PcCareTaskEvent.ConfirmRejectStock -> {
+                val reason = local.value.rejectReasonInput.trim()
+                if (reason.isNotEmpty()) sendStockVerdict(STOCK_VERDICT_REJECT, reason)
+            }
+        }
+    }
+
+    /**
+     * Sends the director's approve/send-back on the submitted fridge proof. A live online call
+     * (the director is looking at the videos); success re-reads the task so the new status
+     * renders immediately, failure keeps the screen with backend-worded copy.
+     */
+    private fun sendStockVerdict(verdict: String, reason: String) {
+        if (local.value.verdictInFlight) return
+        if (!approveView) return
+        local.update { it.copy(verdictInFlight = true, message = null) }
+        analytics.track(
+            AnalyticsEvents.PC_CARE_STOCK_VERDICT,
+            mapOf(AnalyticsEvents.Params.KIND to verdict, "task_id" to taskId),
+        )
+        viewModelScope.launch {
+            when (val result = repository.recordStockVerdict(taskId, verdict, reason)) {
+                is AppResult.Ok -> {
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_STOCK_VERDICT,
+                        mapOf(
+                            AnalyticsEvents.Params.KIND to verdict,
+                            AnalyticsEvents.Params.OUTCOME to "success",
+                            AnalyticsEvents.Params.STATUS to result.value.status,
+                        ),
+                    )
+                    local.update {
+                        it.copy(
+                            verdictInFlight = false,
+                            showRejectDialog = false,
+                            rejectReasonInput = "",
+                            message = if (verdict == STOCK_VERDICT_APPROVE) {
+                                "Approved — stock check complete"
+                            } else {
+                                "Sent back for another recording"
+                            },
+                        )
+                    }
+                    refresh()
+                }
+                is AppResult.Err -> {
+                    crashReporter.recordException(
+                        result.cause ?: IllegalStateException(result.message),
+                        "pc care stock verdict failed",
+                    )
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_STOCK_VERDICT,
+                        mapOf(
+                            AnalyticsEvents.Params.KIND to verdict,
+                            AnalyticsEvents.Params.OUTCOME to "failure",
+                            AnalyticsEvents.Params.REASON to result.message.take(MAX_REASON_CHARS),
+                        ),
+                    )
+                    local.update { it.copy(verdictInFlight = false, message = result.message) }
+                }
+            }
         }
     }
 
@@ -972,7 +1060,11 @@ class PcCareTaskViewModel @Inject constructor(
     // ---- State assembly ----------------------------------------------------------------------
 
     private fun pcCareIsTaskProofMode(detail: PcCareTaskDto?): Boolean =
-        detail?.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF || detail?.category == PC_CARE_CATEGORY_INVENTORY_VACCINE
+        // The route category settles the fridge-stock face before the detail arrives, so the
+        // scan-and-record row never flashes on the way in.
+        routeCategory == PC_CARE_CATEGORY_INVENTORY_VACCINE ||
+            detail?.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF ||
+            detail?.category == PC_CARE_CATEGORY_INVENTORY_VACCINE
 
     private fun pcCareEffectiveExpectedSlots(detail: PcCareTaskDto?): List<PcCareSlotDto> {
         if (detail == null) return emptyList()
@@ -1119,6 +1211,7 @@ class PcCareTaskViewModel @Inject constructor(
                     requiredDosesLabel = if (it.requiredDoses == 1) "1 dose" else "${it.requiredDoses} doses",
                 )
             },
+            taskProofMode = taskProofMode,
             taskProofSlot = if (taskProofMode) {
                 expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO }?.let { slot ->
                     pcCareBuildTaskProofSlot(slot, proofs, detail?.taskProofs.orEmpty(), bits.capturingSlotKey, bits.taskProofPreviewUrls)
@@ -1184,6 +1277,13 @@ class PcCareTaskViewModel @Inject constructor(
             readerName = bits.readerName,
             readerStatusLabel = bits.readerStatusLabel,
             readerConnected = bits.readerConnected,
+            // PC Director's verdict bar (maintainer decision 2026-09-02): offered ONLY on a
+            // submitted stock task, only to the approve-capable viewer — never mid-capture.
+            verdictOffered = approveView && taskProofMode &&
+                detail?.status == PC_CARE_STATUS_PENDING_VERIFICATION,
+            verdictInFlight = bits.verdictInFlight,
+            showRejectDialog = bits.showRejectDialog,
+            rejectReasonInput = bits.rejectReasonInput,
         )
     }
 
@@ -1210,6 +1310,11 @@ class PcCareTaskViewModel @Inject constructor(
         const val ARG_TAG_KEY = "tag_key"
         const val ARG_TAG_VERBATIM = "tag_verbatim"
         const val ARG_MONITOR = "monitor"
+        const val ARG_APPROVE = "approve"
+
+        /** Backend stock-verdict contract tokens (domain.StockVerdict*). */
+        internal const val STOCK_VERDICT_APPROVE = "approve"
+        internal const val STOCK_VERDICT_REJECT = "reject"
 
         private const val SCAN_NOTICE_DISMISS_MS = 4_000L
         private const val MAX_REASON_CHARS = 96

@@ -19,6 +19,7 @@ import (
 
 const (
 	pcDirector = "9c000000-0000-4000-8000-000000005004"
+	pcStockOp  = "9c000000-0000-4000-8000-000000005104"
 	pcProtocol = "9c000000-0000-4000-8000-000000007001"
 	pcVersion  = "9c000000-0000-4000-8000-000000007002"
 	pcRuleETTT = "9c000000-0000-4000-8000-000000007101"
@@ -27,7 +28,22 @@ const (
 	pcBatchP7  = "9c000000-0000-4000-8000-000000008007"
 )
 
-func TestReconcileInventoryVaccineTasksCreatesDirectorTaskFromDriveAssignments(t *testing.T) {
+func TestReconcileInventoryVaccineTasksAssignsParkOperators(t *testing.T) {
+	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
+}
+
+// 2026-09-02 operator-assignment change: the shared matrix already shifts the reconciliation
+// date across the 7-day trigger boundary (8-days-before creates nothing, 7-days-before creates
+// the task, later catch-up replays collapse onto the canonical T-7 task) — re-proven under the
+// stock_operators pool so a date shift cannot mint a second task per operator.
+func TestReconcileInventoryVaccineTasksOperatorPoolScheduledDateShift(t *testing.T) {
+	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
+}
+
+// 2026-09-02 operator-assignment change: the shared matrix walks the obligation status set
+// (scheduled counts; canceled stops counting; the all-canceled drive cancels the task) — the
+// same buckets must hold when the assignees come from the park operator pool.
+func TestReconcileInventoryVaccineTasksOperatorPoolEveryStatusMatrix(t *testing.T) {
 	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
 }
 
@@ -67,6 +83,7 @@ func testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierar
 
 	exec(`INSERT INTO workforce_members (tenant_id, display_code, display_name, status, primary_role_hint, user_id)
 VALUES ($1::uuid, 'PC-DIR', 'Chandrakant', 'active', 'pc_director', $2::uuid)`, pcTenant, pcDirector)
+	seedPCCareStockOperator(t, ctx, pool, "PC-STOCK-OP", "Amit Stock", pcStockOp)
 	exec(`INSERT INTO protocol_definitions (tenant_id, protocol_id, code, name, category, status)
 VALUES ($1::uuid, $2::uuid, 'vaccination.inventory.test', 'Vaccination Inventory Test', 'vaccination', 'active')`, pcTenant, pcProtocol)
 	exec(`INSERT INTO protocol_versions (tenant_id, protocol_version_id, protocol_id, version, version_label, status, effective_from, rule_dsl)
@@ -106,11 +123,11 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', $4::uuid, '2026-08-26', 'planned',
 	if err != nil {
 		t.Fatalf("ReconcileInventoryVaccineTasks late direct DB catch-up: %v", err)
 	}
-	if result.TasksCreated != 1 || result.DirectorAssigneeCount != 1 || result.AssigneesInserted != 1 || result.RequirementsUpserted != 2 {
-		t.Fatalf("late catch-up result = %+v, want one task/director and two requirements", result)
+	if result.TasksCreated != 1 || result.AssigneesInserted != 1 || result.RequirementsUpserted != 2 || result.ParksMissingOperators != 0 {
+		t.Fatalf("late catch-up result = %+v, want one task assigned to the park operator and two requirements", result)
 	}
 
-	page, err := repo.ListTasks(ctx, portsList(pcTenant, "2026-08-19", domain.CategoryInventoryVaccine, pcDirector))
+	page, err := repo.ListTasks(ctx, portsList(pcTenant, "2026-08-19", domain.CategoryInventoryVaccine, pcStockOp))
 	if err != nil {
 		t.Fatalf("ListTasks inventory: %v", err)
 	}
@@ -142,8 +159,8 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', $4::uuid, '2026-08-26', 'planned',
 		t.Fatalf("inventory monitor page size = %d, want 1", len(monitorPage.Items))
 	}
 	monitorTask := monitorPage.Items[0]
-	if monitorTask.TaskID != task.TaskID || len(monitorTask.AssigneeUserIDs) != 1 || monitorTask.AssigneeUserIDs[0] != pcDirector {
-		t.Fatalf("monitor task = %+v, want director inventory task", monitorTask)
+	if monitorTask.TaskID != task.TaskID || len(monitorTask.AssigneeUserIDs) != 1 || monitorTask.AssigneeUserIDs[0] != pcStockOp {
+		t.Fatalf("monitor task = %+v, want the PARK OPERATOR as the only assignee (maintainer decision 2026-09-02: the director judges, operators record)", monitorTask)
 	}
 	monitorReqs := map[string]int32{}
 	for _, req := range monitorTask.InventoryRequirements {
@@ -179,7 +196,7 @@ WHERE tenant_id=$1::uuid AND batch_id=$2::uuid AND rule_id=$3::uuid`,
 	if refresh.TasksCreated != 0 || refresh.RequirementsUpserted != 1 {
 		t.Fatalf("refresh result = %+v, want no duplicate task and one surviving requirement", refresh)
 	}
-	refreshedPage, err := repo.ListTasks(ctx, portsList(pcTenant, "2026-08-19", domain.CategoryInventoryVaccine, pcDirector))
+	refreshedPage, err := repo.ListTasks(ctx, portsList(pcTenant, "2026-08-19", domain.CategoryInventoryVaccine, pcStockOp))
 	if err != nil {
 		t.Fatalf("ListTasks refreshed inventory: %v", err)
 	}
@@ -206,7 +223,7 @@ WHERE tenant_id=$1::uuid AND batch_id=$2::uuid AND rule_id=$3::uuid`,
 		DueBusinessDate: "2026-08-20",
 		TenantWide:      true,
 		Category:        domain.CategoryInventoryVaccine,
-		AssigneeUserID:  pcDirector,
+		AssigneeUserID:  pcStockOp,
 		CurrentOrCarry:  true,
 		Limit:           20,
 	})
@@ -240,7 +257,7 @@ WHERE tenant_id=$1::uuid AND batch_id=$2::uuid AND rule_id=$3::uuid`,
 		DueBusinessDate: "2026-08-28",
 		TenantWide:      true,
 		Category:        domain.CategoryInventoryVaccine,
-		AssigneeUserID:  pcDirector,
+		AssigneeUserID:  pcStockOp,
 		CurrentOrCarry:  true,
 		Limit:           20,
 	})
@@ -264,6 +281,7 @@ func TestInventoryVaccineTaskFollowsGeneratedProcuredAdultObligation(t *testing.
 
 	exec(`INSERT INTO workforce_members (tenant_id, display_code, display_name, status, primary_role_hint, user_id)
 VALUES ($1::uuid, 'PC-DIR-GEN', 'Chandrakant', 'active', 'pc_director', $2::uuid)`, pcTenant, pcDirector)
+	seedPCCareStockOperator(t, ctx, pool, "PC-DIR-GEN-OP", "Amit Stock", pcStockOp)
 
 	proto := protopg.NewRepository(pool, 5*time.Second)
 	obl := oblpg.NewRepository(pool, 5*time.Second)
@@ -339,7 +357,7 @@ VALUES ($1::uuid, 'PC-DIR-GEN', 'Chandrakant', 'active', 'pc_director', $2::uuid
 	if result.TasksCreated != 1 || result.RequirementsUpserted != 1 {
 		t.Fatalf("result = %+v, want one generated-source inventory task and one requirement", result)
 	}
-	page, err := repo.ListTasks(ctx, portsList(pcTenant, "2026-08-19", domain.CategoryInventoryVaccine, pcDirector))
+	page, err := repo.ListTasks(ctx, portsList(pcTenant, "2026-08-19", domain.CategoryInventoryVaccine, pcStockOp))
 	if err != nil {
 		t.Fatalf("ListTasks generated inventory: %v", err)
 	}
@@ -364,6 +382,7 @@ func TestInventoryVaccineTaskUsesDriveAssignmentPartitionGrain(t *testing.T) {
 
 	exec(`INSERT INTO workforce_members (tenant_id, display_code, display_name, status, primary_role_hint, user_id)
 VALUES ($1::uuid, 'PC-DIR-P7', 'Chandrakant', 'active', 'pc_director', $2::uuid)`, pcTenant, pcDirector)
+	seedPCCareStockOperator(t, ctx, pool, "PC-DIR-P7-OP", "Amit Stock", pcStockOp)
 	exec(`INSERT INTO protocol_definitions (tenant_id, protocol_id, code, name, category, status)
 VALUES ($1::uuid, $2::uuid, 'vaccination.inventory.partition', 'Vaccination Inventory Partition', 'vaccination', 'active')`, pcTenant, pcProtocol)
 	exec(`INSERT INTO protocol_versions (tenant_id, protocol_version_id, protocol_id, version, version_label, status, effective_from, rule_dsl)
@@ -395,7 +414,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', $4::uuid, '2026-08-26', 'planned',
 	if result.TasksCreated != 1 || result.RequirementsUpserted != 1 {
 		t.Fatalf("partition result = %+v, want one partition-grain task and one requirement", result)
 	}
-	page, err := repo.ListTasks(ctx, portsList(pcTenant, "2026-08-19", domain.CategoryInventoryVaccine, pcDirector))
+	page, err := repo.ListTasks(ctx, portsList(pcTenant, "2026-08-19", domain.CategoryInventoryVaccine, pcStockOp))
 	if err != nil {
 		t.Fatalf("ListTasks partition inventory: %v", err)
 	}
@@ -428,6 +447,7 @@ func TestInventoryVaccineRequirementsUseExactDriveAssignmentMembers(t *testing.T
 	)
 	exec(`INSERT INTO workforce_members (tenant_id, display_code, display_name, status, primary_role_hint, user_id)
 VALUES ($1::uuid, 'PC-DIR-SPLIT', 'Chandrakant', 'active', 'pc_director', $2::uuid)`, pcTenant, pcDirector)
+	seedPCCareStockOperator(t, ctx, pool, "PC-DIR-SPLIT-OP", "Amit Stock", pcStockOp)
 	exec(`INSERT INTO protocol_definitions (tenant_id, protocol_id, code, name, category, status)
 VALUES ($1::uuid, $2::uuid, 'vaccination.inventory.split', 'Vaccination Inventory Split', 'vaccination', 'active')`, pcTenant, pcProtocol)
 	exec(`INSERT INTO protocol_versions (tenant_id, protocol_version_id, protocol_id, version, version_label, status, effective_from, rule_dsl)
@@ -476,7 +496,7 @@ WHERE tenant_id=$2::uuid AND idempotency_key IN ('pc-inv-split-2','pc-inv-split-
 	if result.TasksCreated != 2 || result.RequirementsUpserted != 2 {
 		t.Fatalf("split result = %+v, want two partition tasks and two exact requirements", result)
 	}
-	page, err := repo.ListTasks(ctx, portsList(pcTenant, "2026-08-19", domain.CategoryInventoryVaccine, pcDirector))
+	page, err := repo.ListTasks(ctx, portsList(pcTenant, "2026-08-19", domain.CategoryInventoryVaccine, pcStockOp))
 	if err != nil {
 		t.Fatalf("ListTasks split inventory: %v", err)
 	}
@@ -564,4 +584,29 @@ func scanPCCareText(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql s
 		t.Fatalf("scan text: %v\nsql: %s", err, sql)
 	}
 	return out
+}
+
+// seedPCCareStockOperator seeds one active park vaccination operator the reconciler's
+// stock_operators pool resolves: member + active center-scoped non-director position + an
+// execute duty on the vaccination module (the drive-pool candidate shape).
+func seedPCCareStockOperator(t *testing.T, ctx context.Context, pool *pgxpool.Pool, code, name, userID string) {
+	t.Helper()
+	var memberID string
+	if err := pool.QueryRow(ctx, `INSERT INTO workforce_members (tenant_id, display_code, display_name, status, primary_role_hint, user_id)
+VALUES ($1::uuid, $2, $3, 'active', 'operator', $4::uuid)
+RETURNING workforce_member_id::text`, pcTenant, code, name, userID).Scan(&memberID); err != nil {
+		t.Fatalf("seed stock operator member %s: %v", code, err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'center', $3::uuid, 'vaccination_operator', 'assistant', 'active', '2026-01-01')`, pcTenant, memberID, pcPark); err != nil {
+		t.Fatalf("seed stock operator position %s: %v", code, err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, status, effective_from)
+SELECT $1::uuid, 'vaccination_operator', 'vaccination', 'execute', 'active', '2026-01-01'
+WHERE NOT EXISTS (
+  SELECT 1 FROM position_module_duties
+  WHERE tenant_id = $1::uuid AND position_code = 'vaccination_operator' AND module_code = 'vaccination' AND duty_type = 'execute'
+)`, pcTenant); err != nil {
+		t.Fatalf("seed stock operator duty %s: %v", code, err)
+	}
 }

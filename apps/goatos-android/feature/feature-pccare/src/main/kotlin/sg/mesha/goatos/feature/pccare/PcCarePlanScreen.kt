@@ -105,7 +105,10 @@ fun PcCareMonitorScreen(
                 items(count = rows.itemCount, key = rows.itemKey { it.listKey }) { index ->
                     rows[index]?.let { card ->
                         PcCareMonitorTaskCard(
-                            card = card,
+                            // Cancel is PLANNER authority (pc_care.plan; the backend refuses it
+                            // for anyone else), so the affordance follows planEnabled — the PC
+                            // Director's stock-approval monitor face must not offer it.
+                            card = card.copy(cancellable = card.cancellable && planEnabled),
                             onOpen = { onOpenTask(card) },
                             onCancel = { onEvent(PcCarePlanEvent.CancelTask(card.taskId)) },
                         )

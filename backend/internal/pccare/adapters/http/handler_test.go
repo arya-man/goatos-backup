@@ -23,9 +23,12 @@ const (
 )
 
 type fakePCCareHTTPService struct {
-	lastActor      domain.Actor
-	lastTaskProof  app.RegisterTaskProofInput
-	plannerCatalog ports.PlannerCatalog
+	lastActor        domain.Actor
+	lastTaskProof    app.RegisterTaskProofInput
+	lastStockVerdict app.StockVerdictInput
+	stockVerdictErr  error
+	stockVerdictTask ports.TaskRow
+	plannerCatalog   ports.PlannerCatalog
 }
 
 func TestOpenAPIIncludesInventoryVaccineTaskProofContract(t *testing.T) {
@@ -173,6 +176,71 @@ func (f *fakePCCareHTTPService) SubmitTask(context.Context, domain.Actor, app.Su
 }
 func (f *fakePCCareHTTPService) TaskRoster(context.Context, domain.Actor, string, string, int) (ports.TaskRosterPage, error) {
 	return ports.TaskRosterPage{}, nil
+}
+func (f *fakePCCareHTTPService) RecordStockVerdict(_ context.Context, actor domain.Actor, in app.StockVerdictInput) (ports.TaskRow, error) {
+	f.lastActor = actor
+	f.lastStockVerdict = in
+	if f.stockVerdictErr != nil {
+		return ports.TaskRow{}, f.stockVerdictErr
+	}
+	return f.stockVerdictTask, nil
+}
+
+// The stock-verdict route forwards the director's decision verbatim and maps the module's
+// verdict sentinels onto their stable machine codes.
+func TestStockVerdictRouteForwardsAndMapsErrors(t *testing.T) {
+	do := func(service *fakePCCareHTTPService, body string) *httptest.ResponseRecorder {
+		mux := http.NewServeMux()
+		Register(mux, NewHandler(service, nil))
+		req := httptest.NewRequest(http.MethodPost, "/app/pc-care/tasks/"+httpTask+"/stock-verdict", strings.NewReader(body))
+		ctx := httpmiddleware.WithTenantID(req.Context(), httpTenant)
+		ctx = httpmiddleware.WithActorID(ctx, httpActor)
+		ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{
+			Role:      permissions.RolePCDirector,
+			ScopeType: "tenant",
+			ScopeID:   httpTenant,
+		}})
+		req = req.WithContext(ctx)
+		rec := httptest.NewRecorder()
+		httpmiddleware.RequestContext(nil)(mux).ServeHTTP(rec, req)
+		return rec
+	}
+
+	service := &fakePCCareHTTPService{stockVerdictTask: ports.TaskRow{
+		TaskID: httpTask, Category: domain.CategoryInventoryVaccine, Status: domain.StatusCompleted,
+	}}
+	rec := do(service, `{"verdict":"approve"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("approve status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if service.lastStockVerdict.TaskID != httpTask || service.lastStockVerdict.Verdict != domain.StockVerdictApprove {
+		t.Fatalf("forwarded verdict = %+v, want approve on %s", service.lastStockVerdict, httpTask)
+	}
+
+	rec = do(service, `{"verdict":"reject","reason":"The video does not show the FMD stock"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reject status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if service.lastStockVerdict.Verdict != domain.StockVerdictReject ||
+		service.lastStockVerdict.Reason != "The video does not show the FMD stock" {
+		t.Fatalf("forwarded reject = %+v, want reason carried verbatim", service.lastStockVerdict)
+	}
+
+	for _, tc := range []struct {
+		err      error
+		wantCode int
+		wantBody string
+	}{
+		{domain.ErrNotStockTask, http.StatusUnprocessableEntity, "not_stock_task"},
+		{domain.ErrStockVerdictNotPending, http.StatusConflict, "verdict_not_pending"},
+		{domain.ErrInvalidStockVerdict, http.StatusUnprocessableEntity, "invalid_verdict"},
+		{domain.ErrStockRejectReasonRequired, http.StatusUnprocessableEntity, "reason_required"},
+	} {
+		rec := do(&fakePCCareHTTPService{stockVerdictErr: tc.err}, `{"verdict":"approve"}`)
+		if rec.Code != tc.wantCode || !strings.Contains(rec.Body.String(), tc.wantBody) {
+			t.Fatalf("error %v -> status=%d body=%s, want %d %q", tc.err, rec.Code, rec.Body.String(), tc.wantCode, tc.wantBody)
+		}
+	}
 }
 
 func TestPlannerCatalogExcludesKernelOwnedInventoryVaccineCategory(t *testing.T) {

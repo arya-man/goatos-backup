@@ -37,6 +37,7 @@ type Service interface {
 	RegisterTaskProof(ctx context.Context, actor domain.Actor, in app.RegisterTaskProofInput) error
 	SubmitTask(ctx context.Context, actor domain.Actor, in app.SubmitTaskInput) (ports.SubmitTaskResult, error)
 	TaskRoster(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) (ports.TaskRosterPage, error)
+	RecordStockVerdict(ctx context.Context, actor domain.Actor, in app.StockVerdictInput) (ports.TaskRow, error)
 }
 
 // Handler renders the PC Care HTTP surface.
@@ -70,6 +71,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PUT /app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", h.PutSlotProof)
 	mux.HandleFunc("PUT /app/pc-care/tasks/{task_id}/proofs/{slot}", h.PutTaskProof)
 	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/submit", h.PostSubmitTask)
+	// The PC Director's approve/reject on a submitted vaccine-stock task (maintainer decision
+	// 2026-09-02). Gated on pc_care.stock_approve in permissions/routes.go — the operators who
+	// recorded the fridge cannot accept their own evidence, and the tenant verifier never sees
+	// stock work.
+	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/stock-verdict", h.PostStockVerdict)
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +300,13 @@ type scanAnimalResponse struct {
 
 type slotProofRequest struct {
 	ProofRef string `json:"proof_ref"`
+}
+
+type stockVerdictRequest struct {
+	// Verdict is "approve" or "reject" (domain.StockVerdict*).
+	Verdict string `json:"verdict"`
+	// Reason is mandatory on a reject; it becomes the operators' rework banner, verbatim.
+	Reason string `json:"reason"`
 }
 
 type submitTaskResponse struct {
@@ -712,6 +725,29 @@ func (h *Handler) PostSubmitTask(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) PostStockVerdict(w http.ResponseWriter, r *http.Request) {
+	a, ok := h.requireAuthed(w, r)
+	if !ok {
+		return
+	}
+	var body stockVerdictRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
+		return
+	}
+	task, err := h.service.RecordStockVerdict(r.Context(), a, app.StockVerdictInput{
+		TaskID:  r.PathValue("task_id"),
+		Verdict: body.Verdict,
+		Reason:  body.Reason,
+		TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
+	})
+	if err != nil {
+		h.writeServiceError(w, r, "pc care stock verdict", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, taskDTOFrom(task))
+}
+
 // writeServiceError maps the module's sentinel errors onto status codes with stable machine
 // codes a client can branch on without parsing prose.
 func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op string, err error) {
@@ -744,6 +780,14 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "invalid_category", Message: "unknown work category"}, nil)
 	case errors.Is(err, domain.ErrKernelOwnedCategory):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "kernel_owned_category", Message: "this work is created automatically"}, nil)
+	case errors.Is(err, domain.ErrNotStockTask):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "not_stock_task", Message: "this task is not a vaccine stock task"}, nil)
+	case errors.Is(err, domain.ErrStockVerdictNotPending):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, codedError{Code: "verdict_not_pending", Message: "this task is not awaiting approval"}, nil)
+	case errors.Is(err, domain.ErrInvalidStockVerdict):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "invalid_verdict", Message: "unknown decision"}, nil)
+	case errors.Is(err, domain.ErrStockRejectReasonRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "reason_required", Message: "say why this is being sent back"}, nil)
 	case errors.Is(err, domain.ErrAssigneesRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "assignees_required", Message: "assign at least one operator"}, nil)
 	case errors.Is(err, ports.ErrShedNotInPark), errors.Is(err, ports.ErrInvalidPartition):

@@ -35,8 +35,11 @@ func New(v verificationCreator) *Enqueuer {
 
 // RegisterCategories installs the verifier queue categories used by PC Care. Keep this helper
 // in the bridge so API, outbox-relay, and Pub/Sub consumer cannot hand-maintain divergent labels.
+// inventory_vaccine is deliberately NOT registered (maintainer decision 2026-09-02): the
+// vaccine-stock check is approved by the PC Director on the module's own stock-verdict route —
+// the verifier queue never lists it.
 func RegisterCategories(reg categoryRegistry) error {
-	for order, workCategory := range pccaredomain.Categories {
+	for order, workCategory := range pccaredomain.VerifierReviewedCategories {
 		if err := reg.RegisterCategory(verificationdomain.CategoryDefinition{
 			Vertical:              pccaredomain.VerificationVerticalPreventiveCare,
 			Module:                pccaredomain.VerificationModulePCCare,
@@ -64,6 +67,11 @@ var _ pccareapp.VerificationEnqueuer = (*Enqueuer)(nil)
 // context rows carry the task-level expectation (category, animal count, per-animal recording
 // summary).
 func (e *Enqueuer) EnqueuePCCareVerification(ctx context.Context, in pccareapp.VerificationEnqueueRequest) error {
+	// Defense-in-depth twin of the consumer's skip: a director-approved category (the vaccine
+	// stock check) never becomes a verifier item, even if a caller reaches the bridge directly.
+	if pccaredomain.IsDirectorApprovedCategory(in.Category) {
+		return nil
+	}
 	category := pccaredomain.VerificationCategoryFor(in.Category)
 
 	// Subject: "Deworming · Castro - 2" — or, for a per-vaccine stock task (no shed),

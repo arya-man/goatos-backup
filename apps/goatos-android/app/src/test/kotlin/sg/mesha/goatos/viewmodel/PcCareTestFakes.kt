@@ -194,6 +194,23 @@ internal class FakePcCareRepository : PcCareRepository {
         pcCareTaskDtoFixture()
 
     override suspend fun cancelTask(taskId: String) = Unit
+
+    // PC Director's stock verdict (maintainer decision 2026-09-02).
+    val stockVerdicts = mutableListOf<Triple<String, String, String>>()
+    var stockVerdictResult: sg.mesha.goatos.core.common.AppResult<PcCareTaskDto>? = null
+    override suspend fun recordStockVerdict(
+        taskId: String,
+        verdict: String,
+        reason: String,
+    ): sg.mesha.goatos.core.common.AppResult<PcCareTaskDto> {
+        stockVerdicts += Triple(taskId, verdict, reason)
+        stockVerdictResult?.let { return it }
+        val echoed = (detailFlow.value ?: pcCareTaskDtoFixture()).copy(
+            status = if (verdict == "approve") "completed" else "rework",
+        )
+        detailFlow.value = echoed
+        return sg.mesha.goatos.core.common.AppResult.Ok(echoed)
+    }
 }
 
 internal class PcCareFakeReaderPort : RfidReaderPort {

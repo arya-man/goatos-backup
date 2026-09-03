@@ -7,6 +7,7 @@ import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,15 +72,23 @@ fun ProofMediaPreview(
     kind: ProofMediaPreviewKind,
     modifier: Modifier = Modifier,
     onPlaybackFailure: () -> Unit = {},
+    // When true, tapping the tile (photo) or the expand button (video) opens the proof
+    // full-screen. Default off, so surfaces that have not opted in are unchanged.
+    expandable: Boolean = false,
 ) {
+    var showFullscreen by remember(path) { mutableStateOf(false) }
+    val onExpand: (() -> Unit)? = if (expandable) ({ showFullscreen = true }) else null
     when (kind) {
-        ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier)
-        ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, onPlaybackFailure)
+        ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier, onExpand)
+        ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, onPlaybackFailure, onExpand)
+    }
+    if (showFullscreen) {
+        ProofMediaFullscreenDialog(path = path, kind = kind, onDismiss = { showFullscreen = false })
     }
 }
 
 @Composable
-private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier) {
+private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier, onExpand: (() -> Unit)? = null) {
     val context = LocalContext.current
     val isRemote = path.startsWith("http://") || path.startsWith("https://")
     // Local decode stays synchronous (small local files, unchanged behavior); a REMOTE preview must
@@ -117,8 +126,9 @@ private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier) {
         }
     }
     val isLoading = isRemote && remoteLoad is ProofPreviewLoad.Loading
+    val tapToExpand = if (onExpand != null && bitmap != null) Modifier.clickable(onClick = onExpand) else Modifier
     Box(
-        modifier = modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)),
+        modifier = modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).then(tapToExpand),
         contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null) {
@@ -128,6 +138,9 @@ private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier) {
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
+            if (onExpand != null) {
+                ProofExpandBadge(modifier = Modifier.align(Alignment.TopEnd))
+            }
         } else if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
         } else {
@@ -138,7 +151,7 @@ private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier) {
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier, onPlaybackFailure: () -> Unit = {}) {
+private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier, onPlaybackFailure: () -> Unit = {}, onExpand: (() -> Unit)? = null) {
     val context = LocalContext.current
     val playerFactory = LocalProofPlayerFactory.current
     var playRequested by remember(path) { mutableStateOf(false) }
@@ -254,6 +267,16 @@ private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier, onPla
         }
         if (!isPlaying || !firstFrameRendered) {
             ProofVideoPoster(path)
+        }
+        if (onExpand != null) {
+            // Tapping anywhere on the video body opens it full screen (the play/pause button,
+            // drawn on top, still plays inline). Matches the photo's tap-to-expand.
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable(onClick = onExpand),
+            )
+            ProofExpandBadge(modifier = Modifier.align(Alignment.TopStart))
         }
         IconButton(
             onClick = {
@@ -433,6 +456,119 @@ private fun remoteProofPreviewLooksReadable(path: String): Boolean {
 }
 
 private const val PROOF_REMOTE_PROBE_TIMEOUT_MS = 1_500
+
+/** Small corner badge that hints a preview tile opens full screen when tapped. */
+@Composable
+private fun ProofExpandBadge(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .padding(8.dp)
+            .size(28.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(MeshaColors.ViewfinderBackdrop.copy(alpha = 0.62f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(MeshaIcons.Expand, contentDescription = null, tint = MeshaColors.OnBrand, modifier = Modifier.size(16.dp))
+    }
+}
+
+/**
+ * Full-screen proof viewer: a photo filling the screen, or a video with full playback controls.
+ * Opened by tapping an [expandable] [ProofMediaPreview]; dismissed by the close button or Back.
+ */
+@OptIn(UnstableApi::class)
+@Composable
+private fun ProofMediaFullscreenDialog(
+    path: String,
+    kind: ProofMediaPreviewKind,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        val context = LocalContext.current
+        val playerFactory = LocalProofPlayerFactory.current
+        Box(modifier = Modifier.fillMaxSize().background(MeshaColors.Bg)) {
+            when (kind) {
+                ProofMediaPreviewKind.Photo -> {
+                    val isRemote = path.startsWith("http://") || path.startsWith("https://")
+                    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = path) {
+                        value = withContext(Dispatchers.IO) {
+                            try {
+                                if (isRemote) {
+                                    URL(path).openStream().use(BitmapFactory::decodeStream)
+                                } else {
+                                    val uri = Uri.parse(path)
+                                    when (uri.scheme) {
+                                        "content" -> context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+                                        "file" -> BitmapFactory.decodeFile(uri.path)
+                                        null, "" -> BitmapFactory.decodeFile(path)
+                                        else -> BitmapFactory.decodeFile(path.removePrefix("file://"))
+                                    }
+                                }
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                    }
+                    val current = bitmap
+                    if (current != null) {
+                        Image(
+                            bitmap = current.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = MeshaColors.Brand)
+                    }
+                }
+                ProofMediaPreviewKind.Video -> {
+                    val player = remember(path) {
+                        playerFactory.create(context).apply {
+                            setMediaItem(MediaItem.fromUri(Uri.parse(path)))
+                            playWhenReady = true
+                            prepare()
+                        }
+                    }
+                    DisposableEffect(player) {
+                        val listener = object : Player.Listener {
+                            override fun onPlayerError(error: PlaybackException) {
+                                onDismiss()
+                            }
+                        }
+                        player.addListener(listener)
+                        onDispose {
+                            player.removeListener(listener)
+                            player.release()
+                        }
+                    }
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                this.player = player
+                                useController = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(MeshaColors.ViewfinderBackdrop.copy(alpha = 0.62f)),
+            ) {
+                Icon(MeshaIcons.Close, contentDescription = "Close", tint = MeshaColors.OnBrand, modifier = Modifier.size(22.dp))
+            }
+        }
+    }
+}
 
 @Composable
 private fun ProofPreviewUnavailable(

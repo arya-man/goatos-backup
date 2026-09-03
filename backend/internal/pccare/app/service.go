@@ -642,3 +642,97 @@ func (s *Service) SubmitTask(ctx context.Context, actor domain.Actor, in SubmitT
 	}
 	return result, nil
 }
+
+// ---------------------------------------------------------------------------
+// Vaccine-stock verdict (PC Director)
+// ---------------------------------------------------------------------------
+
+// StockVerdictInput is the director's decision on one submitted inventory_vaccine task.
+type StockVerdictInput struct {
+	TaskID string
+	// Verdict is domain.StockVerdictApprove or domain.StockVerdictReject.
+	Verdict string
+	// Reason is mandatory on a reject — it becomes the task's rework_reason, rendered verbatim
+	// to the operators who must re-record the fridge. An approve never carries one.
+	Reason  string
+	TraceID string
+}
+
+// RecordStockVerdict applies the PC Director's approve/reject to a submitted vaccine-stock task
+// (maintainer decision 2026-09-02). This is the module's own approval gate — the toxin shape —
+// deliberately NOT a verification.verdict: the tenant verifier never sees stock work, and the
+// operators who filmed the fridge cannot accept their own evidence (the route requires
+// pc_care.stock_approve, which no operator holds).
+//
+// Approve reuses ApplyVerifiedTask (pending_verification -> completed on both state columns,
+// pc_care.task.completed emitted in the same transaction); reject reuses BounceTaskForRework
+// (-> rework with the director's reason). Both writes are state-guarded, so a replay of an
+// already-applied verdict reads the task back and answers idempotently instead of erroring.
+func (s *Service) RecordStockVerdict(ctx context.Context, actor domain.Actor, in StockVerdictInput) (ports.TaskRow, error) {
+	if s.store == nil {
+		return ports.TaskRow{}, ports.ErrStoreUnavailable
+	}
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCareStockApprove}, false) {
+		return ports.TaskRow{}, ports.ErrForbidden
+	}
+	in.TaskID = strings.TrimSpace(in.TaskID)
+	if !uuidutil.IsUUIDString(in.TaskID) {
+		return ports.TaskRow{}, ports.ErrInvalidArgument
+	}
+	verdict := strings.TrimSpace(in.Verdict)
+	if verdict != domain.StockVerdictApprove && verdict != domain.StockVerdictReject {
+		return ports.TaskRow{}, domain.ErrInvalidStockVerdict
+	}
+	reason := strings.TrimSpace(in.Reason)
+	if verdict == domain.StockVerdictReject && reason == "" {
+		return ports.TaskRow{}, domain.ErrStockRejectReasonRequired
+	}
+
+	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.PCCareStockApprove)
+	task, err := s.store.GetTask(ctx, actor.TenantID, in.TaskID, authorizedParkSlice(parks), tenantWide)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
+	if !domain.IsDirectorApprovedCategory(task.Category) {
+		return ports.TaskRow{}, domain.ErrNotStockTask
+	}
+
+	var applied bool
+	switch verdict {
+	case domain.StockVerdictApprove:
+		applied, err = s.store.ApplyVerifiedTask(ctx, ports.ApplyVerifiedTaskParams{
+			TenantID:   actor.TenantID,
+			TaskID:     task.TaskID,
+			VerifiedBy: actor.UserID,
+			TraceID:    in.TraceID,
+		})
+	case domain.StockVerdictReject:
+		applied, err = s.store.BounceTaskForRework(ctx, ports.BounceTaskParams{
+			TenantID: actor.TenantID,
+			TaskID:   task.TaskID,
+			Reason:   reason,
+			TraceID:  in.TraceID,
+		})
+	}
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
+
+	refreshed, err := s.store.GetTask(ctx, actor.TenantID, in.TaskID, authorizedParkSlice(parks), tenantWide)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
+	if applied {
+		return refreshed, nil
+	}
+	// State-guarded no-op: idempotent when the task already sits where this verdict would have
+	// put it (a retried tap), a conflict otherwise (it was never submitted, or the other verdict
+	// landed first).
+	switch {
+	case verdict == domain.StockVerdictApprove && refreshed.Status == domain.StatusCompleted:
+		return refreshed, nil
+	case verdict == domain.StockVerdictReject && refreshed.Status == domain.StatusRework:
+		return refreshed, nil
+	}
+	return ports.TaskRow{}, domain.ErrStockVerdictNotPending
+}

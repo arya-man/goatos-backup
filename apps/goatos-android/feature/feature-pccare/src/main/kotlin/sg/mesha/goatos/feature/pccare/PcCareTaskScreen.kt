@@ -57,7 +57,9 @@ fun PcCareTaskScreen(
     onEvent: (PcCareTaskEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val taskProofMode = state.taskProofSlot != null
+    // Backend-owned face flag: set from the route category on the way in, so the scan-and-record
+    // row never flashes before the task detail loads (never inferred from a slot being present).
+    val taskProofMode = state.taskProofMode
     // No RefreshOnResume: this is a scan-capture flow — a resume-triggered refresh is deliberately
     // skipped so it never disrupts mid-entry scanning (docs/decisions/android-offline-first.md);
     // the ViewModel's own status poll keeps peer work and the submit lock fresh instead.
@@ -236,6 +238,13 @@ fun PcCareTaskScreen(
         if (!state.isLocked) {
             PcCareSubmitBar(state = state, onEvent = onEvent)
         }
+
+        // PC Director's stock verdict bar (maintainer decision 2026-09-02): rendered ONLY when
+        // the backend says this viewer may judge the submitted fridge proof. Approve completes
+        // the task; Reject asks for a reason and returns the work to the operators.
+        if (state.verdictOffered) {
+            PcCareStockVerdictBar(state = state, onEvent = onEvent)
+        }
     }
 
     if (state.showSubmitConfirmation) {
@@ -245,6 +254,104 @@ fun PcCareTaskScreen(
             onDismiss = { onEvent(PcCareTaskEvent.DismissSubmitConfirmation) },
         )
     }
+
+    if (state.showRejectDialog) {
+        PcCareStockRejectDialog(
+            reason = state.rejectReasonInput,
+            sending = state.verdictInFlight,
+            onReasonChange = { onEvent(PcCareTaskEvent.RejectStockReasonChanged(it)) },
+            onConfirm = { onEvent(PcCareTaskEvent.ConfirmRejectStock) },
+            onDismiss = { onEvent(PcCareTaskEvent.DismissRejectStock) },
+        )
+    }
+}
+
+@Composable
+private fun PcCareStockVerdictBar(
+    state: PcCareTaskUiState,
+    onEvent: (PcCareTaskEvent) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MeshaColors.Surf)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // Reject and Approve are the same size (both 52dp, weight 1f) — Reject is the danger
+            // outline, Approve the primary fill.
+            PcCareDangerButton(
+                label = "Reject",
+                enabled = !state.verdictInFlight,
+                onClick = { onEvent(PcCareTaskEvent.OpenRejectStock) },
+                modifier = Modifier.weight(1f),
+            )
+            PcCarePrimaryButton(
+                label = if (state.verdictInFlight) "Saving…" else "Approve",
+                enabled = !state.verdictInFlight,
+                onClick = { onEvent(PcCareTaskEvent.ApproveStock) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PcCareStockRejectDialog(
+    reason: String,
+    sending: Boolean,
+    onReasonChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Reject", color = MeshaColors.Ink, style = MeshaType.cardTitle) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "The operators will record the fridge again. Say what was wrong.",
+                    color = MeshaColors.Muted,
+                    style = MeshaType.cardSubtitle,
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = onReasonChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(text = "What needs to change", color = MeshaColors.Faint) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MeshaColors.Ink,
+                        unfocusedTextColor = MeshaColors.Ink,
+                        focusedBorderColor = MeshaColors.BrandD,
+                        unfocusedBorderColor = MeshaColors.Hair,
+                        cursorColor = MeshaColors.BrandD,
+                    ),
+                )
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss, enabled = !sending) {
+                Text(text = "Keep reviewing", color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                onClick = onConfirm,
+                enabled = !sending && reason.isNotBlank(),
+            ) {
+                Text(
+                    text = if (sending) "Sending…" else "Reject",
+                    color = if (reason.isNotBlank()) MeshaColors.Danger else MeshaColors.Faint,
+                    style = MeshaType.cardSubtitle,
+                )
+            }
+        },
+        containerColor = MeshaColors.Surf,
+    )
 }
 
 @Composable
@@ -404,6 +511,7 @@ private fun PcCareSlotChipRow(
                         PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
                     },
                     modifier = Modifier.padding(top = 6.dp),
+                    expandable = true,
                 )
             }
         }
@@ -502,6 +610,7 @@ private fun PcCareTaskProofAction(
                         PcCareProofPreviewKind.PHOTO -> ProofMediaPreviewKind.Photo
                         PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
                     },
+                    expandable = true,
                 )
                 if (enabled) {
                     PcCareProofRetryButton(label = if (failed) retryLabel else replaceLabel, onClick = onRecord)
