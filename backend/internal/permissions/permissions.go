@@ -1074,11 +1074,11 @@ var rolePermissions = map[string]map[string]struct{}{
 	},
 	// RoleProcurementDirector: admin-web bootstrap plus stock-only Feed Analytics.
 	RoleProcurementDirector: {
-		AdminWebBootstrap:      {},
-		LocationsRead:          {},
-		SalesRead:              {}, SalesWrite: {}, SalesAllocateAnimals: {},
-		VendorRead:             {}, VendorWrite: {}, VendorFinanceRead: {},
-		FeedPurchaseRead:       {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
+		AdminWebBootstrap: {},
+		LocationsRead:     {},
+		SalesRead:         {}, SalesWrite: {}, SalesAllocateAnimals: {},
+		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
+		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 		FeedAnalyticsStockRead: {},
 	},
 	RoleCountsApprover: {
