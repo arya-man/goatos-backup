@@ -40,6 +40,7 @@ import {
   salesHref,
 } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
+import { SalesReadyToleranceControl } from "./sales-ready-tolerance-control";
 
 const PAGE_PATH = "/sales";
 const DEFAULT_FARM = "all";
@@ -159,30 +160,16 @@ function OverviewSections({
                   ? over35.disabledReason
                   : over35.count == null
                     ? copy(pageContract, "kpi.over35.none")
-                    : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)} ${kgSuffix}+ · ${humanDate(over35.from)} – ${humanDate(over35.to)}`}
+                    : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)} ${kgSuffix}+`}
               </div>
               {over35.enabled ? (
-                <form action={PAGE_PATH} className="sales-ready-tolerance">
-                  {over35.preserveQuery.map(([key, value]) => (
-                    <input key={key} type="hidden" name={key} value={value} />
-                  ))}
-                  <label htmlFor="sale-ready-tolerance">{copy(pageContract, "kpi.over35.tolerance")}</label>
-                  <div className="sales-ready-tolerance-row">
-                    <input
-                      id="sale-ready-tolerance"
-                      name="sale_ready_tolerance_g"
-                      type="range"
-                      min="0"
-                      max={OVER35_MAX_TOLERANCE_G}
-                      step="50"
-                      defaultValue={over35.toleranceG}
-                    />
-                    <output>{over35.toleranceG} g</output>
-                    <button className="btn sm" type="submit">
-                      {copy(pageContract, "kpi.over35.apply")}
-                    </button>
-                  </div>
-                </form>
+                <SalesReadyToleranceControl
+                  valueG={over35.toleranceG}
+                  maxG={OVER35_MAX_TOLERANCE_G}
+                  preserveQuery={over35.preserveQuery}
+                  label={copy(pageContract, "kpi.over35.tolerance")}
+                  kgSuffix={kgSuffix}
+                />
               ) : null}
             </div>
           </section>
