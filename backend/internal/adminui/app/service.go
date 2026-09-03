@@ -3277,6 +3277,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.over35":               "Over 35 kg",
 			"kpi.over35.sub":           "last 6 weeks · a whole pen counts at its average",
 			"kpi.over35.none":          "nothing weighed in the last 6 weeks",
+			"kpi.over35.tolerance":     "Error margin",
+			"kpi.over35.apply":         "Apply",
 			"disabled.weights":         "Your current role can view sales but not weighing.",
 			"value.kg_suffix":          "kg",
 			"value.per_kg_suffix":      "per kg",

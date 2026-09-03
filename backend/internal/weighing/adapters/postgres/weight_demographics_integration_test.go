@@ -1058,7 +1058,7 @@ INSERT INTO weighing_shed_observations (
 	// PAGE BOUNDARY: the headline is a WHOLE-FILTER aggregate. The shed table paginates; this number
 	// must not. Asking for a single-row page of the table must leave the gain untouched -- recomputing
 	// a summary from the visible slice is the capped read-time rollup this repo bans outright.
-	table, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "female", "", "")
+	table, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "female", "", "", 0)
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}

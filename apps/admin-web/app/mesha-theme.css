@@ -2297,6 +2297,11 @@
 .card .hd .sp { flex: 1; }
 .card .bd { padding: 6px 16px 16px; }
 .sales-config-card-copy{margin:0;padding:10px 16px 14px;line-height:1.45}
+.sales-ready-tolerance{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.sales-ready-tolerance label{display:block;margin-bottom:7px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.35px;text-transform:uppercase}
+.sales-ready-tolerance-row{display:grid;grid-template-columns:minmax(86px,1fr) auto auto;align-items:center;gap:8px}
+.sales-ready-tolerance input[type="range"]{width:100%;min-width:0;accent-color:var(--brand)}
+.sales-ready-tolerance output{min-width:48px;color:var(--ink);font-size:12px;font-weight:700;text-align:right}
 .tag { border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; display: inline-block; }
 .t-ok { background: var(--okx); color: var(--ok); }
 .t-info { background: var(--infox); color: var(--info); }

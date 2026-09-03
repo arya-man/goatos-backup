@@ -257,8 +257,10 @@ type WeighingDates struct {
 // Sale-readiness thresholds, shared with GrowthSaleReadiness so the two reads
 // cannot drift into two different definitions of "sale ready".
 const (
-	SaleThresholdLowerKg = 30.0
-	SaleThresholdUpperKg = 35.0
+	SaleThresholdLowerKg             = 30.0
+	SaleThresholdUpperKg             = 35.0
+	MaxSaleThresholdToleranceGrams   = 1000
+	DefaultSaleThresholdToleranceGms = 0
 )
 
 // ShedWeightsDefaultPeriodDays is the default window when the caller names

@@ -72,10 +72,14 @@ type Over35Card = {
   count: number | null;
   from: string;
   to: string;
+  toleranceG: number;
+  thresholdKg: number;
+  preserveQuery: [string, string][];
 };
 
 /** Six weeks back from today, in the farm's calendar: the fixed window the card names. */
 const OVER35_WINDOW_DAYS = 42;
+const OVER35_MAX_TOLERANCE_G = 1000;
 
 function OverviewSections({
   overview,
@@ -155,8 +159,31 @@ function OverviewSections({
                   ? over35.disabledReason
                   : over35.count == null
                     ? copy(pageContract, "kpi.over35.none")
-                    : `${copy(pageContract, "kpi.over35.sub")} · ${humanDate(over35.from)} – ${humanDate(over35.to)}`}
+                    : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)} ${kgSuffix}+ · ${humanDate(over35.from)} – ${humanDate(over35.to)}`}
               </div>
+              {over35.enabled ? (
+                <form action={PAGE_PATH} className="sales-ready-tolerance">
+                  {over35.preserveQuery.map(([key, value]) => (
+                    <input key={key} type="hidden" name={key} value={value} />
+                  ))}
+                  <label htmlFor="sale-ready-tolerance">{copy(pageContract, "kpi.over35.tolerance")}</label>
+                  <div className="sales-ready-tolerance-row">
+                    <input
+                      id="sale-ready-tolerance"
+                      name="sale_ready_tolerance_g"
+                      type="range"
+                      min="0"
+                      max={OVER35_MAX_TOLERANCE_G}
+                      step="50"
+                      defaultValue={over35.toleranceG}
+                    />
+                    <output>{over35.toleranceG} g</output>
+                    <button className="btn sm" type="submit">
+                      {copy(pageContract, "kpi.over35.apply")}
+                    </button>
+                  </div>
+                </form>
+              ) : null}
             </div>
           </section>
 
@@ -497,6 +524,13 @@ export async function SalesPage({
   const over35Enabled = over35Control?.enabled ?? false;
   const over35To = todayIso();
   const over35From = istDayPlus(over35To, -OVER35_WINDOW_DAYS);
+  const over35ToleranceG = boundedInt(one(sp, "sale_ready_tolerance_g"), 0, 0, OVER35_MAX_TOLERANCE_G);
+  const over35ThresholdKg = Math.max(0, 35 - over35ToleranceG / 1000);
+  const over35Params = {
+    from: over35From,
+    to: over35To,
+    sale_threshold_tolerance_g: over35ToleranceG ? String(over35ToleranceG) : undefined,
+  };
   const [overviewResult, dealsResult, vendorOptionsResult, weightsResult] = await Promise.all([
     getSalesOverview({ farm }),
     listSalesDeals({ farm, limit, offset }),
@@ -507,7 +541,7 @@ export async function SalesPage({
     listProcurementVendorOptions(),
     // Unscoped first: the response also carries the park vocabulary this page's farm code is
     // matched against, so a farm-scoped card needs exactly one more read, below.
-    over35Enabled ? getShedWeights({ from: over35From, to: over35To }) : Promise.resolve(null),
+    over35Enabled ? getShedWeights(over35Params) : Promise.resolve(null),
   ]);
 
   if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
@@ -527,17 +561,25 @@ export async function SalesPage({
     if (farm !== DEFAULT_FARM) {
       const park = weightsResult.data.parks.find((item) => item.name === farm);
       if (park) {
-        const scoped = await getShedWeights({ from: over35From, to: over35To, park_id: park.park_id });
+        const scoped = await getShedWeights({ ...over35Params, park_id: park.park_id });
         over35Count = scoped.ok ? scoped.data.summary.at_or_above_35kg : null;
       }
     }
   }
+  const over35PreserveQuery = Object.entries(sp).flatMap(([key, value]) => {
+    if (key === "sale_ready_tolerance_g") return [];
+    const first = Array.isArray(value) ? value[0] : value;
+    return first ? ([[key, first]] as [string, string][]) : [];
+  });
   const over35: Over35Card = {
     enabled: over35Enabled,
     disabledReason: over35Control?.disabled_reason ?? "",
     count: over35Count,
     from: over35From,
     to: over35To,
+    toleranceG: over35ToleranceG,
+    thresholdKg: over35ThresholdKg,
+    preserveQuery: over35PreserveQuery,
   };
 
   const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;

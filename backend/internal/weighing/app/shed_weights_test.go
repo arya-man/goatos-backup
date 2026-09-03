@@ -21,14 +21,16 @@ type shedWeightsRepo struct {
 	gotSelectedPark string
 	gotStart        time.Time
 	gotEnd          time.Time
+	gotToleranceKg  float64
 	parks           []domain.WeighingPark
 	shedWeights     domain.ShedWeights
 }
 
-func (r *shedWeightsRepo) GetShedWeights(_ context.Context, _ string, scopeParkIDs []string, selectedParkID string, start, end time.Time, _, _, _ string) (domain.ShedWeights, error) {
+func (r *shedWeightsRepo) GetShedWeights(_ context.Context, _ string, scopeParkIDs []string, selectedParkID string, start, end time.Time, _, _, _ string, toleranceKg float64) (domain.ShedWeights, error) {
 	r.gotScopeParkIDs = append([]string(nil), scopeParkIDs...)
 	r.gotSelectedPark = selectedParkID
 	r.gotStart, r.gotEnd = start, end
+	r.gotToleranceKg = toleranceKg
 	out := r.shedWeights
 	// The real repository builds the park vocabulary from the scope it was handed.
 	// Mirroring that here keeps this test honest: it still proves the caller's scope
@@ -78,7 +80,7 @@ func TestGetShedWeightsRejectsUnauthorizedParkID(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: swParkA,
 	})
 
-	if _, err := svc.GetShedWeights(ctx, swActor(), swParkB, "", "", "", "", ""); err == nil {
+	if _, err := svc.GetShedWeights(ctx, swActor(), swParkB, "", "", "", "", "", ""); err == nil {
 		t.Fatal("expected park B to be denied for a park-A scoped monitor, got nil error")
 	}
 	if repo.gotScopeParkIDs != nil {
@@ -98,7 +100,7 @@ func TestGetShedWeightsOmittedParkIDUsesOnlyAuthorizedParks(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: swParkA,
 	})
 
-	out, err := svc.GetShedWeights(ctx, swActor(), "", "", "", "", "", "")
+	out, err := svc.GetShedWeights(ctx, swActor(), "", "", "", "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -135,7 +137,7 @@ func TestGetShedWeightsPassesHalfOpenBusinessDayWindow(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: swTenant,
 	})
 
-	if _, err := svc.GetShedWeights(ctx, swActor(), swParkA, "2026-07-01", "2026-07-28", "", "", ""); err != nil {
+	if _, err := svc.GetShedWeights(ctx, swActor(), swParkA, "2026-07-01", "2026-07-28", "", "", "", ""); err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
 	if len(repo.gotScopeParkIDs) != 2 || repo.gotScopeParkIDs[0] != swParkA || repo.gotScopeParkIDs[1] != swParkB {
@@ -167,7 +169,38 @@ func TestGetShedWeightsRejectsMalformedInput(t *testing.T) {
 		{"inverted window", "", "2026-07-28", "2026-07-01"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := svc.GetShedWeights(ctx, swActor(), tc.park, tc.from, tc.to, "", "", ""); err != ports.ErrInvalidArgument {
+			if _, err := svc.GetShedWeights(ctx, swActor(), tc.park, tc.from, tc.to, "", "", "", ""); err != ports.ErrInvalidArgument {
+				t.Fatalf("want ErrInvalidArgument, got %v", err)
+			}
+		})
+	}
+}
+
+func TestGetShedWeightsPassesSaleThresholdTolerance(t *testing.T) {
+	repo := &shedWeightsRepo{parks: []domain.WeighingPark{{ParkID: swParkA, Name: "Coimbatore"}}}
+	svc := NewService(repo)
+	ctx := swContext(permissions.ActiveGrant{
+		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: swParkA,
+	})
+
+	if _, err := svc.GetShedWeights(ctx, swActor(), "", "", "", "", "", "", "200"); err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	if repo.gotToleranceKg != 0.2 {
+		t.Fatalf("tolerance kg = %.3f, want 0.200", repo.gotToleranceKg)
+	}
+}
+
+func TestGetShedWeightsRejectsInvalidSaleThresholdTolerance(t *testing.T) {
+	repo := &shedWeightsRepo{}
+	svc := NewService(repo)
+	ctx := swContext(permissions.ActiveGrant{
+		Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: swTenant,
+	})
+
+	for _, raw := range []string{"-1", "1001", "2.5", "abc"} {
+		t.Run(raw, func(t *testing.T) {
+			if _, err := svc.GetShedWeights(ctx, swActor(), "", "", "", "", "", "", raw); err != ports.ErrInvalidArgument {
 				t.Fatalf("want ErrInvalidArgument, got %v", err)
 			}
 		})
@@ -181,7 +214,7 @@ func TestGetShedWeightsRequiresMonitorCapability(t *testing.T) {
 	ctx := swContext()
 	actor := domain.Actor{TenantID: swTenant, Roles: []string{permissions.RoleOperator}}
 
-	if _, err := svc.GetShedWeights(ctx, actor, "", "", "", "", "", ""); err != ports.ErrForbidden {
+	if _, err := svc.GetShedWeights(ctx, actor, "", "", "", "", "", "", ""); err != ports.ErrForbidden {
 		t.Fatalf("want ErrForbidden for a non-monitor role, got %v", err)
 	}
 }

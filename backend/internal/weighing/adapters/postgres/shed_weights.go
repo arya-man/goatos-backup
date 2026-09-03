@@ -67,8 +67,16 @@ import (
 // weighing_observations_campaign_scanned_identifier_idx rather than seq-scanning
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
-func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.ShedWeights, error) {
+func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg float64) (domain.ShedWeights, error) {
 	weighingCategory = strings.TrimSpace(weighingCategory)
+	saleThresholdLowerKg := domain.SaleThresholdLowerKg - saleThresholdToleranceKg
+	if saleThresholdLowerKg < 0 {
+		saleThresholdLowerKg = 0
+	}
+	saleThresholdUpperKg := domain.SaleThresholdUpperKg - saleThresholdToleranceKg
+	if saleThresholdUpperKg < 0 {
+		saleThresholdUpperKg = 0
+	}
 	// The ROWS honour the selection; the VOCABULARY below is built from the whole scope. Keeping
 	// them separate is the fix for a dropdown that collapsed to the park already chosen.
 	parkIDs := scopeParkIDs
@@ -409,7 +417,7 @@ LIMIT $7`
 
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs,
 		periodStart, periodEnd,
-		domain.SaleThresholdLowerKg, domain.SaleThresholdUpperKg,
+		saleThresholdLowerKg, saleThresholdUpperKg,
 		domain.MaxShedWeightsRows,
 		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels,
 		growthLookbackDays, weighingCategory)

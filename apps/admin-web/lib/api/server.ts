@@ -798,6 +798,7 @@ export async function getShedWeights(params: {
   */
   origin?: string;
   weighing_category?: string;
+  sale_threshold_tolerance_g?: string;
 }): Promise<ApiResult<ShedWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

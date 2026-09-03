@@ -811,7 +811,7 @@ func (r *fakeRepo) GetLeadershipGrowthADG(_ context.Context, _ string, _ []strin
 }
 
 // GetShedWeights is a stub implementation for test fakes.
-func (r *fakeRepo) GetShedWeights(_ context.Context, _ string, _ []string, _ string, _, _ time.Time, _, _, _ string) (domain.ShedWeights, error) {
+func (r *fakeRepo) GetShedWeights(_ context.Context, _ string, _ []string, _ string, _, _ time.Time, _, _, _ string, _ float64) (domain.ShedWeights, error) {
 	return domain.ShedWeights{}, nil
 }
 

@@ -474,7 +474,7 @@ type Repository interface {
 	// rows are narrowed by the SELECTION. Building both from one filtered slice collapsed the park
 	// dropdown to whichever park was already chosen, so a reader who picked CPT could not get back
 	// to CBE without clearing the filter by hand.
-	GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.ShedWeights, error)
+	GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg float64) (domain.ShedWeights, error)
 	// GetWeighingDates is the NARROW read behind the Weights screens' landing window: the whole-shed
 	// weighing days and the last day anything was weighed, and nothing else. GetShedWeights answers
 	// the same two questions as a by-product of four queries; resolving a window through that read

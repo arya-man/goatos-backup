@@ -307,7 +307,7 @@ func (r *parkScopeCheckRepo) GetLeadershipGrowthADG(context.Context, string, []s
 	return domain.GrowthADG{}, nil
 }
 
-func (r *parkScopeCheckRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string, string, string) (domain.ShedWeights, error) {
+func (r *parkScopeCheckRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string, string, string, float64) (domain.ShedWeights, error) {
 	return domain.ShedWeights{}, nil
 }
 
