@@ -80,6 +80,9 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 		"hint.record_reached", "hint.reached_weight", "hint.mark_reached", "delivery.in_transit_note",
 		"action.mark_reached.label", "action.update_delivery.label",
 		"action.delivery_recorded", "action.delivery_updated", "action.delivery_record_failed",
+		"date.purchase_date.placeholder", "date.reached_on.placeholder", "date.paid_on.placeholder",
+		"date.prev_month", "date.next_month",
+		"date.invalid_purchase_date", "date.invalid_reached_on", "date.invalid_paid_on",
 		"pager.page", "pager.of", "action.next_page", "action.prev_page",
 		"empty.purchases", "empty.purchases.unset", "error.load", "error.options", "disabled.write",
 	} {

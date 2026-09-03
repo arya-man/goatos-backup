@@ -11,7 +11,8 @@ import {
 import { Tag } from "@/components/ui-primitives";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedPurchase, FeedPurchaseOptions } from "@/lib/api/procurement";
-import { fmtDate } from "@/lib/format";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
+import { fmtDate, todayIso } from "@/lib/format";
 import { deliveryStatusChip, paymentStatusChip } from "./feed-purchase-format";
 import { inr, num } from "./sales-format";
 import {
@@ -111,6 +112,27 @@ export function FeedPurchaseDrawer({
 
   const none = copy(pageContract, "value.none");
   const field = (key: string) => copy(pageContract, `field.${key}`);
+  // Every date on this ledger is a day that has already happened (bought, reached, paid), so each
+  // picker is capped at today. The app's shared date control replaces the native input, whose
+  // browser-drawn calendar and locale date order match nothing else on the page.
+  const today = todayIso();
+  const datePicker = (
+    name: string,
+    key: "purchase_date" | "reached_on" | "paid_on",
+    opts: { required?: boolean; min?: string; defaultValue?: string } = {},
+  ) => (
+    <ThemedDatePicker
+      name={name}
+      label={copy(pageContract, `date.${key}.placeholder`)}
+      min={opts.min}
+      max={today}
+      defaultValue={opts.defaultValue}
+      previousMonthLabel={copy(pageContract, "date.prev_month")}
+      nextMonthLabel={copy(pageContract, "date.next_month")}
+      invalidDateText={copy(pageContract, `date.invalid_${key}`)}
+      required={opts.required}
+    />
+  );
   // The payment writes are backend capabilities, never a role string: the same detail view serves
   // the read-only Feed Director (no forms) and the procurement desk (both forms).
   const canRecordPayment = controlEnabled(pageContract, "record_feed_purchase_payment", false);
@@ -190,7 +212,7 @@ export function FeedPurchaseDrawer({
 
               <div className="fld">
                 <label htmlFor="fp-purchase_date">{field("purchase_date")}</label>
-                <input id="fp-purchase_date" name="purchase_date" type="date" required />
+                {datePicker("purchase_date", "purchase_date", { required: true })}
               </div>
               <div className="fld">
                 <label htmlFor="fp-farm">{field("farm")}</label>
@@ -288,7 +310,7 @@ export function FeedPurchaseDrawer({
               <div className="dgrp">{copy(pageContract, "section.delivery.title")}</div>
               <div className="fld">
                 <label htmlFor="fp-reached_on">{field("reached_on")}</label>
-                <input id="fp-reached_on" name="reached_on" type="date" />
+                {datePicker("reached_on", "reached_on")}
                 <div className="muted small">{copy(pageContract, "hint.record_reached")}</div>
               </div>
               <div className="fld">
@@ -332,7 +354,7 @@ export function FeedPurchaseDrawer({
 
               <div className="fld">
                 <label htmlFor="fpe-purchase_date">{field("purchase_date")}</label>
-                <input id="fpe-purchase_date" name="purchase_date" type="date" required defaultValue={purchase.purchase_date} />
+                {datePicker("purchase_date", "purchase_date", { required: true, defaultValue: purchase.purchase_date })}
               </div>
               <div className="fld">
                 <label htmlFor="fpe-quantity_kg">{field("quantity_kg")}</label>
@@ -437,7 +459,13 @@ export function FeedPurchaseDrawer({
                 <input type="hidden" name="was_reached" value={purchase.reached_on ? "1" : "0"} />
                 <div className="fld">
                   <label htmlFor="fpd-reached_on">{field("reached_on")}</label>
-                  <input id="fpd-reached_on" name="reached_on" type="date" required defaultValue={purchase.reached_on ?? ""} />
+                  {/* A load cannot reach before it was bought: the picker's floor is the purchase
+                      date, the same rule the backend enforces under the row lock. */}
+                  {datePicker("reached_on", "reached_on", {
+                    required: true,
+                    min: purchase.purchase_date,
+                    defaultValue: purchase.reached_on ?? undefined,
+                  })}
                 </div>
                 <div className="fld">
                   <label htmlFor="fpd-reached_weight_kg">{field("reached_weight_kg")}</label>
@@ -519,7 +547,7 @@ export function FeedPurchaseDrawer({
                 <input type="hidden" name="idempotency_key" value={paymentIdempotencyKey} />
                 <div className="fld">
                   <label htmlFor="fpp-paid_on">{field("paid_on")}</label>
-                  <input id="fpp-paid_on" name="paid_on" type="date" required />
+                  {datePicker("paid_on", "paid_on", { required: true })}
                 </div>
                 <div className="fld">
                   <label htmlFor="fpp-amount">{field("amount_rupees")}</label>

@@ -3218,6 +3218,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.delivery_updated":       "Arrival details updated.",
 			"action.delivery_record_failed": "Could not update the arrival. Check the fields and try again.",
 
+			// The shared date control's copy: placeholder per field, month navigation, and the
+			// refusal shown when a day outside the allowed range is picked. Every date on this
+			// ledger has already happened, so each picker is capped at today; the arrival day is
+			// also floored at the purchase date.
+			"date.purchase_date.placeholder": "Pick the day it was bought",
+			"date.reached_on.placeholder":    "Pick the day it reached",
+			"date.paid_on.placeholder":       "Pick the day it was paid",
+			"date.prev_month":                "Previous month",
+			"date.next_month":                "Next month",
+			"date.invalid_purchase_date":     "Pick the day the feed was bought. It cannot be later than {date}.",
+			"date.invalid_reached_on":        "Pick the day the load reached. It cannot be before it was bought or later than {date}.",
+			"date.invalid_paid_on":           "Pick the day the money was handed over. It cannot be later than {date}.",
+
 			// Payment section of the detail drawer: instalment history, running totals, and the
 			// add-payment / status-edit controls.
 			"section.payments.title":              "Payments",

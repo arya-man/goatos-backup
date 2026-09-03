@@ -62,6 +62,7 @@ export function ThemedDatePicker({
   nextMonthLabel,
   invalidDateText,
   required,
+  defaultValue,
 }: {
   name: string;
   label: string;
@@ -74,6 +75,8 @@ export function ThemedDatePicker({
   /** Backend-owned refusal copy. "{date}" is replaced with the bound that was crossed. */
   invalidDateText: string;
   required?: boolean;
+  /** Initial selection (YYYY-MM-DD) for a form editing an already-recorded date. */
+  defaultValue?: string;
 }) {
   const minDate = useMemo(() => parseDateKey(min), [min]);
   // parseDateKey falls back to TODAY for an absent value, so the bounds are read off the raw props
@@ -81,9 +84,11 @@ export function ThemedDatePicker({
   // day, which is the entire range a sale date needs.
   const minKey = min ? dateKey(minDate) : "";
   const maxKey = max ?? "";
-  const [selected, setSelected] = useState<string>("");
+  const [selected, setSelected] = useState<string>(defaultValue ?? "");
   const [error, setError] = useState<string>("");
-  const [cursor, setCursor] = useState<Date>(() => parseDateKey(min));
+  // Open on the month of the value being edited, else on the earliest allowed month (today when
+  // unbounded), so a correction form does not make the operator page back to the original day.
+  const [cursor, setCursor] = useState<Date>(() => parseDateKey(defaultValue || min));
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const days = useMemo(() => buildMonthDays(cursor), [cursor]);
   const today = dateKey(new Date());
