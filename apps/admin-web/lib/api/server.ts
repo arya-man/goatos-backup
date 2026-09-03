@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { createAdminApiClient, createAppApiClient, GoatOSApiError } from "@goatos/api-client";
 import type { AdminApiComponents, AdminApiPaths, AppApiComponents, AppApiPaths } from "@goatos/api-client";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { cache } from "react";
 import { resolveFirebaseIdToken } from "@/lib/auth/server-session";
 import { mintLocalDevBearerToken } from "./local-dev-token";
@@ -594,7 +595,10 @@ export async function requireAdminWebPageContract(routeId: string): Promise<Admi
   }
   const page = contract.data.pages.find((item) => item.route_id === routeId);
   if (!page) {
-    throw new Error(`Admin-web page contract missing route_id=${routeId}`);
+    const first =
+      contract.data.navigation.primary.find((item) => item.enabled) ??
+      contract.data.navigation.groups.flatMap((group) => group.leaves).find((item) => item.enabled);
+    redirect(first?.href ?? "/");
   }
   return page;
 }

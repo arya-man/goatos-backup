@@ -105,12 +105,16 @@ func TestProcurementDirectorIsStockOnlyOnAdminWeb(t *testing.T) {
 
 func TestProcurementDirectorPlusFeedDirectorStillGetsStockOnlyFeedAnalytics(t *testing.T) {
 	roles := []string{RoleProcurementDirector, RoleFeedDirector}
+	held := permissionsForRoles(roles...)
 	stock, ok := Match("GET", "/feed-analytics/stock")
 	if !ok {
 		t.Fatal("feed stock route is not registered")
 	}
 	if !AuthorizeRoute(stock, roles) {
 		t.Fatal("real Hemant role stack must keep Feed Analytics stock")
+	}
+	if allowed, decidable := AuthorizePermissionSet(stock, held); !decidable || !allowed {
+		t.Fatal("real Hemant resolved permissions must keep Feed Analytics stock")
 	}
 	for _, tt := range []struct {
 		method string
@@ -128,10 +132,30 @@ func TestProcurementDirectorPlusFeedDirectorStillGetsStockOnlyFeedAnalytics(t *t
 		if AuthorizeRoute(route, roles) {
 			t.Fatalf("real Hemant role stack must not authorize %s %s", tt.method, tt.path)
 		}
+		if allowed, decidable := AuthorizePermissionSet(route, held); !decidable || allowed {
+			t.Fatalf("real Hemant resolved permissions must not authorize %s %s", tt.method, tt.path)
+		}
 		if !AuthorizeRoute(route, []string{RoleCEOInternal, RoleProcurementDirector, RoleFeedDirector}) {
 			t.Fatalf("CEO/CXO must keep %s %s even when carrying procurement/feed roles", tt.method, tt.path)
 		}
+		if allowed, decidable := AuthorizePermissionSet(route, permissionsForRoles(RoleCEOInternal, RoleProcurementDirector, RoleFeedDirector)); !decidable || !allowed {
+			t.Fatalf("CEO/CXO resolved permissions must keep %s %s even when carrying procurement/feed roles", tt.method, tt.path)
+		}
 	}
+}
+
+func permissionsForRoles(roles ...string) []string {
+	set := map[string]struct{}{}
+	for _, role := range roles {
+		for permission := range rolePermissions[role] {
+			set[permission] = struct{}{}
+		}
+	}
+	held := make([]string, 0, len(set))
+	for permission := range set {
+		held = append(held, permission)
+	}
+	return held
 }
 
 // The capability-level counterpart: a director must not hold another module's permissions at

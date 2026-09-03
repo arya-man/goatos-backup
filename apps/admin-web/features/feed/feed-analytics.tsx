@@ -390,6 +390,9 @@ export async function FeedAnalyticsPage({
   const failed = [directed, execution, experiment, shedFeed, stockOnly ? stock : null].some(
     (r) => r !== null && !r.ok,
   );
+  const failedError = [directed, execution, experiment, shedFeed, stockOnly ? stock : null].find(
+    (r) => r !== null && !r.ok,
+  )?.error;
 
   return (
     <div className="pagegrid">
@@ -429,7 +432,7 @@ export async function FeedAnalyticsPage({
       {failed ? (
         <section className="card">
           <h2 className="h">{fa(pageContract, "error.title")}</h2>
-          <p className="muted small">{fa(pageContract, "error.body")}</p>
+          <p className="muted small">{failedError?.message || fa(pageContract, "error.body")}</p>
         </section>
       ) : null}
 

@@ -969,6 +969,9 @@ func AuthorizePermissionSet(route Route, held []string) (allowed bool, decidable
 	for _, p := range held {
 		set[p] = struct{}{}
 	}
+	if procurementDirectorStockOnlyPermissionSet(route, set) {
+		return false, true
+	}
 	// Permissions is ANDed, AnyPermissions is ORed -- the same shape AuthorizeRoute
 	// applies, so the two paths cannot disagree about what a route wants.
 	for _, required := range route.Permissions {
@@ -989,6 +992,27 @@ func AuthorizePermissionSet(route Route, held []string) (allowed bool, decidable
 		}
 	}
 	return true, true
+}
+
+func procurementDirectorStockOnlyPermissionSet(route Route, held map[string]struct{}) bool {
+	if _, ceo := held[OperationsRepair]; ceo {
+		return false
+	}
+	if _, stock := held[FeedAnalyticsStockRead]; !stock {
+		return false
+	}
+	if _, sales := held[SalesAllocateAnimals]; !sales {
+		return false
+	}
+	if _, purchases := held[FeedPurchaseRead]; !purchases {
+		return false
+	}
+	switch route.OperationID {
+	case "getFeedAnalyticsDirected", "getFeedAnalyticsExecution", "getFeedAnalyticsExperiment", "getFeedAnalyticsShedFeed":
+		return true
+	default:
+		return false
+	}
 }
 
 func ProtectedRoutes() []Route {
