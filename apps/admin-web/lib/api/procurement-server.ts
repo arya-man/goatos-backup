@@ -246,13 +246,20 @@ export async function getSalesOverview(
 }
 
 // The load-wise reconciliation: every purchased load's counts and money, served whole (the
-// newest window) by the procurement read. ONE bounded request, never a paged walk.
-export async function getLoadwiseSales(): Promise<ApiResult<LoadwiseSales>> {
+// newest window) by the procurement read. ONE bounded request, never a paged walk. park_id is
+// the top-bar park selector's value (a location UUID); the backend narrows rows, totals and
+// summary together so the page cannot show a filtered chart over unfiltered tiles.
+export async function getLoadwiseSales(
+  params: { park_id?: string } = {},
+): Promise<ApiResult<LoadwiseSales>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<LoadwiseSales>("/procurement/loadwise-sales", { cache: "no-store" }),
+    client.request<LoadwiseSales>("/procurement/loadwise-sales", {
+      cache: "no-store",
+      query: compactQuery({ park_id: params.park_id }),
+    }),
   );
 }
 
@@ -412,6 +419,48 @@ export async function recordSalesDealPayment(
       headers: idempotentHeaders(idempotencyKey),
       body,
     }),
+  );
+}
+
+export async function updateSalesDealPayment(
+  dealId: string,
+  paymentId: string,
+  body: SalesDealPaymentWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>(
+      `/sales/deals/${encodeURIComponent(dealId)}/payments/${encodeURIComponent(paymentId)}` as keyof AppApiPaths & string,
+      {
+        method: "PUT",
+        cache: "no-store",
+        headers: idempotentHeaders(idempotencyKey),
+        body,
+      },
+    ),
+  );
+}
+
+export async function deleteSalesDealPayment(
+  dealId: string,
+  paymentId: string,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>(
+      `/sales/deals/${encodeURIComponent(dealId)}/payments/${encodeURIComponent(paymentId)}` as keyof AppApiPaths & string,
+      {
+        method: "DELETE",
+        cache: "no-store",
+        headers: idempotentHeaders(idempotencyKey),
+      },
+    ),
   );
 }
 

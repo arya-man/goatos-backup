@@ -475,6 +475,74 @@ func TestSalesDealPaymentPostgresPaths(t *testing.T) {
 	})
 }
 
+func TestSalesDealPaymentEditAndDeletePostgresPaths(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	deal := seedDeal(t, repo, ctx, "pay-edit-deal-1", domain.DealWrite{
+		SaleDate: "2026-08-20", Farm: "CBE", ProductType: "Goat", Breed: "Malai",
+		BuyerName: "Mahendran", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+		AnimalCount: f64(17), SalesValue: 197415, AdvanceAmount: f64(20000),
+	})
+
+	withReceipt, err := repo.RecordDealPayment(ctx, salesTestTenant, deal.DealID,
+		domain.DealPaymentWrite{ReceivedOn: "2026-08-25", AmountRupees: 415, Note: "transfer"}, "", "edit-rcpt-1")
+	if err != nil {
+		t.Fatalf("record receipt: %v", err)
+	}
+	if len(withReceipt.Payments) != 1 {
+		t.Fatalf("payments = %#v want one receipt", withReceipt.Payments)
+	}
+	paymentID := withReceipt.Payments[0].PaymentID
+
+	edited, err := repo.UpdateDealPayment(ctx, salesTestTenant, deal.DealID, paymentID,
+		domain.DealPaymentWrite{ReceivedOn: "2026-08-26", AmountRupees: 500, Note: "corrected transfer"}, "", "edit-rcpt-2")
+	if err != nil {
+		t.Fatalf("edit receipt: %v", err)
+	}
+	if edited.PaymentReceived == nil || *edited.PaymentReceived != 20500 {
+		t.Fatalf("payment_received after edit = %v want 20500", edited.PaymentReceived)
+	}
+	if got := edited.PaymentBalance(); got != 176915 {
+		t.Fatalf("balance after edit = %v want 176915", got)
+	}
+	if len(edited.Payments) != 1 || edited.Payments[0].AmountRupees != 500 || edited.Payments[0].ReceivedOn != "2026-08-26" || edited.Payments[0].Note != "corrected transfer" {
+		t.Fatalf("edited payments = %#v want corrected row", edited.Payments)
+	}
+
+	replayed, err := repo.UpdateDealPayment(ctx, salesTestTenant, deal.DealID, paymentID,
+		domain.DealPaymentWrite{ReceivedOn: "2026-08-26", AmountRupees: 500, Note: "corrected transfer"}, "", "edit-rcpt-2")
+	if err != nil {
+		t.Fatalf("edit replay: %v", err)
+	}
+	if replayed.PaymentReceived == nil || *replayed.PaymentReceived != 20500 || len(replayed.Payments) != 1 {
+		t.Fatalf("edit replay changed ledger: received=%v payments=%d", replayed.PaymentReceived, len(replayed.Payments))
+	}
+
+	deleted, err := repo.DeleteDealPayment(ctx, salesTestTenant, deal.DealID, paymentID, "", "delete-rcpt-1")
+	if err != nil {
+		t.Fatalf("delete receipt: %v", err)
+	}
+	if deleted.PaymentReceived == nil || *deleted.PaymentReceived != 20000 {
+		t.Fatalf("payment_received after delete = %v want back to advance 20000", deleted.PaymentReceived)
+	}
+	if len(deleted.Payments) != 0 {
+		t.Fatalf("deleted receipt still listed: %#v", deleted.Payments)
+	}
+
+	deletedReplay, err := repo.DeleteDealPayment(ctx, salesTestTenant, deal.DealID, paymentID, "", "delete-rcpt-1")
+	if err != nil {
+		t.Fatalf("delete replay: %v", err)
+	}
+	if deletedReplay.PaymentReceived == nil || *deletedReplay.PaymentReceived != 20000 || len(deletedReplay.Payments) != 0 {
+		t.Fatalf("delete replay changed ledger: received=%v payments=%d", deletedReplay.PaymentReceived, len(deletedReplay.Payments))
+	}
+}
+
 // TestExpectedSaleAdvanceStory pins the maintainer's 2026-08-31 scenario end to end: an advance
 // received TODAY for a sale expected on a FUTURE date is recorded as an Advance Paid deal, its
 // receipt is dated by when the money arrived, and on the day the animals leave the status is

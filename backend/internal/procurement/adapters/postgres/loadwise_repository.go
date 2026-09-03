@@ -26,7 +26,7 @@ import (
 
 // loadwiseSalesSQL is the one statement behind the load-wise read.
 //
-// projection-review: membership=procurement_load_goats accepted rows deduped DISTINCT ON (tenant, goat) by the TOTAL order (intake_accepted_at DESC NULLS LAST, created_at DESC, load_goat_id DESC) so a tie or null instant still resolves to one stable load; group_key=load_id on both sides (stats GROUP BY m.load_id attaching 1:1 to procurement_loads PK); join_cardinality=goats 1:1 on PK, deal_share at most 1:1 via the tagged partial unique index with the per-deal tagged count pre-aggregated, park lateral 1:1 collapsed agree-or-go-bare; pagination=LIMIT $2 newest loads with whole-tenant total_loads reported beside the window; scope=tenant_id on every branch
+// projection-review: membership=procurement_load_goats accepted rows deduped DISTINCT ON (tenant, goat) by the TOTAL order (intake_accepted_at DESC NULLS LAST, created_at DESC, load_goat_id DESC) so a tie or null instant still resolves to one stable load; group_key=load_id on both sides (stats GROUP BY m.load_id attaching 1:1 to procurement_loads PK); join_cardinality=goats 1:1 on PK, deal_share at most 1:1 via the tagged partial unique index with the per-deal tagged count pre-aggregated, park lateral 1:1 collapsed agree-or-go-bare; pagination=LIMIT $2 newest loads after the optional $3 park filter, with total_loads a window count over the same filtered pre-LIMIT set; scope=tenant_id on every branch
 //
 // The prose form of that proof: membership = procurement_load_goats at (tenant_id, goat_id), deduplicated by
 // DISTINCT ON (goat_id) over current_state = 'accepted_herd_intake' rows, ordered by
@@ -153,25 +153,38 @@ stats AS (
 -- (procurement_loads PK) on every attached side; join_cardinality=parties 1:1 on source_party_id,
 -- stats 1:1 by construction (GROUP BY m.load_id), prior 1:1 (GROUP BY load_id), and the 2026-09-01
 -- cost columns are PLAIN COLUMNS of procurement_loads -- 1:1 with the row by definition, adding no
--- join and no fan-out; pagination=LIMIT $2 newest loads, whole-tenant total_loads reported beside
--- the window so the count never means "of this page"; scope=tenant_id on the outer WHERE and on
--- every CTE.
+-- join and no fan-out; pagination=LIMIT $2 newest loads AFTER the park filter, with total_loads a
+-- window count over the SAME filtered set (pre-LIMIT) so the count never means "of this page" and
+-- never counts loads the filter hides; scope=tenant_id on the outer WHERE and on every CTE.
+--
+-- The PARK FILTER ($3, optional, maintainer report 2026-09-03: the top-bar park selector changed
+-- nothing on Purchase and Born) matches the SAME agree-or-go-bare farm label the row already
+-- reports, so the filter can never disagree with the Farm cell beside it. A load whose animals
+-- disagree about their park, or whose park is unknown (bare farm), is claimed by NEITHER park and
+-- appears only under All Parks -- the honest gap, same shape as the weighing sex/origin filters.
+-- A park with no location_code resolves to NULL and matches nothing rather than matching the
+-- bare-farm loads.
 --
 -- The ITEMISATION is deliberately NOT joined here. Cost lines are 1:N against a load, so joining
 -- them into this statement would multiply every row -- purchased counts, sold value, the lot --
 -- which is the classic fan-out this marker exists to refuse. They are fetched by
 -- loadCostLinesSQL as a separate set-based read and attached in Go by load_id, so a load with
 -- five cost lines is still exactly one row here.
-SELECT pl.load_id::text, COALESCE(pl.context->>'load_ref', ''), COALESCE(p.display_name, ''), pl.purchase_date, pl.status,
-       pl.animal_cost::float8, pl.transport_cost::float8, pl.other_cost::float8,
-       pl.purchase_weight_kg::float8,
-       pl.sold_weight_kg::float8, pl.sold_weighed_animals, pl.sold_weighed_value::float8,
+, reconciled AS (
+SELECT pl.load_id::text AS load_id, COALESCE(pl.context->>'load_ref', '') AS load_ref,
+       COALESCE(p.display_name, '') AS vendor_name, pl.purchase_date, pl.status,
+       pl.animal_cost::float8 AS animal_cost, pl.transport_cost::float8 AS transport_cost,
+       pl.other_cost::float8 AS other_cost,
+       pl.purchase_weight_kg::float8 AS purchase_weight_kg,
+       pl.sold_weight_kg::float8 AS sold_weight_kg, pl.sold_weighed_animals,
+       pl.sold_weighed_value::float8 AS sold_weighed_value,
        pl.arrived_on, pl.fattening_days,
        pl.row_version,
        pl.expected_count,
-       COALESCE(s.purchased, 0), COALESCE(s.sold, 0), COALESCE(s.mortality, 0),
-       COALESCE(s.other_exits, 0), COALESCE(s.remaining, 0),
-       COALESCE(s.sold_value, 0), COALESCE(s.sold_priced, 0),
+       COALESCE(s.purchased, 0) AS purchased, COALESCE(s.sold, 0) AS sold,
+       COALESCE(s.mortality, 0) AS mortality,
+       COALESCE(s.other_exits, 0) AS other_exits, COALESCE(s.remaining, 0) AS remaining,
+       COALESCE(s.sold_value, 0) AS sold_value, COALESCE(s.sold_priced, 0) AS sold_priced,
        -- The park every accepted animal agrees on; when none is attributed (a sold-out legacy
        -- load has no residents left) the load's OWN recorded farm answers instead. Both are the
        -- same fact stated by different sources, and neither is a majority pick.
@@ -183,15 +196,38 @@ SELECT pl.load_id::text, COALESCE(pl.context->>'load_ref', ''), COALESCE(p.displ
             -- one. Any unknown park, or any disagreement, goes bare.
             WHEN s.animals_with_park = s.purchased AND s.distinct_parks = 1 THEN COALESCE(s.park_code, '')
             ELSE ''
-       END,
-       COALESCE(pr.prior_sold, 0), pr.prior_sold_value, pr.prior_sold_first, pr.prior_sold_last,
-       COALESCE(pr.prior_dead, 0), pr.prior_dead_first, pr.prior_dead_last
+       END AS farm,
+       COALESCE(pr.prior_sold, 0) AS prior_sold, pr.prior_sold_value, pr.prior_sold_first, pr.prior_sold_last,
+       COALESCE(pr.prior_dead, 0) AS prior_dead, pr.prior_dead_first, pr.prior_dead_last,
+       pl.created_at
 FROM public.procurement_loads pl
 LEFT JOIN public.parties p ON p.party_id = pl.source_party_id
 LEFT JOIN stats s ON s.load_id = pl.load_id
 LEFT JOIN prior pr ON pr.load_id = pl.load_id
 WHERE pl.tenant_id = $1
-ORDER BY pl.purchase_date DESC NULLS LAST, pl.created_at DESC, pl.load_id
+)
+SELECT r.load_id, r.load_ref, r.vendor_name, r.purchase_date, r.status,
+       r.animal_cost, r.transport_cost, r.other_cost,
+       r.purchase_weight_kg,
+       r.sold_weight_kg, r.sold_weighed_animals, r.sold_weighed_value,
+       r.arrived_on, r.fattening_days,
+       r.row_version,
+       r.expected_count,
+       r.purchased, r.sold, r.mortality,
+       r.other_exits, r.remaining,
+       r.sold_value, r.sold_priced,
+       r.farm,
+       r.prior_sold, r.prior_sold_value, r.prior_sold_first, r.prior_sold_last,
+       r.prior_dead, r.prior_dead_first, r.prior_dead_last,
+       -- Counted over the filtered set BEFORE the LIMIT, so the screen can still say when older
+       -- loads are not shown, and under a park filter counts only that park's loads.
+       count(*) OVER ()::int AS total_loads
+FROM reconciled r
+WHERE nullif($3, '') IS NULL
+   OR r.farm = (SELECT nullif(upper(l.location_code), '')
+                FROM public.locations l
+                WHERE l.tenant_id = $1 AND l.location_id = nullif($3, '')::uuid)
+ORDER BY r.purchase_date DESC NULLS LAST, r.created_at DESC, r.load_id
 LIMIT NULLIF($2, 0)`
 
 // loadCostLinesSQL reads the itemisation for a whole page of loads at once. Ordered by the kind's
@@ -209,7 +245,7 @@ ORDER BY l.load_id, COALESCE(array_position($3::text[], l.kind), 999), l.recorde
 // A failure here is NOT fatal to the page: the three bucket figures are already scanned and they
 // are what the list renders. Losing the breakdown costs the reader the detail behind a number,
 // while failing the whole read costs them the number itself -- so this degrades rather than takes
-// Purchase & barn down.
+// Purchase and Born down.
 func (r *Repository) attachCostLines(ctx context.Context, tenantID string, loads []domain.LoadwiseLoad) error {
 	if len(loads) == 0 {
 		return nil
@@ -282,12 +318,13 @@ JOIN (
 WHERE a.tenant_id = $1 AND a.status = 'tagged'`
 
 // LoadwiseSales returns the newest maxLoads loads reconciled: counts, attributed sold value,
-// recorded costs, the whole-tenant load count and the overall average sold price.
-func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoads int) (domain.LoadwiseSales, error) {
+// recorded costs, the filtered load count and the overall average sold price. parkID optionally
+// narrows to loads whose agree-or-go-bare farm label names that park; empty means no filter.
+func (r *Repository) LoadwiseSales(ctx context.Context, tenantID, parkID string, maxLoads int) (domain.LoadwiseSales, error) {
 	if maxLoads <= 0 {
 		maxLoads = 60
 	}
-	return r.loadwiseSales(ctx, tenantID, maxLoads, biztime.BusinessDate(time.Now()))
+	return r.loadwiseSales(ctx, tenantID, parkID, maxLoads, biztime.BusinessDate(time.Now()))
 }
 
 // OverdueLoadCandidates returns every overdue-load candidate in the tenant, not just the newest UI
@@ -297,23 +334,25 @@ func (r *Repository) OverdueLoadCandidates(ctx context.Context, tenantID, asOf s
 	if asOf == "" {
 		asOf = biztime.BusinessDate(time.Now())
 	}
-	read, err := r.loadwiseSales(ctx, tenantID, 0, asOf)
+	// No park filter: the overdue-load alert is whole-tenant by design.
+	read, err := r.loadwiseSales(ctx, tenantID, "", 0, asOf)
 	if err != nil {
 		return nil, err
 	}
 	return domain.OverdueLoads(read.Loads), nil
 }
 
-func (r *Repository) loadwiseSales(ctx context.Context, tenantID string, maxLoads int, asOf string) (domain.LoadwiseSales, error) {
+func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string, maxLoads int, asOf string) (domain.LoadwiseSales, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	rows, err := r.pool.Query(ctx, loadwiseSalesSQL, tenantID, maxLoads)
+	rows, err := r.pool.Query(ctx, loadwiseSalesSQL, tenantID, maxLoads, parkID)
 	if err != nil {
 		return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise sales: %w", err)
 	}
 	defer rows.Close()
 
+	var totalLoads int
 	loads := make([]domain.LoadwiseLoad, 0, maxLoads)
 	for rows.Next() {
 		var (
@@ -338,6 +377,7 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID string, maxLoad
 			&row.Farm,
 			&row.PriorSold.Count, &row.PriorSold.Value, &priorSoldFirst, &priorSoldLast,
 			&row.PriorDead.Count, &priorDeadFirst, &priorDeadLast,
+			&totalLoads,
 		); err != nil {
 			return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise sales scan: %w", err)
 		}
@@ -364,12 +404,8 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID string, maxLoad
 		return domain.LoadwiseSales{}, err
 	}
 
-	var totalLoads int
-	if err := r.pool.QueryRow(ctx,
-		`SELECT count(*) FROM public.procurement_loads WHERE tenant_id = $1`, tenantID,
-	).Scan(&totalLoads); err != nil {
-		return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise sales total: %w", err)
-	}
+	// totalLoads rides each served row as a window count over the filtered pre-LIMIT set, so no
+	// second statement runs; zero served rows honestly means zero loads match the filter.
 
 	var (
 		overallAvg  float64

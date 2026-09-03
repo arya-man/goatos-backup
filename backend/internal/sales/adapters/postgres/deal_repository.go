@@ -254,6 +254,14 @@ WHERE tenant_id = $1 AND id = $2`, tenantID, dealID, status); err != nil {
 // idemScopeDealPayment namespaces the record-receipt idempotency keys.
 const idemScopeDealPayment = "sales.deal.payment"
 
+const (
+	// idemScopeDealPaymentUpdate namespaces receipt edits. It is separate from add-payment so a
+	// retry of an edit cannot collide with the original insert key.
+	idemScopeDealPaymentUpdate = "sales.deal.payment.update"
+	// idemScopeDealPaymentDelete namespaces receipt removals.
+	idemScopeDealPaymentDelete = "sales.deal.payment.delete"
+)
+
 // RecordDealPayment records one receipt against one deal.
 //
 // Same shape as the feed-purchase instalment write: everything money-shaped happens in ONE
@@ -344,6 +352,197 @@ WHERE tenant_id = $1 AND id = $2`, tenantID, dealID, total); err != nil {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Deal{}, fmt.Errorf("sales: commit deal payment: %w", err)
+	}
+	return r.getDeal(ctx, tenantID, dealID)
+}
+
+// UpdateDealPayment edits one receipt and applies only the old/new amount delta to the deal's
+// running total.
+func (r *Repository) UpdateDealPayment(ctx context.Context, tenantID, dealID, paymentID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: begin deal payment update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	fingerprint := requestFingerprint(dealID, paymentID, write.ReceivedOn, fmt.Sprintf("%.2f", write.AmountRupees), write.Note)
+	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeDealPaymentUpdate, idempotencyKey, fingerprint)
+	if err != nil {
+		return domain.Deal{}, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Deal{}, fmt.Errorf("sales: commit deal payment update replay read: %w", err)
+		}
+		return r.getDeal(ctx, tenantID, dealID)
+	}
+
+	var received *float64
+	var oldAmount float64
+	var oldReceivedOn time.Time
+	var oldNote string
+	err = tx.QueryRow(ctx, `
+SELECT d.payment_received, p.amount_rupees, p.received_on, p.note
+FROM public.sales_deals d
+JOIN public.sales_deal_payments p
+  ON p.tenant_id = d.tenant_id AND p.deal_id = d.id
+WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid AND p.payment_id = $3::uuid
+FOR UPDATE OF d, p`, tenantID, dealID, paymentID).Scan(&received, &oldAmount, &oldReceivedOn, &oldNote)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Deal{}, ports.ErrDealPaymentNotFound
+	}
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: lock deal payment update: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+UPDATE public.sales_deal_payments
+SET received_on = $4::date, amount_rupees = $5, note = $6
+WHERE tenant_id = $1::uuid AND deal_id = $2::uuid AND payment_id = $3::uuid`,
+		tenantID, dealID, paymentID, write.ReceivedOn, write.AmountRupees, write.Note); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: update deal payment row: %w", err)
+	}
+
+	total := write.AmountRupees - oldAmount
+	if received != nil {
+		total += *received
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE public.sales_deals
+SET payment_received = $3, updated_at = now()
+WHERE tenant_id = $1::uuid AND id = $2::uuid`, tenantID, dealID, total); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: update deal payment total after edit: %w", err)
+	}
+
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    "human",
+		Action:       "sales.deal.payment_update",
+		ResourceType: "sales_deal",
+		ResourceID:   dealID,
+		Metadata: map[string]any{
+			"domain":                 "sales",
+			"module":                 "sales_deals",
+			"category":               "payment",
+			"payment_id":             paymentID,
+			"previous_received_on":   oldReceivedOn.Format("2006-01-02"),
+			"previous_amount_rupees": oldAmount,
+			"previous_note":          oldNote,
+			"received_on":            write.ReceivedOn,
+			"amount_rupees":          write.AmountRupees,
+			"note":                   write.Note,
+			"payment_received":       total,
+			"idempotency_key":        idempotencyKey,
+			"operation_id":           idempotencyKey,
+		},
+	}); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: audit deal payment update: %w", err)
+	}
+
+	if err := completeIdempotency(ctx, tx, tenantID, idemScopeDealPaymentUpdate, idempotencyKey, "sales_deal", dealID); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: complete deal payment update idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: commit deal payment update: %w", err)
+	}
+	return r.getDeal(ctx, tenantID, dealID)
+}
+
+// DeleteDealPayment removes one receipt and subtracts exactly that receipt's amount from the deal's
+// running total.
+func (r *Repository) DeleteDealPayment(ctx context.Context, tenantID, dealID, paymentID string, actorID, idempotencyKey string) (domain.Deal, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: begin deal payment delete: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	fingerprint := requestFingerprint(dealID, paymentID)
+	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeDealPaymentDelete, idempotencyKey, fingerprint)
+	if err != nil {
+		return domain.Deal{}, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Deal{}, fmt.Errorf("sales: commit deal payment delete replay read: %w", err)
+		}
+		return r.getDeal(ctx, tenantID, dealID)
+	}
+
+	var received *float64
+	var oldAmount float64
+	var oldReceivedOn time.Time
+	var oldNote string
+	err = tx.QueryRow(ctx, `
+SELECT d.payment_received, p.amount_rupees, p.received_on, p.note
+FROM public.sales_deals d
+JOIN public.sales_deal_payments p
+  ON p.tenant_id = d.tenant_id AND p.deal_id = d.id
+WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid AND p.payment_id = $3::uuid
+FOR UPDATE OF d, p`, tenantID, dealID, paymentID).Scan(&received, &oldAmount, &oldReceivedOn, &oldNote)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Deal{}, ports.ErrDealPaymentNotFound
+	}
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: lock deal payment delete: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+DELETE FROM public.sales_deal_payments
+WHERE tenant_id = $1::uuid AND deal_id = $2::uuid AND payment_id = $3::uuid`,
+		tenantID, dealID, paymentID); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: delete deal payment row: %w", err)
+	}
+
+	total := -oldAmount
+	if received != nil {
+		total += *received
+	}
+	if total < 0 {
+		total = 0
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE public.sales_deals
+SET payment_received = $3, updated_at = now()
+WHERE tenant_id = $1::uuid AND id = $2::uuid`, tenantID, dealID, total); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: update deal payment total after delete: %w", err)
+	}
+
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    "human",
+		Action:       "sales.deal.payment_delete",
+		ResourceType: "sales_deal",
+		ResourceID:   dealID,
+		Metadata: map[string]any{
+			"domain":                "sales",
+			"module":                "sales_deals",
+			"category":              "payment",
+			"payment_id":            paymentID,
+			"removed_received_on":   oldReceivedOn.Format("2006-01-02"),
+			"removed_amount_rupees": oldAmount,
+			"removed_note":          oldNote,
+			"payment_received":      total,
+			"idempotency_key":       idempotencyKey,
+			"operation_id":          idempotencyKey,
+		},
+	}); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: audit deal payment delete: %w", err)
+	}
+
+	if err := completeIdempotency(ctx, tx, tenantID, idemScopeDealPaymentDelete, idempotencyKey, "sales_deal", dealID); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: complete deal payment delete idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: commit deal payment delete: %w", err)
 	}
 	return r.getDeal(ctx, tenantID, dealID)
 }

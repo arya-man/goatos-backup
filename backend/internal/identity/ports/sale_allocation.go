@@ -85,6 +85,9 @@ type SaleCandidateRow struct {
 	GoatID    string
 	DisplayID string
 	TagNumber string
+	// SecondaryTagNumber is the animal's OTHER active identifier when it has one. Empty
+	// when the animal carries a single tag.
+	SecondaryTagNumber string
 
 	ParkID         string
 	ParkName       string
@@ -107,7 +110,12 @@ type SaleCandidate struct {
 	// TagNumber is the identifier a person reads off the animal -- the active RFID when
 	// it has one, otherwise its visible tag. Composed by the adapter so every surface
 	// shows the same string.
-	TagNumber                  string
+	TagNumber string
+	// SecondaryTagNumber is the animal's other active identifier, empty when it has only
+	// one. Both are shown because the picker's search matches EVERY active identifier: a
+	// row that showed only the primary answered a search for the secondary with a number
+	// the person could not recognise as the animal they typed.
+	SecondaryTagNumber         string
 	ParkID                     string
 	ParkName                   string
 	ShedID                     string

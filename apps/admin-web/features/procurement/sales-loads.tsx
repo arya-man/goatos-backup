@@ -27,7 +27,7 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
 }
 
 /**
- * Purchase & born — every batch of animals reconciled against what it cost and what it returned.
+ * Purchase and Born — every batch of animals reconciled against what it cost and what it returned.
  *
  * Its own page under Sales rather than a block on the board (maintainer decision 2026-08-31): the
  * board answers how sales are going, this answers how each batch did, which is read at a different
@@ -52,8 +52,15 @@ export async function SalesLoadsPage({
   const rawView = one(sp, "view") ?? DEFAULT_VIEW;
   const view = views.some((option) => option.key === rawView) ? rawView : DEFAULT_VIEW;
 
+  // The top-bar park selector's value. It was silently ignored here (maintainer report
+  // 2026-09-03: switching All Parks / CBE / CPT changed none of the graphs), so the whole
+  // load-wise read — rows, charts, tiles and total — now narrows to the selected park
+  // server-side. An empty value is All Parks.
+  const parkId = one(sp, "park") ?? "";
+
   // Fetch = render: the Farm born tab reads nothing yet, so it asks for nothing.
-  const loadwiseResult = view === DEFAULT_VIEW ? await getLoadwiseSales() : null;
+  const loadwiseResult =
+    view === DEFAULT_VIEW ? await getLoadwiseSales({ park_id: parkId || undefined }) : null;
   if (loadwiseResult && firstAuthRequiredError(loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);
 
   // READ-ONLY BY CONTRACT (maintainer decision 2026-09-01): this page's backend contract declares
@@ -65,7 +72,7 @@ export async function SalesLoadsPage({
 
   return (
     // `sales-loads-page` is not decoration: the global `.crumb` rule uppercases every breadcrumb,
-    // which rendered this page's own name as "PURCHASE & BORN". A load is bought or born -- those
+    // which rendered this page's own name as "Purchase and Born". A load is bought or born -- those
     // are ordinary words, not a code -- so the page scopes the transform off (maintainer,
     // 2026-09-02).
     <div className="screen on sales-loads-page">

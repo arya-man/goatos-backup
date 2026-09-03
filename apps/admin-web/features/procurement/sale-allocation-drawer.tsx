@@ -56,7 +56,11 @@ export function SaleAllocationDrawer({
 }: {
   /** The rendered ledger page; the drawer names the sale from it and issues no fetch for it. */
   deals: SalesDeal[];
-  locations: SaleLocationCatalog;
+  /**
+   * null means the catalog could NOT be read -- a different fact from a farm with no sheds,
+   * and the two are given different copy. A silent empty here reads as a broken picker.
+   */
+  locations: SaleLocationCatalog | null;
   pageContract: AdminUiPageContract;
   listHref: string;
 }) {
@@ -124,7 +128,7 @@ export function SaleAllocationDrawer({
   const loadCandidates = useCallback(
     (nextCursor?: string) => {
       if (!parkId) return;
-      const chosen = locations.locations.find((l) => locationEntryKey(l) === locationKey);
+      const chosen = (locations?.locations ?? []).find((l) => locationEntryKey(l) === locationKey);
       setError("");
       startTransition(async () => {
         const result = await fetchSaleCandidatesAction({
@@ -159,7 +163,7 @@ export function SaleAllocationDrawer({
 
   if (!open || !deal) return null;
 
-  const locationsInPark = locations.locations.filter((l) => !parkId || l.park_id === parkId);
+  const locationsInPark = (locations?.locations ?? []).filter((l) => !parkId || l.park_id === parkId);
   const pickedList = [...picked.values()];
   // How many animals this sale is FOR. Read from the ledger row already on the page, so
   // the count is visible while picking rather than only after Done. The server enforces
@@ -270,10 +274,21 @@ export function SaleAllocationDrawer({
                       onChange={(e) => { setParkId(e.target.value); setLocationKey(""); }}
                     >
                       <option value="">{copy(pageContract, "value.choose_park")}</option>
-                      {locations.parks.map((p) => (
+                      {(locations?.parks ?? []).map((p) => (
                         <option key={p.park_id} value={p.park_id}>{p.label}</option>
                       ))}
                     </select>
+                    {/*
+                      A picker with nothing in it must SAY why. The two reasons are
+                      different facts and carry different backend copy: the catalog read
+                      failed (usually a missing grant, which a person can get fixed), or
+                      the farm genuinely has no shed to sell out of.
+                    */}
+                    {locations === null ? (
+                      <div className="hint err">{copy(pageContract, "empty.parks_unavailable")}</div>
+                    ) : locations.parks.length === 0 ? (
+                      <div className="hint">{copy(pageContract, "empty.parks")}</div>
+                    ) : null}
                   </div>
                   <div className="fld">
                     <label htmlFor="tag-loc">{copy(pageContract, "field.shed")}</label>
@@ -316,10 +331,18 @@ export function SaleAllocationDrawer({
                                 checked={on}
                                 disabled={!c.sellable}
                                 onChange={() => toggle(c)}
-                                aria-label={c.tag_number || c.display_id || ""}
+                                aria-label={animalLabel(c)}
                               />
                             </td>
-                            <td><b>{c.tag_number || c.display_id}</b></td>
+                            {/* BOTH tags, because the search matches either one. A row
+                                showing only the primary answered a search for the
+                                secondary with a number that reads as a different animal. */}
+                            <td>
+                              <b>{c.tag_number || c.display_id}</b>
+                              {c.secondary_tag_number ? (
+                                <div className="muted small">{c.secondary_tag_number}</div>
+                              ) : null}
+                            </td>
                             <td>{c.operational_location_display}</td>
                             <td>
                               {/* The refusal is the backend's sentence, verbatim. */}
@@ -387,7 +410,7 @@ export function SaleAllocationDrawer({
                   <ul className="sales-taglist small">
                     {preview.blocked_animals.map((c) => (
                       <li key={c.goat_id}>
-                        {c.tag_number || c.display_id} — {c.blocked_reason}
+                        {animalLabel(c)} — {c.blocked_reason}
                       </li>
                     ))}
                   </ul>
@@ -465,6 +488,15 @@ function dealOptionLabel(deal: SalesDeal): string {
     .filter(Boolean)
     .join(" · ");
   return [deal.sale_date, who, what].filter(Boolean).join("  —  ");
+}
+
+/**
+ * One animal named the way the person reading it off the ear does: both tags when it
+ * carries two, because the picker's search matches either of them.
+ */
+function animalLabel(c: SaleCandidate): string {
+  const tags = [c.tag_number, c.secondary_tag_number].filter(Boolean).join(" · ");
+  return tags || c.display_id || "";
 }
 
 /**

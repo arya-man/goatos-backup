@@ -59,6 +59,9 @@ func SalesHTTPError(err error) *Error {
 	case errors.Is(err, ports.ErrDealNotFound):
 		return NotFound("Sale not found.")
 
+	case errors.Is(err, ports.ErrDealPaymentNotFound):
+		return NotFound("Payment not found.")
+
 	case errors.Is(err, ports.ErrLeadNotFound):
 		return NotFound("Lead not found.")
 

@@ -16,7 +16,7 @@ import (
 
 // LoadwiseService is the behaviour this transport depends on.
 type LoadwiseService interface {
-	LoadwiseSales(ctx context.Context, tenantID string) (domain.LoadwiseSales, error)
+	LoadwiseSales(ctx context.Context, tenantID, parkID string) (domain.LoadwiseSales, error)
 	SetLoadCost(ctx context.Context, tenantID, loadID string, edit domain.LoadCostEdit, actorID string) error
 }
 
@@ -169,9 +169,10 @@ type loadwisePayload struct {
 	Summary             loadwiseSummaryPayload `json:"summary"`
 }
 
-// LoadwiseSales serves GET /procurement/loadwise-sales.
+// LoadwiseSales serves GET /procurement/loadwise-sales. park_id optionally narrows the rows to
+// loads whose farm label names that park — the same `park` value the top-bar selector writes.
 func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) {
-	out, err := h.service.LoadwiseSales(r.Context(), tenantID(r))
+	out, err := h.service.LoadwiseSales(r.Context(), tenantID(r), r.URL.Query().Get("park_id"))
 	if err != nil {
 		h.writeErr(w, r, app.LoadwiseHTTPError(err))
 		return

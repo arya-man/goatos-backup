@@ -64,9 +64,12 @@ func TestSalesVerticalTiersHoldTheModule(t *testing.T) {
 // registration and the permission table cannot drift apart on who gates what.
 func TestSalesRoutesAreGatedOnTheDedicatedPermissions(t *testing.T) {
 	want := map[string][]string{
-		"GET /sales/overview": {SalesRead},
-		"GET /sales/deals":    {SalesRead},
-		"POST /sales/deals":   {SalesWrite},
+		"GET /sales/overview":                                 {SalesRead},
+		"GET /sales/deals":                                    {SalesRead},
+		"POST /sales/deals":                                   {SalesWrite},
+		"POST /sales/deals/{deal_id}/payments":                {SalesWrite},
+		"PUT /sales/deals/{deal_id}/payments/{payment_id}":    {SalesWrite},
+		"DELETE /sales/deals/{deal_id}/payments/{payment_id}": {SalesWrite},
 	}
 	found := map[string]bool{}
 	for _, route := range ProtectedRoutes() {

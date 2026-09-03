@@ -24,9 +24,10 @@ var (
 // points the other way.
 type LoadwiseRepository interface {
 	// LoadwiseSales returns the newest maxLoads loads with their reconciliation counts, attributed
-	// sold value and recorded costs, plus the whole-tenant load count and the overall average sold
-	// price (the remaining-stock fallback basis).
-	LoadwiseSales(ctx context.Context, tenantID string, maxLoads int) (domain.LoadwiseSales, error)
+	// sold value and recorded costs, plus the filtered load count and the overall average sold
+	// price (the remaining-stock fallback basis). parkID optionally narrows the rows (and the
+	// count) to loads whose agree-or-go-bare farm label names that park; empty means no filter.
+	LoadwiseSales(ctx context.Context, tenantID, parkID string, maxLoads int) (domain.LoadwiseSales, error)
 	// OverdueLoadCandidates returns every load candidate for the daily age alert. It is deliberately
 	// not clipped to the UI page window: an old load can sit behind hundreds of newer purchases and
 	// still need the CXO alert.

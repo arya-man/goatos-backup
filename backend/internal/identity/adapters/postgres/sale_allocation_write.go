@@ -128,6 +128,10 @@ func (r *Repository) RecordSaleAllocations(ctx context.Context, cmd ports.Record
 		}
 	}
 
+	if err := r.syncSaleDealSexCounts(ctx, tx, cmd); err != nil {
+		return nil, err
+	}
+
 	groups, err := r.listSaleAllocationsInTx(ctx, tx, cmd.TenantID, cmd.SalesDealID)
 	if err != nil {
 		return nil, err
@@ -211,6 +215,42 @@ ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 		tenantUUID, dealUUID, goatIDs, cmd.ActorID, cmd.OccurredAt)
 	if err != nil {
 		return fmt.Errorf("identity: insert sale allocations: %w", err)
+	}
+	return nil
+}
+
+// syncSaleDealSexCounts keeps the commercial sale row aligned with the actual sold animals.
+//
+// The sale allocation write is where the animal set becomes real: before this command, a deal's
+// male/female numbers may be blank sheet-style estimates; after it, Goat OS knows exactly which
+// animals left. Updating sales_deals here keeps the detail drawer honest in the same transaction
+// as the exit events.
+func (r *Repository) syncSaleDealSexCounts(ctx context.Context, tx pgx.Tx, cmd ports.RecordSaleAllocationsCommand) error {
+	ct, err := tx.Exec(ctx, `
+WITH sex_counts AS (
+  SELECT count(*) FILTER (WHERE lower(g.sex) = 'male')::numeric AS male_count,
+         count(*) FILTER (WHERE lower(g.sex) = 'female')::numeric AS female_count,
+         count(*)::int AS tagged
+  FROM goat_sale_allocations a
+  JOIN goats g
+    ON g.tenant_id = a.tenant_id AND g.goat_id = a.goat_id
+  WHERE a.tenant_id = $1::uuid
+    AND a.sales_deal_id = $2::uuid
+    AND a.status = 'tagged'
+)
+UPDATE sales_deals d
+SET male_count = sex_counts.male_count,
+    female_count = sex_counts.female_count,
+    updated_at = now()
+FROM sex_counts
+WHERE d.tenant_id = $1::uuid
+  AND d.id = $2::uuid
+  AND sex_counts.tagged = $3::int`, cmd.TenantID, cmd.SalesDealID, cmd.DeclaredAnimalCount)
+	if err != nil {
+		return fmt.Errorf("identity: sync sale sex counts: %w", err)
+	}
+	if ct.RowsAffected() != 1 {
+		return ports.ErrSaleAllocationCountChanged
 	}
 	return nil
 }

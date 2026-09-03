@@ -74,6 +74,7 @@ type saleCandidatePayload struct {
 	GoatID                     string `json:"goat_id"`
 	DisplayID                  string `json:"display_id,omitempty"`
 	TagNumber                  string `json:"tag_number,omitempty"`
+	SecondaryTagNumber         string `json:"secondary_tag_number,omitempty"`
 	ParkID                     string `json:"park_id,omitempty"`
 	ParkName                   string `json:"park_name,omitempty"`
 	ShedID                     string `json:"shed_id,omitempty"`
@@ -117,7 +118,8 @@ func (h *SaleAllocationHandler) ListSaleCandidates(w http.ResponseWriter, r *htt
 	for _, c := range candidates {
 		out.Candidates = append(out.Candidates, saleCandidatePayload{
 			GoatID: c.GoatID, DisplayID: c.DisplayID, TagNumber: c.TagNumber,
-			ParkID: c.ParkID, ParkName: c.ParkName, ShedID: c.ShedID, ShedName: c.ShedName,
+			SecondaryTagNumber: c.SecondaryTagNumber,
+			ParkID:             c.ParkID, ParkName: c.ParkName, ShedID: c.ShedID, ShedName: c.ShedName,
 			PartitionLabel: c.PartitionLabel, OperationalLocationDisplay: c.OperationalLocationDisplay,
 			Breed: c.Breed, Sex: c.Sex, RowVersion: c.RowVersion,
 			Sellable: c.Sellable, Blocker: c.Blocker, BlockedReason: c.BlockedReason,
@@ -190,6 +192,7 @@ func (h *SaleAllocationHandler) PreviewSaleAllocation(w http.ResponseWriter, r *
 	for _, c := range preview.BlockedAnimals {
 		out.BlockedAnimals = append(out.BlockedAnimals, saleCandidatePayload{
 			GoatID: c.GoatID, DisplayID: c.DisplayID, TagNumber: c.TagNumber,
+			SecondaryTagNumber:         c.SecondaryTagNumber,
 			OperationalLocationDisplay: c.OperationalLocationDisplay,
 			RowVersion:                 c.RowVersion,
 			Sellable:                   false, Blocker: c.Blocker, BlockedReason: c.BlockedReason,
