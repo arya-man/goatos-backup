@@ -157,6 +157,17 @@ export function LoadComparisonTab({
       </section>
     );
   }
+  // Loads exist but the weighed-only filter kept none: say THAT, not "no purchased loads". The
+  // weighing-down case never lands here, because the filter keeps every load when the weighing
+  // read failed and the band below names the missing half instead.
+  if (rows.length === 0) {
+    return (
+      <section className="card">
+        <p className="muted small">{copy(pageContract, "note.load.weighed_only")}</p>
+        <p className="muted small">{copy(pageContract, "empty.load.unweighed.body")}</p>
+      </section>
+    );
+  }
 
   return (
     <>
@@ -181,7 +192,7 @@ export function LoadComparisonTab({
             { key: "purchased", scaleKey: "kg", label: copy(pageContract, "legend.load.purchased"), unit: "kg", fractionDigits: 1 },
             { key: "latest", scaleKey: "kg", label: copy(pageContract, "legend.load.latest"), unit: "kg", fractionDigits: 1 },
           ]}
-          emptyLabel={copy(pageContract, "empty.load.body")}
+          emptyLabel={copy(pageContract, "empty.load.unweighed.body")}
           chartLabel={copy(pageContract, "section.load.aria")}
         />
       </section>
@@ -209,7 +220,7 @@ export function LoadComparisonTab({
             { key: "stock_value", scaleKey: "inr", label: copy(pageContract, "legend.load.stock_value"), unit: rupees, fractionDigits: 0 },
             { key: "gain", scaleKey: "inr", label: copy(pageContract, "legend.load.gain"), unit: rupees, fractionDigits: 0 },
           ]}
-          emptyLabel={copy(pageContract, "empty.load.body")}
+          emptyLabel={copy(pageContract, "empty.load.unweighed.body")}
           chartLabel={copy(pageContract, "section.load_value.aria")}
         />
         )}

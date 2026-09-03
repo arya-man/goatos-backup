@@ -4024,6 +4024,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"note.load.filters":     "This tab narrows by park only. A load is bought whole, so the sex, origin, weighing-mode and period filters do not apply here; the latest weighing is each pen's newest weigh on record.",
 
 			"empty.load.body": "No purchased loads recorded yet. When one is, its arrival weight and latest weighing will be compared here.",
+			// Loads EXIST but none has a latest weighing: a different fact from "no loads", and
+			// saying the latter to a farm with purchased animals in its pens would be false.
+			"empty.load.unweighed.body": "No purchased load has been weighed yet. A load appears here once the pens it went into have a weighing on record.",
 
 			// The weighing side failed but the purchase ledger answered (or the other way
 			// round): name the half that is missing instead of blanking the tab.
