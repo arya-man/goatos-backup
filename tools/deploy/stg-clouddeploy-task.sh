@@ -470,6 +470,8 @@ deploy() {
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$ADMIN_WEB_IMAGE" \
+    --command="node" \
+    --args="apps/admin-web/server.js" \
     --ingress=all \
     --min=1 \
     --max=2 \
