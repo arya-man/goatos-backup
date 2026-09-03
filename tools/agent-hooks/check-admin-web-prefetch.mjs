@@ -14,6 +14,7 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const wrapper = "apps/admin-web/components/no-prefetch-link.tsx";
 const directImportRe = /from\s+["']next\/link["']/;
 const truePrefetchRe = /\bprefetch\s*=\s*(?:\{\s*true\s*\}|["']true["'])/;
+const imperativePrefetchRe = /\brouter\.prefetch\s*\(/;
 
 function findingsForFiles(files, readText) {
   const findings = [];
@@ -25,6 +26,9 @@ function findingsForFiles(files, readText) {
     if (truePrefetchRe.test(text)) {
       findings.push(`${file}: prefetch=true is forbidden in admin-web`);
     }
+    if (imperativePrefetchRe.test(text)) {
+      findings.push(`${file}: router.prefetch() is forbidden in admin-web`);
+    }
   }
   return findings;
 }
@@ -34,7 +38,7 @@ function existingFiles(files, fileExists) {
 }
 
 function adminWebSourceFiles() {
-  const out = execFileSync("git", ["ls-files", "apps/admin-web"], { cwd: repo, encoding: "utf8" });
+  const out = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "apps/admin-web"], { cwd: repo, encoding: "utf8" });
   const tracked = out
     .split("\n")
     .map((s) => s.trim())
@@ -46,17 +50,23 @@ function adminWebSourceFiles() {
 }
 
 function selfTest() {
-  const files = ["apps/admin-web/features/a.tsx", wrapper, "apps/admin-web/features/b.tsx"];
+  const files = ["apps/admin-web/features/a.tsx", wrapper, "apps/admin-web/features/b.tsx", "apps/admin-web/features/c.tsx"];
   const fixtures = {
     "apps/admin-web/features/a.tsx": 'import Link from "next/link";\n',
     [wrapper]: 'import NextLink from "next/link";\n',
     "apps/admin-web/features/b.tsx": '<Link href="/x" prefetch={true}>x</Link>\n',
+    "apps/admin-web/features/c.tsx": "router.prefetch('/x');\n",
   };
   const bad = findingsForFiles(files, (file) => fixtures[file] || "");
-  if (bad.length !== 2 || !bad.some((f) => f.includes("next/link")) || !bad.some((f) => f.includes("prefetch=true"))) {
-    throw new Error(`self-test: expected direct import and true prefetch findings, got ${JSON.stringify(bad)}`);
+  if (
+    bad.length !== 3 ||
+    !bad.some((f) => f.includes("next/link")) ||
+    !bad.some((f) => f.includes("prefetch=true")) ||
+    !bad.some((f) => f.includes("router.prefetch()"))
+  ) {
+    throw new Error(`self-test: expected direct import, true prefetch, and router.prefetch findings, got ${JSON.stringify(bad)}`);
   }
-  const good = findingsForFiles(["apps/admin-web/features/c.tsx", wrapper], (file) =>
+  const good = findingsForFiles(["apps/admin-web/features/d.tsx", wrapper], (file) =>
     file === wrapper ? 'import NextLink from "next/link";\n' : 'import Link from "@/components/no-prefetch-link";\n<Link href="/x">x</Link>\n',
   );
   if (good.length !== 0) {

@@ -256,7 +256,6 @@ export function MeshaShell({
   const pendingAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingNavigationRef = useRef<PendingNavigationTiming | null>(null);
-  const prefetchedNavHrefsRef = useRef<Set<string>>(new Set());
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const g of groups) {
@@ -514,14 +513,6 @@ export function MeshaShell({
     const dateScope = leaf.href === "/calendar" ? { asOf: null } : {};
     return scopeHref(leaf.href, renderedScope, dateScope, leaf.extra ?? {});
   }
-  function prefetchNavHref(href: string): void {
-    if (prefetchedNavHrefsRef.current.has(href)) return;
-    prefetchedNavHrefsRef.current.add(href);
-    router.prefetch(href);
-    reportAdminPerformanceEvent("admin_route_prefetch_intent", "admin_shell", pathname, {
-      href,
-    });
-  }
   function navActive(leaf: NavItem): boolean {
     if (active !== leaf.href) return false;
     // Most routes have exactly one nav entry, so pathname alone decides. The verifier workspace is
@@ -712,8 +703,6 @@ export function MeshaShell({
                 href={navHref(n)}
                 className={`nav ${navActive(n) ? "on" : ""}`}
                 onClick={() => setNavOpen(false)}
-                onFocus={() => prefetchNavHref(navHref(n))}
-                onMouseEnter={() => prefetchNavHref(navHref(n))}
               >
                 <Icon className="ic" />
                 {n.label}
@@ -761,8 +750,6 @@ export function MeshaShell({
                         href={navHref(l)}
                         className={`leaf ${navActive(l) ? "on" : ""}`}
                         onClick={() => setNavOpen(false)}
-                        onFocus={() => prefetchNavHref(navHref(l))}
-                        onMouseEnter={() => prefetchNavHref(navHref(l))}
                       >
                         {l.label}
                       </Link>

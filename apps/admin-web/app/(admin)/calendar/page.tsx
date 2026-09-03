@@ -8,5 +8,6 @@ export const dynamic = "force-dynamic";
 // The visible slice is Preventive Care (PC) Vaccination due work; see
 // context/execution/calendar-vaccination-slice-parallel-handoff.md.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  return <VaccinationCalendarPage searchParams={await searchParams} pageContract={await requireAdminWebPageContract("calendar")} />;
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("calendar")]);
+  return <VaccinationCalendarPage searchParams={params} pageContract={pageContract} />;
 }

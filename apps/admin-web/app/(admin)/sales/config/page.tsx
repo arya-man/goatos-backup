@@ -9,10 +9,11 @@ export const dynamic = "force-dynamic";
 // deal payments and status, and a purchased load's landed cost. The sales board and Purchase and Born read
 // these facts back and declare no write of their own.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("sales-config")]);
   return (
     <SalesConfigPage
-      searchParams={await searchParams}
-      pageContract={await requireAdminWebPageContract("sales-config")}
+      searchParams={params}
+      pageContract={pageContract}
     />
   );
 }

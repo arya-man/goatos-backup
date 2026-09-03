@@ -14,12 +14,16 @@ export default async function Page({
   params: Promise<{ eventId: string }>;
   searchParams: Promise<RouteSearchParams>;
 }) {
-  const { eventId } = await params;
+  const [{ eventId }, sp, pageContract] = await Promise.all([
+    params,
+    searchParams,
+    requireAdminWebPageContract("calendar"),
+  ]);
   return (
     <VaccinationDriveDetail
       eventId={decodeURIComponent(eventId)}
-      searchParams={await searchParams}
-      pageContract={await requireAdminWebPageContract("calendar")}
+      searchParams={sp}
+      pageContract={pageContract}
     />
   );
 }

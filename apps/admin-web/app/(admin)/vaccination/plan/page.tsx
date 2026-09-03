@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * exists to stop. Anything older is still listed -- it just has no derived
  * "what changed" line, which is honest rather than invented.
  */
-const HISTORY_DEPTH = 12;
+const HISTORY_DEPTH = 4;
 
 /**
  * Preventive Care / Vaccination plan.

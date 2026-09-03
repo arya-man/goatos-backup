@@ -5,10 +5,11 @@ import type { RouteSearchParams } from "@/lib/search-params";
 export const dynamic = "force-dynamic";
 
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("milk-preparation")]);
   return (
     <MilkPreparationPage
-      searchParams={await searchParams}
-      pageContract={await requireAdminWebPageContract("milk-preparation")}
+      searchParams={params}
+      pageContract={pageContract}
     />
   );
 }

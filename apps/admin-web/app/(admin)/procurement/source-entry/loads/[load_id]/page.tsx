@@ -12,12 +12,16 @@ export default async function Page({
   params: Promise<{ load_id: string }>;
   searchParams: Promise<RouteSearchParams>;
 }) {
-  const { load_id } = await params;
+  const [{ load_id }, sp, pageContract] = await Promise.all([
+    params,
+    searchParams,
+    requireAdminWebPageContract("source-load"),
+  ]);
   return (
     <ProcurementLoadDetailPage
       loadId={decodeURIComponent(load_id)}
-      searchParams={await searchParams}
-      pageContract={await requireAdminWebPageContract("source-load")}
+      searchParams={sp}
+      pageContract={pageContract}
     />
   );
 }

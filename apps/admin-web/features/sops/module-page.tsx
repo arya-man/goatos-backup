@@ -20,11 +20,12 @@ export async function renderSopModulePage(
   basePath: string,
   searchParams: Promise<RouteSearchParams>,
 ) {
-  const [sp, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract(contractKey)]);
+  const pageContractPromise = requireAdminWebPageContract(contractKey);
+  const sp = await searchParams;
   if (sp.compose === "1" || sp.new === "1") {
     const editId = typeof sp.edit === "string" && sp.edit ? sp.edit : undefined;
     if (editId) {
-      const detail = await getSop(editId);
+      const [pageContract, detail] = await Promise.all([pageContractPromise, getSop(editId)]);
       if (detail.ok && detail.data.latest_version) {
         const version = detail.data.latest_version;
         const initial = builderInitialFromVersion(detail.data.sop.code, detail.data.sop.name, version.form_dsl, version.proof_policy);
@@ -34,9 +35,10 @@ export async function renderSopModulePage(
         return <SopBuilder pageContract={pageContract} basePath={basePath} domain={slice} initial={initial} editSopId={editId} editBlocked={editBlocked} />;
       }
     }
+    const pageContract = await pageContractPromise;
     return <SopBuilder pageContract={pageContract} basePath={basePath} domain={slice} />;
   }
-  const listed = await listSops({ limit: 200 });
+  const [pageContract, listed] = await Promise.all([pageContractPromise, listSops({ limit: 200 })]);
 
   if (!listed.ok) {
     if (isAuthRequiredError(listed.error)) {

@@ -7,5 +7,6 @@ export const dynamic = "force-dynamic";
 // Admin / Data Ops -> DLQ Center. Backend-owned UI contract plus generated admin-api client;
 // React owns only layout, local selected-row state through ?dlq_id, and form submission.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  return <OperationsDLQPage searchParams={await searchParams} pageContract={await requireAdminWebPageContract("dlq-center")} />;
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("dlq-center")]);
+  return <OperationsDLQPage searchParams={params} pageContract={pageContract} />;
 }

@@ -6,5 +6,6 @@ export const dynamic = "force-dynamic";
 
 // Protocol Adherence is a top-level command screen. Vaccination-only is the data scope, not the UI hierarchy.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  return <ProtocolAdherencePage searchParams={await searchParams} pageContract={await requireAdminWebPageContract("protocol-adherence")} />;
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("protocol-adherence")]);
+  return <ProtocolAdherencePage searchParams={params} pageContract={pageContract} />;
 }

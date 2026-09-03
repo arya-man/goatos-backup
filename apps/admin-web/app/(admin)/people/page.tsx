@@ -9,6 +9,6 @@ export const dynamic = "force-dynamic";
 // the backend-owned `people_view_tabs` strip, and the Add Person onboarding
 // drawer that creates the login account from the app.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  const params = await searchParams;
-  return <PeoplePage searchParams={params} pageContract={await requireAdminWebPageContract("people")} />;
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("people")]);
+  return <PeoplePage searchParams={params} pageContract={pageContract} />;
 }
