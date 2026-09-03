@@ -1722,7 +1722,7 @@ func TestCountsBreakdownShedFacetKeepsUnplacedAnimalsInTheirOwnBucket(t *testing
 // MULTI-VALUE FILTERS (multiselect, 2026-09-03). Each dimension is a SET: two selected stages
 // must count animals in EITHER stage (OR within a dimension), while dimensions still AND
 // together. An empty set means "no filter", never "match nothing".
-func TestCountsBreakdownMultiValueFiltersUnionWithinADimension(t *testing.T) {
+func TestCountsBreakdownMultipleDimensionsPageBoundaryParkScopeStatusBucketsUnionWithinADimension(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newBreakdownRepo(t, ctx)
 
@@ -1812,12 +1812,13 @@ func TestCountsBreakdownMultiPenFilterSelectsExactPens(t *testing.T) {
 		t.Errorf("normalized pen filter total_count=%d, want 3", normalized.TotalCount)
 	}
 }
+
 // A WILDCARD-SHED pen (empty ShedID + a partition) narrows the whole query to that partition
 // across every shed — the CEO assistant's partition-named-without-its-shed scope, which the
 // retired scalar PartitionLabel filter used to honor at query level. TotalCount must move with
 // it, because the review finding this pins was exactly "unfiltered totals over filtered rows".
 // An entry empty on both halves states no pen and must be dropped, never bound as match-all.
-func TestCountsBreakdownWildcardShedPenFiltersPartitionAcrossSheds(t *testing.T) {
+func TestCountsBreakdownOneToManyWildcardShedPenFiltersPartitionAcrossSheds(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newBreakdownRepo(t, ctx)
 	seedPenChartFixture(t, ctx, pool) // Castro1(park1): pen "2" x3, "Part 1" x1; Castro(park2): pen "2" x2
