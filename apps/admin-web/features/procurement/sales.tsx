@@ -227,7 +227,7 @@ function OverviewSections({
                 key: `${band.product_type}|${band.breed}`,
                 label: `${band.breed} · ${seriesLabel(band.product_type)}`,
                 value: Math.round(band.avg_price_per_kg),
-                display: `${inr(Math.round(band.avg_price_per_kg))} ${perKgSuffix}`,
+                display: inr(Math.round(band.avg_price_per_kg)),
               }))}
               emptyLabel={copy(pageContract, "chart.price_bands.empty")}
               valueNoun={copy(pageContract, "chart.price_bands.value")}

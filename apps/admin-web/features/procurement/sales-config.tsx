@@ -88,6 +88,7 @@ export async function SalesConfigPage({
   const pageSizes = dealsTable.page_size_options.length > 0 ? dealsTable.page_size_options : [DEFAULT_LIMIT];
   const limit = boundedInt(one(sp, "limit"), pageSizes[0], 1, 100);
   const offset = boundedInt(one(sp, "offset"), 0, 0, 10000);
+  const canRecordPipeline = controlEnabled(pageContract, "record_pipeline", false);
 
   // The whole screen's data in ONE parallel read. Every drawer opens from this data: a
   // LocalOverlayLink changes the URL without an RSC request, so a form that fetched on open would
@@ -96,8 +97,8 @@ export async function SalesConfigPage({
     await Promise.all([
       listSalesDeals({ farm: "all", limit, offset }),
       getLoadwiseSales(),
-      listSalesBuyerLeads({ limit: 20 }),
-      listSalesFpoLeads({ limit: 20 }),
+      canRecordPipeline ? listSalesBuyerLeads({ limit: 20 }) : Promise.resolve(null),
+      canRecordPipeline ? listSalesFpoLeads({ limit: 20 }) : Promise.resolve(null),
       // The tag-animals picker's park/shed/pen vocabulary, backend-owned.
       listSaleLocations(),
       // Every sale is made TO a vendor (maintainer decision 2026-08-27). ONE bounded read, never
@@ -119,14 +120,13 @@ export async function SalesConfigPage({
   // null means the register could NOT be read (its own permission), which is a different fact
   // from an EMPTY register; the drawer gives the two different copy.
   const vendorOptions: ProcurementVendorOptions | null = vendorOptionsResult.ok ? vendorOptionsResult.data : null;
-  const buyerLeadPage = buyerLeadsResult.ok ? buyerLeadsResult.data : { leads: [], total: 0, status_options: [] };
-  const fpoLeadPage = fpoLeadsResult.ok ? fpoLeadsResult.data : { leads: [], total: 0, status_options: [] };
+  const buyerLeadPage = buyerLeadsResult?.ok ? buyerLeadsResult.data : { leads: [], total: 0, status_options: [] };
+  const fpoLeadPage = fpoLeadsResult?.ok ? fpoLeadsResult.data : { leads: [], total: 0, status_options: [] };
 
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
   const canRecord = controlEnabled(pageContract, "record_sale", false);
   const canAllocateAnimals = controlEnabled(pageContract, "allocate_sale_animals", false);
-  const canRecordPipeline = controlEnabled(pageContract, "record_pipeline", false);
   const canRecordCost = controlEnabled(pageContract, "record_load_cost", false);
   const none = copy(pageContract, "value.none");
   const dealColumns = tableLabels(pageContract, "sales-deals");

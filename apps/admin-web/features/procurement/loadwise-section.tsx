@@ -8,7 +8,7 @@ import { Tag } from "@/components/ui-primitives";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LoadwiseLoad, LoadwiseSales } from "@/lib/api/procurement";
 import type { ApiResult } from "@/lib/api/server";
-import { humanDate, inr, inrCompact, num, signedInr, signedInrCompact } from "./sales-format";
+import { humanDate, inr, inrCompact, num, numCompactWhole, signedInr, signedInrCompact } from "./sales-format";
 import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
 
 /**
@@ -295,6 +295,17 @@ export function LoadwiseSection({
                     ]
                   : []),
               ],
+              barLabels: [
+                load.avg_purchase_weight_kg == null ? null : numCompactWhole(load.avg_purchase_weight_kg),
+                load.avg_sale_weight_kg == null ? null : numCompactWhole(load.avg_sale_weight_kg),
+                ...(currentWeights
+                  ? [(() => {
+                      if (load.avg_sale_weight_kg != null) return null;
+                      const now = currentWeightFor(load, currentWeights);
+                      return now == null ? null : numCompactWhole(now.averageKg);
+                    })()]
+                  : []),
+              ],
               // The sale average is over the animals actually WEIGHED on the way out, which is
               // fewer than sold on some loads. Saying so here is the difference between a sample
               // and a claim about the whole load.
@@ -323,6 +334,10 @@ export function LoadwiseSection({
                 load.sale_price_per_kg == null
                   ? copy(pageContract, "value.not_sold_yet")
                   : inr(load.sale_price_per_kg, 2),
+              ],
+              barLabels: [
+                load.landed_price_per_kg == null ? null : inr(Math.round(load.landed_price_per_kg)),
+                load.sale_price_per_kg == null ? null : inr(Math.round(load.sale_price_per_kg)),
               ],
               subLabel: load.vendor_name,
             }))}
@@ -354,6 +369,10 @@ export function LoadwiseSection({
                   : `${num(load.days_on_farm_so_far)} ${copy(pageContract, "value.days")} · ${num(
                       load.remaining,
                     )} ${copy(pageContract, "value.still_on_farm")}`,
+              ],
+              barLabels: [
+                load.fattening_days == null ? null : numCompactWhole(load.fattening_days),
+                load.days_on_farm_so_far == null ? null : numCompactWhole(load.days_on_farm_so_far),
               ],
               // The clock starts on ARRIVAL, not purchase — stated on the bar so nobody reads it
               // against the purchase date in the row above.

@@ -275,7 +275,7 @@ export async function FeedAnalyticsPage({
     .filter((key): key is Tab => (TABS as readonly string[]).includes(key));
   const stockOnly = allowedTabs.length === 1 && allowedTabs[0] === "items";
   const tab = readTab(searchParams, allowedTabs);
-  const range = readRange(searchParams);
+  const range = stockOnly ? "30" : readRange(searchParams);
   const { parkId } = backendScope(parseScope(searchParams));
   const window = rangeDates(range);
   const params = { park_id: parkId, ...window };

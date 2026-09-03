@@ -87,6 +87,16 @@ test("the daily charts run through today while the rest of the page stays on yes
   assert.match(source, /wantExecution\s*\?\s*getFeedAnalyticsExecution\(\{\s*\.\.\.params,/s);
 });
 
+test("stock-only feed analytics hides full controls and item graphs", () => {
+  // Procurement Director receives a one-option page contract. That surface should read stock only:
+  // no explanatory banner, no tab/range controls, no directed-feed graph grid below the stock table.
+  assert.match(source, /const stockOnly = allowedTabs\.length === 1 && allowedTabs\[0\] === "items";/);
+  assert.match(source, /const wantDirected = !stockOnly && \(tab === "overview" \|\| tab === "items" \|\| tab === "peranimal"\);/);
+  assert.match(source, /\{!stockOnly \? \(\s*<>\s*<p className="muted small"[\s\S]*?<SegmentedLinks[\s\S]*?<SegmentedLinks[\s\S]*?<\/>\s*\) : null\}/);
+  assert.match(source, /\{stockOnly && tab === "items" \? <StockCards stock=\{stock\?\.ok \? stock\.data : null\} pageContract=\{pageContract\} \/> : null\}/);
+  assert.match(source, /\{tab === "items" && !stockOnly \? \(/);
+});
+
 test("the KPI tiles name the settled day rather than the last day drawn", () => {
   // The tiles say "Directed yesterday" / "Animals fed yesterday". Taking the array's last
   // element now points them at today — a day the farm is still feeding, whose second park's

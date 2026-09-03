@@ -101,9 +101,10 @@ export function numCompact(value: number): string {
 /** Compact chart label without decimals or units: 94800 -> "95k", 412.5 -> "413". */
 export function numCompactWhole(value: number): string {
   const abs = Math.abs(value);
-  if (abs >= 1_00_000) return `${Math.floor(value / 1_00_000 + 0.5)}L`;
-  if (abs >= 1_000) return `${Math.floor(value / 1_000 + 0.5)}k`;
-  return String(Math.floor(value + 0.5));
+  const sign = value < 0 ? "−" : "";
+  if (abs >= 1_00_000) return `${sign}${Math.floor(abs / 1_00_000 + 0.5)}L`;
+  if (abs >= 1_000) return `${sign}${Math.floor(abs / 1_000 + 0.5)}k`;
+  return `${sign}${Math.floor(abs + 0.5)}`;
 }
 
 function trimZero(value: number): string {

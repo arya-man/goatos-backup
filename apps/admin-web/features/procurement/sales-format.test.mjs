@@ -37,6 +37,7 @@ test("numCompactWhole rounds chart labels without decimal units", () => {
   assert.equal(numCompactWhole(10_200), "10k");
   assert.equal(numCompactWhole(412.49), "412");
   assert.equal(numCompactWhole(412.5), "413");
+  assert.equal(numCompactWhole(-1_499), "−1k");
 });
 
 test("monthLabel and humanDate turn ISO values into farm-readable dates", () => {
@@ -111,4 +112,15 @@ test("record-sale vendor picker discloses a capped register instead of treating 
   assert.match(source, /vendorOptions\?\.truncated === true/);
   assert.match(source, /hint\.vendor_truncated/);
   assert.match(source, /vendorsTruncated[\s\S]*?canPickVendor/);
+});
+
+test("sales chart bar labels stay whole and suffix-free", () => {
+  const salesSource = readFileSync(new URL("./sales.tsx", import.meta.url), "utf8");
+  const loadwiseSource = readFileSync(new URL("./loadwise-section.tsx", import.meta.url), "utf8");
+  assert.match(salesSource, /display: numCompactWhole\(month\.manure_kg\)/);
+  assert.match(salesSource, /display: inr\(Math\.round\(band\.avg_price_per_kg\)\)/);
+  assert.doesNotMatch(salesSource, /display: `\$\{inr\(Math\.round\(band\.avg_price_per_kg\)\)\} \$\{perKgSuffix\}`/);
+  assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.avg_purchase_weight_kg == null \? null : numCompactWhole\(load\.avg_purchase_weight_kg\)/s);
+  assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.landed_price_per_kg == null \? null : inr\(Math\.round\(load\.landed_price_per_kg\)\)/s);
+  assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.fattening_days == null \? null : numCompactWhole\(load\.fattening_days\)/s);
 });
