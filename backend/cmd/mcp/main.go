@@ -827,7 +827,7 @@ func tools() []map[string]any {
 	out := []map[string]any{
 		{
 			"name":        "ask_goatos",
-			"description": "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this only when no specific Mesha MCP tool fits. Prefer typed tools for exact operations answers: vaccination, action center, verification, feed, procurement, sales, and weighing.",
+			"description": "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this only when no specific Mesha MCP tool fits. For dashboards or exact operational answers, prefer composing typed tools first: vaccination schedule/progress, action center, verification, feed, procurement, sales, counts, health, workforce, and weighing.",
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
@@ -866,7 +866,7 @@ func tools() []map[string]any {
 		},
 		{
 			"name":        "list_goatos_capabilities",
-			"description": "List what the Goat OS MCP connector can answer and how access is controlled.",
+			"description": "List what the Goat OS MCP connector can answer, how to build dynamic dashboards from live Goat OS data, and how access is controlled.",
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		},
@@ -908,7 +908,7 @@ func (s *server) callTool(ctx context.Context, r *http.Request, raw json.RawMess
 	case "get_health_today":
 		return s.getHealthToday(ctx, r, params.Arguments)
 	case "list_goatos_capabilities":
-		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools for exact operational answers: get_vaccination_today, get_action_center, get_verification_backlog, get_feed_today, get_procurement_pipeline, get_sales_overview, get_sales_deals, get_counts_summary, get_health_today, get_health_work_items, get_milk_feeding_today, get_workforce_coverage, get_weighing_progress, get_weighing_growth_adg, get_weighing_shed_weights, get_weighing_process_state, and get_weighing_weight_demographics. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
+		return textToolResult("Goat OS MCP exposes read-only leadership tools backed by live STG Goat OS APIs. For dynamic dashboards, call the relevant typed tools and render the returned structuredContent; refresh by re-calling the tools because the database can change. Use get_vaccination_today for schedule/progress, get_action_center for blocked/overdue work, get_verification_backlog for proof review, get_feed_today for issued feed sheets, get_procurement_pipeline for source-entry loads, get_sales_overview/get_sales_deals for sales, get_counts_summary for herd census, get_health_today/get_health_work_items/get_milk_feeding_today for health and milk work, get_workforce_coverage for staffing gaps, and the get_weighing_* tools for weighing. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
 	case "goatos_mcp_health":
 		return textToolResult("Goat OS MCP is running. Upstream assistant endpoint: " + s.cfg.UpstreamAskURL), 0, ""
 	default:
@@ -1021,11 +1021,11 @@ func apiReadTools() []apiReadTool {
 		},
 		{
 			Name:        "get_feed_today",
-			Description: "Get the frozen issued Feed Direction sheet for one park and feed day. Use this for today planned/needed feed quantities, blocked feed cells, ration/config gaps, and session/shed feed work. This does not prove feed was actually completed; feed actuals/adherence are not covered until the feed_adherence source ships. Blocked/null feed must not be treated as zero.",
+			Description: "Get the frozen issued Feed Direction sheet for one park and feed day. Use this for today planned/needed feed quantities, blocked feed cells, ration/config gaps, and session/shed feed work. If the user does not name a park, omit park_id; the server uses the configured default STG park. This does not prove feed was actually completed; feed actuals/adherence are not covered until the feed_adherence source ships. Blocked/null feed must not be treated as zero.",
 			Path:        "/feed-direction/preview",
 			Source:      "GET /feed-direction/preview",
 			Properties:  commonReadProperties("park_id", "target_date", "shed_id", "session", "workflow", "draft", "limit", "offset"),
-			Required:    []string{"park_id", "target_date"},
+			Required:    []string{"target_date"},
 			BuildQuery: func(a apiReadArgs) (url.Values, error) {
 				q := url.Values{}
 				if err := addRequiredUUID(q, "park_id", a.ParkID); err != nil {
@@ -1612,6 +1612,9 @@ func (s *server) getAPIReadTool(ctx context.Context, r *http.Request, raw json.R
 		if err := json.Unmarshal(raw, &args); err != nil {
 			return nil, -32602, "invalid_" + def.Name + "_arguments"
 		}
+	}
+	if def.Name == "get_feed_today" && strings.TrimSpace(args.ParkID) == "" {
+		args.ParkID = strings.TrimSpace(s.cfg.DefaultParkID)
 	}
 	q, err := def.BuildQuery(args)
 	if err != nil {

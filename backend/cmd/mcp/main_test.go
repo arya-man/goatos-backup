@@ -55,7 +55,7 @@ func TestToolsList(t *testing.T) {
 		t.Fatalf("tools should advertise read-only annotations: %s", rec.Body.String())
 	}
 	for tool, want := range map[string][]string{
-		"get_feed_today":        {"park_id", "target_date"},
+		"get_feed_today":        {"target_date"},
 		"get_health_work_items": {"age_band"},
 	} {
 		gotRequired := map[string]bool{}
@@ -424,6 +424,42 @@ func TestAPIReadToolsRejectInvalidArgsBeforeUpstream(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "park_id_required") {
 		t.Fatalf("body=%s", body)
+	}
+}
+
+func TestFeedTodayUsesConfiguredDefaultPark(t *testing.T) {
+	var seenPark string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPark = r.URL.Query().Get("park_id")
+		if r.URL.Path != "/feed-direction/preview" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		if r.URL.Query().Get("target_date") != "2026-08-15" {
+			t.Fatalf("query=%s", r.URL.RawQuery)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"shed": "Yashoda"}}})
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		DefaultParkID:   "10000000-0000-4000-8000-000000000001",
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"feed","method":"tools/call","params":{"name":"get_feed_today","arguments":{"target_date":"2026-08-15"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if seenPark != "10000000-0000-4000-8000-000000000001" {
+		t.Fatalf("park_id=%q", seenPark)
 	}
 }
 
