@@ -815,7 +815,7 @@ export function optionalOption(page: AdminUiPageContract, groupId: string, key: 
 export function optionLabel(page: AdminUiPageContract, groupId: string, key: string): string {
   const value = optionGroup(page, groupId).find((item) => item.key === key);
   if (!value) {
-    throw new Error(`Admin-web page contract ${page.route_id} missing option ${groupId}.${key}`);
+    return readableOptionKey(key);
   }
   return value.label;
 }
@@ -831,7 +831,16 @@ export function optionTitle(page: AdminUiPageContract, groupId: string, key: str
 export function optionTone(page: AdminUiPageContract, groupId: string, key: string): string {
   const value = optionGroup(page, groupId).find((item) => item.key === key);
   if (!value) {
-    throw new Error(`Admin-web page contract ${page.route_id} missing option ${groupId}.${key}`);
+    return "mut";
   }
   return value.tone || "mut";
+}
+
+export function readableOptionKey(key: string): string {
+  const normalized = key.trim();
+  if (!normalized) return "Unknown";
+  return normalized
+    .replaceAll(/[-_]+/g, " ")
+    .replaceAll(/\s+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
