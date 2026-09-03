@@ -19,10 +19,11 @@ import "sort"
 // Everything else was dropped from the sidebar AND from the page contracts, so keeping the
 // module here would grant a screen the person could not open under the rule being preserved.
 var retiredProcurementDirectorWebModules = map[string]struct{}{
-	"sales":          {},
-	"vendors":        {},
-	"feed_purchases": {},
-	"feed_direction": {},
+	"sales":           {},
+	"sale_allocation": {},
+	"vendors":         {},
+	"feed_purchases":  {},
+	"feed_direction":  {},
 }
 
 // retiredProcurementDirectorFeedPages is the second half of the 2026-08-21 decision --
@@ -53,6 +54,10 @@ func applyRetiredProcurementDirectorNarrowing(in []ModuleAssignment) []ModuleAss
 		}
 		if row.Module == "sales" {
 			row.Capabilities = []string{LevelView, LevelDo}
+			row.Pages = append([]string(nil), retiredProcurementDirectorSalesPages...)
+		}
+		if row.Module == "sale_allocation" {
+			row.Capabilities = []string{LevelDo}
 			row.Pages = append([]string(nil), retiredProcurementDirectorSalesPages...)
 		}
 		if row.Module == "vendors" {

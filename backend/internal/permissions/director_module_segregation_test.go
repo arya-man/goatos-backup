@@ -120,6 +120,7 @@ func TestProcurementDirectorPlusFeedDirectorStillGetsStockOnlyFeedAnalytics(t *t
 		method string
 		path   string
 	}{
+		{"GET", "/procurement/source-entry/loads"},
 		{"GET", "/feed-analytics/directed"},
 		{"GET", "/feed-analytics/execution"},
 		{"GET", "/feed-analytics/experiment"},
@@ -141,6 +142,16 @@ func TestProcurementDirectorPlusFeedDirectorStillGetsStockOnlyFeedAnalytics(t *t
 		if allowed, decidable := AuthorizePermissionSet(route, permissionsForRoles(RoleCEOInternal, RoleProcurementDirector, RoleFeedDirector)); !decidable || !allowed {
 			t.Fatalf("CEO/CXO resolved permissions must keep %s %s even when carrying procurement/feed roles", tt.method, tt.path)
 		}
+	}
+	tagAnimals, ok := Match("POST", "/admin/goats/sale-allocations/confirm")
+	if !ok {
+		t.Fatal("sale allocation confirm route is not registered")
+	}
+	if !AuthorizeRoute(tagAnimals, roles) {
+		t.Fatal("real Hemant role stack must keep Tag animals to sale")
+	}
+	if allowed, decidable := AuthorizePermissionSet(tagAnimals, held); !decidable || !allowed {
+		t.Fatal("real Hemant resolved permissions must keep Tag animals to sale")
 	}
 }
 

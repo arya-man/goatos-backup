@@ -933,7 +933,10 @@ func procurementDirectorStockOnlyRoute(route Route, roles []string) bool {
 		return false
 	}
 	switch route.OperationID {
-	case "getFeedAnalyticsDirected", "getFeedAnalyticsExecution", "getFeedAnalyticsExperiment", "getFeedAnalyticsShedFeed":
+	case "getFeedAnalyticsDirected", "getFeedAnalyticsExecution", "getFeedAnalyticsExperiment", "getFeedAnalyticsShedFeed",
+		"listProcurementSourceEntryLoads", "createProcurementSourceEntryLoad", "getProcurementSourceEntryLoad", "addProcurementSourceEntryLoadGoat",
+		"recordProcurementHFVaccinationEvidence", "reviewProcurementHFVaccinationEvidence", "recordProcurementSourceHealth", "recordProcurementPreDispatchDecision",
+		"dispatchProcurementSourceEntryLoad", "recordProcurementArrivalReview", "acceptProcurementIntake":
 		return true
 	default:
 		return false
@@ -1001,14 +1004,20 @@ func procurementDirectorStockOnlyPermissionSet(route Route, held map[string]stru
 	if _, stock := held[FeedAnalyticsStockRead]; !stock {
 		return false
 	}
-	if _, sales := held[SalesAllocateAnimals]; !sales {
+	if _, sales := held[SalesWrite]; !sales {
+		return false
+	}
+	if _, vendorFinance := held[VendorFinanceRead]; !vendorFinance {
 		return false
 	}
 	if _, purchases := held[FeedPurchaseRead]; !purchases {
 		return false
 	}
 	switch route.OperationID {
-	case "getFeedAnalyticsDirected", "getFeedAnalyticsExecution", "getFeedAnalyticsExperiment", "getFeedAnalyticsShedFeed":
+	case "getFeedAnalyticsDirected", "getFeedAnalyticsExecution", "getFeedAnalyticsExperiment", "getFeedAnalyticsShedFeed",
+		"listProcurementSourceEntryLoads", "createProcurementSourceEntryLoad", "getProcurementSourceEntryLoad", "addProcurementSourceEntryLoadGoat",
+		"recordProcurementHFVaccinationEvidence", "reviewProcurementHFVaccinationEvidence", "recordProcurementSourceHealth", "recordProcurementPreDispatchDecision",
+		"dispatchProcurementSourceEntryLoad", "recordProcurementArrivalReview", "acceptProcurementIntake":
 		return true
 	default:
 		return false

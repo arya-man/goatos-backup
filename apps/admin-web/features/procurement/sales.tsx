@@ -170,6 +170,7 @@ function OverviewSections({
               maxG={OVER35_MAX_TOLERANCE_G}
               preserveQuery={over35.preserveQuery}
               label={copy(pageContract, "kpi.over35.tolerance")}
+              applyLabel={copy(pageContract, "kpi.over35.apply")}
             />
           ) : null}
 

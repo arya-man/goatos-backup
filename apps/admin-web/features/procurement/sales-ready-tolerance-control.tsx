@@ -8,6 +8,7 @@ type Props = {
   maxG: number;
   preserveQuery: [string, string][];
   label: string;
+  applyLabel: string;
 };
 
 function thresholdFromTolerance(valueG: number): number {
@@ -21,7 +22,7 @@ function thresholdLabel(valueG: number): string {
   })}+`;
 }
 
-export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label }: Props) {
+export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label, applyLabel }: Props) {
   const router = useRouter();
   const [draftG, setDraftG] = useState(valueG);
   const [, startTransition] = useTransition();
@@ -59,7 +60,7 @@ export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label 
         <output htmlFor="sale-ready-tolerance">{draftG} g</output>
       </div>
       <button className="btn ghost small" type="button" disabled={draftG === valueG} onClick={apply}>
-        Apply
+        {applyLabel}
       </button>
     </div>
   );
