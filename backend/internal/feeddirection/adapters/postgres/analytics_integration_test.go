@@ -685,7 +685,7 @@ DELETE FROM feed_purchases WHERE tenant_id = $1 AND farm_label = 'CBE'
 	})
 }
 
-func TestStockExpenditureStatusBucketsPriceSameItemAtEachFarmLoad(t *testing.T) {
+func TestStockExpenditureOneToManyParkScopePageBoundaryStatusBucketsPriceSameItemAtEachFarmLoad(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 
@@ -774,6 +774,16 @@ VALUES ($1, $2, $3, 'Mesha Kids Goat Concentrate', $4, $5::date, 1000, $6::numer
 	}
 	if len(cbeScoped.Expenditure) != 1 || cbeScoped.Expenditure[0].Rupees != "1000" {
 		t.Fatalf("CBE scope must keep only CBE price and kg, got %+v", cbeScoped.Expenditure)
+	}
+	outsideWindow, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		DateFrom: day.AddDate(0, 0, 1),
+		DateTo:   day.AddDate(0, 0, 1),
+	})
+	if err != nil {
+		t.Fatalf("StockAnalytics outside window: %v", err)
+	}
+	if len(outsideWindow.Expenditure) != 0 || len(outsideWindow.ItemExpenditure) != 0 {
+		t.Fatalf("PageBoundary: expenditure rows must stay inside the requested day, got day=%+v item=%+v", outsideWindow.Expenditure, outsideWindow.ItemExpenditure)
 	}
 }
 
