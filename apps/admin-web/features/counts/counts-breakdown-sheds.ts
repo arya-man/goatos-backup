@@ -134,7 +134,11 @@ export function buildShedFilterOptions(
   for (const [groupKey, shedRows] of groupsInOrder) {
     const [parkId, shedId] = groupKey.split("|");
 
-    // Find the parent shed row (non-partitioned or the first row for rollup)
+    // Find the parent shed row (non-partitioned) — the backend guarantees one per shed, even for
+    // an ALL-EMPTY subdivided shed (zero-count parent row from the catalog branch), so the group
+    // heading is always the bare shed name. The shedRows[0] fallback survives only for a stale
+    // backend that predates that row; its label is a composed pen label there, which is exactly
+    // the misleading heading the backend row exists to prevent.
     const parentRow = shedRows.find((r) => !r.partition_label || r.partition_label.toLowerCase() === "whole") ||
                       shedRows[0];
 

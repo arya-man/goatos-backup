@@ -3001,6 +3001,42 @@ WHERE sp.tenant_id = $1::uuid
       AND regexp_replace(lower(btrim(COALESCE(gsp2.partition_label, 'whole'))), '^part[[:space:]]+', '')
           = sp.normalized_label
   )
+UNION ALL
+-- Parent row for an ALL-EMPTY subdivided shed. The parent-shed aggregate branch above derives
+-- from goats, so a shed whose every pen is currently empty emits NO parent row at all — its only
+-- facet rows are the composed pen labels from the empty-catalog branch, and the client then had
+-- no bare shed name to head the dropdown group with (review finding: "Yashoda - Part 1" as the
+-- group heading). One zero-count parent row per such shed restores the heading truth. It cannot
+-- duplicate the goats-derived parent row, because NOT EXISTS excludes any shed with a live
+-- animal; an empty UNDIVIDED shed stays absent, exactly as before — this branch only fires for
+-- sheds the empty-catalog branch is already surfacing pens for.
+-- projection-review: membership=DISTINCT shed_ids of active shed_partitions catalog rows whose shed holds no live animal (NOT EXISTS over goats with the shared lifecycle predicate); group_key=(shed_id) via SELECT DISTINCT, one row per all-empty subdivided shed; join_cardinality=locations joined once on (tenant_id, location_id), its primary key, 1:1 label lookup, and the park subselect is a LIMIT 1 scalar; pagination=whole-result rollup, never paged, like every facet branch; scope=tenant_id plus the same lifecycle predicate the sibling branches share, and the park key uses the SAME goats-first/parentage-fallback resolution as the empty-catalog branch so this parent row groups under the identical park key as that shed's pen rows
+SELECT DISTINCT 'shed', sp.shed_id::text,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
+       0,
+       COALESCE(
+         (SELECT g5.park_id::text
+            FROM goats g5
+           WHERE g5.tenant_id = sp.tenant_id
+             AND g5.shed_id = sp.shed_id
+             AND g5.merged_into_goat_id IS NULL
+           LIMIT 1),
+         shed.parent_location_id::text,
+         ''
+       ),
+       ''
+FROM shed_partitions sp
+JOIN locations shed ON shed.tenant_id = sp.tenant_id AND shed.location_id = sp.shed_id
+WHERE sp.tenant_id = $1::uuid
+  AND sp.status = 'active'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM goats g4
+    WHERE g4.tenant_id = sp.tenant_id
+      AND g4.shed_id = sp.shed_id
+      AND g4.merged_into_goat_id IS NULL
+      AND ($2 = '' OR g4.lifecycle_status = $2)
+  )
 ORDER BY 1, 2, 5`
 
 const (

@@ -115,6 +115,23 @@ test("a subdivided shed's pens are filed under the shed, undivided sheds stay lo
   assert.equal(options.find((o) => o.label === "Ho Chi Minh 1").group, undefined);
 });
 
+test("an all-empty subdivided shed heads its group with the bare shed name", () => {
+  // The backend now guarantees a zero-count PARENT facet row for a shed whose every pen is
+  // empty (review finding: without it the group heading fell back to the first pen row and
+  // read "Yashoda - Part 1" instead of "Yashoda").
+  const allEmpty = [
+    { key: SHED_A, shed_id: SHED_A, label: "Yashoda", count: 0, park_id: PARK_A },
+    ...["Part 1", "Part 2"].map((p) => ({
+      key: `${SHED_A}#${p.toLowerCase().replace("part ", "")}`, shed_id: SHED_A, label: "Yashoda",
+      partition_label: p, operational_location_display: `Yashoda - ${p}`, count: 0, park_id: PARK_A,
+    })),
+  ];
+  const options = buildShedFilterOptions(allEmpty, PARK_A, PARK_LABELS);
+  assert.deepEqual(new Set(options.map((o) => o.group)), new Set(["Yashoda"]),
+    "the group heading must be the bare shed name, never a pen label");
+  assert.deepEqual(options.map((o) => o.label), ["Yashoda - Part 1", "Yashoda - Part 2"]);
+});
+
 test("park id is never leaked as a label when the park vocabulary is missing", () => {
   // Rendering a raw UUID in front of a CEO is the copy-firewall violation; an ambiguous-but-clean
   // label beats a leaked identifier.

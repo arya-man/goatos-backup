@@ -1847,3 +1847,65 @@ func TestCountsBreakdownWildcardShedPenFiltersPartitionAcrossSheds(t *testing.T)
 		t.Errorf("an entry empty on both halves must be dropped (no filter): total_count=%d, want 6", empty.TotalCount)
 	}
 }
+
+// An ALL-EMPTY subdivided shed must still carry a PARENT facet row (count 0, bare shed label,
+// no partition). The parent-aggregate branch derives from goats, so before this branch existed a
+// shed whose every pen was empty surfaced ONLY composed pen labels ("Yashoda - Part 1") — and the
+// web shed dropdown, which heads a subdivided shed's optgroup with the parent row's label, fell
+// back to the first pen row and rendered the pen label as the shed heading (review finding).
+// An empty UNDIVIDED shed must stay absent, exactly as before.
+func TestCountsBreakdownAllEmptyShedStillCarriesItsParentFacetRow(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	const emptyShed = "00000000-0000-4000-8000-000000004021"
+	const emptyUndividedShed = "00000000-0000-4000-8000-000000004022"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES
+  ($2::uuid, $1::uuid, 'shed', 'CPT-YASHODA', 'Yashoda', $4::uuid, 'active'),
+  ($3::uuid, $1::uuid, 'shed', 'CPT-BARE', 'Bare', $4::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`, countsTenant, emptyShed, emptyUndividedShed, countsPark); err != nil {
+		t.Fatalf("seed empty sheds: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES
+  ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual'),
+  ($1::uuid, $2::uuid, 'Part 2', '2', 'active', 'manual')
+ON CONFLICT DO NOTHING`, countsTenant, emptyShed); err != nil {
+		t.Fatalf("seed catalog partitions: %v", err)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	var parent *domain.CountsBreakdownShedFacet
+	pens := 0
+	for i, f := range got.Facets.Sheds {
+		if f.ShedID == emptyUndividedShed {
+			t.Fatalf("an empty UNDIVIDED shed must stay absent from the facet, got %+v", f)
+		}
+		if f.ShedID != emptyShed {
+			continue
+		}
+		if f.PartitionLabel == "" {
+			parent = &got.Facets.Sheds[i]
+		} else {
+			pens++
+		}
+	}
+	if parent == nil {
+		t.Fatalf("all-empty subdivided shed has no parent facet row; the dropdown group heading falls back to a pen label. facets=%+v", got.Facets.Sheds)
+	}
+	if parent.Label != "Yashoda" || parent.Count != 0 || parent.Key != emptyShed {
+		t.Fatalf("parent row=%+v, want bare label 'Yashoda', count 0, bare shed key", *parent)
+	}
+	if parent.ParkID != countsPark {
+		t.Fatalf("parent row park=%q, want %q — it must group under the same park key as its pen rows", parent.ParkID, countsPark)
+	}
+	if pens != 2 {
+		t.Fatalf("expected the 2 empty catalog pens beside the parent row, got %d", pens)
+	}
+}
