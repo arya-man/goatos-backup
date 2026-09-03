@@ -2297,7 +2297,7 @@
 .card .hd .sp { flex: 1; }
 .card .bd { padding: 6px 16px 16px; }
 .sales-config-card-copy{margin:0;padding:10px 16px 14px;line-height:1.45}
-.sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(180px,320px) auto;align-items:center;gap:12px;margin:10px 0 0 auto;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);width:fit-content;max-width:100%}
+.sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(180px,320px) auto;align-items:center;gap:12px;margin:10px auto 0 0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);width:fit-content;max-width:100%}
 .sales-ready-tolerance-head{display:flex;align-items:baseline;gap:8px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.35px;text-transform:uppercase}
 .sales-ready-tolerance-head strong{color:var(--ink);font-size:12px;letter-spacing:0;text-transform:none;white-space:nowrap}
 .sales-ready-tolerance-row{display:grid;grid-template-columns:minmax(86px,1fr) auto;align-items:center;gap:8px}
