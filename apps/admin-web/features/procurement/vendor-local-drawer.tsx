@@ -255,25 +255,7 @@ export function VendorLocalDrawer({
               </div>
               <div className="fld">
                 <label htmlFor="v-city">{field("city")}</label>
-                {/* FREE TEXT, not a select: a vendor can be in any town, and a closed list meant
-                    adding a supplier in an unlisted place required editing the vocabulary first.
-                    The city FILTER is derived live from the cities vendors carry, so anything typed
-                    here becomes filterable without a second step. */}
-                <input
-                  id="v-city"
-                  name="city"
-                  required={isAdding}
-                  maxLength={160}
-                  list="vendor-known-cities"
-                  defaultValue={vendor?.city ?? ""}
-                />
-                {/* Suggestions only -- a datalist proposes without constraining, so recording an
-                    existing city stays one keystroke while a new one is still accepted. */}
-                <datalist id="vendor-known-cities">
-                  {(catalog.cities ?? []).map((e) => (
-                    <option key={e.value} value={e.value} />
-                  ))}
-                </datalist>
+                <input id="v-city" name="city" required={isAdding} maxLength={160} defaultValue={vendor?.city ?? ""} />
               </div>
               <div className="fld">
                 <label htmlFor="v-breed">{field("breed")}</label>
