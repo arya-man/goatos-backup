@@ -24,7 +24,7 @@ import {
   type WeighingGrowthResponse,
   type WeightDemographicsResponse,
 } from "@/lib/api/server";
-import { getLoadwiseSales } from "@/lib/api/procurement-server";
+import { getLoadwiseSales, getLoadwiseWeights } from "@/lib/api/procurement-server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 // The landing window is SHARED with /weighing/weights: both screens open on the latest whole-shed
@@ -197,14 +197,21 @@ export async function WeighingWeightsAnalyticsPage({
   // carries `gain_by_breed_origin` on this same response. Asking the read twice under the two
   // origins would recompute by_sex, by_stage, the bands and the shed composition only to discard
   // both copies -- and would let the two halves be resolved a request apart.
-  const [weights, growth, demographics, loadwise] = await Promise.all([
+  // The purchase side of the Comparison tab is the UNPRICED load read, which WeighingMonitor may
+  // hold. The PRICED read behind the value chart is fetched only when the contract enabled that
+  // chart for this principal (load_value_chart, SalesRead): fetch = render, and a principal the
+  // priced endpoint would refuse is never asked to call it.
+  const valueChart = pageContract.controls.find((item) => item.id === "load_value_chart");
+  const wantsValue = wantsLoads && (valueChart?.enabled ?? false);
+  const [weights, growth, demographics, loadwise, loadValues] = await Promise.all([
     getShedWeights(shedParams),
     wantsGrowth ? getWeighingGrowth({ ...scope, ...readWindow }) : null,
     wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow }) : null,
-    wantsLoads ? getLoadwiseSales({ park_id: parkFilter || undefined }) : null,
+    wantsLoads ? getLoadwiseWeights({ park_id: parkFilter || undefined }) : null,
+    wantsValue ? getLoadwiseSales({ park_id: parkFilter || undefined }) : null,
   ]);
 
-  if (firstAuthRequiredError(weights, growth, demographics, loadwise)) redirect(INTERNAL_LOGIN_PATH);
+  if (firstAuthRequiredError(weights, growth, demographics, loadwise, loadValues)) redirect(INTERNAL_LOGIN_PATH);
 
   if (!weights.ok) {
     return <WeightsAnalyticsLoadError pageContract={pageContract} />;
@@ -423,6 +430,8 @@ export async function WeighingWeightsAnalyticsPage({
             pageContract={pageContract}
             loads={loadwise?.ok ? (loadwise.data.loads ?? []) : null}
             weights={weights.data}
+            valueLoads={loadValues?.ok ? (loadValues.data.loads ?? []) : null}
+            valueChartReason={valueChart?.enabled ? "" : (valueChart?.disabled_reason ?? "")}
           />
         ) : null}
       </div>

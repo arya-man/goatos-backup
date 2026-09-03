@@ -7794,6 +7794,39 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/loadwise-weights:
+    get:
+      tags:
+        - Procurement
+      operationId: listLoadwiseWeights
+      summary: The purchased loads, unpriced, for the ADG Analytics Comparison tab.
+      description: >-
+        The SAME loads, park filter and window as listLoadwiseSales, projected down to identity,
+        head counts and the bought-at weight -- and nothing priced. It exists so a principal who
+        may monitor weighing but may not read sales money (the Growth Director) can put a load's
+        purchase weight beside its latest weighing without receiving purchase cost, sale value or
+        profit. The priced read stays behind sales read access.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Same semantics as on listLoadwiseSales.
+      responses:
+        "200":
+          description: The unpriced load rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoadwiseWeights"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /procurement/loads/{load_id}/cost:
     put:
       tags:
@@ -15281,6 +15314,41 @@ components:
           description: >-
             Sums only the loads that HAVE a profit figure (a recorded cost) — the same key set as
             costed_loads, so priced and unpriced loads are never mixed into one total.
+    LoadwiseWeights:
+      type: object
+      additionalProperties: false
+      required: [loads, total_loads]
+      properties:
+        loads:
+          type: array
+          items:
+            $ref: "#/components/schemas/LoadwiseWeightLoad"
+        total_loads:
+          type: integer
+          description: Same as listLoadwiseSales' total_loads for the same filter.
+    LoadwiseWeightLoad:
+      type: object
+      additionalProperties: false
+      description: One purchased load with no priced field. See listLoadwiseWeights.
+      required: [load_id, vendor_name, purchased, remaining, remaining_sheep, remaining_goats]
+      properties:
+        load_id: { type: string, format: uuid }
+        load_ref:
+          type: string
+          description: The farm's own load number, rendered verbatim. Absent when unrecorded.
+        vendor_name: { type: string }
+        purchase_date: { type: string, format: date }
+        farm:
+          type: string
+          description: The agree-or-go-bare park code (CBE/CPT), "" when bare.
+        purchased: { type: integer }
+        remaining: { type: integer, description: Animals still alive on farm. }
+        remaining_sheep: { type: integer }
+        remaining_goats: { type: integer }
+        avg_purchase_weight_kg:
+          type: number
+          format: double
+          description: Average bought-at weight per animal; absent when no purchase weight is recorded.
     LoadwiseSales:
       type: object
       required: [loads, total_loads, summary]

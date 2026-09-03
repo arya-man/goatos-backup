@@ -23,6 +23,8 @@ export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
 // Load-wise sales — every purchased load reconciled (/procurement/loadwise-sales).
 export type LoadwiseSales = AppApiComponents["schemas"]["LoadwiseSales"];
 export type LoadwiseLoad = AppApiComponents["schemas"]["LoadwiseLoad"];
+export type LoadwiseWeights = AppApiComponents["schemas"]["LoadwiseWeights"];
+export type LoadwiseWeightLoad = AppApiComponents["schemas"]["LoadwiseWeightLoad"];
 export type LoadwiseSummary = AppApiComponents["schemas"]["LoadwiseSummary"];
 export type LoadwisePriorOutcome = AppApiComponents["schemas"]["LoadwisePriorOutcome"];
 export type LoadCostWrite = AppApiComponents["schemas"]["LoadCostWrite"];

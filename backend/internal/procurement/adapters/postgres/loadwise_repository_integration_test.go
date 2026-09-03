@@ -261,6 +261,50 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 		}
 	})
 
+	t.Run("LoadWithNoAttributedAnimalsIsClaimedByItsRecordedFarm", func(t *testing.T) {
+		// DELIBERATE, and pinned so it reads as a decision rather than a gap (review finding on
+		// PR 174): a load with NO animals left on the register -- a sold-out legacy load -- cannot
+		// be placed by its animals, so its OWN recorded farm places it. That is the same fact from
+		// the load's side, not a majority pick over disagreeing animals, and it is what keeps the
+		// park views adding up to All Parks (a sold-out CBE load is still a CBE load). Only a load
+		// whose ANIMALS disagree, or whose park is unknown, goes bare.
+		cpt := parkIDByCode(t, ctx, pool, "CPT")
+		cbe := parkIDByCode(t, ctx, pool, "CBE")
+		var soldOut string
+		if err := pool.QueryRow(ctx, `
+INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, idempotency_key, context)
+SELECT tenant_id, source_party_id, '2026-06-01', status, 'loadwise-recorded-farm-cpt', '{"farm": "CPT", "load_ref": "77"}'::jsonb
+FROM procurement_loads WHERE load_id = $2::uuid AND tenant_id = $1
+RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
+			t.Fatalf("seed sold-out load: %v", err)
+		}
+		cptOut, err := repo.LoadwiseSales(ctx, testTenant, cpt, 60)
+		if err != nil {
+			t.Fatalf("loadwise sales (CPT): %v", err)
+		}
+		found := false
+		for _, l := range cptOut.Loads {
+			if l.LoadID == soldOut {
+				found = true
+				if l.Farm != "CPT" || l.Purchased != 0 {
+					t.Fatalf("sold-out load under CPT: farm=%q purchased=%d, want CPT with no animals", l.Farm, l.Purchased)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("a load with no attributed animals must be claimed by its recorded farm; CPT served %d loads", len(cptOut.Loads))
+		}
+		cbeOut, err := repo.LoadwiseSales(ctx, testTenant, cbe, 60)
+		if err != nil {
+			t.Fatalf("loadwise sales (CBE): %v", err)
+		}
+		for _, l := range cbeOut.Loads {
+			if l.LoadID == soldOut {
+				t.Fatalf("the CPT-recorded sold-out load must not appear under CBE")
+			}
+		}
+	})
+
 	t.Run("StatusBucketsPartitionPurchasedDisjointly", func(t *testing.T) {
 		// Load A: 5 accepted (the rejected row counts nowhere, the re-accepted-elsewhere animal
 		// counts once, on the other load). sold + mortality + other + remaining + unaccounted

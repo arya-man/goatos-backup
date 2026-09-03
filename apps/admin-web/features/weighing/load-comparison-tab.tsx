@@ -4,7 +4,7 @@ import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import type { ShedWeightsResponse } from "@/lib/api/server";
-import type { LoadwiseLoad } from "@/lib/api/procurement";
+import type { LoadwiseLoad, LoadwiseWeightLoad } from "@/lib/api/procurement";
 
 /**
  * ADG Analytics › Load-wise — purchased weight against the latest weighing, load by load.
@@ -27,7 +27,7 @@ function kg(value: number): string {
 }
 
 /** The chart/table heading for one load: its own number, else its source, else its date. */
-function loadHeading(load: LoadwiseLoad): string {
+function loadHeading(load: LoadwiseWeightLoad): string {
   return load.load_ref || load.vendor_name || fmtDate(load.purchase_date ?? undefined) || load.load_id;
 }
 
@@ -35,12 +35,21 @@ export function LoadComparisonTab({
   pageContract,
   loads,
   weights,
+  valueLoads = null,
+  valueChartReason = "",
 }: {
   pageContract: AdminUiPageContract;
-  /** The purchase ledger rows; null when that read failed. */
-  loads: LoadwiseLoad[] | null;
+  /** The UNPRICED purchase rows (loadwise-weights); null when that read failed. */
+  loads: LoadwiseWeightLoad[] | null;
   /** The by-load weighing read (all-time window); null when that read failed. */
   weights: ShedWeightsResponse | null;
+  /**
+   * The PRICED rows (loadwise-sales), fetched only when the contract enabled the value chart
+   * for this principal; null otherwise. Matched to `loads` by load_id.
+   */
+  valueLoads?: LoadwiseLoad[] | null;
+  /** The backend's reason when the value chart is withheld; "" when it is enabled. */
+  valueChartReason?: string;
 }) {
   // The purchase ledger is the row set: without it there is nothing to compare, so its failure
   // is the tab's failure. The weighing side degrades instead — the purchase figures still
@@ -60,7 +69,7 @@ export function LoadComparisonTab({
   const unit = copy(pageContract, "unit.kg_per_head");
 
   type Row = {
-    load: LoadwiseLoad;
+    load: LoadwiseWeightLoad;
     heading: string;
     purchasedAvg: number | null;
     latestAvg: number | null;
@@ -85,12 +94,13 @@ export function LoadComparisonTab({
   // stock value is the animals still on farm at their latest average weight, priced at the
   // maintainer's assumed live-weight rate per species (backend-owned figures, printed on the
   // chart); gain is the difference. A sold-out load has no stock and gets no value bars.
+  const priced = new Map((valueLoads ?? []).map((load) => [load.load_id, load]));
   const rateSheep = Number(copy(pageContract, "load.rate.sheep_per_kg"));
   const rateGoat = Number(copy(pageContract, "load.rate.goat_per_kg"));
   const rupees = copy(pageContract, "unit.rupees");
   const valueGroups: BarGroup[] = rows.map((row) => {
     const bars: GroupedBar[] = [];
-    const purchaseValue = row.load.purchase_value ?? null;
+    const purchaseValue = priced.get(row.load.load_id)?.purchase_value ?? null;
     const stockAnimals = row.load.remaining_sheep + row.load.remaining_goats;
     const stockValue =
       row.latestAvg !== null && stockAnimals > 0
@@ -178,13 +188,20 @@ export function LoadComparisonTab({
 
       {/* VALUE. Three bars per load on ONE rupee scale -- purchased value, current stock value,
           and the gain between them -- so a loss draws below the baseline. The assumed rates are
-          printed here, beside the chart, because a figure priced on an assumption must show it. */}
+          printed here, beside the chart, because a figure priced on an assumption must show it.
+          GATED: the money comes from the sales-only read, so a principal the contract withholds
+          it from (the Growth Director on weighing access alone) sees the backend's reason. */}
       <section className="card wchart" aria-label={copy(pageContract, "section.load_value.aria")}>
         <h2 className="h">
           <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.load_value.title")}
         </h2>
         <p className="muted small">{copy(pageContract, "section.load_value.caption")}</p>
         <p className="muted small">{copy(pageContract, "note.load.rates")}</p>
+        {valueChartReason !== "" ? (
+          <p className="muted">{valueChartReason}</p>
+        ) : valueLoads === null ? (
+          <p className="muted">{copy(pageContract, "error.load.loads_unavailable")}</p>
+        ) : (
         <GroupedBars
           groups={valueGroups}
           series={[
@@ -195,6 +212,7 @@ export function LoadComparisonTab({
           emptyLabel={copy(pageContract, "empty.load.body")}
           chartLabel={copy(pageContract, "section.load_value.aria")}
         />
+        )}
       </section>
 
       <section className="card" style={{ marginTop: 12 }}>

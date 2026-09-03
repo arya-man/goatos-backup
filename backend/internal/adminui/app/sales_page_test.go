@@ -432,6 +432,41 @@ func TestSalesOver35CardIsGatedOnWeighingMonitor(t *testing.T) {
 	}
 }
 
+// The Comparison tab's value chart is priced from the SalesRead-only loadwise read, so it is
+// gated on SalesRead: the Growth Director reaches the tab on WeighingMonitor and must see the
+// chart disabled with a reason, never the money. The growth-director row is the mutation test.
+func TestLoadValueChartIsGatedOnSalesRead(t *testing.T) {
+	for _, tc := range []struct {
+		role    string
+		enabled bool
+	}{
+		{permissions.RoleCEOInternal, true},
+		{permissions.RoleGrowthDirector, false},
+	} {
+		resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+			TenantID: "00000000-0000-4000-8000-000000000001",
+			ActorID:  "00000000-0000-4000-8000-000000000099",
+			Grants: []permissions.ActiveGrant{
+				{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			},
+		})
+		page := pageByRouteID(t, resp.Pages, "weighing-analytics")
+		var chart *domain.Control
+		for i := range page.Controls {
+			if page.Controls[i].ID == "load_value_chart" {
+				chart = &page.Controls[i]
+			}
+		}
+		if chart == nil {
+			t.Fatalf("%s: /weighing/analytics must declare load_value_chart", tc.role)
+		}
+		if chart.Enabled != tc.enabled || (!tc.enabled && chart.DisabledReason == "") || chart.Action != "" {
+			t.Fatalf("%s: load_value_chart enabled=%v reason=%q action=%q, want enabled=%v with a reason and no action",
+				tc.role, chart.Enabled, chart.DisabledReason, chart.Action, tc.enabled)
+		}
+	}
+}
+
 // The loads chart's "weighs now" series reads weighing too, and is gated the same way.
 func TestLoadsWeighsNowSeriesIsGatedOnWeighingMonitor(t *testing.T) {
 	for _, tc := range []struct {

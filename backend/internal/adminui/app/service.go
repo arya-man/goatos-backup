@@ -3999,6 +3999,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"load.rate.goat_per_kg":      "450",
 			"load.value.sold_out":        "sold out",
 			"load.value.no_cost":         "cost not recorded",
+			"disabled.load_value":        "Your current role can view weights but not purchase and sales money.",
 			"unit.rupees":                "",
 
 			// The growth multiple. Composed as value + suffix ("1.8" + "x"); the dash is

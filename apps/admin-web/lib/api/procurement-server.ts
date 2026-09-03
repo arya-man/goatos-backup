@@ -13,7 +13,7 @@ import {
   request,
   type ApiResult,
 } from "@/lib/api/server";
-import type { LoadCostWrite, LoadwiseSales,
+import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights,
   FeedPurchase,
   FeedPurchaseOptions,
   FeedPurchasePage,
@@ -257,6 +257,25 @@ export async function getLoadwiseSales(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<LoadwiseSales>("/procurement/loadwise-sales", {
+      cache: "no-store",
+      query: compactQuery({ park_id: params.park_id }),
+    }),
+  );
+}
+
+/**
+ * The UNPRICED load read for the ADG Analytics Comparison tab: identity, head counts and the
+ * bought-at weight, and nothing costed. A principal who may monitor weighing but may not read
+ * sales money is served this and only this; getLoadwiseSales stays behind sales read access.
+ */
+export async function getLoadwiseWeights(
+  params: { park_id?: string } = {},
+): Promise<ApiResult<LoadwiseWeights>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LoadwiseWeights>("/procurement/loadwise-weights", {
       cache: "no-store",
       query: compactQuery({ park_id: params.park_id }),
     }),

@@ -2988,6 +2988,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/loadwise-weights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The purchased loads, unpriced, for the ADG Analytics Comparison tab.
+         * @description The SAME loads, park filter and window as listLoadwiseSales, projected down to identity, head counts and the bought-at weight -- and nothing priced. It exists so a principal who may monitor weighing but may not read sales money (the Growth Director) can put a load's purchase weight beside its latest weighing without receiving purchase cost, sale value or profit. The priced read stays behind sales read access.
+         */
+        get: operations["listLoadwiseWeights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/loads/{load_id}/cost": {
         parameters: {
             query?: never;
@@ -6138,6 +6158,33 @@ export interface components {
             remaining_value: number;
             /** @description Sums only the loads that HAVE a profit figure (a recorded cost) — the same key set as costed_loads, so priced and unpriced loads are never mixed into one total. */
             profit_loss: number;
+        };
+        LoadwiseWeights: {
+            loads: components["schemas"]["LoadwiseWeightLoad"][];
+            /** @description Same as listLoadwiseSales' total_loads for the same filter. */
+            total_loads: number;
+        };
+        /** @description One purchased load with no priced field. See listLoadwiseWeights. */
+        LoadwiseWeightLoad: {
+            /** Format: uuid */
+            load_id: string;
+            /** @description The farm's own load number, rendered verbatim. Absent when unrecorded. */
+            load_ref?: string;
+            vendor_name: string;
+            /** Format: date */
+            purchase_date?: string;
+            /** @description The agree-or-go-bare park code (CBE/CPT), "" when bare. */
+            farm?: string;
+            purchased: number;
+            /** @description Animals still alive on farm. */
+            remaining: number;
+            remaining_sheep: number;
+            remaining_goats: number;
+            /**
+             * Format: double
+             * @description Average bought-at weight per animal; absent when no purchase weight is recorded.
+             */
+            avg_purchase_weight_kg?: number;
         };
         LoadwiseSales: {
             loads: components["schemas"]["LoadwiseLoad"][];
@@ -20327,6 +20374,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoadwiseSales"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listLoadwiseWeights: {
+        parameters: {
+            query?: {
+                /** @description Same semantics as on listLoadwiseSales. */
+                park_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The unpriced load rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoadwiseWeights"];
                 };
             };
             401: components["responses"]["Unauthorized"];

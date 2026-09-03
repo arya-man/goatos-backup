@@ -838,6 +838,10 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// the group empty; the parks themselves are tenant rows and must never be
 			// constants in contract code.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "weighing_parks", optionsFromReferences(families.Parks, "info"))
+			if out[i].RouteID == "weighing-analytics" {
+				// The Comparison tab's value chart, gated on SalesRead (see compileWeightsAnalyticsControls).
+				out[i].Controls = compileWeightsAnalyticsControls(out[i].Controls, input, out[i].Copy)
+			}
 		case "dlq-center":
 			out[i].OptionGroups = compileDLQOptionGroups(out[i].OptionGroups, input)
 		case "verification-review":
@@ -952,6 +956,26 @@ func compileSalesWeightCards(controls []domain.Control, input BootstrapInput, co
 		ID:             "weights_over_35_card",
 		Label:          controlCopy(copy, "kpi.over35", "Over 35 kg"),
 		Kind:           "summary_card",
+		Enabled:        allowed,
+		DisabledReason: reason,
+	})
+}
+
+// compileWeightsAnalyticsControls declares the Comparison tab's VALUE chart (purchased value
+// against current stock value). It is priced from the SalesRead-only loadwise read, so it is a
+// read control gated on SalesRead: the Growth Director, who reaches the tab on WeighingMonitor
+// alone, sees the backend's reason in its place rather than money the endpoint would refuse.
+// Declares no Action; the analytics page stays read-only by contract.
+func compileWeightsAnalyticsControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesRead})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.load_value", "Your current role can view weights but not purchase and sales money.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "load_value_chart",
+		Label:          controlCopy(copy, "section.load_value.title", "Purchased value against current stock value"),
+		Kind:           "chart",
 		Enabled:        allowed,
 		DisabledReason: reason,
 	})
@@ -1825,9 +1849,10 @@ func permissionsForNav(id string) []string {
 		// oversight read-out, not a planning surface, so it must not gate on
 		// WeighingPlan (CEO-only): the Growth Director owns weighing oversight and
 		// would otherwise be locked out of the estate they are accountable for.
-		// ADG Analytics' Load-wise tab reads /procurement/loadwise-sales for the
-		// purchase side; that route accepts WeighingMonitor as an alternate
-		// permission for exactly this screen (permissions/routes.go).
+		// ADG Analytics' Comparison tab reads /procurement/loadwise-weights for the
+		// purchase side -- the NARROW, unpriced load read that accepts WeighingMonitor
+		// as an alternate permission (permissions/routes.go). The priced read stays
+		// SalesRead-only, and the tab's value chart is gated on it (load_value_chart).
 		return []string{permissions.WeighingMonitor}
 	case "people":
 		// The staff directory. Before this case existed the leaf fell through to
