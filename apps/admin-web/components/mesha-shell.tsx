@@ -408,6 +408,7 @@ export function MeshaShell({
       if (pending.timedOut && pending.to !== route) {
         pendingNavigationRef.current = null;
       } else {
+        clearRoutePending();
         reportAdminPerformanceEvent("admin_route_navigation_commit", "admin_shell", route, {
           navigation_id: pending.id,
           from: pending.from,

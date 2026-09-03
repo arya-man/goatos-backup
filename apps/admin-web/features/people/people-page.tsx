@@ -2,8 +2,18 @@ import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/l
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import Link from "@/components/no-prefetch-link";
 import { PeopleBoard } from "./people-board";
-import { VaccinationOperatorsScreen } from "./vaccination-operators-screen";
 import { ClockScreen } from "./clock-screen";
+
+const VaccinationOperatorsScreen = async ({
+  initialParkId,
+  pageContract,
+}: {
+  initialParkId?: string;
+  pageContract: AdminUiPageContract;
+}) => {
+  const mod = await import("./vaccination-operators-screen");
+  return <mod.VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} />;
+};
 
 /**
  * The /people shell: page header + the backend-owned `people_view_tabs` module

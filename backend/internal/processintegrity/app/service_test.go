@@ -284,6 +284,27 @@ func TestProtocolAdherenceForcesVaccinationCategory(t *testing.T) {
 	}
 }
 
+func TestProtocolAdherenceDefaultsToBoundedDueWindow(t *testing.T) {
+	asOf := time.Date(2026, 9, 4, 8, 0, 0, 0, time.UTC)
+	repo := &fakeRepo{result: domain.ListResult{}}
+	svc := NewService(repo).WithClock(func() time.Time { return asOf })
+
+	if _, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"}); err != nil {
+		t.Fatalf("protocol adherence: %v", err)
+	}
+
+	if len(repo.listQueries) != 1 {
+		t.Fatalf("list calls = %d", len(repo.listQueries))
+	}
+	got := repo.listQueries[0]
+	if got.DueAfter == nil || !got.DueAfter.Equal(asOf.Add(-30*24*time.Hour)) {
+		t.Fatalf("due_after = %v, want %s", got.DueAfter, asOf.Add(-30*24*time.Hour))
+	}
+	if !got.DueBefore.Equal(asOf.Add(30 * 24 * time.Hour)) {
+		t.Fatalf("due_before = %s, want %s", got.DueBefore, asOf.Add(30*24*time.Hour))
+	}
+}
+
 func TestControlTowerAlertTitleSanitizesRawMatrixDriveName(t *testing.T) {
 	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
 	row := processRow("raw-drive-name", domain.WorkStateVerificationPending, domain.SeverityAtRisk, due)

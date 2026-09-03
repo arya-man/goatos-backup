@@ -146,7 +146,7 @@ test("a hand-edited window falls back instead of taking the page down", () => {
   assert.match(landingSource, /rawFrom <= rawTo/);
   assert.match(landingSource, /rawFrom > today \? today : rawFrom/);
   assert.match(landingSource, /if \(rawFrom \|\| rawTo\) return defaultWindow\(today\);/);
-  assert.match(landingSource, /ADMIN_WEB_FAST_SIDEBAR_WINDOWS/);
+  assert.doesNotMatch(landingSource, /ADMIN_WEB_FAST_SIDEBAR_WINDOWS/);
   assert.match(landingSource, /return defaultWindow\(today\);/);
 });
 
