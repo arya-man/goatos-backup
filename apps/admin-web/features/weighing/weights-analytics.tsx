@@ -70,7 +70,7 @@ const DEFAULT_LIMIT = 25;
 const TABS = ["general", "breed", "birth", "shed", "weight", "time", "load"] as const;
 
 /**
- * The Load-wise tab's weighing window floor — before any GoatOS weighing capture, so "latest
+ * The Load-wise tab's weighing window floor — before any Mesha weighing capture, so "latest
  * weighing" means the newest weigh on record whatever period the page's own filter holds. A
  * purchase load is bought whole, so that tab deliberately ignores the period/sex/origin/mode
  * filters (its caption says so).
