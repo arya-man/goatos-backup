@@ -332,6 +332,9 @@ test("full-width shed chart labels fit without overlapping rows", () => {
   assert.match(css, /\.wbar \.wbl\{[^}]*min-width:0/);
   assert.match(css, /\.wbar \.wbt\{[^}]*min-width:0/);
   assert.match(css, /@media\(max-width:900px\)\{\.wbar\{[^}]*minmax\(0,112px\)/);
+  assert.match(css, /@media\(max-width:520px\)\{\s*\.wgrouped \.wbar\{[^}]*grid-template-columns:minmax\(0,1fr\) auto/);
+  assert.match(css, /@media\(max-width:520px\)\{[\s\S]*\.wgrouped \.wbar \.wbt\{[^}]*grid-column:1\/-1/);
+  assert.match(css, /@media\(max-width:520px\)\{[\s\S]*\.wgrouped \.wbar \.wbv\{[^}]*grid-column:2/);
 });
 
 test("the two table cards are inset without losing their full-bleed tables", () => {

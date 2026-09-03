@@ -2694,6 +2694,15 @@ select:disabled { opacity: .45; }
 .wgrouped .wbar .wbt i.s1{background:var(--muted)}
 .wgrouped .wbar .wbt i.s2{background:var(--teal)}
 .wgrouped .wbar .wbt i.neg{background:var(--danger)}
+/* Phone width cannot hold label + count + bar + value in one row. Keep the value beside the
+   label, then put the bar on its own line so grams/kg remain visible instead of clipping past
+   the card edge. */
+@media(max-width:520px){
+  .wgrouped .wbar{grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;min-height:34px}
+  .wgrouped .wbar .wbl{grid-column:1;grid-row:1}
+  .wgrouped .wbar .wbt{grid-column:1/-1;grid-row:2;height:14px}
+  .wgrouped .wbar .wbv{grid-column:2;grid-row:1}
+}
 
 /* The Weights metric strip. The default 12px grid gap made six cards read as one
    slab; these are separate figures and want visible air between them. */
