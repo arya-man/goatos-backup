@@ -618,7 +618,7 @@ export async function SalesPage({
           <Link
             key={option.key}
             href={salesHref(
-              { farm: option.key, limit, saleReadyToleranceG },
+              { farm: option.key, limit, saleReadyToleranceG: over35.toleranceG },
               { farm: DEFAULT_FARM, limit: pageSizes[0] },
             )}
             scroll={false}
@@ -711,7 +711,7 @@ export async function SalesPage({
             {pageNumber > 1 ? (
               <Link
                 href={salesHref(
-                  { farm, limit, offset: Math.max(0, offset - limit), saleReadyToleranceG },
+                  { farm, limit, offset: Math.max(0, offset - limit), saleReadyToleranceG: over35.toleranceG },
                   { farm: DEFAULT_FARM, limit: pageSizes[0] },
                 )}
                 scroll={false}
@@ -723,7 +723,7 @@ export async function SalesPage({
             {pageNumber < pageCount ? (
               <Link
                 href={salesHref(
-                  { farm, limit, offset: offset + limit, saleReadyToleranceG },
+                  { farm, limit, offset: offset + limit, saleReadyToleranceG: over35.toleranceG },
                   { farm: DEFAULT_FARM, limit: pageSizes[0] },
                 )}
                 scroll={false}
