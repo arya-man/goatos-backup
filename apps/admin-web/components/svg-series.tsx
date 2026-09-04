@@ -470,18 +470,22 @@ export function SeriesPie({
       </svg>
       <div
         style={{
-          flex: "1 1 320px",
+          flex: "0 1 auto",
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(390px, 1fr))",
-          gap: "10px 32px",
+          gridTemplateColumns: "auto auto",
+          columnGap: 24,
+          rowGap: 10,
           alignContent: "center",
+          alignItems: "center",
         }}
       >
         {live.map((s) => (
-          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 10 }} data-tip={`${s.label}\n${fmt(s.value)} ${valueNoun}`}>
-            <span aria-hidden style={{ width: 11, height: 11, borderRadius: 3, background: s.colorVar, display: "inline-block", flex: "0 0 auto" }} />
-            <span style={{ flex: 1, fontSize: 15, whiteSpace: "nowrap" }}>{s.label}</span>
-            <span className="muted" style={{ fontSize: 14, whiteSpace: "nowrap" }}>{`${fmt(s.value)} ${valueNoun} · ${((s.value / total) * 100).toFixed(1)}%`}</span>
+          <div key={s.label} style={{ display: "contents" }} data-tip={`${s.label}\n${fmt(s.value)} ${valueNoun}`}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 15, whiteSpace: "nowrap" }}>
+              <span aria-hidden style={{ width: 11, height: 11, borderRadius: 3, background: s.colorVar, display: "inline-block", flex: "0 0 auto" }} />
+              {s.label}
+            </span>
+            <span className="muted" style={{ fontSize: 14, whiteSpace: "nowrap", textAlign: "right" }}>{`${fmt(s.value)} ${valueNoun} · ${((s.value / total) * 100).toFixed(1)}%`}</span>
           </div>
         ))}
       </div>
