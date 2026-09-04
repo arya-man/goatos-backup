@@ -149,7 +149,7 @@ steps:
         tag="$(printf '%s' "$${commit_sha}" | cut -c1-12)"
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/admin-web:$${tag}"
         docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
-        docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$${image}" .
+        docker build --platform linux/amd64 --build-arg NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1 -f apps/admin-web/Dockerfile -t "$${image}" .
         docker push "$${image}"
 
   - id: stg-cloud-deploy-release
