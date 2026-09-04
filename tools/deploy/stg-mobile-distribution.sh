@@ -305,7 +305,7 @@ DEFAULT_VERSION_NAME="$(default_android_release_value name)"
 
 checked_in_version_is_release_bump() {
   [[ "$git_dirty_check" == "true" ]] || return 1
-  git log -1 --format=%s -- apps/goatos-android/app/build.gradle.kts |
+  git log -1 --format=%s HEAD |
     grep -Eq '^chore\(android\): bump GoatOS release to [0-9]+\.[0-9]+\.[0-9]+ \([0-9]+\)$'
 }
 
