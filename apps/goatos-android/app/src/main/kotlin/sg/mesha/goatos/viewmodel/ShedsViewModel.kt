@@ -863,8 +863,7 @@ internal fun VaccinationExecutionRowDto.isVisibleForOperatorDay(
 }
 
 private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
-    proofStatus.equals("uploaded", ignoreCase = true) ||
-        verificationStatus.equals("pending", ignoreCase = true) ||
+    verificationStatus.equals("pending", ignoreCase = true) ||
         sopStatus.equals("submitted", ignoreCase = true) ||
         sopStatus.equals("needs_review", ignoreCase = true) ||
         workState.equals("verification_pending", ignoreCase = true)

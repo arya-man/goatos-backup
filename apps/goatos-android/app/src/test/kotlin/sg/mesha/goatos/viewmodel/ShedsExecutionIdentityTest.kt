@@ -240,6 +240,28 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
+    fun `uploaded proof without final submit is not in review`() {
+        val uploadedButNotSubmitted = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 30,
+                openCount = 0,
+                doneCount = 30,
+                workState = "in_progress",
+                proofStatus = "uploaded",
+                verificationStatus = "",
+                sopStatus = "draft",
+                primaryActionKey = "submit",
+            ),
+        )
+
+        val summary = protocolAdherenceSummary(uploadedButNotSubmitted)
+
+        assertEquals(ShedStatus.PENDING, shedStatusForRows(uploadedButNotSubmitted))
+        assertEquals(0, summary?.reviewItemCount)
+        assertFalse(uploadedButNotSubmitted.opensSubmittedRecordOnly())
+    }
+
+    @Test
     fun `accepted shed is green done`() {
         val accepted = listOf(
             VaccinationExecutionRowDto(
