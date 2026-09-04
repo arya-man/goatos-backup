@@ -74,6 +74,51 @@ CREATE TABLE public.leadership_task_attachments (
 CREATE INDEX leadership_task_attachments_task_idx
     ON public.leadership_task_attachments (tenant_id, task_id, position);
 
+-- PER-PERSON ACCESS ROWS (the 000245 precedent). Since the 2026-08-24 cutover the route
+-- table decides from a person's OWN person_module_access rows, and the role map in
+-- capability_backfill.go is read only by the one-time backfill -- so a new module reaches
+-- nobody already migrated until their rows carry it. Every director job that carries a
+-- phone gets the module at view+do (raise, edit, cancel their own); the CXO desk gets it at
+-- view+oversee (be assigned, move status). Keyed on the ROLE GRANT, the same population the
+-- backfill would have written, and only for people the cutover already migrated (a person
+-- with no rows is still on the role fallback path and must stay there). ADDITIVE ONLY: a
+-- row an admin already ticked on /people is left exactly as it is.
+INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
+SELECT DISTINCT m.tenant_id, m.workforce_member_id, 'mobile', 'leadership_tasks', ARRAY['view', 'do']::text[]
+FROM public.workforce_members m
+JOIN public.user_scope_grants g
+  ON g.tenant_id = m.tenant_id
+ AND g.user_id = m.user_id
+ AND g.status = 'active'
+ AND (g.valid_to IS NULL OR g.valid_to > now())
+ AND g.role IN ('pc_director', 'growth_director', 'feed_director', 'health_director', 'breeding_director')
+WHERE m.status = 'active'
+  AND m.user_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM public.person_access pa
+    WHERE pa.tenant_id = m.tenant_id
+      AND pa.workforce_member_id = m.workforce_member_id
+  )
+ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING;
+
+INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
+SELECT DISTINCT m.tenant_id, m.workforce_member_id, 'mobile', 'leadership_tasks', ARRAY['view', 'oversee']::text[]
+FROM public.workforce_members m
+JOIN public.user_scope_grants g
+  ON g.tenant_id = m.tenant_id
+ AND g.user_id = m.user_id
+ AND g.status = 'active'
+ AND (g.valid_to IS NULL OR g.valid_to > now())
+ AND g.role = 'ceo_internal'
+WHERE m.status = 'active'
+  AND m.user_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM public.person_access pa
+    WHERE pa.tenant_id = m.tenant_id
+      AND pa.workforce_member_id = m.workforce_member_id
+  )
+ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING;
+
 -- The outbox tenant validator learns the leadership_task aggregate. This is the 000229 body
 -- with ONE branch added; the Down below restores the 000229 body verbatim.
 -- +goose StatementBegin
@@ -331,6 +376,10 @@ $$;
 -- +goose StatementEnd
 
 -- +goose Down
+-- Removes only the rows this migration could have written; a row an admin ticked on
+-- /people is indistinguishable from one written here, which is the honest cost of an
+-- additive repair.
+DELETE FROM public.person_module_access WHERE surface = 'mobile' AND module_key = 'leadership_tasks';
 DROP TABLE IF EXISTS public.leadership_task_attachments;
 DROP TABLE IF EXISTS public.leadership_tasks;
 -- +goose StatementBegin
