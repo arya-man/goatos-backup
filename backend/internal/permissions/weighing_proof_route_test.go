@@ -139,19 +139,48 @@ func TestWeighingExecuteIsNotTaskExecuteEscalation(t *testing.T) {
 // TestProofUploadStaysClosedToNonExecutors guards the widening above from becoming a
 // blanket grant: broadening the proof handshake to weighing.execute must not open it to
 // roles that execute no work at all.
+//
+// Amended 2026-09-04 (Leadership Tasks): the feed and health directors now DO reach the
+// proof handshake -- through leadership_tasks.raise, because a task attachment (voice note,
+// gallery media, file) rides the proof store -- so the guard moved one step: a role that
+// executes no work and raises no task (park_head, verifier) still cannot create an upload,
+// and the directors' new reach does NOT extend to any work route the handshake feeds.
 func TestProofUploadStaysClosedToNonExecutors(t *testing.T) {
 	route, ok := Match("POST", "/app/proofs/uploads")
 	if !ok {
 		t.Fatal("POST /app/proofs/uploads must be a protected route")
 	}
-	// pc_director is deliberately absent: it already holds task.execute today, so it could
-	// always create proof uploads. The guard is on roles that execute NEITHER kind of work.
-	for _, role := range []string{RoleFeedDirector, RoleHealthDirector} {
-		if RoleHasPermission(role, TaskExecute) || RoleHasPermission(role, WeighingExecute) || RoleHasPermission(role, FeedDirectionComplete) {
-			t.Fatalf("test premise broken: %s must hold no proof-producing execute permission", role)
+	for _, role := range []string{RoleVerifier, RoleCountsApprover, RoleProcurementDirector} {
+		if RoleHasPermission(role, TaskExecute) || RoleHasPermission(role, WeighingExecute) ||
+			RoleHasPermission(role, FeedDirectionComplete) || RoleHasPermission(role, LeadershipTasksRaise) {
+			t.Fatalf("test premise broken: %s must hold no proof-producing permission", role)
 		}
 		if AuthorizeRoute(route, []string{role}) {
-			t.Errorf("%s executes no weighing or task work and must not create proof uploads", role)
+			t.Errorf("%s executes no work and raises no task, and must not create proof uploads", role)
+		}
+	}
+	// The directors reach the handshake ONLY through the task-attachment lever.
+	for _, role := range []string{RoleFeedDirector, RoleHealthDirector} {
+		if RoleHasPermission(role, TaskExecute) || RoleHasPermission(role, WeighingExecute) || RoleHasPermission(role, FeedDirectionComplete) {
+			t.Fatalf("test premise broken: %s must hold no work-execute permission", role)
+		}
+		if !RoleHasPermission(role, LeadershipTasksRaise) {
+			t.Fatalf("%s must raise leadership tasks (maintainer decision 2026-09-04)", role)
+		}
+		if !AuthorizeRoute(route, []string{role}) {
+			t.Errorf("%s raises leadership tasks and must reach the attachment upload handshake", role)
+		}
+		for _, work := range []struct{ method, path string }{
+			{"POST", "/app/tasks/98000000-0000-4000-8000-000000000001/submissions"},
+			{"POST", "/app/toxin/tasks/98000000-0000-4000-8000-000000000001/submit"},
+		} {
+			workRoute, ok := Match(work.method, work.path)
+			if !ok {
+				t.Fatalf("%s %s is not registered", work.method, work.path)
+			}
+			if AuthorizeRoute(workRoute, []string{role}) {
+				t.Errorf("%s must NOT reach %s %s through the attachment lever", role, work.method, work.path)
+			}
 		}
 	}
 }

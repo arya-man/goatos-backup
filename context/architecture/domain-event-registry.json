@@ -1548,6 +1548,56 @@
         "frontend",
         "mobile"
       ]
+    },
+    {
+      "eventType": "leadership_task.raised",
+      "producer": "leadershiptasks Raise write transaction: the outbox emit rides the same transaction as the task insert, its number mint and its attachment rows, so a committed task always announces itself and a rolled-back one never does.",
+      "producerFiles": [
+        "backend/internal/leadershiptasks/adapters/postgres/outbox.go",
+        "backend/internal/leadershiptasks/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notificationbridge",
+          "file": "backend/internal/notificationbridge/leadership_task_notify_consumer.go",
+          "notes": "One FCM push to the CXO the task is addressed to (resolved by user id through the roster device registry), idempotent on leadership_task.raised:<task_id>. Maintainer decision 2026-09-04."
+        }
+      ],
+      "owningDoc": "docs/decisions/leadership-tasks-module.md",
+      "e2eProof": [
+        "backend/internal/notificationbridge/leadership_task_notify_consumer_test.go",
+        "backend/internal/leadershiptasks/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "leadership_task.status_changed",
+      "producer": "leadershiptasks ChangeStatus write transaction (assignee moves open/in_progress/done, raiser cancels), emitted under the row lock with the previous status in the payload.",
+      "producerFiles": [
+        "backend/internal/leadershiptasks/adapters/postgres/outbox.go",
+        "backend/internal/leadershiptasks/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notificationbridge",
+          "file": "backend/internal/notificationbridge/leadership_task_notify_consumer.go",
+          "notes": "Only a move to done pushes, back to the director who raised the task, keyed on the event id so a done/reopen/done cycle is each its own message; every other transition is consumed as a no-op by design."
+        }
+      ],
+      "owningDoc": "docs/decisions/leadership-tasks-module.md",
+      "e2eProof": [
+        "backend/internal/notificationbridge/leadership_task_notify_consumer_test.go",
+        "backend/internal/leadershiptasks/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     }
   ],
   "allowedHerdMutationWriters": [

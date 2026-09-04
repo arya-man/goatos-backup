@@ -64,6 +64,10 @@ import (
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
+	leadershiptaskshttp "github.com/vgoats/goatos/backend/internal/leadershiptasks/adapters/http"
+	leadershiptaskspg "github.com/vgoats/goatos/backend/internal/leadershiptasks/adapters/postgres"
+	leadershiptasksproof "github.com/vgoats/goatos/backend/internal/leadershiptasks/adapters/proof"
+	leadershiptasksapp "github.com/vgoats/goatos/backend/internal/leadershiptasks/app"
 	locationshttp "github.com/vgoats/goatos/backend/internal/locations/adapters/http"
 	locationspg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
 	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
@@ -697,6 +701,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// routes here serve the tester's guided step flow and the CEO/CXO-only review.
 	toxinHandler := toxinhttp.NewHandler(
 		toxinapp.NewService(toxinpg.NewRepository(pool, cfg.Postgres.QueryTimeout), toxinproof.NewValidator(proofRepo)), log)
+	// Leadership Tasks (maintainer decision 2026-09-04): a director's ask of the CXO desk.
+	// The service also feeds the drawer badge (unseen assigned tasks) into /app/bootstrap.
+	leadershipTasksService := leadershiptasksapp.NewService(
+		leadershiptaskspg.NewRepository(pool, cfg.Postgres.QueryTimeout), leadershiptasksproof.NewResolver(proofRepo))
+	leadershipTasksHandler := leadershiptaskshttp.NewHandler(leadershipTasksService, log)
+	workforceService.WithModuleBadges(leadershipTasksService)
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
 	salesHandler := saleshttp.NewSalesHandler(
@@ -1162,6 +1172,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
 	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
 	toxinhttp.Register(protectedMux, toxinHandler)
+	leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)

@@ -414,6 +414,25 @@ const (
 	// work at all) and never to RoleToxinTester (the tester must not review their own
 	// test). TestToxinVerdictIsCEOOnly pins all three edges.
 	ToxinVerdict = "toxin.verdict"
+	// LEADERSHIP TASKS (maintainer decision 2026-09-04): a director raises a task for a CXO
+	// on the phone -- a brief plus voice note / gallery media / files -- and the CXO moves
+	// it open -> in_progress -> done. Three permissions, three questions:
+	//
+	//   LeadershipTasksRead  -- may this person open the module at all (the list, a task,
+	//                           its attachments). Every director role and ceo_internal.
+	//   LeadershipTasksRaise -- may this person RAISE (and edit or cancel their own). The
+	//                           director roles. Also ORed into the /app/proofs upload routes,
+	//                           the same lever toxin.execute needed, or a director could never
+	//                           finish an attachment upload.
+	//   LeadershipTasksAct   -- may this person be ASSIGNED one and change its status.
+	//                           ceo_internal only: the CXO desk is the audience.
+	//
+	// Deliberately per JOB, not per person: the maintainer's words were "all the directors".
+	// A director who is also a CXO (none today) would hold both raise and act through the
+	// union of their grants and see both sides of their own list.
+	LeadershipTasksRead  = "leadership_tasks.read"
+	LeadershipTasksRaise = "leadership_tasks.raise"
+	LeadershipTasksAct   = "leadership_tasks.act"
 	// ClockPresenceRead gates the CROSS-PERSON attendance reads of the Clock
 	// In / Out module (docs/features/clock-in-out/plan.md): the phone Team
 	// presence board (GET /app/clock/presence*) and the admin-web People/HRMS
@@ -847,6 +866,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		HealthRead:             {},
 	},
 	RolePCDirector: {
+		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
 		GoatRead: {}, GoatWriteHealth: {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
@@ -919,6 +940,8 @@ var rolePermissions = map[string]map[string]struct{}{
 	// director-tier permissions the override carried (goat/roster/task/verification
 	// oversight) are merged in below so nothing that worked before is narrowed.
 	RoleGrowthDirector: {
+		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		// NOT WeighingPlan: planning a weighing task is CEO-only (maintainer decision
@@ -963,6 +986,8 @@ var rolePermissions = map[string]map[string]struct{}{
 	//     the same shape as RoleGrowthDirector's "Weighing and ONLY Weighing" entry, and it is
 	//     what TestDirectorModuleSegregation pins in both directions.
 	RoleFeedDirector: {
+		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
@@ -1010,6 +1035,8 @@ var rolePermissions = map[string]map[string]struct{}{
 	//   - Any vaccination, weighing, or feed permission -- including every vaccination
 	//     permission, precisely because health_director is NOT pc_director.
 	RoleHealthDirector: {
+		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
@@ -1172,6 +1199,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		PCCareExecute: {},
 	},
 	RoleCEOInternal: {
+		// Leadership Tasks (2026-09-04): the CXO desk is the audience; it reads and acts,
+		// and does not raise (directors ask the desk, not the other way round).
+		LeadershipTasksRead: {}, LeadershipTasksAct: {},
 		// Toxin (maintainer decisions 2026-08-25 and 2026-08-26): CEO/CXO WATCHES and JUDGES;
 		// they never run the test. Read shows the tasks (the phone card is not tappable and
 		// no step opens a camera), and verdict is the accept/reject that only this role can

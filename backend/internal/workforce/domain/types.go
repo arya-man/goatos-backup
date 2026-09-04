@@ -279,6 +279,10 @@ type BootstrapModule struct {
 	Href     string                    `json:"href"`
 	Status   string                    `json:"status"`
 	NavItems []BootstrapNavigationItem `json:"nav_items"`
+	// BadgeCount is a backend-owned number the drawer row and the module's bar item show
+	// when > 0 (maintainer decision 2026-09-04: the CXO's unseen Leadership Tasks). Zero
+	// for every module that has no such number; clients never derive one.
+	BadgeCount int `json:"badge_count"`
 }
 
 type BootstrapNavigationItem struct {

@@ -35,6 +35,7 @@ tags:
   - name: Weighing
   - name: Sales
   - name: Herd Signals
+  - name: Leadership Tasks
 paths:
   /herd-signals/packets:
     post:
@@ -7650,6 +7651,267 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/leadership-tasks:
+    get:
+      tags:
+        - Leadership Tasks
+      operationId: listLeadershipTasks
+      summary: One page of the caller's leadership tasks.
+      description: >-
+        Leadership Tasks (maintainer decision 2026-09-04): a director raises a task for one CXO.
+        The caller sees the tasks they are PARTY to -- a director the ones they raised, a CXO the
+        ones addressed to them -- newest first, keyset-paged. `filters` are whole-list counts over
+        the same party predicate, never page sums. Every visible word (chips, meta line, number
+        label, status button labels, empty messages) is backend-owned and rendered verbatim.
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          schema: { type: string, enum: [all, open, in_progress, done], default: all }
+          description: The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks).
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor from a previous page's next_cursor.
+      responses:
+        "200":
+          description: One page plus whole-list chip counts, the unseen count and the caller's raise capability.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadershipTaskPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Leadership Tasks
+      operationId: raiseLeadershipTask
+      summary: Raise a task for a CXO.
+      description: >-
+        Directors only (`leadership_tasks.raise`). Attachments are proofs already uploaded through
+        `POST /app/proofs/uploads` with `proof_type: attachment`; each must be a completed upload by
+        the raiser in this tenant or the whole raise is refused 422 invalid_attachment. The
+        `Idempotency-Key` header is REQUIRED; an exact replay returns the original task. The task's
+        running number is minted inside the write. Pushes `leadership_task.raised` to the assignee.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadershipTaskRaiseRequest"
+      responses:
+        "201":
+          description: The raised task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadershipTaskDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/leadership-tasks/assignees:
+    get:
+      tags:
+        - Leadership Tasks
+      operationId: listLeadershipTaskAssignees
+      summary: The people a task may be raised for.
+      description: >-
+        The raise form's picker: every CXO (`ceo_internal`) with an active grant and an active
+        roster profile, by display name. Directors only.
+      responses:
+        "200":
+          description: The assignee picker.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadershipTaskAssignees"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/leadership-tasks/{task_id}:
+    get:
+      tags:
+        - Leadership Tasks
+      operationId: getLeadershipTask
+      summary: One leadership task with its attachments.
+      description: >-
+        A task the caller is not party to answers 404, so a guessed id never opens someone else's
+        ask. Attachment bytes are fetched through `GET /app/proofs/{proof_id}/download`.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadershipTaskDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/leadership-tasks/{task_id}/edit:
+    post:
+      tags:
+        - Leadership Tasks
+      operationId: editLeadershipTask
+      summary: Replace the brief and attachment list of a task the caller raised.
+      description: >-
+        Raiser only, and only while the task is open or in progress (409 task_closed otherwise).
+        `attachments` is the FULL new list: the server keeps exactly that, removing rows it no
+        longer names and adding new ones. `row_version` fences the write (409 version_conflict).
+        The `Idempotency-Key` header is REQUIRED.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadershipTaskEditRequest"
+      responses:
+        "200":
+          description: The task after the edit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadershipTaskDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/leadership-tasks/{task_id}/status:
+    post:
+      tags:
+        - Leadership Tasks
+      operationId: changeLeadershipTaskStatus
+      summary: Move a task along its status ladder.
+      description: >-
+        The accepted moves are exactly the task's `status_options` for THIS caller: the assignee
+        walks open -> in_progress -> done (and may reopen a done task); the raiser may only cancel,
+        and only while the task is open for work. Anything else answers 422
+        invalid_status_transition, 403 not_assignee / not_raiser, or 409 task_closed.
+        `row_version` fences the write; the `Idempotency-Key` header is REQUIRED. A move to done
+        pushes `leadership_task.status_changed` back to the raiser.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadershipTaskStatusRequest"
+      responses:
+        "200":
+          description: The task after the move.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadershipTaskDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/leadership-tasks/{task_id}/seen:
+    post:
+      tags:
+        - Leadership Tasks
+      operationId: markLeadershipTaskSeen
+      summary: Stamp the task seen by its assignee.
+      description: >-
+        Called when the assignee opens a task. Naturally idempotent (a set-if-null) so it carries
+        no key; anyone but the assignee, or a second open, changes nothing and gets the task back.
+        The drawer badge (`badge_count` on the bootstrap module) is the count of the caller's
+        unseen assigned tasks.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadershipTaskDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
   /procurement/feed-purchases/{purchase_id}/payments:
@@ -15962,6 +16224,178 @@ components:
           type: integer
           format: int64
           description: The row_version the reviewer loaded; a stale value answers 409 version_conflict.
+    LeadershipTaskAttachment:
+      type: object
+      required: [attachment_id, proof_id, kind, mime_type, file_name, size_bytes, position]
+      properties:
+        attachment_id: { type: string, format: uuid }
+        proof_id:
+          type: string
+          format: uuid
+          description: The proof store row holding the bytes; fetch via GET /app/proofs/{proof_id}/download.
+        kind: { type: string, enum: [audio, video, photo, file] }
+        mime_type: { type: string }
+        file_name: { type: string }
+        size_bytes: { type: integer, format: int64 }
+        duration_ms: { type: integer, format: int64, nullable: true }
+        position: { type: integer }
+    LeadershipTaskAttachmentRef:
+      type: object
+      required: [proof_id, kind]
+      properties:
+        proof_id: { type: string, format: uuid }
+        kind: { type: string, enum: [audio, video, photo, file] }
+        file_name: { type: string, maxLength: 200 }
+    LeadershipTaskStatusOption:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string, enum: [open, in_progress, done, cancelled] }
+        label: { type: string, description: Backend-owned button label, rendered verbatim. }
+    LeadershipTask:
+      type: object
+      description: >-
+        One leadership task as seen by THIS caller. The capability booleans and status_options
+        are resolved per request from the caller's grants and their party to the task; the
+        client renders controls from them and never from a role string.
+      required:
+        - task_id
+        - task_no
+        - number_label
+        - title
+        - body
+        - status
+        - status_chip
+        - raised_by_user_id
+        - raised_by_name
+        - assignee_user_id
+        - assignee_name
+        - raised_at
+        - raised_on_label
+        - updated_at
+        - is_seen
+        - meta_line
+        - row_version
+        - can_edit
+        - can_change_status
+        - can_cancel
+        - status_options
+        - attachment_count
+        - attachments
+      properties:
+        task_id: { type: string, format: uuid }
+        task_no: { type: integer, format: int64, description: Per-tenant running number. }
+        number_label: { type: string, description: "\"#12\"." }
+        title: { type: string }
+        body: { type: string }
+        status: { type: string, enum: [open, in_progress, done, cancelled] }
+        status_chip: { type: string }
+        raised_by_user_id: { type: string, format: uuid }
+        raised_by_name: { type: string }
+        assignee_user_id: { type: string, format: uuid }
+        assignee_name: { type: string }
+        raised_at: { type: string, format: date-time }
+        raised_on_label: { type: string, description: Farm-readable IST date. }
+        updated_at: { type: string, format: date-time }
+        done_at: { type: string, format: date-time, nullable: true }
+        seen_at: { type: string, format: date-time, nullable: true }
+        is_seen: { type: boolean }
+        meta_line:
+          type: string
+          description: From the viewer's side -- "Raised by Hemant · 04/09/2026" for the CXO, "For Ravi · 04/09/2026" for the raiser.
+        row_version: { type: integer }
+        can_edit: { type: boolean }
+        can_change_status: { type: boolean }
+        can_cancel: { type: boolean }
+        status_options:
+          type: array
+          description: The statuses THIS caller may move the task to, in display order; empty when read-only.
+          items:
+            $ref: "#/components/schemas/LeadershipTaskStatusOption"
+        attachment_count: { type: integer }
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeadershipTaskAttachment"
+    LeadershipTaskDetail:
+      type: object
+      required: [task, trace_id]
+      properties:
+        task:
+          $ref: "#/components/schemas/LeadershipTask"
+        trace_id: { type: string }
+    LeadershipTaskFilter:
+      type: object
+      required: [key, label, count, selected, empty_message]
+      properties:
+        key: { type: string, enum: [all, open, in_progress, done] }
+        label: { type: string }
+        count: { type: integer, description: Whole-list count over the caller's party predicate, never a page sum. }
+        selected: { type: boolean }
+        empty_message: { type: string }
+    LeadershipTaskPage:
+      type: object
+      required: [title, rows, filters, unseen_count, can_raise, trace_id]
+      properties:
+        title: { type: string, description: The L0 header title; mirrors the nav label. }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeadershipTask"
+        next_cursor: { type: string, nullable: true }
+        filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeadershipTaskFilter"
+        unseen_count: { type: integer, description: Tasks addressed to the caller not yet opened; 0 for a pure raiser. }
+        can_raise: { type: boolean, description: Caller holds leadership_tasks.raise; show the "+" action. }
+        trace_id: { type: string }
+    LeadershipTaskAssignee:
+      type: object
+      required: [user_id, name]
+      properties:
+        user_id: { type: string, format: uuid }
+        name: { type: string }
+    LeadershipTaskAssignees:
+      type: object
+      required: [assignees, trace_id]
+      properties:
+        assignees:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeadershipTaskAssignee"
+        trace_id: { type: string }
+    LeadershipTaskRaiseRequest:
+      type: object
+      required: [title, assignee_user_id]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        body: { type: string, maxLength: 4000 }
+        assignee_user_id: { type: string, format: uuid }
+        attachments:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/LeadershipTaskAttachmentRef"
+    LeadershipTaskEditRequest:
+      type: object
+      required: [title, row_version]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        body: { type: string, maxLength: 4000 }
+        attachments:
+          type: array
+          maxItems: 12
+          description: The FULL new list; the server diffs it.
+          items:
+            $ref: "#/components/schemas/LeadershipTaskAttachmentRef"
+        row_version: { type: integer }
+    LeadershipTaskStatusRequest:
+      type: object
+      required: [status, row_version]
+      properties:
+        status: { type: string, enum: [open, in_progress, done, cancelled] }
+        row_version: { type: integer }
     SalesDeal:
       type: object
       description: One row of the sales ledger -- one sheet row, or one deal recorded in the app.
@@ -20796,6 +21230,13 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/BootstrapNavigationItem"
+        modules:
+          type: array
+          description: >-
+            The drawer: every module the principal can render with its module-scoped bar
+            (docs/decisions/role-module-nav-composition.md), in drawer order.
+          items:
+            $ref: "#/components/schemas/BootstrapModule"
         nav_chrome:
           $ref: "#/components/schemas/NavChrome"
         task_queue_descriptors:
@@ -21395,6 +21836,27 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+    BootstrapModule:
+      type: object
+      description: >-
+        A drawer entry: the module's identity plus the bottom-bar items it contributes.
+        `status` is `available` (built, tappable) or `soon` (declared roadmap, disabled row).
+      required: [key, label, href, status, nav_items, badge_count]
+      properties:
+        key: { type: string }
+        label: { type: string, description: Already localized backend-side; render verbatim. }
+        href: { type: string }
+        status: { type: string, enum: [available, soon] }
+        nav_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BootstrapNavigationItem"
+        badge_count:
+          type: integer
+          description: >-
+            A backend-owned number the drawer row and the module's bar item show when > 0
+            (maintainer decision 2026-09-04: the CXO's unseen Leadership Tasks). Zero for every
+            module that carries no such number; clients never derive one.
     NavChrome:
       type: string
       description: >-

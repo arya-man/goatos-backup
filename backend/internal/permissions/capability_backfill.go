@@ -104,6 +104,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// PC Director owns vaccination end to end and executes it too -- unusual for a director,
 	// preserved rather than tidied away: removing it would stop him covering a shed.
 	RolePCDirector: rows(
+		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("vaccination", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		bothSurfaces("aas_health", LevelOversee),
 		bothSurfaces("pc_care", LevelView, LevelDo, LevelOversee),
@@ -118,6 +119,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// monitors, oversees the operators and executes -- and does NOT plan, which is CEO-only.
 	// He holds no health-module access at all; his GoatWriteHealth rides on herd_register.
 	RoleGrowthDirector: rows(
+		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("weighing", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("herd_register", LevelView, LevelDo),
@@ -130,6 +132,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// task as done. LevelDo is deliberately ABSENT from feed_direction -- that is the whole
 	// point of capabilities being a set rather than a ladder.
 	RoleFeedDirector: rows(
+		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("feed_direction", LevelView, LevelOversee, LevelConfigure),
 		one(assign("feed_purchases", SurfaceWeb, LevelView)),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
@@ -143,6 +146,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// without Counts access -- counts at LevelView is the alerts read alone, never the
 	// screens (AGENTS.md: the module is off, and ownership is not access).
 	RoleHealthDirector: rows(
+		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("aas_health", LevelConfigure),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("herd_register", LevelView, LevelDo, LevelOversee),
@@ -215,6 +219,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// Whole-org. Note weighing and pc_care at View+Configure and NOT Do: the CEO plans that
 	// work and never carries it out.
 	RoleCEOInternal: rows(
+		// Leadership Tasks (2026-09-04): the desk the directors write to.
+		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee)),
 		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("weighing", LevelView, LevelConfigure),
 		bothSurfaces("pc_care", LevelView, LevelConfigure),

@@ -502,6 +502,22 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// Leadership Tasks (maintainer decision 2026-09-04): a director's ask of the CXO desk.
+		// Phone-only; no admin-web sidebar leaf.
+		Key:      "leadership_tasks",
+		Label:    "Tasks",
+		Blurb:    "Tasks directors raise for the leadership desk, with voice notes, media and files.",
+		Surfaces: []string{SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {LeadershipTasksRead},
+			// Raising, editing and cancelling one's own. The director roles.
+			LevelDo: {LeadershipTasksRead, LeadershipTasksRaise},
+			// Being assigned one and working it. Deliberately WITHOUT raise -- the CXO desk
+			// answers asks, it does not send them -- so this is a third non-superset level.
+			LevelOversee: {LeadershipTasksRead, LeadershipTasksAct},
+		},
+	},
+	{
 		// Clock In / Out attendance (maintainer decisions 2026-08-27/28,
 		// docs/features/clock-in-out/plan.md). PUNCHING is not here: everyone
 		// clocks in by decision D2, so the punch routes ride AppBootstrap and
