@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
 
@@ -110,12 +111,18 @@ func TestLegacyOperatorPathsAcceptTheBreedingDirectorHint(t *testing.T) {
 }
 
 // TestEveryGrantableRoleIsAcceptedByTheGrantPreflight: CreateGrant pre-flights the role
-// through validRole. A role the Add Person form can grant must also be grantable to an
-// existing person, or the two entry points disagree about which jobs exist.
+// through validRole. A role the Add Person form can grant, or that the park-scope
+// derivation knows how to preserve tenant-wide, must also be grantable to an existing
+// person, or the write paths disagree about which roles exist.
 func TestEveryGrantableRoleIsAcceptedByTheGrantPreflight(t *testing.T) {
 	for role := range grantablePersonRoles {
 		if !validRole(role) {
 			t.Errorf("role %s is grantable from Add Person but CreateGrant's validRole refuses it", role)
+		}
+	}
+	for role := range parkscope.TenantOnlyRoles {
+		if !validRole(role) {
+			t.Errorf("role %s is tenant-only in park-scope derivation but CreateGrant's validRole refuses it", role)
 		}
 	}
 }

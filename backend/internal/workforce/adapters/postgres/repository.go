@@ -18,7 +18,22 @@ import (
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
-const defaultQueryTimeout = 3 * time.Second
+const (
+	defaultQueryTimeout = 3 * time.Second
+
+	updateOperatorSQL = `
+UPDATE workforce_members
+SET display_name = CASE WHEN $4 <> '' THEN $4 ELSE display_name END,
+    primary_role_hint = CASE WHEN $5 <> '' THEN $5 ELSE primary_role_hint END,
+    primary_location_id = CASE WHEN $6::bool THEN nullif($7, '')::uuid ELSE primary_location_id END,
+    metadata = CASE WHEN $8::bool THEN $9::jsonb ELSE metadata END,
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND workforce_member_id = $2::uuid
+  AND row_version = $3
+RETURNING workforce_member_id::text`
+)
 
 type Repository struct {
 	pool    *pgxpool.Pool
@@ -131,18 +146,7 @@ func (r *Repository) UpdateOperator(ctx context.Context, cmd ports.UpdateOperato
 		return domain.OperatorProfile{}, err
 	}
 	var operatorID string
-	err = tx.QueryRow(ctx, `
-UPDATE workforce_members
-SET display_name = CASE WHEN $4 <> '' THEN $4 ELSE display_name END,
-    primary_role_hint = CASE WHEN $5 <> '' THEN $5 ELSE primary_role_hint END,
-    primary_location_id = CASE WHEN $6::bool THEN nullif($7, '')::uuid ELSE primary_location_id END,
-    metadata = CASE WHEN $8::bool THEN $9::jsonb ELSE metadata END,
-    updated_at = now(),
-    row_version = row_version + 1
-WHERE tenant_id = $1::uuid
-  AND workforce_member_id = $2::uuid
-  AND row_version = $3
-RETURNING workforce_member_id::text`,
+	err = tx.QueryRow(ctx, updateOperatorSQL,
 		cmd.TenantID,
 		cmd.OperatorID,
 		cmd.Body.RowVersion,

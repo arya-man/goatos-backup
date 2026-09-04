@@ -167,8 +167,8 @@ func (r *bootstrapLocaleRepo) ListGrants(context.Context, string, string) ([]dom
 	return nil, ports.ErrNotFound
 }
 
-func (r *bootstrapLocaleRepo) CreateGrant(context.Context, ports.CreateGrantCommand) (domain.GrantSummary, error) {
-	return domain.GrantSummary{}, ports.ErrNotFound
+func (r *bootstrapLocaleRepo) CreateGrant(context.Context, ports.CreateGrantCommand) ([]domain.GrantSummary, error) {
+	return nil, ports.ErrNotFound
 }
 
 func (r *bootstrapLocaleRepo) AssignCapability(context.Context, ports.CapabilityCommand) (domain.CapabilityAssignment, error) {

@@ -734,13 +734,12 @@ func validRoleHint(value string) bool {
 }
 
 // validRole is CreateGrant's role pre-flight. Every role the Add Person form can grant
-// (grantablePersonRoles) must pass here too, or a role that lands from the form cannot be
-// added to an existing person from the grants endpoint; pinned by
-// TestEveryGrantableRoleIsAcceptedByTheGrantPreflight (PR #181 finding PC-181-003, the
-// same drift one function over from validRoleHint).
+// (grantablePersonRoles) and every tenant-only role the park-scope derivation preserves
+// must pass here too, or a role that lands from the form/seed path cannot be added to an
+// existing person from the grants endpoint.
 func validRole(value string) bool {
 	switch value {
-	case "admin", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "breeding_director", "operator", "verifier", "ceo_internal":
+	case "admin", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "breeding_director", "operator", "verifier", "ceo_internal", "procurement_director", "counts_approver", "toxin_tester":
 		return true
 	default:
 		return false
