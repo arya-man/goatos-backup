@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -261,7 +262,10 @@ private fun LeadershipAssigneeDropdown(
         DropdownMenu(
             expanded = open,
             onDismissRequest = { open = false },
-            containerColor = MeshaColors.Surf,
+            containerColor = MeshaColors.Surf3,
+            shape = RoundedCornerShape(12.dp),
+            shadowElevation = 12.dp,
+            border = BorderStroke(1.dp, MeshaColors.Hair),
             modifier = Modifier.fillMaxWidth(0.86f),
         ) {
             assignees.forEach { assignee -> // compose-guard:ignore: the handful of CXOs a task can go to (five today), never park-scale data

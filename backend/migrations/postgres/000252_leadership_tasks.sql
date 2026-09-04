@@ -82,7 +82,9 @@ CREATE INDEX leadership_task_attachments_task_idx
 -- capability_backfill.go is read only by the one-time backfill -- so a new module reaches
 -- nobody already migrated until their rows carry it. Every director job that carries a
 -- phone gets the module at view+do (raise, edit, cancel their own); the CXO desk gets it at
--- view+oversee (be assigned, move status). Keyed on the ROLE GRANT, the same population the
+-- VIEW ONLY. Being ASSIGNABLE is the Oversee tick, and that stays OPT-IN on /people
+-- (maintainer decision 2026-09-04: "keep it optional -- if they are selected there, only for
+-- them"): the picker and the raise-time check both read that tick, never the role. Keyed on the ROLE GRANT, the same population the
 -- backfill would have written, and only for people the cutover already migrated (a person
 -- with no rows is still on the role fallback path and must stay there). ADDITIVE ONLY: a
 -- row an admin already ticked on /people is left exactly as it is.
@@ -105,7 +107,7 @@ WHERE m.status = 'active'
 ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING;
 
 INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
-SELECT DISTINCT m.tenant_id, m.workforce_member_id, 'mobile', 'leadership_tasks', ARRAY['view', 'oversee']::text[]
+SELECT DISTINCT m.tenant_id, m.workforce_member_id, 'mobile', 'leadership_tasks', ARRAY['view']::text[]
 FROM public.workforce_members m
 JOIN public.user_scope_grants g
   ON g.tenant_id = m.tenant_id

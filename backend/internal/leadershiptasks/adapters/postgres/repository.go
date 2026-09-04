@@ -82,12 +82,14 @@ func scanTask(row pgx.Row) (domain.Task, error) {
 	return t, nil
 }
 
-// ListAssignees lists every CXO a task may be raised for: an active ceo_internal grant
-// joined to an active roster profile (the phone needs the profile to exist anyway).
+// ListAssignees lists every person a task may be raised for: an ACTIVE roster member whose
+// own mobile ticks carry the Tasks module at Oversee (maintainer decision 2026-09-04: "keep it
+// optional -- if they are selected there, only for them"). The CXO role decides nothing here;
+// the /people access editor does, and unticking someone takes them off this list at once.
 func (r *Repository) ListAssignees(ctx context.Context, tenantID string) ([]ports.Assignee, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, sqlRepository3, tenantID, permissions.RoleCEOInternal)
+	rows, err := r.pool.Query(ctx, sqlListAssignees, tenantID, permissions.SurfaceMobile, leadershipTasksModuleKey, permissions.LevelOversee)
 	if err != nil {
 		return nil, fmt.Errorf("leadership task: list assignees: %w", err)
 	}
@@ -285,13 +287,13 @@ func (r *Repository) Raise(ctx context.Context, p ports.RaiseParams) (domain.Tas
 		return r.getRow(ctx, r.pool, p.TenantID, reservation.resultID, false)
 	}
 
-	// The assignee must be a CXO NOW, checked inside the write: the picker is a read that
-	// can go stale between the form opening and the send.
-	var isCXO bool
-	if err := tx.QueryRow(ctx, sqlRepository6, p.TenantID, p.AssigneeUserID, permissions.RoleCEOInternal).Scan(&isCXO); err != nil {
+	// The assignee must be assignable NOW, by the same tick the picker reads, checked inside
+	// the write: the picker is a read that can go stale between the form opening and the send.
+	var assignable bool
+	if err := tx.QueryRow(ctx, sqlAssigneeIsTicked, p.TenantID, p.AssigneeUserID, permissions.SurfaceMobile, leadershipTasksModuleKey, permissions.LevelOversee).Scan(&assignable); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: check assignee: %w", err)
 	}
-	if !isCXO {
+	if !assignable {
 		return domain.Task{}, domain.ErrAssigneeNotCXO
 	}
 
@@ -742,3 +744,25 @@ const sqlSetComment = `
 UPDATE public.leadership_tasks
 SET assignee_comment = $3::text, updated_at = $4::timestamptz, row_version = row_version + 1
 WHERE tenant_id = $1 AND task_id = $2`
+
+// leadershipTasksModuleKey is the module_key the /people ticks store for this module.
+const leadershipTasksModuleKey = "leadership_tasks"
+
+const sqlListAssignees = `
+SELECT m.user_id::text, m.display_name
+FROM public.person_module_access a
+JOIN public.workforce_members m
+  ON m.tenant_id = a.tenant_id AND m.workforce_member_id = a.workforce_member_id AND m.status = 'active'
+WHERE a.tenant_id = $1 AND a.surface = $2 AND a.module_key = $3 AND $4 = ANY(a.capabilities)
+  AND m.user_id IS NOT NULL
+ORDER BY m.display_name, m.user_id::text
+LIMIT 100`
+
+const sqlAssigneeIsTicked = `
+SELECT EXISTS (
+  SELECT 1 FROM public.person_module_access a
+  JOIN public.workforce_members m
+    ON m.tenant_id = a.tenant_id AND m.workforce_member_id = a.workforce_member_id AND m.status = 'active'
+  WHERE a.tenant_id = $1 AND m.user_id = $2::uuid
+    AND a.surface = $3 AND a.module_key = $4 AND $5 = ANY(a.capabilities)
+)`

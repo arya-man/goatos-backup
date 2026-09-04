@@ -4,6 +4,7 @@ package sg.mesha.goatos.feature.leadershiptasks
 // leadership_task_* AnalyticsEventsLeadershipTasks + CrashReporter wiring.
 
 import android.media.MediaPlayer
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -339,7 +340,11 @@ internal fun LeadershipStatusDropdown(
         DropdownMenu(
             expanded = open,
             onDismissRequest = { open = false },
-            containerColor = MeshaColors.Surf,
+            // A lifted, bordered sheet: on the dark card the popup was invisible without it.
+            containerColor = MeshaColors.Surf3,
+            shape = RoundedCornerShape(12.dp),
+            shadowElevation = 12.dp,
+            border = BorderStroke(1.dp, MeshaColors.Hair),
             modifier = Modifier.fillMaxWidth(0.62f),
         ) {
             options.forEach { option -> // compose-guard:ignore: at most three backend status options

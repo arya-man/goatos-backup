@@ -47,12 +47,29 @@ VALUES ($1::uuid, $2::uuid, $3, $4, 'active')`, ltTenant, p.userID, p.code, p.na
 			t.Fatalf("seed member %s: %v", p.name, err)
 		}
 	}
+	// Assignability is the person's own mobile tick at Oversee, never the role: both CXOs
+	// hold ceo_internal, only these two are ticked, and Dinakar (a director) is ticked too
+	// to prove the tick is what the picker reads.
 	for _, cxo := range []string{ltCXO, ltCXO2} {
 		if _, err := pool.Exec(ctx, `
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES ($1::uuid, $2::uuid, 'ceo_internal', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, ltTenant, cxo); err != nil {
 			t.Fatalf("seed grant: %v", err)
 		}
+	}
+	for _, ticked := range []string{ltCXO, ltCXO2} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
+SELECT $1::uuid, workforce_member_id, 'mobile', 'leadership_tasks', ARRAY['view','oversee']::text[]
+FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTenant, ticked); err != nil {
+			t.Fatalf("seed tick: %v", err)
+		}
+	}
+	// A CXO-shaped grant with NO tick: must never be assignable.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'ceo_internal', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, ltTenant, ltDirector2); err != nil {
+		t.Fatalf("seed unticked grant: %v", err)
 	}
 	for _, proof := range []string{ltProof1, ltProof2} {
 		if _, err := pool.Exec(ctx, `
@@ -107,9 +124,10 @@ func TestLeadershipTaskLifecyclePostgresPaths(t *testing.T) {
 	if _, err := repo.Raise(ctx, raiseParams(ltCXO, "A different ask", "raise-1")); !errors.Is(err, ports.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting replay: %v", err)
 	}
-	// 3. A non-CXO assignee is refused inside the write, whatever the picker said.
-	if _, err := repo.Raise(ctx, raiseParams(ltDirector2, "Not a CXO", "raise-bad")); !errors.Is(err, domain.ErrAssigneeNotCXO) {
-		t.Fatalf("non-CXO assignee: %v", err)
+	// 3. An UNTICKED person is refused inside the write, whatever the picker said -- even one
+	// holding the CXO role.
+	if _, err := repo.Raise(ctx, raiseParams(ltDirector2, "Not ticked", "raise-bad")); !errors.Is(err, domain.ErrAssigneeNotCXO) {
+		t.Fatalf("unticked assignee: %v", err)
 	}
 
 	// 4. The badge: one unseen task for Ravi, none for Manohar, none for the raiser.

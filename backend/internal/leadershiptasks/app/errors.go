@@ -68,7 +68,7 @@ func HTTPError(err error) *Error {
 	case errors.Is(err, domain.ErrSelfAssignment):
 		return BadRequest("self_assignment", "A task is raised for someone else, not for yourself.")
 	case errors.Is(err, domain.ErrAssigneeNotCXO):
-		return BadRequest("assignee_not_available", "That person is not on the leadership desk. Choose from the list.")
+		return BadRequest("assignee_not_available", "That person is not set up to receive tasks. Choose from the list.")
 	case errors.Is(err, domain.ErrTooManyAttachments):
 		return BadRequest("too_many_attachments", "Attach at most 12 items to one task.")
 	case errors.Is(err, domain.ErrInvalidAttachmentKind):
