@@ -556,6 +556,14 @@ function buildItemMoney(stock: FeedAnalyticsStockResponse | null, dayKeys: strin
 }
 
 /** Money first: priced feeds by window ₹ descending, then unpriced feeds in their kg rank. */
+/** The pie's feed rule from the contract: comma-separated name fragments, any match keeps the feed. */
+function spendShareIncludes(rule: string, label: string): boolean {
+  const needles = rule.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (needles.length === 0) return true;
+  const hay = label.toLowerCase();
+  return needles.some((n) => hay.includes(n));
+}
+
 function rankItemCards(
   itemSeries: ItemLineSeries[],
   itemMoney: Map<string, ItemMoney>,
@@ -732,7 +740,7 @@ function DirectedTabs({
           <ChartHover>
             <FeedSpendPie
               slices={rankItemCards(view.itemSeries, itemMoney).flatMap(({ series, money }) =>
-                money && money.pricedDays > 0
+                money && money.pricedDays > 0 && spendShareIncludes(fa(pageContract, "chart.spend_share.feeds"), series.label)
                   ? [{ label: series.label, value: money.rupeesTotal / money.pricedDays, colorVar: series.colorVar }]
                   : [],
               )}

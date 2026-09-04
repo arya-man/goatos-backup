@@ -4497,7 +4497,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.daily.hint":               "Total kg fed per day, stacked by feed item — the issued sheet plus the milk the crew prepared",
 			"chart.spend_share.title":        "Feed spend share",
 			"chart.spend_share.unit":         "/ day",
-			"chart.spend_share.hint":         "Average ₹ per day by feed over the window, priced at each feed's most recent load rate — where the money goes",
+			"chart.spend_share.hint":         "Average ₹ per day on bhusa and the Mesha concentrates over the window, priced at each feed's most recent load rate — where the money goes",
+			// Which feeds the pie shows (maintainer request 2026-09-04): bhusa and every Mesha
+			// concentrate, never milk, soda or the unbranded concentrate. Comma-separated name
+			// fragments; a feed is in when its label contains one, case-insensitive.
+			"chart.spend_share.feeds":        "Dry Masoor Bhusa,Mesha",
 			"chart.mix.title":                "Feed mix",
 			"chart.mix.hint":                 "Share of the fed kg over the window, sheet and milk together",
 			"chart.item.hint":                "₹ spent per day (solid line) and kg fed per day (dashed), priced at each farm's latest load rate",

@@ -433,7 +433,7 @@ export function SeriesPie({
     );
   }
   const fmt = formatValue ?? ((v: number) => v.toLocaleString("en-IN", { maximumFractionDigits: 1 }));
-  const size = 220;
+  const size = 300;
   const cx = size / 2;
   const cy = size / 2;
   const r = size / 2 - 6;
@@ -455,7 +455,7 @@ export function SeriesPie({
     return { key: s.label, d, colorVar: s.colorVar, tip: `${s.label}\n${fmt(s.value)} ${valueNoun}\n${share}%` };
   });
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 24px" }}>
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px 40px", width: "100%" }}>
       <svg
         viewBox={`0 0 ${size} ${size}`}
         width={size}
@@ -468,12 +468,20 @@ export function SeriesPie({
           <path key={p.key} d={p.d} fill={p.colorVar} stroke="var(--panel)" strokeWidth={1.5} data-tip={p.tip} />
         ))}
       </svg>
-      <div style={{ display: "grid", gap: 6, minWidth: 200 }}>
+      <div
+        style={{
+          flex: "1 1 320px",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(390px, 1fr))",
+          gap: "10px 32px",
+          alignContent: "center",
+        }}
+      >
         {live.map((s) => (
-          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8 }} data-tip={`${s.label}\n${fmt(s.value)} ${valueNoun}`}>
-            <span aria-hidden style={{ width: 9, height: 9, borderRadius: 3, background: s.colorVar, display: "inline-block" }} />
-            <span style={{ flex: 1 }}>{s.label}</span>
-            <span className="muted small">{`${fmt(s.value)} ${valueNoun} · ${((s.value / total) * 100).toFixed(1)}%`}</span>
+          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 10 }} data-tip={`${s.label}\n${fmt(s.value)} ${valueNoun}`}>
+            <span aria-hidden style={{ width: 11, height: 11, borderRadius: 3, background: s.colorVar, display: "inline-block", flex: "0 0 auto" }} />
+            <span style={{ flex: 1, fontSize: 15, whiteSpace: "nowrap" }}>{s.label}</span>
+            <span className="muted" style={{ fontSize: 14, whiteSpace: "nowrap" }}>{`${fmt(s.value)} ${valueNoun} · ${((s.value / total) * 100).toFixed(1)}%`}</span>
           </div>
         ))}
       </div>
