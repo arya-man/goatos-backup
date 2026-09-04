@@ -412,7 +412,12 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "shed_id must be a valid identifier", nil)
 			return
 		}
+		_, legacyPartitionPresent := query["partition_label"]
 		legacyPartition := strings.TrimSpace(query.Get("partition_label"))
+		if legacyPartitionPresent && legacyPartition == "" {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "partition_label must identify a pen", nil)
+			return
+		}
 		if strings.EqualFold(legacyPartition, "whole") {
 			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "partition_label must identify a pen", nil)
 			return

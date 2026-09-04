@@ -140,20 +140,22 @@ func TestGetBreakdownRejectsMalformedPenShedID(t *testing.T) {
 }
 
 func TestGetBreakdownRejectsLegacyWholePartitionSentinel(t *testing.T) {
-	service := &countsBreakdownHandlerService{}
-	handler := NewHandler(service, slog.Default())
-	req := httptest.NewRequest(
-		http.MethodGet,
+	cases := []string{
+		"/counts/breakdown?shed_id=30000000-0000-4000-8000-000000000001&partition_label=%20",
 		"/counts/breakdown?shed_id=30000000-0000-4000-8000-000000000001&partition_label=whole",
-		nil,
-	)
-	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
-	recorder := httptest.NewRecorder()
+	}
+	for _, path := range cases {
+		service := &countsBreakdownHandlerService{}
+		handler := NewHandler(service, slog.Default())
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+		recorder := httptest.NewRecorder()
 
-	handler.GetBreakdown(recorder, req)
+		handler.GetBreakdown(recorder, req)
 
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", recorder.Code, recorder.Body.String())
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status=%d, want 400; body=%s", path, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 
