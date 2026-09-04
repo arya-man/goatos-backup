@@ -128,3 +128,14 @@ test("sales chart bar labels stay whole and suffix-free", () => {
   assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.landed_price_per_kg == null \? null : inr\(Math\.round\(load\.landed_price_per_kg\)\)/s);
   assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.fattening_days == null \? null : numCompactWhole\(load\.fattening_days\)/s);
 });
+
+test("the Over 35 kg card asks for six weeks, and the backend floors it", () => {
+  // SIX WEEKS is the reader's window (maintainer, 2026-09-04). The BACKEND holds the floor -- the
+  // first dense weighing day -- so the two never disagree about where the count starts, and the
+  // page does not carry a second copy of a date the server already owns.
+  const source = readFileSync(new URL("./sales.tsx", import.meta.url), "utf8");
+  assert.match(source, /const OVER35_WINDOW_DAYS = 42;/);
+  assert.match(source, /const over35From = istDayPlus\(over35To, -OVER35_WINDOW_DAYS\);/);
+  // No anchor date lives on this page: a client-side floor would drift from the server's.
+  assert.doesNotMatch(source, /2026-08-0\d/);
+});

@@ -201,11 +201,30 @@ func TestGetShedWeightsClampsSaleReadyWindowToReliableAnchor(t *testing.T) {
 	if _, err := svc.GetShedWeights(ctx, swActor(), "", "2026-07-23", "2026-09-03", "", "", "", "0"); err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
-	if got := repo.gotStart.Format("2006-01-02"); got != "2026-08-01" {
-		t.Fatalf("sale-ready period start = %s, want 2026-08-01", got)
+	// 3 August, not the 1st (maintainer, 2026-09-04): the first two days are sparse weekly checks,
+	// and it is the same day the Weights screens open their own default window on.
+	if got := repo.gotStart.Format("2006-01-02"); got != "2026-08-03" {
+		t.Fatalf("sale-ready period start = %s, want 2026-08-03", got)
 	}
 	if got := repo.gotEnd.Format("2006-01-02"); got != "2026-09-04" {
 		t.Fatalf("sale-ready period end = %s, want 2026-09-04", got)
+	}
+}
+
+func TestGetShedWeightsKeepsASaleReadyStartAfterTheAnchor(t *testing.T) {
+	// The clamp is a FLOOR. A window that opens after the anchor is served as asked -- rewriting it
+	// to the anchor would silently widen a reader's window and count animals they did not ask about.
+	repo := &shedWeightsRepo{parks: []domain.WeighingPark{{ParkID: swParkA, Name: "Coimbatore"}}}
+	svc := NewService(repo)
+	ctx := swContext(permissions.ActiveGrant{
+		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: swParkA,
+	})
+
+	if _, err := svc.GetShedWeights(ctx, swActor(), "", "2026-08-20", "2026-09-03", "", "", "", "0"); err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	if got := repo.gotStart.Format("2006-01-02"); got != "2026-08-20" {
+		t.Fatalf("sale-ready period start = %s, want 2026-08-20", got)
 	}
 }
 

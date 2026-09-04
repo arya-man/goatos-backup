@@ -1649,8 +1649,20 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex, origin, strings.TrimSpace(weighingCategory), toleranceKg)
 }
 
+// clampSaleReadyPeriodStart holds the sale-ready count off the days before the farm's weighing
+// history is dense enough to answer it.
+//
+// The anchor is 3 AUGUST 2026 (maintainer, 2026-09-04), moved from the 1st: the first two days
+// carry only sparse weekly checks, and counting them let a kid weighed on a thin day stand in for
+// the pen it belongs to. It is the same day the Weights screens open their default window on
+// (landing-window-constants.DEFAULT_WINDOW_FROM), so the sale-ready card and those pages describe
+// weighing that starts on one date rather than two that differ by 48 hours.
+//
+// The CLIENT still asks for its own window -- six weeks back from today on the Sales page -- and
+// this only stops that window reaching further back than the data supports. A caller naming a
+// LATER start keeps it: the clamp is a floor, never a rewrite.
 func clampSaleReadyPeriodStart(periodStart time.Time) time.Time {
-	anchor := time.Date(2026, time.August, 1, 0, 0, 0, 0, biztime.DefaultLocation())
+	anchor := time.Date(2026, time.August, 3, 0, 0, 0, 0, biztime.DefaultLocation())
 	if periodStart.Before(anchor) {
 		return anchor
 	}
