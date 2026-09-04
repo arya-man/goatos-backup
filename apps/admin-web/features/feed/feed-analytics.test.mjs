@@ -95,7 +95,16 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
   assert.match(source, /\{!stockOnly \? \(\s*<>\s*<p className="muted small"[\s\S]*?<SegmentedLinks[\s\S]*?<SegmentedLinks[\s\S]*?<\/>\s*\) : null\}/);
   assert.match(source, /const failed = \[directed, execution, experiment, shedFeed, stockOnly \? stock : null\]\.some/s);
   assert.match(source, /\{stockOnly && tab === "items" && !failed \? \(\s*<StockCards stock=\{stock\?\.ok \? stock\.data : null\} pageContract=\{pageContract\} \/>/s);
-  assert.match(source, /\{tab === "items" && !stockOnly \? \(/);
+  // The per-feed money cards moved to the Consumption tab (maintainer request 2026-09-04). A
+  // stock-only reader's contract offers no such tab, so the Stock tab carries the stock table alone.
+  assert.match(source, /\{tab === "overview" \? \(\s*\/\/ Consumption tab/);
+  assert.doesNotMatch(source, /\{tab === "items" && !stockOnly \? \(/);
+  // The spend-share pie sits on the Consumption tab too, fed by the same per-item money as the
+  // cards (average ₹ per priced day), so the slice and the card strip can never disagree.
+  assert.match(source, /const spendShareSlices: PieSlice\[\] = rankItemCards\(view\.itemSeries, itemMoney\)[\s\S]*?money\.rupeesTotal \/ money\.pricedDays/);
+  // Gated on the FILTERED slices: when the feed rule leaves nothing priced, the pie is hidden rather
+  // than captioned with the directed-feed empty copy (review on PR #187).
+  assert.match(source, /\{tab === "overview" && spendShareSlices\.length > 0 \? \([\s\S]*?<FeedSpendPie[\s\S]*?slices=\{spendShareSlices\}/);
 });
 
 test("the KPI tiles name the settled day rather than the last day drawn", () => {

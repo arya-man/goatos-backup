@@ -11,6 +11,7 @@ export {
   StackedColumns as FeedStackedColumns,
   SeriesLines as FeedLines,
   SeriesLegend as FeedChartLegend,
+  SeriesPie as FeedSpendPie,
   seriesColorVar,
 } from "@/components/svg-series";
-export type { LineSeries, StackedDay } from "@/components/svg-series";
+export type { LineSeries, PieSlice, StackedDay } from "@/components/svg-series";

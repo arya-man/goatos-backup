@@ -33,9 +33,11 @@ import {
   FEED_SERIES_VARS,
   FeedChartLegend,
   FeedLines,
+  FeedSpendPie,
   FeedStackedColumns,
   seriesColorVar,
   type LineSeries,
+  type PieSlice,
   type StackedDay,
 } from "./feed-analytics-charts";
 import { FeedFaroView } from "./feed-faro-view";
@@ -555,6 +557,14 @@ function buildItemMoney(stock: FeedAnalyticsStockResponse | null, dayKeys: strin
 }
 
 /** Money first: priced feeds by window ₹ descending, then unpriced feeds in their kg rank. */
+/** The pie's feed rule from the contract: comma-separated name fragments, any match keeps the feed. */
+function spendShareIncludes(rule: string, label: string): boolean {
+  const needles = rule.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (needles.length === 0) return true;
+  const hay = label.toLowerCase();
+  return needles.some((n) => hay.includes(n));
+}
+
 function rankItemCards(
   itemSeries: ItemLineSeries[],
   itemMoney: Map<string, ItemMoney>,
@@ -582,7 +592,15 @@ function DirectedTabs({
   pageContract: AdminUiPageContract;
 }) {
   const view = buildDirectedView(data, fa(pageContract, "series.other"), istDayPlus(todayIso(), -1));
-  const itemMoney = tab === "items" ? buildItemMoney(stock, view.dayLabels) : new Map<string, ItemMoney>();
+  const itemMoney = tab === "overview" ? buildItemMoney(stock, view.dayLabels) : new Map<string, ItemMoney>();
+  // The pie's slices: the contract's feed rule applied to the priced feeds. Computed here so the
+  // section is gated on what the pie would actually show — an empty pie is hidden, not captioned
+  // with the directed-feed empty copy, which would say the wrong thing.
+  const spendShareSlices: PieSlice[] = rankItemCards(view.itemSeries, itemMoney).flatMap(({ series, money }) =>
+    money && money.pricedDays > 0 && spendShareIncludes(fa(pageContract, "chart.spend_share.feeds"), series.label)
+      ? [{ label: series.label, value: money.rupeesTotal / money.pricedDays, colorVar: series.colorVar }]
+      : [],
+  );
   const empty = data.days.length === 0;
   const noData = fa(pageContract, "empty.title");
 
@@ -657,8 +675,91 @@ function DirectedTabs({
 
       {tab === "items" ? <StockCards stock={stock} pageContract={pageContract} /> : null}
 
-      {tab === "items" && !stockOnly ? (
-        // The artifact's Feed Items tab: one card per feed item, each in its
+      {tab === "overview" ? (
+        <section className="card wchart" aria-label={fa(pageContract, "chart.daily.title")}>
+          <h2 className="h">{fa(pageContract, "chart.daily.title")}</h2>
+          <p className="muted small">{fa(pageContract, "chart.daily.hint")}</p>
+          <ChartHover>
+            <FeedStackedColumns
+              days={view.stacked}
+              seriesLabels={view.itemLabels}
+              valueNoun={fa(pageContract, "unit.kg")}
+              chartLabel={fa(pageContract, "chart.daily.title")}
+              emptyLabel={fa(pageContract, "empty.body")}
+            />
+          </ChartHover>
+          <FeedChartLegend
+            entries={view.itemLabels.map((label, s) => ({
+              label,
+              colorVar: seriesColorVar(s),
+            }))}
+          />
+        </section>
+      ) : null}
+
+      {tab === "overview" && stock && stock.expenditure.length > 0 ? (
+        <section
+          className="grid g4 kpi-row"
+          style={{ marginTop: 14, gap: 14 }}
+          aria-label={fa(pageContract, "chart.spend.title")}
+        >
+          {([
+            ["week", stock.spend.last_7_days],
+            ["month", stock.spend.this_month],
+            ["quarter", stock.spend.three_months],
+            ["year", stock.spend.this_year],
+          ] as const).map(([period, rupees]) => (
+            <div className="kpi card" key={period}>
+              <div className="val">{`₹${nf(num(rupees))}`}</div>
+              <div className="dl">{fa(pageContract, `spend.${period}.label`)}</div>
+              <div className="muted small">{fa(pageContract, `spend.${period}.sub`)}</div>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
+      {tab === "overview" && stock && stock.expenditure.length > 0 ? (
+        <section className="card wchart" aria-label={fa(pageContract, "chart.spend.title")}>
+          <h2 className="h">{fa(pageContract, "chart.spend.title")}</h2>
+          <p className="muted small">{fa(pageContract, "chart.spend.hint")}</p>
+          <ChartHover>
+            <FeedLines
+              series={[{
+                label: fa(pageContract, "chart.spend.title"),
+                colorVar: FEED_SERIES_VARS[2],
+                points: stock.expenditure.map((d) => num(d.rupees)),
+              }]}
+              dayLabels={stock.expenditure.map((d) => d.feed_day)}
+              valueNoun={fa(pageContract, "unit.rupees")}
+              chartLabel={fa(pageContract, "chart.spend.title")}
+              emptyLabel={fa(pageContract, "stock.empty")}
+            />
+          </ChartHover>
+        </section>
+      ) : null}
+
+      {tab === "overview" && spendShareSlices.length > 0 ? (
+        // Where the money goes: one slice per feed at its AVERAGE ₹ per priced day, the same
+        // figure the strip on each card below leads with, in each feed's own colour. Ranked by
+        // spend so the biggest slice starts at twelve o'clock; an unpriced feed has no rupees
+        // and so no slice — the cards below still show its kg.
+        <section className="card wchart" aria-label={fa(pageContract, "chart.spend_share.title")}>
+          <h2 className="h">{fa(pageContract, "chart.spend_share.title")}</h2>
+          <p className="muted small">{fa(pageContract, "chart.spend_share.hint")}</p>
+          <ChartHover>
+            <FeedSpendPie
+              slices={spendShareSlices}
+              valueNoun={fa(pageContract, "chart.spend_share.unit")}
+              formatValue={(v) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+              chartLabel={fa(pageContract, "chart.spend_share.title")}
+              emptyLabel={fa(pageContract, "empty.body")}
+            />
+          </ChartHover>
+        </section>
+      ) : null}
+
+      {tab === "overview" ? (
+        // Consumption tab (maintainer request 2026-09-04, moved off Stock): one card per feed item, each in its
         // ranked colour, over the same window, below the stock cards. MONEY
         // FIRST (maintainer request 2026-09-03): the solid line is ₹ spent per
         // day, the dashed line on the right-hand scale is the kg fed, and the
@@ -730,69 +831,6 @@ function DirectedTabs({
             );
           })}
         </div>
-      ) : null}
-
-      {tab === "overview" ? (
-        <section className="card wchart" aria-label={fa(pageContract, "chart.daily.title")}>
-          <h2 className="h">{fa(pageContract, "chart.daily.title")}</h2>
-          <p className="muted small">{fa(pageContract, "chart.daily.hint")}</p>
-          <ChartHover>
-            <FeedStackedColumns
-              days={view.stacked}
-              seriesLabels={view.itemLabels}
-              valueNoun={fa(pageContract, "unit.kg")}
-              chartLabel={fa(pageContract, "chart.daily.title")}
-              emptyLabel={fa(pageContract, "empty.body")}
-            />
-          </ChartHover>
-          <FeedChartLegend
-            entries={view.itemLabels.map((label, s) => ({
-              label,
-              colorVar: seriesColorVar(s),
-            }))}
-          />
-        </section>
-      ) : null}
-
-      {tab === "overview" && stock && stock.expenditure.length > 0 ? (
-        <section
-          className="grid g4 kpi-row"
-          style={{ marginTop: 14, gap: 14 }}
-          aria-label={fa(pageContract, "chart.spend.title")}
-        >
-          {([
-            ["week", stock.spend.last_7_days],
-            ["month", stock.spend.this_month],
-            ["quarter", stock.spend.three_months],
-            ["year", stock.spend.this_year],
-          ] as const).map(([period, rupees]) => (
-            <div className="kpi card" key={period}>
-              <div className="val">{`₹${nf(num(rupees))}`}</div>
-              <div className="dl">{fa(pageContract, `spend.${period}.label`)}</div>
-              <div className="muted small">{fa(pageContract, `spend.${period}.sub`)}</div>
-            </div>
-          ))}
-        </section>
-      ) : null}
-
-      {tab === "overview" && stock && stock.expenditure.length > 0 ? (
-        <section className="card wchart" aria-label={fa(pageContract, "chart.spend.title")}>
-          <h2 className="h">{fa(pageContract, "chart.spend.title")}</h2>
-          <p className="muted small">{fa(pageContract, "chart.spend.hint")}</p>
-          <ChartHover>
-            <FeedLines
-              series={[{
-                label: fa(pageContract, "chart.spend.title"),
-                colorVar: FEED_SERIES_VARS[2],
-                points: stock.expenditure.map((d) => num(d.rupees)),
-              }]}
-              dayLabels={stock.expenditure.map((d) => d.feed_day)}
-              valueNoun={fa(pageContract, "unit.rupees")}
-              chartLabel={fa(pageContract, "chart.spend.title")}
-              emptyLabel={fa(pageContract, "stock.empty")}
-            />
-          </ChartHover>
-        </section>
       ) : null}
 
       {tab === "overview" ? (

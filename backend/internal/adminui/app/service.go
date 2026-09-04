@@ -4416,7 +4416,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// The one word this page lives or dies on: DIRECTED. The sheet's
 			// instruction, never a measured weight — leftovers are not captured.
 			"banner.basis":                   "Figures show feed as DIRECTED on the daily sheet, plus the milk the crew prepared. The two daily charts run through today, whose sheet is already issued; the tiles and the execution figures describe yesterday, the last finished day. Leftovers are not measured yet, so read quantities as instructions, not consumption.",
-			"tab.overview":                   "Overview",
+			"tab.overview":                   "Consumption",
 			"tab.items":                      "Stock",
 			"tab.peranimal":                  "Per Animal",
 			"tab.execution":                  "Execution",
@@ -4495,6 +4495,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.adherence.sub":              "Packing + distribution approved by the verifier",
 			"chart.daily.title":              "Daily directed feed",
 			"chart.daily.hint":               "Total kg fed per day, stacked by feed item — the issued sheet plus the milk the crew prepared",
+			"chart.spend_share.title":        "Feed spend share",
+			"chart.spend_share.unit":         "/ day",
+			"chart.spend_share.hint":         "Average ₹ per day on bhusa and the Mesha concentrates over the window, priced at each feed's most recent load rate — where the money goes",
+			// Which feeds the pie shows (maintainer request 2026-09-04): bhusa and every Mesha
+			// concentrate, never milk, soda or the unbranded concentrate. Comma-separated name
+			// fragments; a feed is in when its label contains one, case-insensitive.
+			"chart.spend_share.feeds":        "Dry Masoor Bhusa,Mesha",
 			"chart.mix.title":                "Feed mix",
 			"chart.mix.hint":                 "Share of the fed kg over the window, sheet and milk together",
 			"chart.item.hint":                "₹ spent per day (solid line) and kg fed per day (dashed), priced at each farm's latest load rate",
