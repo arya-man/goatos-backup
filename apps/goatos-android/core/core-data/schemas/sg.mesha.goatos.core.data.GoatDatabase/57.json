@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 55,
-    "identityHash": "9cc0ab2b03b61bc5c56010f041332cfe",
+    "version": 57,
+    "identityHash": "40804b96b2a2913d1710be9cf3befd67",
     "entities": [
       {
         "tableName": "bootstrap_cache",
@@ -4839,11 +4839,241 @@
             "cacheKey"
           ]
         }
+      },
+      {
+        "tableName": "sales_deal_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `grainKey`))",
+        "fields": [
+          {
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "grainKey",
+            "columnName": "grainKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dtoJson",
+            "columnName": "dtoJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "queryKey",
+            "grainKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sales_deal_items_queryKey_sortIndex",
+            "unique": false,
+            "columnNames": [
+              "queryKey",
+              "sortIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sales_deal_items_queryKey_sortIndex` ON `${TABLE_NAME}` (`queryKey`, `sortIndex`)"
+          },
+          {
+            "name": "index_sales_deal_items_grainKey",
+            "unique": false,
+            "columnNames": [
+              "grainKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sales_deal_items_grainKey` ON `${TABLE_NAME}` (`grainKey`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sales_deal_remote_keys",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        "fields": [
+          {
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextCursor",
+            "columnName": "nextCursor",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endReached",
+            "columnName": "endReached",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "queryKey"
+          ]
+        }
+      },
+      {
+        "tableName": "leadership_task_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `grainKey`))",
+        "fields": [
+          {
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "grainKey",
+            "columnName": "grainKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dtoJson",
+            "columnName": "dtoJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "queryKey",
+            "grainKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_leadership_task_items_queryKey_sortIndex",
+            "unique": false,
+            "columnNames": [
+              "queryKey",
+              "sortIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_leadership_task_items_queryKey_sortIndex` ON `${TABLE_NAME}` (`queryKey`, `sortIndex`)"
+          },
+          {
+            "name": "index_leadership_task_items_grainKey",
+            "unique": false,
+            "columnNames": [
+              "grainKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_leadership_task_items_grainKey` ON `${TABLE_NAME}` (`grainKey`)"
+          }
+        ]
+      },
+      {
+        "tableName": "leadership_task_remote_keys",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        "fields": [
+          {
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextCursor",
+            "columnName": "nextCursor",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endReached",
+            "columnName": "endReached",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "queryKey"
+          ]
+        }
+      },
+      {
+        "tableName": "leadership_task_detail_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`cacheKey`))",
+        "fields": [
+          {
+            "fieldPath": "cacheKey",
+            "columnName": "cacheKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dtoJson",
+            "columnName": "dtoJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "cacheKey"
+          ]
+        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9cc0ab2b03b61bc5c56010f041332cfe')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '40804b96b2a2913d1710be9cf3befd67')"
     ]
   }
 }

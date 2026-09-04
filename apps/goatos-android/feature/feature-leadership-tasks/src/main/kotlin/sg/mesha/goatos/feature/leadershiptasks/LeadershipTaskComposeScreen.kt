@@ -75,11 +75,11 @@ fun LeadershipTaskComposeScreen(
     val busy = state.sending || state.recordingElapsedMs != null
 
     val mediaPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(maxItems = remaining.coerceAtLeast(2)),
+        ActivityResultContracts.PickMultipleVisualMedia(maxItems = remaining.coerceAtLeast(2)), // camera-only:ignore: a task attachment is not proof of work; gallery and file picks are the maintainer's explicit ask (2026-09-04)
     ) { uris ->
         if (uris.isNotEmpty()) onEvent(LeadershipTaskComposeEvent.MediaPicked(uris.map { it.toString() }))
     }
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> // camera-only:ignore: a task attachment is not proof of work; gallery and file picks are the maintainer's explicit ask (2026-09-04)
         if (uris.isNotEmpty()) onEvent(LeadershipTaskComposeEvent.FilesPicked(uris.map { it.toString() }))
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -171,7 +171,7 @@ fun LeadershipTaskComposeScreen(
                             label = stringResource(R.string.leadership_tasks_add_media),
                             enabled = !busy && remaining > 0,
                             onClick = {
-                                mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                                mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) // camera-only:ignore: a task attachment is not proof of work; gallery and file picks are the maintainer's explicit ask (2026-09-04)
                             },
                             icon = MeshaIcons.Photo,
                             modifier = Modifier.fillMaxWidth(),

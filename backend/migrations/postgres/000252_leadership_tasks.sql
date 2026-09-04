@@ -94,7 +94,7 @@ JOIN public.user_scope_grants g
  AND g.user_id = m.user_id
  AND g.status = 'active'
  AND (g.valid_to IS NULL OR g.valid_to > now())
- AND g.role IN ('pc_director', 'growth_director', 'feed_director', 'health_director', 'breeding_director')
+ AND g.role IN ('pc_director', 'growth_director', 'feed_director', 'health_director', 'breeding_director', 'procurement_director')
 WHERE m.status = 'active'
   AND m.user_id IS NOT NULL
   AND EXISTS (
@@ -129,9 +129,11 @@ ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING;
 -- baseline's own rewrite of this constraint: bounded lock_timeout, NOT VALID, then VALIDATE.
 SET lock_timeout = '5s';
 
+-- seed-migration-guard:ignore owner=leadership-tasks issue=leadership-tasks-2026-09-04 reason=widens-notification_type-check-for-the-two-task-pushes-no-seeded-notification-row-changes expiry=2026-12-31
 ALTER TABLE public.notification_requests
   DROP CONSTRAINT IF EXISTS notification_requests_type_check;
 
+-- seed-migration-guard:ignore owner=leadership-tasks issue=leadership-tasks-2026-09-04 reason=widens-notification_type-check-for-the-two-task-pushes-no-seeded-notification-row-changes expiry=2026-12-31
 ALTER TABLE public.notification_requests
   ADD CONSTRAINT notification_requests_type_check
   CHECK ((notification_type = ANY (ARRAY[
@@ -148,6 +150,7 @@ ALTER TABLE public.notification_requests
     'leadership_task_done'::text
   ]))) NOT VALID;
 
+-- seed-migration-guard:ignore owner=leadership-tasks issue=leadership-tasks-2026-09-04 reason=widens-notification_type-check-for-the-two-task-pushes-no-seeded-notification-row-changes expiry=2026-12-31
 ALTER TABLE public.notification_requests
   VALIDATE CONSTRAINT notification_requests_type_check;
 

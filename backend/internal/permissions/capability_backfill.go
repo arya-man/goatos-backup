@@ -173,6 +173,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// and sees Feed Analytics stock only (the Hemant case). Source Entry is intentionally absent.
 	// Vendors is on BOTH surfaces (maintainer decision 2026-09-03): the Procurement phone module.
 	RoleProcurementDirector: rows(
+		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
 		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
@@ -185,6 +186,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// does not film the work they planned. People at View is the operator directory the
 	// create wizard's assignee picker reads (operators.read).
 	RoleBreedingDirector: rows(
+		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pc_care", LevelView),
 		bothSurfaces("pc_trimming", LevelView, LevelConfigure),
 		bothSurfaces("people", LevelView),

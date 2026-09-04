@@ -45,14 +45,13 @@ the most senior people in the company.
 
 | Permission | Holders | Gates |
 |---|---|---|
-| `leadership_tasks.read` | `pc_director`, `growth_director`, `feed_director`, `health_director`, `ceo_internal` | list, detail, status route, seen, and the proof **download** route (ORed in) |
-| `leadership_tasks.raise` | the four director roles | raise, edit, the assignee picker, and the proof **upload** handshake (ORed in, the `toxin.execute` lever) |
+| `leadership_tasks.read` | `pc_director`, `growth_director`, `feed_director`, `health_director`, `breeding_director`, `procurement_director`, `ceo_internal` | list, detail, status route, seen, and the proof **download** route (ORed in) |
+| `leadership_tasks.raise` | the six director roles | raise, edit, the assignee picker, and the proof **upload** handshake (ORed in, the `toxin.execute` lever) |
 | `leadership_tasks.act` | `ceo_internal` only | resolved into `can_change_status`; the status route itself is on read and the domain rule decides |
 
 Deliberately **per job**, not per person -- the maintainer's words were "all the
-directors". `procurement_director` is NOT granted it: that role holds no `app.bootstrap`
-(web-only, pinned by the segregation test), so a phone module on it would be unreachable;
-its holder raises through the `feed_director` grant he also wears. A park head, operator,
+directors". `procurement_director` joined once it gained a phone through the Vendors module
+(2026-09-03), and `breeding_director` on the same day it was created. A park head, operator,
 verifier and the per-person roles hold nothing.
 
 The status route is gated on **read** rather than on act or raise: both parties reach it
@@ -81,7 +80,7 @@ outbox is for field capture. Reads stay offline-first (Room, Paging 3, ~20-row k
 ## Events
 
 `leadership_task.raised` and `leadership_task.status_changed`, aggregate `leadership_task`,
-emitted **inside** the write transaction's outbox (validator branch in migration `000248`),
+emitted **inside** the write transaction's outbox (validator branch in migration `000252`),
 consumed by `notificationbridge.LeadershipTaskNotifyConsumer` on all three buses
 (`kernelstages`, `outbox-relay`, `domain-event-consumer`). Registered in
 `context/architecture/domain-event-registry.json`. Each push is addressed to ONE person,

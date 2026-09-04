@@ -562,6 +562,8 @@ object AppModule {
         database: GoatDatabase,
     ): sg.mesha.goatos.core.data.SalesRepository =
         sg.mesha.goatos.core.data.DefaultSalesRepository(api = api, database = database)
+
+    /**
      * Leadership Tasks (maintainer request 2026-09-04). Room-backed offline-first READS; the
      * writes are online calls inside the repository itself (v1 decision — a raise needs the
      * server-issued proof ids the outbox never hands back), so no SyncRepository and no cycle.

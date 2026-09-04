@@ -1140,6 +1140,8 @@ var rolePermissions = map[string]map[string]struct{}{
 	// RoleProcurementDirector: admin-web bootstrap plus stock-only Feed Analytics. AppBootstrap
 	// (maintainer decision 2026-09-03): the Procurement phone module is offered on VendorRead.
 	RoleProcurementDirector: {
+		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
 		AdminWebBootstrap: {}, AppBootstrap: {},
 		LocationsRead: {},
 		SalesRead:     {}, SalesWrite: {}, SalesAllocateAnimals: {},
@@ -1154,6 +1156,8 @@ var rolePermissions = map[string]map[string]struct{}{
 	// create wizard needs to offer an assignee list (the People module at View, in per-person
 	// terms); LocationsRead labels the pens it plans against.
 	RoleBreedingDirector: {
+		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {}, RosterRead: {},
 		PCCareMonitor:      {},

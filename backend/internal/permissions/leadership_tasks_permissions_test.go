@@ -11,7 +11,7 @@ import "testing"
 //  3. Nobody below leadership -- operator, park head, verifier, the per-person roles --
 //     reaches the module at all.
 func TestLeadershipTasksRaiseIsDirectorsAndActIsCEO(t *testing.T) {
-	directors := []string{RolePCDirector, RoleGrowthDirector, RoleFeedDirector, RoleHealthDirector}
+	directors := []string{RolePCDirector, RoleGrowthDirector, RoleFeedDirector, RoleHealthDirector, RoleBreedingDirector, RoleProcurementDirector}
 	for _, role := range directors {
 		if !RoleHasPermission(role, LeadershipTasksRead) || !RoleHasPermission(role, LeadershipTasksRaise) {
 			t.Errorf("%s must read and raise leadership tasks", role)

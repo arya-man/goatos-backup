@@ -150,7 +150,7 @@ func TestProofUploadStaysClosedToNonExecutors(t *testing.T) {
 	if !ok {
 		t.Fatal("POST /app/proofs/uploads must be a protected route")
 	}
-	for _, role := range []string{RoleVerifier, RoleCountsApprover, RoleProcurementDirector} {
+	for _, role := range []string{RoleVerifier, RoleCountsApprover} {
 		if RoleHasPermission(role, TaskExecute) || RoleHasPermission(role, WeighingExecute) ||
 			RoleHasPermission(role, FeedDirectionComplete) || RoleHasPermission(role, LeadershipTasksRaise) {
 			t.Fatalf("test premise broken: %s must hold no proof-producing permission", role)

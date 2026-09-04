@@ -26,11 +26,13 @@ func TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO(t *testing.T) {
 		return false
 	}
 	for name, role := range map[string]string{
-		"pc_director":     permissions.RolePCDirector,
-		"growth_director": permissions.RoleGrowthDirector,
-		"feed_director":   permissions.RoleFeedDirector,
-		"health_director": permissions.RoleHealthDirector,
-		"ceo_internal":    permissions.RoleCEOInternal,
+		"pc_director":          permissions.RolePCDirector,
+		"growth_director":      permissions.RoleGrowthDirector,
+		"feed_director":        permissions.RoleFeedDirector,
+		"health_director":      permissions.RoleHealthDirector,
+		"breeding_director":    permissions.RoleBreedingDirector,
+		"procurement_director": permissions.RoleProcurementDirector,
+		"ceo_internal":         permissions.RoleCEOInternal,
 	} {
 		grants := []domain.GrantSummary{grantWithRole(role)}
 		t.Run(name+" is offered Tasks", func(t *testing.T) {

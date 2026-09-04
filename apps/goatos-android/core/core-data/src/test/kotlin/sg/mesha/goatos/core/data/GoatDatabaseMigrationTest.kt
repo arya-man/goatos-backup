@@ -274,7 +274,32 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
-<<<<<<< HEAD
+    fun `migration 56 to 57 creates the three leadership task tables and preserves existing rows`() {
+        helper.createDatabase(DB_NAME, 56).apply {
+            // A pre-upgrade Toxin row proves the additive migration touches nothing existing.
+            execSQL(
+                "INSERT INTO `toxin_task_items` " +
+                    "(`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('scope-1', 'task-1', 0, '{}', 1)",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 57, true, MIGRATION_56_57)
+        listOf("leadership_task_items", "leadership_task_remote_keys", "leadership_task_detail_cache").forEach { table ->
+            db.query("SELECT COUNT(*) FROM `$table`").use { cursor ->
+                assertEquals("table $table must exist after v57", true, cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
+        db.query("SELECT `dtoJson` FROM `toxin_task_items` WHERE `queryKey`='scope-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{}", cursor.getString(0))
+        }
+        db.close()
+    }
+
+    @Test
     fun `migration 55 to 56 adds the sales deals ledger pair and keeps the vendors tables`() {
         helper.createDatabase(DB_NAME, 55).apply {
             execSQL(
@@ -302,11 +327,6 @@ class GoatDatabaseMigrationTest {
     @Test
     fun `migration 54 to 55 creates the five vendors tables and preserves existing toxin rows`() {
         helper.createDatabase(DB_NAME, 54).apply {
-=======
-    fun `migration 54 to 55 creates the three leadership task tables and preserves existing rows`() {
-        helper.createDatabase(DB_NAME, 54).apply {
-            // A pre-upgrade Toxin row proves the additive migration touches nothing existing.
->>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
             execSQL(
                 "INSERT INTO `toxin_task_items` " +
                     "(`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
@@ -316,15 +336,9 @@ class GoatDatabaseMigrationTest {
         }
 
         val db = helper.runMigrationsAndValidate(DB_NAME, 55, true, MIGRATION_54_55)
-<<<<<<< HEAD
         for (table in listOf("vendor_items", "vendor_remote_keys", "feed_purchase_items", "feed_purchase_remote_keys", "vendors_blob_cache")) {
             db.query("SELECT COUNT(*) FROM `$table`").use { cursor ->
                 assertEquals("$table exists and is empty", true, cursor.moveToFirst())
-=======
-        listOf("leadership_task_items", "leadership_task_remote_keys", "leadership_task_detail_cache").forEach { table ->
-            db.query("SELECT COUNT(*) FROM `$table`").use { cursor ->
-                assertEquals("table $table must exist after v55", true, cursor.moveToFirst())
->>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
                 assertEquals(0, cursor.getInt(0))
             }
         }
@@ -407,10 +421,8 @@ class GoatDatabaseMigrationTest {
         MIGRATION_52_53.migrate(db)
         MIGRATION_53_54.migrate(db)
         MIGRATION_54_55.migrate(db)
-<<<<<<< HEAD
         MIGRATION_55_56.migrate(db)
-=======
->>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
+        MIGRATION_56_57.migrate(db)
         return db
     }
 
@@ -429,7 +441,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 55
+        const val CURRENT_VERSION = 57
     }
 }
 
