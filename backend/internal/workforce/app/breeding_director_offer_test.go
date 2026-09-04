@@ -63,21 +63,43 @@ func TestBreedingDirectorIsOfferedPreventiveCareAndThePlanWizard(t *testing.T) {
 // service will say when the wizard's create lands.
 func TestPlanWizardFlagFollowsThePersonsTicksNotTheirJob(t *testing.T) {
 	tickedOnly := navScope{
-		grants: []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)},
+		grants: []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 		held:   map[string]struct{}{permissions.PCCareMonitor: {}, permissions.PCCarePlanTrimming: {}},
 	}
-	if !canPlanPCCareScoped(tickedOnly, nil, false) {
+	if !canPlanPCCareScoped(tickedOnly, []string{"pc_trimming"}, true) {
 		t.Fatal("pc_care_plan must light for pc_trimming@configure without the breeding_director job")
+	}
+	if _, ok := moduleKeySet(modulesForScope(tickedOnly, []string{"pc_trimming"}, localization.DefaultTag, true, []string{"pc_trimming"}))["pc_care"]; !ok {
+		t.Fatal("a pc_trimming mobile tick must render the shared Preventive Care module")
+	}
+	if nav := visibleNavigationForTicks(tickedOnly, []string{"pc_trimming"}, localization.DefaultTag, []string{"pc_trimming"}); len(nav) == 0 {
+		t.Fatal("a pc_trimming mobile tick must render the Preventive Care bottom navigation")
 	}
 	roleButUnticked := navScope{
 		grants: []domain.GrantSummary{grantWithRole(permissions.RoleBreedingDirector)},
 		held:   map[string]struct{}{permissions.PCCareMonitor: {}},
 	}
-	if canPlanPCCareScoped(roleButUnticked, nil, false) {
+	if canPlanPCCareScoped(roleButUnticked, []string{"pc_trimming"}, true) {
 		t.Fatal("pc_care_plan must NOT light for a breeding_director whose ticks removed planning")
 	}
 	// No rows yet: the role map still decides, as before the cutover.
 	if !canPlanPCCareScoped(scopeOf([]domain.GrantSummary{grantWithRole(permissions.RoleBreedingDirector)}), nil, false) {
 		t.Fatal("with no access rows the role path must still light the wizard for breeding_director")
+	}
+}
+
+func TestPCCareBootstrapFlagsFollowTicksNotRoles(t *testing.T) {
+	scope := navScope{
+		grants: []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)},
+		held:   map[string]struct{}{permissions.PCCareMonitor: {}},
+	}
+	if canExecutePCCareScoped(scope, []string{"pc_care"}, true) {
+		t.Fatal("pc_care_execute must not light when person ticks removed pc_care.execute")
+	}
+	if canApproveVaccineStockScoped(scope) {
+		t.Fatal("pc_care_stock_approve must not light when person ticks removed pc_care.stock_approve")
+	}
+	if canPlanPCCareScoped(scope, []string{"pc_care"}, true) {
+		t.Fatal("pc_care_plan must not light when person ticks include monitor only")
 	}
 }

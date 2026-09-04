@@ -2336,7 +2336,7 @@ CREATE TABLE public.workforce_members (
     CONSTRAINT workforce_members_display_code_check CHECK ((btrim(display_code) <> ''::text)),
     CONSTRAINT workforce_members_display_name_check CHECK ((btrim(display_name) <> ''::text)),
     CONSTRAINT workforce_members_hr_designation_grade_check CHECK (((hr_designation_grade IS NULL) OR (hr_designation_grade = ANY (ARRAY['cxo'::text, 'director'::text, 'manager'::text, 'assistant_manager'::text])))),
-    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'growth_director'::text, 'feed_director'::text, 'health_director'::text, 'verifier'::text, 'supervisor'::text, 'cxo'::text, 'other'::text]))),
+    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'growth_director'::text, 'feed_director'::text, 'health_director'::text, 'breeding_director'::text, 'verifier'::text, 'supervisor'::text, 'cxo'::text, 'other'::text]))),
     CONSTRAINT workforce_members_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT workforce_members_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'inactive'::text, 'suspended'::text, 'left'::text])))
 );

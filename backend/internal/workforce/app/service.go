@@ -471,20 +471,23 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	// roster and moved 31 bars; this moves none, and loses no permission.
 	scope := scopeOf(grants)
 	var tickedModules []string
+	fromTicks := false
+	moduleKeysForBootstrap := grantedModules
 	if len(personAssignments) > 0 && !isStandaloneVerifierPrincipal(grants) {
 		held := make(map[string]struct{}, 64)
 		for _, p := range personPermissions {
 			held[p] = struct{}{}
 		}
 		scope.held = held
+		fromTicks = true
 		// nil means "no stored rows"; an empty non-nil slice means "ticked for nothing",
 		// and those are different answers.
 		tickedModules = personModules
 		if tickedModules == nil {
 			tickedModules = []string{}
 		}
+		moduleKeysForBootstrap = tickedModules
 	}
-	fromTicks := false
 	var device *domain.DeviceSummary
 	deviceState := domain.BootstrapDeviceState{Required: true, Status: "not_registered"}
 	deviceID = strings.TrimSpace(deviceID)
@@ -511,9 +514,9 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		}
 	}
 	now := s.now().UTC()
-	bootstrapModules := modulesForScope(scope, grantedModules, localeTag, fromTicks, tickedModules)
+	bootstrapModules := modulesForScope(scope, moduleKeysForBootstrap, localeTag, fromTicks, tickedModules)
 	navChrome := navChromeFor(grants, bootstrapModules)
-	visibleNav := visibleNavigationForTicks(scope, grantedModules, localeTag, tickedModules)
+	visibleNav := visibleNavigationForTicks(scope, moduleKeysForBootstrap, localeTag, tickedModules)
 	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
 	return &domain.BootstrapResponse{
 		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
@@ -528,12 +531,12 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"proof_capture":               hasCapability(caps, "media.video_capture"),
 			"animal_id_scan":              hasCapability(caps, "animal_id.scan"),
 			"protocol_adherence_card":     canViewProtocolAdherenceCard(grants),
-			"vaccination_execute":         canExecuteVaccinationFrom(grants, grantedModules, fromTicks),
-			"weighing_execute":            canExecuteWeighingFrom(grants, grantedModules, fromTicks),
-			"weighing_oversee_operators":  canOverseeWeighingOperatorsFrom(grants, grantedModules, fromTicks),
-			"pc_care_execute":             canExecutePCCareFrom(grants, grantedModules, fromTicks),
-			"pc_care_plan":                canPlanPCCareScoped(scope, grantedModules, fromTicks),
-			"pc_care_stock_approve":       canApproveVaccineStockFrom(grants),
+			"vaccination_execute":         canExecuteVaccinationScoped(scope, moduleKeysForBootstrap, fromTicks),
+			"weighing_execute":            canExecuteWeighingScoped(scope, moduleKeysForBootstrap, fromTicks),
+			"weighing_oversee_operators":  canOverseeWeighingOperatorsScoped(scope, moduleKeysForBootstrap, fromTicks),
+			"pc_care_execute":             canExecutePCCareScoped(scope, moduleKeysForBootstrap, fromTicks),
+			"pc_care_plan":                canPlanPCCareScoped(scope, moduleKeysForBootstrap, fromTicks),
+			"pc_care_stock_approve":       canApproveVaccineStockScoped(scope),
 			"verification_video_controls": canUseVerificationVideoControls(grants),
 		},
 		VisibleNavigation:       visibleNav,

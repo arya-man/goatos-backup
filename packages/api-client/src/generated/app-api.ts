@@ -2371,8 +2371,8 @@ export interface paths {
         get: operations["appListPCCareTasks"];
         put?: never;
         /**
-         * Plan one PC Care task (CEO-only).
-         * @description Creates ONE task per (category, pen, planned business date) with one or MORE assigned operators — multi-operator by design, deliberately unlike weighing's one-operator-per-bucket. A live task already covering that pen-day answers 409 task_already_planned.
+         * Plan one PC Care task.
+         * @description Creates ONE task per (category, pen, planned business date) with one or MORE assigned operators — multi-operator by design, deliberately unlike weighing's one-operator-per-bucket. A live task already covering that pen-day answers 409 task_already_planned. `pc_care.plan` holders may plan every human-plannable PC Care category; `pc_care.plan_trimming` holders may plan hoof_trimming and hair_trimming only.
          */
         post: operations["appCreatePCCareTask"];
         delete?: never;
@@ -2390,7 +2390,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Cancel an unsubmitted PC Care task (CEO-only). */
+        /**
+         * Cancel an unsubmitted PC Care task.
+         * @description Cancels an unfinished task when the caller holds the planning capability for that task's own category: `pc_care.plan` for every human-plannable PC Care category, or `pc_care.plan_trimming` for hoof_trimming and hair_trimming only.
+         */
         post: operations["appCancelPCCareTask"];
         delete?: never;
         options?: never;

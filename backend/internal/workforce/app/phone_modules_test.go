@@ -71,6 +71,42 @@ func TestPhoneBarFollowsThePersonsTicks(t *testing.T) {
 	}
 }
 
+func TestPCCareTrimmingTickUsesPersonModulesInBootstrap(t *testing.T) {
+	repo := &fakeRepo{
+		profile:        profile("active"),
+		grants:         operatorGrants(),
+		grantedModules: []string{"vaccination"},
+		personAssignments: []permissions.ModuleAssignment{
+			{Module: "pc_trimming", Surface: permissions.SurfaceMobile, Capabilities: []string{permissions.LevelView, permissions.LevelConfigure}},
+		},
+	}
+	resp, err := NewService(repo).Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if !resp.FeatureFlags["pc_care_plan"] {
+		t.Fatal("pc_trimming@configure must light the PC Care plan wizard")
+	}
+	found := false
+	for _, module := range resp.Modules {
+		if module.Key == "pc_care" {
+			found = true
+			if len(module.NavItems) == 0 {
+				t.Fatal("pc_trimming@configure rendered PC Care with no bottom navigation")
+			}
+		}
+		if module.Key == "vaccination" {
+			t.Fatal("department module keys must not decide bootstrap once person mobile ticks exist")
+		}
+	}
+	if !found {
+		t.Fatal("pc_trimming@configure must render through the shared PC Care module")
+	}
+	if len(resp.VisibleNavigation) == 0 {
+		t.Fatal("pc_trimming@configure must produce visible_navigation for the shared PC Care module")
+	}
+}
+
 // TestAPersonWithNoTicksKeepsTheirDepartmentBar is the fail-open half. Someone the backfill
 // has not reached must not lose their phone: no stored rows means the department grants still
 // decide, exactly as before.
