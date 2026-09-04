@@ -28,23 +28,28 @@ type statusOptionPayload struct {
 }
 
 type taskPayload struct {
-	TaskID          string                `json:"task_id"`
-	TaskNo          int64                 `json:"task_no"`
-	NumberLabel     string                `json:"number_label"`
-	Title           string                `json:"title"`
-	Body            string                `json:"body"`
-	Status          string                `json:"status"`
-	StatusChip      string                `json:"status_chip"`
-	RaisedByUserID  string                `json:"raised_by_user_id"`
-	RaisedByName    string                `json:"raised_by_name"`
-	AssigneeUserID  string                `json:"assignee_user_id"`
-	AssigneeName    string                `json:"assignee_name"`
-	RaisedAt        string                `json:"raised_at"`
-	RaisedOnLabel   string                `json:"raised_on_label"`
-	UpdatedAt       string                `json:"updated_at"`
-	DoneAt          *string               `json:"done_at"`
-	SeenAt          *string               `json:"seen_at"`
-	IsSeen          bool                  `json:"is_seen"`
+	TaskID         string  `json:"task_id"`
+	TaskNo         int64   `json:"task_no"`
+	NumberLabel    string  `json:"number_label"`
+	Title          string  `json:"title"`
+	Body           string  `json:"body"`
+	Status         string  `json:"status"`
+	StatusChip     string  `json:"status_chip"`
+	RaisedByUserID string  `json:"raised_by_user_id"`
+	RaisedByName   string  `json:"raised_by_name"`
+	AssigneeUserID string  `json:"assignee_user_id"`
+	AssigneeName   string  `json:"assignee_name"`
+	RaisedAt       string  `json:"raised_at"`
+	RaisedOnLabel  string  `json:"raised_on_label"`
+	UpdatedAt      string  `json:"updated_at"`
+	DoneAt         *string `json:"done_at"`
+	SeenAt         *string `json:"seen_at"`
+	IsSeen         bool    `json:"is_seen"`
+	// IsAssignee / IsRaiser name the caller's party to the task explicitly. The phone holds
+	// no user id to compare against, and deriving party from can_change_status conflates
+	// "may act" with "is the person this is for".
+	IsAssignee      bool                  `json:"is_assignee"`
+	IsRaiser        bool                  `json:"is_raiser"`
 	MetaLine        string                `json:"meta_line"`
 	RowVersion      int                   `json:"row_version"`
 	CanEdit         bool                  `json:"can_edit"`
@@ -153,6 +158,8 @@ func toTaskPayload(t domain.Task, actor domain.Actor) taskPayload {
 		DoneAt:          rfc3339Ptr(t.DoneAt),
 		SeenAt:          rfc3339Ptr(t.SeenAt),
 		IsSeen:          t.SeenAt != nil,
+		IsAssignee:      t.IsAssignee(actor),
+		IsRaiser:        t.IsRaiser(actor),
 		MetaLine:        domain.MetaLine(t, actor),
 		RowVersion:      t.RowVersion,
 		CanEdit:         t.CanEdit(actor),

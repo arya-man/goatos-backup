@@ -57,6 +57,9 @@ class MeshaIconsNavKeyTest {
         "feed_purchases",
         // Sales tab (maintainer instruction 2026-09-04): the third tab on the same bar.
         "sales",
+        // Leadership Tasks (maintainer request 2026-09-04): a drawer module beside all of the
+        // above, so it must carry its own glyph and never the generic fallback.
+        "leadership_tasks",
     )
 
     /** The verifier drawer's own key namespace (bootstrap_copy.go: `verifyModuleKey = "verify_" + normalized`). */

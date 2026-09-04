@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="leadership_tasks_action_raise">ಹೊಸ ಕಾರ್ಯ ಸೃಷ್ಟಿಸಿ</string>
+    <string name="leadership_tasks_action_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
+    <string name="leadership_tasks_action_edit">ಸಂಪಾದಿಸಿ</string>
+    <string name="leadership_tasks_action_cancel_task">ಕಾರ್ಯ ರದ್ದುಮಾಡಿ</string>
+    <string name="leadership_tasks_cancel_confirm_title">ಈ ಕಾರ್ಯವನ್ನು ರದ್ದುಮಾಡಬೇಕೇ?</string>
+    <string name="leadership_tasks_cancel_confirm_body">ಕಾರ್ಯ ಮುಚ್ಚಲ್ಪಡುತ್ತದೆ ಮತ್ತು ಯಾರನ್ನೂ ಇದರ ಮೇಲೆ ಕೆಲಸ ಮಾಡಲು ಕೇಳಲಾಗುವುದಿಲ್ಲ.</string>
+    <string name="leadership_tasks_cancel_confirm_yes">ಕಾರ್ಯ ರದ್ದುಮಾಡಿ</string>
+    <string name="leadership_tasks_cancel_confirm_no">ಹಾಗೇ ಇರಲಿ</string>
+    <string name="leadership_tasks_attachments_label">ಲಗತ್ತುಗಳು</string>
+    <string name="leadership_tasks_attachment_open">ತೆರೆಯಿರಿ</string>
+    <string name="leadership_tasks_audio_play">ಧ್ವನಿ ಟಿಪ್ಪಣಿ ಪ್ಲೇ ಮಾಡಿ</string>
+    <string name="leadership_tasks_audio_pause">ಧ್ವನಿ ಟಿಪ್ಪಣಿ ನಿಲ್ಲಿಸಿ</string>
+    <string name="leadership_tasks_compose_title_new">ಹೊಸ ಕಾರ್ಯ</string>
+    <string name="leadership_tasks_compose_title_edit">ಕಾರ್ಯ ಸಂಪಾದಿಸಿ</string>
+    <string name="leadership_tasks_field_for">ಯಾರಿಗೆ</string>
+    <string name="leadership_tasks_field_title">ಶೀರ್ಷಿಕೆ</string>
+    <string name="leadership_tasks_field_brief">ವಿವರ</string>
+    <string name="leadership_tasks_add_voice_note">ಧ್ವನಿ ಟಿಪ್ಪಣಿ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="leadership_tasks_stop_recording">ನಿಲ್ಲಿಸಿ</string>
+    <string name="leadership_tasks_add_media">ಫೋಟೋ ಅಥವಾ ವೀಡಿಯೊ</string>
+    <string name="leadership_tasks_add_file">ಫೈಲ್</string>
+    <string name="leadership_tasks_remove_attachment">ತೆಗೆದುಹಾಕಿ</string>
+    <string name="leadership_tasks_send">ಕಳುಹಿಸಿ</string>
+    <string name="leadership_tasks_save">ಉಳಿಸಿ</string>
+    <string name="leadership_tasks_sending">ಕಳುಹಿಸಲಾಗುತ್ತಿದೆ…</string>
+</resources>

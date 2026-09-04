@@ -57,6 +57,11 @@ fun resolvePushRoute(payload: Map<String, String>): String? {
             type == "weighing_campaign_closed" || type == "weighing_shed_reopened" ->
             Routes.WEIGHING
         screen == "feed_overview" -> Routes.FEED_DIRECTION
+        // Leadership Tasks: the href normally names the task itself (handled by pushTargetRoute
+        // above); a push carrying only the screen lands on the module's list.
+        screen == "leadership_task" || screen == "leadership_tasks" ||
+            type == "leadership_task_raised" || type == "leadership_task_done" ->
+            Routes.LEADERSHIP_TASKS
         // This tree has no /counts census root: Counts is reached through its module-scoped
         // sub-routes, and /counts/birth is the landing href the backend registry serves.
         screen == "counts_overview" -> Routes.COUNTS_BIRTH

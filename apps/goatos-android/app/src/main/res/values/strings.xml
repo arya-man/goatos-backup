@@ -70,4 +70,13 @@
     <string name="proof_audio_stop">Stop recording</string>
     <string name="proof_audio_cancel">Cancel voice note</string>
     <string name="proof_audio_unavailable">The microphone is not available right now.</string>
+    <string name="leadership_tasks_msg_not_sent">Couldn\'t send. Check the connection and try again.</string>
+    <string name="leadership_tasks_msg_attachment_unavailable">Couldn\'t open that attachment. Check the connection and try again.</string>
+    <string name="leadership_tasks_msg_mic_needed">Allow the microphone to record a voice note.</string>
+    <string name="leadership_tasks_msg_assignees_unavailable">Couldn\'t load who this can go to. Check the connection and try again.</string>
+    <string name="leadership_tasks_msg_too_many">Up to 12 attachments on one task.</string>
+    <string name="leadership_tasks_msg_too_large">That file is too big. Keep each attachment under 50 MB.</string>
+    <string name="leadership_tasks_msg_recording_failed">The voice note didn\'t record. Try again.</string>
+    <string name="leadership_tasks_msg_attach_failed">That couldn\'t be attached. Try again.</string>
+    <string name="leadership_tasks_voice_note_file_name">Voice note %1$d</string>
 </resources>

@@ -119,6 +119,12 @@ import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.LeadershipTaskDetailCacheDao
+import sg.mesha.goatos.core.data.cache.LeadershipTaskDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.LeadershipTaskItemDao
+import sg.mesha.goatos.core.data.cache.LeadershipTaskItemEntity
+import sg.mesha.goatos.core.data.cache.LeadershipTaskRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.LeadershipTaskRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.ToxinTaskItemDao
@@ -329,6 +335,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         VendorsBlobCacheEntity::class,
         SalesDealItemEntity::class,
         SalesDealRemoteKeyEntity::class,
+        LeadershipTaskItemEntity::class,
+        LeadershipTaskRemoteKeyEntity::class,
+        LeadershipTaskDetailCacheEntity::class,
     ],
     // v52 (see [MIGRATION_51_52]) adds the three diagnosis tables. `health_diagnosis_runs` is the
     // DETAIL cache — one animal's whole assessment, read in a shed with no signal, so a manager who
@@ -350,7 +359,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v56 (see [MIGRATION_55_56]) adds the Sales deals ledger pair (`sales_deal_items` +
     // `sales_deal_remote_keys`) for the Procurement module's Sales tab (maintainer instruction
     // 2026-09-04), the exact shape of the feed purchase pair.
-    version = 56,
+    // v57 (see [MIGRATION_56_57]) adds the three Leadership Tasks read-model tables (maintainer
+    // request 2026-09-04): the paged task list rows + their per-filter remote keys (the Toxin
+    // trio shape) and the task-detail JSON blob cache.
+    version = 57,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -546,4 +558,7 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun vendorsBlobCacheDao(): VendorsBlobCacheDao
     abstract fun salesDealItemDao(): SalesDealItemDao
     abstract fun salesDealRemoteKeyDao(): SalesDealRemoteKeyDao
+    abstract fun leadershipTaskItemDao(): LeadershipTaskItemDao
+    abstract fun leadershipTaskRemoteKeyDao(): LeadershipTaskRemoteKeyDao
+    abstract fun leadershipTaskDetailCacheDao(): LeadershipTaskDetailCacheDao
 }

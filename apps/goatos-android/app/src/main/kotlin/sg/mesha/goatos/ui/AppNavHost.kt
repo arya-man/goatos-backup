@@ -23,6 +23,9 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import android.net.Uri
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
@@ -90,6 +93,12 @@ import sg.mesha.goatos.feature.clock.ClockPersonDayScreen
 import sg.mesha.goatos.feature.clock.ClockScreen
 import sg.mesha.goatos.feature.clock.ClockTeamEvent
 import sg.mesha.goatos.feature.clock.ClockTeamScreen
+import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskComposeEvent
+import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskComposeScreen
+import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskDetailEvent
+import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskDetailScreen
+import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskListEvent
+import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskListScreen
 import sg.mesha.goatos.feature.toxin.ToxinTaskDetailEvent
 import sg.mesha.goatos.feature.toxin.ToxinTaskDetailScreen
 import sg.mesha.goatos.feature.toxin.ToxinTaskListEvent
@@ -235,6 +244,9 @@ import sg.mesha.goatos.viewmodel.SalesListViewModel
 import sg.mesha.goatos.viewmodel.SaleDetailViewModel
 import sg.mesha.goatos.viewmodel.SaleCreateViewModel
 import sg.mesha.goatos.viewmodel.SaleTagAnimalsViewModel
+import sg.mesha.goatos.viewmodel.LeadershipTaskComposeViewModel
+import sg.mesha.goatos.viewmodel.LeadershipTaskDetailViewModel
+import sg.mesha.goatos.viewmodel.LeadershipTaskListViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
 import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
@@ -567,6 +579,31 @@ object Routes {
     const val SALE_TAG_ANIMALS = "/vendors/sales/sale/{$SALE_ID_ARG}/tag"
     fun saleDetailRoute(dealId: String): String = "/vendors/sales/sale/${Uri.encode(dealId)}"
     fun saleTagAnimalsRoute(dealId: String): String = "/vendors/sales/sale/${Uri.encode(dealId)}/tag"
+    // Leadership Tasks (backend module `leadership_tasks`, maintainer request 2026-09-04). The
+    // list is an L0 root whose href matches the backend-composed nav item VERBATIM
+    // ({key:"leadership_tasks", href:"/leadership-tasks"}); the task detail and the raise/edit
+    // form are distinct hosted drills with Up/Back and NO root chrome, never a prefix reuse of
+    // the L0 route.
+    const val LEADERSHIP_TASKS = "/leadership-tasks"
+    const val LEADERSHIP_TASK_ID_ARG = "task_id"
+    const val LEADERSHIP_TASK = "/leadership-tasks/{$LEADERSHIP_TASK_ID_ARG}"
+    private const val LEADERSHIP_TASK_COMPOSE_BASE = "/leadership-tasks/compose"
+    const val LEADERSHIP_TASK_COMPOSE = "$LEADERSHIP_TASK_COMPOSE_BASE?$LEADERSHIP_TASK_ID_ARG={$LEADERSHIP_TASK_ID_ARG}"
+
+    fun leadershipTaskRoute(taskId: String): String = "/leadership-tasks/${Uri.encode(taskId)}"
+
+    /** Raise (no id) or edit (id given). */
+    fun leadershipTaskComposeRoute(taskId: String? = null): String =
+        if (taskId.isNullOrBlank()) LEADERSHIP_TASK_COMPOSE_BASE
+        else "$LEADERSHIP_TASK_COMPOSE_BASE?$LEADERSHIP_TASK_ID_ARG=${Uri.encode(taskId)}"
+
+    /** The task id a `/leadership-tasks/<id>` push href names, or null for anything else. */
+    fun leadershipTaskIdFromHref(href: String): String? {
+        val base = href.substringBefore('?').trimEnd('/')
+        val id = base.removePrefix("$LEADERSHIP_TASKS/")
+        if (id == base || id.isBlank() || id.contains('/') || id == "compose") return null
+        return Uri.decode(id)
+    }
 
     // Clock module (backend module `clock`, maintainer decision 2026-08-27 —
     // docs/features/clock-in-out/plan.md). TWO L0 roots whose hrefs match the backend-composed
@@ -3237,6 +3274,15 @@ fun AppNavHost(
         composable(Routes.VENDORS) {
             val vm: VendorsListViewModel = hiltViewModel()
             LaunchedEffect(vm) { vm.bind(VENDORS_TAB_TITLE) }
+        // --- Leadership Tasks (maintainer request 2026-09-04) ------------------------------
+        // ONE L0 list (a director's raised tasks / a CXO's assigned ones — the backend decides),
+        // plus two hosted drills: the task, and the raise/edit form. Module visibility is
+        // backend-composed (`leadership_tasks.read`); nothing here gates on a role string.
+        composable(Routes.LEADERSHIP_TASKS) {
+            val vm: LeadershipTaskListViewModel = hiltViewModel()
+            // The backend nav label, so the header reads as the nav item does until the page's
+            // own title lands.
+            LaunchedEffect(vm) { vm.bind(LEADERSHIP_TASKS_TAB_TITLE) }
             val state by vm.state.collectAsStateWithLifecycle()
             val rows = vm.rows.collectAsLazyPagingItems()
             val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
@@ -3310,6 +3356,10 @@ fun AppNavHost(
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
             LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
             FeedPurchasesListScreen(
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            LeadershipTaskListScreen(
                 state = state,
                 rows = rows,
                 onEvent = { event ->
@@ -3329,6 +3379,24 @@ fun AppNavHost(
                         FeedPurchasesListEvent.AddPurchase -> {
                             vm.onEvent(event)
                             navController.navigate(Routes.FEED_PURCHASE_NEW) { launchSingleTop = true }
+                        LeadershipTaskListEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is LeadershipTaskListEvent.SelectFilter -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is LeadershipTaskListEvent.OpenTask -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.leadershipTaskRoute(event.taskId)) {
+                                launchSingleTop = true
+                            }
+                        }
+                        LeadershipTaskListEvent.RaiseTask -> {
+                            navController.navigate(Routes.leadershipTaskComposeRoute()) {
+                                launchSingleTop = true
+                            }
                         }
                     }
                 },
@@ -3425,6 +3493,46 @@ fun AppNavHost(
                             vm.onEvent(event)
                             val dealId = entry.arguments?.getString(Routes.SALE_ID_ARG).orEmpty()
                             navController.navigate(Routes.saleTagAnimalsRoute(dealId)) { launchSingleTop = true }
+
+        // The task (L1 drill). A picked FILE opens outside the app through the FileProvider —
+        // the bytes sit in app-private cache, so a content:// grant is the only legal handoff.
+        composable(
+            route = Routes.LEADERSHIP_TASK,
+            arguments = listOf(navArgument(Routes.LEADERSHIP_TASK_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: LeadershipTaskDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val context = LocalContext.current
+            LaunchedEffect(vm) {
+                vm.openFile.collect { request ->
+                    val uri = FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        java.io.File(request.localPath),
+                    )
+                    val intent = Intent(Intent.ACTION_VIEW)
+                        .setDataAndType(uri, request.mimeType.ifBlank { "*/*" })
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    try {
+                        context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    } catch (_: ActivityNotFoundException) {
+                        // No app on this phone opens that type; the row still shows the file's
+                        // name and size, which is all the phone can honestly offer.
+                    }
+                }
+            }
+            LeadershipTaskDetailScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        LeadershipTaskDetailEvent.Back -> navController.popBackStack()
+                        LeadershipTaskDetailEvent.Edit -> {
+                            val taskId = vm.currentTask()?.taskId
+                            if (!taskId.isNullOrBlank()) {
+                                navController.navigate(Routes.leadershipTaskComposeRoute(taskId)) {
+                                    launchSingleTop = true
+                                }
+                            }
                         }
                         else -> vm.onEvent(event)
                     }
@@ -3442,6 +3550,29 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         SaleTagAnimalsEvent.Back, SaleTagAnimalsEvent.Done -> navController.popBackStack()
+
+        // Raise or edit (L1 drill). Deliberately no refresh-on-resume: in-progress input.
+        composable(
+            route = Routes.LEADERSHIP_TASK_COMPOSE,
+            arguments = listOf(
+                navArgument(Routes.LEADERSHIP_TASK_ID_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: LeadershipTaskComposeViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            // The task reached the server: leave the form. The list and the detail both render
+            // from Room, which the repository already reconciled, so nothing is handed back.
+            LaunchedEffect(state.sentTaskId) {
+                if (state.sentTaskId != null) navController.popBackStack()
+            }
+            LeadershipTaskComposeScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        LeadershipTaskComposeEvent.Back -> navController.popBackStack()
                         else -> vm.onEvent(event)
                     }
                 },
@@ -4035,6 +4166,8 @@ private val supportedRootDestinations = setOf(
 	// cleared (E2E finding 2026-08-28: the operator could never review hours).
 	Routes.CLOCK,
 	Routes.CLOCK_TEAM,
+	// Leadership Tasks (maintainer request 2026-09-04): the module's one bottom-bar leaf.
+	Routes.LEADERSHIP_TASKS,
 	Routes.VACCINATION,
 	Routes.WEIGHING,
 	Routes.VERIFY,
@@ -4118,6 +4251,9 @@ private val pushTargetDestinations: Set<String> = supportedRootDestinations + se
 internal fun pushTargetRoute(target: String?): String? {
     if (target.isNullOrBlank()) return null
     if (target.substringBefore('?').trimEnd('/') in pushTargetDestinations) return target
+    // A `leadership_task_raised` / `leadership_task_done` push names ONE task
+    // (`/leadership-tasks/{task_id}`): open that task, not the module landing.
+    Routes.leadershipTaskIdFromHref(target)?.let { return Routes.leadershipTaskRoute(it) }
     return workTargetRoute(target)
 }
 
@@ -4161,6 +4297,9 @@ private const val TOXIN_TAB_TITLE = "Tests"
 private const val VENDORS_TAB_TITLE = "Vendors"
 private const val FEED_PURCHASES_TAB_TITLE = "Feed Purchases"
 private const val SALES_TAB_TITLE = "Sales"
+/** The backend's `nav.leadership_tasks` label, mirrored so the L0 header matches the nav item
+ *  until the page's own backend title lands. */
+private const val LEADERSHIP_TASKS_TAB_TITLE = "Tasks"
 
 private fun NavGraphBuilder.pcCareCategoryComposable(
     route: String,

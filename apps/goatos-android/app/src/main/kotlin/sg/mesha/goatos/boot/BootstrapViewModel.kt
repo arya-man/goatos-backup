@@ -51,6 +51,7 @@ class BootstrapViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
     private val pushTokenSync: PushTokenSync,
     private val connectivityGate: ConnectivityGate,
+    private val navRefresh: NavStateRefreshSignal,
 ) : ViewModel() {
     private companion object {
         const val TAG = "GoatOSBootstrap"
@@ -58,6 +59,29 @@ class BootstrapViewModel @Inject constructor(
 
     private val _state = MutableStateFlow<BootstrapUiState>(BootstrapUiState.Loading)
     val state: StateFlow<BootstrapUiState> = _state.asStateFlow()
+
+    init {
+        // A screen that changed something the nav reflects (today: the Leadership Tasks badge)
+        // asks for a quiet re-read. Collected here, once, for the life of the Activity.
+        viewModelScope.launch {
+            navRefresh.requests.collect { refreshQuietly() }
+        }
+    }
+
+    /**
+     * Re-reads the backend-composed nav state WITHOUT passing through [BootstrapUiState.Loading].
+     * Loading unmounts the shell (and with it the NavHost and its back stack), so a badge update
+     * must never route through [load]. A failure leaves the current shell exactly as it was: the
+     * next full [load] or the next request repairs it.
+     */
+    private suspend fun refreshQuietly() {
+        if (_state.value !is BootstrapUiState.Ready) return
+        // exception:exempt a quiet refresh that fails must not disturb a shell that is already
+        // rendering; the state it holds is still the last good bootstrap
+        runCatching { repo.loadNavState() }
+            .onSuccess { navState -> if (_state.value is BootstrapUiState.Ready) _state.value = BootstrapUiState.Ready(navState) }
+            .onFailure { throwable -> logError("Quiet bootstrap refresh failed", throwable) }
+    }
 
     // NO init { load() }.
     //

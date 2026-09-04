@@ -25,6 +25,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
@@ -572,6 +574,10 @@ fun GoatOsShellChrome(
                     MeshaNavBar(
                         items = barItems,
                         currentRoute = currentRoute,
+                        // Backend-composed attention counts, keyed by the module's own href so the
+                        // bar item that IS the module carries its badge (Leadership Tasks: unseen
+                        // assigned tasks). Never counted client-side.
+                        badges = navState.moduleBadgesByHref(),
                         // A bar tab has no fallback candidate; the guard inside onNavigate is what
                         // keeps a stale cached tab from crashing the app.
                         //
@@ -681,6 +687,7 @@ private fun MeshaNavBar(
     items: List<NavItem>,
     currentRoute: String?,
     onSelect: (String) -> Unit,
+    badges: Map<String, Int> = emptyMap(),
 ) {
     val itemColors = NavigationBarItemDefaults.colors(
         selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -713,11 +720,28 @@ private fun MeshaNavBar(
                     if (!isSelected) onSelect(item.href)
                 },
                 icon = {
-                    Icon(
-                        imageVector = MeshaIcons.forNavKey(item.key),
-                        contentDescription = item.label,
-                        modifier = Modifier.size(24.dp),
-                    )
+                    val badge = badges[item.href.routeBase()] ?: 0
+                    if (badge > 0) {
+                        BadgedBox(
+                            badge = {
+                                Badge(containerColor = MeshaColors.Brand, contentColor = MeshaColors.OnBrand) {
+                                    Text(badgeLabel(badge), style = MeshaType.dayName)
+                                }
+                            },
+                        ) {
+                            Icon(
+                                imageVector = MeshaIcons.forNavKey(item.key),
+                                contentDescription = item.label,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    } else {
+                        Icon(
+                            imageVector = MeshaIcons.forNavKey(item.key),
+                            contentDescription = item.label,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
                 },
                 // design-system:ignore: weight-only override on the M3 NavigationBarItem label
                 // (no fontSize to pair with); applying a full MeshaType style would also change
@@ -781,7 +805,19 @@ private fun ModuleDrawer(
                             icon = MeshaIcons.forNavKey(module.key),
                             label = module.label,
                             active = active,
-                            trailing = if (active) ({ DrawerCheck() }) else null,
+                            // The backend's attention count for this module (unseen tasks), then
+                            // the active check — a row can carry both.
+                            trailing = when {
+                                module.badgeCount > 0 && active -> ({
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        DrawerBadge(badgeLabel(module.badgeCount), brand = true)
+                                        DrawerCheck()
+                                    }
+                                })
+                                module.badgeCount > 0 -> ({ DrawerBadge(badgeLabel(module.badgeCount), brand = true) })
+                                active -> ({ DrawerCheck() })
+                                else -> null
+                            },
                             onClick = { onSelectModule(module) },
                         )
                     } else {
@@ -906,6 +942,17 @@ private fun DrawerSoonRow(module: NavModule) {
 private fun DrawerCheck() {
     Icon(MeshaIcons.Check, contentDescription = "Active", tint = MeshaColors.Brand, modifier = Modifier.size(15.dp))
 }
+
+/** A count as a badge reads: exact up to 99, then "99+". */
+internal fun badgeLabel(count: Int): String = if (count > MAX_BADGE_COUNT) "$MAX_BADGE_COUNT+" else count.toString()
+
+private const val MAX_BADGE_COUNT = 99
+
+/** Module href -> backend badge count, for the bar item that is the module's own landing. */
+internal fun NavState.moduleBadgesByHref(): Map<String, Int> =
+    availableModules()
+        .filter { it.badgeCount > 0 }
+        .associate { it.href.routeBase() to it.badgeCount }
 
 @Composable
 private fun DrawerBadge(text: String, brand: Boolean) {

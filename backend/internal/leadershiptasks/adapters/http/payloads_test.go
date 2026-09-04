@@ -55,6 +55,8 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 		"raised_on_label":   "04/09/2026",
 		"meta_line":         "Raised by Hemant · 04/09/2026",
 		"is_seen":           true,
+		"is_assignee":       true,
+		"is_raiser":         false,
 		"row_version":       float64(3),
 		"can_edit":          false,
 		"can_change_status": true,
@@ -79,6 +81,9 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 	_ = json.Unmarshal(raw, &got)
 	if got["can_edit"] != true || got["can_cancel"] != true || got["can_change_status"] != false {
 		t.Fatalf("director capabilities = edit %v cancel %v status %v", got["can_edit"], got["can_cancel"], got["can_change_status"])
+	}
+	if got["is_assignee"] != false || got["is_raiser"] != true {
+		t.Fatalf("director party = assignee %v raiser %v", got["is_assignee"], got["is_raiser"])
 	}
 	if got["meta_line"] != "For Ravi · 04/09/2026" {
 		t.Fatalf("director meta line = %v", got["meta_line"])

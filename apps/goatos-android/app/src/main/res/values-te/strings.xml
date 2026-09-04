@@ -67,4 +67,13 @@
     <string name="proof_audio_stop">రికార్డింగ్ ఆపండి</string>
     <string name="proof_audio_cancel">వాయిస్ నోట్ రద్దు చేయండి</string>
     <string name="proof_audio_unavailable">మైక్రోఫోన్ ఇప్పుడు అందుబాటులో లేదు.</string>
+    <string name="leadership_tasks_msg_not_sent">పంపలేకపోయాం. కనెక్షన్ తనిఖీ చేసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="leadership_tasks_msg_attachment_unavailable">ఆ జోడింపును తెరవలేకపోయాం. కనెక్షన్ తనిఖీ చేసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="leadership_tasks_msg_mic_needed">వాయిస్ నోట్ రికార్డ్ చేయడానికి మైక్రోఫోన్‌ను అనుమతించండి.</string>
+    <string name="leadership_tasks_msg_assignees_unavailable">ఇది ఎవరికి పంపవచ్చో లోడ్ చేయలేకపోయాం. కనెక్షన్ తనిఖీ చేసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="leadership_tasks_msg_too_many">ఒక పనికి గరిష్ఠంగా 12 జోడింపులు.</string>
+    <string name="leadership_tasks_msg_too_large">ఆ ఫైల్ చాలా పెద్దది. ప్రతి జోడింపు 50 MB లోపు ఉంచండి.</string>
+    <string name="leadership_tasks_msg_recording_failed">వాయిస్ నోట్ రికార్డ్ కాలేదు. మళ్లీ ప్రయత్నించండి.</string>
+    <string name="leadership_tasks_msg_attach_failed">అది జోడించలేకపోయాం. మళ్లీ ప్రయత్నించండి.</string>
+    <string name="leadership_tasks_voice_note_file_name">వాయిస్ నోట్ %1$d</string>
 </resources>

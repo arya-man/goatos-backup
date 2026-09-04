@@ -93,7 +93,7 @@ class BootstrapViewModelAnalyticsTest {
             profile = BootstrapOperatorProfileDto(operatorId = "member-123", primaryRoleHint = "operator", primaryLocation = "Park A"),
         )
 
-        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), crashReporter, PushTokenSync { pushSyncCalls++ }, FakeConnectivityGate()).load()
+        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), crashReporter, PushTokenSync { pushSyncCalls++ }, FakeConnectivityGate(), NavStateRefreshSignal()).load()
         advanceUntilIdle()
 
         val loaded = analytics.events.single { it.name == AnalyticsEvents.BOOTSTRAP_LOADED }
@@ -126,7 +126,7 @@ class BootstrapViewModelAnalyticsTest {
             profile = BootstrapOperatorProfileDto(operatorId = "member-456", primaryRoleHint = "director", primaryLocation = "Park B"),
         )
 
-        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("alice@mesha.sg"), crashReporter, PushTokenSync {}, FakeConnectivityGate()).load()
+        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("alice@mesha.sg"), crashReporter, PushTokenSync {}, FakeConnectivityGate(), NavStateRefreshSignal()).load()
         advanceUntilIdle()
 
         // The order of operations must ensure identity is set BEFORE BOOTSTRAP_LOADED is tracked.
@@ -154,7 +154,7 @@ class BootstrapViewModelAnalyticsTest {
             profile = null,
         )
 
-        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), crashReporter, PushTokenSync {}, FakeConnectivityGate()).load()
+        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), crashReporter, PushTokenSync {}, FakeConnectivityGate(), NavStateRefreshSignal()).load()
         advanceUntilIdle()
 
         val loaded = analytics.events.single { it.name == AnalyticsEvents.BOOTSTRAP_LOADED }
@@ -178,7 +178,7 @@ class BootstrapViewModelAnalyticsTest {
             profile = BootstrapOperatorProfileDto(primaryRoleHint = "   ", primaryLocation = ""),
         )
 
-        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), crashReporter, PushTokenSync {}, FakeConnectivityGate()).load()
+        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), crashReporter, PushTokenSync {}, FakeConnectivityGate(), NavStateRefreshSignal()).load()
         advanceUntilIdle()
 
         assertNull("blank role hint -> null identity", context.role)
@@ -195,7 +195,7 @@ class BootstrapViewModelAnalyticsTest {
             navState = NavState(NavChrome.EXPANDED, listOf()),
             profile = BootstrapOperatorProfileDto(primaryRoleHint = "operator", primaryLocation = "Park A"),
         )
-        val vm = BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), crashReporter, PushTokenSync {}, FakeConnectivityGate())
+        val vm = BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), crashReporter, PushTokenSync {}, FakeConnectivityGate(), NavStateRefreshSignal())
         vm.load()
         advanceUntilIdle()
         check(vm.state.value is BootstrapUiState.Ready) { "precondition: vm should be Ready before reset" }

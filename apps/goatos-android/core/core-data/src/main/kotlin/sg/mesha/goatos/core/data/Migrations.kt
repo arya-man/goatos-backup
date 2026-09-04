@@ -1525,3 +1525,42 @@ val MIGRATION_55_56: Migration = object : Migration(55, 56) {
         )
     }
 }
+
+/**
+ * v56 -> v57: adds the three Leadership Tasks read-model tables (maintainer request 2026-09-04) —
+ * the paged task list rows + their per-filter remote keys and the task-detail JSON blob cache,
+ * the [MIGRATION_49_50] Toxin trio shape. Purely additive; no existing table changes, so an
+ * installed APK carrying an unsynced write outbox upgrades in place without data loss.
+ *
+ * Each CREATE spells its table name out as a literal (never an interpolated loop) so
+ * `make room-migration-guard` can statically match every new v57 @Entity table against a CREATE
+ * here (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_56_57: Migration = object : Migration(56, 57) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `leadership_task_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_leadership_task_items_queryKey_sortIndex` " +
+                "ON `leadership_task_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_leadership_task_items_grainKey` " +
+                "ON `leadership_task_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `leadership_task_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `leadership_task_detail_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

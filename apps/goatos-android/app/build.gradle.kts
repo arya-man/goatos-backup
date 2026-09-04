@@ -354,6 +354,7 @@ dependencies {
     implementation(project(":feature:feature-record"))
     implementation(project(":feature:feature-profile"))
     implementation(project(":feature:feature-timetable"))
+    implementation(project(":feature:feature-leadership-tasks"))
     implementation(project(":feature:feature-toxin"))
     implementation(project(":feature:feature-vendors"))
     implementation(project(":feature:feature-vaccination"))

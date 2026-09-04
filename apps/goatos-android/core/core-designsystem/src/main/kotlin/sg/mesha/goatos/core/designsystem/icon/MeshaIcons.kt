@@ -311,6 +311,53 @@ object MeshaIcons {
     )
 
     /**
+     * Leadership Tasks (maintainer request 2026-09-04): a clipboard carrying LINES — the brief a
+     * director hands a CXO. Deliberately not [ClipboardCheck] (Feed Wastage's recorded check) and
+     * not the generic [Module] grid: the drawer lists this beside every other module.
+     */
+    val Tasks: ImageVector = strokeIcon(
+        "tasks",
+        "M9 4h6l1 2h2a2 2 0 0 1 2 2v10.5a2 2 0 0 1 -2 2H6a2 2 0 0 1 -2 -2V8a2 2 0 0 1 2 -2h2z",
+        "M9 4.5h6",
+        "M8.5 11.5h7M8.5 15.5h4.5",
+    )
+
+    /** Pencil — edit what is on this screen. */
+    val Edit: ImageVector = strokeIcon(
+        "edit",
+        "M4 20h4l10.5-10.5a2.1 2.1 0 0 0 -3 -3L5 17v3z",
+        "M13.5 6.5l3 3",
+    )
+
+    /** Microphone — an in-app voice note. */
+    val Mic: ImageVector = strokeIcon(
+        "mic",
+        "M12 3.5a3 3 0 0 1 3 3v5a3 3 0 0 1 -6 0v-5a3 3 0 0 1 3 -3z",
+        "M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v3.5M9 20.5h6",
+    )
+
+    /** Paperclip — "attach something". */
+    val Paperclip: ImageVector = strokeIcon(
+        "paperclip",
+        "M16.5 7.5 9.2 14.8a2 2 0 0 0 2.8 2.8l7.8-7.8a4 4 0 0 0 -5.7 -5.7L6 12.2a6 6 0 0 0 8.5 8.5l6-6",
+    )
+
+    /** A photograph — a gallery image attachment. */
+    val Photo: ImageVector = strokeIcon(
+        "photo",
+        "M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1 -1.5 1.5H5a1.5 1.5 0 0 1 -1.5 -1.5V7A1.5 1.5 0 0 1 5 5.5z",
+        "M3.5 15.5 9 10l4.5 4.5 2.5-2.5 4.5 4.5",
+        "M15.5 9.5a1 1 0 1 0 2 0 1 1 0 0 0 -2 0z",
+    )
+
+    /** A document — an arbitrary file attachment. */
+    val Document: ImageVector = strokeIcon(
+        "document",
+        "M7 3.5h7l5 5V19a1.5 1.5 0 0 1 -1.5 1.5h-10.5A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z",
+        "M14 3.5v5h5M8.5 13h7M8.5 16.5h5",
+    )
+
+    /**
      * Maps a backend nav-item OR module key to its mock icon. Keys are the stable backend
      * identifiers from `moduleNavRegistry` (bootstrap_copy.go); an unknown key falls back to
      * the neutral [Module] tile rather than borrowing another vertical's glyph.
@@ -393,6 +440,9 @@ object MeshaIcons {
         // thing a verifier already knows and repeated the glyph the queue cards use for their own
         // media thumbnails -- two different meanings, one icon, on the same screen.
         "verify", "verification", "video_verification" -> CheckCircle
+        // Leadership Tasks (maintainer request 2026-09-04): its own glyph, shared with nothing —
+        // it sits in the CEO/director drawer beside every other module.
+        "leadership_tasks" -> Tasks
         else -> Module
     }
 }

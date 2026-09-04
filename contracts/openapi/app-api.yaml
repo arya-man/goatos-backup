@@ -16274,6 +16274,8 @@ components:
         - raised_on_label
         - updated_at
         - is_seen
+        - is_assignee
+        - is_raiser
         - meta_line
         - row_version
         - can_edit
@@ -16300,6 +16302,8 @@ components:
         done_at: { type: string, format: date-time, nullable: true }
         seen_at: { type: string, format: date-time, nullable: true }
         is_seen: { type: boolean }
+        is_assignee: { type: boolean, description: The caller is the person this task is for. }
+        is_raiser: { type: boolean, description: The caller raised this task. }
         meta_line:
           type: string
           description: From the viewer's side -- "Raised by Hemant · 04/09/2026" for the CXO, "For Ravi · 04/09/2026" for the raiser.

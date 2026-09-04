@@ -6723,6 +6723,10 @@ export interface components {
             /** Format: date-time */
             seen_at?: string | null;
             is_seen: boolean;
+            /** @description The caller is the person this task is for. */
+            is_assignee: boolean;
+            /** @description The caller raised this task. */
+            is_raiser: boolean;
             /** @description From the viewer's side -- "Raised by Hemant · 04/09/2026" for the CXO, "For Ravi · 04/09/2026" for the raiser. */
             meta_line: string;
             row_version: number;

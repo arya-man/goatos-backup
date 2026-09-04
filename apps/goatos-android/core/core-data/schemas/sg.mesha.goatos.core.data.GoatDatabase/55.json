@@ -2,7 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 55,
+<<<<<<< HEAD
     "identityHash": "9cc0ab2b03b61bc5c56010f041332cfe",
+=======
+    "identityHash": "f7021cfd9c1c61c8bb512716c86e1efe",
+>>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
     "entities": [
       {
         "tableName": "bootstrap_cache",
@@ -4611,7 +4615,11 @@
         }
       },
       {
+<<<<<<< HEAD
         "tableName": "vendor_items",
+=======
+        "tableName": "leadership_task_items",
+>>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `grainKey`))",
         "fields": [
           {
@@ -4654,28 +4662,47 @@
         },
         "indices": [
           {
+<<<<<<< HEAD
             "name": "index_vendor_items_queryKey_sortIndex",
+=======
+            "name": "index_leadership_task_items_queryKey_sortIndex",
+>>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
             "unique": false,
             "columnNames": [
               "queryKey",
               "sortIndex"
             ],
             "orders": [],
+<<<<<<< HEAD
             "createSql": "CREATE INDEX IF NOT EXISTS `index_vendor_items_queryKey_sortIndex` ON `${TABLE_NAME}` (`queryKey`, `sortIndex`)"
           },
           {
             "name": "index_vendor_items_grainKey",
+=======
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_leadership_task_items_queryKey_sortIndex` ON `${TABLE_NAME}` (`queryKey`, `sortIndex`)"
+          },
+          {
+            "name": "index_leadership_task_items_grainKey",
+>>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
             "unique": false,
             "columnNames": [
               "grainKey"
             ],
             "orders": [],
+<<<<<<< HEAD
             "createSql": "CREATE INDEX IF NOT EXISTS `index_vendor_items_grainKey` ON `${TABLE_NAME}` (`grainKey`)"
+=======
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_leadership_task_items_grainKey` ON `${TABLE_NAME}` (`grainKey`)"
+>>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
           }
         ]
       },
       {
+<<<<<<< HEAD
         "tableName": "vendor_remote_keys",
+=======
+        "tableName": "leadership_task_remote_keys",
+>>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
         "fields": [
           {
@@ -4711,6 +4738,7 @@
         }
       },
       {
+<<<<<<< HEAD
         "tableName": "feed_purchase_items",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `grainKey`))",
         "fields": [
@@ -4812,6 +4840,9 @@
       },
       {
         "tableName": "vendors_blob_cache",
+=======
+        "tableName": "leadership_task_detail_cache",
+>>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`cacheKey`))",
         "fields": [
           {
@@ -4843,7 +4874,11 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+<<<<<<< HEAD
       "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9cc0ab2b03b61bc5c56010f041332cfe')"
+=======
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f7021cfd9c1c61c8bb512716c86e1efe')"
+>>>>>>> bf8ec12aa (feat(leadership-tasks): Android Tasks module for directors and CXOs)
     ]
   }
 }
