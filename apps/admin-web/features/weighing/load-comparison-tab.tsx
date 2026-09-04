@@ -35,10 +35,9 @@ function loadHeading(load: LoadwiseWeightLoad): string {
  * The pens one load's weighed animals sit in, as one line: the backend-composed operational
  * display for each contributing pen with its head count at that pen's latest weigh.
  *
- * The park is prefixed ONLY when the load spans more than one park. A shed name is not unique
- * across parks -- this farm has a "Castro 1" in each -- so a load split across both would
- * otherwise print one name twice with nothing to tell them apart; a load sitting in one park
- * needs no prefix, and adding it everywhere would push the pens off the line.
+ * The PARK is always named (maintainer, 2026-09-05), never only when a load spans two. A shed name
+ * is not unique across parks -- this farm has a "Castro 1" in each -- and this tab is normally read
+ * unfiltered, so a bare "Castro 1" leaves the reader guessing which building they are looking at.
  *
  * The names are DATA, composed by the backend (`operational_location_display`) and passed
  * through: this file never joins a shed name to a partition label itself. Empty when the load has
@@ -47,10 +46,11 @@ function loadHeading(load: LoadwiseWeightLoad): string {
 function penList(bucket: { placements?: readonly { park_name: string; operational_location_display: string; animals: number }[] } | undefined): string {
   const placements = bucket?.placements ?? [];
   if (placements.length === 0) return "";
-  const multiPark = new Set(placements.map((p) => p.park_name).filter(Boolean)).size > 1;
   return placements
     .map((p) => {
-      const where = multiPark && p.park_name ? `${p.park_name} ${p.operational_location_display}` : p.operational_location_display;
+      // The park's own short code, backend-resolved; a pen whose park could not be resolved is
+      // still named rather than dropped.
+      const where = p.park_name ? `${p.park_name} ${p.operational_location_display}` : p.operational_location_display;
       return `${where} · ${p.animals.toLocaleString("en-IN")}`;
     })
     .join(", ");

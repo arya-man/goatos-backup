@@ -24,9 +24,10 @@ test("the pen line takes its names from the backend, and disambiguates parks onl
   // label itself -- that is the hand-rolled composition the operational-location rule bans.
   assert.match(source, /p\.operational_location_display/);
   assert.doesNotMatch(source, /partition_label/);
-  // A shed name repeats across parks (a "Castro 1" in each), so a load split across both prefixes
-  // the park; a single-park load does not, or the prefix would push the pens off the line.
-  assert.match(source, /const multiPark = new Set\(placements\.map\(\(p\) => p\.park_name\)\.filter\(Boolean\)\)\.size > 1;/);
+  // The park is ALWAYS named (maintainer, 2026-09-05): a shed name repeats across parks, and this
+  // tab is normally read unfiltered, so a bare "Castro 1" leaves the reader guessing.
+  assert.match(source, /const where = p\.park_name \? `\$\{p\.park_name\} \$\{p\.operational_location_display\}` : p\.operational_location_display;/);
+  assert.doesNotMatch(source, /multiPark/);
   // No pens is an ABSENT sub-line, never a dangling separator beside the multiple.
   assert.match(source, /if \(placements\.length === 0\) return "";/);
 });
