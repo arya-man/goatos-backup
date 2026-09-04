@@ -78,7 +78,7 @@ val releaseVersionCode = (
     )
     ?.takeIf { it.isNotBlank() }
     ?.toInt()
-    ?: 44
+    ?: 50
 val releaseVersionName = (
     project.findProperty("goatosVersionName") as String?
         ?: System.getenv("GOATOS_ANDROID_VERSION_NAME")
@@ -528,10 +528,23 @@ val validateFirebaseDistributionSource = tasks.register("validateFirebaseDistrib
     }
 }
 
+val blockHistoricalStgDistribution = tasks.register("blockHistoricalStgDistribution") {
+    group = "verification"
+    description = "Blocks the retired sg.mesha.goatos.stg release/distribution path."
+
+    doLast {
+        throw GradleException(
+            "sg.mesha.goatos.stg is retired. Use the production-facing package " +
+                "sg.mesha.goatos via tools/deploy/stg-mobile-distribution.sh, which publishes " +
+                "Firebase App Distribution, Play Internal Testing, and https://mesha.sg/app.apk.",
+        )
+    }
+}
+
 tasks.matching {
     it.name == "assembleStgRelease" || it.name == "appDistributionUploadStgRelease"
 }.configureEach {
-    dependsOn(validateStgReleaseInputs)
+    dependsOn(blockHistoricalStgDistribution)
 }
 
 tasks.matching {

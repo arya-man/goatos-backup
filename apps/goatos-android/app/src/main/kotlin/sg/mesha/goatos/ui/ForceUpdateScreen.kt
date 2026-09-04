@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +42,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import androidx.compose.ui.res.stringResource
+import sg.mesha.goatos.ForceUpdateAttemptState
 
 /**
  * The force-update gate (`v-force-update`). A non-dismissible full-screen state shown
@@ -60,6 +62,7 @@ import androidx.compose.ui.res.stringResource
 fun ForceUpdateScreen(
     updateUrl: String,
     installedVersionName: String,
+    attemptState: ForceUpdateAttemptState,
     onUpdate: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -106,9 +109,18 @@ fun ForceUpdateScreen(
         InstalledVersionChip(installedVersionName)
         Spacer(Modifier.height(MeshaDimens.space7))
 
+        ForceUpdateAttemptStatus(attemptState)
+        Spacer(Modifier.height(MeshaDimens.space4))
+
         UpdatePrimaryButton(
-            text = stringResource(R.string.force_update_cta),
-            enabled = hasLink,
+            text = when (attemptState) {
+                ForceUpdateAttemptState.Downloading -> stringResource(R.string.force_update_downloading)
+                ForceUpdateAttemptState.InstallerOpened -> stringResource(R.string.force_update_open_installer_again)
+                ForceUpdateAttemptState.PermissionNeeded -> stringResource(R.string.force_update_cta)
+                is ForceUpdateAttemptState.Failed -> stringResource(R.string.force_update_retry)
+                ForceUpdateAttemptState.Idle -> stringResource(R.string.force_update_cta)
+            },
+            enabled = hasLink && attemptState != ForceUpdateAttemptState.Downloading,
             onClick = { if (hasLink) onUpdate(updateUrl) },
         )
 
@@ -123,6 +135,47 @@ fun ForceUpdateScreen(
         }
 
         Spacer(Modifier.height(MeshaDimens.space8))
+    }
+}
+
+@Composable
+private fun ForceUpdateAttemptStatus(attemptState: ForceUpdateAttemptState) {
+    when (attemptState) {
+        ForceUpdateAttemptState.Idle -> Unit
+        ForceUpdateAttemptState.Downloading -> Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            CircularProgressIndicator(color = MeshaColors.Brand, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(9.dp))
+            Text(
+                text = stringResource(R.string.force_update_downloading_message),
+                color = MeshaColors.Muted,
+                style = MeshaType.caption,
+            )
+        }
+        ForceUpdateAttemptState.InstallerOpened -> Text(
+            text = stringResource(R.string.force_update_installer_opened),
+            color = MeshaColors.Muted,
+            style = MeshaType.caption,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        ForceUpdateAttemptState.PermissionNeeded -> Text(
+            text = stringResource(R.string.force_update_permission_needed),
+            color = MeshaColors.Muted,
+            style = MeshaType.caption,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        is ForceUpdateAttemptState.Failed -> Text(
+            text = stringResource(R.string.force_update_failed),
+            color = MeshaColors.Danger,
+            style = MeshaType.caption,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -212,6 +265,7 @@ private fun ForceUpdatePreview() {
         ForceUpdateScreen(
             updateUrl = "https://appdistribution.firebase.dev/i/abc123",
             installedVersionName = "0.1.0",
+            attemptState = ForceUpdateAttemptState.Idle,
             onUpdate = {},
         )
     }
@@ -224,6 +278,7 @@ private fun ForceUpdateNoLinkPreview() {
         ForceUpdateScreen(
             updateUrl = "",
             installedVersionName = "0.1.0",
+            attemptState = ForceUpdateAttemptState.Idle,
             onUpdate = {},
         )
     }

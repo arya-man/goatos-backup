@@ -157,4 +157,11 @@
     <string name="force_update_installed">Installed version %1$s</string>
     <string name="force_update_cta">Update now</string>
     <string name="force_update_no_link">Update link not available yet. Ask your Mesha admin for the latest build.</string>
+    <string name="force_update_downloading">Downloading...</string>
+    <string name="force_update_downloading_message">Downloading the latest APK automatically.</string>
+    <string name="force_update_installer_opened">The Android installer is open. Tap Install to finish the update.</string>
+    <string name="force_update_open_installer_again">Open installer again</string>
+    <string name="force_update_permission_needed">Allow installs from Mesha in Android settings, then return here and tap Update now.</string>
+    <string name="force_update_failed">Update download failed. Check internet and try again.</string>
+    <string name="force_update_retry">Try again</string>
 </resources>

@@ -54,6 +54,24 @@ object AnalyticsEventsSession {
     /** The operator tapped the force-update gate's CTA to open the install link. */
     const val FORCE_UPDATE_TAPPED = "force_update_tapped"
 
+    /** The force-update gate started downloading the APK. */
+    const val FORCE_UPDATE_DOWNLOAD_STARTED = "force_update_download_started"
+
+    /** The force-update APK download finished and the installer can be opened. */
+    const val FORCE_UPDATE_DOWNLOAD_COMPLETED = "force_update_download_completed"
+
+    /** The force-update APK download or installer launch failed. */
+    const val FORCE_UPDATE_FAILED = "force_update_failed"
+
+    /** Android requires the operator to allow installs from this app before the APK can open. */
+    const val FORCE_UPDATE_INSTALL_PERMISSION_NEEDED = "force_update_install_permission_needed"
+
+    /** Android's package installer was opened for the downloaded APK. */
+    const val FORCE_UPDATE_INSTALLER_OPENED = "force_update_installer_opened"
+
+    /** The app relaunched on a newer version after Android's package installer was opened. */
+    const val FORCE_UPDATE_INSTALL_COMPLETED = "force_update_install_completed"
+
     /**
      * The gate re-confirmed a block on a later check (e.g. the app came back to the
      * foreground and [sg.mesha.goatos.update.UpdateGateViewModel.refresh] re-ran) — distinct
@@ -132,5 +150,8 @@ object AnalyticsEventsSession {
 
         /** Coarse shell control/action name, e.g. `bottom_nav`, `language_open`, `sign_out`. */
         const val SHELL_ACTION = "shell_action"
+
+        /** Download/install URL host only, never the full URL. */
+        const val UPDATE_HOST = "update_host"
     }
 }

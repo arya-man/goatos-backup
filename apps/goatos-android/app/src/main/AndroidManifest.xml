@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- CameraX proof capture (docs/mobile/trd-operator-mobile.md §2/§7; MOB-002 "Camera-only
          capture" anti-fraud rule — docs/mobile/proof-capture-sync-and-e2e.md). Live in-app
@@ -23,8 +24,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Obligation/escalation alert notifications rendered from FCM
-         (docs/mobile/trd-operator-mobile.md §8), AND the MOB-002 background upload progress
-         notification (docs/mobile/proof-capture-sync-and-e2e.md §3, UploadForegroundService).
+         (docs/mobile/trd-operator-mobile.md §8).
          Runtime-requestable only on Android 13+ (TIRAMISU); declaring it on older OS versions is
          a documented no-op. Already mandatory-gated at the capture surface entry
          (CaptureAccessGate.kt). -->
@@ -53,10 +53,9 @@
          docs/features/clock-in-out/plan.md §4.2): the punch-time integrity scan lists installed
          packages requesting android.permission.ACCESS_MOCK_LOCATION (the permission every
          fake-GPS app must declare) so a punch from a phone carrying one is refused and the app
-         is named to the person. Acceptable for this app's internal distribution (Firebase App
-         Distribution + mesha.sg/app.apk + Play INTERNAL testing); recorded as a Play-policy
-         consideration if the app ever goes to open Play tracks. -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+         is named to the person. Required for this app's internal operator distribution. -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -116,7 +115,7 @@
              §3). `dataSync` type: it drains outbox writes (proof-video registrations + shed
              submissions), not media playback/location/camera/etc. Never exported — only this app
              (via ForegroundSyncController.ensureRunning -> AndroidForegroundSyncController) starts
-             it. -->
+             it. Required for this app's internal operator distribution. -->
         <service
             android:name=".sync.UploadForegroundService"
             android:exported="false"
@@ -146,12 +145,10 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/push_notification_accent" />
-        <!-- FileProvider for the leadership weighing-CSV export (see WeighingExportFileWriter):
-             the export is written under app-private cacheDir/exports and shared to whatever the
-             viewer opens it with (Files, Sheets, email, Drive) via a content:// Uri rather than a
-             file:// one, which the platform has forbidden granting to other apps since N. Never
-             exported directly: grantUriPermissions is how the OS lets a share-sheet target read
-             ONE file without this provider being reachable generally. -->
+        <!-- FileProvider for app-private cache files shared to trusted platform flows:
+             weighing CSV exports under cacheDir/exports and sideload APK updates under
+             cacheDir/updates. Never exported directly: grantUriPermissions lets the target app
+             read ONE file without this provider being reachable generally. -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

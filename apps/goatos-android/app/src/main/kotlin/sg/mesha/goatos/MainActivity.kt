@@ -2,8 +2,8 @@ package sg.mesha.goatos
 
 import android.annotation.SuppressLint
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -38,10 +38,12 @@ import sg.mesha.goatos.boot.BootstrapUiState
 import sg.mesha.goatos.boot.BootstrapViewModel
 import sg.mesha.goatos.boot.SessionViewModel
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -60,6 +62,9 @@ import sg.mesha.goatos.ui.ForceUpdateScreen
 import sg.mesha.goatos.ui.GoatOsShell
 import sg.mesha.goatos.update.UpdateGateUiState
 import sg.mesha.goatos.update.UpdateGateViewModel
+import sg.mesha.goatos.update.SideloadInstallResult
+import sg.mesha.goatos.update.SideloadUpdateInstaller
+import java.net.URI
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -92,10 +97,15 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var analytics: AnalyticsPort
 
+    @Inject
+    lateinit var sideloadUpdateInstaller: SideloadUpdateInstaller
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        applyDebugForceUpdateOverride(intent)
         handlePushIntent(intent)
+        trackCompletedForceUpdateInstallIfNeeded()
         setContent {
             GoatOsTheme {
                 // Restore the saved language once, and persist any picker change app-wide.
@@ -114,20 +124,30 @@ class MainActivity : ComponentActivity() {
                     UpdateGateUiState.Checking -> BootstrapLoading()
 
                     is UpdateGateUiState.Blocked -> {
+                        val updateScope = rememberCoroutineScope()
+                        var updateAttemptState by remember(gate.updateUrl) {
+                            mutableStateOf<ForceUpdateAttemptState>(ForceUpdateAttemptState.Idle)
+                        }
                         // Fires once per distinct block this process sees (a later refresh that
                         // re-confirms the SAME block must not re-fire "shown" — see
                         // FORCE_UPDATE_GATE_BLOCKING for the "still blocked" signal, driven from
                         // onResume() instead). This gate sits above auth, so this LaunchedEffect
                         // is the only place its state is ever visible in analytics at all.
                         LaunchedEffect(gate.updateUrl) {
-                            analytics.track(AnalyticsEventsSession.FORCE_UPDATE_GATE_SHOWN)
+                            trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_GATE_SHOWN, gate.updateUrl)
+                            updateAttemptState = ForceUpdateAttemptState.Downloading
+                            updateAttemptState = performForceUpdateInstall(gate.updateUrl)
                         }
                         ForceUpdateScreen(
                             updateUrl = gate.updateUrl,
                             installedVersionName = BuildConfig.VERSION_NAME,
+                            attemptState = updateAttemptState,
                             onUpdate = { url ->
-                                analytics.track(AnalyticsEventsSession.FORCE_UPDATE_TAPPED)
-                                openExternalUrl(url)
+                                trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_TAPPED, url)
+                                updateScope.launch {
+                                    updateAttemptState = ForceUpdateAttemptState.Downloading
+                                    updateAttemptState = performForceUpdateInstall(url)
+                                }
                             },
                         )
                     }
@@ -260,7 +280,8 @@ class MainActivity : ComponentActivity() {
         // StateFlow's current value rather than a coroutine collector, so this never races the
         // Compose recomposition that renders the same state.
         if (updateGateViewModel.state.value is UpdateGateUiState.Blocked) {
-            analytics.track(AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING)
+            val blocked = updateGateViewModel.state.value as UpdateGateUiState.Blocked
+            trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING, blocked.updateUrl)
         }
     }
 
@@ -281,7 +302,9 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        applyDebugForceUpdateOverride(intent)
         handlePushIntent(intent)
+        updateGateViewModel.refresh()
     }
 
     /**
@@ -302,16 +325,104 @@ class MainActivity : ComponentActivity() {
         resolvePushRoute(payload)?.let { pendingNavigation.set(it) }
     }
 
-    /**
-     * Opens the force-update install link (a Firebase App Distribution tester link) in the
-     * browser / App Distribution app. New-task launch because it leaves the app; wrapped so
-     * a missing handler never crashes the gate — the CTA simply no-ops.
-     */
-    private fun openExternalUrl(url: String) {
-        if (url.isBlank()) return
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        // Swallow a missing handler (e.g. no browser) so the gate CTA never crashes the app.
-        runCatching { startActivity(intent) }
+    private fun applyDebugForceUpdateOverride(intent: Intent?) {
+        if (!BuildConfig.DEBUG) return
+        val minSupported = intent
+            ?.getLongExtra(DEBUG_FORCE_UPDATE_MIN_VERSION_CODE, 0L)
+            ?.takeIf { it > 0L }
+            ?: return
+        val updateUrl = intent.getStringExtra(DEBUG_FORCE_UPDATE_URL).orEmpty()
+        filesDir.resolve("force_update_override.properties").writeText(
+            "min_supported_version_code=$minSupported\nupdate_url=$updateUrl\n",
+        )
+    }
+
+    private suspend fun performForceUpdateInstall(url: String): ForceUpdateAttemptState {
+        if (url.isBlank()) {
+            trackForceUpdate(
+                AnalyticsEventsSession.FORCE_UPDATE_FAILED,
+                url,
+                mapOf(AnalyticsEvents.Params.REASON to "missing_url"),
+            )
+            return ForceUpdateAttemptState.Failed("missing_url")
+        }
+        if (!sideloadUpdateInstaller.canInstallFromThisSource()) {
+            sideloadUpdateInstaller.openUnknownAppSourcesSettings()
+            trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_INSTALL_PERMISSION_NEEDED, url)
+            return ForceUpdateAttemptState.PermissionNeeded
+        }
+        return runCatching {
+            trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_STARTED, url)
+            val apkFile = sideloadUpdateInstaller.downloadApk(url)
+            trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_COMPLETED, url)
+            when (sideloadUpdateInstaller.openInstaller(apkFile)) {
+                SideloadInstallResult.InstallPermissionNeeded -> {
+                    trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_INSTALL_PERMISSION_NEEDED, url)
+                    ForceUpdateAttemptState.PermissionNeeded
+                }
+                SideloadInstallResult.InstallerOpened -> {
+                    trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED, url)
+                    rememberPendingForceUpdateInstall(url)
+                    ForceUpdateAttemptState.InstallerOpened
+                }
+            }
+        }.getOrElse { error ->
+            val reason = error.javaClass.simpleName.ifBlank { "unknown_error" }
+            trackForceUpdate(
+                AnalyticsEventsSession.FORCE_UPDATE_FAILED,
+                url,
+                mapOf(AnalyticsEvents.Params.REASON to reason),
+            )
+            ForceUpdateAttemptState.Failed(reason)
+        }
+    }
+
+    private fun trackForceUpdate(
+        event: String,
+        updateUrl: String,
+        extra: Map<String, String> = emptyMap(),
+    ) {
+        analytics.track(
+            event,
+            buildMap {
+                updateHost(updateUrl)?.let { put(AnalyticsEventsSession.Params.UPDATE_HOST, it) }
+                putAll(extra)
+            },
+        )
+    }
+
+    private fun updateHost(url: String): String? {
+        return try {
+            URI(url).host?.takeIf { it.isNotBlank() }
+        } catch (error: IllegalArgumentException) {
+            Log.w(TAG, "Ignoring invalid force-update URL for analytics host", error)
+            null
+        }
+    }
+
+    private fun rememberPendingForceUpdateInstall(url: String) {
+        getSharedPreferences(FORCE_UPDATE_PREFS, MODE_PRIVATE)
+            .edit()
+            .putInt(FORCE_UPDATE_PENDING_VERSION_CODE, BuildConfig.VERSION_CODE)
+            .putString(FORCE_UPDATE_PENDING_URL, url)
+            .apply()
+    }
+
+    private fun trackCompletedForceUpdateInstallIfNeeded() {
+        val prefs = getSharedPreferences(FORCE_UPDATE_PREFS, MODE_PRIVATE)
+        val pendingVersionCode = prefs.getInt(FORCE_UPDATE_PENDING_VERSION_CODE, 0)
+        if (pendingVersionCode <= 0 || BuildConfig.VERSION_CODE <= pendingVersionCode) return
+
+        val updateUrl = prefs.getString(FORCE_UPDATE_PENDING_URL, "").orEmpty()
+        trackForceUpdate(
+            AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED,
+            updateUrl,
+            mapOf(
+                "previous_version_code" to pendingVersionCode.toString(),
+                "installed_version_code" to BuildConfig.VERSION_CODE.toString(),
+            ),
+        )
+        prefs.edit().clear().apply()
     }
 
     /**
@@ -339,6 +450,13 @@ internal fun dispatchRfidFirst(
 ): Boolean = if (rfidConsumes()) true else dispatchNormally()
 
 private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
+
+private const val DEBUG_FORCE_UPDATE_MIN_VERSION_CODE = "sg.mesha.goatos.DEBUG_FORCE_UPDATE_MIN_VERSION_CODE"
+private const val DEBUG_FORCE_UPDATE_URL = "sg.mesha.goatos.DEBUG_FORCE_UPDATE_URL"
+private const val FORCE_UPDATE_PREFS = "force_update_install"
+private const val FORCE_UPDATE_PENDING_VERSION_CODE = "pending_version_code"
+private const val FORCE_UPDATE_PENDING_URL = "pending_url"
+private const val TAG = "MainActivity"
 
 @Composable
 private fun BootstrapLoading() {

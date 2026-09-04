@@ -1,5 +1,6 @@
 package sg.mesha.goatos.update
 
+import android.content.Context
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
@@ -29,11 +30,13 @@ import java.util.concurrent.TimeUnit
  * app that was already below the floor stays blocked even offline.
  */
 class RemoteConfigUpdateGate(
+    private val context: Context? = null,
     private val currentVersionCode: Long = BuildConfig.VERSION_CODE.toLong(),
     private val minFetchIntervalSeconds: Long = DEFAULT_MIN_FETCH_INTERVAL_SECONDS,
 ) : UpdateGate {
 
     override suspend fun check(): UpdateDecision = withContext(Dispatchers.IO) {
+        debugOverrideDecision()?.let { return@withContext it }
         runCatching {
             val rc = FirebaseRemoteConfig.getInstance()
 
@@ -65,9 +68,35 @@ class RemoteConfigUpdateGate(
         }.getOrDefault(UpdateDecision.Allowed)
     }
 
+    private fun debugOverrideDecision(): UpdateDecision? {
+        if (!BuildConfig.DEBUG) return null
+        val file = context?.filesDir?.resolve(DEBUG_OVERRIDE_FILE) ?: return null
+        if (!file.exists()) return null
+        val values = file.readLines()
+            .mapNotNull { line ->
+                val trimmed = line.trim()
+                if (trimmed.isBlank() || trimmed.startsWith("#") || !trimmed.contains("=")) {
+                    null
+                } else {
+                    val key = trimmed.substringBefore("=").trim()
+                    val value = trimmed.substringAfter("=").trim()
+                    key to value
+                }
+            }
+            .toMap()
+        val minSupported = values["min_supported_version_code"]?.toLongOrNull() ?: return null
+        val updateUrl = values["update_url"].orEmpty()
+        return decideUpdate(
+            currentVersionCode = currentVersionCode,
+            minSupportedVersionCode = minSupported,
+            updateUrl = updateUrl,
+        )
+    }
+
     companion object {
         const val KEY_MIN_SUPPORTED_VERSION_CODE = "min_supported_version_code"
         const val KEY_UPDATE_URL = "update_url"
+        const val DEBUG_OVERRIDE_FILE = "force_update_override.properties"
 
         private const val DEFAULT_MIN_SUPPORTED = 0L
         private const val DEFAULT_UPDATE_URL = ""

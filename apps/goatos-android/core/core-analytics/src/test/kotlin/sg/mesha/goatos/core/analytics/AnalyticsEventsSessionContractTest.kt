@@ -37,6 +37,12 @@ class AnalyticsEventsSessionContractTest {
         assertEquals("session_token_expired", AnalyticsEventsSession.SESSION_TOKEN_EXPIRED)
         assertEquals("force_update_gate_shown", AnalyticsEventsSession.FORCE_UPDATE_GATE_SHOWN)
         assertEquals("force_update_tapped", AnalyticsEventsSession.FORCE_UPDATE_TAPPED)
+        assertEquals("force_update_download_started", AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_STARTED)
+        assertEquals("force_update_download_completed", AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_COMPLETED)
+        assertEquals("force_update_failed", AnalyticsEventsSession.FORCE_UPDATE_FAILED)
+        assertEquals("force_update_install_permission_needed", AnalyticsEventsSession.FORCE_UPDATE_INSTALL_PERMISSION_NEEDED)
+        assertEquals("force_update_installer_opened", AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED)
+        assertEquals("force_update_install_completed", AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED)
         assertEquals("force_update_gate_blocking", AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING)
         assertEquals("route_entered", AnalyticsEventsSession.ROUTE_ENTERED)
         assertEquals("route_exited_via_back", AnalyticsEventsSession.ROUTE_EXITED_VIA_BACK)
@@ -54,6 +60,7 @@ class AnalyticsEventsSessionContractTest {
         assertEquals("module_keys", AnalyticsEventsSession.Params.MODULE_KEYS)
         assertEquals("offline", AnalyticsEventsSession.Params.OFFLINE)
         assertEquals("shell_action", AnalyticsEventsSession.Params.SHELL_ACTION)
+        assertEquals("update_host", AnalyticsEventsSession.Params.UPDATE_HOST)
     }
 
     @Test
@@ -64,6 +71,12 @@ class AnalyticsEventsSessionContractTest {
             AnalyticsEventsSession.SESSION_TOKEN_EXPIRED,
             AnalyticsEventsSession.FORCE_UPDATE_GATE_SHOWN,
             AnalyticsEventsSession.FORCE_UPDATE_TAPPED,
+            AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_STARTED,
+            AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_COMPLETED,
+            AnalyticsEventsSession.FORCE_UPDATE_FAILED,
+            AnalyticsEventsSession.FORCE_UPDATE_INSTALL_PERMISSION_NEEDED,
+            AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED,
+            AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED,
             AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING,
             AnalyticsEventsSession.ROUTE_ENTERED,
             AnalyticsEventsSession.ROUTE_EXITED_VIA_BACK,

@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Backs the FileProvider declared in AndroidManifest.xml for WeighingExportFileWriter.
-     "exports/" matches the cacheDir/exports subdirectory the writer creates: only that
-     subtree is exposed, not the whole cache. -->
+<!-- Backs the FileProvider declared in AndroidManifest.xml for app-private files shared with
+     another app. "exports/" is for weighing CSV export; "updates/" is for the downloaded APK
+     handed to Android's package installer. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="exports" path="exports/" />
     <!-- Leadership Tasks attachment bytes fetched for viewing (DefaultLeadershipTasksRepository):
          a picked file opens in whatever app handles its type via a content:// grant. -->
     <cache-path name="leadership-task-attachments" path="leadership-task-attachments/" />
+    <cache-path name="updates" path="updates/" />
 </paths>

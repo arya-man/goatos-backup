@@ -12,15 +12,15 @@ google-services.json is missing.` The files below are force-committed
 
 | Flavor | File | Status | Firebase project |
 |---|---|---|---|
-| `stg` | `app/src/stg/google-services.json` | **Real staging config** for package `sg.mesha.goatos.stg` | `goatos-stg` |
+| `stg` | `app/src/stg/google-services.json` | **Retired historical config** for package `sg.mesha.goatos.stg`; do not distribute | `goatos-stg` |
 | `dev` | `app/src/dev/google-services.json` | **Placeholder** — schema-valid, fake ids (force-committed so `assembleDevDebug` / `android-dev-run` works) | not confirmed |
 | `prod` | `app/src/prod/google-services.json` | **Real production-facing config** for package `sg.mesha.goatos`; Firebase/GCP project id still remains `goatos-stg` for this reused-project path | `goatos-stg` |
 
-## stg: historical staging flavor config
+## stg: retired historical staging flavor config
 
-`app/src/stg/google-services.json` is the real, non-secret Firebase Android client config for
-the `goatos-stg` project and package `sg.mesha.goatos.stg`. It must match the Firebase Android
-app used by `firebaseAppDistribution.appId` in `app/build.gradle.kts`.
+`app/src/stg/google-services.json` is the old, non-secret Firebase Android client config for
+the `goatos-stg` project and package `sg.mesha.goatos.stg`. That package is retired and must
+not be uploaded to Firebase App Distribution, Play Internal Testing, or operator-facing links.
 
 The stg Android API host is intentionally the API hostname, not the dashboard HTML host and not
 the raw Cloud Run URL:

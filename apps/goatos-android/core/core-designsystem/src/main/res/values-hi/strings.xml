@@ -84,6 +84,13 @@
     <string name="force_update_installed">इंस्टॉल किया गया वर्शन %1$s</string>
     <string name="force_update_cta">अभी अपडेट करें</string>
     <string name="force_update_no_link">अपडेट लिंक अभी उपलब्ध नहीं है। नवीनतम बिल्ड के लिए अपने Mesha एडमिन से संपर्क करें।</string>
+    <string name="force_update_downloading">डाउनलोड हो रहा है...</string>
+    <string name="force_update_downloading_message">नवीनतम APK अपने आप डाउनलोड हो रहा है।</string>
+    <string name="force_update_installer_opened">Android इंस्टॉलर खुला है। अपडेट पूरा करने के लिए Install टैप करें।</string>
+    <string name="force_update_open_installer_again">इंस्टॉलर फिर खोलें</string>
+    <string name="force_update_permission_needed">Android सेटिंग्स में Mesha से इंस्टॉल की अनुमति दें, फिर यहां लौटकर अभी अपडेट करें टैप करें।</string>
+    <string name="force_update_failed">अपडेट डाउनलोड विफल रहा। इंटरनेट जांचें और फिर कोशिश करें।</string>
+    <string name="force_update_retry">फिर कोशिश करें</string>
 
     <!-- Key + client-translation push contract (issue #27). See values/strings.xml for context. -->
     <string name="push_title_vaccination">टीकाकरण</string>

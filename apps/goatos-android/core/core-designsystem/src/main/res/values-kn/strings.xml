@@ -84,6 +84,13 @@
     <string name="force_update_installed">ಇನ್‌ಸ್ಟಾಲ್ ಆದ ಆವೃತ್ತಿ %1$s</string>
     <string name="force_update_cta">ಈಗ ಅಪ್‌ಡೇಟ್ ಮಾಡಿ</string>
     <string name="force_update_no_link">ಅಪ್‌ಡೇಟ್ ಲಿಂಕ್ ಇನ್ನೂ ಲಭ್ಯವಿಲ್ಲ. ಇತ್ತೀಚಿನ ಬಿಲ್ಡ್‌ಗಾಗಿ ನಿಮ್ಮ Mesha ಅಡ್ಮಿನ್ ಅನ್ನು ಸಂಪರ್ಕಿಸಿ.</string>
+    <string name="force_update_downloading">ಡೌನ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ...</string>
+    <string name="force_update_downloading_message">ಇತ್ತೀಚಿನ APK ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಡೌನ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ.</string>
+    <string name="force_update_installer_opened">Android ಇನ್‌ಸ್ಟಾಲರ್ ತೆರೆದಿದೆ. ಅಪ್‌ಡೇಟ್ ಮುಗಿಸಲು Install ಟ್ಯಾಪ್ ಮಾಡಿ.</string>
+    <string name="force_update_open_installer_again">ಇನ್‌ಸ್ಟಾಲರ್ ಮತ್ತೆ ತೆರೆಯಿರಿ</string>
+    <string name="force_update_permission_needed">Android ಸೆಟ್ಟಿಂಗ್ಸ್‌ನಲ್ಲಿ Mesha ಯಿಂದ ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಲು ಅನುಮತಿಸಿ, ನಂತರ ಇಲ್ಲಿಗೆ ಬಂದು ಈಗ ಅಪ್‌ಡೇಟ್ ಮಾಡಿ ಟ್ಯಾಪ್ ಮಾಡಿ.</string>
+    <string name="force_update_failed">ಅಪ್‌ಡೇಟ್ ಡೌನ್‌ಲೋಡ್ ವಿಫಲವಾಗಿದೆ. ಇಂಟರ್ನೆಟ್ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="force_update_retry">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
 
     <!-- Key + client-translation push contract (issue #27). See values/strings.xml for context. -->
     <string name="push_title_vaccination">ಲಸಿಕೆ</string>

@@ -62,31 +62,21 @@ and app-version text must not include `stg`; the Firebase project id may remain
 `goatos-stg` internally for Auth/FCM until a separate production Firebase project
 is created.
 
-## Legacy Staging Firebase Upload
+## Retired Staging Package
 
-Do not guess or ask for the Android staging release placeholders in chat. The
-stg signing material is intentionally outside Git and must be restored from the
-official runbook before running `assembleStgRelease` or
-`appDistributionUploadStgRelease`.
+The historical Android package `sg.mesha.goatos.stg` is no longer an active
+release channel. Do not publish, upload, or hand testers builds from that
+package.
 
-Required source of truth:
-
-```text
-../../docs/mobile/stg-signed-release.md
-```
-
-That runbook shows how to fetch the `goatos-stg` Secret Manager values for:
+The active production-facing package is:
 
 ```text
-GOATOS_ANDROID_STG_KEYSTORE
-GOATOS_ANDROID_STG_KEYSTORE_PASSWORD
-GOATOS_ANDROID_STG_KEY_ALIAS
-GOATOS_ANDROID_STG_KEY_PASSWORD
+sg.mesha.goatos
 ```
 
-For Firebase App Distribution auth, use either a `GOOGLE_APPLICATION_CREDENTIALS`
-service-account JSON with the right `goatos-stg` permissions, or run
-`firebase login` as an authorized release builder.
+Use `../../tools/deploy/stg-mobile-distribution.sh` for mobile distribution. It
+publishes the same release identity to Firebase App Distribution, Google Play
+Internal Testing, and `https://mesha.sg/app.apk`.
 
 ## Toolchain (verified at scaffold)
 

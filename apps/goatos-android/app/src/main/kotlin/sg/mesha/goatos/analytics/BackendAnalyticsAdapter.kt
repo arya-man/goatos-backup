@@ -6,6 +6,7 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.standardEventParams
@@ -235,6 +236,15 @@ class BackendAnalyticsAdapter(
             AnalyticsEventsWeighing.WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED,
             AnalyticsEventsWeighing.WEIGHING_PROOF_ATTACH_NO_OBSERVATION,
             AnalyticsEventsWeighing.WEIGHING_OBSERVATION_ENQUEUE_FAILED,
+            AnalyticsEventsSession.FORCE_UPDATE_GATE_SHOWN,
+            AnalyticsEventsSession.FORCE_UPDATE_TAPPED,
+            AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_STARTED,
+            AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_COMPLETED,
+            AnalyticsEventsSession.FORCE_UPDATE_FAILED,
+            AnalyticsEventsSession.FORCE_UPDATE_INSTALL_PERMISSION_NEEDED,
+            AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED,
+            AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED,
+            AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING,
         )
 
         private const val TAG = "GoatAnalytics"
