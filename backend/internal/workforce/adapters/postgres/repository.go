@@ -267,19 +267,30 @@ ORDER BY usg.status, usg.valid_from DESC, usg.grant_id DESC`), tenantID, operato
 	return scanGrants(rows)
 }
 
-func (r *Repository) CreateGrant(ctx context.Context, cmd ports.CreateGrantCommand) (domain.GrantSummary, error) {
+func (r *Repository) CreateGrant(ctx context.Context, cmd ports.CreateGrantCommand) ([]domain.GrantSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return domain.GrantSummary{}, err
+		return nil, err
 	}
 	defer rollback(ctx, tx)
 	userID, err := lookupOperatorUserID(ctx, tx, cmd.TenantID, cmd.OperatorID)
 	if err != nil {
-		return domain.GrantSummary{}, err
+		return nil, err
 	}
-	var grantID string
+	var lockedMember int
+	if err := tx.QueryRow(ctx,
+		`SELECT 1 FROM workforce_members
+		  WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'active'
+		  FOR UPDATE`,
+		cmd.TenantID, cmd.OperatorID).Scan(&lockedMember); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ports.ErrNotFound
+		}
+		return nil, err
+	}
+	var created []domain.GrantSummary
 	scopeType, scopeID := cmd.Body.ScopeType, cmd.Body.ScopeID
 	if scopeType == "tenant" || scopeType == "park" {
 		// Park membership is NOT chosen here. The role is added and the person's authored
@@ -288,12 +299,12 @@ func (r *Repository) CreateGrant(ctx context.Context, cmd ports.CreateGrantComma
 		// different things (internal/parkscope).
 		scopeMode, _, parkIDs, provisioned, err := parkscope.PersonScope(ctx, tx, cmd.TenantID, cmd.OperatorID)
 		if err != nil {
-			return domain.GrantSummary{}, err
+			return nil, err
 		}
 		switch {
 		case provisioned && (scopeMode == "tenant" || len(parkIDs) > 0):
 			if _, err := parkscope.SyncGrantScope(ctx, tx, cmd.TenantID, userID, cmd.ActorID, scopeMode, parkIDs, []string{cmd.Body.Role}); err != nil {
-				return domain.GrantSummary{}, mapWriteErr(err)
+				return nil, mapWriteErr(err)
 			}
 		default:
 			mode, parks, home := "tenant", []string(nil), ""
@@ -301,23 +312,31 @@ func (r *Repository) CreateGrant(ctx context.Context, cmd ports.CreateGrantComma
 				mode, parks, home = "parks", []string{scopeID}, scopeID
 			}
 			if _, err := parkscope.WritePersonScope(ctx, tx, cmd.TenantID, cmd.ActorID, cmd.OperatorID, mode, home, parks, nil, []string{cmd.Body.Role}); err != nil {
-				return domain.GrantSummary{}, mapWriteErr(err)
+				return nil, mapWriteErr(err)
 			}
 		}
 		if cmd.Body.ValidTo != nil && strings.TrimSpace(*cmd.Body.ValidTo) != "" {
 			if _, err := tx.Exec(ctx, `
 UPDATE user_scope_grants SET valid_to = $4::timestamptz
-WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND status = 'active' AND valid_to IS NULL`,
+WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND status = 'active'
+  AND scope_type IN ('tenant', 'park')
+  AND valid_to IS NULL`,
 				cmd.TenantID, userID, cmd.Body.Role, strings.TrimSpace(*cmd.Body.ValidTo)); err != nil {
-				return domain.GrantSummary{}, mapWriteErr(err)
+				return nil, mapWriteErr(err)
 			}
 		}
-		err = tx.QueryRow(ctx, `
-SELECT grant_id::text FROM user_scope_grants
-WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND status = 'active'
-ORDER BY valid_from DESC, grant_id DESC LIMIT 1`, cmd.TenantID, userID, cmd.Body.Role).Scan(&grantID)
+		rows, err := tx.Query(ctx, grantsSQL(`
+WHERE usg.tenant_id = $1::uuid AND usg.user_id = $2::uuid AND usg.role = $3 AND usg.status = 'active'
+  AND usg.scope_type IN ('tenant', 'park')
+  AND usg.valid_from <= now()
+  AND (usg.valid_to IS NULL OR usg.valid_to > now())
+ORDER BY usg.scope_type, usg.scope_id, usg.grant_id`), cmd.TenantID, userID, cmd.Body.Role)
+		if err == nil {
+			created, err = scanGrants(rows)
+		}
 	} else {
 		// A shed/cohort/custodian grant is not park membership and stays a direct row.
+		var grantID string
 		err = tx.QueryRow(ctx, `
 INSERT INTO user_scope_grants (
   tenant_id, user_id, role, scope_type, scope_id, status, valid_from, valid_to, created_by
@@ -325,26 +344,33 @@ INSERT INTO user_scope_grants (
   $1::uuid, $2::uuid, $3, $4, $5::uuid, 'active', now(), nullif($6, '')::timestamptz, $7::uuid
 )
 RETURNING grant_id::text`, cmd.TenantID, userID, cmd.Body.Role, scopeType, scopeID, ptrValue(cmd.Body.ValidTo), cmd.ActorID).Scan(&grantID)
-	}
-	if err != nil {
-		return domain.GrantSummary{}, mapWriteErr(err)
-	}
-	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "operators.grant.create", "user_scope_grant", grantID, &cmd.Body.ScopeType, map[string]any{"operator_id": cmd.OperatorID, "role": cmd.Body.Role, "scope_id": cmd.Body.ScopeID}); err != nil {
-		return domain.GrantSummary{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return domain.GrantSummary{}, err
-	}
-	grants, err := r.ListGrants(contextWithoutCancel(ctx), cmd.TenantID, cmd.OperatorID)
-	if err != nil {
-		return domain.GrantSummary{}, err
-	}
-	for _, grant := range grants {
-		if grant.GrantID == grantID {
-			return grant, nil
+		if err == nil {
+			rows, queryErr := tx.Query(ctx, grantsSQL(`
+WHERE usg.grant_id = $1::uuid`), grantID)
+			if queryErr != nil {
+				err = queryErr
+			} else {
+				created, err = scanGrants(rows)
+			}
 		}
 	}
-	return domain.GrantSummary{}, ports.ErrNotFound
+	if err != nil {
+		return nil, mapWriteErr(err)
+	}
+	if len(created) == 0 {
+		return nil, ports.ErrNotFound
+	}
+	grantIDs := make([]string, 0, len(created))
+	for _, grant := range created {
+		grantIDs = append(grantIDs, grant.GrantID)
+	}
+	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "operators.grant.create", "workforce_member", cmd.OperatorID, &cmd.Body.ScopeType, map[string]any{"operator_id": cmd.OperatorID, "role": cmd.Body.Role, "scope_id": cmd.Body.ScopeID, "grant_ids": grantIDs}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return created, nil
 }
 
 func (r *Repository) AssignCapability(ctx context.Context, cmd ports.CapabilityCommand) (domain.CapabilityAssignment, error) {

@@ -123,6 +123,20 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Lock the target member first. This both proves the person belongs to this tenant and
+	// serializes the first save, when no person_access row exists yet for FOR UPDATE to lock.
+	var lockedMember int
+	if err := tx.QueryRow(ctx,
+		`SELECT 1 FROM workforce_members
+		  WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'active'
+		  FOR UPDATE`,
+		cmd.TenantID, cmd.PersonID).Scan(&lockedMember); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ports.PersonAccessRecord{}, ports.ErrPersonNotFound
+		}
+		return ports.PersonAccessRecord{}, err
+	}
+
 	// Lock the person's header for the length of the write. Without this, two
 	// admins saving at once both pass the version check and the second silently
 	// wins -- on an access screen a lost update is invisible until someone cannot
@@ -157,18 +171,22 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 	// ANY(...)`), so the ordinary index on location_id is still usable. The error still
 	// names WHICH park was refused -- the admin has to know which pill to unpick -- so the
 	// valid ids come back and the missing one is found in Go.
-	if len(cmd.ParkIDs) > 0 {
+	parksToValidate := append([]string(nil), cmd.ParkIDs...)
+	if cmd.HomeParkID != "" {
+		parksToValidate = append(parksToValidate, cmd.HomeParkID)
+	}
+	if len(parksToValidate) > 0 {
 		rows, err := tx.Query(ctx,
 			`SELECT location_id::text FROM locations
 			  WHERE tenant_id = $1::uuid
 			    AND location_id = ANY($2::uuid[])
 			    AND location_type = 'park'
 			    AND status = 'active'`,
-			cmd.TenantID, cmd.ParkIDs)
+			cmd.TenantID, parksToValidate)
 		if err != nil {
 			return ports.PersonAccessRecord{}, err
 		}
-		valid := make(map[string]struct{}, len(cmd.ParkIDs))
+		valid := make(map[string]struct{}, len(parksToValidate))
 		for rows.Next() {
 			var id string
 			if err := rows.Scan(&id); err != nil {
@@ -181,7 +199,7 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 		if err := rows.Err(); err != nil {
 			return ports.PersonAccessRecord{}, err
 		}
-		for _, parkID := range cmd.ParkIDs {
+		for _, parkID := range parksToValidate {
 			if _, ok := valid[parkID]; !ok {
 				return ports.PersonAccessRecord{}, fmt.Errorf("%w: %s", ports.ErrUnknownPark, parkID)
 			}
@@ -196,26 +214,6 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 		empty := ""
 		designation = &empty
 	}
-	// The target must be an ACTIVE member OF THIS TENANT, checked inside the write
-	// transaction rather than trusted from the request.
-	//
-	// tenant_id comes from the authenticated context, but person_id comes from the URL and
-	// the foreign key is on workforce_member_id ALONE -- so without this a PUT could write
-	// (this tenant, another tenant's member). Those rows would never resolve, because every
-	// read joins on tenant AND member, but they would be persisted and AUDITED as though
-	// someone's access had really been changed. An audit trail that records a change that
-	// never happened is worse than no row at all.
-	var exists bool
-	if err := tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM workforce_members
-		   WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'active')`,
-		cmd.TenantID, cmd.PersonID).Scan(&exists); err != nil {
-		return ports.PersonAccessRecord{}, err
-	}
-	if !exists {
-		return ports.PersonAccessRecord{}, ports.ErrPersonNotFound
-	}
-
 	// Header, park ticks, home park AND the derived grant rows, in this one transaction.
 	// The ticks are the only authored park scope (scope_grants.go); a save that wrote them
 	// without moving the grants would recreate the three-sources drift this replaced

@@ -186,6 +186,54 @@ VALUES ($1::uuid, $2::uuid, 'growth_director', 'tenant', $1::uuid, 'active', now
 	}
 }
 
+func TestSavePersonAccessRefusesTenantHomeParkThatIsNotAnActivePark(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedScopeFixture(t, ctx, pool)
+	const shedID = "94000000-0000-4000-8000-0000000000aa"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'SCOPE-SHED', 'Scope Shed', 'active')`, shedID, scopeTenant); err != nil {
+		t.Fatalf("seed shed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'verifier', 'tenant', $1::uuid, 'active', now())`, scopeTenant, scopeUser); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewAccessRepository(pool).SavePersonAccess(ctx, ports.SavePersonAccessCommand{
+		TenantID: scopeTenant, ActorID: scopeActor, PersonID: scopeMember,
+		ScopeMode: "tenant", HomeParkID: shedID,
+	})
+	if !errors.Is(err, ports.ErrUnknownPark) {
+		t.Fatalf("tenant home park set to shed = %v, want ErrUnknownPark", err)
+	}
+	if got := homePark(t, ctx, pool); got != scopeParkA {
+		t.Fatalf("home park after refused save = %q, want original %q", got, scopeParkA)
+	}
+}
+
+func TestSavePersonAccessTenantModeIgnoresExpiredTenantOnlyRole(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedScopeFixture(t, ctx, pool)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from, valid_to)
+VALUES ($1::uuid, $2::uuid, 'verifier', 'tenant', $1::uuid, 'active', now() - interval '2 days', now() - interval '1 day')`, scopeTenant, scopeUser); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewAccessRepository(pool).SavePersonAccess(ctx, ports.SavePersonAccessCommand{
+		TenantID: scopeTenant, ActorID: scopeActor, PersonID: scopeMember, ScopeMode: "tenant",
+	})
+	if !errors.Is(err, parkscope.ErrParkRolesNeedAPark) {
+		t.Fatalf("tenant save with only expired tenant-only role = %v, want ErrParkRolesNeedAPark", err)
+	}
+}
+
 // The operators grant API adds a ROLE; the person's ticks decide where it applies, and a
 // body naming another park is not honoured.
 func TestCreateGrantLandsTheRoleOnTheAuthoredScopeNotTheBody(t *testing.T) {
@@ -245,6 +293,95 @@ func TestCreateGrantOnAnUnsetPersonAuthorsTheScope(t *testing.T) {
 	}
 }
 
+func TestCreateGrantIgnoresExpiredActiveGrantWhenDerivingScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedScopeFixture(t, ctx, pool)
+	if _, err := pool.Exec(ctx, `UPDATE user_scope_grants SET status = 'revoked' WHERE user_id = $1::uuid`, scopeUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO person_access (tenant_id, workforce_member_id, scope_mode)
+VALUES ($1::uuid, $2::uuid, 'parks')
+ON CONFLICT (tenant_id, workforce_member_id) DO UPDATE SET scope_mode = EXCLUDED.scope_mode`, scopeTenant, scopeMember); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO person_park_scope (tenant_id, workforce_member_id, park_id)
+VALUES ($1::uuid, $2::uuid, $3::uuid)`, scopeTenant, scopeMember, scopeParkA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from, valid_to)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now() - interval '2 days', now() - interval '1 day')`,
+		scopeTenant, scopeUser, scopeParkA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRepository(pool, 30*time.Second).CreateGrant(ctx, ports.CreateGrantCommand{
+		TenantID: scopeTenant, ActorID: scopeActor, OperatorID: scopeMember,
+		Body: domain.CreateGrantRequest{Role: permissions.RoleOperator, ScopeType: "park", ScopeID: scopeParkA},
+	}); err != nil {
+		t.Fatalf("create grant: %v", err)
+	}
+	var current int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM user_scope_grants
+WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = 'operator'
+  AND scope_type = 'park' AND scope_id = $3::uuid AND status = 'active'
+  AND valid_from <= now() AND (valid_to IS NULL OR valid_to > now())`,
+		scopeTenant, scopeUser, scopeParkA).Scan(&current); err != nil {
+		t.Fatal(err)
+	}
+	if current != 1 {
+		t.Fatalf("current active operator grants = %d, want 1 fresh row despite expired active history", current)
+	}
+}
+
+func TestCreateGrantValidToDoesNotExpireNonParkMembershipGrants(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedScopeFixture(t, ctx, pool)
+	const shedID = "94000000-0000-4000-8000-0000000000ab"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'SCOPE-SHED-B', 'Scope Shed B', 'active')`, shedID, scopeTenant); err != nil {
+		t.Fatalf("seed shed: %v", err)
+	}
+	if _, err := NewAccessRepository(pool).SavePersonAccess(ctx, ports.SavePersonAccessCommand{
+		TenantID: scopeTenant, ActorID: scopeActor, PersonID: scopeMember,
+		ScopeMode: "parks", ParkIDs: []string{scopeParkA}, HomeParkID: scopeParkA,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'shed', $3::uuid, 'active', now())`, scopeTenant, scopeUser, shedID); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
+	if _, err := NewRepository(pool, 30*time.Second).CreateGrant(ctx, ports.CreateGrantCommand{
+		TenantID: scopeTenant, ActorID: scopeActor, OperatorID: scopeMember,
+		Body: domain.CreateGrantRequest{Role: permissions.RoleOperator, ScopeType: "park", ScopeID: scopeParkA, ValidTo: &expires},
+	}); err != nil {
+		t.Fatalf("create grant: %v", err)
+	}
+	var shedValidToIsNull bool
+	if err := pool.QueryRow(ctx, `
+SELECT valid_to IS NULL FROM user_scope_grants
+WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = 'operator'
+  AND scope_type = 'shed' AND scope_id = $3::uuid AND status = 'active'`,
+		scopeTenant, scopeUser, shedID).Scan(&shedValidToIsNull); err != nil {
+		t.Fatal(err)
+	}
+	if !shedValidToIsNull {
+		t.Fatal("shed grant valid_to was changed; want untouched nil")
+	}
+}
+
 // A writer that only knows the user (the login-time email claim) can add a tenant row; the
 // reconcile pulls it back onto the authored scope, so a login never widens a narrowed person.
 func TestReconcileUserPullsAStrayTenantRowBackOntoTheTicks(t *testing.T) {
@@ -285,7 +422,7 @@ VALUES ($1::uuid, $2::uuid, 'park_head', 'tenant', $1::uuid, 'active', now())`, 
 // A tenant-only role claimed at login by a parks-mode person is left as written and
 // reported as not reconciled: the login cannot be refused, and narrowing the role is the
 // defect this package prevents. The next People-screen save is where the admin decides.
-func TestReconcileUserLeavesATenantOnlyRoleAlone(t *testing.T) {
+func TestReconcileUserPromotesTenantOnlyRoleToTenantScope(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -308,15 +445,19 @@ VALUES ($1::uuid, $2::uuid, 'verifier', 'tenant', $1::uuid, 'active', now())`, s
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	_, reconciled, err := parkscope.ReconcileUser(ctx, tx, scopeTenant, scopeUser, "")
-	if err != nil || reconciled {
-		t.Fatalf("reconcile with a claimed verifier = (reconciled=%v, %v), want left alone with no error", reconciled, err)
+	if err != nil || !reconciled {
+		t.Fatalf("reconcile with a claimed verifier = (reconciled=%v, %v), want promoted tenant scope", reconciled, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	want := []grantRow{{"operator", "park", scopeParkA}, {"verifier", "tenant", scopeTenant}}
+	want := []grantRow{{"operator", "tenant", scopeTenant}, {"verifier", "tenant", scopeTenant}}
 	if got := activeGrants(t, ctx, pool, scopeUser); !sameRows(got, want) {
-		t.Fatalf("grants = %v, want %v unchanged", got, want)
+		t.Fatalf("grants = %v, want %v", got, want)
+	}
+	mode, parks, provisioned, err := NewAccessRepository(pool).ResolveParkScope(ctx, scopeTenant, scopeUser)
+	if err != nil || !provisioned || mode != "tenant" || len(parks) != 0 {
+		t.Fatalf("scope after claimed verifier = (%q, %v, provisioned=%v, %v), want tenant with no parks", mode, parks, provisioned, err)
 	}
 }
 

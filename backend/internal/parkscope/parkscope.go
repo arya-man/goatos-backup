@@ -94,6 +94,18 @@ func SyncGrantScope(ctx context.Context, tx pgx.Tx, tenantID, userID, actorID, s
 	if err != nil {
 		return Result{}, err
 	}
+	// Serialize the whole derivation for one user BEFORE reading roles. If two callers add
+	// different roles at once, the second must see the first committed role before it computes
+	// roles x scope; otherwise its revoke step would delete the first caller's fresh row.
+	var lockedMember int
+	if err := tx.QueryRow(ctx,
+		`SELECT 1 FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid FOR UPDATE`,
+		tenantID, userID).Scan(&lockedMember); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Result{}, nil
+		}
+		return Result{}, fmt.Errorf("lock member: %w", err)
+	}
 	// Roles are read ONCE, before anything is revoked. Reading them again inside the insert
 	// would see the rows the revoke just closed and derive nothing -- a person moved to
 	// tenant mode would come out holding no roles at all.
@@ -101,6 +113,8 @@ func SyncGrantScope(ctx context.Context, tx pgx.Tx, tenantID, userID, actorID, s
 SELECT DISTINCT g.role FROM user_scope_grants g
  WHERE g.tenant_id = $1::uuid AND g.user_id = $2::uuid AND g.status = 'active'
    AND g.scope_type IN ('tenant', 'park')
+   AND g.valid_from <= now()
+   AND (g.valid_to IS NULL OR g.valid_to > now())
 UNION
 SELECT unnest($3::text[])`, tenantID, userID, roles)
 	if err != nil {
@@ -130,14 +144,6 @@ SELECT unnest($3::text[])`, tenantID, userID, roles)
 				return Result{}, &TenantOnlyRoleError{Role: role}
 			}
 		}
-	}
-	// Serialize concurrent derivations for one user: the editor and the grant API can
-	// both run this, and two inserts passing the NOT EXISTS check together would leave a
-	// duplicate active row. The member row is the natural lock; every writer holds it.
-	if _, err := tx.Exec(ctx,
-		`SELECT 1 FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid FOR UPDATE`,
-		tenantID, userID); err != nil {
-		return Result{}, fmt.Errorf("lock member: %w", err)
 	}
 	// Set-based on both sides: one statement revokes every active tenant/park row that is
 	// not in roles x scope, one statement inserts every missing pair. A per-role loop would
@@ -179,9 +185,11 @@ inserted AS (
   SELECT $1::uuid, $2::uuid, d.role, d.scope_type, d.scope_id, 'active', now(), nullif($6, '')::uuid
     FROM desired d
    WHERE NOT EXISTS (
-     SELECT 1 FROM user_scope_grants g
-      WHERE g.tenant_id = $1::uuid AND g.user_id = $2::uuid AND g.status = 'active'
-        AND g.role = d.role AND g.scope_type = d.scope_type AND g.scope_id = d.scope_id)
+	 SELECT 1 FROM user_scope_grants g
+	      WHERE g.tenant_id = $1::uuid AND g.user_id = $2::uuid AND g.status = 'active'
+	        AND g.valid_from <= now()
+	        AND (g.valid_to IS NULL OR g.valid_to > now())
+	        AND g.role = d.role AND g.scope_type = d.scope_type AND g.scope_id = d.scope_id)
   RETURNING 1
 )
 SELECT count(*) FROM inserted`,
@@ -249,6 +257,8 @@ SELECT EXISTS (
   SELECT 1 FROM user_scope_grants g
     JOIN workforce_members m ON m.tenant_id = g.tenant_id AND m.user_id = g.user_id
    WHERE m.tenant_id = $1::uuid AND m.workforce_member_id = $2::uuid AND g.status = 'active'
+     AND g.valid_from <= now()
+     AND (g.valid_to IS NULL OR g.valid_to > now())
      AND g.role = ANY($3::text[]))`,
 				tenantID, memberID, tenantOnlyRoleList()).Scan(&leadership); err != nil {
 				return Result{}, fmt.Errorf("check leadership roles: %w", err)
@@ -353,7 +363,15 @@ func ReconcileUser(ctx context.Context, tx pgx.Tx, tenantID, userID, actorID str
 	if err != nil {
 		return Result{}, false, err
 	}
-	scopeMode, _, parkIDs, provisioned, err := PersonScope(ctx, tx, tenantID, memberID)
+	var lockedMember int
+	if err := tx.QueryRow(ctx,
+		`SELECT 1 FROM workforce_members
+		  WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'active'
+		  FOR UPDATE`,
+		tenantID, memberID).Scan(&lockedMember); err != nil {
+		return Result{}, false, fmt.Errorf("lock member: %w", err)
+	}
+	scopeMode, homeParkID, parkIDs, provisioned, err := PersonScope(ctx, tx, tenantID, memberID)
 	if err != nil || !provisioned {
 		return Result{}, false, err
 	}
@@ -364,11 +382,11 @@ func ReconcileUser(ctx context.Context, tx pgx.Tx, tenantID, userID, actorID str
 	}
 	res, err := SyncGrantScope(ctx, tx, tenantID, userID, actorID, scopeMode, parkIDs, nil)
 	if errors.Is(err, ErrTenantOnlyRole) {
-		// A login just claimed a tenant-only role for a parks-mode person. Refusing the
-		// login is not an option and narrowing the role is the thing this package exists to
-		// prevent, so the rows stay as written: the next People-screen save refuses parks
-		// mode and names the role, which is where the admin decides.
-		return Result{}, false, nil
+		// A login just claimed a tenant-only role for a parks-mode person. Tenant-only roles
+		// must never be narrowed by person_park_scope, and the claim is the transaction that
+		// introduced the role, so promote the authored scope to tenant here and derive again.
+		res, err = WritePersonScope(ctx, tx, tenantID, actorID, memberID, "tenant", homeParkID, nil, nil, nil)
+		return res, true, err
 	}
 	return res, true, err
 }

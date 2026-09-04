@@ -1173,8 +1173,8 @@ func (f *fakeRepo) SetOperatorStatus(context.Context, ports.StatusCommand) (doma
 func (f *fakeRepo) ListGrants(context.Context, string, string) ([]domain.GrantSummary, error) {
 	return nil, ports.ErrNotFound
 }
-func (f *fakeRepo) CreateGrant(context.Context, ports.CreateGrantCommand) (domain.GrantSummary, error) {
-	return domain.GrantSummary{}, ports.ErrNotFound
+func (f *fakeRepo) CreateGrant(context.Context, ports.CreateGrantCommand) ([]domain.GrantSummary, error) {
+	return nil, ports.ErrNotFound
 }
 func (f *fakeRepo) AssignCapability(context.Context, ports.CapabilityCommand) (domain.CapabilityAssignment, error) {
 	return domain.CapabilityAssignment{}, ports.ErrNotFound
