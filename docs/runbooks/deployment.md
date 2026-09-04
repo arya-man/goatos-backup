@@ -225,7 +225,8 @@ Storage mirror must all pass or the Cloud Build is failed and Slack reports the
 mobile distribution as failed.
 
 Each user-visible Android release must advance the Android `versionName`
-and `versionCode`, for example `0.1.20 (21)` -> `0.1.21 (22)`. Slack
+and `versionCode`, using semver patch bumps, for example `1.0.0 (44)` ->
+`1.0.1 (45)`. Slack
 mobile deploy clicks bump the checked-in defaults in
 `apps/goatos-android/app/build.gradle.kts` on `main` before starting Cloud
 Build, so every click publishes a new human-readable Firebase version. Manual

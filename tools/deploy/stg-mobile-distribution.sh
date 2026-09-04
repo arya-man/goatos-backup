@@ -247,6 +247,10 @@ source .local/android-signing/stg-release-env.sh
 
 DEPLOY_VERSION_CODE="${GOATOS_ANDROID_VERSION_CODE:-}"
 DEPLOY_VERSION_NAME="${GOATOS_ANDROID_VERSION_NAME:-}"
+DEPLOY_VERSION_CODE_WAS_EXPLICIT=false
+DEPLOY_VERSION_NAME_WAS_EXPLICIT=false
+[[ -n "$DEPLOY_VERSION_CODE" ]] && DEPLOY_VERSION_CODE_WAS_EXPLICIT=true
+[[ -n "$DEPLOY_VERSION_NAME" ]] && DEPLOY_VERSION_NAME_WAS_EXPLICIT=true
 
 default_android_release_value() {
   local property="$1"
@@ -267,8 +271,59 @@ print(match.group(1))
 PY
 }
 
-DEPLOY_VERSION_CODE="${DEPLOY_VERSION_CODE:-$(default_android_release_value code)}"
-DEPLOY_VERSION_NAME="${DEPLOY_VERSION_NAME:-$(default_android_release_value name)}"
+next_android_patch_version() {
+  local version_name="$1"
+  python3 - "$version_name" <<'PY'
+import re
+import sys
+
+version = sys.argv[1]
+match = re.fullmatch(r"(\d+\.\d+\.)(\d+)", version)
+if not match:
+    raise SystemExit(f"cannot auto-bump Android versionName {version!r}; set GOATOS_ANDROID_VERSION_NAME explicitly")
+print(f"{match.group(1)}{int(match.group(2)) + 1}")
+PY
+}
+
+advance_android_patch_version() {
+  local version_name="$1"
+  local increment="$2"
+  python3 - "$version_name" "$increment" <<'PY'
+import re
+import sys
+
+version, increment = sys.argv[1:]
+match = re.fullmatch(r"(\d+\.\d+\.)(\d+)", version)
+if not match:
+    raise SystemExit(f"cannot auto-advance Android versionName {version!r}; set GOATOS_ANDROID_VERSION_NAME explicitly")
+print(f"{match.group(1)}{int(match.group(2)) + int(increment)}")
+PY
+}
+
+DEFAULT_VERSION_CODE="$(default_android_release_value code)"
+DEFAULT_VERSION_NAME="$(default_android_release_value name)"
+
+checked_in_version_is_release_bump() {
+  [[ "$git_dirty_check" == "true" ]] || return 1
+  git log -1 --format=%s -- apps/goatos-android/app/build.gradle.kts |
+    grep -Eq '^chore\(android\): bump GoatOS release to [0-9]+\.[0-9]+\.[0-9]+ \([0-9]+\)$'
+}
+
+if [[ "$DEPLOY_VERSION_CODE_WAS_EXPLICIT" != "true" ]]; then
+  if checked_in_version_is_release_bump; then
+    DEPLOY_VERSION_CODE="$DEFAULT_VERSION_CODE"
+  else
+    DEPLOY_VERSION_CODE="$((DEFAULT_VERSION_CODE + 1))"
+  fi
+fi
+if [[ "$DEPLOY_VERSION_NAME_WAS_EXPLICIT" != "true" ]]; then
+  if checked_in_version_is_release_bump; then
+    DEPLOY_VERSION_NAME="$DEFAULT_VERSION_NAME"
+  else
+    DEPLOY_VERSION_NAME="$(next_android_patch_version "$DEFAULT_VERSION_NAME")"
+  fi
+fi
+echo "Building Android release identity ${DEPLOY_VERSION_NAME} (${DEPLOY_VERSION_CODE})."
 
 play_base="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}"
 if play_access_token="$(play_access_token)" &&
@@ -287,8 +342,12 @@ if play_access_token="$(play_access_token)" &&
         jq -r '[.releases[]?.versionCodes[]? | tonumber] | max // 0' "$track_response_file"
       )"
       if (( DEPLOY_VERSION_CODE <= max_play_version_code )); then
+        previous_deploy_version_code="$DEPLOY_VERSION_CODE"
         DEPLOY_VERSION_CODE="$((max_play_version_code + 1))"
-        echo "Play Internal already used versionCode ${max_play_version_code}; building versionCode ${DEPLOY_VERSION_CODE}."
+        if [[ "$DEPLOY_VERSION_NAME_WAS_EXPLICIT" != "true" ]]; then
+          DEPLOY_VERSION_NAME="$(advance_android_patch_version "$DEPLOY_VERSION_NAME" "$((DEPLOY_VERSION_CODE - previous_deploy_version_code))")"
+        fi
+        echo "Play Internal already used versionCode ${max_play_version_code}; building Android release identity ${DEPLOY_VERSION_NAME} (${DEPLOY_VERSION_CODE})."
       fi
     else
       echo "Play Internal version preflight skipped after HTTP $track_status; continuing with versionCode ${DEPLOY_VERSION_CODE}." >&2

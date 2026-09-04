@@ -21,20 +21,20 @@ val releaseVersionName = (
         ?: System.getenv("GOATOS_ANDROID_VERSION_NAME")
     )
     ?.takeIf { it.isNotBlank() }
-    ?: "0.1.21"
+    ?: "1.0.0"
 `
 
 	updated, next, err := nextAndroidVersionFile(input)
 	if err != nil {
 		t.Fatalf("nextAndroidVersionFile returned error: %v", err)
 	}
-	if next.Name != "0.1.22" || next.Code != 23 {
-		t.Fatalf("next version = %s (%d), want 0.1.22 (23)", next.Name, next.Code)
+	if next.Name != "1.0.1" || next.Code != 23 {
+		t.Fatalf("next version = %s (%d), want 1.0.1 (23)", next.Name, next.Code)
 	}
 	if !strings.Contains(updated, `?: 23`) {
 		t.Fatalf("updated content did not contain bumped versionCode:\n%s", updated)
 	}
-	if !strings.Contains(updated, `?: "0.1.22"`) {
+	if !strings.Contains(updated, `?: "1.0.1"`) {
 		t.Fatalf("updated content did not contain bumped versionName:\n%s", updated)
 	}
 	if strings.Contains(updated, "4608d477") {

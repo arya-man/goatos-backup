@@ -84,7 +84,7 @@ val releaseVersionName = (
         ?: System.getenv("GOATOS_ANDROID_VERSION_NAME")
     )
     ?.takeIf { it.isNotBlank() }
-    ?: "0.1.43"
+    ?: "1.0.0"
 
 android {
     namespace = "sg.mesha.goatos"
