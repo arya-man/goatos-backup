@@ -100,6 +100,25 @@ const (
 	// Catalog row: migration 000180 (tier 'director', vertical 'procurement', is_legacy like the
 	// other live name_director keys).
 	RoleProcurementDirector = "procurement_director"
+	// RoleBreedingDirector is the Breeding Director's desk (maintainer decision 2026-09-04).
+	//
+	// A JOB, not a per-person authority: the seat exists on the org chart (the dormant
+	// composed key `director_breeding` has been in org_role_catalog since the baseline), and a
+	// future holder inherits the desk by being granted this key. Today's holder is Dinakar,
+	// granted BY NAME in perPersonGrants alongside the growth_director / pc_director roles he
+	// already carries.
+	//
+	// What the desk carries: PLANNING of the two PC Care categories that belong to breeding
+	// husbandry -- HOOF TRIMMING and HAIR TRIMMING -- through PCCarePlanTrimming, plus the
+	// read-only PC Care monitor board those tasks appear on. It deliberately does NOT carry
+	// PCCarePlan: deworming and ticks removal stay CEO-planned (docs/decisions/pc-care-module.md
+	// locked rule 1, now with this one recorded carve-out), and it does NOT carry
+	// PCCareExecute -- a planner who could also film the work would be approving their own
+	// evidence, the same shape that keeps execute off the CEO.
+	//
+	// Catalog row: migration 000247 (tier 'director', vertical 'breeding', is_legacy like the
+	// other live name_director keys). Designation row in the same migration.
+	RoleBreedingDirector = "breeding_director"
 
 	GoatRead          = "goat.read"
 	GoatWriteIdentity = "goat.write_identity"
@@ -282,6 +301,18 @@ const (
 	PCCareMonitor          = "pc_care.monitor"
 	PCCareExecute          = "pc_care.execute"
 	PCCareOverseeOperators = "pc_care.oversee_operators"
+	// PCCarePlanTrimming (maintainer decision 2026-09-04) is CATEGORY-SCOPED planning: plan and
+	// cancel PC Care tasks whose category is hoof_trimming or hair_trimming, and nothing else.
+	// It exists because the Breeding Director owns those two husbandry jobs while deworming
+	// and ticks removal stay CEO-planned -- and PCCarePlan has no category dimension, so
+	// granting it would have handed over the whole module.
+	//
+	// The category set it covers is pccare/domain.TrimmingCategories, resolved by the SERVICE
+	// per request (CreateTask, CancelTask, PlannerParkSheds, and the planner catalog's category
+	// vocabulary). The route table admits it on the planner routes alongside PCCarePlan; the
+	// category check is the service's, because a route cannot see the body. PCCarePlan remains
+	// the superset: a holder of it plans every planner category, unchanged.
+	PCCarePlanTrimming = "pc_care.plan_trimming"
 	// PCCareStockApprove (maintainer decision 2026-09-02): the vaccine-stock fridge check
 	// (category inventory_vaccine) is RECORDED BY PARK OPERATORS and APPROVED BY THE PC
 	// DIRECTOR — the director cannot be in both farms, so the park's own vaccination
@@ -1080,6 +1111,18 @@ var rolePermissions = map[string]map[string]struct{}{
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 		FeedAnalyticsStockRead: {},
+	},
+	// Breeding Director (maintainer decision 2026-09-04): plans HOOF and HAIR TRIMMING and
+	// reads the PC Care board those tasks land on. See RoleBreedingDirector for what is
+	// deliberately absent -- PCCarePlan (deworming / ticks stay CEO-planned) and PCCareExecute
+	// (a planner must not film the work they planned). OperatorsRead + RosterRead are what the
+	// create wizard needs to offer an assignee list (the People module at View, in per-person
+	// terms); LocationsRead labels the pens it plans against.
+	RoleBreedingDirector: {
+		AppBootstrap: {}, AdminWebBootstrap: {},
+		LocationsRead: {}, OperatorsRead: {}, RosterRead: {},
+		PCCareMonitor:      {},
+		PCCarePlanTrimming: {},
 	},
 	RoleCountsApprover: {
 		CountsApproveAccess:    {},

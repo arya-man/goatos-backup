@@ -290,6 +290,12 @@ type PlannerOperator struct {
 type PlannerCatalog struct {
 	Parks     []PlannerPark
 	Operators []PlannerOperator
+	// Categories is the wizard's category vocabulary FOR THIS ACTOR: the planner categories
+	// their capability lets them plan (all four for pc_care.plan, hoof/hair trimming for
+	// pc_care.plan_trimming). Filled by the service, never by the store -- a read-only
+	// monitor with no planning capability sees the full planner list, since the wizard is
+	// not offered to them anyway and the list still labels the board's filter.
+	Categories []string
 }
 
 // PlannerPark is one pickable park.

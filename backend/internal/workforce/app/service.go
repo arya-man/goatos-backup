@@ -471,20 +471,23 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	// roster and moved 31 bars; this moves none, and loses no permission.
 	scope := scopeOf(grants)
 	var tickedModules []string
+	fromTicks := false
+	moduleKeysForBootstrap := grantedModules
 	if len(personAssignments) > 0 && !isStandaloneVerifierPrincipal(grants) {
 		held := make(map[string]struct{}, 64)
 		for _, p := range personPermissions {
 			held[p] = struct{}{}
 		}
 		scope.held = held
+		fromTicks = true
 		// nil means "no stored rows"; an empty non-nil slice means "ticked for nothing",
 		// and those are different answers.
 		tickedModules = personModules
 		if tickedModules == nil {
 			tickedModules = []string{}
 		}
+		moduleKeysForBootstrap = tickedModules
 	}
-	fromTicks := false
 	var device *domain.DeviceSummary
 	deviceState := domain.BootstrapDeviceState{Required: true, Status: "not_registered"}
 	deviceID = strings.TrimSpace(deviceID)
@@ -511,9 +514,9 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		}
 	}
 	now := s.now().UTC()
-	bootstrapModules := modulesForScope(scope, grantedModules, localeTag, fromTicks, tickedModules)
+	bootstrapModules := modulesForScope(scope, moduleKeysForBootstrap, localeTag, fromTicks, tickedModules)
 	navChrome := navChromeFor(grants, bootstrapModules)
-	visibleNav := visibleNavigationForTicks(scope, grantedModules, localeTag, tickedModules)
+	visibleNav := visibleNavigationForTicks(scope, moduleKeysForBootstrap, localeTag, tickedModules)
 	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
 	return &domain.BootstrapResponse{
 		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
@@ -528,12 +531,12 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"proof_capture":               hasCapability(caps, "media.video_capture"),
 			"animal_id_scan":              hasCapability(caps, "animal_id.scan"),
 			"protocol_adherence_card":     canViewProtocolAdherenceCard(grants),
-			"vaccination_execute":         canExecuteVaccinationFrom(grants, grantedModules, fromTicks),
-			"weighing_execute":            canExecuteWeighingFrom(grants, grantedModules, fromTicks),
-			"weighing_oversee_operators":  canOverseeWeighingOperatorsFrom(grants, grantedModules, fromTicks),
-			"pc_care_execute":             canExecutePCCareFrom(grants, grantedModules, fromTicks),
-			"pc_care_plan":                canPlanPCCareFrom(grants, grantedModules, fromTicks),
-			"pc_care_stock_approve":       canApproveVaccineStockFrom(grants),
+			"vaccination_execute":         canExecuteVaccinationScoped(scope, moduleKeysForBootstrap, fromTicks),
+			"weighing_execute":            canExecuteWeighingScoped(scope, moduleKeysForBootstrap, fromTicks),
+			"weighing_oversee_operators":  canOverseeWeighingOperatorsScoped(scope, moduleKeysForBootstrap, fromTicks),
+			"pc_care_execute":             canExecutePCCareScoped(scope, moduleKeysForBootstrap, fromTicks),
+			"pc_care_plan":                canPlanPCCareScoped(scope, moduleKeysForBootstrap, fromTicks),
+			"pc_care_stock_approve":       canApproveVaccineStockScoped(scope),
 			"verification_video_controls": canUseVerificationVideoControls(grants),
 		},
 		VisibleNavigation:       visibleNav,
@@ -707,18 +710,30 @@ func validMemberStatus(value string) bool {
 	}
 }
 
+// validRoleHint is the legacy operator create/update path's hint check. It must accept exactly
+// what workforce_members_role_hint_check accepts -- the DB list is the truth, and this is a
+// pre-flight so a bad hint is a 400 rather than a check_violation. The two lists, plus the
+// Add Person form's grantablePersonRoles hints, are pinned against each other by
+// TestEveryGrantableRoleHintIsAcceptedByTheColumnCheck (PR #181 finding PC-181-003: this list
+// was left behind when 000247 widened the CHECK, so the operator edit path still refused
+// breeding_director).
 func validRoleHint(value string) bool {
 	switch value {
-	case "operator", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "verifier", "supervisor", "cxo", "other":
+	case "operator", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "breeding_director", "verifier", "supervisor", "cxo", "other":
 		return true
 	default:
 		return false
 	}
 }
 
+// validRole is CreateGrant's role pre-flight. Every role the Add Person form can grant
+// (grantablePersonRoles) must pass here too, or a role that lands from the form cannot be
+// added to an existing person from the grants endpoint; pinned by
+// TestEveryGrantableRoleIsAcceptedByTheGrantPreflight (PR #181 finding PC-181-003, the
+// same drift one function over from validRoleHint).
 func validRole(value string) bool {
 	switch value {
-	case "admin", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "operator", "verifier", "ceo_internal":
+	case "admin", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "breeding_director", "operator", "verifier", "ceo_internal":
 		return true
 	default:
 		return false
@@ -761,6 +776,9 @@ var leadershipGrantRoles = map[string]bool{
 	permissions.RoleFeedDirector:   true,
 	permissions.RoleHealthDirector: true,
 	permissions.RoleParkHead:       true,
+	// Breeding Director (maintainer decision 2026-09-04): a director desk that plans hoof /
+	// hair trimming; leadership for nav composition like the other name_director roles.
+	permissions.RoleBreedingDirector: true,
 }
 
 func isVerifierPrincipal(grants []domain.GrantSummary) bool {

@@ -651,17 +651,21 @@ var protectedRoutes = []Route{
 	// the monitor list admits the read-only oversight capabilities too; the operator surfaces
 	// gate on PCCareExecute — and every WRITE additionally requires task-assignee membership,
 	// enforced in the service (the permission alone is never write authority).
-	{OperationID: "appPCCarePlannerCatalog", Method: "GET", Pattern: "/app/pc-care/planner/catalog", AnyPermissions: []string{PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
-	{OperationID: "appPCCarePlannerParkSheds", Method: "GET", Pattern: "/app/pc-care/planner/parks/{park_id}/sheds", Permissions: []string{PCCarePlan}},
-	{OperationID: "appCreatePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks", Permissions: []string{PCCarePlan}},
-	{OperationID: "appCancelPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/cancel", Permissions: []string{PCCarePlan}},
-	{OperationID: "appListPCCareTasks", Method: "GET", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	//
+	// PCCarePlanTrimming (maintainer decision 2026-09-04) rides the planner routes beside
+	// PCCarePlan. The route table cannot see a category, so it only admits the holder; the
+	// service refuses any category outside hoof/hair trimming for that permission.
+	{OperationID: "appPCCarePlannerCatalog", Method: "GET", Pattern: "/app/pc-care/planner/catalog", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCarePlannerParkSheds", Method: "GET", Pattern: "/app/pc-care/planner/parks/{park_id}/sheds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	{OperationID: "appCreatePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	{OperationID: "appCancelPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/cancel", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	{OperationID: "appListPCCareTasks", Method: "GET", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appPCCareWorklist", Method: "GET", Pattern: "/app/pc-care/worklist", Permissions: []string{PCCareExecute}},
-	{OperationID: "appGetPCCareTask", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appGetPCCareTask", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	// The peer-visibility poll: which animals are scanned and which video slots each already
 	// holds, by ANY assignee. A READ — seeing that a slot is done is not authority to record.
-	{OperationID: "appPCCareTaskCaptures", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/captures", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
-	{OperationID: "appPCCareTaskRoster", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/roster", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCareTaskCaptures", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/captures", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCareTaskRoster", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/roster", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appScanPCCareAnimal", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/animals", Permissions: []string{PCCareExecute}},
 	{OperationID: "appRegisterPCCareSlotProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
 	{OperationID: "appRegisterPCCareTaskProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},

@@ -302,6 +302,23 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// The Breeding Director's slice of Preventive Care (maintainer decision 2026-09-04).
+		// A SEPARATE catalog module rather than a level of pc_care because levels have no
+		// category dimension: pc_care at Configure plans every category, and this desk plans
+		// exactly two. Keeping it its own row is what lets a human tick "plans hoof and hair
+		// trimming" for one person without also handing them deworming. The permission it
+		// grants is honoured on the same /app/pc-care/* routes; there is no second screen.
+		Key:      "pc_trimming",
+		Label:    "Hoof & Hair Trimming",
+		Blurb:    "Plan hoof trimming and hair trimming tasks; the work itself is done under Preventive Care.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {PCCareMonitor},
+			// Planning without executing, the pc_care Configure shape narrowed to two categories.
+			LevelConfigure: {PCCareMonitor, PCCarePlanTrimming},
+		},
+	},
+	{
 		Key:   "procurement",
 		Label: "Procurement",
 		Blurb: "Source entry: animals bought in.",

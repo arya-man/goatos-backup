@@ -169,6 +169,15 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		one(assign("feed_direction", SurfaceWeb, LevelStock)),
 	),
+	// Breeding Director (maintainer decision 2026-09-04): reads the Preventive Care board and
+	// plans hoof / hair trimming through the pc_trimming row. No Do on either -- a planner
+	// does not film the work they planned. People at View is the operator directory the
+	// create wizard's assignee picker reads (operators.read).
+	RoleBreedingDirector: rows(
+		bothSurfaces("pc_care", LevelView),
+		bothSurfaces("pc_trimming", LevelView, LevelConfigure),
+		bothSurfaces("people", LevelView),
+	),
 	// Granted BY NAME alongside a job (maintainer decision 2026-08-05). Carries approval
 	// authority and nothing else -- no read, no write. LevelView is deliberately absent.
 	// Approving is its OWN module on both surfaces (the 2026-08-05 decision that put the

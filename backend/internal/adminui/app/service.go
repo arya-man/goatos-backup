@@ -6393,6 +6393,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option(permissions.RoleGrowthDirector, "Growth Director", "tenant", ""),
 					option(permissions.RoleFeedDirector, "Feed Director", "tenant", ""),
 					option(permissions.RoleHealthDirector, "Health Director", "tenant", ""),
+					option(permissions.RoleBreedingDirector, "Breeding Director", "tenant", ""),
 				},
 			},
 			{

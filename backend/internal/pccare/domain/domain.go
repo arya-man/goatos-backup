@@ -40,6 +40,22 @@ var Categories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofT
 // Kernel-owned categories stay readable/listable, but are created by reconciliation stages.
 var PlannerCategories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
 
+// TrimmingCategories are the planner categories a holder of pc_care.plan_trimming may plan
+// (maintainer decision 2026-09-04: the Breeding Director owns hoof and hair trimming while
+// deworming and ticks removal stay CEO-planned). This is the ONE list that permission covers;
+// the service resolves every planner write and the wizard vocabulary against it.
+var TrimmingCategories = []string{CategoryHoofTrimming, CategoryHairTrimming}
+
+// IsTrimmingCategory reports whether c is one of TrimmingCategories.
+func IsTrimmingCategory(c string) bool {
+	for _, category := range TrimmingCategories {
+		if c == category {
+			return true
+		}
+	}
+	return false
+}
+
 // IsValidCategory reports whether c names a real PC Care category.
 func IsValidCategory(c string) bool {
 	switch c {
@@ -263,6 +279,32 @@ type Actor struct {
 	TenantID string
 	UserID   string
 	Roles    []string
+	// Permissions is the per-person resolved permission set when the person's OWN access rows
+	// decided the request (maintainer decision 2026-08-24); PermissionsResolved says whether
+	// they did. When true, the service judges capability from Permissions and never from
+	// Roles -- the route gate did the same, and a re-check from the role map would either
+	// refuse a tick that is not also a job (route-green / service-403) or restore authority
+	// the ticks removed. When false the role map decides, exactly as before the cutover.
+	Permissions         []string
+	PermissionsResolved bool
+}
+
+// HasAny reports whether the actor holds at least one of `capabilities`, from whichever
+// source decided the request: the per-person permission set when it was resolved, the role
+// map otherwise. Every PC Care capability check goes through here so the two sources cannot
+// disagree inside one module.
+func (a Actor) HasAny(roleHas func(roles []string, required []string) bool, capabilities []string) bool {
+	if a.PermissionsResolved {
+		for _, have := range a.Permissions {
+			for _, want := range capabilities {
+				if have == want {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return roleHas(a.Roles, capabilities)
 }
 
 // Typed errors, mapped to HTTP codes by the adapter.

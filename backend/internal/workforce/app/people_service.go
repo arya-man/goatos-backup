@@ -34,6 +34,9 @@ var grantablePersonRoles = map[string]personRoleSpec{
 	permissions.RoleGrowthDirector: {ScopeType: "tenant", RoleHint: "growth_director"},
 	permissions.RoleFeedDirector:   {ScopeType: "tenant", RoleHint: "feed_director"},
 	permissions.RoleHealthDirector: {ScopeType: "tenant", RoleHint: "health_director"},
+	// Breeding Director (maintainer decision 2026-09-04): a director desk, tenant-scoped like
+	// the others -- hoof / hair trimming is planned across both parks.
+	permissions.RoleBreedingDirector: {ScopeType: "tenant", RoleHint: "breeding_director"},
 }
 
 var validDesignationGrades = map[string]struct{}{

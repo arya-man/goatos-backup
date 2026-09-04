@@ -783,6 +783,9 @@ func decideAuthorization(ctx context.Context, src PersonAccessSource, route perm
 			if allowed, decidable := permissions.AuthorizePermissionSet(route, held); decidable {
 				authorized = allowed
 				source = "person"
+				// The ticks decided; hand the SAME set to the module's own re-check so the
+				// service cannot answer from the role map the ticks just overrode.
+				ctx = WithPersonPermissions(ctx, held)
 				if allowed {
 					scopeMode, parkIDs, scopeProvisioned, err := src.ResolveParkScope(ctx, tenantID, userID)
 					switch {

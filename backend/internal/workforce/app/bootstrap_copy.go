@@ -484,7 +484,7 @@ func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string,
 }
 
 func visibleNavigationForTicks(scope navScope, grantedModules []string, localeTag string, ticked []string) []domain.BootstrapNavigationItem {
-	return visibleNavigationForScope(scope, grantedModules, localeTag, false, ticked)
+	return visibleNavigationForScope(scope, grantedModules, localeTag, true, ticked)
 }
 
 func visibleNavigationForFrom(grants []domain.GrantSummary, grantedModules []string, localeTag string, fromTicks bool) []domain.BootstrapNavigationItem {
@@ -685,9 +685,24 @@ func candidateModuleKeysFrom(grants []domain.GrantSummary, grantedModules []stri
 		// Clock In / Out is offered to EVERY non-verifier principal regardless
 		// of department grants (decision D2: everyone clocks in). Appended
 		// rather than seeded so a department grant row is never required.
-		return appendMissing(append([]string(nil), grantedModules...), clockModuleKey)
+		return appendMissing(renderableModuleKeys(grantedModules), clockModuleKey)
 	}
 	return appendMissing(leadershipModuleKeys(grants), clockModuleKey)
+}
+
+func renderableModuleKeys(keys []string) []string {
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		out = appendMissing(out, renderableModuleKey(key))
+	}
+	return out
+}
+
+func renderableModuleKey(key string) string {
+	if key == "pc_trimming" {
+		return "pc_care"
+	}
+	return key
 }
 
 // narrowOfferToTicks intersects the modules a principal is OFFERED with the modules they are
@@ -711,7 +726,7 @@ func narrowOfferToTicks(offered, ticked []string) []string {
 	}
 	keep := make(map[string]struct{}, len(ticked))
 	for _, k := range ticked {
-		keep[k] = struct{}{}
+		keep[renderableModuleKey(k)] = struct{}{}
 	}
 	out := make([]string, 0, len(offered))
 	for _, k := range offered {
@@ -722,7 +737,7 @@ func narrowOfferToTicks(offered, ticked []string) []string {
 			out = append(out, k)
 			continue
 		}
-		if _, ok := keep[k]; ok {
+		if _, ok := keep[renderableModuleKey(k)]; ok {
 			out = append(out, k)
 		}
 	}
@@ -797,6 +812,12 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	}
 	if hasRole(grants, permissions.RoleGrowthDirector) {
 		keys = appendMissing(keys, "weighing")
+	}
+	// Breeding Director -> Preventive Care (maintainer decision 2026-09-04): the hoof / hair
+	// trimming tasks he plans live on the pc_care board, so that is the module offered. A bare
+	// holder of this role otherwise resolves to an empty nav, the feed/health defect below.
+	if hasRole(grants, permissions.RoleBreedingDirector) {
+		keys = appendMissing(keys, "pc_care")
 	}
 	// Feed Director -> Feed, Health Director -> Counts (maintainer decision 2026-08-01, one
 	// module per director). Both roles are in leadershipGrantRoles, so WITHOUT these entries the
@@ -913,7 +934,11 @@ func canExecuteVaccination(grants []domain.GrantSummary, grantedModules []string
 }
 
 func canExecuteVaccinationFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
-	return hasPermission(grants, permissions.TaskExecute) && canUseModuleFrom(grants, grantedModules, "vaccination", fromTicks)
+	return canExecuteVaccinationScoped(scopeOf(grants), grantedModules, fromTicks)
+}
+
+func canExecuteVaccinationScoped(scope navScope, grantedModules []string, fromTicks bool) bool {
+	return scope.has(permissions.TaskExecute) && canUseModuleFrom(scope.grants, grantedModules, "vaccination", fromTicks)
 }
 
 func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) bool {
@@ -921,7 +946,11 @@ func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) b
 }
 
 func canExecuteWeighingFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
-	return hasPermission(grants, permissions.WeighingExecute) && canUseModuleFrom(grants, grantedModules, "weighing", fromTicks)
+	return canExecuteWeighingScoped(scopeOf(grants), grantedModules, fromTicks)
+}
+
+func canExecuteWeighingScoped(scope navScope, grantedModules []string, fromTicks bool) bool {
+	return scope.has(permissions.WeighingExecute) && canUseModuleFrom(scope.grants, grantedModules, "weighing", fromTicks)
 }
 
 // canOverseeWeighingOperators gates the read-only Operators surface -- weighing shed tasks
@@ -933,7 +962,11 @@ func canOverseeWeighingOperators(grants []domain.GrantSummary, grantedModules []
 }
 
 func canOverseeWeighingOperatorsFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
-	return hasPermission(grants, permissions.WeighingOverseeOperators) && canUseModuleFrom(grants, grantedModules, "weighing", fromTicks)
+	return canOverseeWeighingOperatorsScoped(scopeOf(grants), grantedModules, fromTicks)
+}
+
+func canOverseeWeighingOperatorsScoped(scope navScope, grantedModules []string, fromTicks bool) bool {
+	return scope.has(permissions.WeighingOverseeOperators) && canUseModuleFrom(scope.grants, grantedModules, "weighing", fromTicks)
 }
 
 func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
@@ -947,7 +980,11 @@ func canExecutePCCare(grants []domain.GrantSummary, grantedModules []string) boo
 }
 
 func canExecutePCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
-	return hasPermission(grants, permissions.PCCareExecute) && canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
+	return canExecutePCCareScoped(scopeOf(grants), grantedModules, fromTicks)
+}
+
+func canExecutePCCareScoped(scope navScope, grantedModules []string, fromTicks bool) bool {
+	return scope.has(permissions.PCCareExecute) && canUseModuleFrom(scope.grants, grantedModules, "pc_care", fromTicks)
 }
 
 // canApproveVaccineStock decides the FACE of the vaccine-stock tab (maintainer decision
@@ -957,17 +994,39 @@ func canExecutePCCareFrom(grants []domain.GrantSummary, grantedModules []string,
 // stock-verdict route independently requires pc_care.stock_approve and the capture writes
 // still require task-assignee membership (the director is no longer an assignee).
 func canApproveVaccineStockFrom(grants []domain.GrantSummary) bool {
-	return hasPermission(grants, permissions.PCCareStockApprove)
+	return canApproveVaccineStockScoped(scopeOf(grants))
 }
 
-// canPlanPCCare gates the "Plan a care task" wizard entry on the monitor list (CEO-only via
-// pc_care.plan, the weighing.plan precedent). The write path is still gated server-side.
+func canApproveVaccineStockScoped(scope navScope) bool {
+	return scope.has(permissions.PCCareStockApprove)
+}
+
+// canPlanPCCare gates the "Plan a care task" wizard entry on the monitor list: pc_care.plan
+// (CEO, the weighing.plan precedent) or pc_care.plan_trimming (the Breeding Director,
+// maintainer decision 2026-09-04, whose wizard the planner catalog narrows to hoof and hair
+// trimming). The write path is still gated server-side, category included.
 func canPlanPCCare(grants []domain.GrantSummary, grantedModules []string) bool {
 	return canPlanPCCareFrom(grants, grantedModules, false)
 }
 
 func canPlanPCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
-	return hasPermission(grants, permissions.PCCarePlan) && canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
+	return canPlanPCCareScoped(scopeOf(grants), grantedModules, fromTicks)
+}
+
+// pcCarePlanCapabilities are the two capabilities that open the plan wizard.
+var pcCarePlanCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming}
+
+// canPlanPCCareScoped is the flag's real implementation: it asks the navScope, which answers
+// from the person's OWN resolved permissions when they have access rows and from the role map
+// otherwise -- the same source the route gate and the PC Care service use. Reading grant roles
+// here would light the wizard for a role whose ticks removed planning, and leave it dark for a
+// person ticked pc_trimming at Configure without the breeding_director job.
+func canPlanPCCareScoped(scope navScope, grantedModules []string, fromTicks bool) bool {
+	if !scope.hasAny(pcCarePlanCapabilities) {
+		return false
+	}
+	return canUseModuleFrom(scope.grants, grantedModules, "pc_care", fromTicks) ||
+		canUseModuleFrom(scope.grants, grantedModules, "pc_trimming", fromTicks)
 }
 
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {

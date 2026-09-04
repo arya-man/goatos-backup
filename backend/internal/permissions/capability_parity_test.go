@@ -184,7 +184,8 @@ func TestBackfillReportsFullDiff(t *testing.T) {
 func TestStackedRoleMergeKeepsEveryPermission(t *testing.T) {
 	// Exactly the stacks observed on STG on 2026-08-24.
 	stacks := map[string][]string{
-		"dinakar":     {RoleCountsApprover, RoleGrowthDirector, RoleOperator, RoleParkHead, RolePCDirector},
+		// breeding_director layered on 2026-09-04 (maintainer decision: he plans hoof / hair trimming).
+		"dinakar":     {RoleBreedingDirector, RoleCountsApprover, RoleGrowthDirector, RoleOperator, RoleParkHead, RolePCDirector},
 		"chandrakant": {RoleCountsApprover, RoleOperator, RoleParkHead, RolePCDirector},
 		"hemant":      {RoleFeedDirector, RoleProcurementDirector},
 		"avishek":     {RoleCountsApprover, RoleHealthDirector},

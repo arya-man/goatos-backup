@@ -32,6 +32,18 @@ verifier reject  -> rework (re-record on the SAME animal rows, resubmit)
 
 1. **Planning is CEO-only** (`pc_care.plan`, the weighing.plan precedent). pc_director holds
    monitor/oversee/execute, never plan. CEO holds plan+monitor, never execute.
+   **One recorded carve-out (maintainer decision 2026-09-04): the Breeding Director plans
+   HOOF TRIMMING and HAIR TRIMMING.** `breeding_director` holds `pc_care.plan_trimming`, a
+   CATEGORY-SCOPED planning capability covering exactly `domain.TrimmingCategories`; the
+   service refuses it on deworming / ticks removal (create, cancel and the pen pager alike)
+   and the planner catalog narrows that holder's wizard to the two categories, so the phone
+   never offers a category the write would refuse. `pc_care.plan` remains the superset and
+   still lives on `ceo_internal` alone; `pc_director` still plans nothing. The role also
+   deliberately holds NO `pc_care.execute` — a planner must not film the work they planned.
+   In the per-person access catalog this is its own row, `pc_trimming` (View / Configure),
+   because levels have no category dimension and `pc_care` at Configure would hand over the
+   whole module. Pinned by `TestBreedingDirectorPlansTrimmingOnly` and the
+   `TestCreateTaskHonoursTheTrimmingPlannerCarveOut` family.
 2. **Multi-operator assignment is per task** (`pc_care_task_assignees`), deliberately unlike
    weighing's one-operator-per-bucket. `pc_care.execute` alone NEVER authorizes a write — the
    caller must also be an assignee of that task (403 `task_not_assigned`).

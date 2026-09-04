@@ -61,6 +61,7 @@ func TestPerPersonAuthorityDidNotLeakOntoTheJobRoles(t *testing.T) {
 		permissions.RoleGrowthDirector,
 		permissions.RoleFeedDirector,
 		permissions.RoleHealthDirector,
+		permissions.RoleBreedingDirector,
 		permissions.RoleParkHead,
 	}
 	perPersonOnly := []string{

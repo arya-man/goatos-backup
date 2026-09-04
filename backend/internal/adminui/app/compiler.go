@@ -1749,6 +1749,7 @@ func highestRole(roles []string) string {
 		permissions.RoleProcurementDirector,
 		permissions.RoleFeedDirector,
 		permissions.RoleHealthDirector,
+		permissions.RoleBreedingDirector,
 		permissions.RoleParkHead,
 		permissions.RoleVerifier,
 		permissions.RoleOperator,
@@ -1782,6 +1783,8 @@ func roleLensForRole(role string) domain.RoleLensContract {
 		return domain.RoleLensContract{ID: "procurement-director", Name: "Procurement Director", AuditShort: "Proc Dir", Scope: "procurement + feed · all parks", Description: "Procurement governance view"}
 	case permissions.RoleHealthDirector:
 		return domain.RoleLensContract{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health · all parks", Description: "Health / counts governance view"}
+	case permissions.RoleBreedingDirector:
+		return domain.RoleLensContract{ID: "breeding-director", Name: "Breeding Director", AuditShort: "Breeding Dir", Scope: "hoof & hair trimming · all parks", Description: "Breeding husbandry planning view"}
 	case permissions.RoleParkHead:
 		return domain.RoleLensContract{ID: "park-head", Name: "Park Head", AuditShort: "Park Head", Scope: "all verticals · assigned park", Description: "Assigned park leadership view"}
 	case permissions.RoleVerifier:
@@ -1817,6 +1820,8 @@ func roleInitials(role string) string {
 		return "PD"
 	case permissions.RoleHealthDirector:
 		return "HD"
+	case permissions.RoleBreedingDirector:
+		return "BD"
 	case permissions.RoleParkHead:
 		return "PH"
 	case permissions.RoleVerifier:
