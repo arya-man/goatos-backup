@@ -454,7 +454,8 @@ class SaleCreateViewModel @Inject constructor(
             when (val result = syncRepository.enqueueSalesDealCreate(clientId, values.toWrite())) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_SALE_QUEUED)
-                    local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED) }
+                    local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
+                    followWrite(result.value)
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, "sale create enqueue failed") }
@@ -465,6 +466,21 @@ class SaleCreateViewModel @Inject constructor(
         }
     }
 
+
+    /** Upgrades the banner as the queued row moves: saved, still unsent (offline wording), or rejected. */
+    private fun followWrite(itemId: String) {
+        viewModelScope.launch {
+            syncRepository.followQueuedWrite(itemId).collect { outcome ->
+                local.update {
+                    when (outcome) {
+                        QueuedWriteOutcome.Saved -> it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED)
+                        QueuedWriteOutcome.StillQueued -> it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED)
+                        is QueuedWriteOutcome.Rejected -> it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_NOT_SAVED)
+                    }
+                }
+            }
+        }
+    }
     private fun validate(step: Int, v: Map<SaleField, String>): Map<SaleField, String> {
         val errors = mutableMapOf<SaleField, String>() // mobile-guard:ignore: per-call validation result, at most one entry per form field, returned and dropped
         fun nonNegative(f: SaleField, whole: Boolean = false) {
@@ -539,7 +555,9 @@ class SaleCreateViewModel @Inject constructor(
         const val ADVANCE_OVER = "Cannot be more than the sale value"
         const val TOO_FAR = "Too far ahead — within 60 days of today"
         const val TOO_LONG = "Too long"
-        const val MESSAGE_QUEUED = "Sale saved. It will reach the ledger when the phone is online."
+        const val MESSAGE_SAVING = "Saving sale…"
+        const val MESSAGE_SAVED = "Sale saved to the ledger."
+        const val MESSAGE_QUEUED = "Saved on this phone. It will reach the ledger when the phone is online."
         const val MESSAGE_NOT_SAVED = "Could not save this sale. Try again."
     }
 }
