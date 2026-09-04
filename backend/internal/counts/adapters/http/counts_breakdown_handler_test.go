@@ -112,6 +112,58 @@ func TestGetBreakdownRejectsMalformedPen(t *testing.T) {
 	}
 }
 
+func TestGetBreakdownRejectsMalformedPenShedID(t *testing.T) {
+	cases := []string{
+		"/counts/breakdown?pen=not-a-uuid",
+		"/counts/breakdown?shed_id=not-a-uuid&partition_label=Part%202",
+	}
+	for _, path := range cases {
+		service := &countsBreakdownHandlerService{}
+		handler := NewHandler(service, slog.Default())
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+		recorder := httptest.NewRecorder()
+
+		handler.GetBreakdown(recorder, req)
+
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status=%d, want 400; body=%s", path, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+func TestGetBreakdownTrimsPenShedIDBeforeValidationAndDomainQuery(t *testing.T) {
+	service := &countsBreakdownHandlerService{}
+	handler := NewHandler(service, slog.Default())
+	req := httptest.NewRequest(http.MethodGet, "/counts/breakdown?pen=30000000-0000-4000-8000-000000000001%20%23%20Part%202", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+	recorder := httptest.NewRecorder()
+
+	handler.GetBreakdown(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	want := []domain.CountsBreakdownPen{{ShedID: "30000000-0000-4000-8000-000000000001", PartitionLabel: "Part 2"}}
+	if !reflect.DeepEqual(service.seen.Pens, want) {
+		t.Fatalf("pens=%v want %v", service.seen.Pens, want)
+	}
+}
+
+func TestGetBreakdownRejectsMalformedParkID(t *testing.T) {
+	service := &countsBreakdownHandlerService{}
+	handler := NewHandler(service, slog.Default())
+	req := httptest.NewRequest(http.MethodGet, "/counts/breakdown?park_id=not-a-uuid", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+	recorder := httptest.NewRecorder()
+
+	handler.GetBreakdown(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400; body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 // group_by selects the page grain. "pen" reaches the domain query as GroupByPen; absent keeps the
 // grain page an installed client already reads; anything else is a 400, never a silent default —
 // the two pages report different total_rows and a caller paging the wrong one would read a pen
