@@ -3558,6 +3558,8 @@ fun AppNavHost(
             val vm: SalesLeadBoardViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val panel = runCatching {
+                // exception:exempt an unreadable panel argument is a bad link, not a failure to
+                // report: the screen simply opens on its default panel.
                 SalesPipelinePanel.valueOf(entry.arguments?.getString(Routes.SALES_PANEL_ARG).orEmpty())
             }.getOrDefault(SalesPipelinePanel.BUYER_LEADS)
             SalesLeadBoardScreen(
@@ -3578,6 +3580,8 @@ fun AppNavHost(
             val vm: SalesEvidenceViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val panel = runCatching {
+                // exception:exempt an unreadable panel argument is a bad link, not a failure to
+                // report: the screen simply opens on its default panel.
                 SalesPipelinePanel.valueOf(entry.arguments?.getString(Routes.SALES_PANEL_ARG).orEmpty())
             }.getOrDefault(SalesPipelinePanel.MARKET_QUOTE)
             SalesEvidenceScreen(

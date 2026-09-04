@@ -2,6 +2,10 @@ package sg.mesha.goatos.core.data.sync
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import sg.mesha.goatos.core.network.dto.FeedPurchaseDeliveryWriteDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseEditDto
+import sg.mesha.goatos.core.network.dto.FeedPurchasePaymentWriteDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseStatusWriteDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
 import sg.mesha.goatos.core.network.dto.SalesBenchmarkWriteDto
 import sg.mesha.goatos.core.network.dto.SalesBuyerLeadWriteDto
@@ -149,4 +153,39 @@ data class SalesPipelinePayload(
     @SerialName("benchmark") val benchmark: SalesBenchmarkWriteDto? = null,
     @SerialName("sold_tags") val soldTags: SalesSoldTagsWriteDto? = null,
     @SerialName("weight_check") val weightCheck: SalesWeightCheckWriteDto? = null,
+)
+
+// ---------------------------------------------------------------------------------------------
+// Changing a recorded feed load (maintainer instruction 2026-09-04)
+// ---------------------------------------------------------------------------------------------
+
+/** One lane per LOAD, so an instalment and a status change on the same purchase drain in the
+ *  order the operator made them and never race each other's balance. */
+fun feedPurchaseEditGroupKey(purchaseId: String): String = "vendors:purchase-edit:$purchaseId"
+
+/** STABLE per client id: a retry replays the SAME instalment instead of paying the vendor twice. */
+fun feedPurchaseEditIdempotencyKey(clientId: String): String = "vendors:purchase-edit:$clientId"
+
+/** Which change a [FeedPurchaseEditPayload] carries. */
+object FeedPurchaseEditKind {
+    const val PAYMENT = "payment"
+    const val PAYMENT_STATUS = "payment_status"
+    const val EDIT = "edit"
+    const val DELIVERY = "delivery"
+}
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.FEED_PURCHASE_EDIT_WRITE].
+ * Exactly ONE request field is set, named by [kind]. Separate typed fields rather than a raw blob,
+ * so a renamed wire field breaks the build here instead of at the operator's phone.
+ */
+@Serializable
+data class FeedPurchaseEditPayload(
+    @SerialName("client_id") val clientId: String,
+    @SerialName("purchase_id") val purchaseId: String,
+    @SerialName("kind") val kind: String,
+    @SerialName("payment") val payment: FeedPurchasePaymentWriteDto? = null,
+    @SerialName("payment_status") val paymentStatus: FeedPurchaseStatusWriteDto? = null,
+    @SerialName("edit") val edit: FeedPurchaseEditDto? = null,
+    @SerialName("delivery") val delivery: FeedPurchaseDeliveryWriteDto? = null,
 )

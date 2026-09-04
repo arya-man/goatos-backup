@@ -135,6 +135,8 @@ class SalesLeadBoardViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val panel: SalesPipelinePanel =
+        // exception:exempt an unreadable panel argument is a bad link, not a failure to report:
+        // the screen simply opens on its default panel.
         runCatching { SalesPipelinePanel.valueOf(savedStateHandle.get<String>(Routes.SALES_PANEL_ARG).orEmpty()) }
             .getOrDefault(SalesPipelinePanel.BUYER_LEADS)
 
@@ -363,6 +365,8 @@ class SalesEvidenceViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val panel: SalesPipelinePanel =
+        // exception:exempt an unreadable panel argument is a bad link, not a failure to report:
+        // the screen simply opens on its default panel.
         runCatching { SalesPipelinePanel.valueOf(savedStateHandle.get<String>(Routes.SALES_PANEL_ARG).orEmpty()) }
             .getOrDefault(SalesPipelinePanel.MARKET_QUOTE)
 
