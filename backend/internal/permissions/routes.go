@@ -495,6 +495,11 @@ var protectedRoutes = []Route{
 	// itself is already scoped to context->>'member_id' = caller, so this grants no one sight of
 	// anybody else's alerts.
 	{OperationID: "appListWeighingAlerts", Method: "GET", Pattern: "/app/weighing/alerts", AnyPermissions: []string{WeighingExecute, WeighingMonitor, WeighingPlan, VerificationReview}},
+	// Fasting (feed & water removal) precondition cards (maintainer decision
+	// 2026-09-03). The list serves ONLY the caller's own cards; submit further
+	// requires the caller to be the assigned removal operator.
+	{OperationID: "appListWeighingFastingShedCards", Method: "GET", Pattern: "/app/weighing/fasting", Permissions: []string{WeighingExecute}},
+	{OperationID: "appSubmitWeighingFastingShed", Method: "POST", Pattern: "/app/weighing/fasting/{fasting_task_id}/sheds/{campaign_shed_id}/submit", Permissions: []string{WeighingExecute}},
 	// Growth Director widgets on the admin-web Weights screen. Its OWN module
 	// (weighing is herd-isolated; these widgets need breed/sex + the feed sheet),
 	// but the SAME gate as the Weights page reads it renders under.

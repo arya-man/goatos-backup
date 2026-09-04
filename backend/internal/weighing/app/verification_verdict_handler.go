@@ -54,13 +54,22 @@ type weighingVerdictPayload struct {
 // VerificationVerdictHandler applies a verifier's verdict to the weighing
 // observation it verified.
 type VerificationVerdictHandler struct {
-	store ports.VerificationVerdictStore
-	acker VerificationApplyAcker
-	log   *slog.Logger
+	store   ports.VerificationVerdictStore
+	fasting ports.FastingStore
+	acker   VerificationApplyAcker
+	log     *slog.Logger
 }
 
 func NewVerificationVerdictHandler(store ports.VerificationVerdictStore, log *slog.Logger) *VerificationVerdictHandler {
 	return &VerificationVerdictHandler{store: store, log: log}
+}
+
+// WithFastingStore wires the feed & water removal verdict apply. Optional like
+// the acker: a handler built without it keeps applying observation verdicts
+// exactly as before and simply skips fasting verdicts.
+func (h *VerificationVerdictHandler) WithFastingStore(store ports.FastingStore) *VerificationVerdictHandler {
+	h.fasting = store
+	return h
 }
 
 // WithApplyAcker wires the receipt weighing sends back to the verification module
@@ -99,7 +108,7 @@ func (h *VerificationVerdictHandler) HandleEvent(ctx context.Context, event even
 		return nil
 	}
 	refType := strings.TrimSpace(payload.Source.RefType)
-	if refType != domain.VerificationRefTypeAnimal && refType != domain.VerificationRefTypeShed {
+	if refType != domain.VerificationRefTypeAnimal && refType != domain.VerificationRefTypeShed && refType != domain.VerificationRefTypeFasting {
 		return nil
 	}
 	observationID := strings.TrimSpace(payload.Source.RefID)
@@ -111,6 +120,9 @@ func (h *VerificationVerdictHandler) HandleEvent(ctx context.Context, event even
 	status := domain.VerificationStatusVerified
 	if event.Type == eventVerificationVerdictRework {
 		status = domain.VerificationStatusRework
+	}
+	if refType == domain.VerificationRefTypeFasting {
+		return h.handleFastingVerdict(ctx, tenantID, observationID, status, event.ID, payload)
 	}
 	// Idempotency is keyed on the event id inside the store, so an at-least-once
 	// redelivery replays to the original result with no new side effects.
@@ -184,6 +196,49 @@ func (h *VerificationVerdictHandler) HandleEvent(ctx context.Context, event even
 		return eventbus.PermanentError(fmt.Errorf("weighing verdict: observation %s idempotency fingerprint conflict: %w", observationID, err))
 	default:
 		return fmt.Errorf("weighing verdict: apply %s: %w", status, err)
+	}
+}
+
+// handleFastingVerdict applies a verifier's decision to the feed & water
+// removal task. It NEVER touches submitted_at — the midnight gate reads
+// submission, and a rework must not un-run a weighing that already happened;
+// the operator simply re-records and re-submits the removal evidence.
+func (h *VerificationVerdictHandler) handleFastingVerdict(ctx context.Context, tenantID, fastingTaskID, status, eventID string, payload weighingVerdictPayload) error {
+	if h.fasting == nil {
+		// Built without the fasting seam: skip rather than fail — the verdict
+		// stays pending on the verification side until a wired consumer runs.
+		if h.log != nil {
+			h.log.WarnContext(ctx, "weighing_fasting_verdict_skipped_no_store",
+				"tenant_id", tenantID, "fasting_task_id", fastingTaskID)
+		}
+		return nil
+	}
+	err := h.fasting.ApplyFastingVerdict(ctx, domain.FastingVerdict{
+		TenantID:      tenantID,
+		FastingShedID: fastingTaskID,
+		Status:        status,
+		VerifiedBy:    strings.TrimSpace(payload.VerifiedBy),
+		Reason:        strings.TrimSpace(payload.Reason),
+		EventID:       eventID,
+	})
+	switch {
+	case err == nil:
+		h.ackApplied(ctx, tenantID, domain.VerificationRefTypeFasting, fastingTaskID)
+		return nil
+	case errors.Is(err, ports.ErrNotFound):
+		if h.log != nil {
+			h.log.WarnContext(ctx, "weighing_fasting_verdict_task_missing",
+				"tenant_id", tenantID, "fasting_task_id", fastingTaskID)
+		}
+		return eventbus.PermanentError(fmt.Errorf("weighing fasting verdict: task %s not found: %w", fastingTaskID, err))
+	case errors.Is(err, ports.ErrIdempotencyConflict):
+		if h.log != nil {
+			h.log.WarnContext(ctx, "weighing_fasting_verdict_idempotency_conflict",
+				"tenant_id", tenantID, "fasting_task_id", fastingTaskID, "event_id", eventID)
+		}
+		return eventbus.PermanentError(fmt.Errorf("weighing fasting verdict: task %s idempotency conflict: %w", fastingTaskID, err))
+	default:
+		return fmt.Errorf("weighing fasting verdict: apply %s: %w", status, err)
 	}
 }
 

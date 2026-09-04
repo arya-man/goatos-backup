@@ -28,6 +28,11 @@ var (
 	ErrInvalidArgument = errors.New("pccare: invalid argument")
 	// ErrShedNotInPark is returned when the addressed shed is not an active shed of the park.
 	ErrShedNotInPark = errors.New("pccare: shed is not an active shed of the addressed park")
+	// ErrOperatorOutsidePark blocks assigning a task, or its feed & water
+	// removal, to someone whose active scope does not reach the task's park.
+	// Operators belong to exactly ONE park; only tenant-scoped leadership spans
+	// parks. The phone's picker filters by park, but the write is the defence.
+	ErrOperatorOutsidePark = errors.New("pccare: operator is not scoped to this park")
 	// ErrInvalidPartition is returned when a partitioned shed is addressed without a real
 	// catalog partition, or an undivided shed with a fabricated one.
 	ErrInvalidPartition = errors.New("pccare: partition_label is required and must match the shed partition catalog")
@@ -50,11 +55,19 @@ type CreateTaskParams struct {
 	PlannedBusinessDate time.Time
 	// AssigneeUserIDs are the operators authorized to work this task (one or more).
 	AssigneeUserIDs []string
-	IdempotencyKey  string
-	CreatedBy       string
-	ActorID         string
-	ActorType       string
-	TraceID         string
+	// FeedRemovalRequired (deworming only) creates the linked feed_water_removal task in the
+	// SAME transaction: same pen, planned/due one day BEFORE the deworming date, assigned to
+	// RemovalOperatorUserIDs, carrying gates_task_id = the deworming task. The service has
+	// already enforced the 20:00 IST planning cutoff before the store sees this flag.
+	FeedRemovalRequired bool
+	// RemovalOperatorUserIDs are the operators for the linked removal task (one or more when
+	// FeedRemovalRequired; validated as active workforce members like AssigneeUserIDs).
+	RemovalOperatorUserIDs []string
+	IdempotencyKey         string
+	CreatedBy              string
+	ActorID                string
+	ActorType              string
+	TraceID                string
 }
 
 // TaskRow is one task as served to planner/monitor/worklist reads and echoed by writes.
@@ -257,8 +270,13 @@ type ListTasksQuery struct {
 	CurrentOrCarry bool
 	// AssigneeUserID, when set, narrows to tasks assigned to this operator (the worklist).
 	AssigneeUserID string
-	Limit          int
-	Cursor         string
+	// Now is the caller's clock, filled by the service from its own injectable clock (the
+	// shiftingActionsVisibleSQL shape). It drives the evening-visibility predicate on
+	// feed_water_removal rows: such a row lists only from 20:00 IST of its due day. Detail
+	// reads by id are NOT gated — visibility narrows the list, never the record.
+	Now    time.Time
+	Limit  int
+	Cursor string
 }
 
 // TaskPage is one bounded page of tasks.

@@ -11,10 +11,25 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
+
+// beforeCutoffClock pins the service clock to the MORNING BEFORE the given
+// weigh date, so the fasting create cutoff (strictly before 20:00 IST on
+// weigh date - 1) admits fixed-date fixtures deterministically. Derived from
+// the weigh date itself — never a second wall-clock read — per the
+// pinned-clock rule.
+func beforeCutoffClock(weighDate string) func() time.Time {
+	day, err := time.ParseInLocation("2006-01-02", weighDate, biztime.DefaultLocation())
+	if err != nil {
+		panic(err)
+	}
+	anchor := day.AddDate(0, 0, -1).Add(10 * time.Hour)
+	return func() time.Time { return anchor }
+}
 
 const (
 	testTenant = "00000000-0000-4000-8000-000000000001"
@@ -38,7 +53,7 @@ const (
 )
 
 func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
-	service := NewService(&fakeRepo{})
+	service := NewService(&fakeRepo{}).WithClock(beforeCutoffClock("2026-07-29"))
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 	pcDirector := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RolePCDirector}}
 	growthDirector := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
@@ -224,7 +239,7 @@ func TestListCampaignsRejectsUnknownScope(t *testing.T) {
 
 func TestCreateCampaignDefaultsPlannedCapBeforeRepository(t *testing.T) {
 	repo := &capDefaultRepo{}
-	service := NewService(repo)
+	service := NewService(repo).WithClock(beforeCutoffClock("2026-07-29"))
 	cmd := validCreate()
 	cmd.PlannedCapPerDay = 0
 	actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
@@ -654,7 +669,7 @@ func TestReopenScopeRequiresMonitorRole(t *testing.T) {
 
 func TestCreateCampaignDefaultsPlannedCapBeforeRepositoryInsert(t *testing.T) {
 	repo := &captureCreateRepo{}
-	service := NewService(repo)
+	service := NewService(repo).WithClock(beforeCutoffClock("2026-07-29"))
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 	cmd := validCreate()
 	cmd.PlannedCapPerDay = 0
@@ -669,20 +684,21 @@ func TestCreateCampaignDefaultsPlannedCapBeforeRepositoryInsert(t *testing.T) {
 
 func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	repo := newScenarioRepo()
-	service := NewService(repo)
+	service := NewService(repo).WithClock(beforeCutoffClock("2026-07-29"))
 	ctx := context.Background()
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 	director := domain.Actor{TenantID: testTenant, UserID: "00000000-0000-4000-8000-000000000102", Roles: []string{permissions.RoleGrowthDirector}}
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 
 	campaign, err := service.CreateCampaign(ctx, ceo, domain.CreateCampaign{
-		ParkID:            testPark,
-		PeriodStartDate:   "2026-07-29",
-		PeriodEndDate:     "2026-07-29",
-		StartBusinessDate: "2026-07-29",
-		PlannedCapPerDay:  100,
-		OperatorUserID:    testOp,
-		IdempotencyKey:    "weighing-seed:create",
+		ParkID:                testPark,
+		PeriodStartDate:       "2026-07-29",
+		PeriodEndDate:         "2026-07-29",
+		StartBusinessDate:     "2026-07-29",
+		PlannedCapPerDay:      100,
+		OperatorUserID:        testOp,
+		FastingOperatorUserID: testOp,
+		IdempotencyKey:        "weighing-seed:create",
 		Sheds: []domain.CreateCampaignShed{
 			{LocationID: testShed, LocationType: "shed", DisplayName: "Kid Shed A", WeighingCategory: domain.CategoryIndividualAnimal},
 			{LocationID: secondShed, LocationType: "shed", DisplayName: "Kid Shed B", WeighingCategory: domain.CategoryIndividualAnimal},
@@ -784,7 +800,8 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 
 func validCreate() domain.CreateCampaign {
 	return domain.CreateCampaign{
-		ParkID: testPark, PeriodStartDate: "2026-07-29", PeriodEndDate: "2026-07-29", StartBusinessDate: "2026-07-29", PlannedCapPerDay: 100, OperatorUserID: testOp, IdempotencyKey: "create-1",
+		ParkID: testPark, PeriodStartDate: "2026-07-29", PeriodEndDate: "2026-07-29", StartBusinessDate: "2026-07-29", PlannedCapPerDay: 100, OperatorUserID: testOp,
+		FastingOperatorUserID: testOp, IdempotencyKey: "create-1",
 		Sheds: []domain.CreateCampaignShed{{LocationID: testShed, LocationType: "shed", DisplayName: "Kid Shed", WeighingCategory: domain.CategoryIndividualAnimal}},
 	}
 }

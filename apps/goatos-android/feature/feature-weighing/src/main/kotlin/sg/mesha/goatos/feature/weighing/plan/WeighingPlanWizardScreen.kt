@@ -78,6 +78,7 @@ fun WeighingPlanWizardScreen(
     onLoadMoreConfigRows: () -> Unit,
     onBucketCategory: (String, String) -> Unit,
     onBucketOperator: (String, String) -> Unit,
+    onFastingOperator: (String) -> Unit,
     onToggleConfigPick: (String) -> Unit,
     onPickAllShown: () -> Unit,
     onClearPicks: () -> Unit,
@@ -160,6 +161,7 @@ fun WeighingPlanWizardScreen(
                 )
                 WeighingWizardStep.CONFIGURE -> configureStep(
                     state = state,
+                    onFastingOperator = onFastingOperator,
                     onConfigQuery = onConfigQuery,
                     onToggleConfigSearch = onToggleConfigSearch,
                     onLoadMoreConfigRows = onLoadMoreConfigRows,
@@ -459,6 +461,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bucketStep(
 
 private fun androidx.compose.foundation.lazy.LazyListScope.configureStep(
     state: WeighingWizardUiState,
+    onFastingOperator: (String) -> Unit,
     onConfigQuery: (String) -> Unit,
     onToggleConfigSearch: () -> Unit,
     onLoadMoreConfigRows: () -> Unit,
@@ -470,6 +473,38 @@ private fun androidx.compose.foundation.lazy.LazyListScope.configureStep(
     onApplyBulk: (String?, String?) -> Unit,
     onSplitEvenly: () -> Unit,
 ) {
+    // The evening-before precondition (maintainer decision 2026-09-03): ONE person for the whole
+    // task, above the per-bucket rows so the ask is answered before bucket-by-bucket detail.
+    item(key = "configure-fasting-operator") {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(MeshaColors.Surf)
+                .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.weighing_wizard_fasting_title),
+                color = MeshaColors.Ink,
+                style = MeshaType.listTitle,
+            )
+            Text(
+                text = stringResource(R.string.weighing_wizard_fasting_subtitle),
+                color = MeshaColors.Muted,
+                style = MeshaType.caption,
+            )
+            WizardSelect(
+                label = state.fastingOperatorLabel.ifBlank {
+                    stringResource(R.string.weighing_wizard_fasting_prompt)
+                },
+                options = state.operators.map { it.userId to it.displayName },
+                onSelect = onFastingOperator,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
     item(key = "configure-bulk") {
         ConfigureBulkBar(
             state = state,
@@ -699,6 +734,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.reviewStep(state: Wei
             WizardField(
                 key = stringResource(R.string.weighing_wizard_field_operators),
                 value = state.reviewOperatorLabel,
+            )
+            WizardField(
+                key = stringResource(R.string.weighing_wizard_field_fasting),
+                value = state.fastingOperatorLabel,
             )
         }
     }

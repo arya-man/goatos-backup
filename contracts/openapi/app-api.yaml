@@ -1255,6 +1255,103 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/weighing/fasting:
+    get:
+      tags:
+        - Weighing
+      operationId: appListWeighingFastingShedCards
+      summary: List the caller's feed & water removal cards, one per shed.
+      description: >-
+        The removal operator's own fasting precondition cards (maintainer decision
+        2026-09-03; per-shed cards per the same-day correction). The list serves ONE
+        CARD PER SHED — "Remove feed & water · Castro 1" — never an umbrella card the
+        sheds hide inside. Cards are served only from 20:00 IST on the evening before
+        their current weigh date (server-side clock; clients never derive the window),
+        and an unsubmitted card whose weighing task was ended is withheld. A submitted
+        card stays visible as history. Keyset-paged, newest window first.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: The caller's per-shed fasting cards.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingFastingShedCardListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/fasting/{fasting_task_id}/sheds/{campaign_shed_id}/submit:
+    post:
+      tags:
+        - Weighing
+      operationId: appSubmitWeighingFastingShed
+      summary: Submit ONE shed's feed & water removal videos.
+      description: >-
+        Records one shed card's evidence: one live-camera video of THIS shed's feed
+        being removed and one of its water being removed, both mandatory, distinct,
+        and unused by any sibling shed of the round. The next day's weighing runs only
+        when EVERY shed of the round is submitted before midnight IST — the last
+        shed's submit stamps the round in the same transaction. The videos go to the
+        verifier afterwards, one item per shed; a rejection sends back THIS shed alone
+        and never un-runs a weighing that already happened. Only the assigned removal
+        operator may submit. Exact replays return the original result.
+      parameters:
+        - name: fasting_task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: campaign_shed_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitWeighingFastingShedRequest"
+      responses:
+        "200":
+          description: Shed card submitted or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingFastingShedCardResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/weighing/weight-history:
     get:
       tags:
@@ -6656,7 +6753,7 @@ paths:
         - in: path
           name: slot
           required: true
-          schema: { type: string, enum: [stock_fridge_photo, stock_fridge_video] }
+          schema: { type: string, enum: [stock_fridge_photo, stock_fridge_video, feed_video, water_video] }
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -18473,7 +18570,7 @@ components:
     PCCareCategory:
       type: string
       description: A PC Care work category (maintainer decision 2026-08-21).
-      enum: [deworming, ticks_removal, hoof_trimming, hair_trimming, inventory_vaccine]
+      enum: [deworming, ticks_removal, hoof_trimming, hair_trimming, inventory_vaccine, feed_water_removal]
     PCCareSlot:
       type: object
       description: >-
@@ -18481,7 +18578,7 @@ components:
         min_duration_hint_seconds on the trimming "during" clip is recorder guidance, never a
         client-enforced cap.
       properties:
-        field_key: { type: string, enum: [video, before_video, during_video, after_video, stock_fridge_photo, stock_fridge_video] }
+        field_key: { type: string, enum: [video, before_video, during_video, after_video, stock_fridge_photo, stock_fridge_video, feed_video, water_video] }
         label: { type: string }
         description:
           type: string
@@ -18702,6 +18799,23 @@ components:
           type: array
           minItems: 1
           items: { type: string, format: uuid }
+        feed_removal_required:
+          type: boolean
+          description: >-
+            Deworming only (maintainer decision 2026-09-03): tablets given in feed need
+            feed & water removed the evening before. When true, the same write also
+            creates the linked feed_water_removal task for the evening before the
+            deworming date, assigned to removal_operator_user_ids, and the deworming
+            date must still have a removal evening ahead of it (creating at/after
+            20:00 IST for tomorrow -> 422 fasting_window_closed). On any other
+            category -> 422 feed_removal_not_applicable. Injection deworming simply
+            omits it.
+        removal_operator_user_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: >-
+            Who removes feed & water the evening before. Required (minItems 1) when
+            feed_removal_required is true -> otherwise 422 removal_operators_required.
       required: [category, park_id, shed_id, planned_business_date, assignee_user_ids]
     PCCareScanRequest:
       type: object
@@ -27772,6 +27886,17 @@ components:
         row_version:
           type: integer
           minimum: 1
+        fasting_operator_user_id:
+          type: string
+          format: uuid
+          description: >-
+            The campaign's feed & water removal operator (maintainer decision
+            2026-09-03), echoed so the edit wizard can prefill the assignment.
+            Absent on campaigns planned before the removal precondition existed.
+        fasting_status:
+          type: string
+          enum: [open, pending_verification, completed, rework]
+          description: The removal task's current state; absent on pre-feature campaigns.
         sheds:
           type: array
           items:
@@ -28708,6 +28833,115 @@ components:
         operator_user_id:
           type: string
           format: uuid
+    WeighingFastingShedCard:
+      type: object
+      additionalProperties: false
+      required:
+        - fasting_task_id
+        - campaign_shed_id
+        - shed_label
+        - subject_label
+        - status
+        - planned_weigh_date
+        - weigh_business_date
+        - removal_business_date
+        - row_version
+      properties:
+        fasting_task_id:
+          type: string
+          format: uuid
+          description: The round (one park, one weigh night) this shed card belongs to.
+        campaign_shed_id:
+          type: string
+          format: uuid
+        fasting_shed_id:
+          type: string
+          format: uuid
+          description: The shed's evidence row id; absent until first submitted.
+        shed_label:
+          type: string
+          description: The shed this card is for, named by the backend; rendered verbatim.
+        subject_label:
+          type: string
+          description: Backend-owned card title, e.g. "Remove feed & water · Castro 1".
+        park_name:
+          type: string
+        status:
+          type: string
+          enum: [open, pending_verification, completed, rework]
+        rework_reason:
+          type: string
+          description: The verifier's rejection for THIS shed, rendered verbatim.
+        feed_proof_ref:
+          type: string
+          format: uuid
+        water_proof_ref:
+          type: string
+          format: uuid
+        planned_weigh_date:
+          type: string
+          format: date
+          description: The original weigh date chosen at create; immutable audit anchor.
+        weigh_business_date:
+          type: string
+          format: date
+          description: >-
+            The CURRENT weigh date. Rolls forward one day, together with the weighing
+            work, whenever the round's midnight deadline passes with any shed
+            unsubmitted.
+        removal_business_date:
+          type: string
+          format: date
+          description: The evening the removal happens on (weigh date - 1); server-composed.
+        submitted_at:
+          type: string
+          format: date-time
+          description: >-
+            The ROUND's submission instant — stamped when the last shed of the round
+            was submitted; absent while any sibling shed is still owed.
+        row_version:
+          type: integer
+    WeighingFastingShedCardListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - fasting_shed_cards
+      properties:
+        fasting_shed_cards:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingFastingShedCard"
+        next_cursor:
+          type: string
+        trace_id:
+          type: string
+    SubmitWeighingFastingShedRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - feed_proof_ref
+        - water_proof_ref
+      properties:
+        feed_proof_ref:
+          type: string
+          format: uuid
+          description: Completed live-camera VIDEO of THIS shed's feed being removed.
+        water_proof_ref:
+          type: string
+          format: uuid
+          description: >-
+            Completed live-camera VIDEO of THIS shed's water being removed. The two
+            clips must be distinct and unused by any sibling shed of the round.
+    WeighingFastingShedCardResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - fasting_shed_card
+      properties:
+        fasting_shed_card:
+          $ref: "#/components/schemas/WeighingFastingShedCard"
+        trace_id:
+          type: string
     CreateWeighingCampaignRequest:
       type: object
       additionalProperties: false
@@ -28718,6 +28952,7 @@ components:
         - start_business_date
         - planned_cap_per_day
         - operator_user_id
+        - fasting_operator_user_id
         - sheds
       properties:
         park_id:
@@ -28738,6 +28973,17 @@ components:
         operator_user_id:
           type: string
           format: uuid
+        fasting_operator_user_id:
+          type: string
+          format: uuid
+          description: >-
+            The feed & water removal operator (maintainer decision 2026-09-03): the
+            person who removes feed and water from the selected sheds the evening
+            before the weigh date and submits two live-camera videos before midnight
+            IST. Same park as the task; mandatory. Missing -> 422
+            fasting_operator_required; a weigh date whose removal evening has already
+            begun (creating at/after 20:00 IST for tomorrow) -> 422
+            fasting_window_closed.
         sheds:
           type: array
           minItems: 1

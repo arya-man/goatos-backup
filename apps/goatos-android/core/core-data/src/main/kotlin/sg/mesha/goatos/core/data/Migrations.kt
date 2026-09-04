@@ -1525,3 +1525,51 @@ val MIGRATION_55_56: Migration = object : Migration(55, 56) {
         )
     }
 }
+
+/**
+ * v56 -> v57: the feed & water removal (fasting) PER-SHED card cache (maintainer decision
+ * 2026-09-03; per-shed cards per the same-day correction #2) — `weighing_fasting_card` holds one
+ * JSON-blob row per (round, pen) card keyed (`fastingTaskId`, `campaignShedId`) with indexed
+ * status/sortIndex read keys (the [MIGRATION_49_50] detail-cache shape), plus its single
+ * `weighing_fasting_remote_key` keyset-cursor row.
+ *
+ * CREATE, not ALTER: an @Entity added to the @Database with no migration to create its table
+ * works on a fresh install and crashes every upgrade on open. Purely additive — no existing
+ * table changes, so an installed APK carrying an unsynced write outbox upgrades in place with no
+ * data loss. Each CREATE spells its table name out as a literal so `make room-migration-guard`
+ * can statically match every new v57 @Entity table against a CREATE here
+ * (docs/decisions/room-migration-safety.md).
+ * (Authored as v52->53/53->54, then v54->55, on feat/fasting-precondition; renumbered on each
+ * rebase because main kept taking the slots — no installed build ever held the interim numbers.)
+ */
+val MIGRATION_56_57: Migration = object : Migration(56, 57) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_fasting_card` (" +
+                "`fastingTaskId` TEXT NOT NULL, " +
+                "`campaignShedId` TEXT NOT NULL, " +
+                "`sortIndex` INTEGER NOT NULL, " +
+                "`status` TEXT NOT NULL, " +
+                "`removalBusinessDate` TEXT NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`fastingTaskId`, `campaignShedId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_fasting_card_sortIndex` " +
+                "ON `weighing_fasting_card` (`sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_fasting_card_status` " +
+                "ON `weighing_fasting_card` (`status`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_fasting_remote_key` (" +
+                "`scopeKey` TEXT NOT NULL, " +
+                "`nextCursor` TEXT, " +
+                "`endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`scopeKey`))",
+        )
+    }
+}

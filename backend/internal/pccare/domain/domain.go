@@ -9,6 +9,9 @@ package domain
 import (
 	"errors"
 	"strings"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 // PartitionMatchKey normalizes a pen label to the value the pc_care_tasks.partition_key
@@ -31,10 +34,16 @@ const (
 	CategoryHoofTrimming     = "hoof_trimming"
 	CategoryHairTrimming     = "hair_trimming"
 	CategoryInventoryVaccine = "inventory_vaccine"
+	// CategoryFeedWaterRemoval is the evening-before precondition for a tablet-in-feed deworming
+	// (maintainer decision 2026-09-03): feed and water are removed from the pen the evening
+	// before, each act proved by its own live-camera video. The row is created by the deworming
+	// planner create in the SAME transaction — never planned on its own — and it appears in the
+	// operator's worklist only from 20:00 IST on its due day.
+	CategoryFeedWaterRemoval = "feed_water_removal"
 )
 
 // Categories lists every valid category, in display order.
-var Categories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine}
+var Categories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine, CategoryFeedWaterRemoval}
 
 // PlannerCategories lists categories humans may plan through the PC Care create wizard.
 // Kernel-owned categories stay readable/listable, but are created by reconciliation stages.
@@ -59,16 +68,17 @@ func IsTrimmingCategory(c string) bool {
 // IsValidCategory reports whether c names a real PC Care category.
 func IsValidCategory(c string) bool {
 	switch c {
-	case CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine:
+	case CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine, CategoryFeedWaterRemoval:
 		return true
 	}
 	return false
 }
 
-// IsKernelOwnedCategory reports categories that are created by kernel reconciliation, not
-// by planner/API writes.
+// IsKernelOwnedCategory reports categories that are created by the system, not by direct
+// planner/API writes: inventory_vaccine rows come from kernel reconciliation, and
+// feed_water_removal rows are born inside the deworming create transaction.
 func IsKernelOwnedCategory(c string) bool {
-	return c == CategoryInventoryVaccine
+	return c == CategoryInventoryVaccine || c == CategoryFeedWaterRemoval
 }
 
 // VerifierReviewedCategories are the categories whose submitted proof travels to the tenant
@@ -76,7 +86,7 @@ func IsKernelOwnedCategory(c string) bool {
 // the vaccine-stock check is recorded by park operators and approved by the PC DIRECTOR on the
 // module's own stock-verdict route — the toxin-module approval-gate shape — so the verifier
 // never sees stock work and no verification item is enqueued for it.
-var VerifierReviewedCategories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
+var VerifierReviewedCategories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryFeedWaterRemoval}
 
 // IsDirectorApprovedCategory reports whether a category's submitted proof is judged by the PC
 // Director instead of the tenant verifier.
@@ -102,6 +112,8 @@ const (
 	SlotAfter            = "after_video"
 	SlotStockFridgePhoto = "stock_fridge_photo"
 	SlotStockFridgeVideo = "stock_fridge_video"
+	SlotFeedVideo        = "feed_video"
+	SlotWaterVideo       = "water_video"
 )
 
 // Capture modes (maintainer decision 2026-08-21, second pass). The quick jobs — deworming and
@@ -120,7 +132,7 @@ func CaptureModeForCategory(category string) string {
 	switch category {
 	case CategoryHoofTrimming, CategoryHairTrimming:
 		return CaptureModeRosterPick
-	case CategoryInventoryVaccine:
+	case CategoryInventoryVaccine, CategoryFeedWaterRemoval:
 		return CaptureModeTaskProof
 	}
 	return CaptureModeScanRecord
@@ -181,6 +193,17 @@ func SlotsForCategory(category string) []Slot {
 				Description: "Record the vaccine stock available in the fridge for the scheduled vaccination",
 			},
 		}
+	case CategoryFeedWaterRemoval:
+		return []Slot{
+			{
+				FieldKey: SlotFeedVideo, Label: "Feed removal video",
+				Description: "Show the feed being taken out of this pen",
+			},
+			{
+				FieldKey: SlotWaterVideo, Label: "Water removal video",
+				Description: "Show the water being taken out of this pen",
+			},
+		}
 	}
 	return nil
 }
@@ -210,6 +233,8 @@ func CategoryLabel(category string) string {
 		return "Hair Trimming"
 	case CategoryInventoryVaccine:
 		return "Vaccine Inventory"
+	case CategoryFeedWaterRemoval:
+		return "Feed & water removal"
 	}
 	return category
 }
@@ -235,6 +260,7 @@ const (
 	VerificationCategoryHoofTrimming     = "pc_hoof_trimming"
 	VerificationCategoryHairTrimming     = "pc_hair_trimming"
 	VerificationCategoryInventoryVaccine = "inventory_vaccine"
+	VerificationCategoryFeedWaterRemoval = "pc_feed_water_removal"
 	VerificationRefTypeTask              = "pc_care_task"
 )
 
@@ -251,8 +277,35 @@ func VerificationCategoryFor(category string) string {
 		return VerificationCategoryHairTrimming
 	case CategoryInventoryVaccine:
 		return VerificationCategoryInventoryVaccine
+	case CategoryFeedWaterRemoval:
+		return VerificationCategoryFeedWaterRemoval
 	}
 	return ""
+}
+
+// ---------------------------------------------------------------------------
+// Feed & water removal precondition (maintainer decision 2026-09-03)
+// ---------------------------------------------------------------------------
+
+// FeedRemovalEveningHourIST is the IST wall-clock hour that closes the planning window and
+// opens the removal card: a deworming that needs feed & water removal can be planned for
+// tomorrow only until 20:00 IST (the crew removing feed tonight must still have tonight), and
+// the removal card surfaces on the operator's worklist from 20:00 IST of its due day.
+const FeedRemovalEveningHourIST = 20
+
+// EarliestFeedRemovalDewormingDate returns the earliest planned business date (00:00 IST) a
+// deworming that requires feed & water removal may take, given the caller's clock: TOMORROW
+// while the IST wall clock is before 20:00, the DAY AFTER TOMORROW from 20:00 on — because the
+// removal happens the evening before, and by 20:00 tonight's removal can no longer be staffed.
+// The clock is the CALLER's (counts/domain.ShiftingActionsDueFrom shape), never read here, so
+// the rule is deterministic in tests.
+func EarliestFeedRemovalDewormingDate(now time.Time) time.Time {
+	local := now.In(biztime.DefaultLocation())
+	leadDays := 1
+	if local.Hour() >= FeedRemovalEveningHourIST {
+		leadDays = 2
+	}
+	return biztime.BusinessDayStart(local).AddDate(0, 0, leadDays)
 }
 
 // Task work_state values — the KERNEL dimension (weighing 000059 shape), orthogonal to the
@@ -348,4 +401,16 @@ var (
 	// ErrStockRejectReasonRequired is returned when a reject carries no reason — the operators
 	// re-recording the fridge are owed a sentence saying why. Surfaces as 422 reason_required.
 	ErrStockRejectReasonRequired = errors.New("pccare: a reason is required to reject")
+	// ErrFastingWindowClosed is returned when a deworming that requires feed & water removal is
+	// planned for a date whose evening-before removal can no longer be staffed (before 20:00 IST
+	// the earliest date is tomorrow; from 20:00 IST it is the day after tomorrow). Surfaces as
+	// 422 fasting_window_closed.
+	ErrFastingWindowClosed = errors.New("pccare: too late to remove feed and water the evening before this date")
+	// ErrRemovalOperatorsRequired is returned when feed & water removal is requested with no
+	// operators named for the removal task. Surfaces as 422 removal_operators_required.
+	ErrRemovalOperatorsRequired = errors.New("pccare: at least one operator is required for the feed and water removal")
+	// ErrFeedRemovalNotApplicable is returned when feed & water removal fields ride a create for
+	// a category other than deworming — rejected loudly, never silently dropped. Surfaces as 422
+	// feed_removal_not_applicable.
+	ErrFeedRemovalNotApplicable = errors.New("pccare: feed and water removal applies to deworming only")
 )

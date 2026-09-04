@@ -326,6 +326,19 @@ RETURNING wi.work_item_id::text, wi.campaign_id::text, wi.campaign_shed_id::text
 	result.CadenceEvents += mergeEvents
 	result.Truncated = result.Truncated || truncated
 
+	// THE MIDNIGHT FASTING GATE runs BEFORE the generic roll-forward: a gated
+	// item (campaign's feed & water removal never submitted before 00:00 IST of
+	// the weigh date) goes straight to TOMORROW instead of being pulled to
+	// today first. See kernel_fasting.go.
+	gated, fastingRolled, gateEvents, truncated, err := r.sweepFastingGate(ctx, tenantID, businessDate, chunk, maxChunks)
+	if err != nil {
+		return result, err
+	}
+	result.FastingGatedWorkItems = gated
+	result.FastingTasksRolled = fastingRolled
+	result.CadenceEvents += gateEvents
+	result.Truncated = result.Truncated || truncated
+
 	rolled, events, truncated, err := r.runCadencePass(ctx, cadencePass{
 		tenantID:     tenantID,
 		businessDate: businessDate,

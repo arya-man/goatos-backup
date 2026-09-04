@@ -595,6 +595,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/fasting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's feed & water removal cards, one per shed.
+         * @description The removal operator's own fasting precondition cards (maintainer decision 2026-09-03; per-shed cards per the same-day correction). The list serves ONE CARD PER SHED — "Remove feed & water · Castro 1" — never an umbrella card the sheds hide inside. Cards are served only from 20:00 IST on the evening before their current weigh date (server-side clock; clients never derive the window), and an unsubmitted card whose weighing task was ended is withheld. A submitted card stays visible as history. Keyset-paged, newest window first.
+         */
+        get: operations["appListWeighingFastingShedCards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/fasting/{fasting_task_id}/sheds/{campaign_shed_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit ONE shed's feed & water removal videos.
+         * @description Records one shed card's evidence: one live-camera video of THIS shed's feed being removed and one of its water being removed, both mandatory, distinct, and unused by any sibling shed of the round. The next day's weighing runs only when EVERY shed of the round is submitted before midnight IST — the last shed's submit stamps the round in the same transaction. The videos go to the verifier afterwards, one item per shed; a rejection sends back THIS shed alone and never un-runs a weighing that already happened. Only the assigned removal operator may submit. Exact replays return the original result.
+         */
+        post: operations["appSubmitWeighingFastingShed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/weight-history": {
         parameters: {
             query?: never;
@@ -7766,11 +7806,11 @@ export interface components {
          * @description A PC Care work category (maintainer decision 2026-08-21).
          * @enum {string}
          */
-        PCCareCategory: "deworming" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "inventory_vaccine";
+        PCCareCategory: "deworming" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "inventory_vaccine" | "feed_water_removal";
         /** @description One expected proof slot for a task's category — the BACKEND-OWNED slot contract. The min_duration_hint_seconds on the trimming "during" clip is recorder guidance, never a client-enforced cap. */
         PCCareSlot: {
             /** @enum {string} */
-            field_key: "video" | "before_video" | "during_video" | "after_video" | "stock_fridge_photo" | "stock_fridge_video";
+            field_key: "video" | "before_video" | "during_video" | "after_video" | "stock_fridge_photo" | "stock_fridge_video" | "feed_video" | "water_video";
             label: string;
             /** @description Backend-owned farm copy saying what this video must show, rendered verbatim. */
             description?: string;
@@ -7909,6 +7949,10 @@ export interface components {
             /** Format: date */
             planned_business_date: string;
             assignee_user_ids: string[];
+            /** @description Deworming only (maintainer decision 2026-09-03): tablets given in feed need feed & water removed the evening before. When true, the same write also creates the linked feed_water_removal task for the evening before the deworming date, assigned to removal_operator_user_ids, and the deworming date must still have a removal evening ahead of it (creating at/after 20:00 IST for tomorrow -> 422 fasting_window_closed). On any other category -> 422 feed_removal_not_applicable. Injection deworming simply omits it. */
+            feed_removal_required?: boolean;
+            /** @description Who removes feed & water the evening before. Required (minItems 1) when feed_removal_required is true -> otherwise 422 removal_operators_required. */
+            removal_operator_user_ids?: string[];
         };
         PCCareScanRequest: {
             /** @description The tag exactly as scanned. Stored verbatim; never resolved against the herd. */
@@ -11297,6 +11341,16 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             row_version: number;
+            /**
+             * Format: uuid
+             * @description The campaign's feed & water removal operator (maintainer decision 2026-09-03), echoed so the edit wizard can prefill the assignment. Absent on campaigns planned before the removal precondition existed.
+             */
+            fasting_operator_user_id?: string;
+            /**
+             * @description The removal task's current state; absent on pre-feature campaigns.
+             * @enum {string}
+             */
+            fasting_status?: "open" | "pending_verification" | "completed" | "rework";
             sheds?: components["schemas"]["WeighingCampaignShed"][];
             progress: components["schemas"]["WeighingProgress"];
         };
@@ -11649,6 +11703,75 @@ export interface components {
             /** Format: uuid */
             operator_user_id?: string;
         };
+        WeighingFastingShedCard: {
+            /**
+             * Format: uuid
+             * @description The round (one park, one weigh night) this shed card belongs to.
+             */
+            fasting_task_id: string;
+            /** Format: uuid */
+            campaign_shed_id: string;
+            /**
+             * Format: uuid
+             * @description The shed's evidence row id; absent until first submitted.
+             */
+            fasting_shed_id?: string;
+            /** @description The shed this card is for, named by the backend; rendered verbatim. */
+            shed_label: string;
+            /** @description Backend-owned card title, e.g. "Remove feed & water · Castro 1". */
+            subject_label: string;
+            park_name?: string;
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            /** @description The verifier's rejection for THIS shed, rendered verbatim. */
+            rework_reason?: string;
+            /** Format: uuid */
+            feed_proof_ref?: string;
+            /** Format: uuid */
+            water_proof_ref?: string;
+            /**
+             * Format: date
+             * @description The original weigh date chosen at create; immutable audit anchor.
+             */
+            planned_weigh_date: string;
+            /**
+             * Format: date
+             * @description The CURRENT weigh date. Rolls forward one day, together with the weighing work, whenever the round's midnight deadline passes with any shed unsubmitted.
+             */
+            weigh_business_date: string;
+            /**
+             * Format: date
+             * @description The evening the removal happens on (weigh date - 1); server-composed.
+             */
+            removal_business_date: string;
+            /**
+             * Format: date-time
+             * @description The ROUND's submission instant — stamped when the last shed of the round was submitted; absent while any sibling shed is still owed.
+             */
+            submitted_at?: string;
+            row_version: number;
+        };
+        WeighingFastingShedCardListResponse: {
+            fasting_shed_cards: components["schemas"]["WeighingFastingShedCard"][];
+            next_cursor?: string;
+            trace_id?: string;
+        };
+        SubmitWeighingFastingShedRequest: {
+            /**
+             * Format: uuid
+             * @description Completed live-camera VIDEO of THIS shed's feed being removed.
+             */
+            feed_proof_ref: string;
+            /**
+             * Format: uuid
+             * @description Completed live-camera VIDEO of THIS shed's water being removed. The two clips must be distinct and unused by any sibling shed of the round.
+             */
+            water_proof_ref: string;
+        };
+        WeighingFastingShedCardResponse: {
+            fasting_shed_card: components["schemas"]["WeighingFastingShedCard"];
+            trace_id?: string;
+        };
         CreateWeighingCampaignRequest: {
             /** Format: uuid */
             park_id: string;
@@ -11661,6 +11784,11 @@ export interface components {
             planned_cap_per_day: number;
             /** Format: uuid */
             operator_user_id: string;
+            /**
+             * Format: uuid
+             * @description The feed & water removal operator (maintainer decision 2026-09-03): the person who removes feed and water from the selected sheds the evening before the weigh date and submits two live-camera videos before midnight IST. Same park as the task; mandatory. Missing -> 422 fasting_operator_required; a weigh date whose removal evening has already begun (creating at/after 20:00 IST for tomorrow) -> 422 fasting_window_closed.
+             */
+            fasting_operator_user_id: string;
             sheds: components["schemas"]["CreateWeighingCampaignShed"][];
         };
         RecordWeighingAnimalObservationRequest: {
@@ -16174,6 +16302,68 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    appListWeighingFastingShedCards: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's per-shed fasting cards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingFastingShedCardListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appSubmitWeighingFastingShed: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                fasting_task_id: string;
+                campaign_shed_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitWeighingFastingShedRequest"];
+            };
+        };
+        responses: {
+            /** @description Shed card submitted or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingFastingShedCardResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     appGetWeighingWeightHistory: {
         parameters: {
             query?: {
@@ -19647,7 +19837,7 @@ export interface operations {
             };
             path: {
                 task_id: string;
-                slot: "stock_fridge_photo" | "stock_fridge_video";
+                slot: "stock_fridge_photo" | "stock_fridge_video" | "feed_video" | "water_video";
             };
             cookie?: never;
         };

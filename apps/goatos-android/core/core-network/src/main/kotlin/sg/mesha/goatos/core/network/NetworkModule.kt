@@ -168,6 +168,9 @@ import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingFastingShedCardListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingFastingShedCardResponseDto
+import sg.mesha.goatos.core.network.dto.SubmitWeighingFastingShedRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDetailResponseDto
@@ -321,6 +324,22 @@ interface AppApiService {
     // is -- a sibling route, not a campaign id. Retrofit matches on the annotation, not order.
     @GET("app/weighing/parks")
     suspend fun listWeighingParks(): WeighingParkListResponseDto
+
+    // Declared before the {campaign_id} pattern for the same readability reason as "parks" above:
+    // the literal "fasting" segment is a sibling route, never a campaign id.
+    @GET("app/weighing/fasting")
+    suspend fun listWeighingFastingShedCards(
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingFastingShedCardListResponseDto
+
+    @POST("app/weighing/fasting/{fasting_task_id}/sheds/{campaign_shed_id}/submit")
+    suspend fun submitWeighingFastingShed(
+        @Path("fasting_task_id") fastingTaskId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SubmitWeighingFastingShedRequestDto,
+    ): WeighingFastingShedCardResponseDto
 
     @GET("app/weighing/campaigns/{campaign_id}")
     suspend fun getWeighingCampaign(
@@ -1341,6 +1360,19 @@ class RetrofitAppApi(
         service.getWeighingCampaign(campaignId)
 
     override suspend fun listWeighingParks(): WeighingParkListResponseDto = service.listWeighingParks()
+
+    override suspend fun listWeighingFastingShedCards(
+        cursor: String?,
+        limit: Int,
+    ): WeighingFastingShedCardListResponseDto = service.listWeighingFastingShedCards(cursor, limit)
+
+    override suspend fun submitWeighingFastingShed(
+        fastingTaskId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: SubmitWeighingFastingShedRequestDto,
+    ): WeighingFastingShedCardResponseDto =
+        service.submitWeighingFastingShed(fastingTaskId, campaignShedId, idempotencyKey, request)
 
     override suspend fun listWeighingCampaignSheds(
         campaignId: String,

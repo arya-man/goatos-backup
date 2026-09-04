@@ -147,6 +147,29 @@ fun PcCareTaskScreen(
                 }
             }
 
+            // The feed & water removal face (maintainer decision 2026-09-03): one video card per
+            // backend-served slot, labels/descriptions verbatim. Distinct keys per field key so
+            // two slots can never collide in this LazyColumn.
+            if (taskProofMode && state.taskProofSlots.isNotEmpty()) {
+                items(
+                    count = state.taskProofSlots.size,
+                    key = { index -> "task_proof_slot_" + state.taskProofSlots[index].fieldKey },
+                ) { index ->
+                    val proofSlot = state.taskProofSlots[index]
+                    PcCareTaskProofAction(
+                        title = "Record video",
+                        subtitle = proofSlot.label,
+                        icon = MeshaIcons.Video,
+                        slot = proofSlot,
+                        locked = state.isLocked,
+                        loadingLabel = "Saving video",
+                        retryLabel = "Retry video",
+                        replaceLabel = "Replace video",
+                        capturedLabel = proofSlot.statusLabel.ifBlank { "Video captured" },
+                        onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "video")) },
+                    )
+                }
+            }
             if (taskProofMode && (state.taskProofPhotoSlot != null || state.taskProofVideoSlot != null)) {
                 state.taskProofPhotoSlot?.let { proofSlot ->
                     item(key = "task_proof_photo") {
