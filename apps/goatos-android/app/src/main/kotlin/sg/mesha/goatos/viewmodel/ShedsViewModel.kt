@@ -417,7 +417,10 @@ class ShedsViewModel @Inject constructor(
             // Prefer backend-computed card summary (page-independent, covers all rows for the card).
             // Fall back to row-level computation for older API responses without cardSummaries.
             val cardSummary = cardSummaries?.get(cardId)
+                ?: cardSummaries?.get(first.backendExecutionCardId())
             val status: ShedStatus
+            val statusLabel: String
+            val statusChips: List<ShedStatusChip>
             val counts: ExecutionCounts
             val vaccineGroups: List<VaccineGroup>
             val effectiveDone: Int
@@ -431,6 +434,8 @@ class ShedsViewModel @Inject constructor(
                     done = cardSummary.doneCount,
                 )
                 effectiveDone = cardSummary.doneCount
+                statusLabel = status.readable()
+                statusChips = listOf(ShedStatusChip(status.toChipKey(), status.toChipTone()))
                 vaccineGroups = cardSummary.vaccineGroups.map { summary ->
                     VaccineGroup(
                         label = summary.label,
@@ -443,6 +448,8 @@ class ShedsViewModel @Inject constructor(
                 status = shedStatusForRows(group)
                 counts = executionCardCounts(group)
                 effectiveDone = effectiveCardDoneCount(group)
+                statusLabel = group.reviewAwareStatusLabel(status)
+                statusChips = group.statusChips(status)
                 vaccineGroups = group.flatMap { row ->
                     row.vaccineLabels.ifEmpty { listOfNotNull(row.driveName) }
                         .map { humanizeVaccineLabel(it) }
@@ -480,8 +487,8 @@ class ShedsViewModel @Inject constructor(
                 scheduleDateKey = scheduleDate?.toString().orEmpty(),
                 scheduleDateLabel = scheduleDate?.let(::shortDateLabel).orEmpty(),
                 status = status,
-                statusLabel = group.reviewAwareStatusLabel(status),
-                statusChips = group.statusChips(status),
+                statusLabel = statusLabel,
+                statusChips = statusChips,
                 vaccineGroups = vaccineGroups,
                 inShed = counts.target.toString(),
                 due = counts.open.toString(),
@@ -795,6 +802,19 @@ internal fun VaccinationExecutionRowDto.executionCardId(): String =
         driveId = driveId,
         partitionLabel = partitionLabel ?: partition,
     )
+
+private fun VaccinationExecutionRowDto.backendExecutionCardId(): String =
+    buildString {
+        append("shed:")
+        append(shedId)
+        append("|partition:")
+        append((partitionLabel ?: partition).orEmpty().ifBlank { "whole" })
+        when {
+            sopTaskId.isNotBlank() -> append("|task:").append(sopTaskId)
+            !batchId.isNullOrBlank() -> append("|batch:").append(batchId)
+            !driveId.isNullOrBlank() -> append("|drive:").append(driveId)
+        }
+    }
 
 private fun executionPartitionKey(raw: String?): String {
     val normalized = raw.orEmpty().trim().lowercase()
