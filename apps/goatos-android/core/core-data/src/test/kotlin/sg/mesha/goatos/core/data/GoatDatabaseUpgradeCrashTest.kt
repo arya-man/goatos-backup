@@ -371,6 +371,12 @@ class GoatDatabaseUpgradeCrashTest {
             //     additive, so an omitted or mis-shaped CREATE still passes every fresh-install
             //     test — only reopening a real old file and round-tripping the table catches it.
             assertClockBlobCacheRoundTrips(upgraded)
+
+            // 17. The three v55 LEADERSHIP TASK tables (MIGRATION_54_55). Same MOB-007 proof:
+            //     purely additive, so an omitted or mis-shaped CREATE still passes every
+            //     fresh-install test — only reopening a real old file and round-tripping each
+            //     table catches it before an upgraded phone crashes on open.
+            assertLeadershipTaskTablesRoundTrip(upgraded, base = 220L)
         } finally {
             upgraded.close()
         }
@@ -388,6 +394,46 @@ class GoatDatabaseUpgradeCrashTest {
         )
         val row = upgraded.clockBlobCacheDao().observe("status").first()
         assertEquals("{\"probe\":\"clock\"}", row?.dtoJson)
+    }
+
+    /** Round-trips the three Leadership Task tables so a missing/mismatched CREATE in
+     *  MIGRATION_54_55 fails here — the MOB-007 upgrade-crash class — rather than on a phone. */
+    private suspend fun assertLeadershipTaskTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.leadershipTaskItemDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.LeadershipTaskItemEntity(
+                    queryKey = "leadership",
+                    grainKey = "leadership-task-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.leadershipTaskItemDao().countForQuery("leadership"))
+        assertEquals(1, upgraded.leadershipTaskItemDao().rowsForTask("leadership-task-1").size)
+
+        upgraded.leadershipTaskRemoteKeyDao().upsert(
+            sg.mesha.goatos.core.data.cache.LeadershipTaskRemoteKeyEntity(
+                queryKey = "leadership",
+                nextCursor = "cursor-20",
+                endReached = false,
+                updatedAt = base + 1,
+            ),
+        )
+        assertEquals("cursor-20", upgraded.leadershipTaskRemoteKeyDao().get("leadership")?.nextCursor)
+
+        upgraded.leadershipTaskDetailCacheDao().upsert(
+            sg.mesha.goatos.core.data.cache.LeadershipTaskDetailCacheEntity(
+                cacheKey = "leadership-task-1",
+                dtoJson = "{}",
+                updatedAt = base + 2,
+            ),
+        )
+        assertEquals(
+            base + 2,
+            upgraded.leadershipTaskDetailCacheDao().observe("leadership-task-1").first()?.updatedAt,
+        )
     }
 
     /** Round-trips the three Toxin tables so a missing/mismatched CREATE in MIGRATION_49_50
@@ -1200,7 +1246,7 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41,
             MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46,
             MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51,
-            MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56,
+            MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56, MIGRATION_56_57,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —

@@ -75,6 +75,13 @@ import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskRosterDto
+import sg.mesha.goatos.core.network.dto.LeadershipAssigneeListDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskDetailDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskEditRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskPageDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
@@ -974,6 +981,59 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: SaleAllocationRequestDto,
     ): SaleAllocationDto
+    // Leadership Tasks (maintainer request 2026-09-04)
+    @GET("app/leadership-tasks")
+    suspend fun getLeadershipTasks(
+        @Query("filter") filter: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): LeadershipTaskPageDto
+
+    @GET("app/leadership-tasks/assignees")
+    suspend fun getLeadershipTaskAssignees(): LeadershipAssigneeListDto
+
+    @GET("app/leadership-tasks/{task_id}")
+    suspend fun getLeadershipTask(
+        @Path("task_id") taskId: String,
+    ): LeadershipTaskDetailDto
+
+    @POST("app/leadership-tasks")
+    suspend fun raiseLeadershipTask(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: LeadershipTaskRaiseRequestDto,
+    ): LeadershipTaskDetailDto
+
+    @POST("app/leadership-tasks/{task_id}/edit")
+    suspend fun editLeadershipTask(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: LeadershipTaskEditRequestDto,
+    ): LeadershipTaskDetailDto
+
+    @POST("app/leadership-tasks/{task_id}/status")
+    suspend fun changeLeadershipTaskStatus(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: LeadershipTaskStatusRequestDto,
+    ): LeadershipTaskDetailDto
+
+    @POST("app/leadership-tasks/{task_id}/seen")
+    suspend fun markLeadershipTaskSeen(
+        @Path("task_id") taskId: String,
+    ): LeadershipTaskDetailDto
+
+    @POST("app/leadership-tasks/{task_id}/comment")
+    suspend fun setLeadershipTaskComment(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: LeadershipTaskCommentRequestDto,
+    ): LeadershipTaskDetailDto
+
+    @GET("app/leadership-tasks/{task_id}/attachments/{proof_id}/download")
+    suspend fun getLeadershipTaskAttachmentDownloadUrl(
+        @Path("task_id") taskId: String,
+        @Path("proof_id") proofId: String,
+    ): ProofDownloadUrlResponseDto
 
     @GET("feed-direction/distribution/captures")
     suspend fun getFeedDistributionCaptures(
@@ -1917,6 +1977,48 @@ class RetrofitAppApi(
 
     override suspend fun confirmSaleAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): SaleAllocationDto =
         service.confirmSaleAllocation(idempotencyKey, request)
+    override suspend fun getLeadershipTasks(
+        filter: String?,
+        limit: Int?,
+        cursor: String?,
+    ): LeadershipTaskPageDto = service.getLeadershipTasks(filter, limit, cursor)
+
+    override suspend fun getLeadershipTaskAssignees(): LeadershipAssigneeListDto =
+        service.getLeadershipTaskAssignees()
+
+    override suspend fun getLeadershipTask(taskId: String): LeadershipTaskDetailDto =
+        service.getLeadershipTask(taskId)
+
+    override suspend fun raiseLeadershipTask(
+        idempotencyKey: String,
+        request: LeadershipTaskRaiseRequestDto,
+    ): LeadershipTaskDetailDto = service.raiseLeadershipTask(idempotencyKey, request)
+
+    override suspend fun editLeadershipTask(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskEditRequestDto,
+    ): LeadershipTaskDetailDto = service.editLeadershipTask(taskId, idempotencyKey, request)
+
+    override suspend fun changeLeadershipTaskStatus(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskStatusRequestDto,
+    ): LeadershipTaskDetailDto = service.changeLeadershipTaskStatus(taskId, idempotencyKey, request)
+
+    override suspend fun markLeadershipTaskSeen(taskId: String): LeadershipTaskDetailDto =
+        service.markLeadershipTaskSeen(taskId)
+
+    override suspend fun setLeadershipTaskComment(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskCommentRequestDto,
+    ): LeadershipTaskDetailDto = service.setLeadershipTaskComment(taskId, idempotencyKey, request)
+
+    override suspend fun getLeadershipTaskAttachmentDownloadUrl(taskId: String, proofId: String): String {
+        val url = service.getLeadershipTaskAttachmentDownloadUrl(taskId, proofId).downloadUrl
+        return if (url.startsWith("/")) baseUrl.trimEnd('/') + url else url
+    }
 
     override suspend fun getFeedDistributionCaptures(
         parkId: String?,

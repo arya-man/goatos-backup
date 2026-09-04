@@ -2907,6 +2907,170 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/leadership-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the caller's leadership tasks.
+         * @description Leadership Tasks (maintainer decision 2026-09-04): a director raises a task for one CXO. The caller sees the tasks they are PARTY to -- a director the ones they raised, a CXO the ones addressed to them -- newest first, keyset-paged. `filters` are whole-list counts over the same party predicate, never page sums. Every visible word (chips, meta line, number label, status button labels, empty messages) is backend-owned and rendered verbatim.
+         */
+        get: operations["listLeadershipTasks"];
+        put?: never;
+        /**
+         * Raise a task for a CXO.
+         * @description Directors only (`leadership_tasks.raise`). Attachments are proofs already uploaded through `POST /app/proofs/uploads` with `proof_type: attachment`; each must be a completed upload by the raiser in this tenant or the whole raise is refused 422 invalid_attachment. The `Idempotency-Key` header is REQUIRED; an exact replay returns the original task. The task's running number is minted inside the write. Pushes `leadership_task.raised` to the assignee.
+         */
+        post: operations["raiseLeadershipTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leadership-tasks/assignees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The people a task may be raised for.
+         * @description The raise form's picker: every CXO (`ceo_internal`) with an active grant and an active roster profile, by display name. Directors only.
+         */
+        get: operations["listLeadershipTaskAssignees"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leadership-tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One leadership task with its attachments.
+         * @description A task the caller is not party to answers 404, so a guessed id never opens someone else's ask. Attachment bytes are fetched through `GET /app/proofs/{proof_id}/download`.
+         */
+        get: operations["getLeadershipTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leadership-tasks/{task_id}/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace the brief and attachment list of a task the caller raised.
+         * @description Raiser only, and only while the task is open or in progress (409 task_closed otherwise). `attachments` is the FULL new list: the server keeps exactly that, removing rows it no longer names and adding new ones. `row_version` fences the write (409 version_conflict). The `Idempotency-Key` header is REQUIRED.
+         */
+        post: operations["editLeadershipTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leadership-tasks/{task_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a task along its status ladder.
+         * @description The accepted moves are exactly the task's `status_options` for THIS caller: the assignee walks open -> in_progress -> done (and may reopen a done task); the raiser may only cancel, and only while the task is open for work. Anything else answers 422 invalid_status_transition, 403 not_assignee / not_raiser, or 409 task_closed. `row_version` fences the write; the `Idempotency-Key` header is REQUIRED. A move to done pushes `leadership_task.status_changed` back to the raiser.
+         */
+        post: operations["changeLeadershipTaskStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leadership-tasks/{task_id}/comment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set the assignee's note on a task.
+         * @description The CXO's comment back on the task (maintainer instruction 2026-09-04): one field its owner overwrites, no thread. Assignee only (403 not_assignee), while the task is not cancelled (409 task_closed). The `Idempotency-Key` header is REQUIRED.
+         */
+        post: operations["setLeadershipTaskComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leadership-tasks/{task_id}/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stamp the task seen by its assignee.
+         * @description Called when the assignee opens a task. Naturally idempotent (a set-if-null) so it carries no key; anyone but the assignee, or a second open, changes nothing and gets the task back. The drawer badge (`badge_count` on the bootstrap module) is the count of the caller's unseen assigned tasks.
+         */
+        post: operations["markLeadershipTaskSeen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leadership-tasks/{task_id}/attachments/{proof_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a signed download URL for a leadership task attachment.
+         * @description Returns a proof media download URL only when the caller is party to the task and the proof id is one of that task's stored attachments. A task the caller cannot open, or a proof that is not attached to it, reads as not found.
+         */
+        get: operations["downloadLeadershipTaskAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/feed-purchases/{purchase_id}/payments": {
         parameters: {
             query?: never;
@@ -6535,6 +6699,144 @@ export interface components {
              */
             row_version: number;
         };
+        LeadershipTaskAttachment: {
+            /** Format: uuid */
+            attachment_id: string;
+            /**
+             * Format: uuid
+             * @description The proof store row holding the bytes; fetch via GET /app/proofs/{proof_id}/download.
+             */
+            proof_id: string;
+            /** @enum {string} */
+            kind: "audio" | "video" | "photo" | "file";
+            mime_type: string;
+            file_name: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /** Format: int64 */
+            duration_ms?: number | null;
+            position: number;
+        };
+        LeadershipTaskAttachmentRef: {
+            /** Format: uuid */
+            proof_id: string;
+            /** @enum {string} */
+            kind: "audio" | "video" | "photo" | "file";
+            file_name?: string;
+        };
+        LeadershipTaskStatusOption: {
+            /** @enum {string} */
+            key: "open" | "in_progress" | "done" | "cancelled";
+            /** @description Backend-owned button label */
+            label: string;
+        };
+        /** @description One leadership task as seen by THIS caller. The capability booleans and status_options are resolved per request from the caller's grants and their party to the task; the client renders controls from them and never from a role string. */
+        LeadershipTask: {
+            /** Format: uuid */
+            task_id: string;
+            /**
+             * Format: int64
+             * @description Per-tenant running number.
+             */
+            task_no: number;
+            /** @description "#12". */
+            number_label: string;
+            title: string;
+            body: string;
+            /** @enum {string} */
+            status: "open" | "in_progress" | "done" | "cancelled";
+            status_chip: string;
+            /** Format: uuid */
+            raised_by_user_id: string;
+            raised_by_name: string;
+            /** Format: uuid */
+            assignee_user_id: string;
+            assignee_name: string;
+            /** Format: date-time */
+            raised_at: string;
+            /** @description Farm-readable IST date. */
+            raised_on_label: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            done_at?: string | null;
+            /** Format: date-time */
+            seen_at?: string | null;
+            is_seen: boolean;
+            /** @description The caller is the person this task is for. */
+            is_assignee: boolean;
+            /** @description The caller raised this task. */
+            is_raiser: boolean;
+            /** @description From the viewer's side -- "Raised by Hemant · 04/09/2026" for the CXO, "For Ravi · 04/09/2026" for the raiser. */
+            meta_line: string;
+            row_version: number;
+            can_edit: boolean;
+            can_change_status: boolean;
+            can_cancel: boolean;
+            /** @description The CXO's note back on the task; one field its owner overwrites. */
+            comment: string;
+            can_comment: boolean;
+            /** @description The statuses THIS caller may move the task to, in display order; empty when read-only. */
+            status_options: components["schemas"]["LeadershipTaskStatusOption"][];
+            attachment_count: number;
+            attachments: components["schemas"]["LeadershipTaskAttachment"][];
+        };
+        LeadershipTaskDetail: {
+            task: components["schemas"]["LeadershipTask"];
+            trace_id: string;
+        };
+        LeadershipTaskFilter: {
+            /** @enum {string} */
+            key: "all" | "open" | "in_progress" | "done";
+            label: string;
+            /** @description Whole-list count over the caller's party predicate */
+            count: number;
+            selected: boolean;
+            empty_message: string;
+        };
+        LeadershipTaskPage: {
+            /** @description The L0 header title; mirrors the nav label. */
+            title: string;
+            rows: components["schemas"]["LeadershipTask"][];
+            next_cursor?: string | null;
+            filters: components["schemas"]["LeadershipTaskFilter"][];
+            /** @description Tasks addressed to the caller not yet opened; 0 for a pure raiser. */
+            unseen_count: number;
+            /** @description Caller holds leadership_tasks.raise; show the "+" action. */
+            can_raise: boolean;
+            trace_id: string;
+        };
+        LeadershipTaskAssignee: {
+            /** Format: uuid */
+            user_id: string;
+            name: string;
+        };
+        LeadershipTaskAssignees: {
+            assignees: components["schemas"]["LeadershipTaskAssignee"][];
+            trace_id: string;
+        };
+        LeadershipTaskRaiseRequest: {
+            title: string;
+            body?: string;
+            /** Format: uuid */
+            assignee_user_id: string;
+            attachments?: components["schemas"]["LeadershipTaskAttachmentRef"][];
+        };
+        LeadershipTaskEditRequest: {
+            title: string;
+            body?: string;
+            /** @description The FULL new list; the server diffs it. */
+            attachments?: components["schemas"]["LeadershipTaskAttachmentRef"][];
+            row_version: number;
+        };
+        LeadershipTaskCommentRequest: {
+            comment: string;
+        };
+        LeadershipTaskStatusRequest: {
+            /** @enum {string} */
+            status: "open" | "in_progress" | "done" | "cancelled";
+            row_version: number;
+        };
         /** @description One row of the sales ledger -- one sheet row, or one deal recorded in the app. */
         SalesDeal: {
             /** Format: uuid */
@@ -8707,6 +9009,8 @@ export interface components {
                 [key: string]: boolean;
             };
             visible_navigation: components["schemas"]["BootstrapNavigationItem"][];
+            /** @description The drawer: every module the principal can render with its module-scoped bar (docs/decisions/role-module-nav-composition.md), in drawer order. */
+            modules?: components["schemas"]["BootstrapModule"][];
             nav_chrome: components["schemas"]["NavChrome"];
             task_queue_descriptors: components["schemas"]["BootstrapTaskQueue"][];
             pinned_sop_versions: components["schemas"]["BootstrapSOPVersion"][];
@@ -8928,6 +9232,18 @@ export interface components {
             key: string;
             label: string;
             href: string;
+        };
+        /** @description A drawer entry: the module's identity plus the bottom-bar items it contributes. `status` is `available` (built, tappable) or `soon` (declared roadmap, disabled row). */
+        BootstrapModule: {
+            key: string;
+            /** @description Already localized backend-side; render verbatim. */
+            label: string;
+            href: string;
+            /** @enum {string} */
+            status: "available" | "soon";
+            nav_items: components["schemas"]["BootstrapNavigationItem"][];
+            /** @description A backend-owned number the drawer row and the module's bar item show when > 0 (maintainer decision 2026-09-04: the CXO's unseen Leadership Tasks). Zero for every module that carries no such number; clients never derive one. */
+            badge_count: number;
         };
         /**
          * @description Backend-computed navigation chrome, shared by both bootstraps. The client renders this value; it never counts modules or checks role to decide chrome.
@@ -20391,6 +20707,274 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listLeadershipTasks: {
+        parameters: {
+            query?: {
+                /** @description The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks). */
+                filter?: "all" | "open" | "in_progress" | "done";
+                limit?: number;
+                /** @description Keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page plus whole-list chip counts, the unseen count and the caller's raise capability. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    raiseLeadershipTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadershipTaskRaiseRequest"];
+            };
+        };
+        responses: {
+            /** @description The raised task. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listLeadershipTaskAssignees: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The assignee picker. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskAssignees"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getLeadershipTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    editLeadershipTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadershipTaskEditRequest"];
+            };
+        };
+        responses: {
+            /** @description The task after the edit. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    changeLeadershipTaskStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadershipTaskStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description The task after the move. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setLeadershipTaskComment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadershipTaskCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description The task after the note landed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    markLeadershipTaskSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    downloadLeadershipTaskAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                proof_id: components["parameters"]["ProofId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed download URL. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadProofResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

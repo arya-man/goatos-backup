@@ -563,6 +563,36 @@ object AppModule {
     ): sg.mesha.goatos.core.data.SalesRepository =
         sg.mesha.goatos.core.data.DefaultSalesRepository(api = api, database = database)
 
+    /**
+     * Leadership Tasks (maintainer request 2026-09-04). Room-backed offline-first READS; the
+     * writes are online calls inside the repository itself (v1 decision — a raise needs the
+     * server-issued proof ids the outbox never hands back), so no SyncRepository and no cycle.
+     */
+    @Provides
+    @Singleton
+    fun provideLeadershipTasksRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        bootstrapRepository: BootstrapRepository,
+        @ApplicationContext context: Context,
+    ): sg.mesha.goatos.core.data.LeadershipTasksRepository =
+        sg.mesha.goatos.core.data.DefaultLeadershipTasksRepository(
+            api = api,
+            database = database,
+            bootstrapRepository = bootstrapRepository,
+            cacheRoot = context.cacheDir,
+        )
+
+    @Provides
+    @Singleton
+    fun provideVoiceNoteRecorder(@ApplicationContext context: Context): sg.mesha.goatos.leadershiptasks.VoiceNoteRecorder =
+        sg.mesha.goatos.leadershiptasks.MediaRecorderVoiceNoteRecorder(context)
+
+    @Provides
+    @Singleton
+    fun provideAttachmentImporter(@ApplicationContext context: Context): sg.mesha.goatos.leadershiptasks.AttachmentImporter =
+        sg.mesha.goatos.leadershiptasks.ContentResolverAttachmentImporter(context)
+
     // App-scoped optimistic overlay for feed completions (offline-first badge ahead of the next
     // refresh). A process singleton, not persisted — the outbox is the durable command record.
     @Provides

@@ -67,4 +67,13 @@
     <string name="proof_audio_stop">रिकॉर्डिंग रोकें</string>
     <string name="proof_audio_cancel">वॉइस नोट रद्द करें</string>
     <string name="proof_audio_unavailable">माइक्रोफ़ोन अभी उपलब्ध नहीं है।</string>
+    <string name="leadership_tasks_msg_not_sent">भेजा नहीं जा सका। कनेक्शन जाँचें और फिर कोशिश करें।</string>
+    <string name="leadership_tasks_msg_attachment_unavailable">वह संलग्नक खोला नहीं जा सका। कनेक्शन जाँचें और फिर कोशिश करें।</string>
+    <string name="leadership_tasks_msg_mic_needed">वॉइस नोट रिकॉर्ड करने के लिए माइक्रोफ़ोन की अनुमति दें।</string>
+    <string name="leadership_tasks_msg_assignees_unavailable">यह किसे भेजा जा सकता है, यह लोड नहीं हो सका। कनेक्शन जाँचें और फिर कोशिश करें।</string>
+    <string name="leadership_tasks_msg_too_many">एक कार्य में अधिकतम 12 संलग्नक।</string>
+    <string name="leadership_tasks_msg_too_large">वह फ़ाइल बहुत बड़ी है। हर संलग्नक 50 MB से कम रखें।</string>
+    <string name="leadership_tasks_msg_recording_failed">वॉइस नोट रिकॉर्ड नहीं हुआ। फिर कोशिश करें।</string>
+    <string name="leadership_tasks_msg_attach_failed">वह संलग्न नहीं हो सका। फिर कोशिश करें।</string>
+    <string name="leadership_tasks_voice_note_file_name">वॉइस नोट %1$d</string>
 </resources>

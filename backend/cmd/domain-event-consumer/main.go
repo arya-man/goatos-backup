@@ -174,6 +174,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
 	// 2026-08-29).
 	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
+	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned
 	// operator, UP to the park head and the owning module's director. locationNames enriches the
 	// push with the park's human name (confirmed maintainer defect: pushes were too abstract to

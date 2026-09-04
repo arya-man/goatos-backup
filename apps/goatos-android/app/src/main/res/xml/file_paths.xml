@@ -4,4 +4,7 @@
      subtree is exposed, not the whole cache. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="exports" path="exports/" />
+    <!-- Leadership Tasks attachment bytes fetched for viewing (DefaultLeadershipTasksRepository):
+         a picked file opens in whatever app handles its type via a content:// grant. -->
+    <cache-path name="leadership-task-attachments" path="leadership-task-attachments/" />
 </paths>

@@ -67,4 +67,13 @@
     <string name="proof_audio_stop">ರೆಕಾರ್ಡಿಂಗ್ ನಿಲ್ಲಿಸಿ</string>
     <string name="proof_audio_cancel">ಧ್ವನಿ ಟಿಪ್ಪಣಿ ರದ್ದುಮಾಡಿ</string>
     <string name="proof_audio_unavailable">ಮೈಕ್ರೊಫೋನ್ ಈಗ ಲಭ್ಯವಿಲ್ಲ.</string>
+    <string name="leadership_tasks_msg_not_sent">ಕಳುಹಿಸಲಾಗಲಿಲ್ಲ. ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="leadership_tasks_msg_attachment_unavailable">ಆ ಲಗತ್ತನ್ನು ತೆರೆಯಲಾಗಲಿಲ್ಲ. ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="leadership_tasks_msg_mic_needed">ಧ್ವನಿ ಟಿಪ್ಪಣಿ ರೆಕಾರ್ಡ್ ಮಾಡಲು ಮೈಕ್ರೊಫೋನ್‌ಗೆ ಅನುಮತಿ ನೀಡಿ.</string>
+    <string name="leadership_tasks_msg_assignees_unavailable">ಇದನ್ನು ಯಾರಿಗೆ ಕಳುಹಿಸಬಹುದು ಎಂಬುದನ್ನು ಲೋಡ್ ಮಾಡಲಾಗಲಿಲ್ಲ. ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="leadership_tasks_msg_too_many">ಒಂದು ಕಾರ್ಯಕ್ಕೆ ಗರಿಷ್ಠ 12 ಲಗತ್ತುಗಳು.</string>
+    <string name="leadership_tasks_msg_too_large">ಆ ಫೈಲ್ ತುಂಬಾ ದೊಡ್ಡದು. ಪ್ರತಿ ಲಗತ್ತನ್ನು 50 MB ಒಳಗೆ ಇರಿಸಿ.</string>
+    <string name="leadership_tasks_msg_recording_failed">ಧ್ವನಿ ಟಿಪ್ಪಣಿ ರೆಕಾರ್ಡ್ ಆಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="leadership_tasks_msg_attach_failed">ಅದನ್ನು ಲಗತ್ತಿಸಲಾಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="leadership_tasks_voice_note_file_name">ಧ್ವನಿ ಟಿಪ್ಪಣಿ %1$d</string>
 </resources>

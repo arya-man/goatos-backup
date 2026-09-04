@@ -122,7 +122,9 @@
         "vaccination.capacity.changed",
         "vaccination.roster.changed",
         "vaccination.leave.changed",
-        "procurement.feed_purchase.reached"
+        "procurement.feed_purchase.reached",
+        "leadership_task.raised",
+        "leadership_task.status_changed"
       ]
     },
     "schema_version": {
@@ -164,7 +166,8 @@
         "feed_packing_completion",
         "feed_distribution_completion",
         "feed_direction_session_completion",
-        "feed_purchase"
+        "feed_purchase",
+        "leadership_task"
       ]
     },
     "aggregate_id": {
@@ -195,7 +198,8 @@
         "vaccination_batch",
         "notification_request",
         "health_protocol_version",
-        "feed_purchase"
+        "feed_purchase",
+        "leadership_task"
       ]
     },
     "subject_id": {

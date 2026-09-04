@@ -59,6 +59,12 @@ data class NavModule(
     val href: String,
     val status: NavModuleStatus,
     val navItems: List<NavItem>,
+    /**
+     * Backend-composed attention count for this module (0 = no badge). The shell renders it as a
+     * numeric badge on the drawer row and on the bottom-bar item whose href is the module's own;
+     * the client never counts anything itself.
+     */
+    val badgeCount: Int = 0,
 )
 
 /**

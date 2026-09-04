@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="leadership_tasks_action_raise">नया कार्य बनाएँ</string>
+    <string name="leadership_tasks_action_refresh">ताज़ा करें</string>
+    <string name="leadership_tasks_action_edit">संपादित करें</string>
+    <string name="leadership_tasks_action_cancel_task">कार्य रद्द करें</string>
+    <string name="leadership_tasks_cancel_confirm_title">यह कार्य रद्द करें?</string>
+    <string name="leadership_tasks_cancel_confirm_body">कार्य बंद हो जाएगा और किसी से इस पर काम करने को नहीं कहा जाएगा।</string>
+    <string name="leadership_tasks_cancel_confirm_yes">कार्य रद्द करें</string>
+    <string name="leadership_tasks_cancel_confirm_no">रहने दें</string>
+    <string name="leadership_tasks_attachments_label">संलग्नक</string>
+    <string name="leadership_tasks_attachment_open">खोलें</string>
+    <string name="leadership_tasks_audio_play">वॉइस नोट चलाएँ</string>
+    <string name="leadership_tasks_audio_pause">वॉइस नोट रोकें</string>
+    <string name="leadership_tasks_compose_title_new">नया कार्य</string>
+    <string name="leadership_tasks_compose_title_edit">कार्य संपादित करें</string>
+    <string name="leadership_tasks_field_for">किसके लिए</string>
+    <string name="leadership_tasks_field_title">शीर्षक</string>
+    <string name="leadership_tasks_field_brief">विवरण</string>
+    <string name="leadership_tasks_add_voice_note">वॉइस नोट रिकॉर्ड करें</string>
+    <string name="leadership_tasks_stop_recording">रोकें</string>
+    <string name="leadership_tasks_add_media">फ़ोटो या वीडियो</string>
+    <string name="leadership_tasks_add_file">फ़ाइल</string>
+    <string name="leadership_tasks_remove_attachment">हटाएँ</string>
+    <string name="leadership_tasks_send">भेजें</string>
+    <string name="leadership_tasks_save">सहेजें</string>
+    <string name="leadership_tasks_sending">भेजा जा रहा है…</string>
+    <string name="leadership_tasks_field_for_placeholder">यह किसके लिए है चुनें</string>
+    <string name="leadership_tasks_comment_label">टिप्पणियाँ</string>
+    <string name="leadership_tasks_comment_placeholder">इस कार्य पर एक नोट जोड़ें</string>
+    <string name="leadership_tasks_comment_save">टिप्पणी सहेजें</string>
+    <string name="leadership_tasks_comment_saving">सहेजा जा रहा है…</string>
+    <string name="leadership_tasks_status_label">स्थिति</string>
+    <string name="leadership_tasks_attachment_view">देखें</string>
+</resources>

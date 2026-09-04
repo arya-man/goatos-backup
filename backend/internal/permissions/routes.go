@@ -212,11 +212,11 @@ var protectedRoutes = []Route{
 	// state weighing hit above. Adding health.execute here keeps each role scoped to the one
 	// module it owns; handing it task.execute instead would carry vaccination SOP submission with
 	// it, which is the privilege escalation this route shape exists to avoid.
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite}},
-	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite}},
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise}},
+	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise}},
 	// downloadProof stays on task.read ALONE, and that is correct for every module whose
 	// evidence it serves -- including toxin, where it reads like a gap and is not. A reviewer
 	// checking the toxin block in RoleCEOInternal sees ToxinRead/ToxinVerdict and concludes the
@@ -318,6 +318,22 @@ var protectedRoutes = []Route{
 	{OperationID: "submitToxinReading", Method: "POST", Pattern: "/app/toxin/tasks/{task_id}/submit", Permissions: []string{ToxinExecute}},
 	{OperationID: "listToxinReview", Method: "GET", Pattern: "/toxin/review", Permissions: []string{ToxinVerdict}},
 	{OperationID: "recordToxinVerdict", Method: "POST", Pattern: "/toxin/tasks/{task_id}/verdict", Permissions: []string{ToxinVerdict}},
+
+	// LEADERSHIP TASKS (maintainer decision 2026-09-04): a director's ask of the CXO desk.
+	// List/detail/seen are LeadershipTasksRead (seen is a no-op for anyone but the assignee);
+	// raise/edit are LeadershipTasksRaise; a status change is LeadershipTasksRead at the
+	// route and the domain rule decides who may move it (the assignee walks the ladder, the
+	// raiser only cancels) -- both parties reach the route and neither can do the other's
+	// act. Patterns must stay byte-identical to leadershiptasks/adapters/http.Register.
+	{OperationID: "listLeadershipTasks", Method: "GET", Pattern: "/app/leadership-tasks", Permissions: []string{LeadershipTasksRead}},
+	{OperationID: "listLeadershipTaskAssignees", Method: "GET", Pattern: "/app/leadership-tasks/assignees", Permissions: []string{LeadershipTasksRaise}},
+	{OperationID: "getLeadershipTask", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}", Permissions: []string{LeadershipTasksRead}},
+	{OperationID: "raiseLeadershipTask", Method: "POST", Pattern: "/app/leadership-tasks", Permissions: []string{LeadershipTasksRaise}},
+	{OperationID: "editLeadershipTask", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/edit", Permissions: []string{LeadershipTasksRaise}},
+	{OperationID: "changeLeadershipTaskStatus", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/status", Permissions: []string{LeadershipTasksRead}},
+	{OperationID: "setLeadershipTaskComment", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/comment", Permissions: []string{LeadershipTasksAct}},
+	{OperationID: "markLeadershipTaskSeen", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/seen", Permissions: []string{LeadershipTasksRead}},
+	{OperationID: "downloadLeadershipTaskAttachment", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}/attachments/{proof_id}/download", Permissions: []string{LeadershipTasksRead}},
 
 	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --

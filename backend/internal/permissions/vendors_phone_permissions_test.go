@@ -28,10 +28,11 @@ func TestProcurementDeskReachesThePhoneAndTheProofHandshake(t *testing.T) {
 			}
 		}
 	}
-	// feed_director reads feed purchases on the web and holds no vendor authority: neither the
-	// phone module nor the proof handshake opens for it through this change.
-	route, _ := Match("POST", "/app/proofs/uploads")
-	if RolesAuthorizeAny([]string{RoleFeedDirector}, route.AnyPermissions) {
-		t.Fatal("feed_director must not reach proof uploads through the vendor voice-note widening")
+	// feed_director reads feed purchases on the web and holds no vendor authority: the phone
+	// Vendors module does not open for it through this change. It DOES reach the proof
+	// handshake -- through leadership_tasks.raise (task attachments, 2026-09-04), never through
+	// vendor.write -- so the assertion is on the lever, not the route.
+	if RoleHasPermission(RoleFeedDirector, VendorWrite) || RoleHasPermission(RoleFeedDirector, VendorRead) {
+		t.Fatal("feed_director must not gain vendor authority through the voice-note widening")
 	}
 }

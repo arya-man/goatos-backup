@@ -58,6 +58,13 @@ import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskRosterDto
+import sg.mesha.goatos.core.network.dto.LeadershipAssigneeListDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskDetailDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskEditRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskPageDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
@@ -256,6 +263,12 @@ data class BootstrapModuleDto(
     @SerialName("href") val href: String = "",
     @SerialName("status") val status: String = "soon",
     @SerialName("nav_items") val navItems: List<NavItemDto> = emptyList(),
+    /**
+     * A numeric attention count the backend composed for this module (0 when nothing): for
+     * `leadership_tasks` it is the caller's unseen assigned-task count. Rendered as a badge on the
+     * drawer row and on the module's bottom-bar item when > 0; the client never derives it.
+     */
+    @SerialName("badge_count") val badgeCount: Int = 0,
 )
 
 /**
@@ -1451,6 +1464,58 @@ interface AppApi {
         idempotencyKey: String,
         request: SaleAllocationRequestDto,
     ): SaleAllocationDto
+    // Leadership Tasks (maintainer request 2026-09-04)
+    // ------------------------------------------------------------------
+
+    /**
+     * GET /app/leadership-tasks — the caller's tasks (a director sees what they raised, a CXO
+     * what is assigned to them), keyset-paged. [filter] is a backend filter KEY
+     * (`all` | `open` | `in_progress` | `done`); blank means the backend default.
+     */
+    suspend fun getLeadershipTasks(
+        filter: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): LeadershipTaskPageDto
+
+    /** GET /app/leadership-tasks/assignees — the CXOs a director may raise a task for. */
+    suspend fun getLeadershipTaskAssignees(): LeadershipAssigneeListDto
+
+    /** GET /app/leadership-tasks/{task_id}. */
+    suspend fun getLeadershipTask(taskId: String): LeadershipTaskDetailDto
+
+    /** POST /app/leadership-tasks — raise a task. Idempotent on [idempotencyKey]. */
+    suspend fun raiseLeadershipTask(
+        idempotencyKey: String,
+        request: LeadershipTaskRaiseRequestDto,
+    ): LeadershipTaskDetailDto
+
+    /** POST /app/leadership-tasks/{task_id}/edit — title/body/attachments, fenced on row_version. */
+    suspend fun editLeadershipTask(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskEditRequestDto,
+    ): LeadershipTaskDetailDto
+
+    /** POST /app/leadership-tasks/{task_id}/status — move the task, fenced on row_version. */
+    suspend fun changeLeadershipTaskStatus(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskStatusRequestDto,
+    ): LeadershipTaskDetailDto
+
+    /** POST /app/leadership-tasks/{task_id}/seen — the assignee opened it (no body, no key). */
+    suspend fun markLeadershipTaskSeen(taskId: String): LeadershipTaskDetailDto
+
+    /** The assignee's note back on the task (one field, overwritten). */
+    suspend fun setLeadershipTaskComment(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskCommentRequestDto,
+    ): LeadershipTaskDetailDto
+
+    /** GET /app/leadership-tasks/{task_id}/attachments/{proof_id}/download. */
+    suspend fun getLeadershipTaskAttachmentDownloadUrl(taskId: String, proofId: String): String
 
     suspend fun getFeedDistributionCaptures(
         parkId: String?,
@@ -2687,6 +2752,46 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         batchNo = 12, quantityKg = 1000.0, totalCost = 23000.0, perKgCost = 23.0, vendor = "QA Vendor",
         paymentStatus = "Pending", paymentBalance = 23000.0, deliveryStatus = "purchased", entrySource = "app",
     )
+    override suspend fun getLeadershipTasks(
+        filter: String?,
+        limit: Int?,
+        cursor: String?,
+    ): LeadershipTaskPageDto = LeadershipTaskPageDto(title = "Tasks")
+
+    override suspend fun getLeadershipTaskAssignees(): LeadershipAssigneeListDto = LeadershipAssigneeListDto()
+
+    override suspend fun getLeadershipTask(taskId: String): LeadershipTaskDetailDto =
+        LeadershipTaskDetailDto(task = sg.mesha.goatos.core.network.dto.LeadershipTaskDto(taskId = taskId))
+
+    override suspend fun raiseLeadershipTask(
+        idempotencyKey: String,
+        request: LeadershipTaskRaiseRequestDto,
+    ): LeadershipTaskDetailDto = LeadershipTaskDetailDto(
+        task = sg.mesha.goatos.core.network.dto.LeadershipTaskDto(taskId = idempotencyKey, title = request.title, body = request.body),
+    )
+
+    override suspend fun editLeadershipTask(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskEditRequestDto,
+    ): LeadershipTaskDetailDto = getLeadershipTask(taskId)
+
+    override suspend fun changeLeadershipTaskStatus(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskStatusRequestDto,
+    ): LeadershipTaskDetailDto = getLeadershipTask(taskId)
+
+    override suspend fun markLeadershipTaskSeen(taskId: String): LeadershipTaskDetailDto = getLeadershipTask(taskId)
+
+    override suspend fun setLeadershipTaskComment(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskCommentRequestDto,
+    ): LeadershipTaskDetailDto = getLeadershipTask(taskId)
+
+    override suspend fun getLeadershipTaskAttachmentDownloadUrl(taskId: String, proofId: String): String =
+        getProofDownloadUrl(proofId)
 
     override suspend fun recordClockIn(
         idempotencyKey: String,
@@ -2747,6 +2852,7 @@ fun BootstrapDto.toNavState(): NavState {
             status = NavModuleStatus.from(module.status),
             navItems = module.navItems
                 .map { it.toNavItem() },
+            badgeCount = module.badgeCount.coerceAtLeast(0),
         )
     }
     val enabledItems = visibleNavigation

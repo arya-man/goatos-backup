@@ -15,12 +15,26 @@ import (
 )
 
 type Service struct {
-	repo ports.Repository
-	now  func() time.Time
+	repo   ports.Repository
+	now    func() time.Time
+	badges ModuleBadgeSource
 }
 
 func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo, now: time.Now}
+}
+
+// ModuleBadgeSource answers the numeric badge a drawer module shows (maintainer decision
+// 2026-09-04). Today one module carries one: leadership_tasks shows the CXO's unseen
+// assigned tasks. Keyed by module so a second module can join without touching bootstrap.
+type ModuleBadgeSource interface {
+	ModuleBadgeCounts(ctx context.Context, tenantID, userID string, moduleKeys []string) (map[string]int, error)
+}
+
+// WithModuleBadges wires the badge source. Optional: without it every badge is 0.
+func (s *Service) WithModuleBadges(src ModuleBadgeSource) *Service {
+	s.badges = src
+	return s
 }
 
 func (s *Service) ListOperators(ctx context.Context, params ports.ListOperatorsParams, traceID string) (*domain.OperatorListResponse, error) {
@@ -522,6 +536,7 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	navChrome := navChromeFor(grants, bootstrapModules)
 	visibleNav := visibleNavigationForTicks(scope, moduleKeysForBootstrap, localeTag, tickedModules)
 	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
+	s.applyModuleBadges(ctx, tenantID, actorID, bootstrapModules)
 	return &domain.BootstrapResponse{
 		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
 		OperatorProfile:        profile,
@@ -928,4 +943,24 @@ func optionSourcesFor(grants []domain.GrantSummary) []domain.BootstrapOptionSour
 		}
 	}
 	return items
+}
+
+// applyModuleBadges fills BootstrapModule.BadgeCount from the badge source for the modules
+// actually served. A source error degrades to no badge: the bootstrap must never fail
+// because a count could not be read.
+func (s *Service) applyModuleBadges(ctx context.Context, tenantID, userID string, modules []domain.BootstrapModule) {
+	if s.badges == nil || len(modules) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(modules))
+	for _, m := range modules {
+		keys = append(keys, m.Key)
+	}
+	counts, err := s.badges.ModuleBadgeCounts(ctx, tenantID, userID, keys)
+	if err != nil || len(counts) == 0 {
+		return
+	}
+	for i := range modules {
+		modules[i].BadgeCount = counts[modules[i].Key]
+	}
 }

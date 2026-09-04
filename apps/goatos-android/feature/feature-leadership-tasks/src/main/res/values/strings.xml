@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt static string resources, not a user-facing surface — a resource file has no
+  user action and no error path. The module's telemetry is wired in the @HiltViewModels in :app
+  (LeadershipTaskListViewModel / LeadershipTaskDetailViewModel / LeadershipTaskComposeViewModel).
+
+  Leadership Tasks CHROME strings only: button labels, field labels and accessibility text the
+  client owns. Every business sentence (number label, status chip, meta line, filter labels and
+  empty copy, status option labels, page title) is backend-owned and rendered verbatim.
+-->
+<resources>
+    <string name="leadership_tasks_action_raise">Raise a task</string>
+    <string name="leadership_tasks_action_refresh">Refresh</string>
+    <string name="leadership_tasks_action_edit">Edit</string>
+    <string name="leadership_tasks_action_cancel_task">Cancel task</string>
+    <string name="leadership_tasks_cancel_confirm_title">Cancel this task?</string>
+    <string name="leadership_tasks_cancel_confirm_body">The task is closed and nobody will be asked to act on it.</string>
+    <string name="leadership_tasks_cancel_confirm_yes">Cancel task</string>
+    <string name="leadership_tasks_cancel_confirm_no">Keep it</string>
+    <string name="leadership_tasks_attachments_label">Attachments</string>
+    <string name="leadership_tasks_attachment_open">Open</string>
+    <string name="leadership_tasks_audio_play">Play voice note</string>
+    <string name="leadership_tasks_audio_pause">Pause voice note</string>
+    <string name="leadership_tasks_compose_title_new">New task</string>
+    <string name="leadership_tasks_compose_title_edit">Edit task</string>
+    <string name="leadership_tasks_field_for">For</string>
+    <string name="leadership_tasks_field_title">Title</string>
+    <string name="leadership_tasks_field_brief">Brief</string>
+    <string name="leadership_tasks_add_voice_note">Record voice note</string>
+    <string name="leadership_tasks_stop_recording">Stop</string>
+    <string name="leadership_tasks_add_media">Photo or video</string>
+    <string name="leadership_tasks_add_file">File</string>
+    <string name="leadership_tasks_remove_attachment">Remove</string>
+    <string name="leadership_tasks_send">Send</string>
+    <string name="leadership_tasks_save">Save</string>
+    <string name="leadership_tasks_sending">Sending…</string>
+    <string name="leadership_tasks_field_for_placeholder">Choose who this is for</string>
+    <string name="leadership_tasks_comment_label">Comments</string>
+    <string name="leadership_tasks_comment_placeholder">Add a note back on this task</string>
+    <string name="leadership_tasks_comment_save">Save comment</string>
+    <string name="leadership_tasks_comment_saving">Saving…</string>
+    <string name="leadership_tasks_status_label">Status</string>
+    <string name="leadership_tasks_attachment_view">View</string>
+</resources>

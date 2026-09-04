@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="leadership_tasks_action_raise">కొత్త పని సృష్టించండి</string>
+    <string name="leadership_tasks_action_refresh">రిఫ్రెష్ చేయండి</string>
+    <string name="leadership_tasks_action_edit">సవరించండి</string>
+    <string name="leadership_tasks_action_cancel_task">పనిని రద్దు చేయండి</string>
+    <string name="leadership_tasks_cancel_confirm_title">ఈ పనిని రద్దు చేయాలా?</string>
+    <string name="leadership_tasks_cancel_confirm_body">పని మూసివేయబడుతుంది, దీనిపై ఎవరినీ పని చేయమని అడగరు.</string>
+    <string name="leadership_tasks_cancel_confirm_yes">పనిని రద్దు చేయండి</string>
+    <string name="leadership_tasks_cancel_confirm_no">అలాగే ఉంచండి</string>
+    <string name="leadership_tasks_attachments_label">జోడింపులు</string>
+    <string name="leadership_tasks_attachment_open">తెరవండి</string>
+    <string name="leadership_tasks_audio_play">వాయిస్ నోట్ ప్లే చేయండి</string>
+    <string name="leadership_tasks_audio_pause">వాయిస్ నోట్ ఆపండి</string>
+    <string name="leadership_tasks_compose_title_new">కొత్త పని</string>
+    <string name="leadership_tasks_compose_title_edit">పనిని సవరించండి</string>
+    <string name="leadership_tasks_field_for">ఎవరికి</string>
+    <string name="leadership_tasks_field_title">శీర్షిక</string>
+    <string name="leadership_tasks_field_brief">వివరణ</string>
+    <string name="leadership_tasks_add_voice_note">వాయిస్ నోట్ రికార్డ్ చేయండి</string>
+    <string name="leadership_tasks_stop_recording">ఆపండి</string>
+    <string name="leadership_tasks_add_media">ఫోటో లేదా వీడియో</string>
+    <string name="leadership_tasks_add_file">ఫైల్</string>
+    <string name="leadership_tasks_remove_attachment">తీసివేయండి</string>
+    <string name="leadership_tasks_send">పంపండి</string>
+    <string name="leadership_tasks_save">సేవ్ చేయండి</string>
+    <string name="leadership_tasks_sending">పంపుతోంది…</string>
+    <string name="leadership_tasks_field_for_placeholder">ఇది ఎవరికి అని ఎంచుకోండి</string>
+    <string name="leadership_tasks_comment_label">వ్యాఖ్యలు</string>
+    <string name="leadership_tasks_comment_placeholder">ఈ పనిపై ఒక నోట్ జోడించండి</string>
+    <string name="leadership_tasks_comment_save">వ్యాఖ్యను సేవ్ చేయండి</string>
+    <string name="leadership_tasks_comment_saving">సేవ్ అవుతోంది…</string>
+    <string name="leadership_tasks_status_label">స్థితి</string>
+    <string name="leadership_tasks_attachment_view">చూడండి</string>
+</resources>
