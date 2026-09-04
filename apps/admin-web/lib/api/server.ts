@@ -727,6 +727,11 @@ export type CountsBreakdownParams = {
   breed?: readonly string[];
   sex?: string;
   lifecycle_status?: string;
+  /**
+   * The page grain. `pen` pages `pens` (one line per pen with its grain rows nested); omitted or
+   * `grain` pages `items`. Totals, charts and facets are identical either way.
+   */
+  group_by?: "grain" | "pen";
   limit?: number;
   offset?: number;
 };

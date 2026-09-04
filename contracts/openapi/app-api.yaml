@@ -10802,6 +10802,19 @@ paths:
             type: string
             default: alive
             description: Filter by lifecycle status; defaults to alive
+        - name: group_by
+          in: query
+          required: false
+          description: >-
+            The page grain. `grain` (default) pages `items`, one row per farm x stage x breed x
+            sex x pen combination. `pen` pages `pens` instead, one row per pen (park x shed x
+            partition) with that pen's grain rows nested under it — the drill-down view. Filters,
+            `total_count`, `charts` and `facets` are identical in both modes; `total_rows` counts
+            whichever grouping the page walks. Any other value is rejected.
+          schema:
+            type: string
+            enum: [grain, pen]
+            default: grain
         - name: limit
           in: query
           required: false
@@ -10810,7 +10823,7 @@ paths:
             minimum: 1
             maximum: 100
             default: 10
-            description: Page size for items
+            description: Page size for items (or pens, when group_by=pen)
         - name: offset
           in: query
           required: false
@@ -32322,11 +32335,86 @@ components:
 
 
 
+    CountsBreakdownPenRow:
+      type: object
+      additionalProperties: false
+      description: >-
+        One pen of the census: every live animal standing in one park x shed x partition,
+        summarised on one line, with the exact grain rows it is made of nested underneath. A
+        rollup of CountsBreakdownRow, never a second count — `count` is the sum of `rows[].count`
+        and `stages`/`breeds`/`sexes` are each a one-dimensional re-roll of the same `rows`, so a
+        client renders both and re-sums neither.
+      required:
+        - park_label
+        - shed_label
+        - operational_location_display
+        - count
+        - kid_count
+        - adult_count
+        - stages
+        - breeds
+        - sexes
+        - rows
+      properties:
+        park_id:
+          type: string
+          format: uuid
+          nullable: true
+        park_label:
+          type: string
+        shed_id:
+          type: string
+          format: uuid
+          nullable: true
+        shed_label:
+          type: string
+        partition_label:
+          type:
+            - string
+            - "null"
+          description: Raw stored partition label; null/absent for a non-partitioned shed. Never "whole".
+        operational_location_display:
+          type: string
+          description: User-facing pen label ("Yashoda", "Castro 2", "Godel 1 - Part 3").
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+        kid_count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: kid_count + adult_count always equals count exactly.
+        adult_count:
+          type: integer
+          format: int64
+          minimum: 0
+        stages:
+          type: array
+          description: Composition by raw management stage, largest bucket first. `key` is "" for an unrecorded stage.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+        breeds:
+          type: array
+          description: Composition by breed, largest bucket first. `key` is "" for an unrecorded breed.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+        sexes:
+          type: array
+          description: Composition by sex, largest bucket first.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+        rows:
+          type: array
+          description: This pen's stage x breed x sex grain rows, largest first, each carrying the pen's own location.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownRow"
     CountsBreakdownResponse:
       type: object
       additionalProperties: false
       required:
         - items
+        - pens
         - total_rows
         - total_count
         - total_kids
@@ -32337,12 +32425,20 @@ components:
       properties:
         items:
           type: array
+          description: The grain page. Empty when group_by=pen.
           items:
             $ref: "#/components/schemas/CountsBreakdownRow"
+        pens:
+          type: array
+          description: The pen page, one row per park x shed x partition. Empty unless group_by=pen.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownPenRow"
         total_rows:
           type: integer
           minimum: 0
-          description: Distinct grain combinations across the FULL filtered set, independent of limit/offset.
+          description: >-
+            Rows in the FULL filtered set of whichever grouping the page walks — distinct grain
+            combinations by default, distinct pens when group_by=pen — independent of limit/offset.
         total_count:
           type: integer
           minimum: 0

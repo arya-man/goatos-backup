@@ -111,3 +111,36 @@ func TestGetBreakdownRejectsMalformedPen(t *testing.T) {
 		t.Fatalf("status=%d, want 400; body=%s", recorder.Code, recorder.Body.String())
 	}
 }
+
+// group_by selects the page grain. "pen" reaches the domain query as GroupByPen; absent keeps the
+// grain page an installed client already reads; anything else is a 400, never a silent default —
+// the two pages report different total_rows and a caller paging the wrong one would read a pen
+// count as a combination count.
+func TestGetBreakdownParsesGroupByPen(t *testing.T) {
+	cases := []struct {
+		query      string
+		wantStatus int
+		wantPen    bool
+	}{
+		{"", http.StatusOK, false},
+		{"&group_by=grain", http.StatusOK, false},
+		{"&group_by=pen", http.StatusOK, true},
+		{"&group_by=shed", http.StatusBadRequest, false},
+	}
+	for _, tc := range cases {
+		service := &countsBreakdownHandlerService{}
+		handler := NewHandler(service, slog.Default())
+		req := httptest.NewRequest(http.MethodGet, "/counts/breakdown?limit=10"+tc.query, nil)
+		req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+		recorder := httptest.NewRecorder()
+
+		handler.GetBreakdown(recorder, req)
+
+		if recorder.Code != tc.wantStatus {
+			t.Fatalf("query %q: status=%d want %d body=%s", tc.query, recorder.Code, tc.wantStatus, recorder.Body.String())
+		}
+		if tc.wantStatus == http.StatusOK && service.seen.GroupByPen != tc.wantPen {
+			t.Fatalf("query %q: GroupByPen=%v want %v", tc.query, service.seen.GroupByPen, tc.wantPen)
+		}
+	}
+}

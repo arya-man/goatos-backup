@@ -998,6 +998,45 @@
   .main table.counts-breakdown-table th:nth-child(6),.main table.counts-breakdown-table td:nth-child(6){min-width:80px}
   /* Total row reads as a summary band, not another data row. */
   .main table.counts-breakdown-table tfoot th{border-top:1px solid var(--line);background:var(--panel-2);font-weight:700}
+  /* Counts Breakdown PEN table (7 cols: Farm · Pen · Stage · Breed · Gender · Kids·Adults · Count).
+     One line per pen; the line is the affordance that opens the exact split beneath it. Column
+     widths are its own, so the nth-child rules above (the 6-col combination layout) are reset. */
+  .main table.counts-pens-table{min-width:900px}
+  .main table.counts-pens-table th:nth-child(n),.main table.counts-pens-table td:nth-child(n){min-width:0}
+  .main table.counts-pens-table th:nth-child(1),.main table.counts-pens-table td:nth-child(1){min-width:70px}
+  .main table.counts-pens-table th:nth-child(2),.main table.counts-pens-table td:nth-child(2){min-width:190px}
+  .main table.counts-pens-table th:nth-child(3),.main table.counts-pens-table td:nth-child(3),.main table.counts-pens-table th:nth-child(4),.main table.counts-pens-table td:nth-child(4){min-width:150px}
+  .main table.counts-pens-table th:nth-child(5),.main table.counts-pens-table td:nth-child(5){min-width:150px}
+  .main table.counts-pens-table th:nth-child(6),.main table.counts-pens-table td:nth-child(6){min-width:130px}
+  .main table.counts-pens-table th:nth-child(7),.main table.counts-pens-table td:nth-child(7){min-width:70px}
+  .main table.counts-pens-table td{white-space:normal;vertical-align:middle}
+  .main table.counts-pens-table tr.xrow{cursor:pointer}
+  .main table.counts-pens-table tr.xrow:hover td{background:var(--panel-2)}
+  .main table.counts-pens-table tr.xrow.open td{background:var(--brand-soft);border-bottom-color:transparent}
+  .main table.counts-pens-table tr.xdetail td{background:var(--bg);padding-top:8px;padding-bottom:8px;font-size:12.5px}
+  .main table.counts-pens-table tr.xdetail.first td{box-shadow:inset 0 1px 0 var(--line)}
+  .main table.counts-pens-table tr.xdetail.last td{border-bottom:2px solid var(--line)}
+  .main table.counts-pens-table tr.xdetail td:first-child{box-shadow:inset 3px 0 0 var(--brand)}
+  .main table.counts-pens-table tr.xdetail.first td:first-child{box-shadow:inset 3px 0 0 var(--brand),inset 0 1px 0 var(--line)}
+  .main .xsplit{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--brand-d);white-space:nowrap}
+  .main .xcount{font-weight:700;color:var(--brand-d)}
+  .main .xcell{display:inline-flex;flex-direction:column;gap:2px;align-items:flex-start}
+  .main .xtoggle{display:inline-flex;align-items:center;gap:8px;background:none;border:0;padding:0;font:inherit;font-weight:700;color:var(--ink);cursor:pointer;text-align:left;white-space:nowrap}
+  .main .xtoggle:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:6px}
+  .main .xtoggle .caret{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;background:var(--panel-2);color:var(--muted);flex:none;transition:transform .15s ease,background .15s ease}
+  .main tr.xrow.open .xtoggle .caret{transform:rotate(90deg);background:var(--brand);color:#08130B}
+  .main .xsub{padding-left:28px;font-size:11px}
+  .main .dimchips{display:inline-flex;flex-wrap:wrap;gap:5px}
+  .main .dimchip{display:inline-flex;align-items:center;gap:6px;padding:2px 4px 2px 9px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-size:11.5px;font-weight:600;color:var(--ink);line-height:1.4;white-space:nowrap}
+  .main .dimchip b{min-width:18px;padding:0 6px;border-radius:999px;background:var(--line2);color:var(--muted);font-size:10.5px;font-weight:800;text-align:center;line-height:16px}
+  .main .dimchip.f b{background:var(--warnx);color:var(--warn)}
+  .main .dimchip.m b{background:var(--infox);color:var(--info)}
+  .main .agesplit{white-space:nowrap}
+  .main .agesplit b{font-weight:700}
+  .main .agesplit small{color:var(--muted);font-size:10.5px}
+  .main .xbar{display:flex;align-items:center;gap:10px;padding:0 14px 10px}
+  .main .xbar .sp{flex:1}
+  .main .xbar .btn{white-space:nowrap;flex:none}
   /* Counts Breakdown inline tag editor. A same-page popover: local open/closed state, no navigation,
      so opening it never re-runs the route. Anchored to its own cell rather than the viewport so it
      stays with the row while the table scrolls horizontally. */

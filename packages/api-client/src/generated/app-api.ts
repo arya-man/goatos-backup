@@ -13251,9 +13251,42 @@ export interface components {
             /** @description Sheds holding animals, keyed by shed_id and carrying park_id so a Park -> Shed cascade can filter them. Whole-result rollup, independent of limit/offset. UNCAPPED on purpose — unlike charts.shed, which is display-capped to the top 12 bars, this is a filter vocabulary and a silent truncation would present a partial shed list as the complete one. Bounded by the distinct shed vocabulary, not by herd size. */
             sheds: components["schemas"]["CountsBreakdownShedFacet"][];
         };
+        /** @description One pen of the census: every live animal standing in one park x shed x partition, summarised on one line, with the exact grain rows it is made of nested underneath. A rollup of CountsBreakdownRow, never a second count — `count` is the sum of `rows[].count` and `stages`/`breeds`/`sexes` are each a one-dimensional re-roll of the same `rows`, so a client renders both and re-sums neither. */
+        CountsBreakdownPenRow: {
+            /** Format: uuid */
+            park_id?: string | null;
+            park_label: string;
+            /** Format: uuid */
+            shed_id?: string | null;
+            shed_label: string;
+            /** @description Raw stored partition label; null/absent for a non-partitioned shed. Never "whole". */
+            partition_label?: string | null;
+            /** @description User-facing pen label ("Yashoda", "Castro 2", "Godel 1 - Part 3"). */
+            operational_location_display: string;
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description kid_count + adult_count always equals count exactly.
+             */
+            kid_count: number;
+            /** Format: int64 */
+            adult_count: number;
+            /** @description Composition by raw management stage, largest bucket first. `key` is "" for an unrecorded stage. */
+            stages: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            /** @description Composition by breed, largest bucket first. `key` is "" for an unrecorded breed. */
+            breeds: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            /** @description Composition by sex, largest bucket first. */
+            sexes: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            /** @description This pen's stage x breed x sex grain rows, largest first, each carrying the pen's own location. */
+            rows: components["schemas"]["CountsBreakdownRow"][];
+        };
         CountsBreakdownResponse: {
+            /** @description The grain page. Empty when group_by=pen. */
             items: components["schemas"]["CountsBreakdownRow"][];
-            /** @description Distinct grain combinations across the FULL filtered set, independent of limit/offset. */
+            /** @description The pen page, one row per park x shed x partition. Empty unless group_by=pen. */
+            pens: components["schemas"]["CountsBreakdownPenRow"][];
+            /** @description Rows in the FULL filtered set of whichever grouping the page walks — distinct grain combinations by default, distinct pens when group_by=pen — independent of limit/offset. */
             total_rows: number;
             /** @description Sum of head counts across the FULL filtered set, independent of limit/offset. */
             total_count: number;
@@ -23116,6 +23149,8 @@ export interface operations {
                 /** @description Repeatable. Each occurrence adds a sex to the match set; a single occurrence behaves exactly as the old single-valued form (and keeps compiling for existing generated-client callers via the scalar arm). */
                 sex?: string | string[];
                 lifecycle_status?: string;
+                /** @description The page grain. `grain` (default) pages `items`, one row per farm x stage x breed x sex x pen combination. `pen` pages `pens` instead, one row per pen (park x shed x partition) with that pen's grain rows nested under it — the drill-down view. Filters, `total_count`, `charts` and `facets` are identical in both modes; `total_rows` counts whichever grouping the page walks. Any other value is rejected. */
+                group_by?: "grain" | "pen";
                 limit?: number;
                 offset?: number;
             };

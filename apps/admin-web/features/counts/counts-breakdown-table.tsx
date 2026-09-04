@@ -81,6 +81,11 @@ export function CountsBreakdownTable({
     [noShedLabel],
   );
 
+  const genderLabel = useMemo(() => {
+    const labels = new Map(genders.map((choice) => [choice.value, choice.label] as const));
+    return (value: string) => labels.get(value) ?? value;
+  }, [genders]);
+
   const columns = useMemo(
     () =>
       columnsFromContract<CountsBreakdownRow>(contract, {
@@ -132,6 +137,9 @@ export function CountsBreakdownTable({
           sortValue: (row) => row.breed || noBreedLabel,
         },
         gender: {
+          // The stored token ("female") reads as the contract's own gender label ("Female"), the
+          // same word the filter beside the table and the pen line above it use. The editor still
+          // sends the token verbatim; only the rendering changes.
           cell: (row) =>
             row.shed_id ? (
               <CensusValueEditor
@@ -143,9 +151,10 @@ export function CountsBreakdownTable({
                 choices={genders}
                 enabled={retagEnabled}
                 disabledReason={retagDisabledReason}
+                renderCurrent={genderLabel}
               />
             ) : (
-              row.sex
+              genderLabel(row.sex)
             ),
           sortValue: (row) => row.sex,
         },
@@ -171,6 +180,7 @@ export function CountsBreakdownTable({
       stages,
       breeds,
       genders,
+      genderLabel,
       retagEnabled,
       retagDisabledReason,
     ],

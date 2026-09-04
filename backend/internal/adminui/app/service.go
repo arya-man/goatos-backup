@@ -454,14 +454,29 @@ func pages() []domain.PageContract {
 		// changed it. Every figure is backend-owned: the page derives no count of its own,
 		// and the flow table's columns come from this table contract.
 		page("herd-analytics", "/counts/analytics", "/counts/analytics", "Herd Analytics", "Herd composition by breed, pen tag, sex and age, beside month-by-month births, deaths and sales over a chosen window. Composition is the live herd right now; flow is counted off the canonical row that recorded each event.", "module-surface", nil),
-		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head counts grouped by farm, stage, breed, gender and pen, with distribution charts.", "module-surface",
-			[]domain.TableContract{sortable(
+		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head count per pen, with breed, gender and stage on the same line; open a pen for the exact stage × breed × gender split.", "module-surface",
+			[]domain.TableContract{
+				// The page opens at PEN grain (maintainer decision 2026-09-04): one line per pen
+				// carrying its whole head count with the breed, gender and stage composition
+				// beside it, and the exact stage x breed x gender rows one click away. The
+				// combination grain was the only view before this, and a reader wanting "how many
+				// in Castro 2" had to add up to nine rows by eye.
+				//
 				// Every dimension sorts, including the count. Ordering applies to the PAGE the
 				// operator is looking at, not to the whole filtered result — the pager states
 				// the window, and the tfoot total stays the backend's whole-result figure.
-				tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50}),
-				"farm", "stage", "breed", "gender", "shed", "count",
-			)}),
+				sortable(
+					tableP("pen-breakdown", "Head count by pen", "/counts/breakdown?group_by=pen", []string{"farm", "shed", "stage", "breed", "gender", "kids_adults", "count"}, "breakdown_pen", []int{10, 25, 50}),
+					"farm", "shed", "stage", "breed", "gender", "count",
+				),
+				// The combination grain itself. An opened pen's rows render on the pen table's own
+				// columns (stage · breed · gender · count under the same headings), so this contract
+				// stays for the row shape the mobile client reads.
+				sortable(
+					tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50}),
+					"farm", "stage", "breed", "gender", "shed", "count",
+				),
+			}),
 		// Weighing — the admin-web oversight read-out.
 		//
 		// Weighing is FREE-FLOW and ISOLATED: it records a scanned tag and a weight and
@@ -4189,20 +4204,36 @@ func pageSpecificCopy(id string) map[string]string {
 	case "counts-breakdown":
 		return map[string]string{
 			"crumb":                     "Counts",
-			"section.breakdown.title":   "Detail Breakdown",
+			"section.breakdown.title":   "Head count by pen",
 			"section.breakdown.aria":    "Counts breakdown",
-			"section.breakdown.caption": "Farm × stage × breed × gender × pen for every matching combination",
-			"section.breakdown.note":    "Counts live animals only (lifecycle status alive), matching Herd Register. Stage is the raw source value recorded against each animal — near-duplicate labels are shown exactly as stored rather than merged, so source data issues stay visible.",
-			"section.charts.title":      "Distribution",
-			"section.charts.aria":       "Count distribution charts",
-			"kpi.matching.label":        "Matching count",
-			"kpi.matching.sub":          "Live animals matching the current filters",
-			"kpi.matching.unavailable":  "Count unavailable",
-			"kpi.age.label":             "Kids · Adults",
-			"kpi.age.aria":              "Kid and adult split",
-			"label.kids":                "kids",
-			"label.adults":              "adults",
-			"table.breakdown.aria":      "Detail breakdown rows",
+			"section.breakdown.caption": "One line per pen with its breed, gender and stage mix. Open a pen for the exact split.",
+			// The pen line and its drill-down. Every string the pens table renders is here.
+			"table.pens.aria":          "Head count by pen",
+			"table.pens.noun":          "pen",
+			"table.pens.total_row":     "Total · every matching pen, not just this page",
+			"action.expand.hint":       "Click a pen to see its exact stage × breed × gender split",
+			"action.expand_all":        "Open all",
+			"action.collapse_all":      "Close all",
+			"action.expand.open_aria":  "Open pen",
+			"action.expand.close_aria": "Close pen",
+			"detail.title":             "Exact split",
+			"detail.aria":              "Exact stage, breed and gender split for this pen",
+			"detail.combinations_one":  "combination",
+			"detail.combinations_many": "combinations",
+			"label.kid_short":          "kids",
+			"label.adult_short":        "adults",
+			"label.mixed_stages":       "Mixed",
+			"section.breakdown.note":   "Counts live animals only (lifecycle status alive), matching Herd Register. Stage is the raw source value recorded against each animal — near-duplicate labels are shown exactly as stored rather than merged, so source data issues stay visible.",
+			"section.charts.title":     "Distribution",
+			"section.charts.aria":      "Count distribution charts",
+			"kpi.matching.label":       "Matching count",
+			"kpi.matching.sub":         "Live animals matching the current filters",
+			"kpi.matching.unavailable": "Count unavailable",
+			"kpi.age.label":            "Kids · Adults",
+			"kpi.age.aria":             "Kid and adult split",
+			"label.kids":               "kids",
+			"label.adults":             "adults",
+			"table.breakdown.aria":     "Detail breakdown rows",
 			// Says WHAT it totals (maintainer report, 2026-08-12). The value is the whole-filter sum —
 			// 1,670 live animals across all 213 grain rows — sitting under a page of 10 rows that add
 			// up to 463, so "Total (rows)" read as a number that did not match the table above it. The
@@ -8464,6 +8495,8 @@ func humanLabel(key string) string {
 		return "Sex"
 	case "age":
 		return "Age"
+	case "kids_adults":
+		return "Kids · Adults"
 	case "next_action":
 		return "Next action"
 	case "effective_date":
