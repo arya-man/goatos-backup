@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
@@ -279,13 +280,52 @@ func (r *Repository) CreateGrant(ctx context.Context, cmd ports.CreateGrantComma
 		return domain.GrantSummary{}, err
 	}
 	var grantID string
-	err = tx.QueryRow(ctx, `
+	scopeType, scopeID := cmd.Body.ScopeType, cmd.Body.ScopeID
+	if scopeType == "tenant" || scopeType == "park" {
+		// Park membership is NOT chosen here. The role is added and the person's authored
+		// scope (People screen ticks) decides where it applies; a person never set up on the
+		// People screen is set up now from the requested scope, so the two can never say
+		// different things (internal/parkscope).
+		scopeMode, _, parkIDs, provisioned, err := parkscope.PersonScope(ctx, tx, cmd.TenantID, cmd.OperatorID)
+		if err != nil {
+			return domain.GrantSummary{}, err
+		}
+		switch {
+		case provisioned && (scopeMode == "tenant" || len(parkIDs) > 0):
+			if _, err := parkscope.SyncGrantScope(ctx, tx, cmd.TenantID, userID, cmd.ActorID, scopeMode, parkIDs, []string{cmd.Body.Role}); err != nil {
+				return domain.GrantSummary{}, mapWriteErr(err)
+			}
+		default:
+			mode, parks, home := "tenant", []string(nil), ""
+			if scopeType == "park" {
+				mode, parks, home = "parks", []string{scopeID}, scopeID
+			}
+			if _, err := parkscope.WritePersonScope(ctx, tx, cmd.TenantID, cmd.ActorID, cmd.OperatorID, mode, home, parks, nil, []string{cmd.Body.Role}); err != nil {
+				return domain.GrantSummary{}, mapWriteErr(err)
+			}
+		}
+		if cmd.Body.ValidTo != nil && strings.TrimSpace(*cmd.Body.ValidTo) != "" {
+			if _, err := tx.Exec(ctx, `
+UPDATE user_scope_grants SET valid_to = $4::timestamptz
+WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND status = 'active' AND valid_to IS NULL`,
+				cmd.TenantID, userID, cmd.Body.Role, strings.TrimSpace(*cmd.Body.ValidTo)); err != nil {
+				return domain.GrantSummary{}, mapWriteErr(err)
+			}
+		}
+		err = tx.QueryRow(ctx, `
+SELECT grant_id::text FROM user_scope_grants
+WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND status = 'active'
+ORDER BY valid_from DESC, grant_id DESC LIMIT 1`, cmd.TenantID, userID, cmd.Body.Role).Scan(&grantID)
+	} else {
+		// A shed/cohort/custodian grant is not park membership and stays a direct row.
+		err = tx.QueryRow(ctx, `
 INSERT INTO user_scope_grants (
   tenant_id, user_id, role, scope_type, scope_id, status, valid_from, valid_to, created_by
 ) VALUES (
   $1::uuid, $2::uuid, $3, $4, $5::uuid, 'active', now(), nullif($6, '')::timestamptz, $7::uuid
 )
-RETURNING grant_id::text`, cmd.TenantID, userID, cmd.Body.Role, cmd.Body.ScopeType, cmd.Body.ScopeID, ptrValue(cmd.Body.ValidTo), cmd.ActorID).Scan(&grantID)
+RETURNING grant_id::text`, cmd.TenantID, userID, cmd.Body.Role, scopeType, scopeID, ptrValue(cmd.Body.ValidTo), cmd.ActorID).Scan(&grantID)
+	}
 	if err != nil {
 		return domain.GrantSummary{}, mapWriteErr(err)
 	}

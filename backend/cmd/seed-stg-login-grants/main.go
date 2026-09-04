@@ -45,6 +45,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/authallow"
@@ -182,6 +183,11 @@ func main() {
 				continue
 			}
 			res.modulesGranted = granted
+			if err := bindPersonScope(ctx, pool, tenantID, userID, acct, scopeID); err != nil {
+				res.err = fmt.Errorf("bind person park scope: %w", err)
+				results = append(results, res)
+				continue
+			}
 		} else {
 			// Leadership/verifier accounts have no department, but the mobile
 			// /app/bootstrap still hard-requires an active workforce_members
@@ -195,6 +201,11 @@ func main() {
 				continue
 			}
 			res.rosterBoundOK = true
+			if err := bindPersonScope(ctx, pool, tenantID, userID, acct, scopeID); err != nil {
+				res.err = fmt.Errorf("bind person park scope: %w", err)
+				results = append(results, res)
+				continue
+			}
 		}
 
 		results = append(results, res)
@@ -326,6 +337,35 @@ INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, s
 VALUES ($1, $2, $3, $4, $5, 'active', now())
 RETURNING grant_id::text
 `, tenantID, userID, role, scopeType, scopeID).Scan(&grantID)
+}
+
+// bindPersonScope writes the account's park scope as the person's AUTHORED scope (the
+// People screen ticks + home park) and re-derives the grant rows from it, so a seeded
+// person starts with the three park records already agreeing (internal/parkscope). A
+// ParkCode account is 'parks' with that one park as home; a leadership account is
+// 'tenant'. The grant materialized just before this is kept: it is exactly the row the
+// derivation wants.
+func bindPersonScope(ctx context.Context, pool *pgxpool.Pool, tenantID, userID string, acct Account, scopeID string) error {
+	mode, parks, home := "tenant", []string(nil), ""
+	if strings.TrimSpace(acct.ParkCode) != "" {
+		mode, parks, home = "parks", []string{scopeID}, scopeID
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var memberID string
+	if err := tx.QueryRow(ctx, `
+SELECT workforce_member_id::text FROM workforce_members
+WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'
+ORDER BY created_at ASC LIMIT 1`, tenantID, userID).Scan(&memberID); err != nil {
+		return fmt.Errorf("resolve member for %s: %w", acct.DisplayName, err)
+	}
+	if _, err := parkscope.WritePersonScope(ctx, tx, tenantID, "", memberID, mode, home, parks, nil, []string{acct.Role}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func resolveGrantScope(ctx context.Context, pool *pgxpool.Pool, tenantID string, acct Account) (string, string, error) {

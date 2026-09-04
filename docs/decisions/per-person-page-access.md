@@ -137,3 +137,50 @@ access model, before landing.
 Verified live on the local stack the same day: his bootstrap before and after
 the retirement is identical, ticking Feed Config in the editor made the leaf and
 its page contract appear with no code change, and unticking it removed them.
+
+## One source for "which park" (maintainer decision 2026-09-04)
+
+Three records answered "which park does this person work in", and nothing kept them in
+step: the scope on each `user_scope_grants` row, the People screen's
+`person_access.scope_mode` + `person_park_scope` ticks, and
+`workforce_members.primary_location_id`. Vaccination assignment trusted the home park
+(migration `000223`), weighing trusted grants, the capability resolver trusted the ticks,
+and calendar / approvals / the blind resolver read grants again. On 2026-09-01 a
+Channapatna operator claimed Coimbatore milk work: a Coimbatore grant had been added to
+him by hand, his ticks and home park still said Channapatna, and no reader agreed with
+another about him.
+
+**The People screen ticks are the ONLY authored park scope.** Everything else is derived
+from them, in the same transaction, by `backend/internal/parkscope`:
+
+- `scope_mode = 'tenant'` → every role the person holds gets ONE tenant-scoped grant row;
+  park rows for those roles are revoked.
+- `scope_mode = 'parks'` → every role gets one row PER TICKED PARK; tenant rows and rows
+  for unticked parks are revoked.
+- **Home park** is a field on the editor (`home_park_id`). With one ticked park it IS that
+  park; with more than one the admin must choose, because guessing would move someone's
+  vaccination drives to a park they only cover occasionally. It is written to
+  `workforce_members.primary_location_id`, which the vaccination trigger keeps reading
+  unchanged.
+
+Every writer of a grant row goes through it: the editor (`SavePersonAccess`), person
+creation (`CreatePerson`), the operators grant API (`CreateGrant` adds a ROLE and no longer
+honours the body's park once ticks exist; a person never set up is set up from the
+request), the login-time email claim (`ReconcileUser` after the claim, so a tenant-scoped
+pending grant cannot widen a narrowed person), and `seed-stg-login-grants`. Roles remain
+their own axis and are not decided here; scopes other than tenant/park (shed, cohort,
+custodian) are not park membership and are left alone.
+
+Pinned by `TestGrantScopeHasOneWriter` (fails on any new `INSERT INTO user_scope_grants`
+outside the recorded writers), `TestSavePersonAccessDerivesGrantsAndHomeParkFromTheTicks`,
+`TestCreateGrantLandsTheRoleOnTheAuthoredScopeNotTheBody`,
+`TestCreateGrantOnAnUnsetPersonAuthorsTheScope`,
+`TestReconcileUserPullsAStrayTenantRowBackOntoTheTicks` and
+`TestSavePersonAccessResolvesTheHomePark`. The derivation was mutation-tested while being
+written: re-reading the role list after the revoke statement left a tenant-mode person
+holding no roles, and the integration test caught it.
+
+Known boundary: readers that still consult grants directly (weighing operator offer,
+calendar scope, approvals) are correct by construction now that grants equal ticks, but
+they are not yet routed through the person scope. That is a follow-up, not a second
+source.

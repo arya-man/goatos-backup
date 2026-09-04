@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"context"
 	"fmt"
 	"strings"
@@ -194,8 +195,28 @@ func seedPerPersonGrants(ctx context.Context, pool *pgxpool.Pool, tenantID, auth
 			res.active = true
 			results = append(results, res)
 		}
+		if userID != "" {
+			// The roles above were materialized at tenant scope, which is right for a director
+			// and wrong for anyone the People screen has narrowed. Re-derive from the authored
+			// scope so a per-person role lands where the person's ticks say (internal/parkscope).
+			if err := reconcilePersonScope(ctx, pool, tenantID, userID); err != nil {
+				results = append(results, grantResult{email: email, role: "(park scope)", err: err})
+			}
+		}
 	}
 	return results
+}
+
+func reconcilePersonScope(ctx context.Context, pool *pgxpool.Pool, tenantID, userID string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, _, err := parkscope.ReconcileUser(ctx, tx, tenantID, userID, ""); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // resolvePersonUserID returns the user_id these grants must land on, or "" when it cannot be

@@ -1764,6 +1764,19 @@ a hand-copied subset would not fail loudly -- it would silently never settle the
 missing. Declaring a category inline in `bootstrap/api.go` is blocked by
 `TestBootstrapDeclaresNoCategoryOfItsOwn`.
 
+Confirmed ONE-PARK-SCOPE-SOURCE rule (maintainer decision 2026-09-04): **the People screen
+ticks (`person_access.scope_mode` + `person_park_scope`) are the ONLY authored answer to
+"which park does this person work in"; `user_scope_grants` scope and
+`workforce_members.primary_location_id` (the HOME park) are DERIVED from them, in the same
+transaction, by `backend/internal/parkscope`.** Tenant mode → one tenant row per role; parks
+mode → one row per role per ticked park; stale rows revoked. The editor carries a Home park
+field, required when more than one park is ticked, and vaccination keeps assigning by home
+park. Do not insert a `user_scope_grants` row with a scope of your own -- add the ROLE through
+`WritePersonScope` / `SyncGrantScope` / `ReconcileUser` and let the person's scope decide
+where it applies (`TestGrantScopeHasOneWriter` fails otherwise). Why: three records drifted and
+a Channapatna operator claimed Coimbatore milk work on 2026-09-01. Canonical prose:
+`docs/decisions/per-person-page-access.md` -> "One source for which park".
+
 Confirmed PAGE-GRAIN ACCESS rule (maintainer decision 2026-08-27, SUPERSEDING the MECHANISM
 -- and only the mechanism -- of the 2026-08-21 procurement-director workspace decision, whose
 OUTCOME is preserved byte for byte): **a person's admin-web sidebar is exactly the pages ticked
