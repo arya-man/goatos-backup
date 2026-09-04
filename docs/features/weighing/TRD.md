@@ -98,6 +98,22 @@ this section governs older conflicting language.
 3. The operator opens their assigned bucket and scans any number of RFIDs.
 4. Per RFID: weight + video (`individual_animal`). Or total weight/count/videos
    (`per_shed_partition`, field-facing "lump-sum").
+   **Every weighing video opens on the scale reading 0 kg (maintainer request
+   2026-09-04).** Before any weighing clip starts -- each per-animal video and
+   each lump-sum group video, replacements and re-uploads included -- the
+   in-app recorder holds at the live preview and shows a briefing (title,
+   picture of an empty scale reading 0.0 kg, one instruction, in the operator's
+   app language: en/hi/kn/te) telling the operator that the FIRST THING IN THE
+   VIDEO must be the empty weighing scale reading 0 kg on camera, and only
+   then the weighing. Recording starts only when the operator taps OK; cancel
+   cancels the capture. This is capture GUIDANCE, not a rule: nothing inspects
+   the clip, no scan is gated, and free-flow is untouched. Mechanism:
+   `ProofCaptureContext.preRecordBriefing = WEIGHING_SCALE_ZERO`, honoured by
+   `InAppVideoRecorderOverlay` (`recorderMayAutoStart`); the two weighing
+   `captureVideo` call sites in `WeighingViewModel` are the only ones that set
+   it. Pinned by `PreRecordBriefingTest`, the two briefing tests in
+   `WeighingViewModelTest`, and the four-locale
+   `PreRecordBriefingScreenshotTest` goldens.
 5. Operator hits Submit = "I am done for now with this bucket." This flips
    `weighing_campaign_sheds.status` to `completed`, meaning submitted and
    awaiting verification — not that every observation is verified.

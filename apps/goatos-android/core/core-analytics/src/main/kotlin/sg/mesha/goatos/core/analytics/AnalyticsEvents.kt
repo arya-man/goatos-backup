@@ -827,6 +827,10 @@ object AnalyticsEvents {
     const val PROOF_CAMERA_TORCH_ON = "proof_camera_torch_on"
     const val PROOF_CAMERA_TORCH_OFF = "proof_camera_torch_off"
     const val PROOF_CAMERA_TORCH_FAILED = "proof_camera_torch_failed"
+    /** A pre-record briefing (e.g. weighing's "scale reads 0 kg") held the recorder at the preview. */
+    const val PROOF_CAMERA_BRIEFING_SHOWN = "proof_camera_briefing_shown"
+    /** The operator confirmed the briefing; recording starts only after this. */
+    const val PROOF_CAMERA_BRIEFING_ACKNOWLEDGED = "proof_camera_briefing_acknowledged"
     const val PROOF_GALLERY_PICKER_OPENED = "proof_gallery_picker_opened"
     const val PROOF_GALLERY_PICKER_CANCELLED = "proof_gallery_picker_cancelled"
     const val PROOF_GALLERY_PICKER_IMPORTED = "proof_gallery_picker_imported"

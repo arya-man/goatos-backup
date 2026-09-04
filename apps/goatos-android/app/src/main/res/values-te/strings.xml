@@ -77,4 +77,9 @@
     <string name="leadership_tasks_msg_recording_failed">వాయిస్ నోట్ రికార్డ్ కాలేదు. మళ్లీ ప్రయత్నించండి.</string>
     <string name="leadership_tasks_msg_attach_failed">అది జోడించలేకపోయాం. మళ్లీ ప్రయత్నించండి.</string>
     <string name="leadership_tasks_voice_note_file_name">వాయిస్ నోట్ %1$d</string>
+    <string name="proof_camera_scale_zero_title">వీడియోలో 0 కేజీ చూపించండి</string>
+    <string name="proof_camera_scale_zero_body">వీడియో మొదలైన వెంటనే ముందుగా ఖాళీ తూకం యంత్రం 0 కేజీ చూపిస్తున్నట్లు కెమెరాలో చూపించండి, తర్వాత తూకం వేయడం ప్రారంభించండి. రికార్డింగ్ ప్రారంభించడానికి సరే నొక్కండి.</string>
+    <string name="proof_camera_scale_zero_confirm">సరే, వీడియో ప్రారంభించండి</string>
+    <string name="proof_camera_scale_zero_cancel">రద్దు చేయండి</string>
+    <string name="proof_camera_scale_zero_image_description">0 కేజీ చూపిస్తున్న ఖాళీ తూకం యంత్రం</string>
 </resources>

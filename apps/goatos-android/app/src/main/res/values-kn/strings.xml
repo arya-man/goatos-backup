@@ -77,4 +77,9 @@
     <string name="leadership_tasks_msg_recording_failed">ಧ್ವನಿ ಟಿಪ್ಪಣಿ ರೆಕಾರ್ಡ್ ಆಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="leadership_tasks_msg_attach_failed">ಅದನ್ನು ಲಗತ್ತಿಸಲಾಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="leadership_tasks_voice_note_file_name">ಧ್ವನಿ ಟಿಪ್ಪಣಿ %1$d</string>
+    <string name="proof_camera_scale_zero_title">ವೀಡಿಯೊದಲ್ಲಿ 0 ಕೆಜಿ ತೋರಿಸಿ</string>
+    <string name="proof_camera_scale_zero_body">ವೀಡಿಯೊ ಪ್ರಾರಂಭವಾದ ತಕ್ಷಣ ಮೊದಲು ಖಾಲಿ ತೂಕದ ಯಂತ್ರ 0 ಕೆಜಿ ತೋರಿಸುತ್ತಿರುವುದನ್ನು ಕ್ಯಾಮೆರಾದಲ್ಲಿ ತೋರಿಸಿ, ನಂತರ ತೂಕ ಮಾಡಲು ಪ್ರಾರಂಭಿಸಿ. ರೆಕಾರ್ಡಿಂಗ್ ಪ್ರಾರಂಭಿಸಲು ಸರಿ ಒತ್ತಿರಿ.</string>
+    <string name="proof_camera_scale_zero_confirm">ಸರಿ, ವೀಡಿಯೊ ಪ್ರಾರಂಭಿಸಿ</string>
+    <string name="proof_camera_scale_zero_cancel">ರದ್ದುಮಾಡಿ</string>
+    <string name="proof_camera_scale_zero_image_description">0 ಕೆಜಿ ತೋರಿಸುತ್ತಿರುವ ಖಾಲಿ ತೂಕದ ಯಂತ್ರ</string>
 </resources>

@@ -77,4 +77,9 @@
     <string name="leadership_tasks_msg_recording_failed">वॉइस नोट रिकॉर्ड नहीं हुआ। फिर कोशिश करें।</string>
     <string name="leadership_tasks_msg_attach_failed">वह संलग्न नहीं हो सका। फिर कोशिश करें।</string>
     <string name="leadership_tasks_voice_note_file_name">वॉइस नोट %1$d</string>
+    <string name="proof_camera_scale_zero_title">वीडियो में 0 किग्रा दिखाएँ</string>
+    <string name="proof_camera_scale_zero_body">वीडियो शुरू होते ही सबसे पहले खाली तराज़ू को कैमरे में दिखाएँ कि उस पर 0 किग्रा पढ़ रहा है, फिर वज़न करना शुरू करें। रिकॉर्डिंग शुरू करने के लिए ठीक है दबाएँ।</string>
+    <string name="proof_camera_scale_zero_confirm">ठीक है, वीडियो शुरू करें</string>
+    <string name="proof_camera_scale_zero_cancel">रद्द करें</string>
+    <string name="proof_camera_scale_zero_image_description">खाली तराज़ू जिस पर 0 किग्रा दिख रहा है</string>
 </resources>
