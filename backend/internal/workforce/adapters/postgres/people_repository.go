@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 
@@ -379,23 +380,24 @@ RETURNING workforce_member_id::text`,
 		return domain.PersonSummary{}, mapPersonWriteErr(err)
 	}
 
-	// Active scope grant, idempotent on replayed UID: an identical active grant
-	// already present (e.g. from a prior partial run) is reused, not duplicated.
-	var grantID string
-	err = tx.QueryRow(ctx, `
-SELECT grant_id::text FROM user_scope_grants
-WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = $3
-  AND scope_type = $4 AND scope_id = $5::uuid AND status = 'active'
-  AND (valid_to IS NULL OR valid_to > now())
-LIMIT 1`, cmd.TenantID, cmd.UserID, cmd.Role, cmd.ScopeType, cmd.ScopeID).Scan(&grantID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		err = tx.QueryRow(ctx, `
-INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from, created_by)
-VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid, 'active', now(), $6::uuid)
-RETURNING grant_id::text`,
-			cmd.TenantID, cmd.UserID, cmd.Role, cmd.ScopeType, cmd.ScopeID, cmd.ActorID).Scan(&grantID)
+	// Park scope + the derived grant row, in this transaction. The form's park is the
+	// person's ONE ticked park and their home park; a tenant role gets tenant mode with the
+	// park (if any) kept as the seat. The grant row is derived from that scope rather than
+	// inserted here, so there is exactly one place that decides where a role applies
+	// (internal/parkscope).
+	scopeMode, scopeParks := "tenant", []string(nil)
+	if cmd.ScopeType == "park" {
+		scopeMode, scopeParks = "parks", []string{cmd.ScopeID}
 	}
-	if err != nil {
+	if _, err := parkscope.WritePersonScope(ctx, tx, cmd.TenantID, cmd.ActorID, personID,
+		scopeMode, cmd.ParkID, scopeParks, nil, []string{cmd.Role}); err != nil {
+		return domain.PersonSummary{}, mapPersonWriteErr(err)
+	}
+	var grantID string
+	if err := tx.QueryRow(ctx, `
+SELECT grant_id::text FROM user_scope_grants
+WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND status = 'active'
+ORDER BY valid_from DESC LIMIT 1`, cmd.TenantID, cmd.UserID, cmd.Role).Scan(&grantID); err != nil {
 		return domain.PersonSummary{}, mapPersonWriteErr(err)
 	}
 

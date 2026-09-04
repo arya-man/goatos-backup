@@ -134,7 +134,7 @@ type Repository interface {
 	UpdateOperator(ctx context.Context, cmd UpdateOperatorCommand) (domain.OperatorProfile, error)
 	SetOperatorStatus(ctx context.Context, cmd StatusCommand) (domain.OperatorProfile, error)
 	ListGrants(ctx context.Context, tenantID, operatorID string) ([]domain.GrantSummary, error)
-	CreateGrant(ctx context.Context, cmd CreateGrantCommand) (domain.GrantSummary, error)
+	CreateGrant(ctx context.Context, cmd CreateGrantCommand) ([]domain.GrantSummary, error)
 	AssignCapability(ctx context.Context, cmd CapabilityCommand) (domain.CapabilityAssignment, error)
 	RemoveCapability(ctx context.Context, cmd RemoveCapabilityCommand) error
 	ListCapabilities(ctx context.Context, tenantID, operatorID string) ([]domain.CapabilityAssignment, error)

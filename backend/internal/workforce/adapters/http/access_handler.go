@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/workforce/app"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
@@ -79,6 +80,17 @@ func (h *AccessHandler) respond(w http.ResponseWriter, r *http.Request, payload 
 		// re-deciding.
 		h.writeError(w, http.StatusConflict, "access_changed",
 			"Someone else changed this person's access while you had it open. Reload to see the current settings, then make your changes again.")
+	case errors.Is(err, parkscope.ErrTenantOnlyRole):
+		var tenantOnly *parkscope.TenantOnlyRoleError
+		role := "this role"
+		if errors.As(err, &tenantOnly) {
+			role = strings.ReplaceAll(tenantOnly.Role, "_", " ")
+		}
+		h.writeError(w, http.StatusBadRequest, "tenant_only_role",
+			"This person is a "+role+", which works across every park. Keep them on Every park, or remove that role first.")
+	case errors.Is(err, parkscope.ErrParkRolesNeedAPark):
+		h.writeError(w, http.StatusBadRequest, "park_roles_need_a_park",
+			"This person only holds park roles, so they belong to a park. Tick the park or parks they cover instead of Every park.")
 	case errors.Is(err, ports.ErrUnknownPark):
 		h.writeError(w, http.StatusBadRequest, "unknown_park", "One of the selected parks is no longer active. Reload and choose again.")
 	case errors.Is(err, app.ErrInvalidAccessRequest):

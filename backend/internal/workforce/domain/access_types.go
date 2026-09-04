@@ -94,6 +94,9 @@ type PersonAccessResponse struct {
 	// ScopeMode is "tenant" (every park) or "parks" (the ParkIDs below).
 	ScopeMode string   `json:"scope_mode"`
 	ParkIDs   []string `json:"park_ids"`
+	// HomeParkID is the one park this person is assigned per-park work in. In "parks"
+	// mode it is one of ParkIDs; a director covering every park may leave it empty.
+	HomeParkID string `json:"home_park_id"`
 
 	Modules      []AccessModuleRow         `json:"modules"`
 	Capabilities []AccessCapabilityOption  `json:"capabilities"`
@@ -130,6 +133,7 @@ type SavePersonAccessRequest struct {
 	DesignationCode string              `json:"designation_code"`
 	ScopeMode       string              `json:"scope_mode"`
 	ParkIDs         []string            `json:"park_ids"`
+	HomeParkID      string              `json:"home_park_id"`
 	Modules         []AccessModuleWrite `json:"modules"`
 	RowVersion      int                 `json:"row_version"`
 }

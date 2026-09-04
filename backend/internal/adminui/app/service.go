@@ -5967,9 +5967,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"access.designation.hint": "Pre-fills the ticks below. You can change any of them afterwards.",
 			"access.scope":            "Covers",
 			"access.scope.tenant":     "Every park",
-			"access.column.module":    "Module",
-			"access.column.web":       "Web console",
-			"access.column.mobile":    "Phone",
+			// Home park: the one park per-park modules (vaccination drives) assign this
+			// person's work in. Asked only when more than one park is ticked; a single
+			// ticked park is the home park.
+			"access.home_park":      "Home park",
+			"access.home_park.hint": "Where their drives and daily tasks are assigned. Choose one of the parks they cover.",
+			"access.home_park.none": "Choose a park",
+			"access.column.module":  "Module",
+			"access.column.web":     "Web console",
+			"access.column.mobile":  "Phone",
 			// Page ticks. The label names SCREENS rather than pages, because "page" is
 			// a web word and this list is read by someone deciding what a colleague
 			// opens on a Monday morning.

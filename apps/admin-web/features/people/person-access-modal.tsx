@@ -24,6 +24,8 @@ type Draft = {
   designationCode: string;
   scopeMode: "tenant" | "parks";
   parkIDs: string[];
+  /** The one park per-park work is assigned in; asked only when more than one park is ticked. */
+  homeParkID: string;
   /** module_key -> surface -> capability levels, plus the web page ticks */
   modules: Record<string, { web: string[]; mobile: string[]; pages: string[] }>;
 };
@@ -41,6 +43,7 @@ function draftFrom(access: PersonAccess): Draft {
     designationCode: access.designation_code ?? "",
     scopeMode: access.scope_mode === "tenant" ? "tenant" : "parks",
     parkIDs: [...access.park_ids],
+    homeParkID: access.home_park_id ?? "",
     modules,
   };
 }
@@ -171,6 +174,10 @@ export function PersonAccessModal({
           designation_code: draft.designationCode,
           scope_mode: draft.scopeMode,
           park_ids: draft.scopeMode === "parks" ? draft.parkIDs : [],
+          // One ticked park IS the home park; the select only exists past one. The
+          // backend validates the same rule, so this is the honest value, not the lock.
+          home_park_id:
+            draft.scopeMode === "parks" && draft.parkIDs.length === 1 ? draft.parkIDs[0] : draft.homeParkID,
           modules,
           row_version: access.row_version,
         },
@@ -268,11 +275,12 @@ export function PersonAccessModal({
                       className={`pa-pill${on ? " on" : ""}`}
                       aria-pressed={on}
                       onClick={() =>
-                        setDraft((c) => ({
-                          ...c,
-                          scopeMode: "parks",
-                          parkIDs: toggle(c.scopeMode === "parks" ? c.parkIDs : [], park.park_id),
-                        }))
+                        setDraft((c) => {
+                          const parkIDs = toggle(c.scopeMode === "parks" ? c.parkIDs : [], park.park_id);
+                          // An unticked park cannot stay the home park.
+                          const homeParkID = parkIDs.includes(c.homeParkID) ? c.homeParkID : "";
+                          return { ...c, scopeMode: "parks", parkIDs, homeParkID };
+                        })
                       }
                     >
                       {park.label}
@@ -281,6 +289,33 @@ export function PersonAccessModal({
                 })}
               </div>
             </div>
+
+            {draft.scopeMode === "parks" && draft.parkIDs.length > 1 ? (
+              <div className="fld">
+                <label className="pa-lbl" htmlFor="pa-home-park">
+                  {t("access.home_park")}
+                </label>
+                <select
+                  id="pa-home-park"
+                  value={draft.homeParkID}
+                  disabled={!mayEdit || pending}
+                  onChange={(event) => {
+                    const homeParkID = event.target.value;
+                    setDraft((c) => ({ ...c, homeParkID }));
+                  }}
+                >
+                  <option value="">{t("access.home_park.none")}</option>
+                  {access.parks
+                    .filter((park) => draft.parkIDs.includes(park.park_id))
+                    .map((park) => (
+                      <option key={park.park_id} value={park.park_id}>
+                        {park.label}
+                      </option>
+                    ))}
+                </select>
+                <div className="pa-na">{t("access.home_park.hint")}</div>
+              </div>
+            ) : null}
           </div>
 
           <div className="pa-gridwrap">

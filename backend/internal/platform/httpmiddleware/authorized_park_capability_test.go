@@ -1,6 +1,7 @@
 package httpmiddleware
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -70,5 +71,19 @@ func TestAuthorizedParkIDsForCapabilityBindsGrantRoleToItsOwnScope(t *testing.T)
 	wantBlind := []string{parkA, parkB}
 	if !reflect.DeepEqual(blind, wantBlind) {
 		t.Fatalf("AuthorizedParkIDs() = %#v, want %#v", blind, wantBlind)
+	}
+}
+
+func TestResolveAuthorizedParkScopeHonoursPersonParkScope(t *testing.T) {
+	const parkA = "20000000-0000-4000-8000-00000000000a"
+	const parkB = "20000000-0000-4000-8000-00000000000b"
+	ctx := WithPersonParkScope(context.Background(), PersonParkScope{ParkIDs: []string{parkA}})
+
+	if decision := ResolveAuthorizedParkScope(ctx, "tenant-1", parkB); decision.Allowed {
+		t.Fatalf("ResolveAuthorizedParkScope allowed %s with person scope %v; want denied", parkB, []string{parkA})
+	}
+	decision := ResolveAuthorizedParkScope(ctx, "tenant-1", "")
+	if !decision.Allowed || decision.ParkID != parkA {
+		t.Fatalf("ResolveAuthorizedParkScope default = %+v, want allowed default park %s", decision, parkA)
 	}
 }

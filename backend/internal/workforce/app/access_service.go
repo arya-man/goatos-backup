@@ -52,6 +52,7 @@ func (s *AccessService) GetPersonAccess(ctx context.Context, tenantID, personID 
 		DesignationCode: record.DesignationCode,
 		ScopeMode:       record.ScopeMode,
 		ParkIDs:         record.ParkIDs,
+		HomeParkID:      record.HomeParkID,
 		Modules:         moduleRows(record.Assignments),
 		Capabilities:    capabilityOptions(),
 		Parks:           parkOptions(parks),
@@ -87,6 +88,7 @@ func (s *AccessService) SavePersonAccess(ctx context.Context, tenantID, actorID,
 		return domain.PersonAccessResponse{}, fmt.Errorf("%w: %q is not a scope this screen offers", ErrInvalidAccessRequest, req.ScopeMode)
 	}
 	parkIDs := req.ParkIDs
+	homeParkID := strings.TrimSpace(req.HomeParkID)
 	if scopeMode == "tenant" {
 		// A tenant-wide person needs no park rows, and keeping a stale list would go
 		// out of date the moment a park is added -- quietly narrowing someone who is
@@ -94,6 +96,32 @@ func (s *AccessService) SavePersonAccess(ctx context.Context, tenantID, actorID,
 		parkIDs = nil
 	} else if len(parkIDs) == 0 {
 		return domain.PersonAccessResponse{}, fmt.Errorf("%w: choose at least one park, or set this person to cover every park", ErrInvalidAccessRequest)
+	} else {
+		// The HOME park is where per-park modules (vaccination drives) put this person's
+		// work. One ticked park IS the home park; more than one needs the admin to say
+		// which, because guessing the first one would move someone's drives to a park
+		// they only occasionally cover.
+		switch {
+		case len(parkIDs) == 1:
+			if homeParkID != "" && homeParkID != strings.TrimSpace(parkIDs[0]) {
+				return domain.PersonAccessResponse{}, fmt.Errorf("%w: the home park must be one of the parks this person covers", ErrInvalidAccessRequest)
+			}
+			homeParkID = strings.TrimSpace(parkIDs[0])
+		default:
+			if homeParkID == "" {
+				return domain.PersonAccessResponse{}, fmt.Errorf("%w: this person covers more than one park; choose the home park their work is assigned in", ErrInvalidAccessRequest)
+			}
+			found := false
+			for _, id := range parkIDs {
+				if strings.TrimSpace(id) == homeParkID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return domain.PersonAccessResponse{}, fmt.Errorf("%w: the home park must be one of the parks this person covers", ErrInvalidAccessRequest)
+			}
+		}
 	}
 
 	if _, err := s.repo.SavePersonAccess(ctx, ports.SavePersonAccessCommand{
@@ -103,6 +131,7 @@ func (s *AccessService) SavePersonAccess(ctx context.Context, tenantID, actorID,
 		DesignationCode:    designationCode,
 		ScopeMode:          scopeMode,
 		ParkIDs:            parkIDs,
+		HomeParkID:         homeParkID,
 		Assignments:        assignments,
 		ExpectedRowVersion: req.RowVersion,
 	}); err != nil {

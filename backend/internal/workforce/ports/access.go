@@ -29,6 +29,10 @@ type PersonAccessRecord struct {
 	DesignationCode string
 	ScopeMode       string
 	ParkIDs         []string
+	// HomeParkID is workforce_members.primary_location_id when it is a park: the ONE
+	// park a person is assigned work in by modules that assign per park (vaccination).
+	// Empty for a director with no seat, or a person never set up.
+	HomeParkID string
 	// Assignments carry the module/surface/capability rows in the permissions
 	// package's own vocabulary, so the resolver and the editor read the same
 	// shape and there is no second translation between them.
@@ -45,7 +49,10 @@ type SavePersonAccessCommand struct {
 	DesignationCode string
 	ScopeMode       string
 	ParkIDs         []string
-	Assignments     []permissions.ModuleAssignment
+	// HomeParkID must be one of ParkIDs in 'parks' mode (the service enforces it);
+	// optional in 'tenant' mode. Written to workforce_members.primary_location_id.
+	HomeParkID  string
+	Assignments []permissions.ModuleAssignment
 	// ExpectedRowVersion fences the write. A mismatch is ErrAccessVersionConflict.
 	ExpectedRowVersion int
 }
@@ -67,8 +74,8 @@ type PersonAccessRepository interface {
 	LoadPersonAccess(ctx context.Context, tenantID, personID string) (PersonAccessRecord, error)
 
 	// SavePersonAccess replaces the person's access in ONE transaction: header,
-	// module rows, park rows, and the audit entry. A partial write would leave
-	// someone holding half of a decision.
+	// module rows, park rows, home park, the DERIVED user_scope_grants rows, and the
+	// audit entry. A partial write would leave someone holding half of a decision.
 	SavePersonAccess(ctx context.Context, cmd SavePersonAccessCommand) (PersonAccessRecord, error)
 
 	// ListParks returns the tenant's active parks for the scope picker.

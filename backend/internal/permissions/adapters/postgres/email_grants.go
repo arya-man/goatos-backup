@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/authallow"
 )
@@ -98,6 +99,13 @@ FOR UPDATE`, claim.TenantID, normalizedEmail)
 		if err := c.ensureWorkforceMember(ctx, tx, claim, normalizedEmail, row.role); err != nil {
 			return permissions.PendingEmailGrantResult{}, err
 		}
+	}
+	// A pending email grant names a scope of its own (tenant, by its CHECK constraint). If
+	// this person has already been set up on the People screen, that authored scope wins:
+	// re-derive the rows so a login cannot quietly widen someone the editor narrowed
+	// (internal/parkscope).
+	if _, _, err := parkscope.ReconcileUser(ctx, tx, claim.TenantID, claim.UserID, ""); err != nil {
+		return permissions.PendingEmailGrantResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return permissions.PendingEmailGrantResult{}, err

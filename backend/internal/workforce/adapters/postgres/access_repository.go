@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
@@ -35,6 +36,7 @@ SELECT m.display_name,
        coalesce(a.designation_code, '')            AS designation_code,
        coalesce(a.scope_mode, 'parks')             AS scope_mode,
        coalesce(a.row_version, 0)                  AS row_version,
+       coalesce(home.location_id::text, '')        AS home_park_id,
        coalesce(
          (SELECT jsonb_agg(jsonb_build_object(
                    'module', ma.module_key,
@@ -56,6 +58,13 @@ SELECT m.display_name,
   LEFT JOIN person_access a
          ON a.tenant_id = m.tenant_id
         AND a.workforce_member_id = m.workforce_member_id
+  -- The home park is workforce_members.primary_location_id, shown only when it really
+  -- is a park: legacy seeds sometimes pointed it at a shed, and a shed is not an answer
+  -- to "which park does this person work in".
+  LEFT JOIN locations home
+         ON home.location_id = m.primary_location_id
+        AND home.tenant_id = m.tenant_id
+        AND home.location_type = 'park'
  WHERE m.tenant_id = $1::uuid
    AND m.workforce_member_id = $2::uuid
    AND m.status = 'active'`
@@ -75,7 +84,7 @@ func (r *AccessRepository) LoadPersonAccess(ctx context.Context, tenantID, perso
 	)
 	err := r.pool.QueryRow(ctx, loadPersonSQL, tenantID, personID).Scan(
 		&rec.DisplayName, &rec.Email, &rec.DesignationCode, &rec.ScopeMode, &rec.RowVersion,
-		&modulesRaw, &parksRaw,
+		&rec.HomeParkID, &modulesRaw, &parksRaw,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.PersonAccessRecord{}, ports.ErrPersonNotFound
@@ -114,6 +123,20 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Lock the target member first. This both proves the person belongs to this tenant and
+	// serializes the first save, when no person_access row exists yet for FOR UPDATE to lock.
+	var lockedMember int
+	if err := tx.QueryRow(ctx,
+		`SELECT 1 FROM workforce_members
+		  WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'active'
+		  FOR UPDATE`,
+		cmd.TenantID, cmd.PersonID).Scan(&lockedMember); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ports.PersonAccessRecord{}, ports.ErrPersonNotFound
+		}
+		return ports.PersonAccessRecord{}, err
+	}
+
 	// Lock the person's header for the length of the write. Without this, two
 	// admins saving at once both pass the version check and the second silently
 	// wins -- on an access screen a lost update is invisible until someone cannot
@@ -148,18 +171,22 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 	// ANY(...)`), so the ordinary index on location_id is still usable. The error still
 	// names WHICH park was refused -- the admin has to know which pill to unpick -- so the
 	// valid ids come back and the missing one is found in Go.
-	if len(cmd.ParkIDs) > 0 {
+	parksToValidate := append([]string(nil), cmd.ParkIDs...)
+	if cmd.HomeParkID != "" {
+		parksToValidate = append(parksToValidate, cmd.HomeParkID)
+	}
+	if len(parksToValidate) > 0 {
 		rows, err := tx.Query(ctx,
 			`SELECT location_id::text FROM locations
 			  WHERE tenant_id = $1::uuid
 			    AND location_id = ANY($2::uuid[])
 			    AND location_type = 'park'
 			    AND status = 'active'`,
-			cmd.TenantID, cmd.ParkIDs)
+			cmd.TenantID, parksToValidate)
 		if err != nil {
 			return ports.PersonAccessRecord{}, err
 		}
-		valid := make(map[string]struct{}, len(cmd.ParkIDs))
+		valid := make(map[string]struct{}, len(parksToValidate))
 		for rows.Next() {
 			var id string
 			if err := rows.Scan(&id); err != nil {
@@ -172,7 +199,7 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 		if err := rows.Err(); err != nil {
 			return ports.PersonAccessRecord{}, err
 		}
-		for _, parkID := range cmd.ParkIDs {
+		for _, parkID := range parksToValidate {
 			if _, ok := valid[parkID]; !ok {
 				return ports.PersonAccessRecord{}, fmt.Errorf("%w: %s", ports.ErrUnknownPark, parkID)
 			}
@@ -183,37 +210,17 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 	if cmd.DesignationCode != "" {
 		code := cmd.DesignationCode
 		designation = &code
+	} else {
+		empty := ""
+		designation = &empty
 	}
-	// The target must be an ACTIVE member OF THIS TENANT, checked inside the write
-	// transaction rather than trusted from the request.
-	//
-	// tenant_id comes from the authenticated context, but person_id comes from the URL and
-	// the foreign key is on workforce_member_id ALONE -- so without this a PUT could write
-	// (this tenant, another tenant's member). Those rows would never resolve, because every
-	// read joins on tenant AND member, but they would be persisted and AUDITED as though
-	// someone's access had really been changed. An audit trail that records a change that
-	// never happened is worse than no row at all.
-	var exists bool
-	if err := tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM workforce_members
-		   WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'active')`,
-		cmd.TenantID, cmd.PersonID).Scan(&exists); err != nil {
-		return ports.PersonAccessRecord{}, err
-	}
-	if !exists {
-		return ports.PersonAccessRecord{}, ports.ErrPersonNotFound
-	}
-
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO person_access (tenant_id, workforce_member_id, scope_mode, designation_code, updated_at, updated_by, row_version)
-		 VALUES ($1::uuid, $2::uuid, $3, $4, now(), nullif($5, '')::uuid, 1)
-		 ON CONFLICT (tenant_id, workforce_member_id)
-		 DO UPDATE SET scope_mode = EXCLUDED.scope_mode,
-		               designation_code = EXCLUDED.designation_code,
-		               updated_at = now(),
-		               updated_by = EXCLUDED.updated_by,
-		               row_version = person_access.row_version + 1`,
-		cmd.TenantID, cmd.PersonID, cmd.ScopeMode, designation, cmd.ActorID); err != nil {
+	// Header, park ticks, home park AND the derived grant rows, in this one transaction.
+	// The ticks are the only authored park scope (scope_grants.go); a save that wrote them
+	// without moving the grants would recreate the three-sources drift this replaced
+	// (internal/parkscope).
+	derived, err := parkscope.WritePersonScope(ctx, tx, cmd.TenantID, cmd.ActorID, cmd.PersonID,
+		cmd.ScopeMode, cmd.HomeParkID, cmd.ParkIDs, designation, nil)
+	if err != nil {
 		return ports.PersonAccessRecord{}, err
 	}
 
@@ -270,27 +277,13 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 		}
 	}
 
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM person_park_scope WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid`,
-		cmd.TenantID, cmd.PersonID); err != nil {
-		return ports.PersonAccessRecord{}, err
-	}
-	if len(cmd.ParkIDs) > 0 {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_park_scope (tenant_id, workforce_member_id, park_id)
-			 SELECT $1::uuid, $2::uuid, p::uuid FROM unnest($3::text[]) AS p
-			 ON CONFLICT DO NOTHING`,
-			cmd.TenantID, cmd.PersonID, cmd.ParkIDs); err != nil {
-			return ports.PersonAccessRecord{}, err
-		}
-	}
-
 	// Audit in the SAME transaction as the change. An access grant with no audit
 	// row is exactly the record an investigation needs and cannot find.
 	after, err := json.Marshal(map[string]any{
 		"scope_mode":       cmd.ScopeMode,
 		"designation_code": cmd.DesignationCode,
 		"park_ids":         cmd.ParkIDs,
+		"home_park_id":     cmd.HomeParkID,
 		"assignments":      cmd.Assignments,
 	})
 	if err != nil {
@@ -300,9 +293,11 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 	// carries the SHAPE of the change (how many module rows, how wide the scope) so an
 	// investigation can read what happened without re-deriving it from after_state.
 	metadata, err := json.Marshal(map[string]any{
-		"module_rows": len(cmd.Assignments),
-		"scope_mode":  cmd.ScopeMode,
-		"park_count":  len(cmd.ParkIDs),
+		"module_rows":     len(cmd.Assignments),
+		"scope_mode":      cmd.ScopeMode,
+		"park_count":      len(cmd.ParkIDs),
+		"grants_inserted": derived.Inserted,
+		"grants_revoked":  derived.Revoked,
 	})
 	if err != nil {
 		return ports.PersonAccessRecord{}, err

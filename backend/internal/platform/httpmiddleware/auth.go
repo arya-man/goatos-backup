@@ -573,6 +573,12 @@ type ParkScopeDecision struct {
 // park-scoped actor may only see a park within AuthorizedParkIDs, and an empty request defaults
 // to their first authorized park. Used by vaccination-execution read handlers before querying.
 func ResolveAuthorizedParkScope(ctx context.Context, tenantID, requestedParkID string) ParkScopeDecision {
+	if scope, ok := PersonParkScopeFromContext(ctx); ok {
+		if scope.TenantWide {
+			return ParkScopeDecision{ParkID: requestedParkID, Allowed: true}
+		}
+		return decideParkScope(scope.ParkIDs, requestedParkID)
+	}
 	grants := AuthGrantsFromContext(ctx)
 	if len(grants) == 0 || HasTenantWideGrant(grants, tenantID) {
 		return ParkScopeDecision{ParkID: requestedParkID, Allowed: true}

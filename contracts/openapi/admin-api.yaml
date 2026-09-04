@@ -5198,7 +5198,7 @@ components:
     PersonAccessResponse:
       type: object
       additionalProperties: false
-      required: [person_id, display_name, scope_mode, park_ids, modules, capabilities, parks, designations, warnings, row_version]
+      required: [person_id, display_name, scope_mode, park_ids, home_park_id, modules, capabilities, parks, designations, warnings, row_version]
       properties:
         person_id:
           type: string
@@ -5217,6 +5217,9 @@ components:
           items:
             type: string
             format: uuid
+        home_park_id:
+          description: The ONE park this person's per-park work (vaccination drives) is assigned in. One of park_ids in parks mode; may be empty for a director covering every park. This screen is the only author of park scope -- grant rows and the home park are derived from it (maintainer decision 2026-09-04).
+          type: string
         modules:
           type: array
           items:
@@ -5278,6 +5281,9 @@ components:
           items:
             type: string
             format: uuid
+        home_park_id:
+          description: Required when more than one park is ticked; with exactly one park it defaults to that park. Must be one of park_ids. Ignored in tenant mode unless it names a park, which is then kept as the person's seat.
+          type: string
         modules:
           type: array
           items:
@@ -5558,6 +5564,7 @@ components:
           minLength: 1
           maxLength: 200
     CreateGrantRequest:
+      description: Adds a ROLE. For tenant/park scope types the park scope is NOT taken from this body once the person has been set up on the People screen -- the role lands on every park the person's authored scope names (or tenant-wide), and a person never set up is set up from the requested scope. Shed/cohort/custodian scopes are not park membership and are stored as sent.
       type: object
       additionalProperties: false
       required:
