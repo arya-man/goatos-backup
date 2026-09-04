@@ -4,6 +4,7 @@ package sg.mesha.goatos.feature.leadershiptasks
 // leadership_task_* AnalyticsEventsLeadershipTasks + CrashReporter wiring.
 
 import android.media.MediaPlayer
+import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,6 +44,8 @@ import kotlinx.coroutines.delay
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+
+private const val LOG_TAG = "LeadershipTasksUi"
 
 /** Backend-composed status chip, rendered VERBATIM. Blank copy renders nothing at all. */
 @Composable
@@ -187,13 +190,20 @@ internal fun LeadershipAudioPlayerRow(
         player = created
         durationMs = created?.duration?.coerceAtLeast(0) ?: 0
         onDispose {
+            // exception:exempt best-effort MediaPlayer cleanup while leaving the screen; nothing
+            // user-actionable remains once the composable is gone, and the row recreates cleanly.
             runCatching { created?.release() }
+                .onFailure { Log.w(LOG_TAG, "leadership_task_audio_release_failed", it) }
             player = null
         }
     }
     LaunchedEffect(playing, localPath) {
         while (playing) {
-            positionMs = runCatching { player?.currentPosition ?: 0 }.getOrDefault(0)
+            // exception:exempt transient MediaPlayer progress read; the UI falls back to 0 and
+            // keeps the already-visible play control rather than interrupting attachment review.
+            positionMs = runCatching { player?.currentPosition ?: 0 }
+                .onFailure { Log.w(LOG_TAG, "leadership_task_audio_position_failed", it) }
+                .getOrDefault(0)
             delay(250L)
         }
     }
