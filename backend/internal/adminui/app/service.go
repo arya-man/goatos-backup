@@ -2227,7 +2227,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.combo.header_shed":             "Pen",
 			"section.combo.header_proof":            "Proof",
 			"section.combo.header_doses":            "Doses",
-			"section.activity.title":                "Live throughput",
+			"section.activity.title":                "Live activity",
 			"section.activity.empty_title":          "No field activity yet on this drive day",
 			"section.activity.empty_body":           "Rows appear as video proofs land, RFID scans are captured, and obligations are closed.",
 			"section.activity.truncated_note":       "Newest events only — older activity on this drive day is not shown here.",
