@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -22,17 +23,25 @@ import (
 )
 
 const defaultQueryTimeout = 3 * time.Second
+const calendarListCacheTTL = 30 * time.Second
+
+type calendarListCacheEntry struct {
+	expiresAt time.Time
+	response  domain.CalendarEventListResponse
+}
 
 type Repository struct {
-	pool    *pgxpool.Pool
-	timeout time.Duration
+	pool      *pgxpool.Pool
+	timeout   time.Duration
+	cacheMu   sync.Mutex
+	listCache map[string]calendarListCacheEntry
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, timeout: queryTimeout}
+	return &Repository{pool: pool, timeout: queryTimeout, listCache: make(map[string]calendarListCacheEntry)}
 }
 
 var _ ports.Repository = (*Repository)(nil)
@@ -40,6 +49,10 @@ var _ ports.Repository = (*Repository)(nil)
 func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.CalendarEventListResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	cacheKey := calendarListCacheKey(q)
+	if cached, ok := r.getListCache(cacheKey); ok {
+		return cached, nil
+	}
 	// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md, U7): canonical is
 	// now the ONLY serving path -- calendar_event_projections and its freshness watermark
 	// (calendar_projection_state) are gone, so there is no stale/never-synced/partial-coverage case to
@@ -153,7 +166,75 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	}
 	// HistoryProjection is always nil now: completed/history rows are served by the same canonical
 	// predicate as everything else, so there is no separate history-projection freshness to report.
-	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, FilterOptions: filterOptions, NextCursor: next, Projection: projection, HistoryProjection: nil, ReminderRail: reminderRail}, nil
+	response := domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, FilterOptions: filterOptions, NextCursor: next, Projection: projection, HistoryProjection: nil, ReminderRail: reminderRail}
+	r.setListCache(cacheKey, response)
+	return response, nil
+}
+
+func calendarListCacheKey(q domain.Query) string {
+	cursorDue := ""
+	cursorEventID := ""
+	if q.Cursor != nil {
+		cursorDue = q.Cursor.DueAt.UTC().Format(time.RFC3339Nano)
+		cursorEventID = q.Cursor.EventID
+	}
+	return strings.Join([]string{
+		q.TenantID,
+		domain.SliceVaccination,
+		q.OwnerKey,
+		calendarOptionalString(q.ParkID),
+		calendarOptionalString(q.ShedID),
+		calendarOptionalString(q.Vaccine),
+		calendarOptionalString(q.Status),
+		q.DateFrom.UTC().Format(time.RFC3339Nano),
+		q.DateTo.UTC().Format(time.RFC3339Nano),
+		cursorDue,
+		cursorEventID,
+		fmt.Sprint(q.Limit),
+		fmt.Sprint(q.IncludeDateMarkers),
+		fmt.Sprint(q.MarkersOnly),
+		fmt.Sprint(q.IncludeFilterOptions),
+		fmt.Sprint(q.IncludeDriveSummary),
+		fmt.Sprint(q.IncludeReminderRail),
+		fmt.Sprint(q.Scope.TenantWide),
+		strings.Join(q.Scope.ParkIDs, ","),
+		strings.Join(q.Scope.ShedIDs, ","),
+	}, "|")
+}
+
+func calendarOptionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func (r *Repository) getListCache(key string) (domain.CalendarEventListResponse, bool) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	entry, ok := r.listCache[key]
+	if !ok || time.Now().After(entry.expiresAt) {
+		if ok {
+			delete(r.listCache, key)
+		}
+		return domain.CalendarEventListResponse{}, false
+	}
+	return entry.response, true
+}
+
+func (r *Repository) setListCache(key string, response domain.CalendarEventListResponse) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if len(r.listCache) > 256 {
+		r.listCache = make(map[string]calendarListCacheEntry)
+	}
+	r.listCache[key] = calendarListCacheEntry{expiresAt: time.Now().Add(calendarListCacheTTL), response: response}
+}
+
+func (r *Repository) clearListCache() {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	r.listCache = make(map[string]calendarListCacheEntry)
 }
 
 // listFilterOptions returns the location hierarchy and vaccines available to
@@ -491,6 +572,7 @@ RETURNING notification_request_id::text`,
 	if err := tx.Commit(ctx); err != nil {
 		return domain.CalendarActionResponse{}, err
 	}
+	r.clearListCache()
 	return response, nil
 }
 
@@ -602,6 +684,7 @@ WHERE tenant_id = $1::uuid AND calendar_event_id = $2 AND status = 'active' AND 
 	if err := tx.Commit(ctx); err != nil {
 		return domain.CalendarActionResponse{}, err
 	}
+	r.clearListCache()
 	return response, nil
 }
 
@@ -736,6 +819,7 @@ func (r *Repository) applyEscalationAction(ctx context.Context, in escalationAct
 	if err := tx.Commit(ctx); err != nil {
 		return domain.CalendarActionResponse{}, err
 	}
+	r.clearListCache()
 	return response, nil
 }
 
@@ -1129,6 +1213,7 @@ RETURNING notification_request_id::text`,
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}
+	r.clearListCache()
 	return true, nil
 }
 
@@ -1496,6 +1581,7 @@ RETURNING notification_request_id::text`,
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}
+	r.clearListCache()
 	return true, nil
 }
 

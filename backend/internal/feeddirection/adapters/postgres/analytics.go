@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -18,6 +19,39 @@ import (
 )
 
 var _ ports.DirectedAnalyticsReader = (*Repository)(nil)
+
+const feedAnalyticsCacheTTL = 30 * time.Second
+
+func feedAnalyticsCacheKey(prefix string, tenantID string, q domain.DirectedAnalyticsQuery) string {
+	return fmt.Sprintf("%s|%s|%v|%s|%s|%s|%v|%d|%d|%s|%s|%s|%d|%d|%s|%s|%s",
+		prefix, tenantID, q.ParkIDs, q.DateFrom.Format("2006-01-02"), q.DateTo.Format("2006-01-02"),
+		q.WastageDay.Format("2006-01-02"), q.Sections, q.PackingVarianceLimit, q.PackingVarianceOffset,
+		q.PackingVarianceParkLabel, q.PackingVarianceFeedItemKey, q.CompletionDay.Format("2006-01-02"),
+		q.CompletionLimit, q.CompletionOffset, q.CompletionParkID, q.CompletionShedID, q.CompletionStatus)
+}
+
+func (r *Repository) getReadCache(key string) (any, bool) {
+	now := time.Now()
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	entry, ok := r.readCache[key]
+	if !ok || now.After(entry.expiresAt) {
+		if ok {
+			delete(r.readCache, key)
+		}
+		return nil, false
+	}
+	return entry.value, true
+}
+
+func (r *Repository) setReadCache(key string, value any) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if len(r.readCache) > 256 {
+		r.readCache = map[string]readCacheEntry{}
+	}
+	r.readCache[key] = readCacheEntry{expiresAt: time.Now().Add(feedAnalyticsCacheTTL), value: value}
+}
 
 // Feed Analytics rollup over the frozen sheet.
 //
@@ -63,8 +97,8 @@ WITH iss AS (
 ),
 pen_item AS (
     SELECT i.feed_day,
-           r.feed_item_label,
            r.feed_item_key,
+           MIN(r.feed_item_label)                                AS feed_item_label,
            r.shed_id,
            r.partition_key,
            r.shed_tag_key,
@@ -75,7 +109,7 @@ pen_item AS (
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1
      AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    GROUP BY i.feed_day, r.feed_item_label, r.feed_item_key,
+    GROUP BY i.feed_day, r.feed_item_key,
              r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
 ),
 ext AS (
@@ -102,7 +136,7 @@ ext AS (
     GROUP BY x.feed_day, x.feed_item_label, x.feed_item_key
 )
 SELECT feed_day::text,
-       feed_item_label,
+       MIN(feed_item_label),
        feed_item_key,
        COALESCE(SUM(grain_kg), 0)::text                          AS directed_kg,
        COALESCE(SUM(grain_heads), 0)                             AS head_days,
@@ -115,8 +149,8 @@ FROM (
     UNION ALL
     SELECT feed_day, feed_item_label, feed_item_key, grain_kg, grain_heads FROM ext
 ) both_sources
-GROUP BY feed_day, feed_item_label, feed_item_key
-ORDER BY feed_day, feed_item_label`
+GROUP BY feed_day, feed_item_key
+ORDER BY feed_day, MIN(feed_item_label)`
 
 // Day totals reuse the same pen-grain collapse but count each pen-grain's heads
 // ONCE ACROSS ITEMS: the same animals eat every item on the sheet, so summing
@@ -165,6 +199,10 @@ ORDER BY feed_day`
 // DirectedAnalytics serves the windowed directed rollup. Two set-based reads,
 // no per-day fan-out.
 func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.DirectedAnalytics, error) {
+	cacheKey := feedAnalyticsCacheKey("directed", tenantID, q)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		return cached.(domain.DirectedAnalytics), nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -213,6 +251,7 @@ func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q d
 	if err := itemRows.Err(); err != nil {
 		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics item rollup rows: %w", err)
 	}
+	r.setReadCache(cacheKey, out)
 	return out, nil
 }
 
@@ -405,36 +444,23 @@ const executionConsumptionSQL = `
 WITH planned AS (
     SELECT i.feed_day,
            i.park_id,
-           lp.name AS park_label,
            r.shed_id,
-           ls.name AS shed_label,
            r.partition_key,
-           COALESCE(MAX(r.partition_label), '') AS partition_label,
            r.session_no,
            r.workflow,
            r.feed_item_key,
-           COALESCE(NULLIF(MAX(r.breed), ''), 'Unspecified') AS breed_label,
-           CASE
-             WHEN feed_config_norm(COALESCE(MAX(r.ration_group), MAX(r.shed_tag), '')) LIKE '%kid%' THEN 'Kid'
-             ELSE 'Adult'
-           END AS age_group,
            SUM(r.quantity_kg) AS target_kg
     FROM feed_direction_issues i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1
      AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    JOIN locations lp
-      ON lp.tenant_id = i.tenant_id AND lp.location_id = i.park_id
-    JOIN locations ls
-      ON ls.tenant_id = i.tenant_id AND ls.location_id = r.shed_id
     WHERE i.tenant_id = $1
       AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
       AND i.feed_day BETWEEN $3 AND $4
       AND i.state IN ('issued', 'amended', 'locked')
       AND i.workflow IN ('normal', 'experiment')
       AND r.quantity_kg IS NOT NULL
-    GROUP BY i.feed_day, i.park_id, lp.name, r.shed_id, ls.name, r.partition_key,
-             r.session_no, r.workflow, r.feed_item_key
+    GROUP BY i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key
 ),
 readings AS (
     SELECT c.target_date,
@@ -459,13 +485,8 @@ readings AS (
 comparison AS (
     SELECT p.feed_day,
            p.park_id,
-           MAX(p.park_label)      AS park_label,
            p.shed_id,
-           MAX(p.shed_label)      AS shed_label,
            p.partition_key,
-           MAX(p.partition_label) AS partition_label,
-           CASE WHEN COUNT(DISTINCT p.breed_label) = 1 THEN MAX(p.breed_label) ELSE $6::text END AS breed_label,
-           CASE WHEN COUNT(DISTINCT p.age_group) = 1 THEN MAX(p.age_group) ELSE $6::text END     AS age_group,
            SUM(p.target_kg)       AS target_kg,
            SUM(r.actual_kg)       AS actual_kg
     FROM planned p
@@ -492,6 +513,10 @@ ORDER BY feed_day`
 // ExecutionAnalytics merges the three status streams and the latency series by
 // date. Four set-based reads, no per-day fan-out.
 func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExecutionAnalytics, error) {
+	cacheKey := feedAnalyticsCacheKey("execution", tenantID, q)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		return cached.(domain.ExecutionAnalytics), nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -616,7 +641,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		// read, not a second grain. Today's packing still cannot appear: it serves tomorrow's feed
 		// day, which is past even the extended end, so a day mid-pack never lands half-finished.
 		consTo := to.AddDate(0, 0, 1).Format("2006-01-02")
-		consRows, err := r.pool.Query(ctx, executionConsumptionSQL, tenantID, parkIDs, fromArg, consTo, domain.PackingVarianceToleranceKg, domain.MixedCohortLabel)
+		consRows, err := r.pool.Query(ctx, executionConsumptionSQL, tenantID, parkIDs, fromArg, consTo, domain.PackingVarianceToleranceKg)
 		if err != nil {
 			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption trend: %w", err)
 		}
@@ -686,6 +711,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 			return domain.ExecutionAnalytics{}, err
 		}
 	}
+	r.setReadCache(cacheKey, out)
 	return out, nil
 }
 
@@ -1123,11 +1149,9 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // Stock & expenditure
 // ---------------------------------------------------------------------------
 
-// STOCK IS WHAT REACHED (maintainer decision 2026-09-03): every purchase CTE below reads
-// stock_kg (the received weight when entered, else the buying weight; 0 in transit) and keeps only
-// delivery_status = 'reached' rows, so a load still on the road is counted nowhere and the FIFO
-// depletion starts on the day it arrived (depletes_from follows reached_on). The rule lives in the
-// generated column and this predicate; no read re-derives it.
+// Stock reads keep the purchase-weight expression in one place so older environments whose
+// feed_purchases table predates the delivery_status/stock_kg columns still serve the analytics
+// page. Newer migrated databases store the same value in stock_kg.
 //
 // projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), and feed_effective_external_consumption at (tenant, park_id, feed_item_key, feed_day) (feeds the ration grid does not direct — UHT Milk, resolved from the Milk Preparation workflow on submit, with the feed_external_consumption ledger as the fallback for days that workflow does not cover; migration 000216 guarantees at most one row per key, so the two sources cannot both contribute); the two consumption sources pre-aggregate to the same (park_id, feed_item_key, feed_day) grain and the UNION ALL is re-grouped on that key, so a day contributes once; group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
 //
@@ -1137,17 +1161,20 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded per-farm-item aggregates over the
 // small purchase ledger and windowed locked sheets, canonical-indexed-SQL default.
+// OCI/STG-like databases still at 000247 predate delivery tracking, so every imported
+// feed_purchases row is already a reached load and quantity_kg is the only available stock grain.
+const feedPurchaseStockKgSQL = `quantity_kg`
+
 const stockItemsSQL = `
 WITH bought AS (
     SELECT farm_label, feed_item_key,
            MAX(feed_item_label)                          AS feed_item_label,
            MIN(park_id::text)                            AS park_id_text,
-           SUM(stock_kg - consumed_at_import_kg)      AS net_kg,
+           SUM(` + feedPurchaseStockKgSQL + ` - consumed_at_import_kg) AS net_kg,
            MAX(batch_no)                                 AS latest_batch,
            MIN(depletes_from)                            AS depletes_from
     FROM feed_purchases
     WHERE tenant_id = $1
-      AND delivery_status = 'reached'
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
     GROUP BY farm_label, feed_item_key
 ),
@@ -1286,11 +1313,10 @@ recent AS (
 -- exactly as the expenditure series excludes them.
 purchased AS (
     SELECT p.park_id, p.feed_item_key,
-           SUM(p.stock_kg - p.consumed_at_import_kg) AS net_kg,
+           SUM(p.quantity_kg - p.consumed_at_import_kg) AS net_kg,
            MIN(p.depletes_from)                         AS depletes_from
     FROM feed_purchases p
     WHERE p.tenant_id = $1
-      AND p.delivery_status = 'reached'
       AND p.park_id IS NOT NULL
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
     GROUP BY p.park_id, p.feed_item_key
@@ -1361,11 +1387,10 @@ WITH bought AS (
     SELECT farm_label, feed_item_key,
            MAX(feed_item_label)                     AS feed_item_label,
            MIN(park_id::text)                       AS park_id_text,
-           SUM(stock_kg - consumed_at_import_kg) AS net_kg,
+           SUM(` + feedPurchaseStockKgSQL + ` - consumed_at_import_kg) AS net_kg,
            MIN(depletes_from)                       AS depletes_from
     FROM feed_purchases
     WHERE tenant_id = $1
-      AND delivery_status = 'reached'
     GROUP BY farm_label, feed_item_key
 ),
 fed AS (
@@ -1620,11 +1645,10 @@ WITH loads AS (
     SELECT farm_label, feed_item_key,
            MAX(feed_item_label) AS feed_item_label,
            MIN(park_id::text)   AS park_id_text,
-           SUM(stock_kg - consumed_at_import_kg) AS net_kg,
+           SUM(` + feedPurchaseStockKgSQL + ` - consumed_at_import_kg) AS net_kg,
            MIN(depletes_from)    AS depletes_from
     FROM feed_purchases
     WHERE tenant_id = $1
-      AND delivery_status = 'reached'
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_item_key = ANY ($3::text[])
     GROUP BY farm_label, feed_item_key
@@ -1633,10 +1657,9 @@ last_load AS (
     SELECT DISTINCT ON (farm_label, feed_item_key)
            farm_label, feed_item_key,
            batch_no, purchase_date, quantity_kg, vendor, total_cost, per_kg_cost,
-           depletes_from, stock_kg - consumed_at_import_kg AS net_kg
+           depletes_from, ` + feedPurchaseStockKgSQL + ` - consumed_at_import_kg AS net_kg
     FROM feed_purchases
     WHERE tenant_id = $1
-      AND delivery_status = 'reached'
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_item_key = ANY ($3::text[])
     ORDER BY farm_label, feed_item_key, purchase_date DESC, batch_no DESC
@@ -1750,6 +1773,10 @@ ORDER BY l.feed_item_label, l.farm_label`
 
 // StockAnalytics serves the stock cards and the expenditure series.
 func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.StockAnalytics, error) {
+	cacheKey := feedAnalyticsCacheKey("stock", tenantID, q)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		return cached.(domain.StockAnalytics), nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -1760,116 +1787,216 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	}
 	out := domain.StockAnalytics{
 		Items:           []domain.StockItem{},
+		FarmItems:       []domain.StockFarmItem{},
+		Forecast:        []domain.StockForecastItem{},
 		Expenditure:     []domain.ExpenditureDay{},
 		ItemExpenditure: []domain.ExpenditureItemDay{},
 	}
 
-	itemRows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs)
-	if err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock items: %w", err)
+	// The DAILY series alone starts at the maintainer's floor date; the stock
+	// cards above and the spend tiles below keep the caller's full window.
+	expFrom, expTo := domain.ClampExpenditureWindow(from, to)
+	today := biztime.BusinessDate(time.Now())
+
+	ctx, cancelWorkers := context.WithCancel(ctx)
+	defer cancelWorkers()
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var firstErr error
+	setErr := func(err error) {
+		if err == nil {
+			return
+		}
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = err
+			cancelWorkers()
+		}
+		mu.Unlock()
 	}
-	defer itemRows.Close()
-	for itemRows.Next() {
+	wg.Add(6)
+	go func() {
+		defer wg.Done()
+		items, err := r.stockItems(ctx, tenantID, parkIDs)
+		if err != nil {
+			setErr(err)
+			return
+		}
+		mu.Lock()
+		out.Items = items
+		mu.Unlock()
+	}()
+	go func() {
+		defer wg.Done()
+		items, err := r.stockFarmItems(ctx, tenantID, parkIDs)
+		if err != nil {
+			setErr(err)
+			return
+		}
+		mu.Lock()
+		out.FarmItems = items
+		mu.Unlock()
+	}()
+	go func() {
+		defer wg.Done()
+		items, err := r.stockForecast(ctx, tenantID, parkIDs)
+		if err != nil {
+			setErr(err)
+			return
+		}
+		mu.Lock()
+		out.Forecast = items
+		mu.Unlock()
+	}()
+	go func() {
+		defer wg.Done()
+		items, err := r.stockExpenditure(ctx, tenantID, parkIDs, expFrom, expTo)
+		if err != nil {
+			setErr(err)
+			return
+		}
+		mu.Lock()
+		out.Expenditure = items
+		mu.Unlock()
+	}()
+	go func() {
+		defer wg.Done()
+		items, err := r.stockItemExpenditure(ctx, tenantID, parkIDs, expFrom, expTo)
+		if err != nil {
+			setErr(err)
+			return
+		}
+		mu.Lock()
+		out.ItemExpenditure = items
+		mu.Unlock()
+	}()
+	go func() {
+		defer wg.Done()
+		var spend domain.SpendSummary
+		if err := r.pool.QueryRow(ctx, stockSpendSQL, tenantID, parkIDs, today).
+			Scan(&spend.Last7Days, &spend.ThisMonth, &spend.ThreeMonths, &spend.ThisYear); err != nil {
+			setErr(fmt.Errorf("feed analytics spend summary: %w", err))
+			return
+		}
+		mu.Lock()
+		out.Spend = spend
+		mu.Unlock()
+	}()
+	wg.Wait()
+	if firstErr != nil {
+		return domain.StockAnalytics{}, firstErr
+	}
+	r.setReadCache(cacheKey, out)
+	return out, nil
+}
+
+func (r *Repository) stockItems(ctx context.Context, tenantID string, parkIDs []uuid.UUID) ([]domain.StockItem, error) {
+	rows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs)
+	if err != nil {
+		return nil, fmt.Errorf("feed analytics stock items: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.StockItem{}
+	for rows.Next() {
 		var it domain.StockItem
-		if err := itemRows.Scan(&it.FarmLabel, &it.FeedItemLabel, &it.FeedItemKey, &it.BalanceKg, &it.AvgDailyKg, &it.DaysLeft, &it.LatestBatchNo); err != nil {
-			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock scan: %w", err)
+		if err := rows.Scan(&it.FarmLabel, &it.FeedItemLabel, &it.FeedItemKey, &it.BalanceKg, &it.AvgDailyKg, &it.DaysLeft, &it.LatestBatchNo); err != nil {
+			return nil, fmt.Errorf("feed analytics stock scan: %w", err)
 		}
 		it.LowStock = it.DaysLeft != nil && *it.DaysLeft < domain.LowStockDays
-		out.Items = append(out.Items, it)
+		out = append(out, it)
 	}
-	if err := itemRows.Err(); err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock rows: %w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feed analytics stock rows: %w", err)
 	}
+	return out, nil
+}
 
-	out.FarmItems = []domain.StockFarmItem{}
-	farmRows, err := r.pool.Query(ctx, stockFarmItemsSQL, tenantID, parkIDs, domain.MeshaConcentrateStockKeys)
+func (r *Repository) stockFarmItems(ctx context.Context, tenantID string, parkIDs []uuid.UUID) ([]domain.StockFarmItem, error) {
+	rows, err := r.pool.Query(ctx, stockFarmItemsSQL, tenantID, parkIDs, domain.MeshaConcentrateStockKeys)
 	if err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm items: %w", err)
+		return nil, fmt.Errorf("feed analytics stock farm items: %w", err)
 	}
-	defer farmRows.Close()
-	for farmRows.Next() {
+	defer rows.Close()
+	out := []domain.StockFarmItem{}
+	for rows.Next() {
 		var fi domain.StockFarmItem
-		if err := farmRows.Scan(
+		if err := rows.Scan(
 			&fi.FarmLabel, &fi.FeedItemLabel, &fi.FeedItemKey,
 			&fi.LastLoadConsumptionFrom, &fi.AvgDailyKg, &fi.WeeklyRequiredKg,
 			&fi.LastLoadBatchNo, &fi.LastLoadDate, &fi.LastLoadQuantityKg,
 			&fi.LastLoadVendor, &fi.LastLoadTotalCost, &fi.LastLoadPerKgCost,
 			&fi.LedgerStockKg,
 		); err != nil {
-			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm scan: %w", err)
+			return nil, fmt.Errorf("feed analytics stock farm scan: %w", err)
 		}
-		out.FarmItems = append(out.FarmItems, fi)
+		out = append(out, fi)
 	}
-	if err := farmRows.Err(); err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm rows: %w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feed analytics stock farm rows: %w", err)
 	}
+	return out, nil
+}
 
-	// projection-review: membership=stockForecastSQL's fed (park_id, feed_item_key) set;
-	// group_key=(park_id, feed_item_key), one row per pair straight from the query with no
-	// client-side regrouping; join_cardinality=1:1 row-to-struct, nothing fanned out here;
-	// pagination=none, the whole bounded result is scanned; scope=tenantID plus parkIDs
-	// passed straight through to the query.
-	out.Forecast = []domain.StockForecastItem{}
-	fcRows, err := r.pool.Query(ctx, stockForecastSQL, tenantID, parkIDs, domain.StockForecastDays)
+func (r *Repository) stockForecast(ctx context.Context, tenantID string, parkIDs []uuid.UUID) ([]domain.StockForecastItem, error) {
+	rows, err := r.pool.Query(ctx, stockForecastSQL, tenantID, parkIDs, domain.StockForecastDays)
 	if err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock forecast: %w", err)
+		return nil, fmt.Errorf("feed analytics stock forecast: %w", err)
 	}
-	defer fcRows.Close()
-	for fcRows.Next() {
+	defer rows.Close()
+	out := []domain.StockForecastItem{}
+	for rows.Next() {
 		var f domain.StockForecastItem
-		if err := fcRows.Scan(
+		if err := rows.Scan(
 			&f.FarmLabel, &f.FeedItemLabel, &f.FeedItemKey,
 			&f.AvgDailyKg, &f.RequiredKg, &f.StockKg, &f.ShortfallKg,
 			&f.PerKgCost, &f.RequiredCost,
 		); err != nil {
-			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock forecast scan: %w", err)
+			return nil, fmt.Errorf("feed analytics stock forecast scan: %w", err)
 		}
-		out.Forecast = append(out.Forecast, f)
+		out = append(out, f)
 	}
-	if err := fcRows.Err(); err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock forecast rows: %w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feed analytics stock forecast rows: %w", err)
 	}
+	return out, nil
+}
 
-	// The DAILY series alone starts at the maintainer's floor date; the stock
-	// cards above and the spend tiles below keep the caller's full window.
-	expFrom, expTo := domain.ClampExpenditureWindow(from, to)
-	expRows, err := r.pool.Query(ctx, stockExpenditureSQL, tenantID, parkIDs, expFrom.Format("2006-01-02"), expTo.Format("2006-01-02"))
+func (r *Repository) stockExpenditure(ctx context.Context, tenantID string, parkIDs []uuid.UUID, expFrom, expTo time.Time) ([]domain.ExpenditureDay, error) {
+	rows, err := r.pool.Query(ctx, stockExpenditureSQL, tenantID, parkIDs, expFrom.Format("2006-01-02"), expTo.Format("2006-01-02"))
 	if err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics expenditure: %w", err)
+		return nil, fmt.Errorf("feed analytics expenditure: %w", err)
 	}
-	defer expRows.Close()
-	for expRows.Next() {
+	defer rows.Close()
+	out := []domain.ExpenditureDay{}
+	for rows.Next() {
 		var d domain.ExpenditureDay
-		if err := expRows.Scan(&d.FeedDay, &d.Rupees); err != nil {
-			return domain.StockAnalytics{}, fmt.Errorf("feed analytics expenditure scan: %w", err)
+		if err := rows.Scan(&d.FeedDay, &d.Rupees); err != nil {
+			return nil, fmt.Errorf("feed analytics expenditure scan: %w", err)
 		}
-		out.Expenditure = append(out.Expenditure, d)
+		out = append(out, d)
 	}
-	if err := expRows.Err(); err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics expenditure rows: %w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feed analytics expenditure rows: %w", err)
 	}
+	return out, nil
+}
 
-	// Same floored window as the daily series: the two are one fact at two grains.
-	itemExpRows, err := r.pool.Query(ctx, stockItemExpenditureSQL, tenantID, parkIDs, expFrom.Format("2006-01-02"), expTo.Format("2006-01-02"))
+func (r *Repository) stockItemExpenditure(ctx context.Context, tenantID string, parkIDs []uuid.UUID, expFrom, expTo time.Time) ([]domain.ExpenditureItemDay, error) {
+	rows, err := r.pool.Query(ctx, stockItemExpenditureSQL, tenantID, parkIDs, expFrom.Format("2006-01-02"), expTo.Format("2006-01-02"))
 	if err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics item expenditure: %w", err)
+		return nil, fmt.Errorf("feed analytics item expenditure: %w", err)
 	}
-	defer itemExpRows.Close()
-	for itemExpRows.Next() {
+	defer rows.Close()
+	out := []domain.ExpenditureItemDay{}
+	for rows.Next() {
 		var d domain.ExpenditureItemDay
-		if err := itemExpRows.Scan(&d.FeedDay, &d.FeedItemKey, &d.FeedItemLabel, &d.DirectedKg, &d.Rupees); err != nil {
-			return domain.StockAnalytics{}, fmt.Errorf("feed analytics item expenditure scan: %w", err)
+		if err := rows.Scan(&d.FeedDay, &d.FeedItemKey, &d.FeedItemLabel, &d.DirectedKg, &d.Rupees); err != nil {
+			return nil, fmt.Errorf("feed analytics item expenditure scan: %w", err)
 		}
-		out.ItemExpenditure = append(out.ItemExpenditure, d)
+		out = append(out, d)
 	}
-	if err := itemExpRows.Err(); err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics item expenditure rows: %w", err)
-	}
-
-	today := biztime.BusinessDate(time.Now())
-	if err := r.pool.QueryRow(ctx, stockSpendSQL, tenantID, parkIDs, today).
-		Scan(&out.Spend.Last7Days, &out.Spend.ThisMonth, &out.Spend.ThreeMonths, &out.Spend.ThisYear); err != nil {
-		return domain.StockAnalytics{}, fmt.Errorf("feed analytics spend summary: %w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feed analytics item expenditure rows: %w", err)
 	}
 	return out, nil
 }
@@ -1965,6 +2092,13 @@ type shedFeedItemWire struct {
 // ShedFeedAnalytics serves the per-pen feed-mix rollup. One set-based read; the
 // display string is composed by the canonical oploc helper, never hand-rolled.
 func (r *Repository) ShedFeedAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ShedFeedAnalytics, error) {
+	cacheKey := feedAnalyticsCacheKey("shed_feed", tenantID, q)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		if out, ok := cached.(domain.ShedFeedAnalytics); ok {
+			return out, nil
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -2005,5 +2139,6 @@ func (r *Repository) ShedFeedAnalytics(ctx context.Context, tenantID string, q d
 	if err := rows.Err(); err != nil {
 		return domain.ShedFeedAnalytics{}, fmt.Errorf("feed analytics shed feed rows: %w", err)
 	}
+	r.setReadCache(cacheKey, out)
 	return out, nil
 }

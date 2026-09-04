@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,10 +26,17 @@ type Repository struct {
 	pool         *pgxpool.Pool
 	queryTimeout time.Duration
 	proofURLs    ProofURLResolver
+	cacheMu      sync.Mutex
+	readCache    map[string]readCacheEntry
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
-	return &Repository{pool: pool, queryTimeout: queryTimeout}
+	return &Repository{pool: pool, queryTimeout: queryTimeout, readCache: map[string]readCacheEntry{}}
+}
+
+type readCacheEntry struct {
+	expiresAt time.Time
+	value     any
 }
 
 // WithProofURLResolver wires the CSV export's proof-video URL resolution. Without it,

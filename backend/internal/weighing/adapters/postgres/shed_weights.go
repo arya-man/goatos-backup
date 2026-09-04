@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -68,6 +69,11 @@ import (
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
 func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg float64) (domain.ShedWeights, error) {
+	cacheKey := weighingAnalyticsCacheKey("shed_weights:"+selectedParkID+":"+fmt.Sprintf("%.3f", saleThresholdToleranceKg), tenantID, scopeParkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		return cached.(domain.ShedWeights), nil
+	}
+
 	weighingCategory = strings.TrimSpace(weighingCategory)
 	saleThresholdLowerKg := domain.SaleThresholdLowerKg
 	saleThresholdUpperKg := domain.SaleThresholdUpperKg - saleThresholdToleranceKg
@@ -539,5 +545,6 @@ ORDER BY display_order, name, location_id`, tenantID, scopeParkIDs)
 	}
 	out.ByLoad = byLoad
 	out.LoadUnattributedSheds = unattributed
+	r.setReadCache(cacheKey, out)
 	return out, nil
 }

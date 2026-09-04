@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,6 +17,38 @@ import (
 // this screen for a one-week window. 400 days comfortably covers a goat's whole growth-tracked
 // life (kid to sale) while keeping the scan bounded.
 const growthLookbackDays = 400
+
+const weighingAnalyticsCacheTTL = 5 * time.Second
+
+func weighingAnalyticsCacheKey(prefix string, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) string {
+	parks := append([]string(nil), parkIDs...)
+	sort.Strings(parks)
+	return fmt.Sprintf("%s:%s:%s:%s:%s:%s:%s:%s",
+		prefix, tenantID, strings.Join(parks, ","), periodStart.UTC().Format(time.RFC3339),
+		periodEnd.UTC().Format(time.RFC3339), strings.TrimSpace(sex), strings.TrimSpace(origin), strings.TrimSpace(weighingCategory))
+}
+
+func (r *Repository) getReadCache(key string) (any, bool) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	entry, ok := r.readCache[key]
+	if !ok || time.Now().After(entry.expiresAt) {
+		if ok {
+			delete(r.readCache, key)
+		}
+		return nil, false
+	}
+	return entry.value, true
+}
+
+func (r *Repository) setReadCache(key string, value any) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if len(r.readCache) > 256 {
+		r.readCache = make(map[string]readCacheEntry, 64)
+	}
+	r.readCache[key] = readCacheEntry{expiresAt: time.Now().Add(weighingAnalyticsCacheTTL), value: value}
+}
 
 // growthPairsCTE is the shared base: resolve each accepted, non-rejected individual observation
 // to an animal BY ITS RAW SCANNED TAG ALONE, then pair each observation with the PRECEDING one
@@ -117,6 +150,11 @@ qualifying AS (
 // periodStart/periodEnd are Asia/Kolkata business-day boundaries expressed as UTC instants by
 // the caller (the service layer), half-open [periodStart, periodEnd).
 func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.GrowthADG, error) {
+	cacheKey := weighingAnalyticsCacheKey("growth_adg", tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		return cached.(domain.GrowthADG), nil
+	}
+
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 
@@ -239,7 +277,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	}
 	// The tile drills into this list, so the count it shows must be the length of THIS list.
 	headline.LosingAnimalCount = len(losing)
-	return domain.GrowthADG{
+	out := domain.GrowthADG{
 		ParkID:          singlePark,
 		ParkIDs:         parkIDs,
 		Parks:           parks,
@@ -255,7 +293,9 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		Distribution:    distribution,
 		SaleReadiness:   saleReadiness,
 		LumpSum:         lumpSum,
-	}, nil
+	}
+	r.setReadCache(cacheKey, out)
+	return out, nil
 }
 
 func (r *Repository) growthHeadlineStats(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) (domain.GrowthADGHeadline, error) {

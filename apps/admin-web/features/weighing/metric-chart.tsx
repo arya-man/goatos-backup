@@ -255,7 +255,7 @@ function ShedMetricTable({
       {/* The mock's pager footer: range and page on the left, the two steps on the right. Buttons
           rather than links, because nothing navigates -- and the ends are disabled rather than
           hidden, so the control does not change shape as the reader walks the pages. */}
-      {pageCount > 1 ? (
+      {rows.length > 0 ? (
         <div className="pager2">
           <span className="small muted" style={{ marginRight: "auto" }}>
             {`${start + 1}-${start + visible.length} ${rows.length === 1 ? pager.noun : `${pager.noun}s`} · ${pager.page} ${current + 1} ${pager.of} ${pageCount}`}

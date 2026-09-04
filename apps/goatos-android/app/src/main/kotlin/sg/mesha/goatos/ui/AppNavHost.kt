@@ -25,6 +25,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import android.net.Uri
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.navigation.NavController
@@ -3736,9 +3737,10 @@ fun AppNavHost(
                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                     try {
                         context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    } catch (_: ActivityNotFoundException) {
+                    } catch (err: ActivityNotFoundException) {
                         // No app on this phone opens that type; the row still shows the file's
                         // name and size, which is all the phone can honestly offer.
+                        Log.w("GoatOSNav", "No viewer found for leadership task attachment", err)
                         Toast.makeText(
                             context,
                             attachmentViewerUnavailableMessage,

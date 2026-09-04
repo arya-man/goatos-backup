@@ -2544,7 +2544,7 @@ select:disabled { opacity: .45; }
 /* Command Board */
 .card.cbm { margin-bottom: 24px; }
 .cbm-loading { padding: 16px; color: var(--muted); }
-.cbm-unavailable { padding: 16px; color: var(--faint); }
+.cbm-unavailable { padding: 16px; color: var(--muted); }
 .cbm-kpi-row { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
 .cbm-kpi-row .kpi { flex: 1; min-width: 120px; }
 .cbm-kpi-row .kpi .dl { color: color-mix(in srgb,var(--muted) 58%,var(--ink)); }
@@ -3146,7 +3146,7 @@ select:disabled { opacity: .45; }
 .lt-page .lt-ftx{flex:1;min-width:0;font-size:12.5px}
 .lt-page .lt-ftx b{font-weight:680}
 .lt-page .lt-fmeta{color:var(--muted);font-size:11px;margin-top:1px;overflow-wrap:anywhere}
-.lt-page .lt-ftime{color:var(--faint);font-size:11px;white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
+.lt-page .lt-ftime{color:var(--muted);font-size:11px;white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
 
 /* A disabled stand-in must LOOK disabled. `cursor:not-allowed` alone left the three unbacked
    attention chips at full enabled appearance, with the reason reachable only by hover — invisible

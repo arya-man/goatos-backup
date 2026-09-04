@@ -252,6 +252,9 @@ jobs:
           GOATOS_BEARER_TOKEN="$token" node tools/perf/api-latency-gate.mjs \
             --manifest tools/perf/hot-paths.vaccination.json \
             --output artifacts/api-latency/current-sha.json
+          GOATOS_BEARER_TOKEN="$token" node tools/perf/api-latency-gate.mjs \
+            --manifest tools/perf/hot-paths.analytics.json \
+            --output artifacts/api-latency/current-sha-analytics.json
           node tools/perf/api-latency-evidence.mjs \
             --report artifacts/api-latency/current-sha.json \
             --expected-sha "$GITHUB_SHA"

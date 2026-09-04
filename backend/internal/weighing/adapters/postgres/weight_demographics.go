@@ -29,6 +29,11 @@ import (
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
 func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.WeightDemographics, error) {
+	cacheKey := weighingAnalyticsCacheKey("weight_demographics", tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		return cached.(domain.WeightDemographics), nil
+	}
+
 	out := domain.WeightDemographics{
 		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
 		ByBreed:               []domain.WeightDemographicBucket{},
@@ -930,6 +935,7 @@ SELECT
 	if out.ShedComposition, err = decodeShedComposition(compositionJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
+	r.setReadCache(cacheKey, out)
 	return out, nil
 }
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -29,9 +29,17 @@ test("accepts exact and stricter percentile thresholds", () => {
   );
 });
 
-test("the committed vaccination manifest satisfies the hard policy", () => {
-  const manifest = JSON.parse(readFileSync(new URL("./hot-paths.vaccination.json", import.meta.url), "utf8"));
-  assert.doesNotThrow(() => normalizeApiLatencyEndpoints(manifest.endpoints));
+test("all committed hot-path manifests satisfy the hard policy", () => {
+  const perfDir = new URL("./", import.meta.url);
+  const manifestFiles = readdirSync(perfDir)
+    .filter((name) => /^hot-paths\..*\.json$/.test(name))
+    .sort();
+
+  assert.ok(manifestFiles.length > 0, "expected at least one hot-path manifest");
+  for (const name of manifestFiles) {
+    const manifest = JSON.parse(readFileSync(new URL(name, perfDir), "utf8"));
+    assert.doesNotThrow(() => normalizeApiLatencyEndpoints(manifest.endpoints), name);
+  }
 });
 
 for (const [key, ceilingMs] of Object.entries(API_LATENCY_POLICY_MS)) {

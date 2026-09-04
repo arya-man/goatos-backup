@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -27,15 +28,22 @@ import (
 )
 
 type Repository struct {
-	pool    *pgxpool.Pool
-	timeout time.Duration
+	pool      *pgxpool.Pool
+	timeout   time.Duration
+	cacheMu   sync.Mutex
+	readCache map[string]readCacheEntry
 }
 
 func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return &Repository{pool: pool, timeout: timeout}
+	return &Repository{pool: pool, timeout: timeout, readCache: map[string]readCacheEntry{}}
+}
+
+type readCacheEntry struct {
+	expiresAt time.Time
+	value     any
 }
 
 var _ ports.ConfigRepository = (*Repository)(nil)
