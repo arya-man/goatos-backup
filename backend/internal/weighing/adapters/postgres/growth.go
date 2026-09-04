@@ -230,7 +230,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	// Per-park cut of the SAME headline statistic, and only when there is more than one park to
 	// cut: with a single park in scope the headline above already IS that park's figure, so the
 	// query would cost a scan to restate a number the response carries twice.
-	var byPark []domain.GrowthParkGain
+	byPark := []domain.GrowthParkGain{}
 	if len(parkIDs) > 1 {
 		byPark, err = r.growthParkGains(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
 		if err != nil {
@@ -1077,16 +1077,21 @@ contrib AS (
   SELECT park_id, g AS weighted_gain, 1::float8 AS animals FROM animal_gain
   UNION ALL
   SELECT park_id, animals * g_per_day, animals FROM shed_span
+),
+park_contrib AS (
+  SELECT park_id, sum(weighted_gain) AS weighted_gain, sum(animals) AS animals
+  FROM contrib
+  GROUP BY park_id
 )
 -- The park's SHORT CODE (CBE, CPT) when it has one, falling back to its full name -- the SAME
 -- rule ShedWeightsRow.ParkName and LoadPlacement.ParkName follow, so a card, a shed row and a
 -- load placement cannot disagree about what a park is called on one screen.
 SELECT pk.location_id::text, COALESCE(NULLIF(pk.location_code, ''), pk.name, ''),
-       sum(c.weighted_gain) / NULLIF(sum(c.animals), 0),
-       sum(c.animals)::bigint
-FROM contrib c
-JOIN locations pk ON pk.tenant_id = $1::uuid AND pk.location_id = c.park_id
-GROUP BY pk.location_id, pk.location_code, pk.name
+       pc.weighted_gain / NULLIF(pc.animals, 0),
+       COALESCE(pc.animals, 0)::bigint
+FROM locations pk
+LEFT JOIN park_contrib pc ON pc.park_id = pk.location_id
+WHERE pk.tenant_id = $1::uuid AND pk.location_id = ANY($2::uuid[])
 ORDER BY COALESCE(NULLIF(pk.location_code, ''), pk.name, '') ASC`
 
 func (r *Repository) growthParkGains(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) ([]domain.GrowthParkGain, error) {

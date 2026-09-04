@@ -233,8 +233,41 @@ func TestParkGainsPaginationIsOneRowPerParkAndAbsentForASinglePark(t *testing.T)
 	if err != nil {
 		t.Fatalf("single-park growth: %v", err)
 	}
+	if alone.ByPark == nil {
+		t.Fatalf("by_park is nil for a single-park request; the wire contract is [] or populated, never null")
+	}
 	if len(alone.ByPark) != 0 {
 		t.Fatalf("by_park has %d rows for a single-park request, want none", len(alone.ByPark))
+	}
+}
+
+func TestParkGainsIncludeScopedParksWithNoQualifyingGain(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedParkGainSecondPark(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	start, end := growthWindow()
+
+	day := time.Date(2026, 8, 4, 6, 0, 0, 0, time.UTC)
+	seedParkGainWeigh(t, ctx, pool, repoAnimalScope, repoCampaign, "park-gain-only-cbe", 20.0, day)
+	seedParkGainWeigh(t, ctx, pool, repoAnimalScope, repoCampaign, "park-gain-only-cbe", 23.0, day.AddDate(0, 0, 10))
+
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "")
+	if err != nil {
+		t.Fatalf("two-park growth: %v", err)
+	}
+	if len(adg.ByPark) != 2 {
+		t.Fatalf("by_park has %d rows for two scoped parks, want 2 even when one has no gain", len(adg.ByPark))
+	}
+	cpt := parkGain(t, adg, lsParkCPT)
+	if cpt.AverageADGGPerDay != nil {
+		t.Fatalf("CPT gain = %.3f, want nil for a scoped park with nothing weighed twice", *cpt.AverageADGGPerDay)
+	}
+	if cpt.HeadlineAnimals != 0 {
+		t.Fatalf("CPT headline animals = %d, want 0 for a scoped park with nothing weighed twice", cpt.HeadlineAnimals)
 	}
 }
 
