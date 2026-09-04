@@ -261,6 +261,10 @@ internal class FakeWeighingFastingRepository : WeighingFastingRepository {
 
     override fun observeCard(fastingTaskId: String, campaignShedId: String): Flow<WeighingFastingCard?> = cardFlow
 
+    var proofDownloadUrl: String? = null
+
+    override suspend fun fetchProofDownloadUrl(proofId: String): String? = proofDownloadUrl
+
     override suspend fun refresh(): AppResult<Int> {
         refreshCount++
         return AppResult.Ok(0)
