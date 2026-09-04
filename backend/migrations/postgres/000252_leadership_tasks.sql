@@ -124,6 +124,21 @@ WHERE m.status = 'active'
   )
 ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING;
 
+-- The three people the maintainer named as assignable today (2026-09-04): Ravi, Manju and
+-- Aryaman, by their login email. Everyone else on the CXO desk stays at View until ticked
+-- on /people. Same additive rule: only migrated people, and a row an admin already set is
+-- only ever WIDENED here, never narrowed.
+UPDATE public.person_module_access a
+SET capabilities = ARRAY['view', 'oversee']::text[]
+FROM public.workforce_members m
+WHERE m.tenant_id = a.tenant_id
+  AND m.workforce_member_id = a.workforce_member_id
+  AND m.status = 'active'
+  AND lower(btrim(m.email)) IN ('ravi@mesha.sg', 'manju@mesha.sg', 'aryaman@mesha.sg')
+  AND a.surface = 'mobile'
+  AND a.module_key = 'leadership_tasks'
+  AND NOT ('oversee' = ANY (a.capabilities));
+
 -- NOTIFICATION TYPE VOCABULARY. notification_requests_type_check is a closed list from the
 -- baseline; the two pushes this module queues (leadership_task_raised to the CXO,
 -- leadership_task_done back to the director) must be in it or the bridge's insert is

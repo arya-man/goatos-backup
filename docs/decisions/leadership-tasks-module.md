@@ -26,8 +26,9 @@ the most senior people in the company.
    picker lists the people whose own mobile ticks on /people carry the Tasks module at
    **Oversee**; the raise-time check reads the same tick inside the write. The CXO role
    decides nothing here (maintainer, same day: "keep it optional -- if they are selected
-   there, only for them"; today Ravi and Manju). The migration seeds CXOs at View only, so
-   assignability is opt-in from the access editor. A CXO holds no raise permission.
+   there, only for them"). The migration seeds CXOs at View only and then ticks the three the
+   maintainer named by email -- Ravi, Manju and Aryaman -- so everyone else is opt-in from the
+   access editor. A CXO holds no raise permission.
 2. **Status is owned by the assignee; the raiser only cancels.** `open → in_progress →
    done`, with a reopen of a done task allowed to the assignee (a mis-tap is real), and
    `cancelled` terminal for everyone. The transition rule and the buttons the screen shows
