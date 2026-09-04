@@ -19,6 +19,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
 type HerdRegisterService interface {
@@ -385,17 +386,34 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		shedID, partition, _ := strings.Cut(raw, "#")
+		shedID = strings.TrimSpace(shedID)
+		partition = strings.TrimSpace(partition)
 		if shedID == "" {
 			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "pen must be <shed_id> or <shed_id>#<partition>", nil)
+			return
+		}
+		if !uuidutil.IsUUIDString(shedID) {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "pen shed_id must be a valid identifier", nil)
 			return
 		}
 		pens = append(pens, domain.CountsBreakdownPen{ShedID: shedID, PartitionLabel: partition})
 	}
 	if legacyShed := strings.TrimSpace(query.Get("shed_id")); legacyShed != "" {
+		if !uuidutil.IsUUIDString(legacyShed) {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "shed_id must be a valid identifier", nil)
+			return
+		}
 		pens = append(pens, domain.CountsBreakdownPen{
 			ShedID:         legacyShed,
 			PartitionLabel: strings.TrimSpace(query.Get("partition_label")),
 		})
+	}
+	parkIDs := multiParam(query, "park_id")
+	for _, parkID := range parkIDs {
+		if !uuidutil.IsUUIDString(parkID) {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "park_id must be a valid identifier", nil)
+			return
+		}
 	}
 
 	// The page grain. Absent means the grain page every installed client already reads; a
@@ -415,7 +433,7 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 	req := domain.CountsBreakdownQuery{
 		TenantID:         tenantID,
 		LifecycleStatus:  nullableString(query.Get("lifecycle_status")),
-		ParkIDs:          multiParam(query, "park_id"),
+		ParkIDs:          parkIDs,
 		Pens:             pens,
 		ManagementStages: multiParam(query, "management_stage"),
 		Breeds:           multiParam(query, "breed"),
