@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.SalesRepository
+import sg.mesha.goatos.core.data.sync.SalesPaymentOp
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
 import sg.mesha.goatos.core.network.dto.SaleCandidateDto
@@ -42,6 +43,9 @@ import sg.mesha.goatos.feature.vendors.SaleCreateUiState
 import sg.mesha.goatos.feature.vendors.SaleDetailEvent
 import sg.mesha.goatos.feature.vendors.SaleDetailUiState
 import sg.mesha.goatos.feature.vendors.SaleField
+import sg.mesha.goatos.feature.vendors.SalePaymentEditorUi
+import sg.mesha.goatos.feature.vendors.SalePaymentField
+import sg.mesha.goatos.feature.vendors.SalePaymentUi
 import sg.mesha.goatos.feature.vendors.SaleShedGroupUi
 import sg.mesha.goatos.feature.vendors.SaleTagAnimalsEvent
 import sg.mesha.goatos.feature.vendors.SaleTagAnimalsUiState
@@ -110,6 +114,7 @@ class SalesListViewModel @Inject constructor(
             }
             is SalesListEvent.OpenSale -> analytics.track(AnalyticsEventsVendors.VENDORS_SALE_OPENED)
             SalesListEvent.AddSale -> analytics.track(AnalyticsEventsVendors.VENDORS_ADD_OPENED)
+            SalesListEvent.OpenPipeline -> analytics.track(AnalyticsEventsVendors.VENDORS_PIPELINE_OPENED)
         }
     }
 
@@ -215,6 +220,7 @@ internal fun SaleShedGroupDto.toUi(): SaleShedGroupUi = SaleShedGroupUi(
 class SaleDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: SalesRepository,
+    private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
@@ -228,6 +234,9 @@ class SaleDetailViewModel @Inject constructor(
         val allocationRead: Boolean = false,
         val allocated: Int = 0,
         val message: String? = null,
+        val paymentEditor: SalePaymentEditorUi? = null,
+        val editInFlight: Boolean = false,
+        val editMessage: String = "",
     )
 
     private val local = MutableStateFlow(Local())
@@ -251,6 +260,15 @@ class SaleDetailViewModel @Inject constructor(
                 sections = deal.sections(),
                 taggedLine = l.taggedLine,
                 taggedGroups = l.taggedGroups,
+                payments = deal.payments.map { it.toUi() },
+                // The BACKEND's balance, formatted. Sheet-imported deals carry paise dust, so
+                // under a rupee reads as paid -- the same rule the ledger card uses.
+                balanceLine = if (deal.paymentBalance >= 1.0) "${rupees(deal.paymentBalance)} still due" else "Fully paid",
+                statuses = options?.statuses.orEmpty().map { VendorsOptionUi(it.key, it.label) },
+                paymentEditor = l.paymentEditor,
+                today = LocalDate.now().toString(),
+                editInFlight = l.editInFlight,
+                editMessage = l.editMessage,
                 canTagAnimals = live,
                 tagDisabledReason = when {
                     deal.productType == "Manure" -> TAG_MANURE
@@ -271,7 +289,150 @@ class SaleDetailViewModel @Inject constructor(
             SaleDetailEvent.TagAnimals -> analytics.track(AnalyticsEventsVendors.VENDORS_TAG_ANIMALS_OPENED)
             SaleDetailEvent.DismissMessage -> local.update { it.copy(message = null) }
             SaleDetailEvent.Back -> Unit
+            is SaleDetailEvent.OpenPayment -> openPaymentEditor(event.paymentId)
+            SaleDetailEvent.ClosePayment -> local.update { it.copy(paymentEditor = null) }
+            is SaleDetailEvent.PaymentFieldChanged -> local.update { l ->
+                val editor = l.paymentEditor ?: return@update l
+                l.copy(
+                    paymentEditor = editor.copy(
+                        values = editor.values + (event.field to event.value),
+                        fieldErrors = editor.fieldErrors - event.field,
+                    ),
+                )
+            }
+            SaleDetailEvent.SavePayment -> savePayment()
+            SaleDetailEvent.DeletePayment -> deletePayment()
+            is SaleDetailEvent.ChangeStatus -> changeStatus(event.status)
         }
+    }
+
+    private fun openPaymentEditor(paymentId: String) {
+        val existing = state.value.payments.firstOrNull { it.paymentId == paymentId }
+        analytics.track(AnalyticsEventsVendors.VENDORS_SALE_PAYMENT_OPENED)
+        local.update {
+            it.copy(
+                editMessage = "",
+                paymentEditor = SalePaymentEditorUi(
+                    paymentId = paymentId,
+                    // Correcting a receipt starts from what it says now; adding one starts on
+                    // today, because a receipt is normally entered the day the money arrives.
+                    values = if (existing == null) {
+                        mapOf(SalePaymentField.RECEIVED_ON to LocalDate.now().toString())
+                    } else {
+                        mapOf(
+                            SalePaymentField.RECEIVED_ON to existing.receivedOnIso,
+                            SalePaymentField.AMOUNT to existing.amountRaw,
+                            SalePaymentField.NOTE to existing.note,
+                        )
+                    },
+                ),
+            )
+        }
+    }
+
+    private fun savePayment() {
+        val editor = local.value.paymentEditor ?: return
+        val errors = validatePayment(editor.values)
+        if (errors.isNotEmpty()) {
+            local.update { it.copy(paymentEditor = editor.copy(fieldErrors = errors)) }
+            return
+        }
+        val amount = editor.values[SalePaymentField.AMOUNT].orEmpty().trim().toDoubleOrNull() ?: return
+        val request = sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto(
+            receivedOn = editor.values[SalePaymentField.RECEIVED_ON].orEmpty().trim(),
+            amountRupees = amount,
+            note = editor.values[SalePaymentField.NOTE].orEmpty().trim(),
+        )
+        val creating = editor.paymentId.isBlank()
+        enqueueEdit(
+            editor = editor,
+            done = if (creating) MESSAGE_PAYMENT_ADDED else MESSAGE_PAYMENT_SAVED,
+            failure = "payment write enqueue failed",
+        ) {
+            syncRepository.enqueueSalesDealPaymentWrite(
+                // A fresh client id per SAVE, so correcting a receipt twice records both
+                // corrections rather than replaying the first one's idempotency key.
+                clientId = UUID.randomUUID().toString(),
+                dealId = dealId,
+                op = if (creating) SalesPaymentOp.CREATE else SalesPaymentOp.UPDATE,
+                paymentId = editor.paymentId,
+                request = request,
+            )
+        }
+    }
+
+    private fun deletePayment() {
+        val editor = local.value.paymentEditor ?: return
+        if (editor.paymentId.isBlank()) return
+        enqueueEdit(editor = editor, done = MESSAGE_PAYMENT_REMOVED, failure = "payment delete enqueue failed") {
+            syncRepository.enqueueSalesDealPaymentWrite(
+                clientId = UUID.randomUUID().toString(),
+                dealId = dealId,
+                op = SalesPaymentOp.DELETE,
+                paymentId = editor.paymentId,
+            )
+        }
+    }
+
+    private fun changeStatus(status: String) {
+        if (status.isBlank() || local.value.editInFlight) return
+        enqueueEdit(editor = null, done = MESSAGE_STATUS_SAVED, failure = "deal status enqueue failed") {
+            syncRepository.enqueueSalesDealStatusSet(
+                clientId = UUID.randomUUID().toString(),
+                dealId = dealId,
+                status = status,
+            )
+        }
+    }
+
+    /**
+     * Queues one edit. The banner says the change is on its way rather than that it landed: the
+     * screen re-renders from the server's returned deal when the outbox drains, so the numbers a
+     * person reads are always the ones the server computed.
+     */
+    private fun enqueueEdit(
+        editor: SalePaymentEditorUi?,
+        done: String,
+        failure: String,
+        block: suspend () -> AppResult<String>,
+    ) {
+        viewModelScope.launch {
+            local.update { it.copy(editInFlight = true, paymentEditor = editor?.copy(inFlight = true) ?: it.paymentEditor) }
+            when (val result = block()) {
+                is AppResult.Ok -> {
+                    analytics.track(AnalyticsEventsVendors.VENDORS_SALE_EDITED)
+                    local.update { it.copy(editInFlight = false, paymentEditor = null, editMessage = done) }
+                }
+                is AppResult.Err -> {
+                    result.cause?.let { crashReporter.recordException(it, failure) }
+                    analytics.track(
+                        AnalyticsEventsVendors.VENDORS_FAILURE,
+                        mapOf(AnalyticsEvents.Params.REASON to result.message.take(120)),
+                    )
+                    local.update {
+                        it.copy(
+                            editInFlight = false,
+                            paymentEditor = editor?.copy(inFlight = false) ?: it.paymentEditor,
+                            message = MESSAGE_EDIT_FAILED,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun validatePayment(values: Map<SalePaymentField, String>): Map<SalePaymentField, String> {
+        val errors = mutableMapOf<SalePaymentField, String>() // mobile-guard:ignore: at most one entry per form field, returned and dropped
+        val date = values[SalePaymentField.RECEIVED_ON].orEmpty().trim()
+        if (date.isBlank()) errors[SalePaymentField.RECEIVED_ON] = REQUIRED
+        val amount = values[SalePaymentField.AMOUNT].orEmpty().trim()
+        val parsed = amount.toDoubleOrNull()
+        when {
+            amount.isBlank() -> errors[SalePaymentField.AMOUNT] = REQUIRED
+            parsed == null -> errors[SalePaymentField.AMOUNT] = NOT_A_NUMBER
+            parsed <= 0.0 -> errors[SalePaymentField.AMOUNT] = MORE_THAN_ZERO
+        }
+        return errors
     }
 
     private fun refresh() {
@@ -313,8 +474,27 @@ class SaleDetailViewModel @Inject constructor(
     private companion object {
         const val TAG_MANURE = "A manure sale has no animals to tag."
         const val TAG_FAILED = "A failed deal has no animals to tag."
+        const val REQUIRED = "Required"
+        const val NOT_A_NUMBER = "Enter a number"
+        const val MORE_THAN_ZERO = "Must be more than zero"
+        const val MESSAGE_PAYMENT_ADDED = "Payment added. The balance updates when it reaches the ledger."
+        const val MESSAGE_PAYMENT_SAVED = "Payment saved. The balance updates when it reaches the ledger."
+        const val MESSAGE_PAYMENT_REMOVED = "Payment removed. The balance updates when it reaches the ledger."
+        const val MESSAGE_STATUS_SAVED = "Status saved. It reaches the ledger when the phone is online."
+        const val MESSAGE_EDIT_FAILED = "Could not save that change. Try again."
     }
 }
+
+/** One recorded receipt, formatted for the card and carrying its raw values for the editor. */
+private fun sg.mesha.goatos.core.network.dto.SalesDealPaymentDto.toUi(): SalePaymentUi = SalePaymentUi(
+    paymentId = paymentId,
+    receivedOn = farmDate(receivedOn),
+    amount = rupees(amountRupees),
+    note = note.orEmpty(),
+    receivedOnIso = receivedOn,
+    // Trailing ".0" would be typed back into the field verbatim; a whole rupee shows as one.
+    amountRaw = if (amountRupees % 1.0 == 0.0) amountRupees.toLong().toString() else amountRupees.toString(),
+)
 
 /** The record-sale wizard: three steps, offline-first write with a stable client id. */
 @HiltViewModel

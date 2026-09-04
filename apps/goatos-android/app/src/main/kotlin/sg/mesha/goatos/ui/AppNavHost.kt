@@ -115,7 +115,14 @@ import sg.mesha.goatos.feature.vendors.VendorDetailEvent
 import sg.mesha.goatos.feature.vendors.VendorDetailScreen
 import sg.mesha.goatos.feature.vendors.VendorsListEvent
 import sg.mesha.goatos.feature.vendors.VendorsListScreen
+import sg.mesha.goatos.feature.vendors.SalesEvidenceEvent
+import sg.mesha.goatos.feature.vendors.SalesEvidenceScreen
+import sg.mesha.goatos.feature.vendors.SalesLeadBoardEvent
+import sg.mesha.goatos.feature.vendors.SalesLeadBoardScreen
 import sg.mesha.goatos.feature.vendors.SalesListEvent
+import sg.mesha.goatos.feature.vendors.SalesPipelineHubEvent
+import sg.mesha.goatos.feature.vendors.SalesPipelineHubScreen
+import sg.mesha.goatos.feature.vendors.SalesPipelinePanel
 import sg.mesha.goatos.feature.vendors.SalesListScreen
 import sg.mesha.goatos.feature.vendors.SaleDetailEvent
 import sg.mesha.goatos.feature.vendors.SaleDetailScreen
@@ -244,7 +251,10 @@ import sg.mesha.goatos.viewmodel.FeedPurchasesListViewModel
 import sg.mesha.goatos.viewmodel.VendorCreateViewModel
 import sg.mesha.goatos.viewmodel.VendorDetailViewModel
 import sg.mesha.goatos.viewmodel.VendorsListViewModel
+import sg.mesha.goatos.viewmodel.SalesEvidenceViewModel
+import sg.mesha.goatos.viewmodel.SalesLeadBoardViewModel
 import sg.mesha.goatos.viewmodel.SalesListViewModel
+import sg.mesha.goatos.viewmodel.SalesPipelineHubViewModel
 import sg.mesha.goatos.viewmodel.SaleDetailViewModel
 import sg.mesha.goatos.viewmodel.SaleCreateViewModel
 import sg.mesha.goatos.viewmodel.SaleTagAnimalsViewModel
@@ -588,6 +598,18 @@ object Routes {
     const val SALE_TAG_ANIMALS = "/vendors/sales/sale/{$SALE_ID_ARG}/tag"
     fun saleDetailRoute(dealId: String): String = "/vendors/sales/sale/${Uri.encode(dealId)}"
     fun saleTagAnimalsRoute(dealId: String): String = "/vendors/sales/sale/${Uri.encode(dealId)}/tag"
+
+    // Pipeline and evidence (maintainer instruction 2026-09-04): the five panels the web's
+    // /sales/config opens as drawers. On the phone they are L1/L2 drills under the Sales tab --
+    // the hub lists them, each panel is its own destination. One route serves the two lead boards
+    // and one the three evidence forms, with the panel as the argument; the alternative is five
+    // near-identical destinations that drift apart.
+    const val SALES_PANEL_ARG = "panel"
+    const val SALES_PIPELINE = "/vendors/sales/pipeline"
+    const val SALES_LEAD_BOARD = "/vendors/sales/pipeline/leads/{$SALES_PANEL_ARG}"
+    const val SALES_EVIDENCE = "/vendors/sales/pipeline/evidence/{$SALES_PANEL_ARG}"
+    fun salesLeadBoardRoute(panel: String): String = "/vendors/sales/pipeline/leads/${Uri.encode(panel)}"
+    fun salesEvidenceRoute(panel: String): String = "/vendors/sales/pipeline/evidence/${Uri.encode(panel)}"
 
     // Leadership Tasks (backend module `leadership_tasks`, maintainer request 2026-09-04). The
     // list is an L0 root whose href matches the backend-composed nav item VERBATIM
@@ -3499,6 +3521,72 @@ fun AppNavHost(
                             vm.onEvent(event)
                             navController.navigate(Routes.SALE_NEW) { launchSingleTop = true }
                         }
+                        SalesListEvent.OpenPipeline -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.SALES_PIPELINE) { launchSingleTop = true }
+                        }
+                    }
+                },
+            )
+        }
+        composable(Routes.SALES_PIPELINE) {
+            val vm: SalesPipelineHubViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            SalesPipelineHubScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        SalesPipelineHubEvent.Back -> navController.popBackStack()
+                        is SalesPipelineHubEvent.Open -> {
+                            vm.onEvent(event)
+                            val route = when (event.panel) {
+                                SalesPipelinePanel.BUYER_LEADS, SalesPipelinePanel.FARMER_GROUPS ->
+                                    Routes.salesLeadBoardRoute(event.panel.name)
+                                else -> Routes.salesEvidenceRoute(event.panel.name)
+                            }
+                            navController.navigate(route) { launchSingleTop = true }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.SALES_LEAD_BOARD,
+            arguments = listOf(navArgument(Routes.SALES_PANEL_ARG) { type = NavType.StringType }),
+        ) { entry ->
+            val vm: SalesLeadBoardViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val panel = runCatching {
+                SalesPipelinePanel.valueOf(entry.arguments?.getString(Routes.SALES_PANEL_ARG).orEmpty())
+            }.getOrDefault(SalesPipelinePanel.BUYER_LEADS)
+            SalesLeadBoardScreen(
+                state = state,
+                panel = panel,
+                onEvent = { event ->
+                    when (event) {
+                        SalesLeadBoardEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.SALES_EVIDENCE,
+            arguments = listOf(navArgument(Routes.SALES_PANEL_ARG) { type = NavType.StringType }),
+        ) { entry ->
+            val vm: SalesEvidenceViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val panel = runCatching {
+                SalesPipelinePanel.valueOf(entry.arguments?.getString(Routes.SALES_PANEL_ARG).orEmpty())
+            }.getOrDefault(SalesPipelinePanel.MARKET_QUOTE)
+            SalesEvidenceScreen(
+                state = state,
+                panel = panel,
+                onEvent = { event ->
+                    when (event) {
+                        SalesEvidenceEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
                     }
                 },
             )

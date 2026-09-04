@@ -45,6 +45,12 @@ object AnalyticsEventsVendors {
     /** The tag-animals flow was opened for a sale. */
     const val VENDORS_TAG_ANIMALS_OPENED = "vendors_tag_animals_opened"
 
+    // Editing a recorded sale, and the pipeline/evidence panels (maintainer instruction 2026-09-04).
+    const val VENDORS_SALE_PAYMENT_OPENED = "vendors_sale_payment_opened"
+    const val VENDORS_SALE_EDITED = "vendors_sale_edited"
+    const val VENDORS_PIPELINE_OPENED = "vendors_pipeline_opened"
+    const val VENDORS_PIPELINE_QUEUED = "vendors_pipeline_queued"
+
     /** Animals were marked sold against a sale; reason carries the count. */
     const val VENDORS_TAG_ANIMALS_CONFIRMED = "vendors_tag_animals_confirmed"
 

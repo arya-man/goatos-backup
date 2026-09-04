@@ -3,7 +3,15 @@ package sg.mesha.goatos.core.data.sync
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
+import sg.mesha.goatos.core.network.dto.SalesBenchmarkWriteDto
+import sg.mesha.goatos.core.network.dto.SalesBuyerLeadWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealStatusWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
+import sg.mesha.goatos.core.network.dto.SalesFpoLeadWriteDto
+import sg.mesha.goatos.core.network.dto.SalesLeadStatusWriteDto
+import sg.mesha.goatos.core.network.dto.SalesSoldTagsWriteDto
+import sg.mesha.goatos.core.network.dto.SalesWeightCheckWriteDto
 import sg.mesha.goatos.core.network.dto.VendorWriteDto
 
 /**
@@ -62,4 +70,83 @@ fun salesDealCreateIdempotencyKey(clientId: String): String = "sales:deal-create
 data class SalesDealCreatePayload(
     @SerialName("client_id") val clientId: String,
     @SerialName("request") val request: SalesDealWriteDto,
+)
+
+// ---------------------------------------------------------------------------------------------
+// Editing a recorded sale, and pipeline/evidence entry (maintainer instruction 2026-09-04)
+// ---------------------------------------------------------------------------------------------
+
+/** One lane per DEAL, so a receipt and a status change on the same sale drain in the order the
+ *  operator made them and never race each other's `payment_balance`. */
+fun salesDealEditGroupKey(dealId: String): String = "sales:deal-edit:$dealId"
+
+/** STABLE per client id: a retry replays the SAME receipt instead of paying the buyer twice. */
+fun salesDealPaymentIdempotencyKey(clientId: String): String = "sales:deal-payment:$clientId"
+
+/** STABLE per client id. */
+fun salesDealStatusIdempotencyKey(clientId: String): String = "sales:deal-status:$clientId"
+
+/** One lane for pipeline/evidence entry; these rows are independent of any deal. */
+fun salesPipelineGroupKey(clientId: String): String = "sales:pipeline:$clientId"
+
+/** STABLE per client id; sent VERBATIM as the backend's required `Idempotency-Key`. */
+fun salesPipelineIdempotencyKey(clientId: String): String = "sales:pipeline-write:$clientId"
+
+/** Which of the three receipt verbs a [SalesDealPaymentPayload] carries. */
+object SalesPaymentOp {
+    const val CREATE = "create"
+    const val UPDATE = "update"
+    const val DELETE = "delete"
+}
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SALES_DEAL_PAYMENT_WRITE].
+ * [paymentId] is blank for [SalesPaymentOp.CREATE] and required for the other two; [request] is
+ * absent on a delete, which carries no body.
+ */
+@Serializable
+data class SalesDealPaymentPayload(
+    @SerialName("client_id") val clientId: String,
+    @SerialName("deal_id") val dealId: String,
+    @SerialName("op") val op: String,
+    @SerialName("payment_id") val paymentId: String = "",
+    @SerialName("request") val request: SalesDealPaymentWriteDto? = null,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SALES_DEAL_STATUS_SET]. */
+@Serializable
+data class SalesDealStatusPayload(
+    @SerialName("client_id") val clientId: String,
+    @SerialName("deal_id") val dealId: String,
+    @SerialName("request") val request: SalesDealStatusWriteDto,
+)
+
+/** Which panel a [SalesPipelinePayload] is for. */
+object SalesPipelineKind {
+    const val BUYER_LEAD = "buyer_lead"
+    const val BUYER_LEAD_STATUS = "buyer_lead_status"
+    const val FPO_LEAD = "fpo_lead"
+    const val FPO_LEAD_STATUS = "fpo_lead_status"
+    const val BENCHMARK = "benchmark"
+    const val SOLD_TAGS = "sold_tags"
+    const val WEIGHT_CHECK = "weight_check"
+}
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SALES_PIPELINE_WRITE].
+ * Exactly ONE of the request fields is set, named by [kind]; [leadId] carries the target of a
+ * status change. Keeping them as separate typed fields rather than a raw JSON blob means a
+ * renamed wire field breaks the build here instead of at the operator's phone.
+ */
+@Serializable
+data class SalesPipelinePayload(
+    @SerialName("client_id") val clientId: String,
+    @SerialName("kind") val kind: String,
+    @SerialName("lead_id") val leadId: String = "",
+    @SerialName("buyer_lead") val buyerLead: SalesBuyerLeadWriteDto? = null,
+    @SerialName("fpo_lead") val fpoLead: SalesFpoLeadWriteDto? = null,
+    @SerialName("lead_status") val leadStatus: SalesLeadStatusWriteDto? = null,
+    @SerialName("benchmark") val benchmark: SalesBenchmarkWriteDto? = null,
+    @SerialName("sold_tags") val soldTags: SalesSoldTagsWriteDto? = null,
+    @SerialName("weight_check") val weightCheck: SalesWeightCheckWriteDto? = null,
 )

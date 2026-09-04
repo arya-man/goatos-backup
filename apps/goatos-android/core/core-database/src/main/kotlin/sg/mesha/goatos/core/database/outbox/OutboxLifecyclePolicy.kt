@@ -154,6 +154,21 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // Sales (maintainer instruction 2026-09-04): the same shape -- queued banner at once, the
         // server's returned deal written straight into the Room ledger/detail caches.
         OutboxOpType.SALES_DEAL_CREATE -> overlayDirectReconcileLifecycle()
+        // Editing a recorded sale, same shape: a receipt or a status change shows at once as an
+        // outbox overlay, and the server's returned deal (its recomputed `payment_balance`
+        // included) reconciles the ledger and detail caches directly.
+        OutboxOpType.SALES_DEAL_PAYMENT_WRITE -> overlayDirectReconcileLifecycle()
+        OutboxOpType.SALES_DEAL_STATUS_SET -> overlayDirectReconcileLifecycle()
+        // Pipeline and evidence: a lead, quote, tag list or weight check. The panel re-reads its
+        // own bounded list after the write lands, so this rides POST_SUCCESS_REFRESH rather than a
+        // row-shaped reconcile -- a market quote and a weight check have no local row at all.
+        OutboxOpType.SALES_PIPELINE_WRITE -> lifecycle(
+            userImpact = OutboxUserImpact.USER_VISIBLE_MUTATION,
+            immediate = OutboxImmediateUiPolicy.OUTBOX_DERIVED_OVERLAY,
+            success = OutboxSuccessPolicy.POST_SUCCESS_REFRESH,
+            terminalFailure = OutboxTerminalFailurePolicy.OUTBOX_OVERLAY_RETRACTION,
+            processDeath = OutboxProcessDeathPolicy.ROOM_AND_OUTBOX,
+        )
 
         // Clock punches (module clock, maintainer decision 2026-08-27): the punch button follows
         // the EXACT outbox item (disabled while pending), success re-fetches the status blob via
