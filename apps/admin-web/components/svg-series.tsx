@@ -400,3 +400,83 @@ export function SeriesLegend({ entries }: { entries: { label: string; colorVar: 
     </div>
   );
 }
+
+/** One pie slice: a label, its share value, and the colour token it carries on the other charts. */
+export type PieSlice = { label: string; value: number; colorVar: string };
+
+/**
+ * A single-ring pie of shares. Each slice carries a `data-tip` for the
+ * ChartHover wrapper (label, value, share). Slices are drawn in the order
+ * given so the caller decides the ranking; a zero or negative value draws
+ * nothing. Inline SVG per the mock's chart anatomy, no library.
+ */
+export function SeriesPie({
+  slices,
+  valueNoun,
+  chartLabel,
+  emptyLabel,
+  formatValue,
+}: {
+  slices: PieSlice[];
+  valueNoun: string;
+  chartLabel: string;
+  emptyLabel: string;
+  formatValue?: (value: number) => string;
+}) {
+  const live = slices.filter((s) => Number.isFinite(s.value) && s.value > 0);
+  const total = live.reduce((acc, s) => acc + s.value, 0);
+  if (live.length === 0 || total <= 0) {
+    return (
+      <div className="muted small" style={{ padding: "12px 2px", textAlign: "center" }}>
+        {emptyLabel}
+      </div>
+    );
+  }
+  const fmt = formatValue ?? ((v: number) => v.toLocaleString("en-IN", { maximumFractionDigits: 1 }));
+  const size = 220;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size / 2 - 6;
+  const point = (angle: number) => [cx + r * Math.cos(angle), cy + r * Math.sin(angle)] as const;
+  let start = -Math.PI / 2;
+  const paths = live.map((s) => {
+    const sweep = (s.value / total) * Math.PI * 2;
+    const end = start + sweep;
+    const [x0, y0] = point(start);
+    const [x1, y1] = point(end);
+    const large = sweep > Math.PI ? 1 : 0;
+    // A single slice is a full ring: an arc from a point back to itself draws nothing.
+    const d =
+      live.length === 1
+        ? `M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx + r} ${cy} A ${r} ${r} 0 1 1 ${cx - r} ${cy} Z`
+        : `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} Z`;
+    const share = ((s.value / total) * 100).toFixed(1);
+    start = end;
+    return { key: s.label, d, colorVar: s.colorVar, tip: `${s.label}\n${fmt(s.value)} ${valueNoun}\n${share}%` };
+  });
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 24px" }}>
+      <svg
+        viewBox={`0 0 ${size} ${size}`}
+        width={size}
+        height={size}
+        role="img"
+        aria-label={chartLabel}
+        style={{ flex: "0 0 auto", maxWidth: "100%" }}
+      >
+        {paths.map((p) => (
+          <path key={p.key} d={p.d} fill={p.colorVar} stroke="var(--panel)" strokeWidth={1.5} data-tip={p.tip} />
+        ))}
+      </svg>
+      <div style={{ display: "grid", gap: 6, minWidth: 200 }}>
+        {live.map((s) => (
+          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8 }} data-tip={`${s.label}\n${fmt(s.value)} ${valueNoun}`}>
+            <span aria-hidden style={{ width: 9, height: 9, borderRadius: 3, background: s.colorVar, display: "inline-block" }} />
+            <span style={{ flex: 1 }}>{s.label}</span>
+            <span className="muted small">{`${fmt(s.value)} ${valueNoun} · ${((s.value / total) * 100).toFixed(1)}%`}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

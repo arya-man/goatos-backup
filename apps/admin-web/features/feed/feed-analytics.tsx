@@ -33,6 +33,7 @@ import {
   FEED_SERIES_VARS,
   FeedChartLegend,
   FeedLines,
+  FeedSpendPie,
   FeedStackedColumns,
   seriesColorVar,
   type LineSeries,
@@ -715,6 +716,30 @@ function DirectedTabs({
               valueNoun={fa(pageContract, "unit.rupees")}
               chartLabel={fa(pageContract, "chart.spend.title")}
               emptyLabel={fa(pageContract, "stock.empty")}
+            />
+          </ChartHover>
+        </section>
+      ) : null}
+
+      {tab === "overview" && itemMoney.size > 0 ? (
+        // Where the money goes: one slice per feed at its AVERAGE ₹ per priced day, the same
+        // figure the strip on each card below leads with, in each feed's own colour. Ranked by
+        // spend so the biggest slice starts at twelve o'clock; an unpriced feed has no rupees
+        // and so no slice — the cards below still show its kg.
+        <section className="card wchart" aria-label={fa(pageContract, "chart.spend_share.title")}>
+          <h2 className="h">{fa(pageContract, "chart.spend_share.title")}</h2>
+          <p className="muted small">{fa(pageContract, "chart.spend_share.hint")}</p>
+          <ChartHover>
+            <FeedSpendPie
+              slices={rankItemCards(view.itemSeries, itemMoney).flatMap(({ series, money }) =>
+                money && money.pricedDays > 0
+                  ? [{ label: series.label, value: money.rupeesTotal / money.pricedDays, colorVar: series.colorVar }]
+                  : [],
+              )}
+              valueNoun={fa(pageContract, "chart.spend_share.unit")}
+              formatValue={(v) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+              chartLabel={fa(pageContract, "chart.spend_share.title")}
+              emptyLabel={fa(pageContract, "empty.body")}
             />
           </ChartHover>
         </section>

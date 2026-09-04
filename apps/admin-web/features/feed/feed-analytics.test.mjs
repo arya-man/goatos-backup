@@ -99,6 +99,9 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
   // stock-only reader's contract offers no such tab, so the Stock tab carries the stock table alone.
   assert.match(source, /\{tab === "overview" \? \(\s*\/\/ Consumption tab/);
   assert.doesNotMatch(source, /\{tab === "items" && !stockOnly \? \(/);
+  // The spend-share pie sits on the Consumption tab too, fed by the same per-item money as the
+  // cards (average ₹ per priced day), so the slice and the card strip can never disagree.
+  assert.match(source, /\{tab === "overview" && itemMoney\.size > 0 \? \([\s\S]*?<FeedSpendPie[\s\S]*?money\.rupeesTotal \/ money\.pricedDays/);
 });
 
 test("the KPI tiles name the settled day rather than the last day drawn", () => {
