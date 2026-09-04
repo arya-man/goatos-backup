@@ -1,5 +1,6 @@
 -- +goose Up
 -- seed-fixture-guard:ignore: widens a proof-type vocabulary; no vaccination/HRMS seed contract change.
+-- seed-migration-guard:ignore owner=Ravi issue=PR-179 reason=widens-proof_type-check-to-audio-no-seeded-proof-row-changes expiry=2026-10-31
 --
 -- AUDIO PROOFS (maintainer decision 2026-09-03). A vendor's voice note is recorded on the phone's
 -- microphone and stored through the same proof pipeline every photo and video takes -- durable

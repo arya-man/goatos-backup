@@ -1288,6 +1288,7 @@ buyer board, pipelines, weight audit, market benchmarks) and `GET /sales/deals`
 
 | Surface | Decision | Reason |
 | --- | --- | --- |
+| table:person_module_access_vendors_mobile_backfill | excluded (migration ledger) | Rows written by migration `000250` so its Down path removes only the mobile Vendors ticks it created (review finding on PR 179). Two-column bookkeeping with no leadership fact. |
 | GET /sales/options | api (form vocabulary) | The record-sale vocabularies (farms, product types, breeds per product, statuses with chip tones, default status, date horizon) for the phone's Sales tab and the web drawer (maintainer instruction 2026-09-04). Form vocabulary only, no leadership fact; the assistant keeps answering from the covered `/sales/overview` and `/sales/deals` reads. Helpers `func:GetOptions`, `func:StatusTone` are presentation, not surfaces. |
 | table:sales_deals | api (GET /sales/overview, GET /sales/deals) | The sales ledger: one row per deal (Sheep/Goat/Manure), status-bucketed; only `Deal Closed` rows feed the overview aggregates. Cube/`ceo_ai` mapping is future work. |
 | sales_deal_payments | api (GET /sales/deals) | Row-level receipt evidence attached to bounded deal rows; paid-so-far and remaining balance stay in that ledger read until a dedicated receivables-aging aggregate is introduced. |

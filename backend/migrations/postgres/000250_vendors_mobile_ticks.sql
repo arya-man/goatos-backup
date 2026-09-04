@@ -11,11 +11,34 @@
 -- people. This copies each person's web `vendors` capabilities onto a mobile row, once, exactly as
 -- the role backfill would have written had the module been on both surfaces then. Idempotent: a
 -- mobile row that already exists (an admin ticked it by hand) is left alone.
-INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, updated_by, pages)
-SELECT web.tenant_id, web.workforce_member_id, 'mobile', 'vendors', web.capabilities, now(), web.updated_by, '{}'::text[]
-FROM public.person_module_access web
-WHERE web.surface = 'web' AND web.module_key = 'vendors' AND cardinality(web.capabilities) > 0
+--
+-- The rows THIS migration writes are remembered in a small ledger, so the Down path removes
+-- exactly those and nothing else: a mobile tick that existed before, or that an admin adds by
+-- hand afterwards, is real per-person access and must survive a rollback or a rehearsal.
+CREATE TABLE IF NOT EXISTS public.person_module_access_vendors_mobile_backfill (
+  tenant_id           uuid NOT NULL,
+  workforce_member_id uuid NOT NULL,
+  PRIMARY KEY (tenant_id, workforce_member_id)
+);
+
+WITH inserted AS (
+  INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, updated_by, pages)
+  SELECT web.tenant_id, web.workforce_member_id, 'mobile', 'vendors', web.capabilities, now(), web.updated_by, '{}'::text[]
+  FROM public.person_module_access web
+  WHERE web.surface = 'web' AND web.module_key = 'vendors' AND cardinality(web.capabilities) > 0
+  ON CONFLICT DO NOTHING
+  RETURNING tenant_id, workforce_member_id
+)
+INSERT INTO public.person_module_access_vendors_mobile_backfill (tenant_id, workforce_member_id)
+SELECT tenant_id, workforce_member_id FROM inserted
 ON CONFLICT DO NOTHING;
 
 -- +goose Down
-DELETE FROM public.person_module_access WHERE surface = 'mobile' AND module_key = 'vendors';
+-- Only the rows the Up path inserted (the ledger); pre-existing or hand-added mobile ticks stay.
+DELETE FROM public.person_module_access p
+USING public.person_module_access_vendors_mobile_backfill b
+WHERE p.tenant_id = b.tenant_id
+  AND p.workforce_member_id = b.workforce_member_id
+  AND p.surface = 'mobile'
+  AND p.module_key = 'vendors';
+DROP TABLE IF EXISTS public.person_module_access_vendors_mobile_backfill;
