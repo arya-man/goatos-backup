@@ -451,6 +451,7 @@ func TestSubmitRejectsStalePinnedVersion(t *testing.T) {
 
 func TestSubmitRejectsWrongAssignee(t *testing.T) {
 	repo := newFakeRepo()
+	repo.assignmentMatches = false
 	service := NewService(repo)
 	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
 		TenantID: testTenantID,
@@ -468,6 +469,29 @@ func TestSubmitRejectsWrongAssignee(t *testing.T) {
 	}
 	if appErr, ok := err.(*Error); !ok || appErr.Code != "task_not_assigned" {
 		t.Fatalf("err = %#v", err)
+	}
+}
+
+func TestSubmitAcceptsLinkedWorkforceAssignee(t *testing.T) {
+	repo := newFakeRepo()
+	assignedTo := testOtherID
+	repo.task.AssignedTo = &assignedTo
+	repo.assignmentMatches = true
+	service := NewService(repo)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "linked-workforce-submit",
+			Answers:        validAnswers(),
+			ProofRefs:      completedProof(),
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v", err)
 	}
 }
 
@@ -1709,6 +1733,8 @@ type fakeRepo struct {
 	listTasksResult                    []domain.TaskSummary
 	listTasksTotal                     int64
 	lastListTasks                      ports.ListTasksParams
+	assignmentMatches                  bool
+	assignmentMatchesErr               error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -1737,7 +1763,8 @@ func newFakeRepo() *fakeRepo {
 			Context:      map[string]any{},
 			RowVersion:   1,
 		},
-		shedReadiness: ports.ShedCompletionReadiness{Enabled: true},
+		shedReadiness:     ports.ShedCompletionReadiness{Enabled: true},
+		assignmentMatches: true,
 		version: domain.SOPVersion{
 			SOPVersionID: testVersionID,
 			TenantID:     testTenantID,
@@ -1807,6 +1834,9 @@ func (f *fakeRepo) CreateTasksForBatches(_ context.Context, _ string, _ string, 
 }
 func (f *fakeRepo) GetTask(context.Context, string, string) (domain.TaskSummary, *domain.SOPVersion, []domain.SubmissionSummary, error) {
 	return f.task, &f.version, f.submissions, nil
+}
+func (f *fakeRepo) AssignmentMatchesActor(context.Context, string, string, string) (bool, error) {
+	return f.assignmentMatches, f.assignmentMatchesErr
 }
 func (f *fakeRepo) AssignTask(context.Context, ports.AssignTaskCommand) (domain.TaskSummary, error) {
 	return f.task, nil

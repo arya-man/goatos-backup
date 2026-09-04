@@ -142,6 +142,19 @@ SET dose_code = EXCLUDED.dose_code,
     proof_policy = EXCLUDED.proof_policy,
     sort_order = EXCLUDED.sort_order;
 
+UPDATE qa_vax_rules q
+SET rule_id = actual.rule_id
+FROM protocol_rules actual
+WHERE actual.tenant_id = '${tenant_id}'::uuid
+  AND actual.protocol_version_id = '91000000-0000-4000-8000-000000000502'::uuid
+  AND actual.dose_code = q.dose_code;
+
+DELETE FROM protocol_rule_dimensions dim
+USING qa_vax_rules q
+WHERE dim.tenant_id = '${tenant_id}'::uuid
+  AND dim.protocol_version_id = '91000000-0000-4000-8000-000000000502'::uuid
+  AND dim.dose_code = q.dose_code;
+
 INSERT INTO protocol_rule_dimensions (
   tenant_id, protocol_version_id, rule_id, category, ruleset_family, matrix_row_id,
   selector_key, dose_code, source_dose_code, vaccine_code, vaccine_type,
@@ -182,8 +195,7 @@ SELECT '${tenant_id}'::uuid,
        '{"stage":"K2","lifecycle":"alive"}'::jsonb,
        jsonb_build_object('code', vaccine_code),
        jsonb_build_object('dose_code', dose_code)
-FROM qa_vax_rules
-ON CONFLICT DO NOTHING;
+FROM qa_vax_rules;
 
 CREATE TEMP TABLE qa_sheds (
   seq int PRIMARY KEY,
@@ -196,11 +208,11 @@ CREATE TEMP TABLE qa_sheds (
 ) ON COMMIT DROP;
 
 INSERT INTO qa_sheds VALUES
-  (1, '91000000-0000-4000-8000-000000000201', 'Godel 1',   'Part 1', '',    2, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[]),
-  (2, '91000000-0000-4000-8000-000000000203', 'Yashoda 1', 'Part 2', 'Y1-', 3, ARRAY['9c500000-0000-4000-8000-000000000504','9c500000-0000-4000-8000-000000000505']::uuid[]),
-  (3, '9c000000-0000-4000-8000-000000000301', 'Gandhi 1',  'Part 1', 'G1-', 2, ARRAY['9c500000-0000-4000-8000-000000000504','9c500000-0000-4000-8000-000000000505']::uuid[]),
-  (4, '9c000000-0000-4000-8000-000000000302', 'Gandhi 2',  'Part 3', 'G2-', 3, ARRAY['9c500000-0000-4000-8000-000000000504','9c500000-0000-4000-8000-000000000505','9c500000-0000-4000-8000-000000000506']::uuid[]),
-  (5, '91000000-0000-4000-8000-000000000202', 'Mandela 2', 'Part 7', 'M2-', 2, ARRAY['9c500000-0000-4000-8000-000000000504','9c500000-0000-4000-8000-000000000505','9c500000-0000-4000-8000-000000000506']::uuid[]);
+  (1, '91000000-0000-4000-8000-000000000201', 'Godel 1',   'Part 1', '',    2, ARRAY[(SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'ET_TT_QA')]::uuid[]),
+  (2, '91000000-0000-4000-8000-000000000203', 'Yashoda 1', 'Part 2', 'Y1-', 3, ARRAY[(SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'PPR_QA'), (SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'FMD_QA')]::uuid[]),
+  (3, '9c000000-0000-4000-8000-000000000301', 'Gandhi 1',  'Part 1', 'G1-', 2, ARRAY[(SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'PPR_QA'), (SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'FMD_QA')]::uuid[]),
+  (4, '9c000000-0000-4000-8000-000000000302', 'Gandhi 2',  'Part 3', 'G2-', 3, ARRAY[(SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'PPR_QA'), (SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'FMD_QA'), (SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'HS_QA')]::uuid[]),
+  (5, '91000000-0000-4000-8000-000000000202', 'Mandela 2', 'Part 7', 'M2-', 2, ARRAY[(SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'PPR_QA'), (SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'FMD_QA'), (SELECT rule_id FROM qa_vax_rules WHERE dose_code = 'HS_QA')]::uuid[]);
 
 CREATE TEMP TABLE qa_tags (idx int PRIMARY KEY, tag text NOT NULL) ON COMMIT DROP;
 INSERT INTO qa_tags VALUES
@@ -834,11 +846,17 @@ WITH expected_sheds(seq, shed_id, shed_name, combo) AS (
     (5, '91000000-0000-4000-8000-000000000202'::uuid, 'Mandela 2', 'PPR+FMD+HS')
 ),
 expected_rules(rule_id, vaccine_code, rule_order) AS (
-  VALUES
-    ('91000000-0000-4000-8000-000000000503'::uuid, 'ET+TT', 1),
-    ('9c500000-0000-4000-8000-000000000504'::uuid, 'PPR', 2),
-    ('9c500000-0000-4000-8000-000000000505'::uuid, 'FMD', 3),
-    ('9c500000-0000-4000-8000-000000000506'::uuid, 'HS', 4)
+  SELECT pr.rule_id, v.vaccine_code, v.rule_order
+  FROM (VALUES
+    ('ET_TT_QA', 'ET+TT', 1),
+    ('PPR_QA', 'PPR', 2),
+    ('FMD_QA', 'FMD', 3),
+    ('HS_QA', 'HS', 4)
+  ) AS v(dose_code, vaccine_code, rule_order)
+  JOIN protocol_rules pr
+    ON pr.tenant_id = '${tenant_id}'::uuid
+   AND pr.protocol_version_id = '91000000-0000-4000-8000-000000000502'::uuid
+   AND pr.dose_code = v.dose_code
 ),
 fixture_goats AS (
   SELECT g.goat_id, g.shed_id, gi.normalized_value
@@ -882,11 +900,17 @@ ORDER BY e.seq;
 
 \echo 'Counts by vaccine'
 WITH expected_rules(rule_id, vaccine_code, rule_order) AS (
-  VALUES
-    ('91000000-0000-4000-8000-000000000503'::uuid, 'ET+TT', 1),
-    ('9c500000-0000-4000-8000-000000000504'::uuid, 'PPR', 2),
-    ('9c500000-0000-4000-8000-000000000505'::uuid, 'FMD', 3),
-    ('9c500000-0000-4000-8000-000000000506'::uuid, 'HS', 4)
+  SELECT pr.rule_id, v.vaccine_code, v.rule_order
+  FROM (VALUES
+    ('ET_TT_QA', 'ET+TT', 1),
+    ('PPR_QA', 'PPR', 2),
+    ('FMD_QA', 'FMD', 3),
+    ('HS_QA', 'HS', 4)
+  ) AS v(dose_code, vaccine_code, rule_order)
+  JOIN protocol_rules pr
+    ON pr.tenant_id = '${tenant_id}'::uuid
+   AND pr.protocol_version_id = '91000000-0000-4000-8000-000000000502'::uuid
+   AND pr.dose_code = v.dose_code
 )
 SELECT er.vaccine_code,
        count(DISTINCT oi.target_id) AS animals,

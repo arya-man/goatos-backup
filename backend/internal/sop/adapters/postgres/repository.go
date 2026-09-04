@@ -558,6 +558,31 @@ ORDER BY context ->> 'obligation_batch_id'`, tenantID, batchIDs)
 	return result, nil
 }
 
+func (r *Repository) AssignmentMatchesActor(ctx context.Context, tenantID, assignedTo, actorID string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if strings.TrimSpace(assignedTo) == "" || strings.TrimSpace(actorID) == "" {
+		return false, nil
+	}
+	var matches bool
+	err := r.pool.QueryRow(ctx, `
+SELECT $2::uuid = $3::uuid
+   OR EXISTS (
+     SELECT 1
+     FROM workforce_members wm
+     WHERE wm.tenant_id = $1::uuid
+       AND (
+         (wm.workforce_member_id = $2::uuid AND wm.user_id = $3::uuid)
+         OR (wm.user_id = $2::uuid AND wm.workforce_member_id = $3::uuid)
+       )
+       AND wm.status = 'active'
+   )`, tenantID, assignedTo, actorID).Scan(&matches)
+	if err != nil {
+		return false, err
+	}
+	return matches, nil
+}
+
 // getVersionForTaskCreation is a helper to resolve SOP version within a transaction
 func (r *Repository) getVersionForTaskCreation(ctx context.Context, tx pgx.Tx, tenantID, versionID string) (domain.SOPVersion, error) {
 	rows, err := tx.Query(ctx, versionSelectSQL(`

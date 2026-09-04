@@ -17,6 +17,7 @@ func TestVaccinationDoseDisplayLabel(t *testing.T) {
 		{name: "generic booster keeps sequence internal", protocolName: "Preventive Care Vaccination Matrix", doseCode: "PPR_BOOSTER", want: "PPR"},
 		{name: "adult matrix wave does not leak protocol family or wave", protocolName: "Preventive Care Vaccination Matrix", doseCode: "et_tt_adult_w2", want: "ET+TT"},
 		{name: "goat pox matrix wave does not leak wave", protocolName: "Preventive Care Vaccination Matrix", doseCode: "goat_pox_adult_w1", want: "Goat Pox"},
+		{name: "vaccine code with plus renders as antigen", protocolName: "Per Animal Proof Vaccination QA", doseCode: "ET+TT", want: "ET+TT"},
 		{name: "matrix protocol alone is not exposed as UI copy", protocolName: "Preventive Care Vaccination Matrix", doseCode: "", want: "Vaccination"},
 		{name: "unknown dose keeps backend supplied context", protocolName: "Rabies", doseCode: "D1", want: "Rabies · D1"},
 		{name: "protocol only", protocolName: "Rabies", doseCode: "", want: "Rabies"},

@@ -188,6 +188,7 @@ type Repository interface {
 	CreateTask(ctx context.Context, cmd CreateTaskCommand) (domain.TaskSummary, error)
 	CreateTasksForBatches(ctx context.Context, tenantID, sopVersionID, actorID string, tasks []domain.BatchTaskRequest) (map[string]string, error)
 	GetTask(ctx context.Context, tenantID, taskID string) (domain.TaskSummary, *domain.SOPVersion, []domain.SubmissionSummary, error)
+	AssignmentMatchesActor(ctx context.Context, tenantID, assignedTo, actorID string) (bool, error)
 	AssignTask(ctx context.Context, cmd AssignTaskCommand) (domain.TaskSummary, error)
 	ReviewTask(ctx context.Context, cmd ReviewTaskCommand) (domain.TaskSummary, error)
 	ListPendingReviewFanouts(ctx context.Context, tenantID string, limit int) ([]ReviewFanoutAttempt, error)

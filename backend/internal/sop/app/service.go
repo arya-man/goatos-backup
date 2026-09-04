@@ -546,8 +546,8 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if version.Status != "published" {
 		return nil, Conflict("sop_version_not_executable", "pinned SOP version is not published")
 	}
-	if task.AssignedTo != nil && *task.AssignedTo != cmd.ActorID {
-		return nil, Forbidden("task_not_assigned", "task is not assigned to this actor")
+	if err := s.ensureTaskAssignedToActor(ctx, cmd.TenantID, task.AssignedTo, cmd.ActorID); err != nil {
+		return nil, err
 	}
 	if s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
 		proofRefs, err := s.proofs.ResolveProofRefs(ctx, cmd.TenantID, proofBindingForSubmission(task, cmd.Body.ProofRefs), cmd.Body.ProofRefs)
@@ -710,8 +710,8 @@ func (s *Service) RecordScanCapture(ctx context.Context, cmd ports.RecordScanCap
 	if version == nil {
 		return nil, Conflict("missing_sop_version", "task has no pinned SOP version")
 	}
-	if task.AssignedTo != nil && *task.AssignedTo != cmd.ActorID {
-		return nil, Forbidden("task_not_assigned", "task is not assigned to this actor")
+	if err := s.ensureTaskAssignedToActor(ctx, cmd.TenantID, task.AssignedTo, cmd.ActorID); err != nil {
+		return nil, err
 	}
 	if !scanFieldAllowed(version.FormDSL, cmd.Body.FieldKey) {
 		return nil, BadRequest("invalid_scan_field", "field_key is not a goat scan field for this task")
@@ -767,8 +767,8 @@ func (s *Service) RecordScanAttempt(ctx context.Context, cmd ports.RecordScanAtt
 	if version == nil {
 		return nil, Conflict("missing_sop_version", "task has no pinned SOP version")
 	}
-	if task.AssignedTo != nil && *task.AssignedTo != cmd.ActorID {
-		return nil, Forbidden("task_not_assigned", "task is not assigned to this actor")
+	if err := s.ensureTaskAssignedToActor(ctx, cmd.TenantID, task.AssignedTo, cmd.ActorID); err != nil {
+		return nil, err
 	}
 	if !scanFieldAllowed(version.FormDSL, cmd.Body.FieldKey) {
 		return nil, BadRequest("invalid_scan_field", "field_key is not a goat scan field for this task")
@@ -1535,6 +1535,20 @@ func validateTenantActorID(tenantID, actorID, id, field string) error {
 	}
 	if !uuidutil.IsUUIDString(id) {
 		return BadRequest("invalid_"+field, field+" must be a UUID")
+	}
+	return nil
+}
+
+func (s *Service) ensureTaskAssignedToActor(ctx context.Context, tenantID string, assignedTo *string, actorID string) error {
+	if assignedTo == nil || strings.TrimSpace(*assignedTo) == "" {
+		return nil
+	}
+	matches, err := s.repo.AssignmentMatchesActor(ctx, tenantID, *assignedTo, actorID)
+	if err != nil {
+		return mapRepoErr(err)
+	}
+	if !matches {
+		return Forbidden("task_not_assigned", "task is not assigned to this actor")
 	}
 	return nil
 }

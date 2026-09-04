@@ -88,6 +88,7 @@ interface OutboxDao {
             // hold back work that is about to succeed.
             "AND ((" +
             "older.status = 'FAILED' " +
+            "AND NOT (older.opType = 'SCAN_ATTEMPT' AND candidate.opType IN ('SCAN_CAPTURE', 'SHED_SUBMIT')) " +
             "AND NOT (candidate.opType = 'COUNTS_SHIFTING' AND older.opType = 'COUNTS_SHIFTING') " +
             "AND NOT (candidate.opType = 'PROOF_UPLOAD' AND older.opType = 'PROOF_UPLOAD') " +
             "AND NOT (candidate.opType = older.opType AND candidate.opType IN ('WEIGHING_ANIMAL_OBSERVATION', 'WEIGHING_SHED_OBSERVATION')) " +

@@ -102,6 +102,7 @@ class KeyboardWedgeRfidReader(
     override fun onKeyEvent(event: KeyEvent): Boolean = capture.onKeyEvent(event)
 
     override fun setCaptureEnabled(enabled: Boolean) {
+        if (!enabled || !capture.enabled) capture.resetBufferedRead()
         capture.enabled = enabled
         if (enabled) refreshStatus()
     }

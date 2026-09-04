@@ -34,6 +34,11 @@ class RfidKeyboardCapture(
     private val buffer = StringBuilder()
     private var deviceName: String? = null
 
+    fun resetBufferedRead() {
+        buffer.setLength(0)
+        deviceName = null
+    }
+
     /** Returns true if the event was consumed as tag input (caller must not pass it on). */
     fun onKeyEvent(event: KeyEvent): Boolean {
         val completion = isCompletionKey(event)

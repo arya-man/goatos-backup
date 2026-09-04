@@ -1,6 +1,6 @@
 # Vaccination Implicit Submit Contract
 
-Status: in progress, phone-QA gated before landing.
+Status: implemented and verified on POCO against the local throwaway DB before landing.
 
 ## Execution Unit
 
@@ -44,6 +44,15 @@ Unknown tags and neighboring/wrong execution-unit animals do not count toward re
 
 ## Progress Log
 
+- Final root cause from POCO/local-backend E2E: proof video upload succeeded, but scan capture and submit authorization compared `sop_tasks.assigned_to` directly with the JWT actor id. Vaccination tasks are assigned to `workforce_members.workforce_member_id`; the mobile JWT actor is the linked `workforce_members.user_id`. That made backend reject real Sagar scan captures as `task_not_assigned`, so videos existed but no submission or verification rows could be created.
+- Backend fix: task assignment checks now accept either direct actor equality or an active `workforce_members` link between the assigned workforce member id and the actor user id. The same resolver is used by scan capture, scan attempt, and submit.
+- Android outbox fix: terminal failed `SCAN_ATTEMPT` audit rows no longer hold back real `SCAN_CAPTURE` or `SHED_SUBMIT` rows. Terminal failed scan captures still block submit because a shed must not close with missing scan evidence.
+- Android RFID fix: toggling keyboard-wedge capture clears stale buffered characters, so a partial/previous tag cannot contaminate the next debug or physical scan.
+- Final POCO proof run: Sagar opened `Gandhi 1 - Part 1`, scanned `G1-901007000504332` and `G1-901007000504418`, recorded both proofs, and the scan screen auto-closed to the shed list after backend submit success.
+- Final DB proof for that exact partition: 4 `sop_task_scan_captures`, 2 completed `proof_artifacts`, 1 `sop_submissions`, 2 `sop_submission_items` in `needs_review`, 1 `sop_task_submission_fanouts`, and 4 `vaccination_completions` (`PPR_QA` + `FMD_QA` for each animal).
+- Final screenshot evidence: `/tmp/goatos-phone-qa-implicit-submit/after-auto-close-fixed.png`.
+- Final focused gates passed: `go test ./internal/sop/app`, `go test ./internal/sop/adapters/postgres ./internal/sop/app`, Android core outbox unit tests, and focused Android scan/submit/debug-aliaser unit tests.
+
 - Local phone QA bootstrap rule: do not invent `GOATOS_LOCAL_USER_ID`. The local auth identity is `workforce_members.user_id`, not `people.person_id` and this schema has no `people` table. Use the Android dev runner default field-operator identity unless the seed explicitly prints another valid operator. A bad user id makes `/app/bootstrap` return `403` and wastes time as a fake "offline/queued" phone symptom.
 - Local phone QA seed rule: the seed must assign `vaccination_drive_assignments.operator_id` and `sop_tasks.assigned_to` to the same active operator workforce member represented by the installed phone token. For Sagar local QA, install with `GOATOS_LOCAL_USER_ID=90000000-0000-4000-8000-000000000204`; the seed resolves that to `workforce_members.workforce_member_id`. The seed must fail if any QA assignment lands on `partition_label = 'whole'` because this test is specifically for partitioned sheds.
 - Local phone QA permission rule: after `pm clear`, grant all operator runtime permissions before judging UI behavior: camera, microphone, fine location, coarse location, notification, `BLUETOOTH_CONNECT`, and `BLUETOOTH_SCAN`. Missing `BLUETOOTH_SCAN` leaves the app's permission gate visible even when the API/auth/seed are correct.
@@ -68,3 +77,5 @@ Unknown tags and neighboring/wrong execution-unit animals do not count toward re
 - Backend hardening after judge review: every goat-level vaccination submit now requires exact shed scope, even if an older/manual client sends proof refs or answers. No exact shed scope means `missing_shed_scope`, not a broad parent-task completion.
 - Android hardening after judge review: only per-goat-video vaccination suppresses the submit/footer path. Shed-level proof flows keep the old Submit screen route.
 - Backend projection rule: operator execution cards must expose vaccine chips from server vaccine codes (`protocol_rule_dimensions.vaccine_code`) at assignment-member obligation grain. Do not infer the visible vaccine mix from a representative dose row; the five-shed phone fixture must show ET+TT, PPR+FMD, and PPR+FMD+HS before scan E2E starts.
+- Seed idempotency rule: after upserting protocol rules, the fixture must resolve shed `rule_ids` from the actual persisted `protocol_rules.dose_code` rows. Hardcoded rule UUIDs can drift on repeated local runs and silently drop one vaccine, which creates a fake product bug.
+- Seed dimension rule: disposable QA vaccine dimensions are deleted and recreated by QA dose code each run. Duplicate `protocol_rule_dimensions` rows inflate/mask vaccine breakdowns and make API/card proof look wrong even when obligations exist.
