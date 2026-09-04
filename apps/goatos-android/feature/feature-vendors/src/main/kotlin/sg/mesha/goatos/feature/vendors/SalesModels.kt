@@ -126,6 +126,8 @@ data class SaleCreateUiState(
     val maxDate: String = "",
     val writeStatus: VendorsWriteStatus = VendorsWriteStatus.IDLE,
     val writeMessage: String = "",
+    /** The write is durable (accepted, or queued for when the phone is online): the screen shows the banner briefly and closes. */
+    val closeAfterSave: Boolean = false,
     val submitInFlight: Boolean = false,
     val message: String? = null,
 )
