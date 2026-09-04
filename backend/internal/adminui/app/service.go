@@ -4039,7 +4039,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"tab.load": "Comparison",
 
 			"section.load.title":   "Purchased weight against the latest weighing",
-			"section.load.caption": "Average weight per animal in each purchased load — as bought, and at its latest weighing. The figure above each pair is how many times the arrival weight the load now stands at.",
+			"section.load.caption": "Average weight per animal in each purchased load — as bought, and at its latest weighing. The figure above each pair is how many times the arrival weight the load now stands at, followed by the pens the load's weighed animals sit in and the head count at each pen's latest weigh.",
 			"section.load.aria":    "Purchased weight against latest weighing by load",
 
 			"legend.load.purchased": "At purchase",

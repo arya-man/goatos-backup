@@ -31,6 +31,31 @@ function loadHeading(load: LoadwiseWeightLoad): string {
   return load.load_ref || load.vendor_name || fmtDate(load.purchase_date ?? undefined) || load.load_id;
 }
 
+/**
+ * The pens one load's weighed animals sit in, as one line: the backend-composed operational
+ * display for each contributing pen with its head count at that pen's latest weigh.
+ *
+ * The park is prefixed ONLY when the load spans more than one park. A shed name is not unique
+ * across parks -- this farm has a "Castro 1" in each -- so a load split across both would
+ * otherwise print one name twice with nothing to tell them apart; a load sitting in one park
+ * needs no prefix, and adding it everywhere would push the pens off the line.
+ *
+ * The names are DATA, composed by the backend (`operational_location_display`) and passed
+ * through: this file never joins a shed name to a partition label itself. Empty when the load has
+ * no weighed pen, which reads as an absent sub-line rather than an empty separator.
+ */
+function penList(bucket: { placements?: readonly { park_name: string; operational_location_display: string; animals: number }[] } | undefined): string {
+  const placements = bucket?.placements ?? [];
+  if (placements.length === 0) return "";
+  const multiPark = new Set(placements.map((p) => p.park_name).filter(Boolean)).size > 1;
+  return placements
+    .map((p) => {
+      const where = multiPark && p.park_name ? `${p.park_name} ${p.operational_location_display}` : p.operational_location_display;
+      return `${where} · ${p.animals.toLocaleString("en-IN")}`;
+    })
+    .join(", ");
+}
+
 export function LoadComparisonTab({
   pageContract,
   loads,
@@ -74,6 +99,8 @@ export function LoadComparisonTab({
     purchasedAvg: number | null;
     latestAvg: number | null;
     multiple: number | null;
+    /** Where this load's weighed animals actually are, ready to render. */
+    pens: string;
   };
   const rows: Row[] = loads
     .map((load) => {
@@ -82,7 +109,7 @@ export function LoadComparisonTab({
       const latestAvg = bucket ? bucket.average_weight_kg : null;
       const multiple =
         purchasedAvg !== null && purchasedAvg > 0 && latestAvg !== null ? latestAvg / purchasedAvg : null;
-      return { load, heading: loadHeading(load), purchasedAvg, latestAvg, multiple };
+      return { load, heading: loadHeading(load), purchasedAvg, latestAvg, multiple, pens: penList(bucket) };
     })
     // ONLY loads with a latest weighing (maintainer request 2026-09-03): this tab compares, and a
     // load nobody has weighed since it arrived has nothing to compare. The note above the chart
@@ -142,10 +169,13 @@ export function LoadComparisonTab({
         seriesKey: "latest",
       });
     }
+    // The multiple, then WHERE the load is. A bar saying a supplier's stock grew 1.4x names no
+    // pen, so a reader cannot walk from it to the pens table below or go and look at the animals.
+    const multiple = row.multiple !== null ? `${row.multiple.toFixed(1)}${suffix}` : "";
     return {
       key: row.load.load_id,
       heading: row.heading,
-      subheading: row.multiple !== null ? `${row.multiple.toFixed(1)}${suffix}` : undefined,
+      subheading: [multiple, row.pens].filter(Boolean).join(" · ") || undefined,
       bars,
     };
   });
