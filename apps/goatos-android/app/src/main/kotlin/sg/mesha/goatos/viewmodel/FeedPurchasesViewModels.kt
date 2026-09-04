@@ -320,7 +320,8 @@ class FeedPurchaseCreateViewModel @Inject constructor(
             when (val result = syncRepository.enqueueFeedPurchaseCreate(clientId, current.values.toWrite())) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_PURCHASE_QUEUED)
-                    local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED) }
+                    local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
+                    followWrite(result.value)
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, "feed purchase create enqueue failed") }
@@ -331,6 +332,21 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         }
     }
 
+
+    /** Upgrades the banner as the queued row moves: saved, still unsent (offline wording), or rejected. */
+    private fun followWrite(itemId: String) {
+        viewModelScope.launch {
+            syncRepository.followQueuedWrite(itemId).collect { outcome ->
+                local.update {
+                    when (outcome) {
+                        QueuedWriteOutcome.Saved -> it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED)
+                        QueuedWriteOutcome.StillQueued -> it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED)
+                        is QueuedWriteOutcome.Rejected -> it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_NOT_SAVED)
+                    }
+                }
+            }
+        }
+    }
     private fun validate(step: Int, v: Map<PurchaseField, String>): Map<PurchaseField, String> {
         val errors = mutableMapOf<PurchaseField, String>() // mobile-guard:ignore: per-call validation result, at most one entry per form field, returned and dropped
         fun money(f: PurchaseField) {
@@ -396,7 +412,9 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         const val NOT_FUTURE = "Cannot be in the future"
         const val NOT_BEFORE_BOUGHT = "Cannot be before the day it was bought"
         const val NEEDS_REACHED_DATE = "Enter the reached date first"
-        const val MESSAGE_QUEUED = "Purchase saved. It will reach the ledger when the phone is online."
+        const val MESSAGE_SAVING = "Saving purchase…"
+        const val MESSAGE_SAVED = "Purchase saved to the ledger."
+        const val MESSAGE_QUEUED = "Saved on this phone. It will reach the ledger when the phone is online."
         const val MESSAGE_NOT_SAVED = "Could not save this purchase. Try again."
     }
 }

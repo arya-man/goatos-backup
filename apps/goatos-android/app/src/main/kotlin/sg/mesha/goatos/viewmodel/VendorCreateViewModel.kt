@@ -156,7 +156,8 @@ class VendorCreateViewModel @Inject constructor(
             when (result) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_VENDOR_QUEUED)
-                    local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED) }
+                    local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
+                    followWrite(result.value)
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, "vendor create enqueue failed") }
@@ -167,6 +168,21 @@ class VendorCreateViewModel @Inject constructor(
         }
     }
 
+
+    /** Upgrades the banner as the queued row moves: saved, still unsent (offline wording), or rejected. */
+    private fun followWrite(itemId: String) {
+        viewModelScope.launch {
+            syncRepository.followQueuedWrite(itemId).collect { outcome ->
+                local.update {
+                    when (outcome) {
+                        QueuedWriteOutcome.Saved -> it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED)
+                        QueuedWriteOutcome.StillQueued -> it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED)
+                        is QueuedWriteOutcome.Rejected -> it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_NOT_SAVED)
+                    }
+                }
+            }
+        }
+    }
     private fun reset() {
         savedStateHandle[KEY_CLIENT_ID] = UUID.randomUUID().toString()
         local.value = Local()
@@ -307,7 +323,9 @@ class VendorCreateViewModel @Inject constructor(
         const val MORE_THAN_ZERO = "Must be more than zero"
         const val AMOUNT = "Enter an amount, up to two decimals"
         const val WHOLE_DAYS = "Whole days, zero or more"
-        const val MESSAGE_QUEUED = "Vendor saved. It will reach the register when the phone is online."
+        const val MESSAGE_SAVING = "Saving vendor…"
+        const val MESSAGE_SAVED = "Vendor saved to the register."
+        const val MESSAGE_QUEUED = "Saved on this phone. It will reach the register when the phone is online."
         const val MESSAGE_NOT_SAVED = "Could not save this vendor. Try again."
     }
 }
