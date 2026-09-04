@@ -3051,6 +3051,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/leadership-tasks/{task_id}/attachments/{proof_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a signed download URL for a leadership task attachment.
+         * @description Returns a proof media download URL only when the caller is party to the task and the proof id is one of that task's stored attachments. A task the caller cannot open, or a proof that is not attached to it, reads as not found.
+         */
+        get: operations["downloadLeadershipTaskAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/feed-purchases/{purchase_id}/payments": {
         parameters: {
             query?: never;
@@ -20923,6 +20943,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadershipTaskDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    downloadLeadershipTaskAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                proof_id: components["parameters"]["ProofId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed download URL. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadProofResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

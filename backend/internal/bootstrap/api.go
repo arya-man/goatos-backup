@@ -704,7 +704,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Leadership Tasks (maintainer decision 2026-09-04): a director's ask of the CXO desk.
 	// The service also feeds the drawer badge (unseen assigned tasks) into /app/bootstrap.
 	leadershipTasksService := leadershiptasksapp.NewService(
-		leadershiptaskspg.NewRepository(pool, cfg.Postgres.QueryTimeout), leadershiptasksproof.NewResolver(proofRepo))
+		leadershiptaskspg.NewRepository(pool, cfg.Postgres.QueryTimeout), leadershiptasksproof.NewResolver(proofRepo)).
+		WithAttachmentDownloader(proofService)
 	leadershipTasksHandler := leadershiptaskshttp.NewHandler(leadershipTasksService, log)
 	workforceService.WithModuleBadges(leadershipTasksService)
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial

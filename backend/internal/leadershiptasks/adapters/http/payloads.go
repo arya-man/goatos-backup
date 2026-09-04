@@ -96,6 +96,11 @@ type assigneesPayload struct {
 	TraceID   string            `json:"trace_id"`
 }
 
+type downloadPayload struct {
+	DownloadURL string `json:"download_url"`
+	TraceID     string `json:"trace_id"`
+}
+
 type attachmentRefPayload struct {
 	ProofID  string `json:"proof_id"`
 	Kind     string `json:"kind"`

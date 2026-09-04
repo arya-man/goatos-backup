@@ -32,6 +32,7 @@ class FakeLeadershipTasksRepository(
     data class RaiseCall(val idempotencyKey: String, val request: LeadershipTaskRaiseRequestDto)
     data class EditCall(val taskId: String, val idempotencyKey: String, val request: LeadershipTaskEditRequestDto)
     data class StatusCall(val taskId: String, val idempotencyKey: String, val request: LeadershipTaskStatusRequestDto)
+    data class FetchCall(val taskId: String, val proofId: String)
 
     private val detail = MutableStateFlow(initialDetail)
     private val _pageMeta = MutableStateFlow(LeadershipTaskPageMeta())
@@ -47,6 +48,7 @@ class FakeLeadershipTasksRepository(
     val edits = mutableListOf<EditCall>()
     val statusCalls = mutableListOf<StatusCall>()
     val fetchedProofs = mutableListOf<String>()
+    val fetchCalls = mutableListOf<FetchCall>()
 
     /** Scripted failures: each consumed once. */
     var failNextUpload: Boolean = false
@@ -142,7 +144,8 @@ class FakeLeadershipTasksRepository(
         return AppResult.Ok(seen)
     }
 
-    override suspend fun attachmentFile(proofId: String, fileName: String): AppResult<String> {
+    override suspend fun attachmentFile(taskId: String, proofId: String, fileName: String): AppResult<String> {
+        fetchCalls += FetchCall(taskId, proofId)
         fetchedProofs += proofId
         return AppResult.Ok("/cache/$proofId")
     }

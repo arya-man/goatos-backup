@@ -63,6 +63,16 @@ func (f *fakeResolver) ResolveAttachments(_ context.Context, _, _ string, refs [
 	return out, nil
 }
 
+type fakeDownloader struct {
+	url   string
+	calls []string
+}
+
+func (f *fakeDownloader) DownloadURL(_ context.Context, tenantID, proofID string) (string, error) {
+	f.calls = append(f.calls, tenantID+"/"+proofID)
+	return f.url, nil
+}
+
 func TestRaiseResolvesAttachmentsBeforeTheWriteAndRefusesSelfAssignment(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo, &fakeResolver{})
@@ -115,6 +125,37 @@ func TestGetTaskHidesATaskTheCallerIsNotPartyTo(t *testing.T) {
 	}
 	if _, err := svc.GetTask(ctx, tenant, domain.Actor{UserID: assignee}, "not-a-uuid"); !errors.Is(err, ports.ErrTaskNotFound) {
 		t.Fatalf("bad id must read not-found, got %v", err)
+	}
+}
+
+func TestAttachmentDownloadURLIsPartyAndAttachmentScoped(t *testing.T) {
+	const proofID = "66666666-6666-4666-8666-666666666666"
+	repo := &fakeRepo{task: domain.Task{
+		TaskID:         taskID,
+		RaisedByUserID: raiser,
+		AssigneeUserID: assignee,
+		Status:         domain.StatusOpen,
+		Attachments:    []domain.Attachment{{ProofID: proofID}},
+	}}
+	downloader := &fakeDownloader{url: "https://media.example/download"}
+	svc := NewService(repo, nil).WithAttachmentDownloader(downloader)
+	ctx := context.Background()
+
+	url, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: assignee}, taskID, proofID)
+	if err != nil || url != downloader.url {
+		t.Fatalf("assignee attached proof download = %q, %v", url, err)
+	}
+	if len(downloader.calls) != 1 || downloader.calls[0] != tenant+"/"+proofID {
+		t.Fatalf("downloader calls = %+v", downloader.calls)
+	}
+	if _, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: assignee}, taskID, "77777777-7777-4777-8777-777777777777"); !errors.Is(err, ports.ErrTaskNotFound) {
+		t.Fatalf("unattached proof must read not-found, got %v", err)
+	}
+	if _, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: "55555555-5555-4555-8555-555555555555"}, taskID, proofID); !errors.Is(err, ports.ErrTaskNotFound) {
+		t.Fatalf("non-party proof download must read not-found, got %v", err)
+	}
+	if len(downloader.calls) != 1 {
+		t.Fatalf("downloader must not be reached for refused requests: %+v", downloader.calls)
 	}
 }
 

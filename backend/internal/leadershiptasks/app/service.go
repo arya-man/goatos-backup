@@ -27,12 +27,19 @@ var ErrIdempotencyKeyRequired = errors.New("leadership task: idempotency key req
 type Service struct {
 	repo        ports.Repository
 	attachments ports.AttachmentResolver
+	downloader  ports.AttachmentDownloader
 	now         func() time.Time
 }
 
 // NewService wires the service.
 func NewService(repo ports.Repository, attachments ports.AttachmentResolver) *Service {
 	return &Service{repo: repo, attachments: attachments, now: time.Now}
+}
+
+// WithAttachmentDownloader wires proof URL minting after leadership-task authorization.
+func (s *Service) WithAttachmentDownloader(downloader ports.AttachmentDownloader) *Service {
+	s.downloader = downloader
+	return s
 }
 
 // WithClock pins the clock, for tests.
@@ -176,6 +183,27 @@ func (s *Service) MarkSeen(ctx context.Context, tenantID string, actor domain.Ac
 		return task, nil
 	}
 	return s.repo.MarkSeen(ctx, tenantID, taskID, actor.UserID)
+}
+
+// AttachmentDownloadURL returns a URL only when the caller is party to the task and the proof
+// is one of that task's stored attachments.
+func (s *Service) AttachmentDownloadURL(ctx context.Context, tenantID string, actor domain.Actor, taskID, proofID string) (string, error) {
+	if !uuidutil.IsUUIDString(proofID) {
+		return "", ports.ErrTaskNotFound
+	}
+	task, err := s.GetTask(ctx, tenantID, actor, taskID)
+	if err != nil {
+		return "", err
+	}
+	for _, attachment := range task.Attachments {
+		if strings.TrimSpace(attachment.ProofID) == strings.TrimSpace(proofID) {
+			if s.downloader == nil {
+				return "", ports.ErrInvalidAttachment
+			}
+			return s.downloader.DownloadURL(ctx, tenantID, proofID)
+		}
+	}
+	return "", ports.ErrTaskNotFound
 }
 
 // UnseenCount answers the drawer badge.

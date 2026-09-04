@@ -590,6 +590,7 @@ object Routes {
     const val LEADERSHIP_TASK = "/leadership-tasks/{$LEADERSHIP_TASK_ID_ARG}"
     private const val LEADERSHIP_TASK_COMPOSE_BASE = "/leadership-tasks/compose"
     const val LEADERSHIP_TASK_COMPOSE = "$LEADERSHIP_TASK_COMPOSE_BASE?$LEADERSHIP_TASK_ID_ARG={$LEADERSHIP_TASK_ID_ARG}"
+    const val LEADERSHIP_TASKS_REFRESH_KEY = "leadership_tasks_refresh"
 
     fun leadershipTaskRoute(taskId: String): String = "/leadership-tasks/${Uri.encode(taskId)}"
 
@@ -3490,13 +3491,23 @@ fun AppNavHost(
         // ONE L0 list (a director's raised tasks / a CXO's assigned ones — the backend decides),
         // plus two hosted drills: the task, and the raise/edit form. Module visibility is
         // backend-composed (`leadership_tasks.read`); nothing here gates on a role string.
-        composable(Routes.LEADERSHIP_TASKS) {
+        composable(Routes.LEADERSHIP_TASKS) { backStackEntry ->
             val vm: LeadershipTaskListViewModel = hiltViewModel()
             // The backend nav label, so the header reads as the nav item does until the page's
             // own title lands.
             LaunchedEffect(vm) { vm.bind(LEADERSHIP_TASKS_TAB_TITLE) }
             val state by vm.state.collectAsStateWithLifecycle()
             val rows = vm.rows.collectAsLazyPagingItems()
+            val returnedRefresh by backStackEntry.savedStateHandle
+                .getStateFlow(Routes.LEADERSHIP_TASKS_REFRESH_KEY, false)
+                .collectAsStateWithLifecycle()
+            LaunchedEffect(returnedRefresh) {
+                if (returnedRefresh) {
+                    backStackEntry.savedStateHandle[Routes.LEADERSHIP_TASKS_REFRESH_KEY] = false
+                    vm.onEvent(LeadershipTaskListEvent.Refresh)
+                    rows.refresh()
+                }
+            }
             val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
             LaunchedEffect(refreshError, appendError) {
@@ -3592,7 +3603,10 @@ fun AppNavHost(
             // The task reached the server: leave the form. The list and the detail both render
             // from Room, which the repository already reconciled, so nothing is handed back.
             LaunchedEffect(state.sentTaskId) {
-                if (state.sentTaskId != null) navController.popBackStack()
+                if (state.sentTaskId != null) {
+                    navController.previousBackStackEntry?.savedStateHandle?.set(Routes.LEADERSHIP_TASKS_REFRESH_KEY, true)
+                    navController.popBackStack()
+                }
             }
             LeadershipTaskComposeScreen(
                 state = state,

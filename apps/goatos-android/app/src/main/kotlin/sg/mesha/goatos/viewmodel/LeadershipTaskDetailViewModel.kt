@@ -255,7 +255,7 @@ class LeadershipTaskDetailViewModel @Inject constructor(
         viewModelScope.launch {
             local.update { it.copy(fetching = it.fetching + listKey) }
             try {
-                when (val result = repository.attachmentFile(attachment.proofId, attachment.fileName)) {
+                when (val result = repository.attachmentFile(taskId, attachment.proofId, attachment.fileName)) {
                     is AppResult.Ok -> {
                         local.update { it.copy(fetched = it.fetched + (listKey to result.value)) }
                         if (LeadershipAttachmentKind.from(attachment.kind) == LeadershipAttachmentKind.FILE) {

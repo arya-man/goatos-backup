@@ -125,7 +125,7 @@ interface LeadershipTasksRepository {
      * The local path of one attachment's bytes, downloading into app-private cache on first use.
      * A second call for the same proof returns the cached file without touching the network.
      */
-    suspend fun attachmentFile(proofId: String, fileName: String): AppResult<String>
+    suspend fun attachmentFile(taskId: String, proofId: String, fileName: String): AppResult<String>
 }
 
 class DefaultLeadershipTasksRepository(
@@ -260,13 +260,13 @@ class DefaultLeadershipTasksRepository(
     override suspend fun setComment(taskId: String, idempotencyKey: String, request: LeadershipTaskCommentRequestDto): AppResult<LeadershipTaskDto> =
         write { api.setLeadershipTaskComment(taskId, idempotencyKey, request) }
 
-    override suspend fun attachmentFile(proofId: String, fileName: String): AppResult<String> = call {
+    override suspend fun attachmentFile(taskId: String, proofId: String, fileName: String): AppResult<String> = call {
         withContext(Dispatchers.IO) {
             val dir = File(cacheRoot, ATTACHMENT_CACHE_DIR).apply { mkdirs() }
             val ext = fileName.substringAfterLast('.', "").take(MAX_EXT_CHARS).filter { it.isLetterOrDigit() }
             val target = File(dir, if (ext.isBlank()) proofId else "$proofId.$ext")
             if (target.isFile && target.length() > 0L) return@withContext target.absolutePath
-            val url = api.getProofDownloadUrl(proofId)
+            val url = api.getLeadershipTaskAttachmentDownloadUrl(taskId, proofId)
             val partial = File(dir, "${target.name}.part")
             URL(url).openStream().use { input ->
                 partial.outputStream().use { output -> input.copyTo(output) }

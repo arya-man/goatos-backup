@@ -30,6 +30,7 @@ type Service interface {
 	ChangeStatus(ctx context.Context, p ports.StatusParams) (domain.Task, error)
 	SetComment(ctx context.Context, p ports.CommentParams) (domain.Task, error)
 	MarkSeen(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error)
+	AttachmentDownloadURL(ctx context.Context, tenantID string, actor domain.Actor, taskID, proofID string) (string, error)
 }
 
 // Handler serves the routes.
@@ -59,6 +60,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/status", h.ChangeStatus)
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/comment", h.SetComment)
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/seen", h.MarkSeen)
+	mux.HandleFunc("GET /app/leadership-tasks/{task_id}/attachments/{proof_id}/download", h.DownloadAttachment)
 }
 
 // maxRequestBytes caps a write body: a 4000-rune brief plus 12 attachment refs is well
@@ -245,6 +247,23 @@ func (h *Handler) MarkSeen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor), TraceID: traceID(r)})
+}
+
+// DownloadAttachment serves GET /app/leadership-tasks/{task_id}/attachments/{proof_id}/download.
+func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+	actor := actorFrom(r)
+	url, err := h.service.AttachmentDownloadURL(
+		r.Context(),
+		tenantID(r),
+		actor,
+		r.PathValue("task_id"),
+		r.PathValue("proof_id"),
+	)
+	if err != nil {
+		h.writeErr(w, r, toAppError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, downloadPayload{DownloadURL: url, TraceID: traceID(r)})
 }
 
 func toRefs(in []attachmentRefPayload) []domain.AttachmentRef {

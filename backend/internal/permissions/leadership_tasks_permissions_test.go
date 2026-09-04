@@ -92,9 +92,18 @@ func TestLeadershipTaskRoutesAreGatedOnTheDedicatedPermissions(t *testing.T) {
 // sees a paperclip that 403s, is the exact defect TestToxinReviewerReachesProofMedia
 // recorded for toxin.
 func TestLeadershipTaskPartiesReachAttachmentMedia(t *testing.T) {
-	download, ok := Match("GET", "/app/proofs/98000000-0000-4000-8000-000000000001/download")
+	genericDownload, ok := Match("GET", "/app/proofs/98000000-0000-4000-8000-000000000001/download")
 	if !ok {
 		t.Fatal("the proof download route is not registered")
+	}
+	for _, perm := range genericDownload.AnyPermissions {
+		if perm == LeadershipTasksRead {
+			t.Fatal("leadership task readers must use the task-scoped attachment route, not the tenant-wide proof download route")
+		}
+	}
+	download, ok := Match("GET", "/app/leadership-tasks/98000000-0000-4000-8000-000000000001/attachments/98000000-0000-4000-8000-000000000002/download")
+	if !ok {
+		t.Fatal("the leadership task attachment download route is not registered")
 	}
 	readers := 0
 	for role := range rolePermissions {

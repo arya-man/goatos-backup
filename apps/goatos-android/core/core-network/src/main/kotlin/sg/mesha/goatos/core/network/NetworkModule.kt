@@ -1029,6 +1029,12 @@ interface AppApiService {
         @Body request: LeadershipTaskCommentRequestDto,
     ): LeadershipTaskDetailDto
 
+    @GET("app/leadership-tasks/{task_id}/attachments/{proof_id}/download")
+    suspend fun getLeadershipTaskAttachmentDownloadUrl(
+        @Path("task_id") taskId: String,
+        @Path("proof_id") proofId: String,
+    ): ProofDownloadUrlResponseDto
+
     @GET("feed-direction/distribution/captures")
     suspend fun getFeedDistributionCaptures(
         @Query("park_id") parkId: String?,
@@ -2008,6 +2014,11 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: LeadershipTaskCommentRequestDto,
     ): LeadershipTaskDetailDto = service.setLeadershipTaskComment(taskId, idempotencyKey, request)
+
+    override suspend fun getLeadershipTaskAttachmentDownloadUrl(taskId: String, proofId: String): String {
+        val url = service.getLeadershipTaskAttachmentDownloadUrl(taskId, proofId).downloadUrl
+        return if (url.startsWith("/")) baseUrl.trimEnd('/') + url else url
+    }
 
     override suspend fun getFeedDistributionCaptures(
         parkId: String?,

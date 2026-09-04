@@ -1514,6 +1514,9 @@ interface AppApi {
         request: LeadershipTaskCommentRequestDto,
     ): LeadershipTaskDetailDto
 
+    /** GET /app/leadership-tasks/{task_id}/attachments/{proof_id}/download. */
+    suspend fun getLeadershipTaskAttachmentDownloadUrl(taskId: String, proofId: String): String
+
     suspend fun getFeedDistributionCaptures(
         parkId: String?,
         shedId: String,
@@ -2786,6 +2789,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         request: LeadershipTaskCommentRequestDto,
     ): LeadershipTaskDetailDto = getLeadershipTask(taskId)
+
+    override suspend fun getLeadershipTaskAttachmentDownloadUrl(taskId: String, proofId: String): String =
+        getProofDownloadUrl(proofId)
 
     override suspend fun recordClockIn(
         idempotencyKey: String,

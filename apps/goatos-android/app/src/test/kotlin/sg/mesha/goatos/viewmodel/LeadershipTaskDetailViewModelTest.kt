@@ -180,6 +180,7 @@ class LeadershipTaskDetailViewModelTest {
         vm.onEvent(LeadershipTaskDetailEvent.OpenAttachment("att-1"))
         advanceUntilIdle()
         assertEquals(listOf("proof-1"), repository.fetchedProofs)
+        assertEquals(listOf(FakeLeadershipTasksRepository.FetchCall(LEADERSHIP_TEST_TASK_ID, "proof-1")), repository.fetchCalls)
         assertEquals("/cache/proof-1", vm.state.value.attachments[0].localPath)
 
         job.cancel()

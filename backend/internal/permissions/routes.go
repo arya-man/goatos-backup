@@ -234,7 +234,7 @@ var protectedRoutes = []Route{
 	// an audio proof recorded on the phone by the procurement desk, which executes no task. The
 	// download row ORs in VendorRead for the same reason -- whoever may read the register may play
 	// the note on it -- without widening task.read to anyone.
-	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", AnyPermissions: []string{TaskRead, VendorRead, LeadershipTasksRead}},
+	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", AnyPermissions: []string{TaskRead, VendorRead}},
 	{OperationID: "recordAppAnalyticsEvent", Method: "POST", Pattern: "/app/analytics/events", Permissions: []string{AppBootstrap}},
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
 	{OperationID: "recordAppScanAttempt", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-attempts", Permissions: []string{TaskExecute}},
@@ -333,6 +333,7 @@ var protectedRoutes = []Route{
 	{OperationID: "changeLeadershipTaskStatus", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/status", Permissions: []string{LeadershipTasksRead}},
 	{OperationID: "setLeadershipTaskComment", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/comment", Permissions: []string{LeadershipTasksAct}},
 	{OperationID: "markLeadershipTaskSeen", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/seen", Permissions: []string{LeadershipTasksRead}},
+	{OperationID: "downloadLeadershipTaskAttachment", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}/attachments/{proof_id}/download", Permissions: []string{LeadershipTasksRead}},
 
 	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --

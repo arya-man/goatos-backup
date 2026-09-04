@@ -116,3 +116,9 @@ type Repository interface {
 type AttachmentResolver interface {
 	ResolveAttachments(ctx context.Context, tenantID, uploaderID string, refs []domain.AttachmentRef) ([]domain.Attachment, error)
 }
+
+// AttachmentDownloader mints a short-lived URL for a stored proof artifact after this module
+// has already proved the caller may see the task that carries it.
+type AttachmentDownloader interface {
+	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
+}

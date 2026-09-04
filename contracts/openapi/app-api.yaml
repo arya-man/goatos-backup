@@ -7958,6 +7958,39 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/leadership-tasks/{task_id}/attachments/{proof_id}/download:
+    get:
+      tags:
+        - Leadership Tasks
+      operationId: downloadLeadershipTaskAttachment
+      summary: Get a signed download URL for a leadership task attachment.
+      description: >-
+        Returns a proof media download URL only when the caller is party to the task and the proof
+        id is one of that task's stored attachments. A task the caller cannot open, or a proof that
+        is not attached to it, reads as not found.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/ProofId"
+      responses:
+        "200":
+          description: Signed download URL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadProofResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /procurement/feed-purchases/{purchase_id}/payments:
     post:
       tags:
