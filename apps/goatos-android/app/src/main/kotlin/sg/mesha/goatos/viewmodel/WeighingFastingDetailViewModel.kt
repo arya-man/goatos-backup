@@ -136,6 +136,13 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     submitJob?.cancel()
                     clearSlots()
                 }
+                if (readOnly) {
+                    // A submitted/approved card renders its clips from the server (a reinstall
+                    // holds no local file). Enrichment only — fetched async, best effort, retried
+                    // on the next Room emit; the feed-distribution screen's exact behaviour.
+                    fetchRemotePreview(WeighingFastingSlotKind.FEED, dto.feedProofRef.orEmpty())
+                    fetchRemotePreview(WeighingFastingSlotKind.WATER, dto.waterProofRef.orEmpty())
+                }
                 _state.update { current ->
                     current.copy(
                         title = dto.subjectLabel.ifBlank { current.title },
@@ -161,6 +168,22 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     )
                 }
                 recomputeSubmit()
+            }
+        }
+    }
+
+    private fun fetchRemotePreview(kind: WeighingFastingSlotKind, proofRef: String) {
+        if (proofRef.isBlank()) return
+        if (_state.value.slotOf(kind).let { it.remoteUrl != null || it.previewPath != null }) return
+        viewModelScope.launch {
+            val url = fastingRepository.fetchProofDownloadUrl(proofRef) ?: return@launch
+            updateSlot(kind) {
+                it.copy(
+                    captured = true,
+                    status = WeighingFastingSlotStatus.SYNCED,
+                    statusLabel = PROOF_SYNCED_LABEL,
+                    remoteUrl = url,
+                )
             }
         }
     }
@@ -193,7 +216,17 @@ class WeighingFastingDetailViewModel @Inject constructor(
                 WeighingR.string.weighing_removal_water_slot
             },
         ),
+        hint = appContext.getString(
+            if (kind == WeighingFastingSlotKind.FEED) {
+                WeighingR.string.weighing_removal_feed_hint
+            } else {
+                WeighingR.string.weighing_removal_water_hint
+            },
+        ),
         captured = slotItemId(kind) != null,
+        // This device's own recording survives process death alongside the outbox item id, so
+        // the preview comes back with the draft (the feed-distribution screen's behaviour).
+        previewPath = slotPreviewPath(kind),
     )
 
     private fun refresh() {
@@ -291,6 +324,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                             return@launch
                         }
                         setSlotItemId(kind, proofOutboxId)
+                        setSlotPreviewPath(kind, captured.localUri)
                         observeProofItem(kind, proofOutboxId)
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_REMOVAL_SLOT_CAPTURED,
@@ -302,6 +336,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                                 captured = true,
                                 status = WeighingFastingSlotStatus.QUEUED,
                                 statusLabel = PROOF_QUEUED_LABEL,
+                                previewPath = captured.localUri,
                             )
                         }
                         recomputeSubmit()
@@ -489,9 +524,21 @@ class WeighingFastingDetailViewModel @Inject constructor(
         if (itemId == null) savedStateHandle.remove<String>(key) else savedStateHandle[key] = itemId
     }
 
+    private fun slotPreviewKey(kind: WeighingFastingSlotKind): String =
+        "$KEY_SLOT_PREVIEW_PATH_PREFIX:$campaignShedId:${kind.name.lowercase()}"
+
+    private fun slotPreviewPath(kind: WeighingFastingSlotKind): String? =
+        savedStateHandle.get<String>(slotPreviewKey(kind))?.takeIf { it.isNotBlank() }
+
+    private fun setSlotPreviewPath(kind: WeighingFastingSlotKind, path: String?) {
+        val key = slotPreviewKey(kind)
+        if (path == null) savedStateHandle.remove<String>(key) else savedStateHandle[key] = path
+    }
+
     private fun clearSlots() {
         WeighingFastingSlotKind.entries.forEach { kind ->
             setSlotItemId(kind, null)
+            setSlotPreviewPath(kind, null)
             proofJobs.remove(kind)?.cancel()
         }
         _state.update {
@@ -530,6 +577,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
         const val FIELD_WATER_VIDEO_PREFIX = "weighing_fasting_water_video_"
 
         private const val KEY_SLOT_PROOF_ITEM_ID_PREFIX = "weighing_fasting_proof_item_id"
+        private const val KEY_SLOT_PREVIEW_PATH_PREFIX = "weighing_fasting_proof_preview_path"
         private const val KEY_SUBMIT_OUTBOX_ITEM_ID = "weighing_fasting_submit_outbox_item_id"
 
         private const val STATUS_PENDING_VERIFICATION = "pending_verification"

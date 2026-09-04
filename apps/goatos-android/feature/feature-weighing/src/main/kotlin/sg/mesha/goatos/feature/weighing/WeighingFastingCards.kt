@@ -29,9 +29,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
@@ -172,11 +184,17 @@ data class WeighingFastingSlotUi(
     val fieldKey: String,
     val kind: WeighingFastingSlotKind = WeighingFastingSlotKind.FEED,
     val title: String,
+    /** What the clip must show, in farm words — the row's second line. */
+    val hint: String = "",
     val captured: Boolean = false,
     val status: WeighingFastingSlotStatus = WeighingFastingSlotStatus.EMPTY,
     /** Farm-worded live status line ("Video on its way", "Video sent"); blank before capture. */
     val statusLabel: String = "",
     val busy: Boolean = false,
+    /** Local file path of THIS device's recording — the inline playable preview. */
+    val previewPath: String? = null,
+    /** Signed server URL for an already-submitted clip (reinstall / read-only card). */
+    val remoteUrl: String? = null,
 )
 
 @Immutable
@@ -233,7 +251,7 @@ fun WeighingFastingDetailScreen(
             title = stringResource(R.string.weighing_removal_screen_title),
             eyebrow = stringResource(R.string.weighing_eyebrow),
             eyebrowColor = MeshaColors.BrandD,
-            subtitle = state.title.takeIf { it.isNotBlank() },
+            subtitle = listOf(state.title, state.dateLabel).filter { it.isNotBlank() }.joinToString(" · "),
             onBack = onBack,
             actions = {
                 SyncIconButton(
@@ -248,15 +266,6 @@ fun WeighingFastingDetailScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (state.dateLabel.isNotBlank()) {
-                item(key = "removal-date") {
-                    Text(
-                        text = state.dateLabel,
-                        color = MeshaColors.Muted,
-                        style = MeshaType.cardSubtitle,
-                    )
-                }
-            }
             if (state.reworkReason.isNotBlank()) {
                 item(key = "removal-rework") {
                     Text(
@@ -272,69 +281,22 @@ fun WeighingFastingDetailScreen(
                     )
                 }
             }
-            if (state.lockNotice.isNotBlank()) {
-                item(key = "removal-lock") {
-                    Text(
-                        text = state.lockNotice,
-                        color = MeshaColors.Warn,
-                        style = MeshaType.cardSubtitle,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MeshaColors.WarnX)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                }
+            item(key = "removal-status") {
+                FastingStatusCard(state = state, onSubmit = { onEvent(WeighingFastingDetailEvent.Submit) })
             }
             item(key = "removal-slot-feed") {
-                FastingSlotCard(
+                FastingProofAction(
                     slot = state.feedSlot,
-                    locked = state.isReadOnly,
+                    locked = state.isReadOnly || state.submitQueued,
                     onRecord = { onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.FEED)) },
                 )
             }
             item(key = "removal-slot-water") {
-                FastingSlotCard(
+                FastingProofAction(
                     slot = state.waterSlot,
-                    locked = state.isReadOnly,
+                    locked = state.isReadOnly || state.submitQueued,
                     onRecord = { onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.WATER)) },
                 )
-            }
-            item(key = "removal-submit") {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(if (state.submitEnabled) MeshaColors.Brand else MeshaColors.Surf3)
-                            .then(
-                                if (state.submitEnabled) {
-                                    Modifier.clickable { onEvent(WeighingFastingDetailEvent.Submit) }
-                                } else {
-                                    Modifier
-                                },
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = if (state.submitQueued) {
-                                stringResource(R.string.weighing_removal_submitted)
-                            } else {
-                                stringResource(R.string.weighing_removal_submit)
-                            },
-                            color = if (state.submitEnabled) MeshaColors.PageBg else MeshaColors.Muted,
-                            style = MeshaType.cta,
-                        )
-                    }
-                    if (state.submitBlockedReason.isNotBlank()) {
-                        Text(
-                            text = state.submitBlockedReason,
-                            color = MeshaColors.Muted,
-                            style = MeshaType.caption,
-                        )
-                    }
-                }
             }
             state.message?.takeIf { it.isNotBlank() }?.let { message ->
                 item(key = "removal-message") {
@@ -356,48 +318,155 @@ fun WeighingFastingDetailScreen(
     }
 }
 
+/**
+ * The card that carries the round's instruction, its live status line and the SUBMIT action —
+ * the exact [FeedDistStatusCard] shape the feed-distribution completion screen uses, so the two
+ * gated-proof screens read identically to an operator.
+ */
 @Composable
-private fun FastingSlotCard(slot: WeighingFastingSlotUi, locked: Boolean, onRecord: () -> Unit) {
+private fun FastingStatusCard(state: WeighingFastingDetailUiState, onSubmit: () -> Unit) {
+    val statusText = when {
+        state.lockNotice.isNotBlank() -> state.lockNotice
+        state.submitQueued -> stringResource(R.string.weighing_removal_submitted_line)
+        state.submitEnabled -> stringResource(R.string.weighing_removal_ready)
+        state.submitBlockedReason.isNotBlank() -> state.submitBlockedReason
+        else -> stringResource(R.string.weighing_removal_status_open)
+    }
+    val tone = when {
+        state.status == "completed" -> MeshaColors.Ok
+        state.submitQueued -> MeshaColors.Ok
+        state.status == "pending_verification" -> MeshaColors.Warn
+        state.submitEnabled -> MeshaColors.BrandD
+        else -> MeshaColors.Muted
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = slot.title, color = MeshaColors.Ink, style = MeshaType.listTitle)
-        if (slot.statusLabel.isNotBlank()) {
-            Text(
-                text = slot.statusLabel,
-                color = when (slot.status) {
-                    WeighingFastingSlotStatus.SYNCED -> MeshaColors.Ok
-                    WeighingFastingSlotStatus.FAILED -> MeshaColors.Danger
-                    else -> MeshaColors.Muted
-                },
-                style = MeshaType.caption,
-            )
+        Text(text = stringResource(R.string.weighing_removal_caption), color = MeshaColors.Muted, style = MeshaType.body)
+        Text(text = statusText, color = tone, style = MeshaType.caption)
+        if (state.submitEnabled) {
+            FastingCtaButton(label = stringResource(R.string.weighing_removal_submit), onClick = onSubmit)
         }
-        if (!locked) {
-            val actionEnabled = !slot.busy
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(if (actionEnabled) MeshaColors.Surf3 else MeshaColors.Surf2)
-                    .then(if (actionEnabled) Modifier.clickable(onClick = onRecord) else Modifier)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-            ) {
-                Text(
-                    text = when {
-                        slot.busy -> stringResource(R.string.weighing_removal_recording)
-                        slot.captured -> stringResource(R.string.weighing_removal_record_again)
-                        else -> stringResource(R.string.weighing_removal_record)
+    }
+}
+
+/**
+ * One proof slot in the exact [FeedDistProofAction] shape: state-tinted icon tile, state-driven
+ * title, hint line, an inline playable [ProofMediaPreview] once a clip exists, and a re-record
+ * action — so recording a removal looks and works exactly like recording a feed distribution.
+ */
+@Composable
+private fun FastingProofAction(slot: WeighingFastingSlotUi, locked: Boolean, onRecord: () -> Unit) {
+    val failed = slot.status == WeighingFastingSlotStatus.FAILED
+    val synced = slot.status == WeighingFastingSlotStatus.SYNCED
+    val uploading = slot.busy || slot.status == WeighingFastingSlotStatus.UPLOADING
+    val border = when {
+        failed -> MeshaColors.Danger
+        synced -> MeshaColors.Ok
+        slot.captured -> MeshaColors.Brand.copy(alpha = 0.5f)
+        else -> MeshaColors.Hair
+    }
+    val iconBg = when {
+        failed -> MeshaColors.Danger.copy(alpha = 0.14f)
+        synced -> MeshaColors.Ok.copy(alpha = 0.14f)
+        slot.captured -> MeshaColors.Brand.copy(alpha = 0.14f)
+        else -> MeshaColors.Surf2
+    }
+    val actionEnabled = !locked && !uploading
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 82.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, border, RoundedCornerShape(18.dp))
+            .clickable(enabled = actionEnabled && !slot.captured, onClick = onRecord)
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(iconBg),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                uploading -> CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
+                failed -> Icon(MeshaIcons.Warn, contentDescription = null, tint = MeshaColors.Danger, modifier = Modifier.size(22.dp))
+                synced -> Icon(MeshaIcons.Check, contentDescription = null, tint = MeshaColors.Ok, modifier = Modifier.size(22.dp))
+                slot.captured -> Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.BrandD, modifier = Modifier.size(22.dp))
+                else -> Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(22.dp))
+            }
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = when {
+                    slot.busy -> stringResource(R.string.weighing_removal_recording)
+                    slot.captured || failed -> slot.title
+                    else -> slot.title
+                },
+                color = if (failed) MeshaColors.Danger else if (actionEnabled || slot.captured || uploading) MeshaColors.Ink else MeshaColors.Faint,
+                style = MeshaType.cardTitle,
+            )
+            if (slot.hint.isNotBlank()) {
+                Text(text = slot.hint, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+            }
+            var localPreviewFailed by remember(slot.previewPath) { mutableStateOf(false) }
+            val previewToShow = if (!slot.previewPath.isNullOrBlank() && !localPreviewFailed) {
+                slot.previewPath
+            } else {
+                slot.remoteUrl ?: slot.previewPath
+            }
+            if (!previewToShow.isNullOrBlank()) {
+                ProofMediaPreview(
+                    path = previewToShow,
+                    kind = ProofMediaPreviewKind.Video,
+                    onPlaybackFailure = {
+                        if (previewToShow == slot.previewPath) localPreviewFailed = true
                     },
-                    color = MeshaColors.BrandD,
-                    style = MeshaType.cta,
+                )
+            }
+            if (slot.statusLabel.isNotBlank()) {
+                Text(
+                    text = slot.statusLabel,
+                    color = when {
+                        synced -> MeshaColors.Ok
+                        failed -> MeshaColors.Danger
+                        else -> MeshaColors.Faint
+                    },
+                    style = MeshaType.caption,
+                )
+            }
+            if (!locked && !uploading) {
+                FastingCtaButton(
+                    label = if (slot.captured || failed) {
+                        stringResource(R.string.weighing_removal_record_again)
+                    } else {
+                        stringResource(R.string.weighing_removal_record)
+                    },
+                    onClick = onRecord,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun FastingCtaButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = if (enabled) MeshaColors.OnBrand else MeshaColors.Muted,
+        style = MeshaType.cta,
+        modifier = Modifier
+            .minimumInteractiveComponentSize()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (enabled) MeshaColors.Brand else MeshaColors.Surf2)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 13.dp),
+    )
 }

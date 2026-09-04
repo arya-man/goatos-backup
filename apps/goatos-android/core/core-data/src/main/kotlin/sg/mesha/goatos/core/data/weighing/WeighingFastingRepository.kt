@@ -135,6 +135,13 @@ interface WeighingFastingRepository {
 
     /** Appends the next keyset page using the stored cursor. */
     suspend fun append(): AppResult<Int>
+
+    /**
+     * Signed download URL for a submitted clip so the card can render its preview after a
+     * reinstall or on a read-only card. Best effort: null on any failure, retried on the next
+     * open/refresh.
+     */
+    suspend fun fetchProofDownloadUrl(proofId: String): String?
 }
 
 class DefaultWeighingFastingRepository(
@@ -179,6 +186,18 @@ class DefaultWeighingFastingRepository(
             )
             AppResult.Ok(page.fastingShedCards.size)
         }.getOrElse { AppResult.Err(it.userFacingMessage(REFRESH_FALLBACK), it) }
+    }
+
+    override suspend fun fetchProofDownloadUrl(proofId: String): String? = withContext(Dispatchers.IO) { // offline-first-guard:ignore: signed URL is single-use and time-limited by the server; caching it in Room would serve an expired/invalid link instead of failing honestly
+        val client = api ?: return@withContext null
+        if (proofId.isBlank()) return@withContext null
+        try {
+            client.getProofDownloadUrl(proofId)
+        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
     }
 
     override suspend fun append(): AppResult<Int> = withContext(Dispatchers.IO) {

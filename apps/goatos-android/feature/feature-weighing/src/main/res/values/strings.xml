@@ -334,6 +334,11 @@
     <string name="weighing_removal_recording">Recording…</string>
     <string name="weighing_removal_submit">Submit</string>
     <string name="weighing_removal_submitted">Sent</string>
+    <string name="weighing_removal_submitted_line">Sent. The videos will be checked later.</string>
+    <string name="weighing_removal_ready">Both videos recorded — ready to submit.</string>
+    <string name="weighing_removal_caption">Take out this pen\'s feed and water for tomorrow, and record each step.</string>
+    <string name="weighing_removal_feed_hint">Show the feed being taken out of this pen</string>
+    <string name="weighing_removal_water_hint">Show the water being taken out of this pen</string>
     <string name="weighing_wizard_fasting_title">Feed &amp; water removal</string>
     <string name="weighing_wizard_fasting_subtitle">Who removes feed &amp; water from these sheds the evening before?</string>
     <string name="weighing_wizard_fasting_prompt">Pick a person…</string>
