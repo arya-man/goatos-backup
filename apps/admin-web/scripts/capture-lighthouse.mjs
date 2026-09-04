@@ -16,6 +16,7 @@ const chromeFlags = readOption("chrome-flags", process.env.ADMIN_WEB_LIGHTHOUSE_
 const categories = readOption("categories", process.env.ADMIN_WEB_LIGHTHOUSE_CATEGORIES || "performance,accessibility,best-practices,seo");
 const extraHeaders = readOption("extra-headers", process.env.ADMIN_WEB_LIGHTHOUSE_EXTRA_HEADERS || "");
 const expectFinalUrlContains = readOption("expect-final-url-contains", process.env.ADMIN_WEB_LIGHTHOUSE_EXPECT_FINAL_URL_CONTAINS || expectedUrlFragment(url));
+const minimumScores = parseMinimumScores(readOption("min-scores", process.env.ADMIN_WEB_LIGHTHOUSE_MIN_SCORES || "performance=70,accessibility=90,best-practices=90,seo=80"));
 
 mkdirSync(dirname(out), { recursive: true });
 
@@ -47,7 +48,14 @@ child.on("exit", (code, signal) => {
     console.error(`Lighthouse reached login instead of the authenticated admin page. final_url=${finalUrl}`);
     process.exit(1);
   }
+  const scores = categoryScores(report);
+  const failures = scoreFailures(scores, minimumScores);
   console.log(`lighthouse_report=${out}`);
+  console.log(`lighthouse_scores=${JSON.stringify(scores)}`);
+  if (failures.length) {
+    console.error(`Lighthouse scores below budget: ${failures.join(", ")}`);
+    process.exit(1);
+  }
 });
 
 function expectedUrlFragment(value) {
@@ -57,4 +65,33 @@ function expectedUrlFragment(value) {
   } catch {
     return "";
   }
+}
+
+function parseMinimumScores(value) {
+  return Object.fromEntries(
+    String(value || "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const [key, raw] = part.split("=");
+        const score = Number(raw);
+        if (!key || !Number.isFinite(score)) {
+          throw new Error(`Invalid score budget entry: ${part}`);
+        }
+        return [key.trim(), score];
+      }),
+  );
+}
+
+function categoryScores(report) {
+  return Object.fromEntries(
+    Object.entries(report?.categories ?? {}).map(([key, value]) => [key, Math.round((value.score ?? 0) * 100)]),
+  );
+}
+
+function scoreFailures(scores, minimums) {
+  return Object.entries(minimums)
+    .filter(([key, minimum]) => (scores[key] ?? 0) < minimum)
+    .map(([key, minimum]) => `${key}=${scores[key] ?? 0}<${minimum}`);
 }

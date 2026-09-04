@@ -10,6 +10,7 @@ import {
   compactQuery,
   getServerConfig,
   request,
+  withApiTimeout,
   type ApiResult,
 } from "@/lib/api/server";
 import { createAppApiClient, type AppApiComponents } from "@goatos/api-client";
@@ -41,22 +42,25 @@ export async function getCalendarVaccinationEvents(params: CalendarListParams = 
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<CalendarEventListResponse>("/calendar/vaccination/events", {
-      cache: "no-store",
-      query: compactQuery({
-        park_id: params.parkId,
-        shed_id: params.shedId,
-        owner_key: params.ownerKey,
-        status: params.status,
-        date_from: params.dateFrom,
-        date_to: params.dateTo,
-        cursor: params.cursor,
-        limit: Math.min(params.limit ?? DEFAULT_LIMIT, MAX_LIMIT),
-        include_date_markers: params.includeDateMarkers ? true : undefined,
-        markers_only: params.markersOnly ? true : undefined,
-        include_drive_summary: params.includeDriveSummary ? true : undefined,
+    withApiTimeout(6000, (signal) =>
+      client.request<CalendarEventListResponse>("/calendar/vaccination/events", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({
+          park_id: params.parkId,
+          shed_id: params.shedId,
+          owner_key: params.ownerKey,
+          status: params.status,
+          date_from: params.dateFrom,
+          date_to: params.dateTo,
+          cursor: params.cursor,
+          limit: Math.min(params.limit ?? DEFAULT_LIMIT, MAX_LIMIT),
+          include_date_markers: params.includeDateMarkers ? true : undefined,
+          markers_only: params.markersOnly ? true : undefined,
+          include_drive_summary: params.includeDriveSummary ? true : undefined,
+        }),
       }),
-    }),
+    ),
   );
 }
 

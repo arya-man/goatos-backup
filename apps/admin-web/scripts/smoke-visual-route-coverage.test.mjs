@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const smokeSource = readFileSync(new URL("./smoke-visual-live.mjs", import.meta.url), "utf8");
+const smokeRouteBlock = smokeSource.match(/function buildRoutes\(goatId, procurementLoadId\) \{[\s\S]*?const pagerMinimums = new Map/)?.[0] ?? "";
 
 test("visual smoke visits every live sidebar navigation leaf", () => {
   const routeEntries = Array.from(
@@ -48,5 +49,49 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
   }
   for (const routeName of ["vaccination-schedule", "goat-passport", "procurement-load-detail"]) {
     assert.ok(routes.has(routeName), `${routeName} dynamic route must stay in the live visual smoke sweep`);
+  }
+});
+
+test("visual smoke keeps every live sidebar leaf covered on desktop and narrow/mobile", () => {
+  assert.match(smokeSource, /label:\s*"desktop"[\s\S]*?width:\s*1440[\s\S]*?height:\s*1000/);
+  assert.match(smokeSource, /label:\s*"narrow"[\s\S]*?width:\s*390[\s\S]*?height:\s*900/);
+
+  const sidebarRouteNames = [
+    "control-tower",
+    "action-center",
+    "calendar",
+    "protocol-adherence",
+    "workflows",
+    "procurement-source-entry",
+    "procurement-vendors",
+    "procurement-feed-purchases",
+    "approvals",
+    "verify",
+    "sales",
+    "sales-loads",
+    "sales-config",
+    "feed-config",
+    "feed-analytics",
+    "feed-sops",
+    "weighing-analytics",
+    "weighing-sops",
+    "weighing-weights",
+    "counts-analytics",
+    "counts-breakdown",
+    "counts-sops",
+    "counts-herd",
+    "counts-milk-preparation",
+    "milk-sops",
+    "herd-signals",
+    "health-config",
+    "operations-audit",
+    "operations-dlq",
+    "people",
+  ];
+
+  for (const routeName of sidebarRouteNames) {
+    const routeEntry = smokeRouteBlock.match(new RegExp(`name:\\s*"${routeName}"[\\s\\S]*?(?=\\n\\s*\\{|\\n\\s*\\];)`))?.[0] ?? "";
+    assert.ok(routeEntry, `${routeName} must stay in the live visual smoke sweep`);
+    assert.doesNotMatch(routeEntry, /viewports:\s*\[/, `${routeName} must run in both desktop and narrow visual sweeps`);
   }
 });

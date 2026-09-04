@@ -22,6 +22,7 @@ if (/^localhost$|^127\./.test(parsedUrl.hostname)) {
 
 const out = resolve(readOption("output", process.env.PAGESPEED_REPORT || ".codex-goatos-render/pagespeed/admin-web-pagespeed.json"));
 const strategy = readOption("strategy", process.env.PAGESPEED_STRATEGY || "mobile");
+const minimumScores = parseMinimumScores(readOption("min-scores", process.env.PAGESPEED_MIN_SCORES || "performance=70,accessibility=90,best-practices=90,seo=80"));
 const api = new URL("https://www.googleapis.com/pagespeedonline/v5/runPagespeed");
 api.searchParams.set("url", url);
 api.searchParams.set("strategy", strategy);
@@ -49,3 +50,31 @@ const scores = Object.fromEntries(
 );
 console.log(`pagespeed_report=${out}`);
 console.log(`pagespeed_scores=${JSON.stringify(scores)}`);
+const failures = scoreFailures(scores, minimumScores);
+if (failures.length) {
+  console.error(`PageSpeed scores below budget: ${failures.join(", ")}`);
+  process.exit(1);
+}
+
+function parseMinimumScores(value) {
+  return Object.fromEntries(
+    String(value || "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const [key, raw] = part.split("=");
+        const score = Number(raw);
+        if (!key || !Number.isFinite(score)) {
+          throw new Error(`Invalid score budget entry: ${part}`);
+        }
+        return [key.trim(), score];
+      }),
+  );
+}
+
+function scoreFailures(scores, minimums) {
+  return Object.entries(minimums)
+    .filter(([key, minimum]) => (scores[key] ?? 0) < minimum)
+    .map(([key, minimum]) => `${key}=${scores[key] ?? 0}<${minimum}`);
+}

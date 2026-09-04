@@ -505,13 +505,22 @@ export function apiClientOptions(config: ServerConfig) {
   };
 }
 
+const DEFAULT_BACKEND_GET_TIMEOUT_MS = 8000;
+
 async function timedBackendFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const startedAt = performance.now();
   const url = typeof input === "string" || input instanceof URL ? new URL(input) : new URL(input.url);
   const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
   const traceparent = init?.headers ? new Headers(init.headers).get("traceparent") : null;
+  const requestSignal = typeof input === "object" && "signal" in input ? input.signal : null;
+  const shouldApplyDefaultTimeout = method.toUpperCase() === "GET" && !init?.signal && !requestSignal;
+  const controller = shouldApplyDefaultTimeout ? new AbortController() : null;
+  const timeout = controller
+    ? setTimeout(() => controller.abort(), DEFAULT_BACKEND_GET_TIMEOUT_MS)
+    : null;
+  const fetchInit = controller ? { ...init, signal: controller.signal } : init;
   try {
-    const response = await fetch(input, init);
+    const response = await fetch(input, fetchInit);
     const durationMs = Math.round(performance.now() - startedAt);
     console.info(JSON.stringify({
       severity: response.status >= 500 ? "ERROR" : "INFO",
@@ -545,6 +554,8 @@ async function timedBackendFetch(input: RequestInfo | URL, init?: RequestInit): 
       error_message: errorMessage,
     }));
     throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 
@@ -2300,10 +2311,13 @@ export async function getVaccinationExecution(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<VaccinationExecutionResponse>("/vaccination/execution", {
-      cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, work_state: params.workState, as_of: params.asOf, limit: params.limit, cursor: params.cursor }),
-    }),
+    withApiTimeout(6000, (signal) =>
+      client.request<VaccinationExecutionResponse>("/vaccination/execution", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({ park_id: params.parkId, work_state: params.workState, as_of: params.asOf, limit: params.limit, cursor: params.cursor }),
+      }),
+    ),
   );
 }
 
