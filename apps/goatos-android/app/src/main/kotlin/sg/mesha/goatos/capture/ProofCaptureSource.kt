@@ -42,6 +42,25 @@ enum class ProofCapturePrompt {
     MILK_FEEDING,
 }
 
+/**
+ * A briefing the operator must acknowledge BEFORE the recorder starts the clip.
+ *
+ * The shared recorder otherwise starts recording the moment the preview streams, which is right
+ * for every workflow whose proof is "film the work". Weighing is different: the verifier can only
+ * trust a weight if the clip opens on the SCALE READING ZERO, and operators were starting the
+ * video with the animal already on the pan. The briefing holds the recorder at the preview (the
+ * camera is open, nothing is recorded) until the operator confirms the scale shows 0 kg; only
+ * that tap starts the clip. Cancelling the briefing cancels the capture -- there is no path from
+ * the briefing into a recording that skipped it.
+ *
+ * Typed rather than free copy so a call site cannot invent a briefing the recorder has no screen
+ * for, and so a JVM test can assert which captures carry one.
+ */
+enum class ProofPreRecordBriefing {
+    /** Weighing, both grains: "show the weighing scale reading 0 kg before the video starts". */
+    WEIGHING_SCALE_ZERO,
+}
+
 data class ProofCaptureContext(
     val title: String,
     val primaryTag: String,
@@ -49,6 +68,8 @@ data class ProofCaptureContext(
     val workLabel: String = "",
     val prompt: ProofCapturePrompt? = null,
     val headerTitle: String? = null,
+    /** Null for every workflow except the ones that opted in; see [ProofPreRecordBriefing]. */
+    val preRecordBriefing: ProofPreRecordBriefing? = null,
 )
 
 /**
@@ -133,6 +154,10 @@ class FakeProofCaptureSource(
 ) : ProofCaptureSource {
     var captureCount: Int = 0
         private set
+
+    /** Every context handed to [captureVideo], in call order, so a test can assert what the
+     *  recorder would have been asked to show (prompt, briefing, labels) -- not only how often. */
+    val captureContexts: MutableList<ProofCaptureContext?> = mutableListOf()
     private val gates: ArrayDeque<CompletableDeferred<CapturedVideo?>> = ArrayDeque()
 
     fun queue(video: CapturedVideo?) {
@@ -150,6 +175,7 @@ class FakeProofCaptureSource(
 
     override suspend fun captureVideo(captureContext: ProofCaptureContext?): CapturedVideo? {
         captureCount++
+        captureContexts.add(captureContext)
         if (gates.isNotEmpty()) return gates.removeFirst().await()
         return if (results.isNotEmpty()) results.removeAt(0) else null
     }

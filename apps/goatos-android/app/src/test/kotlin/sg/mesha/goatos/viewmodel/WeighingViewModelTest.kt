@@ -2519,6 +2519,62 @@ class WeighingViewModelTest {
             assertTrue(vm.state.value.visibleRows.single().weightSyncConflict)
         }
 
+    // ---- Pre-record briefing: every weighing video opens on the scale reading 0 kg ----
+
+    @Test
+    fun `an individual scan opens the camera with the scale-zero briefing`() = runTest(dispatcher) {
+        val proofSource = FakeProofCaptureSource()
+        proofSource.queue(CapturedVideo(localUri = "file://a.mp4", startedAtMs = 1, endedAtMs = 2))
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(),
+            scoped = true,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+
+        val context = proofSource.captureContexts.single()
+        assertEquals(
+            "the per-animal weighing clip must hold at the preview until the operator confirms the " +
+                "empty scale reads 0 kg (maintainer request 2026-09-04)",
+            sg.mesha.goatos.capture.ProofPreRecordBriefing.WEIGHING_SCALE_ZERO,
+            context?.preRecordBriefing,
+        )
+    }
+
+    @Test
+    fun `a lump-sum group video opens the camera with the scale-zero briefing`() = runTest(dispatcher) {
+        val proofSource = FakeProofCaptureSource()
+        proofSource.queue(CapturedVideo(localUri = "file://shed.mp4", startedAtMs = 1, endedAtMs = 2))
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            scoped = true,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+            weighingCategory = "per_shed_partition",
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.captureShedVideo()
+        advanceUntilIdle()
+
+        val context = proofSource.captureContexts.single()
+        assertEquals(
+            "the whole-pen weighing clip carries the same briefing as the per-animal one -- the " +
+                "operator shows 0 kg before the pen's animals go on the scale",
+            sg.mesha.goatos.capture.ProofPreRecordBriefing.WEIGHING_SCALE_ZERO,
+            context?.preRecordBriefing,
+        )
+    }
+
     private fun weighingViewModel(
         repository: FakeWeighingRepository,
         scoped: Boolean = false,

@@ -67,4 +67,9 @@
     <string name="proof_audio_stop">रिकॉर्डिंग रोकें</string>
     <string name="proof_audio_cancel">वॉइस नोट रद्द करें</string>
     <string name="proof_audio_unavailable">माइक्रोफ़ोन अभी उपलब्ध नहीं है।</string>
+    <string name="proof_camera_scale_zero_title">वीडियो में 0 किग्रा दिखाएँ</string>
+    <string name="proof_camera_scale_zero_body">वीडियो शुरू होते ही सबसे पहले खाली तराज़ू को कैमरे में दिखाएँ कि उस पर 0 किग्रा पढ़ रहा है, फिर वज़न करना शुरू करें। रिकॉर्डिंग शुरू करने के लिए ठीक है दबाएँ।</string>
+    <string name="proof_camera_scale_zero_confirm">ठीक है, वीडियो शुरू करें</string>
+    <string name="proof_camera_scale_zero_cancel">रद्द करें</string>
+    <string name="proof_camera_scale_zero_image_description">खाली तराज़ू जिस पर 0 किग्रा दिख रहा है</string>
 </resources>

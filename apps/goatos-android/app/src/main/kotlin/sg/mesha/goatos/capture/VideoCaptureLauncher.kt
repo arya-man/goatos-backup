@@ -167,6 +167,8 @@ fun BindVideoCaptureSource(
                             "torch_on" -> AnalyticsEvents.PROOF_CAMERA_TORCH_ON
                             "torch_off" -> AnalyticsEvents.PROOF_CAMERA_TORCH_OFF
                             "torch_failed" -> AnalyticsEvents.PROOF_CAMERA_TORCH_FAILED
+                            "briefing_shown" -> AnalyticsEvents.PROOF_CAMERA_BRIEFING_SHOWN
+                            "briefing_acknowledged" -> AnalyticsEvents.PROOF_CAMERA_BRIEFING_ACKNOWLEDGED
                             else -> AnalyticsEvents.PROOF_CAMERA_FAILED
                         }
                         trackProofCameraEvent(analytics, event, request.token, request.captureContext, reason = stage)

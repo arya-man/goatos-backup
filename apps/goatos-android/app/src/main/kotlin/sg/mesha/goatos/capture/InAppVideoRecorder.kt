@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -121,6 +122,12 @@ fun InAppVideoRecorderOverlay(
     var previewStreamingReported by remember { mutableStateOf(false) }
     var retryGeneration by remember { mutableStateOf(0) }
     var pendingValidation by remember { mutableStateOf<File?>(null) }  // HIGH-2: validation off-main
+    // A capture that carries a pre-record briefing holds at the preview until the operator
+    // acknowledges it; every other capture is acknowledged from the start and behaves as before.
+    // rememberSaveable so a configuration change mid-briefing does not silently re-ask, and a
+    // change after acknowledgement does not silently skip.
+    val briefing = captureContext?.preRecordBriefing
+    var briefingAcknowledged by rememberSaveable { mutableStateOf(briefing == null) }
 
     fun deliver(result: CapturedVideo?) {
         if (resultDelivered) return
@@ -211,15 +218,38 @@ fun InAppVideoRecorderOverlay(
 
     BackHandler(onBack = ::cancelRecording)
 
-    // Gate 1: Preview readiness gate — record only when preview stream is STREAMING
+    // Gate 1: Preview readiness gate — record only when preview stream is STREAMING. The outer
+    // condition's exact shape is pinned by ProofAudioCaptureTest (the pendingValidation term is
+    // what stops a second clip starting while the first is still validating); Gate 0 below is
+    // the only thing added, and it can only HOLD the clip, never release one of these gates.
     LaunchedEffect(previewStreaming, isRecording, pendingValidation, resultDelivered) {
         if (previewStreaming && !isRecording && pendingValidation == null && !resultDelivered) {
             if (!previewStreamingReported) {
                 previewStreamingReported = true
                 onCameraEvent("streaming")
             }
+            // Gate 0: a pre-record briefing holds the clip until the operator acknowledges it.
+            if (briefingAcknowledged) startRecording()
+        }
+    }
+    // Gate 0's own transition: acknowledging the briefing is the one change Gate 1 is not keyed
+    // on, so it re-evaluates the SAME rule (recorderMayAutoStart) once and starts the clip when
+    // the camera gates were already satisfied while the briefing was up.
+    LaunchedEffect(briefingAcknowledged) {
+        if (
+            recorderMayAutoStart(
+                previewStreaming = previewStreaming,
+                isRecording = isRecording,
+                validationPending = pendingValidation != null,
+                resultDelivered = resultDelivered,
+                briefingAcknowledged = briefingAcknowledged,
+            )
+        ) {
             startRecording()
         }
+    }
+    if (briefing != null && !briefingAcknowledged && !resultDelivered) {
+        LaunchedEffect(briefing) { onCameraEvent("briefing_shown") }
     }
 
     // Gate 1: Preview timeout (~4s) — if preview never reaches STREAMING, show error + retry
@@ -408,12 +438,45 @@ fun InAppVideoRecorderOverlay(
                     retryGeneration++ // CRITICAL-1: increment to force AndroidView factory re-run + rebind
                 },
                 onCancel = ::cancelRecording,
-                onClick = { if (isRecording) finishRecording() else startRecording() },
+                onClick = {
+                    when {
+                        isRecording -> finishRecording()
+                        briefingAcknowledged -> startRecording()
+                        // The briefing dialog is modal, so this branch is unreachable from a real
+                        // tap; it stays so the start control can never bypass the briefing.
+                        else -> Unit
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (briefing != null && !briefingAcknowledged && !resultDelivered) {
+            PreRecordBriefingDialog(
+                briefing = briefing,
+                onConfirm = {
+                    onCameraEvent("briefing_acknowledged")
+                    briefingAcknowledged = true
+                },
+                onCancel = ::cancelRecording,
             )
         }
     }
 }
+
+/**
+ * Whether the recorder may start the clip on its own. Kept pure so the one rule that changed for
+ * weighing -- a briefing holds the clip -- is asserted by a JVM test rather than a phone.
+ *
+ * A capture with no briefing passes `briefingAcknowledged = true` from the start, so every other
+ * workflow's auto-start is byte-for-byte the pre-briefing behaviour.
+ */
+internal fun recorderMayAutoStart(
+    previewStreaming: Boolean,
+    isRecording: Boolean,
+    validationPending: Boolean,
+    resultDelivered: Boolean,
+    briefingAcknowledged: Boolean,
+): Boolean = previewStreaming && !isRecording && !validationPending && !resultDelivered && briefingAcknowledged
 
 @Composable
 private fun ProofCardHeader(

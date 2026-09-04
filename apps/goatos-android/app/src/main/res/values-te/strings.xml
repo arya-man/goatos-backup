@@ -67,4 +67,9 @@
     <string name="proof_audio_stop">రికార్డింగ్ ఆపండి</string>
     <string name="proof_audio_cancel">వాయిస్ నోట్ రద్దు చేయండి</string>
     <string name="proof_audio_unavailable">మైక్రోఫోన్ ఇప్పుడు అందుబాటులో లేదు.</string>
+    <string name="proof_camera_scale_zero_title">వీడియోలో 0 కేజీ చూపించండి</string>
+    <string name="proof_camera_scale_zero_body">వీడియో మొదలైన వెంటనే ముందుగా ఖాళీ తూకం యంత్రం 0 కేజీ చూపిస్తున్నట్లు కెమెరాలో చూపించండి, తర్వాత తూకం వేయడం ప్రారంభించండి. రికార్డింగ్ ప్రారంభించడానికి సరే నొక్కండి.</string>
+    <string name="proof_camera_scale_zero_confirm">సరే, వీడియో ప్రారంభించండి</string>
+    <string name="proof_camera_scale_zero_cancel">రద్దు చేయండి</string>
+    <string name="proof_camera_scale_zero_image_description">0 కేజీ చూపిస్తున్న ఖాళీ తూకం యంత్రం</string>
 </resources>

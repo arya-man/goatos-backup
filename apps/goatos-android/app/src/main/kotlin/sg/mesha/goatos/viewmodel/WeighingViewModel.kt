@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.capture.ProofPreRecordBriefing
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
@@ -2410,6 +2411,9 @@ class WeighingViewModel @Inject constructor(
                         primaryTag = expectedLocationLabel.ifBlank { routeTitle },
                         secondaryTag = null,
                         workLabel = "Group video $slotNumber of 5",
+                        // The clip must open on the scale reading 0 kg; the recorder holds at the
+                        // preview until the operator confirms it (maintainer request 2026-09-04).
+                        preRecordBriefing = ProofPreRecordBriefing.WEIGHING_SCALE_ZERO,
                     ),
                 ) ?: run {
                     analytics.track(
@@ -3050,6 +3054,9 @@ class WeighingViewModel @Inject constructor(
                 primaryTag = row.primaryTag.ifBlank { row.displayAnimalId },
                 secondaryTag = null,
                 workLabel = "Weight needed",
+                // Same briefing as the lump-sum clip: every weighing video, individual or whole
+                // pen, opens on the scale reading 0 kg before the animal is weighed.
+                preRecordBriefing = ProofPreRecordBriefing.WEIGHING_SCALE_ZERO,
             ),
         )
         if (captured == null) {

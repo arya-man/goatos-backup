@@ -70,4 +70,13 @@
     <string name="proof_audio_stop">Stop recording</string>
     <string name="proof_audio_cancel">Cancel voice note</string>
     <string name="proof_audio_unavailable">The microphone is not available right now.</string>
+    <!-- Pre-record briefing shown over the live camera preview before EVERY weighing video
+         (individual animal and whole pen alike). Recording starts only after the operator
+         confirms the empty scale reads 0 kg; see PreRecordBriefingDialog.kt. -->
+    <string name="proof_camera_scale_zero_title">Show 0 kg in the video</string>
+    <string name="proof_camera_scale_zero_body">When the video starts, first show the empty weighing scale reading 0 kg on camera, then start weighing. Tap OK to start recording.</string>
+    <string name="proof_camera_scale_zero_confirm">OK, start video</string>
+    <string name="proof_camera_scale_zero_cancel">Cancel</string>
+    <string name="proof_camera_scale_zero_image_description">Weighing scale with an empty pan reading 0 kg</string>
+    <string name="proof_camera_scale_zero_reading" translatable="false">0.0 kg</string>
 </resources>
