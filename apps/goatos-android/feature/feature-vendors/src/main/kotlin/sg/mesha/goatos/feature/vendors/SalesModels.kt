@@ -54,6 +54,8 @@ sealed interface SalesListEvent {
     data class SelectFarm(val key: String) : SalesListEvent
     data class OpenSale(val dealId: String) : SalesListEvent
     data object AddSale : SalesListEvent
+    /** Open the pipeline and evidence panels (maintainer instruction 2026-09-04). */
+    data object OpenPipeline : SalesListEvent
 }
 
 /** One pen's share of the animals tagged to a sale, backend-composed. */
@@ -74,6 +76,21 @@ data class SaleDetailUiState(
     val canTagAnimals: Boolean = false,
     /** Backend reason when tagging is not offered; blank when it is. */
     val tagDisabledReason: String = "",
+    // --- editing the sale ---
+    /** Receipts already on the deal, newest last, as the server returned them. */
+    val payments: List<SalePaymentUi> = emptyList(),
+    /** "₹1,00,000 still due" / "Fully paid" — BACKEND `payment_balance`, formatted, never derived. */
+    val balanceLine: String = "",
+    /** The status vocabulary, backend-owned; blank until the options read lands. */
+    val statuses: List<VendorsOptionUi> = emptyList(),
+    /** Non-null while the receipt editor is open. */
+    val paymentEditor: SalePaymentEditorUi? = null,
+    /** Latest date a receipt may carry (today): money cannot be received tomorrow. */
+    val today: String = "",
+    /** A queued edit is on its way; the controls stay put but do not take a second tap. */
+    val editInFlight: Boolean = false,
+    /** Backend-owned confirmation of the last edit, blank when there is nothing to say. */
+    val editMessage: String = "",
     val isRefreshing: Boolean = false,
     val isLoading: Boolean = true,
     val message: String? = null,
@@ -84,7 +101,47 @@ sealed interface SaleDetailEvent {
     data object Back : SaleDetailEvent
     data object TagAnimals : SaleDetailEvent
     data object DismissMessage : SaleDetailEvent
+
+    // Editing the sale (maintainer instruction 2026-09-04).
+    /** Open the receipt editor blank, or on an existing receipt. */
+    data class OpenPayment(val paymentId: String) : SaleDetailEvent
+    data object ClosePayment : SaleDetailEvent
+    data class PaymentFieldChanged(val field: SalePaymentField, val value: String) : SaleDetailEvent
+    data object SavePayment : SaleDetailEvent
+    /** Remove the receipt the editor is open on. */
+    data object DeletePayment : SaleDetailEvent
+    /** Move the deal's status word to [status]. */
+    data class ChangeStatus(val status: String) : SaleDetailEvent
 }
+
+/** The three fields of a buyer receipt. */
+enum class SalePaymentField { RECEIVED_ON, AMOUNT, NOTE }
+
+/** One receipt already on the deal, backend-composed. */
+@Immutable
+data class SalePaymentUi(
+    val paymentId: String,
+    /** "01-09-2026" */
+    val receivedOn: String,
+    /** "₹50,000" */
+    val amount: String,
+    val note: String,
+    /** The values the editor reopens on. Kept beside the formatted ones rather than parsed back
+     *  out of them: "₹50,000" is not something a number field takes, and a formatted date has
+     *  already lost the form the server wants. */
+    val receivedOnIso: String = "",
+    val amountRaw: String = "",
+)
+
+/** The receipt editor: blank for a new receipt, filled when correcting one. */
+@Immutable
+data class SalePaymentEditorUi(
+    /** Blank when adding; the receipt's id when correcting one. */
+    val paymentId: String = "",
+    val values: Map<SalePaymentField, String> = emptyMap(),
+    val fieldErrors: Map<SalePaymentField, String> = emptyMap(),
+    val inFlight: Boolean = false,
+)
 
 // ---------------------------------------------------------------------------------------------
 // Record a sale

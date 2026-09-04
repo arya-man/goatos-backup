@@ -31,7 +31,9 @@ import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
 import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
 import sg.mesha.goatos.core.network.dto.SaleLocationsDto
 import sg.mesha.goatos.core.network.dto.SalePreviewDto
+import sg.mesha.goatos.core.network.dto.SalesBuyerLeadPageDto
 import sg.mesha.goatos.core.network.dto.SalesDealDto
+import sg.mesha.goatos.core.network.dto.SalesFpoLeadPageDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
 import sg.mesha.goatos.core.network.dto.VendorOptionsDto
 import sg.mesha.goatos.core.network.serverErrorText
@@ -57,8 +59,18 @@ interface SalesRepository {
     fun observeVendorOptions(): Flow<VendorOptionsDto?>
     suspend fun refreshVendorOptions()
 
-    /** The server's returned row after a queued create landed. */
+    /** The server's returned row after a queued create, receipt or status change landed. */
     suspend fun persistServerDeal(deal: SalesDealDto)
+
+    // --- pipeline and evidence boards (maintainer instruction 2026-09-04) ---
+    //
+    // Both are BOUNDED reads (the newest [PIPELINE_PAGE_SIZE]), cached as one blob each and
+    // observed from Room, so the panel opens on what it last saw and refreshes behind that. The
+    // call-status vocabulary rides on the same payload and is rendered verbatim.
+    fun observeBuyerLeads(): Flow<SalesBuyerLeadPageDto?>
+    suspend fun refreshBuyerLeads()
+    fun observeFpoLeads(): Flow<SalesFpoLeadPageDto?>
+    suspend fun refreshFpoLeads()
 
     // --- tagging animals (online) ---
     suspend fun saleLocations(): AppResult<SaleLocationsDto>
@@ -121,6 +133,28 @@ class DefaultSalesRepository(
             .onFailure {
                 if (it is CancellationException) throw it
                 android.util.Log.w(LOG_TAG, "sales_vendor_options_refresh_failed", it)
+            }
+    }
+
+    override fun observeBuyerLeads(): Flow<SalesBuyerLeadPageDto?> = observeBlob(BUYER_LEADS_KEY)
+
+    override suspend fun refreshBuyerLeads() {
+        // exception:exempt expected refresh failure; the cached board stays on screen.
+        runCatching { putBlob(BUYER_LEADS_KEY, json.encodeToString(api.getSalesBuyerLeads(PIPELINE_PAGE_SIZE, 0))) }
+            .onFailure {
+                if (it is CancellationException) throw it
+                android.util.Log.w(LOG_TAG, "sales_buyer_leads_refresh_failed", it)
+            }
+    }
+
+    override fun observeFpoLeads(): Flow<SalesFpoLeadPageDto?> = observeBlob(FPO_LEADS_KEY)
+
+    override suspend fun refreshFpoLeads() {
+        // exception:exempt expected refresh failure; the cached board stays on screen.
+        runCatching { putBlob(FPO_LEADS_KEY, json.encodeToString(api.getSalesFpoLeads(PIPELINE_PAGE_SIZE, 0))) }
+            .onFailure {
+                if (it is CancellationException) throw it
+                android.util.Log.w(LOG_TAG, "sales_fpo_leads_refresh_failed", it)
             }
     }
 
@@ -192,6 +226,11 @@ class DefaultSalesRepository(
         const val DEAL_KEY_PREFIX = "sale:"
         const val OPTIONS_KEY = "sales-options"
         const val VENDOR_OPTIONS_KEY = "sales-vendor-options"
+        const val BUYER_LEADS_KEY = "sales-buyer-leads"
+        const val FPO_LEADS_KEY = "sales-fpo-leads"
+        /** One screen of leads. Bounded on purpose: the board answers "who called lately", and a
+         *  phone that walked the whole history would be the banned full-table read. */
+        const val PIPELINE_PAGE_SIZE = 20
     }
 
     /** Fills Room from `GET /sales/deals` page by page; the per-scope "cursor" is the next offset. */

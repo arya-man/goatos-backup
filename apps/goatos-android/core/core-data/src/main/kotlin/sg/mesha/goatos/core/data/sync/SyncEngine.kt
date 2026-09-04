@@ -545,6 +545,9 @@ class SyncEngine(
         OutboxOpType.VENDOR_CREATE -> dispatchVendorCreate(item)
         OutboxOpType.FEED_PURCHASE_CREATE -> dispatchFeedPurchaseCreate(item)
         OutboxOpType.SALES_DEAL_CREATE -> dispatchSalesDealCreate(item)
+        OutboxOpType.SALES_DEAL_PAYMENT_WRITE -> dispatchSalesDealPaymentWrite(item)
+        OutboxOpType.SALES_DEAL_STATUS_SET -> dispatchSalesDealStatusSet(item)
+        OutboxOpType.SALES_PIPELINE_WRITE -> dispatchSalesPipelineWrite(item)
     }
 
     private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
@@ -770,7 +773,12 @@ class SyncEngine(
                     }.onFailure { reportCacheReconcileFailure(item, it) }
                 }
             }
-            OutboxOpType.SALES_DEAL_CREATE -> {
+            // A create, a receipt and a status change all return the SAME shape -- the whole
+            // deal, with the server's recomputed balance -- so they reconcile identically.
+            OutboxOpType.SALES_DEAL_CREATE,
+            OutboxOpType.SALES_DEAL_PAYMENT_WRITE,
+            OutboxOpType.SALES_DEAL_STATUS_SET,
+            -> {
                 item.resultJson?.let { resultJson ->
                     runCatching {
                         salesRepository?.persistServerDeal(
@@ -1049,6 +1057,57 @@ class SyncEngine(
         val payload = syncJson.decodeFromString<SalesDealCreatePayload>(item.payloadJson)
         val created = api.createSalesDeal(item.idempotencyKey, payload.request)
         return syncJson.encodeToString(created)
+    }
+
+    /** A receipt added, changed or removed. All three return the WHOLE updated deal. */
+    private suspend fun dispatchSalesDealPaymentWrite(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<SalesDealPaymentPayload>(item.payloadJson)
+        val deal = when (payload.op) {
+            SalesPaymentOp.CREATE -> api.createSalesDealPayment(
+                payload.dealId, item.idempotencyKey, requireNotNull(payload.request) { "payment create carries no body" },
+            )
+            SalesPaymentOp.UPDATE -> api.updateSalesDealPayment(
+                payload.dealId, payload.paymentId, item.idempotencyKey,
+                requireNotNull(payload.request) { "payment update carries no body" },
+            )
+            SalesPaymentOp.DELETE -> api.deleteSalesDealPayment(payload.dealId, payload.paymentId, item.idempotencyKey)
+            else -> error("unknown sales payment op ${payload.op}")
+        }
+        return syncJson.encodeToString(deal)
+    }
+
+    private suspend fun dispatchSalesDealStatusSet(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<SalesDealStatusPayload>(item.payloadJson)
+        val deal = api.setSalesDealStatus(payload.dealId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(deal)
+    }
+
+    /**
+     * One pipeline or evidence record. The results differ in shape by panel (a lead row, a count,
+     * a bare acknowledgement), and no caller decodes them -- each panel re-reads its own bounded
+     * list on success -- so this returns an empty result rather than a union nothing consumes.
+     */
+    private suspend fun dispatchSalesPipelineWrite(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<SalesPipelinePayload>(item.payloadJson)
+        val key = item.idempotencyKey
+        when (payload.kind) {
+            SalesPipelineKind.BUYER_LEAD ->
+                api.createSalesBuyerLead(key, requireNotNull(payload.buyerLead) { "buyer lead carries no body" })
+            SalesPipelineKind.BUYER_LEAD_STATUS ->
+                api.setSalesBuyerLeadStatus(payload.leadId, key, requireNotNull(payload.leadStatus) { "lead status carries no body" })
+            SalesPipelineKind.FPO_LEAD ->
+                api.createSalesFpoLead(key, requireNotNull(payload.fpoLead) { "farmer group carries no body" })
+            SalesPipelineKind.FPO_LEAD_STATUS ->
+                api.setSalesFpoLeadStatus(payload.leadId, key, requireNotNull(payload.leadStatus) { "lead status carries no body" })
+            SalesPipelineKind.BENCHMARK ->
+                api.createSalesMarketBenchmark(key, requireNotNull(payload.benchmark) { "market quote carries no body" })
+            SalesPipelineKind.SOLD_TAGS ->
+                api.createSalesSoldTags(key, requireNotNull(payload.soldTags) { "sold tag list carries no body" })
+            SalesPipelineKind.WEIGHT_CHECK ->
+                api.createSalesWeightCheck(key, requireNotNull(payload.weightCheck) { "weight check carries no body" })
+            else -> error("unknown sales pipeline kind ${payload.kind}")
+        }
+        return "{}"
     }
 
     private suspend fun dispatchClockPunch(item: OutboxEntity, clockIn: Boolean): String {

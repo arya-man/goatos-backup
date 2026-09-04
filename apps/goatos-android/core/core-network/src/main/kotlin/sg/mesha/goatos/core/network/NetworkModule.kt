@@ -99,7 +99,21 @@ import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
 import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
 import sg.mesha.goatos.core.network.dto.SaleLocationsDto
 import sg.mesha.goatos.core.network.dto.SalePreviewDto
+import sg.mesha.goatos.core.network.dto.SalesBenchmarkWriteDto
+import sg.mesha.goatos.core.network.dto.SalesBuyerLeadDto
+import sg.mesha.goatos.core.network.dto.SalesBuyerLeadPageDto
+import sg.mesha.goatos.core.network.dto.SalesBuyerLeadWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealDto
+import sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealStatusWriteDto
+import sg.mesha.goatos.core.network.dto.SalesFpoLeadDto
+import sg.mesha.goatos.core.network.dto.SalesFpoLeadPageDto
+import sg.mesha.goatos.core.network.dto.SalesFpoLeadWriteDto
+import sg.mesha.goatos.core.network.dto.SalesLeadStatusWriteDto
+import sg.mesha.goatos.core.network.dto.SalesRecordedDto
+import sg.mesha.goatos.core.network.dto.SalesSoldTagsResultDto
+import sg.mesha.goatos.core.network.dto.SalesSoldTagsWriteDto
+import sg.mesha.goatos.core.network.dto.SalesWeightCheckWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealPageDto
 import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
@@ -1000,6 +1014,94 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: SaleAllocationRequestDto,
     ): SaleAllocationDto
+
+    // Editing a recorded sale (maintainer instruction 2026-09-04). Every one of these returns the
+    // WHOLE updated deal, so the phone persists the server's row rather than patching its own.
+    @POST("sales/deals/{deal_id}/payments")
+    suspend fun createSalesDealPayment(
+        @Path("deal_id") dealId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesDealPaymentWriteDto,
+    ): SalesDealDto
+
+    @PUT("sales/deals/{deal_id}/payments/{payment_id}")
+    suspend fun updateSalesDealPayment(
+        @Path("deal_id") dealId: String,
+        @Path("payment_id") paymentId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesDealPaymentWriteDto,
+    ): SalesDealDto
+
+    @DELETE("sales/deals/{deal_id}/payments/{payment_id}")
+    suspend fun deleteSalesDealPayment(
+        @Path("deal_id") dealId: String,
+        @Path("payment_id") paymentId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+    ): SalesDealDto
+
+    @POST("sales/deals/{deal_id}/status")
+    suspend fun setSalesDealStatus(
+        @Path("deal_id") dealId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesDealStatusWriteDto,
+    ): SalesDealDto
+
+    // Pipeline and evidence: the five panels the retired Sales DB sheet carried.
+    @GET("sales/buyer-leads")
+    suspend fun getSalesBuyerLeads(
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): SalesBuyerLeadPageDto
+
+    @POST("sales/buyer-leads")
+    suspend fun createSalesBuyerLead(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesBuyerLeadWriteDto,
+    ): SalesBuyerLeadDto
+
+    @POST("sales/buyer-leads/{lead_id}/status")
+    suspend fun setSalesBuyerLeadStatus(
+        @Path("lead_id") leadId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesLeadStatusWriteDto,
+    ): SalesBuyerLeadDto
+
+    @GET("sales/fpo-leads")
+    suspend fun getSalesFpoLeads(
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): SalesFpoLeadPageDto
+
+    @POST("sales/fpo-leads")
+    suspend fun createSalesFpoLead(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesFpoLeadWriteDto,
+    ): SalesFpoLeadDto
+
+    @POST("sales/fpo-leads/{lead_id}/status")
+    suspend fun setSalesFpoLeadStatus(
+        @Path("lead_id") leadId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesLeadStatusWriteDto,
+    ): SalesFpoLeadDto
+
+    @POST("sales/market-benchmarks")
+    suspend fun createSalesMarketBenchmark(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesBenchmarkWriteDto,
+    ): SalesRecordedDto
+
+    @POST("sales/sold-tags")
+    suspend fun createSalesSoldTags(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesSoldTagsWriteDto,
+    ): SalesSoldTagsResultDto
+
+    @POST("sales/weight-checks")
+    suspend fun createSalesWeightCheck(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesWeightCheckWriteDto,
+    ): SalesRecordedDto
     // Leadership Tasks (maintainer request 2026-09-04)
     @GET("app/leadership-tasks")
     suspend fun getLeadershipTasks(
@@ -2009,6 +2111,45 @@ class RetrofitAppApi(
 
     override suspend fun confirmSaleAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): SaleAllocationDto =
         service.confirmSaleAllocation(idempotencyKey, request)
+
+    override suspend fun createSalesDealPayment(dealId: String, idempotencyKey: String, request: SalesDealPaymentWriteDto): SalesDealDto =
+        service.createSalesDealPayment(dealId, idempotencyKey, request)
+
+    override suspend fun updateSalesDealPayment(dealId: String, paymentId: String, idempotencyKey: String, request: SalesDealPaymentWriteDto): SalesDealDto =
+        service.updateSalesDealPayment(dealId, paymentId, idempotencyKey, request)
+
+    override suspend fun deleteSalesDealPayment(dealId: String, paymentId: String, idempotencyKey: String): SalesDealDto =
+        service.deleteSalesDealPayment(dealId, paymentId, idempotencyKey)
+
+    override suspend fun setSalesDealStatus(dealId: String, idempotencyKey: String, request: SalesDealStatusWriteDto): SalesDealDto =
+        service.setSalesDealStatus(dealId, idempotencyKey, request)
+
+    override suspend fun getSalesBuyerLeads(limit: Int?, offset: Int?): SalesBuyerLeadPageDto =
+        service.getSalesBuyerLeads(limit, offset)
+
+    override suspend fun createSalesBuyerLead(idempotencyKey: String, request: SalesBuyerLeadWriteDto): SalesBuyerLeadDto =
+        service.createSalesBuyerLead(idempotencyKey, request)
+
+    override suspend fun setSalesBuyerLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesBuyerLeadDto =
+        service.setSalesBuyerLeadStatus(leadId, idempotencyKey, request)
+
+    override suspend fun getSalesFpoLeads(limit: Int?, offset: Int?): SalesFpoLeadPageDto =
+        service.getSalesFpoLeads(limit, offset)
+
+    override suspend fun createSalesFpoLead(idempotencyKey: String, request: SalesFpoLeadWriteDto): SalesFpoLeadDto =
+        service.createSalesFpoLead(idempotencyKey, request)
+
+    override suspend fun setSalesFpoLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesFpoLeadDto =
+        service.setSalesFpoLeadStatus(leadId, idempotencyKey, request)
+
+    override suspend fun createSalesMarketBenchmark(idempotencyKey: String, request: SalesBenchmarkWriteDto): SalesRecordedDto =
+        service.createSalesMarketBenchmark(idempotencyKey, request)
+
+    override suspend fun createSalesSoldTags(idempotencyKey: String, request: SalesSoldTagsWriteDto): SalesSoldTagsResultDto =
+        service.createSalesSoldTags(idempotencyKey, request)
+
+    override suspend fun createSalesWeightCheck(idempotencyKey: String, request: SalesWeightCheckWriteDto): SalesRecordedDto =
+        service.createSalesWeightCheck(idempotencyKey, request)
     override suspend fun getLeadershipTasks(
         filter: String?,
         limit: Int?,

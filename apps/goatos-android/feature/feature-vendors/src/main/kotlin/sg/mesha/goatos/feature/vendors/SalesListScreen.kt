@@ -74,6 +74,20 @@ fun SalesListScreen(
                 contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                // The way in to the pipeline and evidence panels. In the body rather than the app
+                // bar: the bar carries actions on THIS screen, never a way into another one.
+                item(key = "pipeline") {
+                    VendorsCard(onClick = { onEvent(SalesListEvent.OpenPipeline) }, modifier = Modifier.padding(horizontal = MeshaDimens.gutter)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            VendorsIconTile(icon = MeshaIcons.Sale, tint = MeshaColors.BrandD, background = MeshaColors.OkX)
+                            Column(Modifier.weight(1f)) {
+                                Text(text = PIPELINE_TITLE, color = MeshaColors.Ink, style = MeshaType.listTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Spacer(Modifier.height(2.dp))
+                                Text(text = PIPELINE_SUBTITLE, color = MeshaColors.Muted, style = MeshaType.cardSubtitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
                 if (rows.itemCount == 0 && state.emptyMessage != null) {
                     item(key = "empty") {
                         EmptyState(
@@ -124,3 +138,5 @@ private fun SaleCard(card: SaleCardUi, onClick: () -> Unit) {
 }
 
 private const val ADD_LABEL = "Record sale"
+private const val PIPELINE_TITLE = "Pipeline and evidence"
+private const val PIPELINE_SUBTITLE = "Buyer leads, farmer groups, market quotes, sold tags and weight checks"

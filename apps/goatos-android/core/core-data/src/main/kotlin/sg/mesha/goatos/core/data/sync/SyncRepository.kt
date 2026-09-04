@@ -607,6 +607,32 @@ interface SyncRepository {
         request: sg.mesha.goatos.core.network.dto.SalesDealWriteDto,
     ): AppResult<String> = AppResult.Err("sales sync is not configured")
 
+    /**
+     * A buyer receipt on a recorded sale (maintainer instruction 2026-09-04). [op] is one of
+     * [SalesPaymentOp]; [paymentId] is blank on a create and required otherwise, and [request] is
+     * null on a delete. Every one returns the WHOLE updated deal, which the sync pass persists --
+     * the phone never recomputes `payment_balance`.
+     */
+    suspend fun enqueueSalesDealPaymentWrite(
+        clientId: String,
+        dealId: String,
+        op: String,
+        paymentId: String = "",
+        request: sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto? = null,
+    ): AppResult<String> = AppResult.Err("sales sync is not configured")
+
+    /** The deal's status word (`POST /sales/deals/{id}/status`). */
+    suspend fun enqueueSalesDealStatusSet(
+        clientId: String,
+        dealId: String,
+        status: String,
+    ): AppResult<String> = AppResult.Err("sales sync is not configured")
+
+    /** One pipeline or evidence record; [payload] names its panel in `kind`. */
+    suspend fun enqueueSalesPipelineWrite(
+        payload: SalesPipelinePayload,
+    ): AppResult<String> = AppResult.Err("sales sync is not configured")
+
     suspend fun enqueueMilkPreparationSubmit(
         groupKey: String,
         idempotencyKey: String,
@@ -1617,6 +1643,51 @@ class DefaultSyncRepository(
         groupKey = salesDealCreateGroupKey(clientId.trim()),
         idempotencyKey = salesDealCreateIdempotencyKey(clientId.trim()),
         payloadJson = syncJson.encodeToString(SalesDealCreatePayload(clientId = clientId.trim(), request = request)),
+    )
+
+    override suspend fun enqueueSalesDealPaymentWrite(
+        clientId: String,
+        dealId: String,
+        op: String,
+        paymentId: String,
+        request: sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto?,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SALES_DEAL_PAYMENT_WRITE,
+        // Per-DEAL lane: two receipts on one sale drain in the order they were entered, so the
+        // balance the operator ends up looking at is the one their last edit produced.
+        groupKey = salesDealEditGroupKey(dealId.trim()),
+        idempotencyKey = salesDealPaymentIdempotencyKey(clientId.trim()),
+        payloadJson = syncJson.encodeToString(
+            SalesDealPaymentPayload(
+                clientId = clientId.trim(), dealId = dealId.trim(), op = op,
+                paymentId = paymentId.trim(), request = request,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueSalesDealStatusSet(
+        clientId: String,
+        dealId: String,
+        status: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SALES_DEAL_STATUS_SET,
+        groupKey = salesDealEditGroupKey(dealId.trim()),
+        idempotencyKey = salesDealStatusIdempotencyKey(clientId.trim()),
+        payloadJson = syncJson.encodeToString(
+            SalesDealStatusPayload(
+                clientId = clientId.trim(), dealId = dealId.trim(),
+                request = sg.mesha.goatos.core.network.dto.SalesDealStatusWriteDto(status = status),
+            ),
+        ),
+    )
+
+    override suspend fun enqueueSalesPipelineWrite(
+        payload: SalesPipelinePayload,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SALES_PIPELINE_WRITE,
+        groupKey = salesPipelineGroupKey(payload.clientId.trim()),
+        idempotencyKey = salesPipelineIdempotencyKey(payload.clientId.trim()),
+        payloadJson = syncJson.encodeToString(payload),
     )
 
     override suspend fun enqueueMilkPreparationSubmit(

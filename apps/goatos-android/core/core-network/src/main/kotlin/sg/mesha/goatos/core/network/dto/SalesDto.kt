@@ -205,3 +205,146 @@ data class SaleAllocationDto(
     @SerialName("allocated") val allocated: Int = 0,
     @SerialName("shed_groups") val shedGroups: List<SaleShedGroupDto> = emptyList(),
 )
+
+// ---------------------------------------------------------------------------------------------
+// Editing a recorded sale: receipts and the status word
+// ---------------------------------------------------------------------------------------------
+//
+// Maintainer instruction 2026-09-04: the phone could RECORD a sale but never change one, so a
+// part payment or a closed deal had to wait for someone at a desk. These are the same routes the
+// web's deal drawer uses, and each returns the WHOLE updated deal -- `payment_balance` included --
+// so the phone persists the server's row and never derives a money figure of its own.
+
+/** `POST /sales/deals/{deal_id}/payments` and `PUT .../payments/{payment_id}`. */
+@Serializable
+data class SalesDealPaymentWriteDto(
+    @SerialName("received_on") val receivedOn: String,
+    @SerialName("amount_rupees") val amountRupees: Double,
+    @SerialName("note") val note: String = "",
+)
+
+/** `POST /sales/deals/{deal_id}/status`. */
+@Serializable
+data class SalesDealStatusWriteDto(
+    @SerialName("status") val status: String,
+)
+
+// ---------------------------------------------------------------------------------------------
+// Pipeline and evidence: buyer leads, farmer groups, market quotes, sold tags, weight checks
+// ---------------------------------------------------------------------------------------------
+//
+// The five panels the retired Sales DB sheet used to carry (maintainer decision 2026-08-18), all
+// on SalesWrite. Wire contract of record: backend/internal/sales/adapters/http/pipeline_payloads.go.
+
+@Serializable
+data class SalesBuyerLeadDto(
+    @SerialName("lead_id") val leadId: String,
+    @SerialName("recorded_date") val recordedDate: String? = null,
+    @SerialName("farm") val farm: String? = null,
+    @SerialName("buyer_name") val buyerName: String = "",
+    @SerialName("buyer_place") val buyerPlace: String? = null,
+    @SerialName("animal_type") val animalType: String? = null,
+    @SerialName("breed") val breed: String? = null,
+    @SerialName("call_status") val callStatus: String? = null,
+    @SerialName("created_at") val createdAt: String = "",
+)
+
+@Serializable
+data class SalesBuyerLeadPageDto(
+    @SerialName("leads") val leads: List<SalesBuyerLeadDto> = emptyList(),
+    @SerialName("total") val total: Int = 0,
+    /** The call-status vocabulary, BACKEND-owned; the phone offers exactly these. */
+    @SerialName("status_options") val statusOptions: List<String> = emptyList(),
+)
+
+@Serializable
+data class SalesBuyerLeadWriteDto(
+    @SerialName("recorded_date") val recordedDate: String = "",
+    @SerialName("farm") val farm: String = "",
+    @SerialName("buyer_name") val buyerName: String,
+    @SerialName("buyer_place") val buyerPlace: String = "",
+    @SerialName("animal_type") val animalType: String = "",
+    @SerialName("breed") val breed: String = "",
+    @SerialName("call_status") val callStatus: String = "",
+)
+
+@Serializable
+data class SalesFpoLeadDto(
+    @SerialName("lead_id") val leadId: String,
+    @SerialName("fpo_name") val fpoName: String = "",
+    @SerialName("crops") val crops: String? = null,
+    @SerialName("district") val district: String? = null,
+    @SerialName("taluk") val taluk: String? = null,
+    @SerialName("state") val state: String? = null,
+    @SerialName("call_status") val callStatus: String? = null,
+    @SerialName("created_at") val createdAt: String = "",
+)
+
+@Serializable
+data class SalesFpoLeadPageDto(
+    @SerialName("leads") val leads: List<SalesFpoLeadDto> = emptyList(),
+    @SerialName("total") val total: Int = 0,
+    @SerialName("status_options") val statusOptions: List<String> = emptyList(),
+)
+
+@Serializable
+data class SalesFpoLeadWriteDto(
+    @SerialName("fpo_name") val fpoName: String,
+    @SerialName("crops") val crops: String = "",
+    @SerialName("district") val district: String = "",
+    @SerialName("taluk") val taluk: String = "",
+    @SerialName("state") val state: String = "",
+    @SerialName("call_status") val callStatus: String = "",
+)
+
+/** `POST /sales/{buyer,fpo}-leads/{lead_id}/status`. */
+@Serializable
+data class SalesLeadStatusWriteDto(
+    @SerialName("call_status") val callStatus: String,
+)
+
+/** `POST /sales/market-benchmarks`: what the market is paying, beside our landed cost. */
+@Serializable
+data class SalesBenchmarkWriteDto(
+    @SerialName("market") val market: String,
+    @SerialName("category") val category: String = "",
+    @SerialName("breed") val breed: String = "",
+    @SerialName("source") val source: String = "",
+    @SerialName("ex_farm_rate") val exFarmRate: String = "",
+    @SerialName("transport_rate") val transportRate: String = "",
+    @SerialName("landing_cost_per_kg") val landingCostPerKg: Double? = null,
+    @SerialName("market_price_per_kg") val marketPricePerKg: Double? = null,
+)
+
+/** One line of a sold-tag list. `weight_kg` absent stays distinct from zero. */
+@Serializable
+data class SalesSoldTagRowDto(
+    @SerialName("animal_label") val animalLabel: String = "",
+    @SerialName("tag_number") val tagNumber: String,
+    @SerialName("weight_kg") val weightKg: Double? = null,
+)
+
+@Serializable
+data class SalesSoldTagsWriteDto(
+    @SerialName("farm") val farm: String,
+    @SerialName("rows") val rows: List<SalesSoldTagRowDto>,
+)
+
+@Serializable
+data class SalesSoldTagsResultDto(
+    @SerialName("recorded") val recorded: Int = 0,
+)
+
+/** `POST /sales/weight-checks`: the book weight beside the weight read off the video. */
+@Serializable
+data class SalesWeightCheckWriteDto(
+    @SerialName("tag_number") val tagNumber: String,
+    @SerialName("book_weight_kg") val bookWeightKg: Double,
+    @SerialName("video_weight_kg") val videoWeightKg: Double,
+    @SerialName("farm_born") val farmBorn: Boolean,
+)
+
+@Serializable
+data class SalesRecordedDto(
+    @SerialName("recorded") val recorded: Boolean = false,
+)

@@ -87,7 +87,22 @@ import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
 import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
 import sg.mesha.goatos.core.network.dto.SaleLocationsDto
 import sg.mesha.goatos.core.network.dto.SalePreviewDto
+import sg.mesha.goatos.core.network.dto.SalesBenchmarkWriteDto
+import sg.mesha.goatos.core.network.dto.SalesBuyerLeadDto
+import sg.mesha.goatos.core.network.dto.SalesBuyerLeadPageDto
+import sg.mesha.goatos.core.network.dto.SalesBuyerLeadWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealDto
+import sg.mesha.goatos.core.network.dto.SalesDealPaymentDto
+import sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealStatusWriteDto
+import sg.mesha.goatos.core.network.dto.SalesFpoLeadDto
+import sg.mesha.goatos.core.network.dto.SalesFpoLeadPageDto
+import sg.mesha.goatos.core.network.dto.SalesFpoLeadWriteDto
+import sg.mesha.goatos.core.network.dto.SalesLeadStatusWriteDto
+import sg.mesha.goatos.core.network.dto.SalesRecordedDto
+import sg.mesha.goatos.core.network.dto.SalesSoldTagsResultDto
+import sg.mesha.goatos.core.network.dto.SalesSoldTagsWriteDto
+import sg.mesha.goatos.core.network.dto.SalesWeightCheckWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealPageDto
 import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
@@ -1492,6 +1507,67 @@ interface AppApi {
         idempotencyKey: String,
         request: SaleAllocationRequestDto,
     ): SaleAllocationDto
+
+    // Editing a recorded sale (maintainer instruction 2026-09-04). Each returns the WHOLE updated
+    // deal, so the caller persists the server's row and computes no money figure of its own.
+
+    /** POST /sales/deals/{deal_id}/payments — records a buyer receipt. Idempotency-Key. */
+    suspend fun createSalesDealPayment(
+        dealId: String,
+        idempotencyKey: String,
+        request: SalesDealPaymentWriteDto,
+    ): SalesDealDto
+
+    /** PUT /sales/deals/{deal_id}/payments/{payment_id} — corrects one receipt. */
+    suspend fun updateSalesDealPayment(
+        dealId: String,
+        paymentId: String,
+        idempotencyKey: String,
+        request: SalesDealPaymentWriteDto,
+    ): SalesDealDto
+
+    /** DELETE /sales/deals/{deal_id}/payments/{payment_id} — removes one receipt. */
+    suspend fun deleteSalesDealPayment(
+        dealId: String,
+        paymentId: String,
+        idempotencyKey: String,
+    ): SalesDealDto
+
+    /** POST /sales/deals/{deal_id}/status — moves the deal's status word. */
+    suspend fun setSalesDealStatus(
+        dealId: String,
+        idempotencyKey: String,
+        request: SalesDealStatusWriteDto,
+    ): SalesDealDto
+
+    // Pipeline and evidence: the five panels the retired Sales DB sheet carried.
+
+    /** GET /sales/buyer-leads — the buyer demand board, newest first. */
+    suspend fun getSalesBuyerLeads(limit: Int? = null, offset: Int? = null): SalesBuyerLeadPageDto
+
+    /** POST /sales/buyer-leads — records one buyer enquiry. */
+    suspend fun createSalesBuyerLead(idempotencyKey: String, request: SalesBuyerLeadWriteDto): SalesBuyerLeadDto
+
+    /** POST /sales/buyer-leads/{lead_id}/status — moves where that conversation stands. */
+    suspend fun setSalesBuyerLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesBuyerLeadDto
+
+    /** GET /sales/fpo-leads — the farmer-group board. */
+    suspend fun getSalesFpoLeads(limit: Int? = null, offset: Int? = null): SalesFpoLeadPageDto
+
+    /** POST /sales/fpo-leads — records one farmer group. */
+    suspend fun createSalesFpoLead(idempotencyKey: String, request: SalesFpoLeadWriteDto): SalesFpoLeadDto
+
+    /** POST /sales/fpo-leads/{lead_id}/status. */
+    suspend fun setSalesFpoLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesFpoLeadDto
+
+    /** POST /sales/market-benchmarks — what a market is paying, beside our landed cost. */
+    suspend fun createSalesMarketBenchmark(idempotencyKey: String, request: SalesBenchmarkWriteDto): SalesRecordedDto
+
+    /** POST /sales/sold-tags — the tag list of a sold lot. */
+    suspend fun createSalesSoldTags(idempotencyKey: String, request: SalesSoldTagsWriteDto): SalesSoldTagsResultDto
+
+    /** POST /sales/weight-checks — the book weight beside the weight read off the video. */
+    suspend fun createSalesWeightCheck(idempotencyKey: String, request: SalesWeightCheckWriteDto): SalesRecordedDto
     // Leadership Tasks (maintainer request 2026-09-04)
     // ------------------------------------------------------------------
 
@@ -2774,6 +2850,56 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun confirmSaleAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): SaleAllocationDto =
         SaleAllocationDto(salesDealId = request.salesDealId, allocated = request.goatIds.size)
+
+    override suspend fun createSalesDealPayment(dealId: String, idempotencyKey: String, request: SalesDealPaymentWriteDto): SalesDealDto =
+        fakeSalesDeal().copy(
+            dealId = dealId,
+            paymentReceived = 50000.0 + request.amountRupees,
+            paymentBalance = (150000.0 - 50000.0 - request.amountRupees).coerceAtLeast(0.0),
+            payments = listOf(SalesDealPaymentDto("payment-1", request.receivedOn, request.amountRupees, request.note)),
+        )
+
+    override suspend fun updateSalesDealPayment(dealId: String, paymentId: String, idempotencyKey: String, request: SalesDealPaymentWriteDto): SalesDealDto =
+        fakeSalesDeal().copy(
+            dealId = dealId,
+            payments = listOf(SalesDealPaymentDto(paymentId, request.receivedOn, request.amountRupees, request.note)),
+        )
+
+    override suspend fun deleteSalesDealPayment(dealId: String, paymentId: String, idempotencyKey: String): SalesDealDto =
+        fakeSalesDeal().copy(dealId = dealId, payments = emptyList(), paymentReceived = 0.0, paymentBalance = 150000.0)
+
+    override suspend fun setSalesDealStatus(dealId: String, idempotencyKey: String, request: SalesDealStatusWriteDto): SalesDealDto =
+        fakeSalesDeal().copy(dealId = dealId, status = request.status)
+
+    override suspend fun getSalesBuyerLeads(limit: Int?, offset: Int?): SalesBuyerLeadPageDto = SalesBuyerLeadPageDto(
+        leads = listOf(SalesBuyerLeadDto("lead-1", "2026-09-01", "CBE", "Kumar Traders", "Hosur", "Goat", "Malai", "Interested")),
+        total = 1,
+        statusOptions = listOf("Interested", "Not Interested", "Call Later"),
+    )
+
+    override suspend fun createSalesBuyerLead(idempotencyKey: String, request: SalesBuyerLeadWriteDto): SalesBuyerLeadDto =
+        SalesBuyerLeadDto("lead-new", request.recordedDate, request.farm, request.buyerName, request.buyerPlace, request.animalType, request.breed, request.callStatus)
+
+    override suspend fun setSalesBuyerLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesBuyerLeadDto =
+        SalesBuyerLeadDto(leadId, buyerName = "Kumar Traders", callStatus = request.callStatus)
+
+    override suspend fun getSalesFpoLeads(limit: Int?, offset: Int?): SalesFpoLeadPageDto = SalesFpoLeadPageDto(
+        leads = listOf(SalesFpoLeadDto("fpo-1", "Erode Farmer Group", "Maize", "Erode", "Bhavani", "TN", "Interested")),
+        total = 1,
+        statusOptions = listOf("Interested", "Not Interested", "Call Later"),
+    )
+
+    override suspend fun createSalesFpoLead(idempotencyKey: String, request: SalesFpoLeadWriteDto): SalesFpoLeadDto =
+        SalesFpoLeadDto("fpo-new", request.fpoName, request.crops, request.district, request.taluk, request.state, request.callStatus)
+
+    override suspend fun setSalesFpoLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesFpoLeadDto =
+        SalesFpoLeadDto(leadId, fpoName = "Erode Farmer Group", callStatus = request.callStatus)
+
+    override suspend fun createSalesMarketBenchmark(idempotencyKey: String, request: SalesBenchmarkWriteDto): SalesRecordedDto = SalesRecordedDto(recorded = true)
+
+    override suspend fun createSalesSoldTags(idempotencyKey: String, request: SalesSoldTagsWriteDto): SalesSoldTagsResultDto = SalesSoldTagsResultDto(recorded = request.rows.size)
+
+    override suspend fun createSalesWeightCheck(idempotencyKey: String, request: SalesWeightCheckWriteDto): SalesRecordedDto = SalesRecordedDto(recorded = true)
 
     private fun fakeSalesDeal(): SalesDealDto = SalesDealDto(
         dealId = "deal-1", saleDate = "2026-09-01", farm = "CBE", buyerName = "Kumar Traders", buyerPlace = "Hosur",
