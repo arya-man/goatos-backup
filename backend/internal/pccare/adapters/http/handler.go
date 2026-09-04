@@ -331,10 +331,15 @@ func actor(r *http.Request) domain.Actor {
 	for _, grant := range grants {
 		roles = append(roles, grant.Role)
 	}
+	// When the person's own access rows decided the route, carry that SAME permission set into
+	// the service; otherwise the role map decides there too. See domain.Actor.
+	perms, resolved := httpmiddleware.PersonPermissionsFromContext(r.Context())
 	return domain.Actor{
-		TenantID: httpmiddleware.TenantIDFromContext(r.Context()),
-		UserID:   httpmiddleware.ActorIDFromContext(r.Context()),
-		Roles:    roles,
+		TenantID:            httpmiddleware.TenantIDFromContext(r.Context()),
+		UserID:              httpmiddleware.ActorIDFromContext(r.Context()),
+		Roles:               roles,
+		Permissions:         perms,
+		PermissionsResolved: resolved,
 	}
 }
 

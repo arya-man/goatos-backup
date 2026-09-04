@@ -55,3 +55,29 @@ func TestBreedingDirectorIsOfferedPreventiveCareAndThePlanWizard(t *testing.T) {
 		t.Fatal("a bare pc_director must still get no plan wizard -- the carve-out belongs to breeding_director")
 	}
 }
+
+// TestPlanWizardFlagFollowsThePersonsTicksNotTheirJob closes the bootstrap half of PR #181
+// finding PC-181-002: once a person has access rows, `pc_care_plan` must answer from those
+// rows -- lit for a pc_trimming@Configure tick with no breeding_director job, dark for a
+// breeding_director whose ticks dropped planning -- because that is what the route and the
+// service will say when the wizard's create lands.
+func TestPlanWizardFlagFollowsThePersonsTicksNotTheirJob(t *testing.T) {
+	tickedOnly := navScope{
+		grants: []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)},
+		held:   map[string]struct{}{permissions.PCCareMonitor: {}, permissions.PCCarePlanTrimming: {}},
+	}
+	if !canPlanPCCareScoped(tickedOnly, nil, false) {
+		t.Fatal("pc_care_plan must light for pc_trimming@configure without the breeding_director job")
+	}
+	roleButUnticked := navScope{
+		grants: []domain.GrantSummary{grantWithRole(permissions.RoleBreedingDirector)},
+		held:   map[string]struct{}{permissions.PCCareMonitor: {}},
+	}
+	if canPlanPCCareScoped(roleButUnticked, nil, false) {
+		t.Fatal("pc_care_plan must NOT light for a breeding_director whose ticks removed planning")
+	}
+	// No rows yet: the role map still decides, as before the cutover.
+	if !canPlanPCCareScoped(scopeOf([]domain.GrantSummary{grantWithRole(permissions.RoleBreedingDirector)}), nil, false) {
+		t.Fatal("with no access rows the role path must still light the wizard for breeding_director")
+	}
+}

@@ -88,14 +88,14 @@ var planOrMonitorParkCapabilities = []string{permissions.PCCarePlan, permissions
 // canPlanOrMonitor is the planner's read gate: writes belong to the plan capabilities, but
 // read-only oversight (monitor/oversee) may look at the same vocabulary.
 func (s *Service) canPlanOrMonitor(actor domain.Actor) bool {
-	return permissions.RolesAuthorizeAny(actor.Roles, planOrMonitorParkCapabilities)
+	return actorHoldsAny(actor, planOrMonitorParkCapabilities)
 }
 
 // canPlanAny reports whether the actor holds ANY planning capability -- the first gate on a
 // planner write, answered before the category is even parsed so a non-planner is refused the
 // same way whatever they send.
 func canPlanAny(actor domain.Actor) bool {
-	return permissions.RolesAuthorizeAny(actor.Roles, planCapabilities)
+	return actorHoldsAny(actor, planCapabilities)
 }
 
 // planCapabilitiesForCategory names the capabilities that authorize planning THIS category.
@@ -113,7 +113,7 @@ func planCapabilitiesForCategory(category string) []string {
 // A holder of pc_care.plan_trimming asking for deworming is refused here as ErrForbidden, the
 // same answer a non-planner gets, because to them that category is not theirs to plan.
 func canPlanCategory(actor domain.Actor, category string) bool {
-	return permissions.RolesAuthorizeAny(actor.Roles, planCapabilitiesForCategory(category))
+	return actorHoldsAny(actor, planCapabilitiesForCategory(category))
 }
 
 // plannableCategories is the wizard vocabulary for this actor: every planner category for a
@@ -133,9 +133,34 @@ func plannableCategories(actor domain.Actor) []string {
 	return out
 }
 
+// actorHoldsAny is the ONE capability check in this module. It asks the source that decided
+// the request: the person's own resolved permission set when the route was admitted from
+// their ticks, the role map otherwise (domain.Actor.HasAny). A holder ticked for pc_trimming
+// at Configure with no breeding_director role therefore plans trimming here exactly as the
+// route allowed, and a role-holder whose ticks removed a permission is refused here exactly
+// as the route refused them.
+func actorHoldsAny(actor domain.Actor, capabilities []string) bool {
+	return actor.HasAny(permissions.RolesAuthorizeAny, capabilities)
+}
+
 // authorizedParkSet returns the parks in which the actor holds any of `capabilities`, and
 // whether the actor is tenant-wide for one of them (weighing authorizedParkSet clone).
+//
+// When per-person access decided the request, the person's OWN park scope is the answer
+// (the same precedence httpmiddleware.ResolveAuthorizedParkScopeForCapabilities takes): the
+// ticks carry one scope for every module the person holds, so a capability-by-capability
+// walk over grant roles would be reading a source the ticks overrode.
 func authorizedParkSet(ctx context.Context, tenantID string, capabilities ...string) (parks map[string]struct{}, tenantWide bool) {
+	if scope, ok := httpmiddleware.PersonParkScopeFromContext(ctx); ok {
+		if scope.TenantWide {
+			return nil, true
+		}
+		parks = make(map[string]struct{}, len(scope.ParkIDs))
+		for _, parkID := range scope.ParkIDs {
+			parks[parkID] = struct{}{}
+		}
+		return parks, false
+	}
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 	// No grants at all = internal/service context (CLI, integration test), unrestricted.
 	if len(grants) == 0 {
@@ -396,7 +421,7 @@ var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCar
 
 // ListTasks is the plan/monitor/oversee flat list for one due date, park-clamped.
 func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int, currentOrCarry bool) (ports.TaskPage, error) {
-	if !permissions.RolesAuthorizeAny(actor.Roles, monitorReadCapabilities) {
+	if !actorHoldsAny(actor, monitorReadCapabilities) {
 		return ports.TaskPage{}, ports.ErrForbidden
 	}
 	if !isBusinessDate(strings.TrimSpace(dueBusinessDate)) {
@@ -429,7 +454,7 @@ func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, cat
 
 // Worklist is the operator's assigned-task list for one category tab and one due date.
 func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCareExecute}, false) {
+	if !actorHoldsAny(actor, []string{permissions.PCCareExecute}) {
 		return ports.TaskPage{}, ports.ErrForbidden
 	}
 	category = strings.TrimSpace(category)
@@ -458,7 +483,7 @@ var taskReadCapabilities = []string{permissions.PCCareExecute, permissions.PCCar
 
 // GetTask reads one task (detail contract: row + expected slots composed by the handler).
 func (s *Service) GetTask(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error) {
-	if !permissions.RolesAuthorizeAny(actor.Roles, taskReadCapabilities) {
+	if !actorHoldsAny(actor, taskReadCapabilities) {
 		return ports.TaskRow{}, ports.ErrForbidden
 	}
 	taskID = strings.TrimSpace(taskID)
@@ -516,7 +541,7 @@ func clampLimit(limit int) int {
 // requireAssignee enforces the assigned-only rule: pc_care.execute alone never authorizes a
 // write — the caller must also be named on the task (maintainer decision 2026-08-21).
 func (s *Service) requireAssignee(ctx context.Context, actor domain.Actor, taskID string) error {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCareExecute}, false) {
+	if !actorHoldsAny(actor, []string{permissions.PCCareExecute}) {
 		return ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(taskID) {
@@ -748,7 +773,7 @@ func (s *Service) RecordStockVerdict(ctx context.Context, actor domain.Actor, in
 	if s.store == nil {
 		return ports.TaskRow{}, ports.ErrStoreUnavailable
 	}
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCareStockApprove}, false) {
+	if !actorHoldsAny(actor, []string{permissions.PCCareStockApprove}) {
 		return ports.TaskRow{}, ports.ErrForbidden
 	}
 	in.TaskID = strings.TrimSpace(in.TaskID)

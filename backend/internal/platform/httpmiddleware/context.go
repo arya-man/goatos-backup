@@ -12,15 +12,16 @@ import (
 type contextKey string
 
 const (
-	requestIDKey   contextKey = "request_id"
-	traceIDKey     contextKey = "trace_id"
-	tenantIDKey    contextKey = "tenant_id"
-	actorIDKey     contextKey = "actor_id"
-	deviceIDKey    contextKey = "device_id"
-	clientInfoKey  contextKey = "client_info"
-	localeTagKey   contextKey = "locale_tag"
-	authGrantsKey  contextKey = "auth_grants"
-	personScopeKey contextKey = "person_scope"
+	requestIDKey         contextKey = "request_id"
+	traceIDKey           contextKey = "trace_id"
+	tenantIDKey          contextKey = "tenant_id"
+	actorIDKey           contextKey = "actor_id"
+	deviceIDKey          contextKey = "device_id"
+	clientInfoKey        contextKey = "client_info"
+	localeTagKey         contextKey = "locale_tag"
+	authGrantsKey        contextKey = "auth_grants"
+	personScopeKey       contextKey = "person_scope"
+	personPermissionsKey contextKey = "person_permissions"
 )
 
 // PersonParkScope is the runtime park scope attached when per-person access, not role grants,
@@ -219,4 +220,29 @@ func WithPersonParkScope(ctx context.Context, scope PersonParkScope) context.Con
 	scope.ParkIDs = append([]string(nil), scope.ParkIDs...)
 	sort.Strings(scope.ParkIDs)
 	return context.WithValue(ctx, personScopeKey, scope)
+}
+
+// PersonPermissionsFromContext returns the permission set the per-person access rows resolved
+// to, when THOSE decided the request (AuthMiddleware attaches it beside PersonParkScope). The
+// second result is false on the role-path -- a person the backfill has not reached, or a
+// service/CLI context -- and callers must then fall back to the role map exactly as before.
+//
+// This exists because the route gate and a module's own service re-check must agree on the
+// SOURCE of a principal's permissions. A service that re-checks only grant roles after the
+// route admitted a person from their ticks answers route-green / service-403 for anyone whose
+// tick is not also a role (a person given a module on /people without the matching job), and
+// silently keeps authority the ticks removed.
+func PersonPermissionsFromContext(ctx context.Context) ([]string, bool) {
+	perms, ok := ctx.Value(personPermissionsKey).([]string)
+	if !ok {
+		return nil, false
+	}
+	return append([]string(nil), perms...), true
+}
+
+// WithPersonPermissions attaches the per-person resolved permission set to a context.
+func WithPersonPermissions(ctx context.Context, perms []string) context.Context {
+	out := append([]string(nil), perms...)
+	sort.Strings(out)
+	return context.WithValue(ctx, personPermissionsKey, out)
 }

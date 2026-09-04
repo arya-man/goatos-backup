@@ -232,3 +232,78 @@ func TestTrimmingPlannerIsParkScopedByItsOwnGrant(t *testing.T) {
 		t.Fatalf("store saw %d creates, want 1", len(store.created))
 	}
 }
+
+// TestPerPersonTicksDecideTheServiceCheckExactlyAsTheyDecidedTheRoute closes PR #181 review
+// finding PC-181-002. Route authorization reads the person's own access rows when they exist;
+// the service must judge capability from the SAME set, in both directions:
+//
+//   - a person ticked pc_trimming at Configure with NO breeding_director role plans trimming
+//     (the route admitted them; a role-only re-check would 403 them);
+//   - a breeding_director whose ticks REMOVED planning is refused (the route refused them; a
+//     role-only re-check would restore the authority the ticks took away).
+func TestPerPersonTicksDecideTheServiceCheckExactlyAsTheyDecidedTheRoute(t *testing.T) {
+	store := &plannerFakeStore{catalogParks: []ports.PlannerPark{{ParkID: trimmingPark, ParkName: "CPT"}}}
+	svc := NewService(store)
+	ctx := context.Background()
+
+	tickedOnly := domain.Actor{
+		TenantID:            testTenant,
+		UserID:              trimmingUser,
+		Roles:               []string{permissions.RoleOperator},
+		Permissions:         []string{permissions.PCCareMonitor, permissions.PCCarePlanTrimming},
+		PermissionsResolved: true,
+	}
+	if _, err := svc.CreateTask(ctx, tickedOnly, createInput(domain.CategoryHoofTrimming)); err != nil {
+		t.Fatalf("pc_trimming@configure without the role must plan hoof trimming: %v", err)
+	}
+	if _, err := svc.CreateTask(ctx, tickedOnly, createInput(domain.CategoryDeworming)); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("pc_trimming@configure must still be refused deworming: err=%v", err)
+	}
+	if err := svc.CancelTask(ctx, tickedOnly, trimmingTask, "trace"); err != nil {
+		t.Fatalf("pc_trimming@configure cancels a trimming task: %v", err)
+	}
+	catalog, err := svc.PlannerCatalog(ctx, tickedOnly)
+	if err != nil {
+		t.Fatalf("pc_trimming@configure catalog: %v", err)
+	}
+	if len(catalog.Categories) != 2 {
+		t.Fatalf("pc_trimming@configure categories = %v, want the trimming pair", catalog.Categories)
+	}
+
+	roleButUnticked := domain.Actor{
+		TenantID:            testTenant,
+		UserID:              trimmingUser,
+		Roles:               []string{permissions.RoleBreedingDirector},
+		Permissions:         []string{permissions.PCCareMonitor},
+		PermissionsResolved: true,
+	}
+	if _, err := svc.CreateTask(ctx, roleButUnticked, createInput(domain.CategoryHoofTrimming)); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("a breeding_director whose ticks removed planning must be refused: err=%v", err)
+	}
+	if err := svc.CancelTask(ctx, roleButUnticked, trimmingTask, "trace"); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("same on cancel: err=%v", err)
+	}
+	if len(store.created) != 1 || len(store.canceled) != 1 {
+		t.Fatalf("store saw created=%d canceled=%d, want 1 and 1", len(store.created), len(store.canceled))
+	}
+}
+
+// TestPerPersonParkScopeClampsThePlannerWrite: when the ticks decided, the person's own park
+// scope clamps the write, and grant roles are not consulted for parks at all.
+func TestPerPersonParkScopeClampsThePlannerWrite(t *testing.T) {
+	store := &plannerFakeStore{}
+	svc := NewService(store)
+	// Grants would say tenant-wide; the person's own scope says one park.
+	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{{Role: permissions.RoleBreedingDirector, ScopeType: "tenant", ScopeID: testTenant}})
+	ctx = httpmiddleware.WithPersonParkScope(ctx, httpmiddleware.PersonParkScope{ParkIDs: []string{otherPark}})
+	actor := domain.Actor{TenantID: testTenant, UserID: trimmingUser, Roles: []string{permissions.RoleBreedingDirector},
+		Permissions: []string{permissions.PCCarePlanTrimming}, PermissionsResolved: true}
+	if _, err := svc.CreateTask(ctx, actor, createInput(domain.CategoryHoofTrimming)); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("create in a park outside the person's own scope: err=%v, want ErrNotFound", err)
+	}
+	in := createInput(domain.CategoryHoofTrimming)
+	in.ParkID = otherPark
+	if _, err := svc.CreateTask(ctx, actor, in); err != nil {
+		t.Fatalf("create inside the person's own scope: %v", err)
+	}
+}

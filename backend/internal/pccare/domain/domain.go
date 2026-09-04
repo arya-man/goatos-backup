@@ -279,6 +279,32 @@ type Actor struct {
 	TenantID string
 	UserID   string
 	Roles    []string
+	// Permissions is the per-person resolved permission set when the person's OWN access rows
+	// decided the request (maintainer decision 2026-08-24); PermissionsResolved says whether
+	// they did. When true, the service judges capability from Permissions and never from
+	// Roles -- the route gate did the same, and a re-check from the role map would either
+	// refuse a tick that is not also a job (route-green / service-403) or restore authority
+	// the ticks removed. When false the role map decides, exactly as before the cutover.
+	Permissions         []string
+	PermissionsResolved bool
+}
+
+// HasAny reports whether the actor holds at least one of `capabilities`, from whichever
+// source decided the request: the per-person permission set when it was resolved, the role
+// map otherwise. Every PC Care capability check goes through here so the two sources cannot
+// disagree inside one module.
+func (a Actor) HasAny(roleHas func(roles []string, required []string) bool, capabilities []string) bool {
+	if a.PermissionsResolved {
+		for _, have := range a.Permissions {
+			for _, want := range capabilities {
+				if have == want {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return roleHas(a.Roles, capabilities)
 }
 
 // Typed errors, mapped to HTTP codes by the adapter.

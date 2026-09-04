@@ -133,3 +133,30 @@ func TestPersonAccessScopeLookupFailureFailsClosed(t *testing.T) {
 		t.Fatalf("authorized=%v source=%q, want fail-closed person_unavailable", authorized, source)
 	}
 }
+
+// TestPersonDecisionLeavesTheResolvedPermissionSetOnTheContext pins the middleware half of
+// PR #181 finding PC-181-002: when the person's rows decided, the SAME set they decided from is
+// on the context for the module's own re-check; on the role path nothing is attached, so a
+// module falls back to the role map exactly as before.
+func TestPersonDecisionLeavesTheResolvedPermissionSetOnTheContext(t *testing.T) {
+	route := permissions.Route{OperationID: "t", Permissions: []string{permissions.PCCarePlanTrimming}}
+	held := []string{permissions.PCCareMonitor, permissions.PCCarePlanTrimming}
+	ctx, authorized, source := decideAuthorization(context.Background(), stubPersonAccess{
+		provisioned: true, perms: held, scopeMode: "tenant",
+	}, route, []string{permissions.RoleOperator}, "t1", "u1")
+	if !authorized || source != "person" {
+		t.Fatalf("authorized=%v source=%s, want person-path allow", authorized, source)
+	}
+	got, ok := PersonPermissionsFromContext(ctx)
+	if !ok || len(got) != 2 {
+		t.Fatalf("PersonPermissionsFromContext = %v,%v; want the resolved set attached", got, ok)
+	}
+
+	ctx, _, source = decideAuthorization(context.Background(), stubPersonAccess{provisioned: false}, route, []string{permissions.RoleCEOInternal}, "t1", "u1")
+	if source != "role" {
+		t.Fatalf("source=%s, want role fallback", source)
+	}
+	if _, ok := PersonPermissionsFromContext(ctx); ok {
+		t.Fatal("role path must attach no per-person set")
+	}
+}

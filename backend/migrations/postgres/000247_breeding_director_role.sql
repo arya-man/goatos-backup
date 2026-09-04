@@ -31,7 +31,58 @@ INSERT INTO public.designation_catalog (designation_code, label, grade, sort_ord
 VALUES ('breeding_director', 'Breeding Director', 'director', 55)
 ON CONFLICT (designation_code) DO NOTHING;
 
+-- A JOB is also somebody's primary_role_hint: the Add Person form stamps the role's hint
+-- (workforce/app grantablePersonRoles) onto workforce_members, and the 000068 CHECK lists
+-- every hint the column accepts. Without this the form validates a Breeding Director and
+-- the INSERT is refused at commit -- the same trap 000057 and 000068 each closed for their
+-- role. The Go side of this list is pinned against this file by
+-- workforce/app.TestEveryGrantableRoleHintIsAcceptedByTheColumnCheck.
+ALTER TABLE public.workforce_members
+  DROP CONSTRAINT IF EXISTS workforce_members_role_hint_check;
+
+ALTER TABLE public.workforce_members
+  ADD CONSTRAINT workforce_members_role_hint_check
+  CHECK (
+    primary_role_hint = ANY (ARRAY[
+      'operator'::text,
+      'park_head'::text,
+      'pc_director'::text,
+      'growth_director'::text,
+      'feed_director'::text,
+      'health_director'::text,
+      'breeding_director'::text,
+      'verifier'::text,
+      'supervisor'::text,
+      'cxo'::text,
+      'other'::text
+    ])
+  );
+
 -- +goose Down
+-- Restore the 000068 hint list first: a member row still carrying the hint would otherwise
+-- survive the narrower CHECK, so re-point any such row at 'other' before tightening.
+UPDATE public.workforce_members SET primary_role_hint = 'other' WHERE primary_role_hint = 'breeding_director';
+
+ALTER TABLE public.workforce_members
+  DROP CONSTRAINT IF EXISTS workforce_members_role_hint_check;
+
+ALTER TABLE public.workforce_members
+  ADD CONSTRAINT workforce_members_role_hint_check
+  CHECK (
+    primary_role_hint = ANY (ARRAY[
+      'operator'::text,
+      'park_head'::text,
+      'pc_director'::text,
+      'growth_director'::text,
+      'feed_director'::text,
+      'health_director'::text,
+      'verifier'::text,
+      'supervisor'::text,
+      'cxo'::text,
+      'other'::text
+    ])
+  );
+
 DELETE FROM public.user_scope_grants WHERE role = 'breeding_director';
 DELETE FROM public.auth_pending_email_grants WHERE role = 'breeding_director';
 DELETE FROM public.designation_module_defaults WHERE designation_code = 'breeding_director';

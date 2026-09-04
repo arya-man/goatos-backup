@@ -315,3 +315,36 @@ VALUES ($1::uuid, 'people-page-' || $2, $2, 'active', 'operator', $3::uuid)`,
 		t.Fatalf("garbage cursor must return ErrInvalidFilter, got %v", err)
 	}
 }
+
+// TestCreatePersonAcceptsTheBreedingDirectorRoleHintWithDockerPostgres is the DB-backed guard
+// for PR #181 finding PC-181-001: the Add Person path stamps primary_role_hint='breeding_director'
+// and the column CHECK (redefined in 000247) must accept it. Before 000247 this INSERT failed at
+// commit with a check_violation while the app layer had already said yes.
+func TestCreatePersonAcceptsTheBreedingDirectorRoleHintWithDockerPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	repo := NewRepository(pool, 5*time.Second)
+	seedPeoplePark(t, ctx, pool)
+
+	cmd := peopleCreateCommand("people-key-breeding")
+	cmd.UserID = "91000000-0000-4000-8000-000000000033"
+	cmd.Email = "breeding-director@mesha.sg"
+	cmd.NormalizedEmail = "breeding-director@mesha.sg"
+	cmd.DisplayName = "Breeding Director"
+	cmd.Role = "breeding_director"
+	cmd.ScopeType = "tenant"
+	cmd.ScopeID = peopleTenant
+	cmd.RoleHint = "breeding_director"
+	if _, err := repo.CreatePerson(ctx, cmd); err != nil {
+		t.Fatalf("CreatePerson(breeding_director): %v -- the workforce_members_role_hint_check must accept the hint", err)
+	}
+	var hint string
+	if err := pool.QueryRow(ctx, `SELECT primary_role_hint FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, peopleTenant, cmd.UserID).Scan(&hint); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if hint != "breeding_director" {
+		t.Fatalf("primary_role_hint = %q, want breeding_director", hint)
+	}
+}

@@ -975,8 +975,19 @@ func canPlanPCCare(grants []domain.GrantSummary, grantedModules []string) bool {
 }
 
 func canPlanPCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
-	return (hasPermission(grants, permissions.PCCarePlan) || hasPermission(grants, permissions.PCCarePlanTrimming)) &&
-		canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
+	return canPlanPCCareScoped(scopeOf(grants), grantedModules, fromTicks)
+}
+
+// pcCarePlanCapabilities are the two capabilities that open the plan wizard.
+var pcCarePlanCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming}
+
+// canPlanPCCareScoped is the flag's real implementation: it asks the navScope, which answers
+// from the person's OWN resolved permissions when they have access rows and from the role map
+// otherwise -- the same source the route gate and the PC Care service use. Reading grant roles
+// here would light the wizard for a role whose ticks removed planning, and leave it dark for a
+// person ticked pc_trimming at Configure without the breeding_director job.
+func canPlanPCCareScoped(scope navScope, grantedModules []string, fromTicks bool) bool {
+	return scope.hasAny(pcCarePlanCapabilities) && canUseModuleFrom(scope.grants, grantedModules, "pc_care", fromTicks)
 }
 
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {

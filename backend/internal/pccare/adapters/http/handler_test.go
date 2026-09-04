@@ -136,7 +136,8 @@ func TestTaskDTOIncludesInventoryVaccineWireShape(t *testing.T) {
 	}
 }
 
-func (f *fakePCCareHTTPService) PlannerCatalog(context.Context, domain.Actor) (ports.PlannerCatalog, error) {
+func (f *fakePCCareHTTPService) PlannerCatalog(_ context.Context, actor domain.Actor) (ports.PlannerCatalog, error) {
+	f.lastActor = actor
 	return f.plannerCatalog, nil
 }
 func (f *fakePCCareHTTPService) PlannerParkSheds(context.Context, domain.Actor, string, string, string, string, int) (ports.PlannerParkSheds, error) {
@@ -329,5 +330,49 @@ func TestPutTaskProofRoutesInventoryFridgeProofToApp(t *testing.T) {
 		got.ActorType != "operator" ||
 		got.TraceID != "trace-task-proof" {
 		t.Fatalf("task proof input = %+v, want Android fridge proof registration", got)
+	}
+}
+
+// TestActorCarriesThePerPersonPermissionSetIntoTheService pins the adapter half of the
+// route/service agreement (PR #181 review finding PC-181-002): when the person's own access
+// rows decided the route, AuthMiddleware leaves that permission set on the context, and
+// actor() must hand it to the service unchanged -- otherwise a person ticked pc_trimming at
+// Configure without the breeding_director job is route-green and service-403.
+func TestActorCarriesThePerPersonPermissionSetIntoTheService(t *testing.T) {
+	service := &fakePCCareHTTPService{plannerCatalog: ports.PlannerCatalog{Categories: domain.TrimmingCategories}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(service, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/pc-care/planner/catalog", nil)
+	ctx := httpmiddleware.WithTenantID(req.Context(), httpTenant)
+	ctx = httpmiddleware.WithActorID(ctx, httpActor)
+	// The grant roles alone carry NO planning capability...
+	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{Role: permissions.RoleOperator, ScopeType: "park", ScopeID: "9c000000-0000-4000-8000-000000001001"}})
+	// ...the person's ticks do.
+	ctx = httpmiddleware.WithPersonPermissions(ctx, []string{permissions.PCCareMonitor, permissions.PCCarePlanTrimming})
+	rec := httptest.NewRecorder()
+	httpmiddleware.RequestContext(nil)(mux).ServeHTTP(rec, req.WithContext(ctx))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !service.lastActor.PermissionsResolved {
+		t.Fatal("actor.PermissionsResolved must be true when the middleware attached a per-person set")
+	}
+	holds := false
+	for _, p := range service.lastActor.Permissions {
+		holds = holds || p == permissions.PCCarePlanTrimming
+	}
+	if !holds {
+		t.Fatalf("actor.Permissions = %v, want pc_care.plan_trimming carried through", service.lastActor.Permissions)
+	}
+
+	// And on the role path nothing is invented: no set attached, none resolved.
+	req = httptest.NewRequest(http.MethodGet, "/app/pc-care/planner/catalog", nil)
+	ctx = httpmiddleware.WithTenantID(req.Context(), httpTenant)
+	ctx = httpmiddleware.WithActorID(ctx, httpActor)
+	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: httpTenant}})
+	httpmiddleware.RequestContext(nil)(mux).ServeHTTP(httptest.NewRecorder(), req.WithContext(ctx))
+	if service.lastActor.PermissionsResolved || len(service.lastActor.Permissions) != 0 {
+		t.Fatalf("role-path actor must carry no per-person set, got resolved=%v perms=%v", service.lastActor.PermissionsResolved, service.lastActor.Permissions)
 	}
 }
