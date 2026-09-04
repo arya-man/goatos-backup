@@ -157,6 +157,10 @@ function EventRow({
   );
 }
 
+function isRenderableCalendarEvent(event: CalendarEvent): boolean {
+  return !(event.aggregated && event.event_type === "vaccination_drive" && !event.drive_summary);
+}
+
 export async function VaccinationCalendarPage({
   searchParams,
   pageContract,
@@ -583,7 +587,7 @@ function WeekView({
   // Rhythm strip is the day selector. A specific weekday shows ONLY that day's drives, with NO
   // day heading in the body (the strip already names the day). "All week" (allWeek) opts into the
   // 7-day, day-separated vertical list with per-day headings.
-  const scoped = filterEventsForSelectedWeek(events, anchorDay, dayFilter);
+  const scoped = filterEventsForSelectedWeek(events, anchorDay, dayFilter).filter(isRenderableCalendarEvent);
   const sorted = [...scoped].sort((a, b) => a.due_at.localeCompare(b.due_at));
   const selectedOwnerLabel = ownerScopeLabel(ownerKey, ownerMeta);
   const todayWeekday = weekdayOf(`${today}T00:00:00+05:30`);
@@ -703,7 +707,7 @@ function HistoryView({
   pageContract: AdminUiPageContract;
   title: string;
 }) {
-  const sorted = [...events].sort((a, b) => b.due_at.localeCompare(a.due_at));
+  const sorted = events.filter(isRenderableCalendarEvent).sort((a, b) => b.due_at.localeCompare(a.due_at));
   const byDate = new Map<string, CalendarEvent[]>();
   for (const event of sorted) {
     const key = dateKey(event.due_at);
