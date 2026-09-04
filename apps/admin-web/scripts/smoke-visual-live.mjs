@@ -507,7 +507,7 @@ async function settleAtTop(page) {
     if (document.body) document.body.style.scrollBehavior = "auto";
     window.scrollTo(0, 0);
   });
-  await page.waitForTimeout(80);
+  await page.waitForFunction(() => window.scrollX === 0 && window.scrollY === 0, null, { timeout: 1_000 });
 }
 
 async function assertA11y(page, routeName, viewportLabel, includeSelector) {

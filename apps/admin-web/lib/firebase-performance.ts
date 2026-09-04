@@ -63,21 +63,29 @@ async function initializeFirebasePerformance(): Promise<FirebasePerformance | nu
   if (typeof window === "undefined") return null;
   const enabled = process.env.NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED;
   if (enabled !== "1" && enabled !== "true") return null;
-  const [{ config }, { getPerformance }] = await Promise.all([
+  const [{ config }, { getPerformance, initializePerformance }] = await Promise.all([
     getFirebaseClientRuntimeConfig(),
     import("firebase/performance"),
   ]);
   try {
-    return getPerformance(getOrCreateFirebaseApp(config));
+    const app = getOrCreateDefaultFirebaseApp(config);
+    try {
+      return initializePerformance(app, {
+        dataCollectionEnabled: true,
+        instrumentationEnabled: true,
+      });
+    } catch {
+      return getPerformance(app);
+    }
   } catch {
     return null;
   }
 }
 
-function getOrCreateFirebaseApp(config: FirebaseOptions) {
-  return getApps().some((candidate) => candidate.name === "goatos-admin-web")
-    ? getApp("goatos-admin-web")
-    : initializeApp(config, "goatos-admin-web");
+function getOrCreateDefaultFirebaseApp(config: FirebaseOptions) {
+  return getApps().some((candidate) => candidate.name === "[DEFAULT]")
+    ? getApp()
+    : initializeApp(config);
 }
 
 function applyAttributes(traceRef: PerformanceTrace, attributes: TraceAttributes): void {
