@@ -50,6 +50,8 @@ object AnalyticsEventsVendors {
     const val VENDORS_SALE_EDITED = "vendors_sale_edited"
     const val VENDORS_PIPELINE_OPENED = "vendors_pipeline_opened"
     const val VENDORS_PIPELINE_QUEUED = "vendors_pipeline_queued"
+    const val VENDORS_PURCHASE_EDIT_OPENED = "vendors_purchase_edit_opened"
+    const val VENDORS_PURCHASE_EDITED = "vendors_purchase_edited"
 
     /** Animals were marked sold against a sale; reason carries the count. */
     const val VENDORS_TAG_ANIMALS_CONFIRMED = "vendors_tag_animals_confirmed"

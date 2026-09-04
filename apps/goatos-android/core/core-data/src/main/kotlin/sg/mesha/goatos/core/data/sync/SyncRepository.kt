@@ -633,6 +633,15 @@ interface SyncRepository {
         payload: SalesPipelinePayload,
     ): AppResult<String> = AppResult.Err("sales sync is not configured")
 
+    /**
+     * One change to a recorded feed load (maintainer instruction 2026-09-04): an instalment, the
+     * payment word, the load's values, or the truck reaching. [payload] names which in `kind`, and
+     * every one returns the WHOLE updated load for the sync pass to persist.
+     */
+    suspend fun enqueueFeedPurchaseEdit(
+        payload: FeedPurchaseEditPayload,
+    ): AppResult<String> = AppResult.Err("feed purchase sync is not configured")
+
     suspend fun enqueueMilkPreparationSubmit(
         groupKey: String,
         idempotencyKey: String,
@@ -1687,6 +1696,17 @@ class DefaultSyncRepository(
         opType = OutboxOpType.SALES_PIPELINE_WRITE,
         groupKey = salesPipelineGroupKey(payload.clientId.trim()),
         idempotencyKey = salesPipelineIdempotencyKey(payload.clientId.trim()),
+        payloadJson = syncJson.encodeToString(payload),
+    )
+
+    override suspend fun enqueueFeedPurchaseEdit(
+        payload: FeedPurchaseEditPayload,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.FEED_PURCHASE_EDIT_WRITE,
+        // Per-LOAD lane: two changes to one purchase drain in the order they were made, so the
+        // balance the operator ends up looking at is the one their last edit produced.
+        groupKey = feedPurchaseEditGroupKey(payload.purchaseId.trim()),
+        idempotencyKey = feedPurchaseEditIdempotencyKey(payload.clientId.trim()),
         payloadJson = syncJson.encodeToString(payload),
     )
 

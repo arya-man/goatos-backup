@@ -77,7 +77,12 @@ import sg.mesha.goatos.core.network.dto.VendorPageDto
 import sg.mesha.goatos.core.network.dto.VendorWriteDto
 import sg.mesha.goatos.core.network.dto.FeedItemOptionDto
 import sg.mesha.goatos.core.network.dto.DeliveryStatusOptionDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseDeliveryWriteDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseEditDto
+import sg.mesha.goatos.core.network.dto.FeedPurchasePaymentDto
+import sg.mesha.goatos.core.network.dto.FeedPurchasePaymentWriteDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseStatusWriteDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedPurchasePageDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
@@ -1464,6 +1469,25 @@ interface AppApi {
 
     // Sales (maintainer instruction 2026-09-04): the same routes the web's /sales/config uses.
 
+    // Changing a recorded feed load (maintainer instruction 2026-09-04). Each returns the WHOLE
+    // updated load, so the caller persists the server's row rather than patching its own.
+
+    /** POST /procurement/feed-purchases/{id}/payments — one instalment. Idempotency-Key REQUIRED. */
+    suspend fun createFeedPurchasePayment(
+        purchaseId: String,
+        idempotencyKey: String,
+        request: FeedPurchasePaymentWriteDto,
+    ): FeedPurchaseDto
+
+    /** PUT /procurement/feed-purchases/{id}/payment-status — Paid or Pending. */
+    suspend fun setFeedPurchasePaymentStatus(purchaseId: String, request: FeedPurchaseStatusWriteDto): FeedPurchaseDto
+
+    /** PUT /procurement/feed-purchases/{id} — corrects a recorded load's values. */
+    suspend fun editFeedPurchase(purchaseId: String, request: FeedPurchaseEditDto): FeedPurchaseDto
+
+    /** PUT /procurement/feed-purchases/{id}/delivery — marks the load reached. */
+    suspend fun recordFeedPurchaseDelivery(purchaseId: String, request: FeedPurchaseDeliveryWriteDto): FeedPurchaseDto
+
     /** GET /sales/deals — one bounded page of the ledger, newest sale first. Offset-paged. */
     suspend fun getSalesDeals(
         farm: String? = null,
@@ -2834,6 +2858,31 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun createSalesDeal(idempotencyKey: String, request: SalesDealWriteDto): SalesDealDto =
         fakeSalesDeal().copy(dealId = "deal-new", buyerName = request.buyerName, salesValue = request.salesValue, paymentBalance = request.salesValue)
+
+    override suspend fun createFeedPurchasePayment(purchaseId: String, idempotencyKey: String, request: FeedPurchasePaymentWriteDto): FeedPurchaseDto =
+        fakeFeedPurchase().copy(
+            feedPurchaseId = purchaseId,
+            paymentReleased = request.amountRupees,
+            paymentBalance = (23000.0 - request.amountRupees).coerceAtLeast(0.0),
+            payments = listOf(FeedPurchasePaymentDto("fp-payment-1", request.paidOn, request.amountRupees, request.note)),
+        )
+
+    override suspend fun setFeedPurchasePaymentStatus(purchaseId: String, request: FeedPurchaseStatusWriteDto): FeedPurchaseDto =
+        fakeFeedPurchase().copy(feedPurchaseId = purchaseId, paymentStatus = request.paymentStatus)
+
+    override suspend fun editFeedPurchase(purchaseId: String, request: FeedPurchaseEditDto): FeedPurchaseDto =
+        fakeFeedPurchase().copy(
+            feedPurchaseId = purchaseId, purchaseDate = request.purchaseDate,
+            quantityKg = request.quantityKg, vendor = request.vendor, totalCost = request.totalCost,
+        )
+
+    override suspend fun recordFeedPurchaseDelivery(purchaseId: String, request: FeedPurchaseDeliveryWriteDto): FeedPurchaseDto =
+        fakeFeedPurchase().copy(
+            feedPurchaseId = purchaseId, deliveryStatus = "reached",
+            reachedOn = request.reachedOn, reachedWeightKg = request.reachedWeightKg,
+            stockKg = request.reachedWeightKg ?: 1000.0,
+        )
+
 
     override suspend fun getSaleLocations(): SaleLocationsDto = SaleLocationsDto(
         parks = listOf(SaleLocationParkDto("park-1", "CBE")),

@@ -90,7 +90,11 @@ import sg.mesha.goatos.core.network.dto.VendorCatalogDto
 import sg.mesha.goatos.core.network.dto.VendorDto
 import sg.mesha.goatos.core.network.dto.VendorPageDto
 import sg.mesha.goatos.core.network.dto.VendorWriteDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseDeliveryWriteDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseEditDto
+import sg.mesha.goatos.core.network.dto.FeedPurchasePaymentWriteDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseStatusWriteDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedPurchasePageDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
@@ -983,6 +987,33 @@ interface AppApiService {
 
     @GET("procurement/vendor-options")
     suspend fun getVendorOptions(): VendorOptionsDto
+
+
+    // Changing a recorded load (maintainer instruction 2026-09-04). Each returns the WHOLE load.
+    @POST("procurement/feed-purchases/{purchase_id}/payments")
+    suspend fun createFeedPurchasePayment(
+        @Path("purchase_id") purchaseId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedPurchasePaymentWriteDto,
+    ): FeedPurchaseDto
+
+    @PUT("procurement/feed-purchases/{purchase_id}/payment-status")
+    suspend fun setFeedPurchasePaymentStatus(
+        @Path("purchase_id") purchaseId: String,
+        @Body request: FeedPurchaseStatusWriteDto,
+    ): FeedPurchaseDto
+
+    @PUT("procurement/feed-purchases/{purchase_id}")
+    suspend fun editFeedPurchase(
+        @Path("purchase_id") purchaseId: String,
+        @Body request: FeedPurchaseEditDto,
+    ): FeedPurchaseDto
+
+    @PUT("procurement/feed-purchases/{purchase_id}/delivery")
+    suspend fun recordFeedPurchaseDelivery(
+        @Path("purchase_id") purchaseId: String,
+        @Body request: FeedPurchaseDeliveryWriteDto,
+    ): FeedPurchaseDto
 
     @POST("sales/deals")
     suspend fun createSalesDeal(
@@ -2099,6 +2130,19 @@ class RetrofitAppApi(
 
     override suspend fun createSalesDeal(idempotencyKey: String, request: SalesDealWriteDto): SalesDealDto =
         service.createSalesDeal(idempotencyKey, request)
+
+    override suspend fun createFeedPurchasePayment(purchaseId: String, idempotencyKey: String, request: FeedPurchasePaymentWriteDto): FeedPurchaseDto =
+        service.createFeedPurchasePayment(purchaseId, idempotencyKey, request)
+
+    override suspend fun setFeedPurchasePaymentStatus(purchaseId: String, request: FeedPurchaseStatusWriteDto): FeedPurchaseDto =
+        service.setFeedPurchasePaymentStatus(purchaseId, request)
+
+    override suspend fun editFeedPurchase(purchaseId: String, request: FeedPurchaseEditDto): FeedPurchaseDto =
+        service.editFeedPurchase(purchaseId, request)
+
+    override suspend fun recordFeedPurchaseDelivery(purchaseId: String, request: FeedPurchaseDeliveryWriteDto): FeedPurchaseDto =
+        service.recordFeedPurchaseDelivery(purchaseId, request)
+
 
     override suspend fun getSaleLocations(): SaleLocationsDto = service.getSaleLocations()
 

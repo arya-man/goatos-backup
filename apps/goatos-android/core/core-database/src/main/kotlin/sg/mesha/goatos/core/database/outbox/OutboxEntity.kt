@@ -360,6 +360,14 @@ enum class OutboxOpType {
      * SALES_DEAL_PAYMENT_WRITE reason -- one lane, one dispatch, one reconcile.
      */
     SALES_PIPELINE_WRITE,
+
+    /**
+     * CHANGING a recorded feed load (maintainer instruction 2026-09-04): an instalment paid, the
+     * payment word moved, the load's values corrected, or the truck marked reached. ONE op type
+     * for the four, keyed by the payload's `kind`, for the SALES_DEAL_PAYMENT_WRITE reason -- they
+     * share a lane, a dispatch and a reconcile, and each returns the WHOLE updated load.
+     */
+    FEED_PURCHASE_EDIT_WRITE,
 }
 
 /**

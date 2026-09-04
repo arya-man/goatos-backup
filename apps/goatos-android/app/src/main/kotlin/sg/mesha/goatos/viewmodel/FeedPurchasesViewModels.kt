@@ -24,14 +24,22 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.VendorsRepository
+import sg.mesha.goatos.core.data.sync.FeedPurchaseEditKind
+import sg.mesha.goatos.core.data.sync.FeedPurchaseEditPayload
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.dto.FeedPurchaseDeliveryWriteDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseEditDto
+import sg.mesha.goatos.core.network.dto.FeedPurchasePaymentWriteDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseStatusWriteDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
 import sg.mesha.goatos.feature.vendors.FeedPurchaseCardUi
 import sg.mesha.goatos.feature.vendors.FeedPurchaseCreateEvent
 import sg.mesha.goatos.feature.vendors.FeedPurchaseCreateUiState
 import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailEvent
+import sg.mesha.goatos.feature.vendors.FeedPurchaseEditorKind
+import sg.mesha.goatos.feature.vendors.FeedPurchasePaymentUi
 import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailUiState
 import sg.mesha.goatos.feature.vendors.FeedPurchasesListEvent
 import sg.mesha.goatos.feature.vendors.FeedPurchasesListUiState
@@ -42,6 +50,7 @@ import sg.mesha.goatos.feature.vendors.VendorsFilterUi
 import sg.mesha.goatos.feature.vendors.VendorsOptionUi
 import sg.mesha.goatos.feature.vendors.VendorsWriteStatus
 import sg.mesha.goatos.ui.Routes
+import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
 
@@ -159,51 +168,329 @@ private fun FeedPurchaseDto.deliveryLabel(): String = when (deliveryStatus) {
 class FeedPurchaseDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: VendorsRepository,
+    private val syncRepository: SyncRepository,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
 ) : ViewModel() {
     private val purchaseId: String = savedStateHandle.get<String>(Routes.FEED_PURCHASE_ID_ARG).orEmpty()
-    private val local = MutableStateFlow(Pair(false, false)) // (refreshing, loaded)
+
+    private data class Local(
+        val refreshing: Boolean = false,
+        val loaded: Boolean = false,
+        val editor: FeedPurchaseEditorKind = FeedPurchaseEditorKind.NONE,
+        val values: Map<PurchaseField, String> = emptyMap(),
+        val errors: Map<PurchaseField, String> = emptyMap(),
+        val inFlight: Boolean = false,
+        val message: String = "",
+        val failed: Boolean = false,
+    )
+
+    private val local = MutableStateFlow(Local())
+
+    /** The newest server row, kept beside the UI state so an editor opens on the load's CURRENT
+     *  values rather than re-deriving them from the formatted strings on screen. */
+    private var purchaseSnapshot: FeedPurchaseDto? = null
+
+    private fun currentPurchase(): FeedPurchaseDto? = purchaseSnapshot
 
     init {
+        viewModelScope.launch { repository.refreshFeedPurchaseOptions() }
+        viewModelScope.launch { repository.observeFeedPurchase(purchaseId).collect { purchaseSnapshot = it } }
         refresh()
     }
 
-    val state: StateFlow<FeedPurchaseDetailUiState> = combine(repository.observeFeedPurchase(purchaseId), local) { purchase, (refreshing, loaded) ->
-        if (purchase == null) {
-            FeedPurchaseDetailUiState(isRefreshing = refreshing, isLoading = !loaded)
-        } else {
-            FeedPurchaseDetailUiState(
-                title = purchase.feedItem,
-                subtitle = dotJoin(purchase.farm, if (purchase.batchNo > 0) "Load ${purchase.batchNo}" else "", farmDate(purchase.purchaseDate)),
-                deliveryLabel = purchase.deliveryLabel(),
-                deliveryTone = deliveryTone(purchase.deliveryStatus),
-                sections = purchase.sections(),
-                deliveryNote = if (purchase.deliveryStatus == "purchased") ON_THE_ROAD_NOTE else "",
-                isRefreshing = refreshing,
-                isLoading = false,
-            )
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedPurchaseDetailUiState())
+    val state: StateFlow<FeedPurchaseDetailUiState> =
+        combine(repository.observeFeedPurchase(purchaseId), repository.observeFeedPurchaseOptions(), local) { purchase, options, l ->
+            if (purchase == null) {
+                FeedPurchaseDetailUiState(isRefreshing = l.refreshing, isLoading = !l.loaded)
+            } else {
+                val onTheRoad = purchase.deliveryStatus == "purchased"
+                FeedPurchaseDetailUiState(
+                    title = purchase.feedItem,
+                    subtitle = dotJoin(purchase.farm, if (purchase.batchNo > 0) "Load ${purchase.batchNo}" else "", farmDate(purchase.purchaseDate)),
+                    deliveryLabel = purchase.deliveryLabel(),
+                    deliveryTone = deliveryTone(purchase.deliveryStatus),
+                    sections = purchase.sections(),
+                    deliveryNote = if (onTheRoad) ON_THE_ROAD_NOTE else "",
+                    payments = purchase.payments.map {
+                        FeedPurchasePaymentUi(
+                            paymentId = it.paymentId,
+                            paidOn = farmDate(it.paidOn),
+                            amount = rupees(it.amountRupees),
+                            note = it.note,
+                        )
+                    },
+                    // The BACKEND balance, formatted. Null means the landed cost is not known yet,
+                    // which is a different fact from owing nothing, so it gets its own line.
+                    balanceLine = purchase.paymentBalance.let { balance ->
+                        when {
+                            balance == null -> COST_UNKNOWN
+                            // Sheet-imported loads carry paise dust; under a rupee reads as paid.
+                            balance >= 1.0 -> "${rupees(balance)} still to pay"
+                            else -> FULLY_PAID
+                        }
+                    },
+                    paymentStatuses = options?.paymentStatuses.orEmpty().map { VendorsOptionUi(it, it) },
+                    paymentStatus = purchase.paymentStatus,
+                    editor = l.editor,
+                    editorValues = l.values,
+                    editorErrors = l.errors,
+                    canMarkReached = onTheRoad,
+                    today = LocalDate.now().toString(),
+                    purchaseDate = purchase.purchaseDate,
+                    editInFlight = l.inFlight,
+                    editMessage = l.message,
+                    editFailed = l.failed,
+                    isRefreshing = l.refreshing,
+                    isLoading = false,
+                )
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedPurchaseDetailUiState())
 
     fun onEvent(event: FeedPurchaseDetailEvent) {
-        if (event == FeedPurchaseDetailEvent.Refresh) refresh()
+        when (event) {
+            FeedPurchaseDetailEvent.Refresh -> refresh()
+            FeedPurchaseDetailEvent.Back -> Unit
+            is FeedPurchaseDetailEvent.OpenEditor -> openEditor(event.kind)
+            is FeedPurchaseDetailEvent.FieldChanged -> local.update {
+                it.copy(values = it.values + (event.field to event.value), errors = it.errors - event.field)
+            }
+            FeedPurchaseDetailEvent.SubmitEditor -> submitEditor()
+            is FeedPurchaseDetailEvent.ChangePaymentStatus -> changePaymentStatus(event.status)
+        }
     }
+
+    /** Opens an editor on the load's CURRENT values, so an edit corrects rather than retypes. */
+    private fun openEditor(kind: FeedPurchaseEditorKind) {
+        val purchase = currentPurchase()
+        val values = when (kind) {
+            FeedPurchaseEditorKind.PAYMENT -> mapOf(PurchaseField.PAYMENT_PAID_ON to LocalDate.now().toString())
+            FeedPurchaseEditorKind.DELIVERY -> mapOf(PurchaseField.REACHED_ON to LocalDate.now().toString())
+            FeedPurchaseEditorKind.EDIT -> buildMap {
+                put(PurchaseField.PURCHASE_DATE, purchase?.purchaseDate.orEmpty())
+                put(PurchaseField.QUANTITY_KG, plainNumber(purchase?.quantityKg))
+                put(PurchaseField.VENDOR, purchase?.vendor.orEmpty())
+                put(PurchaseField.FEED_COST, plainNumber(purchase?.feedCost))
+                put(PurchaseField.TRANSPORT_COST, plainNumber(purchase?.transportCost))
+                put(PurchaseField.LOADING_COST, plainNumber(purchase?.loadingCost))
+                put(PurchaseField.UNLOADING_COST, plainNumber(purchase?.unloadingCost))
+                put(PurchaseField.TOTAL_COST, plainNumber(purchase?.totalCost))
+            }
+            FeedPurchaseEditorKind.NONE -> emptyMap()
+        }
+        if (kind != FeedPurchaseEditorKind.NONE) analytics.track(AnalyticsEventsVendors.VENDORS_PURCHASE_EDIT_OPENED)
+        local.update { it.copy(editor = kind, values = values, errors = emptyMap(), message = "", failed = false) }
+    }
+
+    private fun submitEditor() {
+        val l = local.value
+        when (l.editor) {
+            FeedPurchaseEditorKind.PAYMENT -> submitPayment(l)
+            FeedPurchaseEditorKind.EDIT -> submitEdit(l)
+            FeedPurchaseEditorKind.DELIVERY -> submitDelivery(l)
+            FeedPurchaseEditorKind.NONE -> Unit
+        }
+    }
+
+    private fun submitPayment(l: Local) {
+        val paidOn = l.values[PurchaseField.PAYMENT_PAID_ON].orEmpty().trim()
+        val amount = l.values[PurchaseField.PAYMENT_AMOUNT].orEmpty().trim().toDoubleOrNull()
+        val errors = buildMap {
+            if (paidOn.isBlank()) put(PurchaseField.PAYMENT_PAID_ON, REQUIRED)
+            if (amount == null || amount <= 0.0) put(PurchaseField.PAYMENT_AMOUNT, MORE_THAN_ZERO)
+        }
+        if (errors.isNotEmpty()) {
+            local.update { it.copy(errors = it.errors + errors) }
+            return
+        }
+        enqueue(
+            FeedPurchaseEditPayload(
+                clientId = UUID.randomUUID().toString(),
+                purchaseId = purchaseId,
+                kind = FeedPurchaseEditKind.PAYMENT,
+                payment = FeedPurchasePaymentWriteDto(
+                    paidOn = paidOn,
+                    amountRupees = requireNotNull(amount),
+                    note = l.values[PurchaseField.PAYMENT_NOTE].orEmpty().trim(),
+                ),
+            ),
+            MESSAGE_PAYMENT_ADDED,
+            "feed purchase payment enqueue failed",
+        )
+    }
+
+    private fun submitEdit(l: Local) {
+        val purchaseDate = l.values[PurchaseField.PURCHASE_DATE].orEmpty().trim()
+        val quantity = l.values[PurchaseField.QUANTITY_KG].orEmpty().trim().toDoubleOrNull()
+        val vendor = l.values[PurchaseField.VENDOR].orEmpty().trim()
+        val errors = buildMap {
+            if (purchaseDate.isBlank()) put(PurchaseField.PURCHASE_DATE, REQUIRED)
+            if (quantity == null || quantity <= 0.0) put(PurchaseField.QUANTITY_KG, MORE_THAN_ZERO)
+            if (vendor.isBlank()) put(PurchaseField.VENDOR, REQUIRED)
+            // A cost the server would refuse is caught here, where the field is on screen.
+            listOf(
+                PurchaseField.FEED_COST, PurchaseField.TRANSPORT_COST, PurchaseField.LOADING_COST,
+                PurchaseField.UNLOADING_COST, PurchaseField.TOTAL_COST,
+            ).forEach { field ->
+                val raw = l.values[field].orEmpty().trim()
+                if (raw.isNotBlank()) {
+                    val parsed = raw.toDoubleOrNull()
+                    if (parsed == null) put(field, NOT_A_NUMBER) else if (parsed < 0.0) put(field, NOT_NEGATIVE)
+                }
+            }
+        }
+        if (errors.isNotEmpty()) {
+            local.update { it.copy(errors = it.errors + errors) }
+            return
+        }
+        enqueue(
+            FeedPurchaseEditPayload(
+                clientId = UUID.randomUUID().toString(),
+                purchaseId = purchaseId,
+                kind = FeedPurchaseEditKind.EDIT,
+                edit = FeedPurchaseEditDto(
+                    purchaseDate = purchaseDate,
+                    quantityKg = requireNotNull(quantity),
+                    // Blank stays ABSENT rather than becoming zero: a cost nobody entered and one
+                    // entered as nothing are different facts about the load.
+                    feedCost = optionalMoney(l, PurchaseField.FEED_COST),
+                    transportCost = optionalMoney(l, PurchaseField.TRANSPORT_COST),
+                    loadingCost = optionalMoney(l, PurchaseField.LOADING_COST),
+                    unloadingCost = optionalMoney(l, PurchaseField.UNLOADING_COST),
+                    totalCost = optionalMoney(l, PurchaseField.TOTAL_COST),
+                    vendor = vendor,
+                ),
+            ),
+            MESSAGE_EDIT_SAVED,
+            "feed purchase edit enqueue failed",
+        )
+    }
+
+    private fun submitDelivery(l: Local) {
+        val reachedOn = l.values[PurchaseField.REACHED_ON].orEmpty().trim()
+        val weightRaw = l.values[PurchaseField.REACHED_WEIGHT_KG].orEmpty().trim()
+        val weight = weightRaw.toDoubleOrNull()
+        val errors = buildMap {
+            if (reachedOn.isBlank()) put(PurchaseField.REACHED_ON, REQUIRED)
+            if (weightRaw.isNotBlank() && (weight == null || weight <= 0.0)) put(PurchaseField.REACHED_WEIGHT_KG, MORE_THAN_ZERO)
+        }
+        if (errors.isNotEmpty()) {
+            local.update { it.copy(errors = it.errors + errors) }
+            return
+        }
+        enqueue(
+            FeedPurchaseEditPayload(
+                clientId = UUID.randomUUID().toString(),
+                purchaseId = purchaseId,
+                kind = FeedPurchaseEditKind.DELIVERY,
+                delivery = FeedPurchaseDeliveryWriteDto(reachedOn = reachedOn, reachedWeightKg = weight),
+            ),
+            MESSAGE_REACHED,
+            "feed purchase delivery enqueue failed",
+        )
+    }
+
+    private fun changePaymentStatus(status: String) {
+        if (status.isBlank() || local.value.inFlight) return
+        enqueue(
+            FeedPurchaseEditPayload(
+                clientId = UUID.randomUUID().toString(),
+                purchaseId = purchaseId,
+                kind = FeedPurchaseEditKind.PAYMENT_STATUS,
+                paymentStatus = FeedPurchaseStatusWriteDto(paymentStatus = status),
+            ),
+            MESSAGE_STATUS_SAVED,
+            "feed purchase payment status enqueue failed",
+        )
+    }
+
+    /**
+     * Queues one change and follows the outbox row. The editor closes when the row is DURABLE, and
+     * a refusal reopens nothing but says what the server said -- the outbox accepting a row is not
+     * the server accepting it.
+     */
+    private fun enqueue(payload: FeedPurchaseEditPayload, done: String, failure: String) {
+        viewModelScope.launch {
+            local.update { it.copy(inFlight = true, failed = false, message = "") }
+            when (val result = syncRepository.enqueueFeedPurchaseEdit(payload)) {
+                is AppResult.Ok -> {
+                    analytics.track(
+                        AnalyticsEventsVendors.VENDORS_PURCHASE_EDITED,
+                        mapOf(AnalyticsEvents.Params.REASON to payload.kind),
+                    )
+                    local.update {
+                        it.copy(inFlight = false, editor = FeedPurchaseEditorKind.NONE, values = emptyMap(), message = done)
+                    }
+                    followWrite(result.value, done)
+                }
+                is AppResult.Err -> {
+                    result.cause?.let { crashReporter.recordException(it, failure) }
+                    analytics.track(
+                        AnalyticsEventsVendors.VENDORS_FAILURE,
+                        mapOf(AnalyticsEvents.Params.REASON to result.message.take(120)),
+                    )
+                    local.update { it.copy(inFlight = false, message = MESSAGE_FAILED, failed = true) }
+                }
+            }
+        }
+    }
+
+    private fun followWrite(outboxItemId: String, done: String) {
+        viewModelScope.launch {
+            syncRepository.followQueuedWrite(outboxItemId).collect { outcome ->
+                local.update {
+                    when (outcome) {
+                        QueuedWriteOutcome.Saved -> it.copy(message = done, failed = false)
+                        QueuedWriteOutcome.StillQueued -> it.copy(message = MESSAGE_QUEUED_OFFLINE, failed = false)
+                        is QueuedWriteOutcome.Rejected -> it.copy(
+                            // The server's own farm copy when it sent one: it says what to fix.
+                            message = outcome.reason?.takeIf { r -> r.isNotBlank() } ?: MESSAGE_FAILED,
+                            failed = true,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun optionalMoney(l: Local, field: PurchaseField): Double? =
+        l.values[field].orEmpty().trim().takeIf { it.isNotBlank() }?.toDoubleOrNull()
 
     private fun refresh() {
         viewModelScope.launch {
-            local.value = Pair(true, local.value.second)
+            local.update { it.copy(refreshing = true) }
             try {
                 // The ledger row is cached from the list page; there is no per-purchase read on the
                 // backend, so refreshing here means refreshing the list page it came from.
                 repository.invalidateFeedPurchases("", "")
             } finally {
-                local.value = Pair(false, true)
+                local.update { it.copy(refreshing = false, loaded = true) }
             }
         }
     }
 
     private companion object {
-        const val ON_THE_ROAD_NOTE = "This load is still on the road. It is not counted as stock until it is marked reached on the web."
+        const val ON_THE_ROAD_NOTE = "This load is still on the road. It is not counted as stock until it is marked reached."
+        const val COST_UNKNOWN = "Landed cost not recorded yet"
+        const val FULLY_PAID = "Fully paid"
+        const val REQUIRED = "Required"
+        const val NOT_A_NUMBER = "Enter a number"
+        const val NOT_NEGATIVE = "Cannot be negative"
+        const val MORE_THAN_ZERO = "Must be more than zero"
+        const val MESSAGE_PAYMENT_ADDED = "Payment added. The balance updates when it reaches the ledger."
+        const val MESSAGE_EDIT_SAVED = "Purchase saved."
+        const val MESSAGE_REACHED = "Load marked reached. It counts as stock once it reaches the ledger."
+        const val MESSAGE_STATUS_SAVED = "Payment status saved."
+        const val MESSAGE_QUEUED_OFFLINE = "Saved on this phone. It reaches the ledger when the phone is online."
+        const val MESSAGE_FAILED = "Could not save that change. Try again."
     }
+}
+
+/** A number as a field takes it back: no thousands separators, no trailing ".0". */
+private fun plainNumber(value: Double?): String = when {
+    value == null -> ""
+    value % 1.0 == 0.0 -> value.toLong().toString()
+    else -> value.toString()
 }
 
 internal fun FeedPurchaseDto.sections(): List<VendorsDetailSectionUi> {

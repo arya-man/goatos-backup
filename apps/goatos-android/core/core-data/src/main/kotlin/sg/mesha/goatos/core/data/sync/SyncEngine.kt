@@ -548,6 +548,7 @@ class SyncEngine(
         OutboxOpType.SALES_DEAL_PAYMENT_WRITE -> dispatchSalesDealPaymentWrite(item)
         OutboxOpType.SALES_DEAL_STATUS_SET -> dispatchSalesDealStatusSet(item)
         OutboxOpType.SALES_PIPELINE_WRITE -> dispatchSalesPipelineWrite(item)
+        OutboxOpType.FEED_PURCHASE_EDIT_WRITE -> dispatchFeedPurchaseEdit(item)
     }
 
     private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
@@ -764,7 +765,11 @@ class SyncEngine(
                     }.onFailure { reportCacheReconcileFailure(item, it) }
                 }
             }
-            OutboxOpType.FEED_PURCHASE_CREATE -> {
+            // A create and every later change return the SAME shape -- the whole load, with the
+            // server's recomputed balance, per-kg cost and stock figure -- so they reconcile alike.
+            OutboxOpType.FEED_PURCHASE_CREATE,
+            OutboxOpType.FEED_PURCHASE_EDIT_WRITE,
+            -> {
                 item.resultJson?.let { resultJson ->
                     runCatching {
                         vendorsRepository?.persistServerFeedPurchase(
@@ -1074,6 +1079,28 @@ class SyncEngine(
             else -> error("unknown sales payment op ${payload.op}")
         }
         return syncJson.encodeToString(deal)
+    }
+
+    /** An instalment, the payment word, corrected values, or the truck reaching. All return the load. */
+    private suspend fun dispatchFeedPurchaseEdit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedPurchaseEditPayload>(item.payloadJson)
+        val purchase = when (payload.kind) {
+            FeedPurchaseEditKind.PAYMENT -> api.createFeedPurchasePayment(
+                payload.purchaseId, item.idempotencyKey,
+                requireNotNull(payload.payment) { "feed purchase payment carries no body" },
+            )
+            FeedPurchaseEditKind.PAYMENT_STATUS -> api.setFeedPurchasePaymentStatus(
+                payload.purchaseId, requireNotNull(payload.paymentStatus) { "payment status carries no body" },
+            )
+            FeedPurchaseEditKind.EDIT -> api.editFeedPurchase(
+                payload.purchaseId, requireNotNull(payload.edit) { "feed purchase edit carries no body" },
+            )
+            FeedPurchaseEditKind.DELIVERY -> api.recordFeedPurchaseDelivery(
+                payload.purchaseId, requireNotNull(payload.delivery) { "feed purchase delivery carries no body" },
+            )
+            else -> error("unknown feed purchase edit kind ${payload.kind}")
+        }
+        return syncJson.encodeToString(purchase)
     }
 
     private suspend fun dispatchSalesDealStatusSet(item: OutboxEntity): String {

@@ -152,6 +152,18 @@ data class FeedPurchaseDto(
     @SerialName("stock_kg") val stockKg: Double? = null,
     @SerialName("entry_source") val entrySource: String = "",
     @SerialName("created_at") val createdAt: String = "",
+    /** The instalments paid against this load, oldest first, as the server returned them. */
+    @SerialName("payments") val payments: List<FeedPurchasePaymentDto> = emptyList(),
+)
+
+/** One instalment paid against a purchased load. */
+@Serializable
+data class FeedPurchasePaymentDto(
+    @SerialName("payment_id") val paymentId: String,
+    @SerialName("paid_on") val paidOn: String = "",
+    @SerialName("amount_rupees") val amountRupees: Double = 0.0,
+    @SerialName("note") val note: String = "",
+    @SerialName("created_at") val createdAt: String = "",
 )
 
 @Serializable
@@ -213,5 +225,52 @@ data class FeedPurchaseWriteDto(
     @SerialName("payment_released") val paymentReleased: Double? = null,
     @SerialName("payment_status") val paymentStatus: String,
     @SerialName("reached_on") val reachedOn: String? = null,
+    @SerialName("reached_weight_kg") val reachedWeightKg: Double? = null,
+)
+
+// ---------------------------------------------------------------------------------------------
+// Changing a recorded load (maintainer instruction 2026-09-04)
+// ---------------------------------------------------------------------------------------------
+//
+// The four writes the web's feed-purchase drawer carries. Each returns the WHOLE updated load --
+// `payment_balance`, `per_kg_cost` and `stock_kg` recomputed by the server -- so the phone
+// persists that row and derives no money or stock figure of its own.
+
+/** `POST /procurement/feed-purchases/{id}/payments`. The Idempotency-Key is REQUIRED. */
+@Serializable
+data class FeedPurchasePaymentWriteDto(
+    @SerialName("paid_on") val paidOn: String,
+    @SerialName("amount_rupees") val amountRupees: Double,
+    @SerialName("note") val note: String = "",
+)
+
+/** `PUT /procurement/feed-purchases/{id}/payment-status`: `Paid` or `Pending`. */
+@Serializable
+data class FeedPurchaseStatusWriteDto(
+    @SerialName("payment_status") val paymentStatus: String,
+)
+
+/**
+ * `PUT /procurement/feed-purchases/{id}`: the VALUES of an already-recorded load. Farm, feed and
+ * batch are deliberately absent -- identity is immutable, so a mistyped feed is a new row, not an
+ * edit of the one the stock cards have already counted.
+ */
+@Serializable
+data class FeedPurchaseEditDto(
+    @SerialName("purchase_date") val purchaseDate: String,
+    @SerialName("quantity_kg") val quantityKg: Double,
+    @SerialName("feed_cost") val feedCost: Double? = null,
+    @SerialName("transport_cost") val transportCost: Double? = null,
+    @SerialName("loading_cost") val loadingCost: Double? = null,
+    @SerialName("unloading_cost") val unloadingCost: Double? = null,
+    @SerialName("total_cost") val totalCost: Double? = null,
+    @SerialName("vendor") val vendor: String,
+)
+
+/** `PUT /procurement/feed-purchases/{id}/delivery`: the truck came in. */
+@Serializable
+data class FeedPurchaseDeliveryWriteDto(
+    @SerialName("reached_on") val reachedOn: String,
+    /** Absent when nobody weighed it; the buying weight then stands as the stock figure. */
     @SerialName("reached_weight_kg") val reachedWeightKg: Double? = null,
 )

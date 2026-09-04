@@ -159,6 +159,10 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // included) reconciles the ledger and detail caches directly.
         OutboxOpType.SALES_DEAL_PAYMENT_WRITE -> overlayDirectReconcileLifecycle()
         OutboxOpType.SALES_DEAL_STATUS_SET -> overlayDirectReconcileLifecycle()
+        // Changing a recorded feed load, same shape: the change shows at once as an outbox
+        // overlay, and the server's returned load (its recomputed balance, per-kg cost and stock
+        // figure) reconciles the ledger and detail caches directly.
+        OutboxOpType.FEED_PURCHASE_EDIT_WRITE -> overlayDirectReconcileLifecycle()
         // Pipeline and evidence: a lead, quote, tag list or weight check. The panel re-reads its
         // own bounded list after the write lands, so this rides POST_SUCCESS_REFRESH rather than a
         // row-shaped reconcile -- a market quote and a weight check have no local row at all.

@@ -217,18 +217,65 @@ data class FeedPurchaseDetailUiState(
     val sections: List<VendorsDetailSectionUi> = emptyList(),
     /** Backend-owned note for a load still on the road; blank once reached. */
     val deliveryNote: String = "",
+    // --- changing the load (maintainer instruction 2026-09-04) ---
+    /** Instalments already paid, oldest first, as the server returned them. */
+    val payments: List<FeedPurchasePaymentUi> = emptyList(),
+    /** "₹8,000 still to pay" / "Fully paid" — the BACKEND balance, formatted, never derived. */
+    val balanceLine: String = "",
+    /** The payment vocabulary (Paid / Pending), backend-owned. */
+    val paymentStatuses: List<VendorsOptionUi> = emptyList(),
+    /** Backend payment word for the dropdown's current value. */
+    val paymentStatus: String = "",
+    /** Which editor is open, if any. */
+    val editor: FeedPurchaseEditorKind = FeedPurchaseEditorKind.NONE,
+    val editorValues: Map<PurchaseField, String> = emptyMap(),
+    val editorErrors: Map<PurchaseField, String> = emptyMap(),
+    /** True while the load is still on the road, so the Mark reached action is offered. */
+    val canMarkReached: Boolean = false,
+    /** Today, as the ceiling for every date the editors accept. */
+    val today: String = "",
+    /** The load's own purchase date, as the FLOOR for the reached date. */
+    val purchaseDate: String = "",
+    val editInFlight: Boolean = false,
+    /** Backend-owned line about the last change; blank when there is nothing to say. */
+    val editMessage: String = "",
+    val editFailed: Boolean = false,
     val isRefreshing: Boolean = false,
     val isLoading: Boolean = true,
 )
 
+/** One instalment paid against a load, formatted for the card and carrying its raw values. */
+@Immutable
+data class FeedPurchasePaymentUi(
+    val paymentId: String,
+    /** "01-09-2026" */
+    val paidOn: String,
+    /** "₹8,000" */
+    val amount: String,
+    val note: String,
+)
+
+/** Which of the detail screen's editors is open. */
+enum class FeedPurchaseEditorKind { NONE, PAYMENT, EDIT, DELIVERY }
+
 sealed interface FeedPurchaseDetailEvent {
     data object Refresh : FeedPurchaseDetailEvent
     data object Back : FeedPurchaseDetailEvent
+
+    /** Open one of the editors; [FeedPurchaseEditorKind.NONE] closes whichever is open. */
+    data class OpenEditor(val kind: FeedPurchaseEditorKind) : FeedPurchaseDetailEvent
+    data class FieldChanged(val field: PurchaseField, val value: String) : FeedPurchaseDetailEvent
+    /** Save whichever editor is open. */
+    data object SubmitEditor : FeedPurchaseDetailEvent
+    /** Move the load's payment word. */
+    data class ChangePaymentStatus(val status: String) : FeedPurchaseDetailEvent
 }
 
 enum class PurchaseField {
     PURCHASE_DATE, FARM, FEED_ITEM, VENDOR, QUANTITY_KG, REACHED_ON, REACHED_WEIGHT_KG,
     FEED_COST, TRANSPORT_COST, LOADING_COST, UNLOADING_COST, TOTAL_COST, PAYMENT_STATUS, PAYMENT_RELEASED,
+    /** The instalment editor's own three fields (maintainer instruction 2026-09-04). */
+    PAYMENT_PAID_ON, PAYMENT_AMOUNT, PAYMENT_NOTE,
 }
 
 @Immutable
