@@ -196,6 +196,19 @@ func TestDirectorHoldsNoOtherModulesCapabilities(t *testing.T) {
 		},
 		RolePCDirector:     {FeedConfigRead, FeedConfigWrite, FeedDirectionOversee, FeedTransportRead, CountsRead, WeighingExecute, WeighingMonitor},
 		RoleGrowthDirector: {FeedConfigRead, FeedConfigWrite, FeedDirectionRead, FeedDirectionOversee, FeedTransportRead, CountsRead, VaccinationRead},
+		// breeding_director (maintainer decision 2026-09-04) plans HOOF / HAIR TRIMMING and nothing
+		// beyond the Preventive Care board: no whole-module plan, no execute (a planner must not film
+		// the work they planned), no stock verdict, and no other module at all.
+		RoleBreedingDirector: {
+			PCCarePlan, PCCareExecute, PCCareStockApprove, PCCareOverseeOperators,
+			VaccinationRead, VaccinationVerify, VaccinationCampaign, VaccinationOverseeExecution,
+			WeighingPlan, WeighingMonitor, WeighingExecute, WeighingOverseeOperators,
+			CountsRead, CountsWrite, CountsApproveLifecycle, CountsApproveShifting, CountsApproveAccess,
+			FeedConfigRead, FeedConfigWrite, FeedDirectionRead, FeedDirectionOversee, FeedDirectionComplete, FeedTransportRead,
+			VerificationReview, VerificationAct, VerificationVerdict,
+			HealthConfigRead, HealthConfigWrite, HealthRead, HealthDiagnose,
+			GoatRead, TaskExecute, TaskAssign,
+		},
 		// procurement_director READS the feed chain by explicit maintainer decision 2026-08-21
 		// ("he should see only the Procurement and Feed modules in web"), so the feed reads are
 		// absent from this list on purpose. Everything that RUNS the feed chain, and every other

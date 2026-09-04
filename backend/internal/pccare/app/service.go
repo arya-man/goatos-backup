@@ -75,13 +75,62 @@ func (s *Service) WithNow(now func() time.Time) *Service {
 	return s
 }
 
-// planOrMonitorParkCapabilities is the alternative set behind every planner/oversight surface.
-var planOrMonitorParkCapabilities = []string{permissions.PCCarePlan, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+// planCapabilities are the capabilities that PLAN: pc_care.plan covers every planner category
+// (CEO, the weighing.plan precedent); pc_care.plan_trimming covers hoof and hair trimming only
+// (the Breeding Director, maintainer decision 2026-09-04). The route table admits either on the
+// planner routes; WHICH category a holder may write is decided here, per request, because a
+// route cannot see a category.
+var planCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming}
 
-// canPlanOrMonitor is the planner's read gate: writes belong to PCCarePlan, but read-only
-// oversight (monitor/oversee) may look at the same vocabulary.
+// planOrMonitorParkCapabilities is the alternative set behind every planner/oversight surface.
+var planOrMonitorParkCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+
+// canPlanOrMonitor is the planner's read gate: writes belong to the plan capabilities, but
+// read-only oversight (monitor/oversee) may look at the same vocabulary.
 func (s *Service) canPlanOrMonitor(actor domain.Actor) bool {
 	return permissions.RolesAuthorizeAny(actor.Roles, planOrMonitorParkCapabilities)
+}
+
+// canPlanAny reports whether the actor holds ANY planning capability -- the first gate on a
+// planner write, answered before the category is even parsed so a non-planner is refused the
+// same way whatever they send.
+func canPlanAny(actor domain.Actor) bool {
+	return permissions.RolesAuthorizeAny(actor.Roles, planCapabilities)
+}
+
+// planCapabilitiesForCategory names the capabilities that authorize planning THIS category.
+// pc_care.plan always does; pc_care.plan_trimming only for domain.TrimmingCategories. The same
+// list feeds the park-scope check, so a trimming planner is scoped by the parks their trimming
+// grant covers and never by a broader capability they do not hold.
+func planCapabilitiesForCategory(category string) []string {
+	if domain.IsTrimmingCategory(category) {
+		return planCapabilities
+	}
+	return []string{permissions.PCCarePlan}
+}
+
+// canPlanCategory is the category gate: does the actor hold a capability that plans `category`?
+// A holder of pc_care.plan_trimming asking for deworming is refused here as ErrForbidden, the
+// same answer a non-planner gets, because to them that category is not theirs to plan.
+func canPlanCategory(actor domain.Actor, category string) bool {
+	return permissions.RolesAuthorizeAny(actor.Roles, planCapabilitiesForCategory(category))
+}
+
+// plannableCategories is the wizard vocabulary for this actor: every planner category for a
+// pc_care.plan holder, the trimming pair for a pc_care.plan_trimming holder, and the full
+// planner list for a read-only monitor (who is never offered the wizard; the list still labels
+// the board's category filter). Order follows domain.PlannerCategories.
+func plannableCategories(actor domain.Actor) []string {
+	if !canPlanAny(actor) {
+		return append([]string(nil), domain.PlannerCategories...)
+	}
+	out := make([]string, 0, len(domain.PlannerCategories))
+	for _, category := range domain.PlannerCategories {
+		if canPlanCategory(actor, category) {
+			out = append(out, category)
+		}
+	}
+	return out
 }
 
 // authorizedParkSet returns the parks in which the actor holds any of `capabilities`, and
@@ -154,6 +203,10 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor) (ports
 	if err != nil {
 		return ports.PlannerCatalog{}, err
 	}
+	// The category vocabulary is the ACTOR's, not the module's: a trimming-only planner's
+	// wizard offers hoof and hair trimming and nothing else, so the phone never shows a
+	// category the create write would refuse.
+	catalog.Categories = plannableCategories(actor)
 	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planOrMonitorParkCapabilities...)
 	if tenantWide {
 		return catalog, nil
@@ -204,6 +257,11 @@ func (s *Service) PlannerParkSheds(ctx context.Context, actor domain.Actor, park
 	if domain.IsKernelOwnedCategory(category) {
 		return ports.PlannerParkSheds{}, domain.ErrKernelOwnedCategory
 	}
+	// A planner may page pens only for a category they can plan; a monitor/overseer, who plans
+	// nothing, keeps the read-only look at the whole vocabulary they had before.
+	if canPlanAny(actor) && !canPlanCategory(actor, category) {
+		return ports.PlannerParkSheds{}, ports.ErrForbidden
+	}
 	plannedBusinessDate = strings.TrimSpace(plannedBusinessDate)
 	if !isBusinessDate(plannedBusinessDate) {
 		return ports.PlannerParkSheds{}, ports.ErrInvalidArgument
@@ -231,9 +289,11 @@ type CreateTaskInput struct {
 	TraceID             string
 }
 
-// CreateTask plans one task. Write authority is PCCarePlan alone (CEO), park-scoped.
+// CreateTask plans one task. Write authority is a plan capability -- PCCarePlan (CEO) for any
+// planner category, PCCarePlanTrimming (Breeding Director) for hoof/hair trimming -- park-scoped
+// through whichever of those authorizes the requested category.
 func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateTaskInput) (ports.TaskRow, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCarePlan}, false) {
+	if !canPlanAny(actor) {
 		return ports.TaskRow{}, ports.ErrForbidden
 	}
 	in.ParkID = strings.TrimSpace(in.ParkID)
@@ -241,15 +301,20 @@ func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateT
 	if !uuidutil.IsUUIDString(in.ParkID) || !uuidutil.IsUUIDString(in.ShedID) {
 		return ports.TaskRow{}, ports.ErrInvalidArgument
 	}
-	if err := checkParkScopeForAnyCapability(ctx, actor.TenantID, in.ParkID, permissions.PCCarePlan); err != nil {
-		return ports.TaskRow{}, err
-	}
 	in.Category = strings.TrimSpace(in.Category)
 	if !domain.IsValidCategory(in.Category) {
 		return ports.TaskRow{}, domain.ErrInvalidCategory
 	}
 	if domain.IsKernelOwnedCategory(in.Category) {
 		return ports.TaskRow{}, domain.ErrKernelOwnedCategory
+	}
+	// The category gate comes AFTER the category is known to be real and human-plannable, so a
+	// trimming planner sending deworming is told "not yours" rather than "no such category".
+	if !canPlanCategory(actor, in.Category) {
+		return ports.TaskRow{}, ports.ErrForbidden
+	}
+	if err := checkParkScopeForAnyCapability(ctx, actor.TenantID, in.ParkID, planCapabilitiesForCategory(in.Category)...); err != nil {
+		return ports.TaskRow{}, err
 	}
 	in.PlannedBusinessDate = strings.TrimSpace(in.PlannedBusinessDate)
 	if !isBusinessDate(in.PlannedBusinessDate) {
@@ -295,17 +360,28 @@ func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateT
 }
 
 // CancelTask cancels an unfinished task (planner authority, park-scoped through the task read).
+// The task's own category decides which plan capability must be held: a trimming planner can
+// cancel a hoof-trimming task and is refused a deworming one, exactly as on create.
 func (s *Service) CancelTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCarePlan}, false) {
+	if !canPlanAny(actor) {
 		return ports.ErrForbidden
 	}
 	taskID = strings.TrimSpace(taskID)
 	if !uuidutil.IsUUIDString(taskID) {
 		return ports.ErrInvalidArgument
 	}
-	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.PCCarePlan)
+	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planCapabilities...)
 	task, err := s.store.GetTask(ctx, actor.TenantID, taskID, authorizedParkSlice(parks), tenantWide)
 	if err != nil {
+		return err
+	}
+	if !canPlanCategory(actor, task.Category) {
+		return ports.ErrForbidden
+	}
+	// Re-clamp the park to the capability that actually authorizes THIS category: the read
+	// above admitted any planning grant so the task could be found, but a trimming grant
+	// scoped to one park must not cancel a trimming task in another.
+	if err := checkParkScopeForAnyCapability(ctx, actor.TenantID, task.ParkID, planCapabilitiesForCategory(task.Category)...); err != nil {
 		return err
 	}
 	return s.store.CancelTask(ctx, actor.TenantID, task.TaskID, actor.UserID, traceID)
@@ -316,7 +392,7 @@ func (s *Service) CancelTask(ctx context.Context, actor domain.Actor, taskID, tr
 // ---------------------------------------------------------------------------
 
 // monitorReadCapabilities admit the flat task list.
-var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
 
 // ListTasks is the plan/monitor/oversee flat list for one due date, park-clamped.
 func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int, currentOrCarry bool) (ports.TaskPage, error) {
@@ -378,7 +454,7 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 }
 
 // taskReadCapabilities admit the task detail / captures poll: workers and overseers alike.
-var taskReadCapabilities = []string{permissions.PCCareExecute, permissions.PCCarePlan, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+var taskReadCapabilities = []string{permissions.PCCareExecute, permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
 
 // GetTask reads one task (detail contract: row + expected slots composed by the handler).
 func (s *Service) GetTask(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error) {

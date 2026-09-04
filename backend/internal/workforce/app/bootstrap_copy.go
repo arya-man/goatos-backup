@@ -798,6 +798,12 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if hasRole(grants, permissions.RoleGrowthDirector) {
 		keys = appendMissing(keys, "weighing")
 	}
+	// Breeding Director -> Preventive Care (maintainer decision 2026-09-04): the hoof / hair
+	// trimming tasks he plans live on the pc_care board, so that is the module offered. A bare
+	// holder of this role otherwise resolves to an empty nav, the feed/health defect below.
+	if hasRole(grants, permissions.RoleBreedingDirector) {
+		keys = appendMissing(keys, "pc_care")
+	}
 	// Feed Director -> Feed, Health Director -> Counts (maintainer decision 2026-08-01, one
 	// module per director). Both roles are in leadershipGrantRoles, so WITHOUT these entries the
 	// leadership branch above resolved len(keys)==0 and /app/bootstrap returned an EMPTY nav and
@@ -960,14 +966,17 @@ func canApproveVaccineStockFrom(grants []domain.GrantSummary) bool {
 	return hasPermission(grants, permissions.PCCareStockApprove)
 }
 
-// canPlanPCCare gates the "Plan a care task" wizard entry on the monitor list (CEO-only via
-// pc_care.plan, the weighing.plan precedent). The write path is still gated server-side.
+// canPlanPCCare gates the "Plan a care task" wizard entry on the monitor list: pc_care.plan
+// (CEO, the weighing.plan precedent) or pc_care.plan_trimming (the Breeding Director,
+// maintainer decision 2026-09-04, whose wizard the planner catalog narrows to hoof and hair
+// trimming). The write path is still gated server-side, category included.
 func canPlanPCCare(grants []domain.GrantSummary, grantedModules []string) bool {
 	return canPlanPCCareFrom(grants, grantedModules, false)
 }
 
 func canPlanPCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
-	return hasPermission(grants, permissions.PCCarePlan) && canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
+	return (hasPermission(grants, permissions.PCCarePlan) || hasPermission(grants, permissions.PCCarePlanTrimming)) &&
+		canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
 }
 
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {

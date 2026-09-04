@@ -761,6 +761,9 @@ var leadershipGrantRoles = map[string]bool{
 	permissions.RoleFeedDirector:   true,
 	permissions.RoleHealthDirector: true,
 	permissions.RoleParkHead:       true,
+	// Breeding Director (maintainer decision 2026-09-04): a director desk that plans hoof /
+	// hair trimming; leadership for nav composition like the other name_director roles.
+	permissions.RoleBreedingDirector: true,
 }
 
 func isVerifierPrincipal(grants []domain.GrantSummary) bool {

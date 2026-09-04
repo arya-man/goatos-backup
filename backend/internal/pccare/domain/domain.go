@@ -40,6 +40,22 @@ var Categories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofT
 // Kernel-owned categories stay readable/listable, but are created by reconciliation stages.
 var PlannerCategories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
 
+// TrimmingCategories are the planner categories a holder of pc_care.plan_trimming may plan
+// (maintainer decision 2026-09-04: the Breeding Director owns hoof and hair trimming while
+// deworming and ticks removal stay CEO-planned). This is the ONE list that permission covers;
+// the service resolves every planner write and the wizard vocabulary against it.
+var TrimmingCategories = []string{CategoryHoofTrimming, CategoryHairTrimming}
+
+// IsTrimmingCategory reports whether c is one of TrimmingCategories.
+func IsTrimmingCategory(c string) bool {
+	for _, category := range TrimmingCategories {
+		if c == category {
+			return true
+		}
+	}
+	return false
+}
+
 // IsValidCategory reports whether c names a real PC Care category.
 func IsValidCategory(c string) bool {
 	switch c {

@@ -247,6 +247,9 @@ func TestPlannerCatalogExcludesKernelOwnedInventoryVaccineCategory(t *testing.T)
 	service := &fakePCCareHTTPService{plannerCatalog: ports.PlannerCatalog{
 		Parks:     []ports.PlannerPark{{ParkID: "9c000000-0000-4000-8000-000000001001", ParkName: "CPT"}},
 		Operators: []ports.PlannerOperator{{UserID: httpActor, DisplayName: "Amit", ParkIDs: []string{}}},
+		// The service narrows this per actor (a CEO gets every planner category); the
+		// adapter must label exactly what it is handed and never widen it.
+		Categories: domain.PlannerCategories,
 	}}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(service, nil))

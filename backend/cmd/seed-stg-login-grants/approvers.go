@@ -77,6 +77,10 @@ var perPersonGrants = []personGrant{
 			permissions.RoleToxinTester,
 			permissions.RolePCDirector,
 			permissions.RoleGrowthDirector,
+			// Breeding Director (maintainer decision 2026-09-04): his designation, and the desk
+			// that plans HOOF and HAIR TRIMMING (pc_care.plan_trimming). Deworming and ticks
+			// removal stay CEO-planned; pc_director above still carries no plan capability.
+			permissions.RoleBreedingDirector,
 			// stg-operator-scope: tenant approved — maintainer decision 2026-08-07. Same reasoning
 			// as Chandrakant's row above, and his position_tier is already 'director', which the
 			// operator pool query excludes. Listed explicitly even though he holds an active

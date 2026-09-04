@@ -170,6 +170,11 @@ func TestNoRoleLosesAPhoneModuleWhenTheBarReadsTicks(t *testing.T) {
 		{permissions.RoleCountsApprover, permissions.RoleOperator, permissions.RoleParkHead, permissions.RolePCDirector},
 		{permissions.RoleCountsApprover, permissions.RoleGrowthDirector, permissions.RoleOperator,
 			permissions.RoleParkHead, permissions.RolePCDirector},
+		// Dinakar after 2026-09-04: breeding_director layered on for hoof / hair trimming planning.
+		{permissions.RoleBreedingDirector, permissions.RoleCountsApprover, permissions.RoleGrowthDirector,
+			permissions.RoleOperator, permissions.RoleParkHead, permissions.RolePCDirector},
+		// A future Breeding Director holding only the desk must still get a phone module.
+		{permissions.RoleBreedingDirector},
 	} {
 		role := strings.Join(roles, "+")
 		grants := make([]domain.GrantSummary, 0, len(roles))

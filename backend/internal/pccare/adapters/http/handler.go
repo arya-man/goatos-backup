@@ -385,7 +385,7 @@ func (h *Handler) GetPlannerCatalog(w http.ResponseWriter, r *http.Request) {
 	resp := plannerCatalogResponse{
 		Parks:      make([]plannerParkDTO, 0, len(catalog.Parks)),
 		Operators:  make([]plannerOperatorDTO, 0, len(catalog.Operators)),
-		Categories: make([]categoryDTO, 0, len(domain.PlannerCategories)),
+		Categories: make([]categoryDTO, 0, len(catalog.Categories)),
 	}
 	for _, park := range catalog.Parks {
 		resp.Parks = append(resp.Parks, plannerParkDTO{ParkID: park.ParkID, ParkLabel: park.ParkName})
@@ -397,7 +397,9 @@ func (h *Handler) GetPlannerCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Operators = append(resp.Operators, plannerOperatorDTO{UserID: op.UserID, DisplayName: op.DisplayName, ParkIDs: parkIDs})
 	}
-	for _, category := range domain.PlannerCategories {
+	// The service already narrowed this list to what the caller may plan (a trimming-only
+	// planner sees two categories); the adapter labels it and never widens it.
+	for _, category := range catalog.Categories {
 		resp.Categories = append(resp.Categories, categoryDTO{Key: category, Label: domain.CategoryLabel(category)})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)

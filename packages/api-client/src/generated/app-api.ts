@@ -2329,7 +2329,7 @@ export interface paths {
         };
         /**
          * PC Care planner vocabulary (parks, assignable operators, categories).
-         * @description PC Care (maintainer decision 2026-08-21) is the planner-assigned deworming / ticks removal / hoof trimming / hair trimming module, plus the kernel-created inventory_vaccine director stock check. The catalog is the park-grain create-wizard vocabulary: every park the planner may pick, the assignable operator roster, and only human-plannable categories. Kernel-owned inventory_vaccine tasks are visible on monitor/worklist reads, but are not offered by this create wizard. Planning is CEO-only (pc_care.plan, the weighing.plan precedent).
+         * @description PC Care (maintainer decision 2026-08-21) is the planner-assigned deworming / ticks removal / hoof trimming / hair trimming module, plus the kernel-created inventory_vaccine director stock check. The catalog is the park-grain create-wizard vocabulary: every park the planner may pick, the assignable operator roster, and only human-plannable categories. Kernel-owned inventory_vaccine tasks are visible on monitor/worklist reads, but are not offered by this create wizard. Planning is CEO-only (pc_care.plan, the weighing.plan precedent) with one recorded carve-out (maintainer decision 2026-09-04): the Breeding Director holds pc_care.plan_trimming and plans hoof_trimming and hair_trimming only. The categories list is therefore the CALLER's plannable set -- a trimming planner receives exactly those two -- and clients render it verbatim.
          */
         get: operations["appPCCarePlannerCatalog"];
         put?: never;
