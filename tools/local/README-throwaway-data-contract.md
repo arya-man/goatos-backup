@@ -9,6 +9,46 @@ fixture used by `tools/local/phone-qa-throwaway-run.sh` and
 The older `15546` scripts are a separate multi-device E2E stack. Do not cite
 `15546` as the phone-QA role-test port.
 
+For a smaller vaccination-only phone fixture, use
+`tools/local/phone-qa-vax5shed-seed.sh` against the same **local-only**
+throwaway port **15544**. The script refuses every database URL except
+`postgres://...@localhost:15544/...` or `postgres://...@127.0.0.1:15544/...`,
+and also requires `GOATOS_ENV=local`, `dev`, or `test`; it is not an OCI/STG/prod
+seed path. It deliberately seeds exactly five active vaccination sheds:
+
+| Shed | Animals | Obligations per animal |
+|---|---:|---|
+| Godel 1 | 2 | **1** — ET+TT |
+| Yashoda 1 | 3 | **2** — PPR + FMD |
+| Gandhi 1 | 2 | **2** — PPR + FMD |
+| Gandhi 2 | 3 | **3** — PPR + FMD + HS |
+| Mandela 2 | 2 | **3** — PPR + FMD + HS |
+
+That is **12 animals** and **27 due vaccination obligations**. It also prints a
+wrong-shed tag and an unknown tag for orange/red scan validation.
+
+The exact due-obligation totals are:
+
+| Vaccine | Animals due | Sheds |
+|---|---:|---:|
+| ET+TT | 2 | 1 |
+| PPR | 10 | 4 |
+| FMD | 10 | 4 |
+| HS | 5 | 2 |
+
+There is one vaccination assignment per shed, so assignment totals are
+`2, 6, 4, 9, 6` doses respectively. The seed is idempotent: it rebuilds the
+same 12 local QA animal identifiers, cancels/removes stale QA vaccination
+obligations from earlier local throwaway runs, and reports counts by
+shed/vaccine/assignment after every run.
+
+For Android dev builds, the physical sample cards are
+`TEMP-CPT-CASTRO1-001` through `TEMP-CPT-CASTRO1-005` (normalized in the app as
+`tempcptcastro1001` through `tempcptcastro1005`). The seed stores the resolved
+roster identifiers (`901007...`, `Y1-...`, `G1-...`, `G2-...`, `M2-...`) so the
+debug `DebugSampleTagAliaser` can map those sample cards onto the currently open
+roster without release-build behavior changing.
+
 The `15544` phone-QA fixture contains:
 
 | Thing | Count |

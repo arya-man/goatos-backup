@@ -71,6 +71,21 @@ class DebugSampleTagAliaserTest {
     }
 
     @Test
+    fun `sample card still maps when scanner path prepends active shed shorthand`() = runTest {
+        val resolver = aliaser(activeOpen = listOf(row("goat-a", "TAG-A")))
+
+        val resolved = resolver.resolve(
+            rawTag = "G1-TEMP-CPT-CASTRO1-001",
+            normalizedTag = "g1${DebugSampleTagAliaser.SAMPLE_NORMALIZED_TAGS[0]}",
+            shedId = activeShedId,
+            taskId = activeTaskId,
+            partitionLabel = activePartitionLabel,
+        )
+
+        assertEquals("taga", resolved)
+    }
+
+    @Test
     fun `sample cards 4 and 5 map to neighbor partition animals`() = runTest {
         val sibling = listOf(row("goat-x", "TAG-X"), row("goat-y", "TAG-Y"))
         val resolver = aliaser(siblingOpen = sibling)

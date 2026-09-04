@@ -105,6 +105,7 @@ class ScanViewModelTest {
                     proofPolicy = ProofPolicy.Default,
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = analytics,
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -194,6 +195,7 @@ class ScanViewModelTest {
                     proofPolicy = ProofPolicy.Default,
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = analytics,
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -246,6 +248,7 @@ class ScanViewModelTest {
                     proofPolicy = ProofPolicy.Default,
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -290,6 +293,7 @@ class ScanViewModelTest {
                     form = FormSpec.Empty,
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(
                 mapOf(
@@ -334,6 +338,7 @@ class ScanViewModelTest {
                     proofPolicy = ProofPolicy.Default,
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -392,6 +397,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = analytics,
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -481,6 +487,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -561,6 +568,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = analytics,
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -613,6 +621,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -667,6 +676,7 @@ class ScanViewModelTest {
             proofCaptureSource = autoVideoProofSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -713,6 +723,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -766,6 +777,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -820,6 +832,7 @@ class ScanViewModelTest {
             proofCaptureSource = autoVideoProofSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -853,6 +866,7 @@ class ScanViewModelTest {
             proofCaptureSource = autoVideoProofSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -915,6 +929,7 @@ class ScanViewModelTest {
                     proofPolicy = ProofPolicy.Default,
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1", "shedName" to "Castro 1")),
         )
@@ -976,6 +991,7 @@ class ScanViewModelTest {
                     proofPolicy = ProofPolicy.Default,
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1", "shedName" to "Castro 1")),
         )
@@ -1067,6 +1083,7 @@ class ScanViewModelTest {
             proofCaptureSource = autoVideoProofSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1109,6 +1126,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(detail = noProofTaskDetail()),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1173,6 +1191,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = tasks,
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1182,6 +1201,103 @@ class ScanViewModelTest {
         assertEquals("shed-1", tasks.refreshedShedIds.single())
         assertTrue("server-confirmed shed proof readiness clears stale local orange state", vm.state.value.canSubmit)
         assertTrue(vm.state.value.proofActionNeeded.isEmpty())
+    }
+
+    @Test
+    fun `backend-ready shed auto queues submit with partition label`() = runTest(dispatcher) {
+        val sync = CapturingSubmitSyncRepository()
+        val tasks = FakeTasksRepositoryForCapture(
+            detail = TaskDetail(
+                task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 7, sopVersionId = "sop-v1"),
+                form = FormSpec.Empty,
+                proofPolicy = ProofPolicy.Default,
+            ),
+            summaryOnRefresh = ShedCompletionSummaryDto(
+                taskId = "task-1",
+                expectedCount = 3,
+                handledCount = 3,
+                proofReadyCount = 3,
+                proofMode = "per_goat_video",
+                submitEnabled = true,
+                partitionLabel = "Godel 1 - Part 1",
+                roundId = "round-1",
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = doneRosterRepo(3),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = tasks,
+            syncRepository = sync,
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    "shedId" to "shed-1",
+                    "taskId" to "task-1",
+                    "sopVersionId" to "sop-v1",
+                    "taskRowVersion" to 7,
+                    "partitionLabel" to "Godel 1 - Part 1",
+                ),
+            ),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(1, sync.enqueueCount)
+        assertEquals("Godel 1 - Part 1", sync.lastRequest?.partitionLabel)
+        assertEquals("sop-v1", sync.lastRequest?.sopVersionId)
+        assertTrue(sync.lastIdempotencyKey.orEmpty().contains("partition:1"))
+    }
+
+    @Test
+    fun `backend-blocked shed does not auto submit`() = runTest(dispatcher) {
+        val sync = CapturingSubmitSyncRepository()
+        val tasks = FakeTasksRepositoryForCapture(
+            detail = TaskDetail(
+                task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 7, sopVersionId = "sop-v1"),
+                form = FormSpec.Empty,
+                proofPolicy = ProofPolicy.Default,
+            ),
+            initialSummary = ShedCompletionSummaryDto(
+                taskId = "task-1",
+                expectedCount = 3,
+                handledCount = 3,
+                proofReadyCount = 3,
+                proofMode = "per_goat_video",
+                submitEnabled = false,
+                partitionLabel = "Godel 1 - Part 1",
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = doneRosterRepo(3),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = tasks,
+            syncRepository = sync,
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    "shedId" to "shed-1",
+                    "taskId" to "task-1",
+                    "sopVersionId" to "sop-v1",
+                    "taskRowVersion" to 7,
+                    "partitionLabel" to "Godel 1 - Part 1",
+                ),
+            ),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, sync.enqueueCount)
+        assertNull(sync.lastRequest)
     }
 
     @Test
@@ -1206,6 +1322,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1244,6 +1361,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = tasks,
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1281,6 +1399,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = tasks,
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1339,6 +1458,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = tasks,
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-2", "taskId" to "task-1")),
         )
@@ -1494,6 +1614,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1530,6 +1651,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1573,6 +1695,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1606,6 +1729,7 @@ class ScanViewModelTest {
                     proofPolicy = proofPolicy,
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1706,6 +1830,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1758,6 +1883,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1796,6 +1922,7 @@ class ScanViewModelTest {
                     ),
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -1844,6 +1971,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -2130,6 +2258,9 @@ private class FakeTaskRepository(
 
 private class CapturingSubmitSyncRepository : SyncRepository {
     var lastRequest: SubmitTaskRequestDto? = null
+    var lastIdempotencyKey: String? = null
+    var lastGroupKey: String? = null
+    var enqueueCount: Int = 0
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
@@ -2142,6 +2273,9 @@ private class CapturingSubmitSyncRepository : SyncRepository {
         idempotencyKey: String,
         request: SubmitTaskRequestDto,
     ): AppResult<String> {
+        enqueueCount += 1
+        lastIdempotencyKey = idempotencyKey
+        lastGroupKey = groupKey
         lastRequest = request
         status.value = status.value.copy(
             items = listOf(
@@ -2222,6 +2356,7 @@ class ScanRowVersionReconciliationTest {
                     proofPolicy = ProofPolicy.Default,
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -2270,6 +2405,7 @@ class ScanRowVersionReconciliationTest {
                     proofPolicy = ProofPolicy.Default,
                 ),
             ),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -2319,6 +2455,7 @@ class ScanRowVersionReconciliationTest {
             proofCaptureSource = autoVideoProofSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = fakeTaskRepo,
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -2374,6 +2511,7 @@ class ScanViewModelExecutionGateTest {
                 featureFlags = flags,
             ),
             tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )

@@ -439,6 +439,200 @@ func TestCompletedTaskProofRefsDoesNotRecoverParkScopedShedProofWithoutShedID(t 
 	}
 }
 
+func TestCompletedTaskProofRefsScopesGoatProofsToSubmittedShedPartition(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		tenantID     = "00000000-0000-4000-8000-000000000001"
+		actorID      = "77500000-0000-4000-8000-000000000001"
+		sopID        = "77500000-0000-4000-8000-000000000002"
+		sopVersion   = "77500000-0000-4000-8000-000000000003"
+		taskID       = "77500000-0000-4000-8000-000000000004"
+		parkID       = "77500000-0000-4000-8000-000000000005"
+		shedID       = "77500000-0000-4000-8000-000000000006"
+		siblingShed  = "77500000-0000-4000-8000-000000000007"
+		goatPartOne  = "77500000-0000-4000-8000-000000000008"
+		goatPartTwo  = "77500000-0000-4000-8000-000000000009"
+		goatSibling  = "77500000-0000-4000-8000-000000000010"
+		proofPartOne = "77500000-0000-4000-8000-000000000011"
+		proofPartTwo = "77500000-0000-4000-8000-000000000012"
+		proofSibling = "77500000-0000-4000-8000-000000000013"
+	)
+
+	execShedSubmitState(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'park', 'PARK-GOAT-PROOF-SCOPE', 'Goat Proof Scope Park', 'active')`,
+		parkID, tenantID)
+	for _, row := range []struct {
+		id   string
+		code string
+		name string
+	}{
+		{shedID, "GOAT-PROOF-SCOPE-GODEL-1", "Godel 1"},
+		{siblingShed, "GOAT-PROOF-SCOPE-GANDHI-1", "Gandhi 1"},
+	} {
+		execShedSubmitState(t, ctx, pool, "shed",
+			`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+			 VALUES ($1::uuid, $2::uuid, 'shed', $3, $4, $5::uuid, 'active')`,
+			row.id, tenantID, row.code, row.name, parkID)
+	}
+	execShedSubmitState(t, ctx, pool, "sop definition",
+		`INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'vaccination.goat_proof_scope_regression', 'Goat proof scope regression', 'active')`,
+		sopID, tenantID)
+	execShedSubmitState(t, ctx, pool, "sop version",
+		`INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":true,"subject_scope":"goat","proof_mode":"per_goat_video","types":["video"],"minimum_count_per_subject":1}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)`,
+		sopVersion, tenantID, sopID)
+	execShedSubmitState(t, ctx, pool, "park task",
+		`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, row_version)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination', 'Partitioned goat proof task', 'in_progress', 'park', $5::uuid, 1)`,
+		taskID, tenantID, sopID, sopVersion, parkID)
+	for _, row := range []struct {
+		id        string
+		shed      string
+		displayID string
+		part      string
+	}{
+		{goatPartOne, shedID, "G-P1", "Part 1"},
+		{goatPartTwo, shedID, "G-P2", "Part 2"},
+		{goatSibling, siblingShed, "G-S1", "Part 1"},
+	} {
+		execShedSubmitState(t, ctx, pool, "goat",
+			`INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, health_status, current_location_id, farm_id, park_id, shed_id, dob, origin_type, entry_date)
+			 VALUES ($1::uuid, $2::uuid, $3, 'female', 'kid', 'alive', 'K2', 'healthy', $4::uuid, $5::uuid, $5::uuid, $4::uuid, DATE '2026-01-01', 'birth', DATE '2026-01-01')`,
+			row.id, tenantID, row.displayID, row.shed, parkID)
+		execShedSubmitState(t, ctx, pool, "partition",
+			`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+			 VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'seed')`,
+			tenantID, row.id, row.shed, row.part)
+		execShedSubmitState(t, ctx, pool, "scan capture",
+			`INSERT INTO sop_task_scan_captures (tenant_id, task_id, field_key, tag, normalized_tag, goat_id, captured_by, idempotency_key)
+			 VALUES ($1::uuid, $2::uuid, '__scan_roster__', $3, $3, $4::uuid, $5::uuid, $6)`,
+			tenantID, taskID, "tag-"+row.displayID, row.id, actorID, "scan-"+row.displayID)
+	}
+	for _, row := range []struct {
+		proof string
+		goat  string
+		key   string
+	}{
+		{proofPartOne, goatPartOne, "proof/part-one.mp4"},
+		{proofPartTwo, goatPartTwo, "proof/part-two.mp4"},
+		{proofSibling, goatSibling, "proof/sibling.mp4"},
+	} {
+		execShedSubmitState(t, ctx, pool, "goat proof",
+			`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state, scope_type, scope_id, subject_type, subject_id, proof_type)
+			 VALUES ($1::uuid, $2::uuid, 'gcs', $3, 'video/mp4', 'completed', 'task', $4::uuid, 'goat', $5::uuid, 'video')`,
+			row.proof, tenantID, row.key, taskID, row.goat)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	refs, err := repo.CompletedTaskProofRefs(ctx, tenantID, taskID, "goat", shedID, "Part 1")
+	if err != nil {
+		t.Fatalf("CompletedTaskProofRefs() error = %v", err)
+	}
+	if len(refs) != 1 || refs[0].ProofID != proofPartOne {
+		t.Fatalf("Part 1 refs = %#v, want only %s", refs, proofPartOne)
+	}
+
+	refs, err = repo.CompletedTaskProofRefs(ctx, tenantID, taskID, "goat", shedID, "Part 2")
+	if err != nil {
+		t.Fatalf("CompletedTaskProofRefs() Part 2 error = %v", err)
+	}
+	if len(refs) != 1 || refs[0].ProofID != proofPartTwo {
+		t.Fatalf("Part 2 refs = %#v, want only %s", refs, proofPartTwo)
+	}
+}
+
+func TestShedCompletionReadinessAcceptsGoatAttestedPartitionWithoutCatalogRow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		tenantID   = "00000000-0000-4000-8000-000000000001"
+		actorID    = "77600000-0000-4000-8000-000000000001"
+		sopID      = "77600000-0000-4000-8000-000000000002"
+		sopVersion = "77600000-0000-4000-8000-000000000003"
+		taskID     = "77600000-0000-4000-8000-000000000004"
+		batchID    = "77600000-0000-4000-8000-000000000005"
+		parkID     = "77600000-0000-4000-8000-000000000006"
+		shedID     = "77600000-0000-4000-8000-000000000007"
+		goatID     = "77600000-0000-4000-8000-000000000008"
+		ruleID     = "77600000-0000-4000-8000-000000000009"
+		obligation = "77600000-0000-4000-8000-000000000010"
+		proofID    = "77600000-0000-4000-8000-000000000011"
+	)
+
+	execShedSubmitState(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'park', 'GOAT-ATTESTED-PARK', 'Goat Attested Park', 'active')`,
+		parkID, tenantID)
+	execShedSubmitState(t, ctx, pool, "shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1::uuid, $2::uuid, 'shed', 'GOAT-ATTESTED-SHED', 'Godel 1', $3::uuid, 'active')`,
+		shedID, tenantID, parkID)
+	execShedSubmitState(t, ctx, pool, "sop definition",
+		`INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'vaccination.goat_attested_partition', 'Goat attested partition', 'active')`,
+		sopID, tenantID)
+	execShedSubmitState(t, ctx, pool, "sop version",
+		`INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":true,"subject_scope":"goat","proof_mode":"per_goat_video","types":["video"],"minimum_count_per_subject":1}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)`,
+		sopVersion, tenantID, sopID)
+	execShedSubmitState(t, ctx, pool, "task",
+		`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, row_version)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination', 'Goat attested partition task', 'in_progress', 'park', $5::uuid, 1)`,
+		taskID, tenantID, sopID, sopVersion, parkID)
+	execShedSubmitState(t, ctx, pool, "rule",
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, offset_days, due_window_days, sop_version_id, proof_policy)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 'PPR_QA', 1, 'manual_campaign', 0, 3, $4::uuid, '{"required":true}'::jsonb)`,
+		ruleID, tenantID, sopVersion, sopVersion)
+	execShedSubmitState(t, ctx, pool, "batch",
+		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, planned_date, status, sop_task_id)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 'park', $4::uuid, CURRENT_DATE, 'in_progress', $5::uuid)`,
+		batchID, tenantID, sopVersion, parkID, taskID)
+	execShedSubmitState(t, ctx, pool, "goat",
+		`INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, health_status, current_location_id, farm_id, park_id, shed_id, dob, origin_type, entry_date)
+		 VALUES ($1::uuid, $2::uuid, 'G-P1', 'female', 'kid', 'alive', 'K2', 'healthy', $3::uuid, $4::uuid, $4::uuid, $3::uuid, DATE '2026-01-01', 'birth', DATE '2026-01-01')`,
+		goatID, tenantID, shedID, parkID)
+	execShedSubmitState(t, ctx, pool, "goat partition no catalog",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Godel 1')`,
+		tenantID, goatID, shedID)
+	execShedSubmitState(t, ctx, pool, "obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'goat', $6::uuid, 'shed', $7::uuid, now(), 'due', $8::uuid, 'goat-attested-partition-obligation')`,
+		obligation, tenantID, sopVersion, ruleID, batchID, goatID, shedID, taskID)
+	execShedSubmitState(t, ctx, pool, "scan capture",
+		`INSERT INTO sop_task_scan_captures (tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key)
+		 VALUES ($1::uuid, $2::uuid, '__scan_roster__', 'tag-1', 'tag1', $3::uuid, $4::uuid, $5::uuid, 'scan-goat-attested-partition')`,
+		tenantID, taskID, goatID, obligation, actorID)
+	execShedSubmitState(t, ctx, pool, "goat proof",
+		`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state, scope_type, scope_id, subject_type, subject_id, proof_type)
+		 VALUES ($1::uuid, $2::uuid, 'gcs', 'proof/goat-attested.mp4', 'video/mp4', 'completed', 'task', $3::uuid, 'goat', $4::uuid, 'video')`,
+		proofID, tenantID, taskID, goatID)
+
+	repo := NewRepository(pool, 5*time.Second)
+	ready, err := repo.ShedCompletionReadiness(ctx, tenantID, taskID, "goat", shedID, "Part 1", 1, 5)
+	if err != nil {
+		t.Fatalf("ShedCompletionReadiness() error = %v", err)
+	}
+	if !ready.Enabled {
+		t.Fatalf("ShedCompletionReadiness() enabled=false reason=%q", ready.Reason)
+	}
+}
+
 // TestReopenTaskForReworkUnblocksResubmitAfterVerifierRejection is the regression test for the
 // P0 "rework cannot be resubmitted" incident: a task accepted terminally could never take another
 // submission (TestSubmitTaskRejectsFreshSubmitWhenSharedParkTaskAccepted above proves that guard is

@@ -241,6 +241,7 @@ data class ScanUiState(
     val listTitle: String,                 // scan-list sheet header
     val submitLabel: String,               // backend-provided CTA text
     val canSubmit: Boolean,                // completion hint (backend revalidates on submit)
+    val showSubmitAction: Boolean = true,
     val scanEnabled: Boolean,              // show tap-to-scan affordances at all
     val captureAccessRequired: Boolean = false, // operator execution route needs camera/RFID/upload access even after scans finish
     val error: ScanError? = null,          // not-due red state
@@ -501,13 +502,15 @@ fun ScanScreen(
                 item { Spacer(Modifier.height(8.dp)) }
             }
 
-            ScanFooter(
-                label = state.submitLabel.ifBlank { stringResource(R.string.scan_submit_default) },
-                enabled = state.canSubmit,
-                note = state.footNote,
-                blockingReason = state.submitBlockingReason.takeIf { state.canSubmit.not() },
-                onSubmit = { onEvent(ScanEvent.Submit) },
-            )
+            if (state.showSubmitAction) {
+                ScanFooter(
+                    label = state.submitLabel.ifBlank { stringResource(R.string.scan_submit_default) },
+                    enabled = state.canSubmit,
+                    note = state.footNote,
+                    blockingReason = state.submitBlockingReason,
+                    onSubmit = { onEvent(ScanEvent.Submit) },
+                )
+            }
         }
     }
 

@@ -45,7 +45,7 @@ class DebugSampleTagAliaser @Inject constructor(
         taskId: String?,
         partitionLabel: String?,
     ): String {
-        val cardIndex = SAMPLE_NORMALIZED_TAGS.indexOf(normalizedTag).takeIf { it >= 0 }?.plus(1) ?: return normalizedTag
+        val cardIndex = sampleCardIndex(normalizedTag) ?: return normalizedTag
         if (taskId == null) return normalizedTag // no roster context (e.g. free-flow weighing): passthrough
 
         val taskCache = sessionCache.getOrPut(taskId) { ConcurrentHashMap() }
@@ -86,5 +86,16 @@ class DebugSampleTagAliaser @Inject constructor(
             "tempcptcastro1004",
             "tempcptcastro1005",
         )
+
+        fun sampleCardIndex(normalizedTag: String): Int? {
+            val exact = SAMPLE_NORMALIZED_TAGS.indexOf(normalizedTag)
+            if (exact >= 0) return exact + 1
+
+            // Some scanner/debug-keyboard paths prepend the active shed shorthand before the
+            // physical sample EPC reaches this resolver (for example g1tempcptcastro1001).
+            // Keep that QA-only transport artifact from bypassing the sample-card fixture.
+            val suffix = SAMPLE_NORMALIZED_TAGS.indexOfFirst { normalizedTag.endsWith(it) }
+            return suffix.takeIf { it >= 0 }?.plus(1)
+        }
     }
 }

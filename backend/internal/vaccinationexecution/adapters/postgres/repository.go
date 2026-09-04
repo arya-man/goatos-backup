@@ -1308,6 +1308,7 @@ raw AS (
     te.asof_terminal_type,
     te.has_terminal_event,
     pr.dose_code,
+    NULLIF(prd.vaccine_code, '') AS vaccine_code,
     pd.name AS protocol_name,
     (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS batch_planned_at,
     ob.status AS batch_status,
@@ -1602,7 +1603,8 @@ grouped AS (
     (ARRAY_AGG(located.rule_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.rule_id DESC))[1] AS rule_id,
     (ARRAY_AGG(located.protocol_name ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.protocol_name ASC))[1] AS protocol_name,
     (ARRAY_AGG(located.dose_code ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.dose_code ASC))[1] AS dose_code,
-    ARRAY_AGG(DISTINCT located.dose_code ORDER BY located.dose_code) FILTER (WHERE NULLIF(located.dose_code, '') IS NOT NULL) AS vaccine_labels,
+    ARRAY_AGG(DISTINCT COALESCE(located.vaccine_code, located.dose_code) ORDER BY COALESCE(located.vaccine_code, located.dose_code))
+      FILTER (WHERE NULLIF(COALESCE(located.vaccine_code, located.dose_code), '') IS NOT NULL) AS vaccine_labels,
     ARRAY_AGG(CONCAT_WS(E'\x1f', located.protocol_name, located.dose_code) ORDER BY located.protocol_name, located.dose_code)
       FILTER (WHERE NULLIF(located.dose_code, '') IS NOT NULL) AS vaccine_label_keys,
     MIN(located.execution_due_at) AS due_at,

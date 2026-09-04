@@ -224,6 +224,8 @@ object AnalyticsEvents {
     const val VACCINATION_SCAN_SCREEN_OPENED = "vaccination_scan_screen_opened"
     const val VACCINATION_FINALIZE_TAPPED = "vaccination_finalize_tapped"
     const val VACCINATION_FINALIZE_BLOCKED = "vaccination_finalize_blocked"
+    const val VACCINATION_AUTO_SUBMIT_QUEUED = "vaccination_auto_submit_queued"
+    const val VACCINATION_AUTO_SUBMIT_FAILED = "vaccination_auto_submit_failed"
     const val VACCINATION_SUBMIT_ATTEMPT = "vaccination_submit_attempt"
     const val VACCINATION_SUBMIT_SUCCESS = "vaccination_submit_success"
     const val VACCINATION_SUBMIT_FAILURE = "vaccination_submit_failure"

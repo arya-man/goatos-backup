@@ -569,6 +569,9 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		if shedProofSubjectID == "" {
 			shedProofSubjectID = shedScopeFromSubmissionKey(cmd.Body.IdempotencyKey)
 		}
+		if gate.SubjectType == "goat" && shedProofSubjectID == "" {
+			return nil, BadRequest("missing_shed_scope", "vaccination submission must include the exact shed scope")
+		}
 		if gate.SubjectType == "shed" && len(cmd.Body.ProofRefs) == 0 {
 			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID, cmd.Body.PartitionLabel)
 			if err != nil {
@@ -2534,7 +2537,7 @@ func mapRepoErr(err error) error {
 	case errors.Is(err, ports.ErrNotFound):
 		return NotFound("not_found", "resource not found")
 	case errors.Is(err, ports.ErrConflict):
-		return RetryableConflict("write_conflict", "resource changed or violates constraints")
+		return RetryableConflict("write_conflict", conflictMessage(err))
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		return Conflict("idempotency_conflict", "idempotency key was reused for a different submission")
 	case errors.Is(err, ports.ErrDenied):
@@ -2544,4 +2547,17 @@ func mapRepoErr(err error) error {
 	default:
 		return err
 	}
+}
+
+func conflictMessage(err error) string {
+	const base = "resource changed or violates constraints"
+	if err == nil {
+		return base
+	}
+	detail := strings.TrimSpace(strings.TrimPrefix(err.Error(), ports.ErrConflict.Error()))
+	detail = strings.TrimSpace(strings.TrimPrefix(detail, ":"))
+	if detail == "" {
+		return base
+	}
+	return base + ": " + detail
 }

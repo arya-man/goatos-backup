@@ -153,15 +153,15 @@ func TestVaccinationExecutionScannedCountOneToManyPaginationDateShiftParkScopeSt
 func TestVaccinationExecutionGoatProofArtifactsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix(t *testing.T) {
 	t.Log("OneToMany PageBoundary ExecutionDate ParkScope StatusMatrix: completed goat proof artifacts count the animal done once even when multiple vaccine obligations share the task")
 	requiredFragments := map[string]string{
-		"goat proof lateral join":       "FROM proof_artifacts proof",
-		"goat proof task scope type":    "proof.scope_type = 'task'",
-		"goat proof task scope id":      "proof.scope_id = st.task_id",
-		"goat proof subject grain":      "proof.subject_type = 'goat'",
-		"goat proof completed upload":   "proof.upload_state = 'completed'",
-		"goat proof execution as-of":    "proof.created_at <= $7::timestamptz",
-		"goat proof scanned rollup":     "BOOL_OR(located.scanned OR located.proofed) AS has_scan",
-		"goat proof submitted rollup":   "BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof",
-		"vaccine chips multi-dose list": "ARRAY_AGG(DISTINCT located.dose_code ORDER BY located.dose_code)",
+		"goat proof lateral join":        "FROM proof_artifacts proof",
+		"goat proof task scope type":     "proof.scope_type = 'task'",
+		"goat proof task scope id":       "proof.scope_id = st.task_id",
+		"goat proof subject grain":       "proof.subject_type = 'goat'",
+		"goat proof completed upload":    "proof.upload_state = 'completed'",
+		"goat proof execution as-of":     "proof.created_at <= $7::timestamptz",
+		"goat proof scanned rollup":      "BOOL_OR(located.scanned OR located.proofed) AS has_scan",
+		"goat proof submitted rollup":    "BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof",
+		"vaccine chips use vaccine code": "ARRAY_AGG(DISTINCT COALESCE(located.vaccine_code, located.dose_code)",
 	}
 	for name, fragment := range requiredFragments {
 		if !strings.Contains(vaccinationExecutionSQL, fragment) {

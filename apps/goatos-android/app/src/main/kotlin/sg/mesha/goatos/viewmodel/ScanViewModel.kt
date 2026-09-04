@@ -7,11 +7,17 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -40,8 +46,14 @@ import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
+import sg.mesha.goatos.core.data.capture.vaccinationSessionGroupKey
 import sg.mesha.goatos.core.data.forms.ProofPolicy
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
+import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.feature.scan.RosterRow
 import sg.mesha.goatos.feature.scan.ScanError
 import sg.mesha.goatos.feature.scan.ProofUploadStatus
@@ -94,6 +106,7 @@ class ScanViewModel @Inject constructor(
     private val proofCaptureSource: ProofCaptureSource,
     private val bootstrapRepository: BootstrapRepository,
     private val tasksRepository: TasksRepository,
+    private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
     private val rfidInputTransform: RfidInputTransform = PassthroughRfidInputTransform,
@@ -107,6 +120,7 @@ class ScanViewModel @Inject constructor(
     private val taskRowVersion: Int? = savedStateHandle.get<Int>("taskRowVersion")?.takeIf { it > 0 }
     private val routeScanTitle: String? = savedStateHandle.get<String>("scanTitle")?.takeIf { it.isNotBlank() }
     private var readerRefreshJob: Job? = null
+    private val freshShedSummaryKeys = mutableSetOf<String>()
 
     // The visible scan-list window size. loadMore() grows it; the full roster is already local in the
     // per-row SSOT after a refresh, so paging is a LOCAL window advance (page-N works offline), not a
@@ -206,6 +220,9 @@ class ScanViewModel @Inject constructor(
     // fully scanned (canSubmit flips true) — see [maybeTrackScanCompleted].
     private var scanCompletedTracked = false
     private var scanScreenOpenedTracked = false
+    private var autoSubmitAttemptedKey: String? = null
+    private var autoSubmitRecoveryKey: String? = null
+    private var autoSubmitObservedItemId: String? = null
 
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)
@@ -242,6 +259,9 @@ class ScanViewModel @Inject constructor(
     private val _proofReplacementGoatId = MutableStateFlow<String?>(null)
     private val _proofSyncingStartedAt = MutableStateFlow<Map<String, Long>>(emptyMap())
     private val _lastProofCaptureError = MutableStateFlow<String?>(null)
+    private val _autoSubmitNotice = MutableStateFlow<String?>(null)
+    private val _events = MutableSharedFlow<ScanNavigationEvent>(extraBufferCapacity = 1)
+    val events: SharedFlow<ScanNavigationEvent> = _events.asSharedFlow()
 
     // Combines the bounded SSOT window + full-roster aggregates with transient flags + draft overlay;
     // lifecycle-aware. >5 flows > Kotlin's typed combine limit (5), so use the vararg Array<*> form.
@@ -275,6 +295,7 @@ class ScanViewModel @Inject constructor(
         _lastProofCaptureError,
         shedCompletionSummary,
         _proofCaptureBusyNotice,
+        _autoSubmitNotice,
     ) { values: Array<Any?> ->
         val rows = values[0] as List<ScanRosterRowEntity>
         val total = values[1] as Int
@@ -306,6 +327,7 @@ class ScanViewModel @Inject constructor(
         val lastProofCaptureError = values[25] as String?
         val shedSummary = values[26] as ShedCompletionSummaryDto?
         val proofCaptureBusy = values[27] as Boolean
+        val autoSubmitNotice = values[28] as String?
         // Cold cache (no rows persisted) + failed refresh → error/retry state. A warm cache stays on
         // screen; the refresh failure only flips the offline indicator.
         val error = if (total == 0 && refreshError != null) {
@@ -500,6 +522,7 @@ class ScanViewModel @Inject constructor(
             proofReplacementGoatId = proofReplacementGoatId,
             lastProofCaptureError = lastProofCaptureError,
             submitBlockingReason = shedSummary?.blockingReason?.takeIf { it.isNotBlank() },
+            evidenceError = autoSubmitNotice ?: gate.evidenceError,
         )
     }.stateIn(
         viewModelScope,
@@ -525,6 +548,28 @@ class ScanViewModel @Inject constructor(
         // HOT device stream (RFID reader) — NOT converted; always collected for keyboard-wedge capture
         viewModelScope.launch {
             reader.reads.collect { onTagRead(it.tag, it.capturedAtDeviceMs) }
+        }
+        viewModelScope.launch {
+            combine(shedCompletionSummary, _operatorAllowed, taskDetail) { summary, _, _ -> summary }
+                .collect { summary ->
+                    recoverAutoSubmitItem(summary)
+                    maybeAutoSubmit(summary)
+                }
+        }
+        viewModelScope.launch {
+            observedProofs
+                .filterNotNull()
+                .map { proofs ->
+                    proofs
+                        .filter { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
+                        .mapNotNull { it.subjectId?.takeIf(String::isNotBlank) }
+                        .distinct()
+                        .size
+                }
+                .distinctUntilChanged()
+                .collect { syncedProofCount ->
+                    if (syncedProofCount > 0) refreshShedCompletionSummary()
+                }
         }
     }
 
@@ -570,10 +615,19 @@ class ScanViewModel @Inject constructor(
         _refreshError.value = null
         taskId?.let { tasksRepository.refreshTaskDetail(it) }
         val result = repo.refreshScanRoster(id, taskId, limit = SCAN_PAGE_SIZE, partitionLabel = partitionLabel)
-        taskId?.let { tasksRepository.refreshShedCompletionSummary(it, id, partitionLabel) }
+        refreshShedCompletionSummary()
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
         _refreshError.value = result.exceptionOrNull()?.message
+    }
+
+    private suspend fun refreshShedCompletionSummary() {
+        val selectedTaskId = taskId ?: return
+        val id = shedId ?: return
+        val freshnessKey = shedSummaryFreshnessKey(selectedTaskId, id, partitionLabel)
+        tasksRepository.refreshShedCompletionSummary(selectedTaskId, id, partitionLabel)
+            .onSuccess { freshShedSummaryKeys += freshnessKey }
+            .onFailure { freshShedSummaryKeys -= freshnessKey }
     }
 
     /** Reveal the next page of the ALREADY-LOCAL roster by growing the observed SSOT window. No
@@ -612,9 +666,197 @@ class ScanViewModel @Inject constructor(
             ScanEvent.DismissShedSwitcher,
             is ScanEvent.SwitchShed -> Unit
             ScanEvent.LoadMore -> loadMore()
-            ScanEvent.Submit -> trackFinalizeTapped(state.value)
+            ScanEvent.Submit -> {
+                trackFinalizeTapped(state.value)
+                maybeAutoSubmit(shedCompletionSummary.value, source = "manual_footer")
+            }
             ScanEvent.Back,
             ScanEvent.ReconnectReader -> Unit // navigation — handled by the host.
+        }
+    }
+
+    private fun maybeAutoSubmit(summary: ShedCompletionSummaryDto?, source: String = "backend_readiness") {
+        val autoSubmitContext = autoSubmitContext(summary) ?: return
+        val selectedTaskId = autoSubmitContext.taskId
+        val versionId = autoSubmitContext.versionId
+        val submitKey = autoSubmitContext.submitKey
+        val partition = autoSubmitContext.partition
+        if (_operatorAllowed.value != true) return
+        if (!summary.allHandledProofsReadyForAutoSubmit()) return
+        if (autoSubmitAttemptedKey == submitKey) return
+        autoSubmitAttemptedKey = submitKey
+        _autoSubmitNotice.value = "All scans and videos synced. Submitting this shed for verification..."
+        analytics.track(
+            AnalyticsEvents.VACCINATION_AUTO_SUBMIT_QUEUED,
+            vaccinationJourneyProps(state.value) +
+                mapOf(
+                    AnalyticsEvents.Params.ACTION to "auto_submit",
+                    AnalyticsEvents.Params.SOURCE to source,
+                    AnalyticsEvents.Params.OUTCOME to "queued",
+                ),
+        )
+        AnalyticsFunnels.trackSubmitAttempted(analytics, selectedTaskId)
+        viewModelScope.launch {
+            val request = SubmitTaskRequestDto(
+                sopVersionId = versionId,
+                idempotencyKey = submitKey,
+                partitionLabel = partition,
+                answers = emptyMap(),
+                proofRefs = emptyList(),
+            )
+            when (val result = syncRepository.enqueueShedSubmit(
+                taskId = selectedTaskId,
+                groupKey = vaccinationSessionGroupKey(selectedTaskId, partition),
+                idempotencyKey = submitKey,
+                request = request,
+            )) {
+                is AppResult.Ok -> {
+                    _autoSubmitNotice.value = "Submitting this shed for verification..."
+                    AnalyticsFunnels.trackSubmitStatus(
+                        analytics = analytics,
+                        taskId = selectedTaskId,
+                        status = "queued",
+                        reason = "auto_submit:${result.value}",
+                    )
+                    observeAutoSubmitItem(selectedTaskId, result.value)
+                }
+                is AppResult.Err -> {
+                    autoSubmitAttemptedKey = null
+                    _autoSubmitNotice.value = result.message.ifBlank { "Submit could not be queued. Try again after sync." }
+                    analytics.track(
+                        AnalyticsEvents.VACCINATION_AUTO_SUBMIT_FAILED,
+                        vaccinationJourneyProps(state.value) +
+                            mapOf(
+                                AnalyticsEvents.Params.ACTION to "auto_submit",
+                                AnalyticsEvents.Params.OUTCOME to "enqueue_failed",
+                                AnalyticsEvents.Params.REASON to result.message.take(MAX_ANALYTICS_REASON_CHARS),
+                            ),
+                    )
+                    AnalyticsFunnels.trackSubmitFailed(
+                        analytics,
+                        selectedTaskId,
+                        result.message.ifBlank { "auto_submit_enqueue_failed" },
+                    )
+                }
+            }
+        }
+    }
+
+    private fun recoverAutoSubmitItem(summary: ShedCompletionSummaryDto?) {
+        val autoSubmitContext = autoSubmitContext(summary) ?: return
+        if (_operatorAllowed.value != true) return
+        val submitKey = autoSubmitContext.submitKey
+        if (autoSubmitRecoveryKey == submitKey) return
+        autoSubmitRecoveryKey = submitKey
+        viewModelScope.launch {
+            when (val recovered = syncRepository.findOutboxItemByIdempotencyKey(submitKey)) {
+                is AppResult.Ok -> {
+                    val item = recovered.value ?: return@launch
+                    autoSubmitAttemptedKey = submitKey
+                    applyAutoSubmitItemStatus(autoSubmitContext.taskId, item)
+                    observeAutoSubmitItem(autoSubmitContext.taskId, item.id)
+                }
+                is AppResult.Err -> {
+                    _autoSubmitNotice.value = recovered.message.takeIf { it.isNotBlank() }
+                        ?: "Submit status could not be recovered."
+                }
+            }
+        }
+    }
+
+    private fun observeAutoSubmitItem(taskId: String, itemId: String) {
+        if (autoSubmitObservedItemId == itemId) return
+        autoSubmitObservedItemId = itemId
+        viewModelScope.launch {
+            syncRepository.observeItem(itemId)
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect { item ->
+                    applyAutoSubmitItemStatus(taskId, item)
+                    if (item.status == SyncItemStatus.SUCCEEDED || item.isTerminalFailure) {
+                        cancel()
+                    }
+                }
+        }
+    }
+
+    private fun applyAutoSubmitItemStatus(taskId: String, item: SyncQueueItem) {
+        trackAutoSubmitItemStatus(taskId, item)
+        if (item.status == SyncItemStatus.SUCCEEDED) {
+            _autoSubmitNotice.value = null
+            _events.tryEmit(ScanNavigationEvent.AutoSubmitAccepted)
+            return
+        }
+        if (item.status == SyncItemStatus.QUEUED || item.status == SyncItemStatus.IN_FLIGHT) {
+            _autoSubmitNotice.value = when (item.status) {
+                SyncItemStatus.QUEUED -> "Submit queued. It will finish when the phone is online."
+                SyncItemStatus.IN_FLIGHT -> "Submitting this shed for verification..."
+                else -> _autoSubmitNotice.value
+            }
+        }
+        if (item.status == SyncItemStatus.FAILED && !item.isTerminalFailure) {
+            _autoSubmitNotice.value = item.lastError?.takeIf { it.isNotBlank() }
+                ?: "Submit retrying. Keep this screen open until sync finishes."
+        }
+        if (item.isTerminalFailure) {
+            autoSubmitAttemptedKey = null
+            _autoSubmitNotice.value = item.lastError?.takeIf { it.isNotBlank() }
+                ?: "Submit failed. Backend rejected this shed; refresh and try again."
+        }
+    }
+
+    private data class AutoSubmitContext(
+        val taskId: String,
+        val versionId: String,
+        val submitKey: String,
+        val partition: String?,
+    )
+
+    private fun autoSubmitContext(summary: ShedCompletionSummaryDto?): AutoSubmitContext? {
+        val selectedTaskId = taskId ?: summary?.taskId?.takeIf { it.isNotBlank() } ?: return null
+        val selectedShedId = shedId ?: return null
+        val detail = taskDetail.value?.task
+        val versionId = sopVersionId ?: detail?.sopVersionId?.takeIf { it.isNotBlank() } ?: return null
+        if (shedSummaryFreshnessKey(selectedTaskId, selectedShedId, partitionLabel) !in freshShedSummaryKeys) return null
+        val rowVersion = taskRowVersion ?: detail?.rowVersion?.takeIf { it > 0 } ?: 1
+        val partition = partitionLabel?.trim()?.takeIf { it.isNotBlank() }
+            ?: summary?.partitionLabel?.trim()?.takeIf { it.isNotBlank() }
+        val submissionKeyTask = detail ?: TaskSummaryDto(
+            taskId = selectedTaskId,
+            sopVersionId = versionId,
+            scopeType = "shed",
+            scopeId = selectedShedId,
+            rowVersion = rowVersion,
+        )
+        return AutoSubmitContext(
+            taskId = selectedTaskId,
+            versionId = versionId,
+            submitKey = SubmitViewModel.stableSubmissionKey(submissionKeyTask, selectedShedId, partition),
+            partition = partition,
+        )
+    }
+
+    private fun trackAutoSubmitItemStatus(taskId: String, item: SyncQueueItem) {
+        val submitStatus = when {
+            item.status == SyncItemStatus.QUEUED -> "queued"
+            item.status == SyncItemStatus.IN_FLIGHT -> "syncing"
+            item.status == SyncItemStatus.SUCCEEDED -> "synced"
+            item.conflict -> "conflict"
+            item.isDeadLetter -> "dead_letter"
+            else -> "retrying"
+        }
+        AnalyticsFunnels.trackSubmitStatus(
+            analytics = analytics,
+            taskId = taskId,
+            status = submitStatus,
+            reason = item.lastError,
+            attemptCount = item.attemptCount,
+            maxAttempts = item.maxAttempts,
+        )
+        when {
+            item.status == SyncItemStatus.SUCCEEDED -> AnalyticsFunnels.trackSubmitSucceeded(analytics, taskId)
+            item.conflict -> AnalyticsFunnels.trackSubmitFailed(analytics, taskId, item.lastError?.ifBlank { "conflict" } ?: "conflict")
+            item.isDeadLetter -> AnalyticsFunnels.trackSubmitFailed(analytics, taskId, item.lastError?.ifBlank { "dead_letter" } ?: "dead_letter")
         }
     }
 
@@ -1246,6 +1488,7 @@ class ScanViewModel @Inject constructor(
             maybeTrackScanCompleted(canSubmit, base.ringDone)
             return base.copy(
                 canSubmit = canSubmit,
+                showSubmitAction = true,
                 proofActionNeeded = emptyList(),
             )
         }
@@ -1264,8 +1507,9 @@ class ScanViewModel @Inject constructor(
             .filter { it.isNotBlank() }
             .filter { currentRosterGoatIds.isEmpty() || it in currentRosterGoatIds }
             .toSet()
+        val showAutoSubmitOnly = policy.isPerGoatVideo
         if (proofs == null && !shedSummary.allHandledProofsReady()) {
-            return base.copy(canSubmit = false, proofActionNeeded = emptyList())
+            return base.copy(canSubmit = false, showSubmitAction = !showAutoSubmitOnly, proofActionNeeded = emptyList())
         }
         val proofRows = proofs.orEmpty()
         // Split-brain fix: a SYNCED capture with a serverProofId IS the server confirming the
@@ -1309,7 +1553,7 @@ class ScanViewModel @Inject constructor(
         if (shedSummary.allHandledProofsReady()) {
             val canSubmit = base.ringTotal > 0 && base.pendingCount == 0
             maybeTrackScanCompleted(canSubmit, base.ringDone)
-            return base.copy(canSubmit = canSubmit, proofActionNeeded = emptyList())
+            return base.copy(canSubmit = canSubmit, showSubmitAction = !showAutoSubmitOnly, proofActionNeeded = emptyList())
         }
         val missingGoatIds = requiredGoatIds - syncedGoatIds
         val proofComplete = missingGoatIds.isEmpty()
@@ -1342,7 +1586,7 @@ class ScanViewModel @Inject constructor(
         }
         val canSubmit = base.ringTotal > 0 && base.pendingCount == 0 && proofComplete
         maybeTrackScanCompleted(canSubmit, base.ringDone)
-        return base.copy(canSubmit = canSubmit, proofActionNeeded = actionNeeded)
+        return base.copy(canSubmit = canSubmit, showSubmitAction = !showAutoSubmitOnly, proofActionNeeded = actionNeeded)
     }
 
     /** Fires funnel_scan_completed the first time the shed's scan step is fully done (roster
@@ -1411,6 +1655,19 @@ class ScanViewModel @Inject constructor(
             expectedCount > 0 &&
             handledCount == expectedCount &&
             proofReadyCount == expectedCount
+
+    private fun ShedCompletionSummaryDto?.allHandledProofsReadyForAutoSubmit(): Boolean =
+        this.allHandledProofsReady() &&
+            this?.proofMode == "per_goat_video" &&
+            this.roundSubmitted.not() &&
+            this.roundId.isNotBlank()
+
+    private fun shedSummaryFreshnessKey(taskId: String, shedId: String, partitionLabel: String?): String =
+        listOf(
+            taskId.trim(),
+            shedId.trim(),
+            partitionLabel?.trim()?.lowercase().orEmpty(),
+        ).joinToString("|")
 
     private fun requestGoatProof(goatId: String) {
         val selectedTaskId = taskId ?: return
@@ -1809,3 +2066,7 @@ private fun emptyScanState(): ScanUiState = ScanUiState(
         actionLabel = "Reconnect",
     ),
 )
+
+sealed interface ScanNavigationEvent {
+    data object AutoSubmitAccepted : ScanNavigationEvent
+}

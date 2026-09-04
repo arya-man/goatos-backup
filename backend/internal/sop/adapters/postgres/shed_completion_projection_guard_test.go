@@ -39,7 +39,7 @@ func TestShedCompletionScheduledDateMultipleDimensionsPageBoundaryScopeHierarchy
 		"target_shed AS (",
 		"WHEN nullif($4, '')::uuid IS NOT NULL THEN nullif($4, '')::uuid",
 		"WHEN ts.scope_type = 'shed' THEN ts.scope_id",
-		"AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)",
+		"AND (target.shed_id IS NULL OR assignment.shed_id = target.shed_id)",
 	})
 	requireSQLShape(t, source, "shed readiness excludes only terminal obligation statuses", []string{
 		"oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')",
