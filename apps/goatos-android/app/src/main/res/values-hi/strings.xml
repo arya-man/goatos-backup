@@ -69,6 +69,7 @@
     <string name="proof_audio_unavailable">माइक्रोफ़ोन अभी उपलब्ध नहीं है।</string>
     <string name="leadership_tasks_msg_not_sent">भेजा नहीं जा सका। कनेक्शन जाँचें और फिर कोशिश करें।</string>
     <string name="leadership_tasks_msg_attachment_unavailable">वह संलग्नक खोला नहीं जा सका। कनेक्शन जाँचें और फिर कोशिश करें।</string>
+    <string name="leadership_tasks_msg_attachment_viewer_unavailable">इस फ़ोन पर वह संलग्नक खोलने वाला कोई ऐप नहीं है।</string>
     <string name="leadership_tasks_msg_mic_needed">वॉइस नोट रिकॉर्ड करने के लिए माइक्रोफ़ोन की अनुमति दें।</string>
     <string name="leadership_tasks_msg_assignees_unavailable">यह किसे भेजा जा सकता है, यह लोड नहीं हो सका। कनेक्शन जाँचें और फिर कोशिश करें।</string>
     <string name="leadership_tasks_msg_too_many">एक कार्य में अधिकतम 12 संलग्नक।</string>

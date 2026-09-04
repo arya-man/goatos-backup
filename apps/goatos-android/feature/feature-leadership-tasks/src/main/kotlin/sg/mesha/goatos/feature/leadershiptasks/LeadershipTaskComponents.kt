@@ -202,7 +202,10 @@ internal fun LeadershipAudioPlayerRow(
             // exception:exempt transient MediaPlayer progress read; the UI falls back to 0 and
             // keeps the already-visible play control rather than interrupting attachment review.
             positionMs = runCatching { player?.currentPosition ?: 0 }
-                .onFailure { Log.w(LOG_TAG, "leadership_task_audio_position_failed", it) }
+                .onFailure {
+                    Log.w(LOG_TAG, "leadership_task_audio_position_failed", it)
+                    playing = false
+                }
                 .getOrDefault(0)
             delay(250L)
         }

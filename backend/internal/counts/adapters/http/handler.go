@@ -385,11 +385,15 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 		if raw == "" {
 			continue
 		}
-		shedID, partition, _ := strings.Cut(raw, "#")
+		shedID, partition, hasPartition := strings.Cut(raw, "#")
 		shedID = strings.TrimSpace(shedID)
 		partition = strings.TrimSpace(partition)
 		if shedID == "" {
 			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "pen must be <shed_id> or <shed_id>#<partition>", nil)
+			return
+		}
+		if hasPartition && (partition == "" || strings.EqualFold(partition, "whole")) {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "pen partition must identify a pen", nil)
 			return
 		}
 		if !uuidutil.IsUUIDString(shedID) {
@@ -398,14 +402,24 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 		}
 		pens = append(pens, domain.CountsBreakdownPen{ShedID: shedID, PartitionLabel: partition})
 	}
-	if legacyShed := strings.TrimSpace(query.Get("shed_id")); legacyShed != "" {
+	legacyShed := strings.TrimSpace(query.Get("shed_id"))
+	if legacyShed == "" && strings.TrimSpace(query.Get("partition_label")) != "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "partition_label requires shed_id", nil)
+		return
+	}
+	if legacyShed != "" {
 		if !uuidutil.IsUUIDString(legacyShed) {
 			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "shed_id must be a valid identifier", nil)
 			return
 		}
+		legacyPartition := strings.TrimSpace(query.Get("partition_label"))
+		if strings.EqualFold(legacyPartition, "whole") {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "partition_label must identify a pen", nil)
+			return
+		}
 		pens = append(pens, domain.CountsBreakdownPen{
 			ShedID:         legacyShed,
-			PartitionLabel: strings.TrimSpace(query.Get("partition_label")),
+			PartitionLabel: legacyPartition,
 		})
 	}
 	parkIDs := multiParam(query, "park_id")

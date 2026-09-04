@@ -99,16 +99,23 @@ func TestGetBreakdownKeepsLegacySingleValuedParams(t *testing.T) {
 // A pen value with no shed half ("#Part 2") is rejected 400, never silently rewritten into a
 // filter that matches nothing.
 func TestGetBreakdownRejectsMalformedPen(t *testing.T) {
-	service := &countsBreakdownHandlerService{}
-	handler := NewHandler(service, slog.Default())
-	req := httptest.NewRequest(http.MethodGet, "/counts/breakdown?pen=%23Part%202", nil)
-	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
-	recorder := httptest.NewRecorder()
+	cases := []string{
+		"/counts/breakdown?pen=%23Part%202",
+		"/counts/breakdown?pen=30000000-0000-4000-8000-000000000001%23",
+		"/counts/breakdown?pen=30000000-0000-4000-8000-000000000001%23whole",
+	}
+	for _, path := range cases {
+		service := &countsBreakdownHandlerService{}
+		handler := NewHandler(service, slog.Default())
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+		recorder := httptest.NewRecorder()
 
-	handler.GetBreakdown(recorder, req)
+		handler.GetBreakdown(recorder, req)
 
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", recorder.Code, recorder.Body.String())
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status=%d, want 400; body=%s", path, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 
@@ -129,6 +136,24 @@ func TestGetBreakdownRejectsMalformedPenShedID(t *testing.T) {
 		if recorder.Code != http.StatusBadRequest {
 			t.Fatalf("%s: status=%d, want 400; body=%s", path, recorder.Code, recorder.Body.String())
 		}
+	}
+}
+
+func TestGetBreakdownRejectsLegacyWholePartitionSentinel(t *testing.T) {
+	service := &countsBreakdownHandlerService{}
+	handler := NewHandler(service, slog.Default())
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/counts/breakdown?shed_id=30000000-0000-4000-8000-000000000001&partition_label=whole",
+		nil,
+	)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+	recorder := httptest.NewRecorder()
+
+	handler.GetBreakdown(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400; body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -161,6 +186,26 @@ func TestGetBreakdownRejectsMalformedParkID(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d, want 400; body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestGetBreakdownRejectsPartitionLabelWithoutShedID(t *testing.T) {
+	cases := []string{
+		"/counts/breakdown?partition_label=Part%202",
+		"/counts/breakdown?shed_id=%20&partition_label=Part%202",
+	}
+	for _, path := range cases {
+		service := &countsBreakdownHandlerService{}
+		handler := NewHandler(service, slog.Default())
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+		recorder := httptest.NewRecorder()
+
+		handler.GetBreakdown(recorder, req)
+
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status=%d, want 400; body=%s", path, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 
