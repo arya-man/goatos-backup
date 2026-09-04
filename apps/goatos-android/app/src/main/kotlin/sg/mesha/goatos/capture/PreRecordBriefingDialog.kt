@@ -267,8 +267,8 @@ internal fun ScaleZeroIllustration(modifier: Modifier = Modifier) {
             text = stringResource(R.string.proof_camera_scale_zero_reading),
             color = MeshaColors.Brand,
             fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.W800,
-            fontSize = 22.sp,
+            fontWeight = FontWeight.W800, // design-system:ignore: fixed scale display glyph, matched to committed briefing goldens
+            fontSize = 22.sp, // design-system:ignore: fixed scale display glyph, matched to committed briefing goldens
             letterSpacing = 1.sp,
             modifier = Modifier
                 .align(Alignment.Center)
