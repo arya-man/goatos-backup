@@ -274,6 +274,8 @@ export async function LiveTrackerBoard({
         </div>
         <LiveTrackerRail
           activity={data.activity}
+          scanCaptureTotal={data.kpis.scan_captures}
+          proofVideoTotal={data.kpis.proof_videos_received}
           attention={data.attention}
           attentionTotal={data.attention_total}
           attentionTruncated={data.attention_truncated}

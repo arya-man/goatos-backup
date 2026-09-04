@@ -3090,6 +3090,9 @@ select:disabled { opacity: .45; }
 .lt-page .lt-goatid:hover{border-color:var(--brand);color:var(--brand-d)}
 
 /* Live activity feed */
+.lt-page .lt-feedsummary{display:flex;gap:7px;flex-wrap:wrap;padding:10px 15px;border-top:1px solid var(--line);border-bottom:1px solid var(--line2);background:rgba(255,255,255,.02)}
+.lt-page .lt-feedsummary span{font-size:11px;color:var(--muted);border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:4px 8px;white-space:nowrap}
+.lt-page .lt-feedsummary b{color:var(--ink);font-weight:800}
 .lt-page .lt-feed{max-height:560px;overflow:auto;padding:4px 0}
 .lt-page .lt-frow{display:flex;align-items:flex-start;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line2)}
 .lt-page .lt-frow:last-child{border-bottom:0}

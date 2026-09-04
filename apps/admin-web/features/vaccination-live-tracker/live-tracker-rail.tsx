@@ -3,10 +3,85 @@ import Link from "@/components/no-prefetch-link";
 import { copy, optionLabel, optionTone, optionTitle, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
   LiveTrackerActivity,
+  LiveTrackerActivityItem,
   LiveTrackerAttentionRow,
   LiveTrackerVerification,
 } from "@/lib/api/vaccination-live-tracker";
 import { fmtClock } from "./format";
+
+type ActivityAnimalRow = {
+  key: string;
+  newestAt: string;
+  actorName: string;
+  shedLabel: string;
+  vaccineLabel: string;
+  scannedIdentifier: string;
+  detailCode: string;
+  kinds: Set<string>;
+};
+
+function animalKey(item: LiveTrackerActivityItem): string {
+  return item.goat_id || item.scanned_identifier || item.event_id;
+}
+
+function activityAnimalRows(items: LiveTrackerActivityItem[]): ActivityAnimalRow[] {
+  const rows = new Map<string, ActivityAnimalRow>();
+  for (const item of items) {
+    const key = animalKey(item);
+    const existing = rows.get(key);
+    if (existing) {
+      existing.kinds.add(item.kind);
+      if (item.occurred_at > existing.newestAt) {
+        existing.newestAt = item.occurred_at;
+        existing.actorName = item.actor_name || existing.actorName;
+        existing.shedLabel = item.shed_label || existing.shedLabel;
+        existing.vaccineLabel = item.vaccine_label || existing.vaccineLabel;
+        existing.scannedIdentifier = item.scanned_identifier || existing.scannedIdentifier;
+        existing.detailCode = item.detail_code || existing.detailCode;
+      } else {
+        existing.actorName ||= item.actor_name;
+        existing.shedLabel ||= item.shed_label;
+        existing.vaccineLabel ||= item.vaccine_label;
+        existing.scannedIdentifier ||= item.scanned_identifier;
+        existing.detailCode ||= item.detail_code;
+      }
+      continue;
+    }
+    rows.set(key, {
+      key,
+      newestAt: item.occurred_at,
+      actorName: item.actor_name,
+      shedLabel: item.shed_label,
+      vaccineLabel: item.vaccine_label,
+      scannedIdentifier: item.scanned_identifier,
+      detailCode: item.detail_code,
+      kinds: new Set([item.kind]),
+    });
+  }
+  return [...rows.values()].sort((a, b) => b.newestAt.localeCompare(a.newestAt));
+}
+
+function uniqueScanRate(items: LiveTrackerActivityItem[]): number | null {
+  const scans = items.filter((item) => item.kind === "scan_capture" && item.goat_id);
+  if (scans.length < 2) return null;
+  const newest = new Date(scans.reduce((max, item) => (item.occurred_at > max ? item.occurred_at : max), scans[0].occurred_at));
+  const oldest = new Date(scans.reduce((min, item) => (item.occurred_at < min ? item.occurred_at : min), scans[0].occurred_at));
+  const minutes = (newest.getTime() - oldest.getTime()) / 60000;
+  if (!(minutes > 0)) return null;
+  const unique = new Set(scans.map((item) => item.goat_id)).size;
+  return Math.round((unique / minutes) * 10) / 10;
+}
+
+function animalActivityLabel(row: ActivityAnimalRow, pageContract: AdminUiPageContract): string {
+  const labels = [];
+  if (row.kinds.has("scan_capture")) labels.push(optionLabel(pageContract, "live_activity_kind", "scan_capture"));
+  if (row.kinds.has("proof_video")) labels.push(optionLabel(pageContract, "live_activity_kind", "proof_video"));
+  if (row.kinds.has("administration")) labels.push(optionLabel(pageContract, "live_activity_kind", "administration"));
+  if (row.kinds.has("obligation_closed")) labels.push(optionLabel(pageContract, "live_activity_kind", "obligation_closed"));
+  if (row.kinds.has("scan_duplicate")) labels.push(optionLabel(pageContract, "live_activity_kind", "scan_duplicate"));
+  if (row.kinds.has("scan_unknown")) labels.push(optionLabel(pageContract, "live_activity_kind", "scan_unknown"));
+  return labels.join(" + ");
+}
 
 // Live activity. Built from the canonical event tables (proof uploads, scan captures, scan attempts,
 // completions, obligation status events) — NOT from the audit log, which carries no scan and no
@@ -14,29 +89,40 @@ import { fmtClock } from "./format";
 // to show.
 function ActivityCard({
   activity,
+  scanCaptureTotal,
+  proofVideoTotal,
   pageContract,
 }: {
   activity: LiveTrackerActivity;
+  scanCaptureTotal: number;
+  proofVideoTotal: number;
   pageContract: AdminUiPageContract;
 }) {
   const placeholder = copy(pageContract, "label.placeholder");
+  const animalRows = activityAnimalRows(activity.items);
+  const scanRate = uniqueScanRate(activity.items);
   return (
     <section id="lt-activity" className="card lt-card">
       <div className="hd">
         <Activity className="ic" style={{ color: "var(--danger)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.activity.title")}</h3>
-        {/* The rate is MEASURED over the returned window. The mock hardcoded "~3/min", which stayed
-            wrong at every refresh interval; when fewer than two events exist there is no window to
-            measure, so the badge says the rate is pending rather than inventing one. */}
         <span className="tag t-live">
           <i />
-          {activity.observed_per_min == null
+          {scanRate == null
             ? copy(pageContract, "live.feed_rate_unavailable")
-            : `${activity.observed_per_min}${copy(pageContract, "live.feed_rate_suffix")}`}
+            : `${scanRate} ${copy(pageContract, "live.scan_rate_suffix")}`}
         </span>
         <div className="sp" style={{ flex: 1 }} />
         <span className="small muted">{copy(pageContract, "live.newest_first")}</span>
       </div>
+      {activity.items.length > 0 ? (
+        <div className="lt-feedsummary">
+          <span><b>{scanCaptureTotal}</b> {copy(pageContract, "live.scanned_label")}</span>
+          <span><b>{proofVideoTotal}</b> {copy(pageContract, "live.proofed_label")}</span>
+          <span><b>{activity.items.length}</b> {copy(pageContract, "live.events_label")}</span>
+          {activity.observed_per_min == null ? null : <span>{activity.observed_per_min}{copy(pageContract, "live.feed_rate_suffix")} {copy(pageContract, "live.events_label")}</span>}
+        </div>
+      ) : null}
       <div
         className="lt-feed"
         aria-live="polite"
@@ -62,18 +148,19 @@ function ActivityCard({
             </div>
           </div>
         ) : (
-          activity.items.map((item) => {
-            const meta = [item.shed_label, item.vaccine_label, item.scanned_identifier, item.detail_code]
+          animalRows.map((row) => {
+            const label = animalActivityLabel(row, pageContract) || placeholder;
+            const meta = [row.shedLabel, row.vaccineLabel, row.scannedIdentifier, row.detailCode]
               .filter(Boolean)
               .join(" · ");
             return (
-              <div key={item.event_id} className="lt-frow">
-                <span className={`lt-fdot f-${optionTone(pageContract, "live_activity_kind", item.kind) || "mut"}`} aria-hidden="true" />
+              <div key={row.key} className="lt-frow">
+                <span className={`lt-fdot f-${row.kinds.has("scan_capture") ? "info" : optionTone(pageContract, "live_activity_kind", [...row.kinds][0]) || "mut"}`} aria-hidden="true" />
                 <div className="lt-ftx">
-                  <b>{item.actor_name || placeholder}</b> · {optionLabel(pageContract, "live_activity_kind", item.kind)}
+                  <b>{row.actorName || placeholder}</b> · {label}
                   <div className="lt-fmeta">{meta || placeholder}</div>
                 </div>
-                <span className="lt-ftime">{fmtClock(item.occurred_at)}</span>
+                <span className="lt-ftime">{fmtClock(row.newestAt)}</span>
               </div>
             );
           })
@@ -220,6 +307,8 @@ function VerificationCard({
 
 export function LiveTrackerRail({
   activity,
+  scanCaptureTotal,
+  proofVideoTotal,
   attention,
   attentionTotal,
   attentionTruncated,
@@ -228,6 +317,8 @@ export function LiveTrackerRail({
   pageContract,
 }: {
   activity: LiveTrackerActivity;
+  scanCaptureTotal: number;
+  proofVideoTotal: number;
   attention: LiveTrackerAttentionRow[];
   attentionTotal: number;
   attentionTruncated: boolean;
@@ -237,7 +328,12 @@ export function LiveTrackerRail({
 }) {
   return (
     <div className="lt-stack">
-      <ActivityCard activity={activity} pageContract={pageContract} />
+      <ActivityCard
+        activity={activity}
+        scanCaptureTotal={scanCaptureTotal}
+        proofVideoTotal={proofVideoTotal}
+        pageContract={pageContract}
+      />
       <AttentionCard
         attention={attention}
         total={attentionTotal}
