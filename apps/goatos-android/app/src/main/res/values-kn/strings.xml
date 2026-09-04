@@ -69,6 +69,7 @@
     <string name="proof_audio_unavailable">ಮೈಕ್ರೊಫೋನ್ ಈಗ ಲಭ್ಯವಿಲ್ಲ.</string>
     <string name="leadership_tasks_msg_not_sent">ಕಳುಹಿಸಲಾಗಲಿಲ್ಲ. ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="leadership_tasks_msg_attachment_unavailable">ಆ ಲಗತ್ತನ್ನು ತೆರೆಯಲಾಗಲಿಲ್ಲ. ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="leadership_tasks_msg_attachment_viewer_unavailable">ಈ ಫೋನ್‌ನಲ್ಲಿ ಆ ಲಗತ್ತನ್ನು ತೆರೆಯಲು ಯಾವುದೇ ಆಪ್ ಇಲ್ಲ.</string>
     <string name="leadership_tasks_msg_mic_needed">ಧ್ವನಿ ಟಿಪ್ಪಣಿ ರೆಕಾರ್ಡ್ ಮಾಡಲು ಮೈಕ್ರೊಫೋನ್‌ಗೆ ಅನುಮತಿ ನೀಡಿ.</string>
     <string name="leadership_tasks_msg_assignees_unavailable">ಇದನ್ನು ಯಾರಿಗೆ ಕಳುಹಿಸಬಹುದು ಎಂಬುದನ್ನು ಲೋಡ್ ಮಾಡಲಾಗಲಿಲ್ಲ. ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="leadership_tasks_msg_too_many">ಒಂದು ಕಾರ್ಯಕ್ಕೆ ಗರಿಷ್ಠ 12 ಲಗತ್ತುಗಳು.</string>

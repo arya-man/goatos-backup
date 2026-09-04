@@ -3615,8 +3615,8 @@ fun AppNavHost(
             val vm: LeadershipTaskDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
-            val attachmentUnavailableMessage = stringResource(R.string.leadership_tasks_msg_attachment_unavailable)
-            LaunchedEffect(vm, attachmentUnavailableMessage) {
+            val attachmentViewerUnavailableMessage = stringResource(R.string.leadership_tasks_msg_attachment_viewer_unavailable)
+            LaunchedEffect(vm, attachmentViewerUnavailableMessage) {
                 vm.openFile.collect { request ->
                     val uri = FileProvider.getUriForFile(
                         context,
@@ -3633,7 +3633,7 @@ fun AppNavHost(
                         // name and size, which is all the phone can honestly offer.
                         Toast.makeText(
                             context,
-                            attachmentUnavailableMessage,
+                            attachmentViewerUnavailableMessage,
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
