@@ -122,7 +122,7 @@ to one event. The toxin task does **not** wait for anything: stock and the test 
 arrival, and the test's outcome never gates feeding (v1 rule from the toxin decision, unchanged).
 
 **History.** Every row present before this decision -- sheet history and app rows recorded so far
--- is `reached` on its purchase date (migration `000247`). Nothing in stock or analytics moved for
+-- is `reached` on its purchase date (migration `000248`). Nothing in stock or analytics moved for
 history; only purchases recorded from now on start on the road. The sheet importer keeps writing
 reached rows: it records loads that arrived long ago.
 

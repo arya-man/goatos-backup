@@ -1278,6 +1278,13 @@ type FeedPurchase struct {
 	SourceRef          string
 	ImportedAt         pgtype.Timestamptz
 	CreatedAt          pgtype.Timestamptz
+	EntrySource        string
+	RecordedBy         pgtype.UUID
+	DeliveryStatus     string
+	ReachedOn          pgtype.Date
+	ReachedWeightKg    pgtype.Numeric
+	ReachedBy          pgtype.UUID
+	StockKg            pgtype.Numeric
 }
 
 type FeedRationGroup struct {
@@ -2570,6 +2577,10 @@ type ProcurementVendor struct {
 	PanNumber         pgtype.Text
 	Comments          pgtype.Text
 	PartyID           pgtype.UUID
+	CapacityQuantity  pgtype.Numeric
+	CapacityUnit      pgtype.Text
+	SupplyFrequency   pgtype.Text
+	VoiceNoteProofRef pgtype.UUID
 	SourceRow         pgtype.Int4
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz

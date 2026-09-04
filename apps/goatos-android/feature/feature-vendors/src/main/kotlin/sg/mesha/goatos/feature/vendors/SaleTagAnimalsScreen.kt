@@ -16,12 +16,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,8 +68,20 @@ fun SaleTagAnimalsScreen(
 
 @Composable
 private fun androidx.compose.foundation.layout.ColumnScope.PickStep(state: SaleTagAnimalsUiState, onEvent: (SaleTagAnimalsEvent) -> Unit) {
+    val listState = rememberLazyListState()
+    val shouldLoadMore = remember(state.hasMore, state.candidatesLoading, state.candidates.size) {
+        derivedStateOf {
+            if (!state.hasMore || state.candidatesLoading || state.candidates.isEmpty()) return@derivedStateOf false
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+            lastVisibleIndex >= listState.layoutInfo.totalItemsCount - 4
+        }
+    }
+    LaunchedEffect(shouldLoadMore.value, state.candidates.size) {
+        if (shouldLoadMore.value) onEvent(SaleTagAnimalsEvent.LoadMore)
+    }
     LazyColumn(
         modifier = Modifier.weight(1f),
+        state = listState,
         contentPadding = PaddingValues(horizontal = MeshaDimens.gutter, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -94,8 +110,6 @@ private fun androidx.compose.foundation.layout.ColumnScope.PickStep(state: SaleT
             item(key = "loading") {
                 Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = MeshaColors.BrandD) }
             }
-        } else if (state.hasMore) {
-            item(key = "more") { VendorsGhostButton(label = LOAD_MORE, onClick = { onEvent(SaleTagAnimalsEvent.LoadMore) }, modifier = Modifier.fillMaxWidth()) }
         }
     }
     VendorsWizardBar(contextLine = "") {
@@ -197,7 +211,6 @@ private const val LABEL_PEN = "Pen"
 private const val ALL_PENS = "All pens"
 private const val HINT_SEARCH = "RFID or animal ID"
 private const val SELECTED = "selected"
-private const val LOAD_MORE = "Show more animals"
 private const val REVIEW = "Review"
 private const val HINT_REVIEW = "These animals will be marked sold and leave the herd. Check the pens and tags before confirming."
 private const val CANNOT_SELL = "CANNOT BE SOLD YET"

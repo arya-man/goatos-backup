@@ -363,7 +363,9 @@ internal fun displayDate(iso: String): String {
 }
 
 private fun String.toEpochMillisOrNull(): Long? =
-    runCatching { LocalDate.parse(this).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }.getOrNull()
+    runCatching { // exception:exempt date-picker input is user/server text; invalid dates fall back to an empty picker rather than surfacing a crash/report.
+        LocalDate.parse(this).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    }.getOrNull()
 
 private fun Long.toIsoDate(): String = Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate().toString()
 

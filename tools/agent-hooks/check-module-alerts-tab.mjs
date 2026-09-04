@@ -81,6 +81,8 @@ const PENDING_ALERTS_FEED = {
     "Clock In / Out shipped (maintainer decisions 2026-08-27/28) with no notification feed of its own: no /clock/alerts route and no clock alert producer exists on any branch. Its one alert-shaped message is the not-clocked-in reminder, which is deliberately a SHELL-GLOBAL banner on every screen (docs/features/clock-in-out/plan.md §4.3) rather than a feed nobody would open — an Alerts tab would route people to an empty screen. Unblocked if a real attendance feed (e.g. leadership notified of chronic non-clockers) ever ships.",
   approvals:
     "Approvals returned to the phone (maintainer decision 2026-08-05) with no notification feed of its own: no /approvals/alerts route and no approval alert producer exists on any branch. The module IS the queue -- an approver opens it to see what is waiting on them, so an Alerts tab would duplicate the one screen the module has. Unblocked when a producer notifies an approver that a request was raised; at that point the queue and the alerts feed become genuinely different lists (everything pending vs what arrived since you last looked).",
+  vendors:
+    "Vendors shipped procurement/sales execution screens before a module-scoped alert feed exists: there is no /vendors/alerts route or vendors alert producer over shared task/contact truth yet. Giving the bar an Alerts tab now would route operators to an empty screen. Unblocked when vendor onboarding, purchase, or sale exceptions produce a real feed.",
 };
 
 // The verification module composes its bar per reviewed FEATURE at runtime

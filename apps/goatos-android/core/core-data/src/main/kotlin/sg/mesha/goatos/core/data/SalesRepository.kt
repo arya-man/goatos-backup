@@ -149,9 +149,9 @@ class DefaultSalesRepository(
     // offline-first-guard:ignore: what is tagged to a sale is read live beside the confirm it feeds
     override suspend fun saleAllocation(dealId: String): AppResult<SaleAllocationDto> = call { api.getSaleAllocation(dealId) }
 
-    override suspend fun previewAllocation(request: SaleAllocationRequestDto): AppResult<SalePreviewDto> = call { api.previewSaleAllocation(request) }
+    override suspend fun previewAllocation(request: SaleAllocationRequestDto): AppResult<SalePreviewDto> = call { api.previewSaleAllocation(request) } // offline-first-guard:ignore: sale allocation preview is a live-herd server decision; a Room counterpart could approve stale sellable state.
 
-    override suspend fun confirmAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): AppResult<SaleAllocationDto> =
+    override suspend fun confirmAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): AppResult<SaleAllocationDto> = // offline-first-guard:ignore: sale allocation confirm is the server-owned herd mutation; cached confirmation would risk marking stale animals sold.
         call { api.confirmSaleAllocation(idempotencyKey, request) }
 
     private suspend fun <T> call(block: suspend () -> T): AppResult<T> = try {
