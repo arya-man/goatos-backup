@@ -69,18 +69,32 @@ fun FeedPurchaseDetailScreen(
                     )
                 }
             }
+            // The note says the load is not stock yet; the action that fixes that belongs WITH it,
+            // at the top. It used to sit under the detail sections at the bottom of the screen,
+            // where the operator had to scroll past the whole load to find it and reported it as
+            // missing (2026-09-04).
             if (state.deliveryNote.isNotBlank()) {
                 item(key = "delivery_note") {
-                    Text(
-                        text = state.deliveryNote,
-                        color = MeshaColors.Warn,
-                        style = MeshaType.body,
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(MeshaDimens.radiusInput))
                             .background(MeshaColors.WarnX)
                             .padding(horizontal = 14.dp, vertical = 12.dp),
-                    )
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(text = state.deliveryNote, color = MeshaColors.Warn, style = MeshaType.body)
+                        if (state.editor == FeedPurchaseEditorKind.DELIVERY) {
+                            DeliveryEditor(state, onEvent)
+                        } else if (state.canMarkReached) {
+                            VendorsPrimaryButton(
+                                label = MARK_REACHED,
+                                enabled = !state.editInFlight,
+                                onClick = { onEvent(FeedPurchaseDetailEvent.OpenEditor(FeedPurchaseEditorKind.DELIVERY)) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
                 }
             }
             items(count = state.sections.size, key = { "section_${state.sections[it].title}" }) { index ->
@@ -150,25 +164,17 @@ private fun LoadCard(state: FeedPurchaseDetailUiState, onEvent: (FeedPurchaseDet
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(text = LOAD_TITLE, color = MeshaColors.Muted, style = MeshaType.sectionLabel)
-        when (state.editor) {
-            FeedPurchaseEditorKind.EDIT -> EditEditor(state, onEvent)
-            FeedPurchaseEditorKind.DELIVERY -> DeliveryEditor(state, onEvent)
-            else -> {
-                if (state.canMarkReached) {
-                    VendorsPrimaryButton(
-                        label = MARK_REACHED,
-                        enabled = !state.editInFlight,
-                        onClick = { onEvent(FeedPurchaseDetailEvent.OpenEditor(FeedPurchaseEditorKind.DELIVERY)) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                VendorsGhostButton(
-                    label = EDIT_PURCHASE,
-                    onClick = { onEvent(FeedPurchaseDetailEvent.OpenEditor(FeedPurchaseEditorKind.EDIT)) },
-                    enabled = !state.editInFlight,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+        // Marking reached is NOT offered here: it lives with the on-the-road note at the top,
+        // where the operator is already reading why the load is not stock yet.
+        if (state.editor == FeedPurchaseEditorKind.EDIT) {
+            EditEditor(state, onEvent)
+        } else {
+            VendorsGhostButton(
+                label = EDIT_PURCHASE,
+                onClick = { onEvent(FeedPurchaseDetailEvent.OpenEditor(FeedPurchaseEditorKind.EDIT)) },
+                enabled = !state.editInFlight,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
