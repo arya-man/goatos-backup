@@ -101,7 +101,10 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
   assert.doesNotMatch(source, /\{tab === "items" && !stockOnly \? \(/);
   // The spend-share pie sits on the Consumption tab too, fed by the same per-item money as the
   // cards (average ₹ per priced day), so the slice and the card strip can never disagree.
-  assert.match(source, /\{tab === "overview" && itemMoney\.size > 0 \? \([\s\S]*?<FeedSpendPie[\s\S]*?money\.rupeesTotal \/ money\.pricedDays/);
+  assert.match(source, /const spendShareSlices: PieSlice\[\] = rankItemCards\(view\.itemSeries, itemMoney\)[\s\S]*?money\.rupeesTotal \/ money\.pricedDays/);
+  // Gated on the FILTERED slices: when the feed rule leaves nothing priced, the pie is hidden rather
+  // than captioned with the directed-feed empty copy (review on PR #187).
+  assert.match(source, /\{tab === "overview" && spendShareSlices\.length > 0 \? \([\s\S]*?<FeedSpendPie[\s\S]*?slices=\{spendShareSlices\}/);
 });
 
 test("the KPI tiles name the settled day rather than the last day drawn", () => {

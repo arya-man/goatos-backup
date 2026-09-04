@@ -471,8 +471,11 @@ export function SeriesPie({
       <div
         style={{
           flex: "0 1 auto",
+          minWidth: 0,
+          maxWidth: "100%",
           display: "grid",
-          gridTemplateColumns: "auto auto",
+          // The label column may wrap (a long feed name on a narrow card); only the value stays on one line.
+          gridTemplateColumns: "minmax(0, auto) auto",
           columnGap: 24,
           rowGap: 10,
           alignContent: "center",
@@ -481,7 +484,7 @@ export function SeriesPie({
       >
         {live.map((s) => (
           <div key={s.label} style={{ display: "contents" }} data-tip={`${s.label}\n${fmt(s.value)} ${valueNoun}`}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 15, whiteSpace: "nowrap" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 15, minWidth: 0 }}>
               <span aria-hidden style={{ width: 11, height: 11, borderRadius: 3, background: s.colorVar, display: "inline-block", flex: "0 0 auto" }} />
               {s.label}
             </span>

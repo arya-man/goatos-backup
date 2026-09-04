@@ -37,6 +37,7 @@ import {
   FeedStackedColumns,
   seriesColorVar,
   type LineSeries,
+  type PieSlice,
   type StackedDay,
 } from "./feed-analytics-charts";
 import { FeedFaroView } from "./feed-faro-view";
@@ -592,6 +593,14 @@ function DirectedTabs({
 }) {
   const view = buildDirectedView(data, fa(pageContract, "series.other"), istDayPlus(todayIso(), -1));
   const itemMoney = tab === "overview" ? buildItemMoney(stock, view.dayLabels) : new Map<string, ItemMoney>();
+  // The pie's slices: the contract's feed rule applied to the priced feeds. Computed here so the
+  // section is gated on what the pie would actually show — an empty pie is hidden, not captioned
+  // with the directed-feed empty copy, which would say the wrong thing.
+  const spendShareSlices: PieSlice[] = rankItemCards(view.itemSeries, itemMoney).flatMap(({ series, money }) =>
+    money && money.pricedDays > 0 && spendShareIncludes(fa(pageContract, "chart.spend_share.feeds"), series.label)
+      ? [{ label: series.label, value: money.rupeesTotal / money.pricedDays, colorVar: series.colorVar }]
+      : [],
+  );
   const empty = data.days.length === 0;
   const noData = fa(pageContract, "empty.title");
 
@@ -729,7 +738,7 @@ function DirectedTabs({
         </section>
       ) : null}
 
-      {tab === "overview" && itemMoney.size > 0 ? (
+      {tab === "overview" && spendShareSlices.length > 0 ? (
         // Where the money goes: one slice per feed at its AVERAGE ₹ per priced day, the same
         // figure the strip on each card below leads with, in each feed's own colour. Ranked by
         // spend so the biggest slice starts at twelve o'clock; an unpriced feed has no rupees
@@ -739,11 +748,7 @@ function DirectedTabs({
           <p className="muted small">{fa(pageContract, "chart.spend_share.hint")}</p>
           <ChartHover>
             <FeedSpendPie
-              slices={rankItemCards(view.itemSeries, itemMoney).flatMap(({ series, money }) =>
-                money && money.pricedDays > 0 && spendShareIncludes(fa(pageContract, "chart.spend_share.feeds"), series.label)
-                  ? [{ label: series.label, value: money.rupeesTotal / money.pricedDays, colorVar: series.colorVar }]
-                  : [],
-              )}
+              slices={spendShareSlices}
               valueNoun={fa(pageContract, "chart.spend_share.unit")}
               formatValue={(v) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
               chartLabel={fa(pageContract, "chart.spend_share.title")}
