@@ -18,7 +18,7 @@ import (
 )
 
 // Weighing FASTING task adapter (maintainer decision 2026-09-03; product rule
-// and clocks in domain/fasting.go, table in migration 000252).
+// and clocks in domain/fasting.go, table in migration 000253).
 //
 // ISOLATION: this file reads/writes weighing_fasting_tasks, weighing_campaigns,
 // weighing_campaign_sheds, proof_artifacts, weighing_idempotency_records and

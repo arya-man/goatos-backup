@@ -34,7 +34,7 @@ import (
 // projection-review: gate pass — producer weighing_work_items unique
 // (work_item_id) PK; consumer claim matches (wi.tenant_id, wi.campaign_id)
 // against weighing_fasting_tasks, whose UNIQUE (tenant_id, campaign_id)
-// (migration 000252) makes the join AT MOST 1:1 per work item, so the claim
+// (migration 000253) makes the join AT MOST 1:1 per work item, so the claim
 // can never multiply rows; group_key none (row-grain update); the compared
 // key set of the two UPDATE halves is identical (tenant_id + campaign_id).
 // The claim locks both wi and ft so a concurrent late submit cannot let the

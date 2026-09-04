@@ -341,12 +341,12 @@ const WRITE_PATH_ALLOWED_TABLES = new Set([
   "audit_log",
   // Weighing's own idempotency ledger (module-scoped table, not a herd table).
   "weighing_idempotency_records",
-  // Fasting (feed & water removal) precondition tasks (migration 000252,
+  // Fasting (feed & water removal) precondition tasks (migration 000253,
   // maintainer decision 2026-09-03). Campaign-grained, weighing-owned: a
   // campaign id, a park, one operator and two proof refs. No animal identity,
   // no herd table, no other module's rules on any path.
   "weighing_fasting_tasks",
-  // Per-shed removal evidence (migration 000254, maintainer correction
+  // Per-shed removal evidence (migration 000255, maintainer correction
   // 2026-09-03): one feed + one water video PER SHED. Same isolation terms.
   "weighing_fasting_shed_proofs",
   // Shed -> procurement-load mapping for load-wise growth on the Weights screen

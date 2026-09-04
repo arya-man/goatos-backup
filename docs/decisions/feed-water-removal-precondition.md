@@ -55,9 +55,9 @@ precondition as a first-class task:
 ## Where it lives
 
 **Weighing** (isolation preserved — new weighing-owned tables, no cross-module
-reads): `weighing_fasting_tasks` (migration 000252, the ROUND: one park, one weigh
+reads): `weighing_fasting_tasks` (migration 000253, the ROUND: one park, one weigh
 night, one removal operator, the dates and the midnight stamp) + the per-shed
-evidence table `weighing_fasting_shed_proofs` (migration 000254, UNIQUE per
+evidence table `weighing_fasting_shed_proofs` (migration 000255, UNIQUE per
 (task, bucket) so the verdict join is provably 1:1). The operator surface is
 ONE CARD PER SHED over that pair. Product rule + the three clocks:
 `backend/internal/weighing/domain/fasting.go`. Create/cutoff:
@@ -77,7 +77,7 @@ never learn an animal.
 **Deworming (PC Care)**: a new category `feed_water_removal` (capture mode
 `task_proof`, backend-owned slots `feed_video` + `water_video`), created in the
 **same transaction** as the deworming when `feed_removal_required` is true,
-linked via `pc_care_tasks.gates_task_id` (migration 000253; partial unique
+linked via `pc_care_tasks.gates_task_id` (migration 000254; partial unique
 index makes the gate join provably 1:1). It rides the existing PC Care
 machinery end to end: assignees, worklist (served **inside the Deworming tab**
 — the four-tab bar lock stands), task-level proofs, submit, verification,

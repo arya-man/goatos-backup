@@ -661,7 +661,7 @@ LEFT JOIN locations park
        ON park.tenant_id=weighing_campaigns.tenant_id
       AND park.location_id=weighing_campaigns.park_id
 -- Fasting echo: at most one row per campaign (UNIQUE (tenant_id, campaign_id)
--- on weighing_fasting_tasks, migration 000252), so this join cannot multiply
+-- on weighing_fasting_tasks, migration 000253), so this join cannot multiply
 -- campaign rows. Lets the edit wizard prefill the removal operator.
 LEFT JOIN weighing_fasting_tasks ft
        ON ft.tenant_id=weighing_campaigns.tenant_id

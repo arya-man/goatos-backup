@@ -69,7 +69,7 @@ printf '%s\n' "$trace_on" | grep -q 'CI-TRACE android :app ' \
   || fail "trace mode did not reach the android job at all; this probe is blind (check GOATOS_CI_TRACE_ONLY wiring in $TARGET)"
 printf '%s\n' "$trace_on" | grep -Eq 'CI-TRACE android screenshots( \(targeted\))? ::.*:app:verifyPaparazziDevDebug' \
   || fail "with GOATOS_RUN_ANDROID_SCREENSHOTS=1 the Paparazzi proof is UNREACHABLE (no traced :app:verifyPaparazziDevDebug); a banner mentioning the flag is not a run branch"
-printf '%s\n' "$trace_off" | grep -q 'CI-TRACE android screenshots ::' \
+printf '%s\n' "$trace_off" | grep -Eq 'CI-TRACE android screenshots( \(targeted\))? ::' \
   && fail "with GOATOS_RUN_ANDROID_SCREENSHOTS=0 the screenshot proof ran anyway; the opt-in default is broken"
 
 # Same three assertions again, inside the FAST developer lane. The first one is
@@ -79,7 +79,7 @@ printf '%s\n' "$fast_on" | grep -q 'CI-TRACE android fast compile/unit/lint ::' 
   || fail "GOATOS_FAST_LOCAL_CI=1 did not reach the FAST android arm; the FAST half of this probe is blind"
 printf '%s\n' "$fast_on" | grep -Eq 'CI-TRACE android screenshots( \(targeted\))? ::.*:app:verifyPaparazziDevDebug' \
   || fail "in the FAST lane with GOATOS_RUN_ANDROID_SCREENSHOTS=1 the Paparazzi proof is UNREACHABLE; the FAST arm was deleted or narrowed"
-printf '%s\n' "$fast_off" | grep -q 'CI-TRACE android screenshots ::' \
+printf '%s\n' "$fast_off" | grep -Eq 'CI-TRACE android screenshots( \(targeted\))? ::' \
   && fail "in the FAST lane with GOATOS_RUN_ANDROID_SCREENSHOTS unset the screenshot proof ran anyway; the opt-in default is broken"
 
 # The receipt hole must not return.

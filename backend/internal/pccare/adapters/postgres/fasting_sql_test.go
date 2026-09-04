@@ -64,7 +64,7 @@ func TestDewormingRemovalGateSweepShape(t *testing.T) {
 		"removal.work_state <> 'canceled'",
 		"due_business_date = $2::date + 1",
 		"d.due_business_date <= $2::date",
-		"FOR UPDATE OF d SKIP LOCKED",
+		"FOR UPDATE OF d, removal SKIP LOCKED",
 		"d.category = 'deworming'",
 	} {
 		if !strings.Contains(gate, want) {

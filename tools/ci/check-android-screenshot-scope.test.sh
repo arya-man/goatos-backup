@@ -17,7 +17,7 @@ changed_since_base() {
 
 android_ui_diff_file_is_compose() {
   case "$1" in
-    *FeedDistributionCompleteScreen.kt|*UnknownScreen.kt) return 0 ;;
+    *FeedDistributionCompleteScreen.kt|*WeighingFastingCards.kt|*PcCareTaskScreen.kt|*UnknownScreen.kt) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -41,6 +41,25 @@ expect_feed() {
   }
 }
 
+expect_weighing_pccare() {
+  local label="$1"
+  changed_fixture="$2"
+  local out
+  out="$(android_screenshot_scope_for_diff 2>/dev/null)" || {
+    echo "!! android screenshot scope self-test: $label should map to weighing/pc care tests" >&2
+    rc=1
+    return
+  }
+  printf '%s\n' "$out" | grep -q 'sg.mesha.goatos.ui.WeighingEdgeCaseScreenshotTest.weighingLumpsumShedProof' || {
+    echo "!! android screenshot scope self-test: $label missing weighing edge screenshot" >&2
+    rc=1
+  }
+  printf '%s\n' "$out" | grep -q 'sg.mesha.goatos.ui.PcCareInventoryTaskScreenshotTest.inventoryVaccineTaskLongRequirements' || {
+    echo "!! android screenshot scope self-test: $label missing pc care inventory screenshot" >&2
+    rc=1
+  }
+}
+
 expect_full() {
   local label="$1"
   changed_fixture="$2"
@@ -52,8 +71,12 @@ expect_full() {
 
 expect_feed "feed composable source" "apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedDistributionCompleteScreen.kt"
 expect_feed "feed golden" "apps/goatos-android/app/src/test/snapshots/images/sg.mesha.goatos.ui_ScreenshotTest_feed_packing_worklist_feed_packing_worklist.png"
+expect_weighing_pccare "weighing composable source" "apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingFastingCards.kt"
+expect_weighing_pccare "pc care composable source" "apps/goatos-android/feature/feature-pccare/src/main/kotlin/sg/mesha/goatos/feature/pccare/PcCareTaskScreen.kt"
+expect_weighing_pccare "weighing strings" "apps/goatos-android/feature/feature-weighing/src/main/res/values/strings.xml"
 expect_full "unknown composable source" "apps/goatos-android/feature/feature-health/src/main/kotlin/sg/mesha/goatos/feature/health/UnknownScreen.kt"
 expect_full "shared drawable resource" "apps/goatos-android/app/src/main/res/drawable/icon.xml"
+expect_full "mixed scoped source" $'apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedDistributionCompleteScreen.kt\napps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingFastingCards.kt'
 expect_full "non-ui android code" "apps/goatos-android/core/core-analytics/src/main/kotlin/sg/mesha/goatos/core/analytics/BackendAnalyticsAdapter.kt"
 
 [ "$rc" = "0" ] && echo "android screenshot scope: self-test passed"
