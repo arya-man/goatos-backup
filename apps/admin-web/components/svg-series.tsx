@@ -438,8 +438,9 @@ export function SeriesPie({
   const cy = size / 2;
   const r = size / 2 - 6;
   const point = (angle: number) => [cx + r * Math.cos(angle), cy + r * Math.sin(angle)] as const;
-  let start = -Math.PI / 2;
-  const paths = live.map((s) => {
+  const paths = live.map((s, index) => {
+    const prior = live.slice(0, index).reduce((acc, slice) => acc + slice.value, 0);
+    const start = -Math.PI / 2 + (prior / total) * Math.PI * 2;
     const sweep = (s.value / total) * Math.PI * 2;
     const end = start + sweep;
     const [x0, y0] = point(start);
@@ -451,7 +452,6 @@ export function SeriesPie({
         ? `M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx + r} ${cy} A ${r} ${r} 0 1 1 ${cx - r} ${cy} Z`
         : `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} Z`;
     const share = ((s.value / total) * 100).toFixed(1);
-    start = end;
     return { key: s.label, d, colorVar: s.colorVar, tip: `${s.label}\n${fmt(s.value)} ${valueNoun}\n${share}%` };
   });
   return (
