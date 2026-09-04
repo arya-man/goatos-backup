@@ -253,6 +253,7 @@ import sg.mesha.goatos.viewmodel.RecordViewModel
 import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
 import sg.mesha.goatos.viewmodel.RfidViewModel
 import sg.mesha.goatos.viewmodel.ScanViewModel
+import sg.mesha.goatos.viewmodel.ScanNavigationEvent
 import sg.mesha.goatos.viewmodel.ShedsViewModel
 import sg.mesha.goatos.viewmodel.PenReconciliationExecuteViewModel
 import sg.mesha.goatos.viewmodel.PenReconciliationViewModel
@@ -2149,7 +2150,7 @@ fun AppNavHost(
                 )
         }
 
-        // Scan — Submit drills to the shed-record submit; Back pops; group/tile/tap stay local.
+        // Scan — Submit is owned by the scan ViewModel; Back pops; group/tile/tap stay local.
         // The shed id arg feeds the per-shed roster; capture is enabled only while this
         // screen is composed (disabled on navigate-away) so keyboard-wedge reads never
         // land off-screen (e.g. while Submit is on top of the back stack).
@@ -2159,6 +2160,13 @@ fun AppNavHost(
         ) { entry ->
             val vm: ScanViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(vm) {
+                vm.events.collect { event ->
+                    when (event) {
+                        ScanNavigationEvent.AutoSubmitAccepted -> navController.popBackStack()
+                    }
+                }
+            }
             DisposableEffect(vm) {
                 vm.setCompletionKeySwallowActive(true)
                 vm.setCaptureActive(true)
@@ -2170,24 +2178,28 @@ fun AppNavHost(
             val onScanEvent: (ScanEvent) -> Unit = { event ->
                     when (event) {
                         ScanEvent.Submit -> {
-                            vm.trackFinalizeTapped(state)
-                            navController.navigate(
-                                Routes.submitRoute(
-                                    shedId = entry.arguments?.getString(Routes.SCAN_SHED_ARG)?.takeIf { it.isNotBlank() }
-                                        ?: state.shedId,
-                                    driveId = entry.arguments?.getString(Routes.EXECUTION_DRIVE_ARG),
-                                    batchId = entry.arguments?.getString(Routes.EXECUTION_BATCH_ARG),
-                                    taskId = entry.arguments?.getString(Routes.EXECUTION_TASK_ARG)?.takeIf { it.isNotBlank() }
-                                        ?: state.taskId,
-                                    sopVersionId = entry.arguments?.getString(Routes.EXECUTION_SOP_VERSION_ARG)?.takeIf { it.isNotBlank() }
-                                        ?: state.sopVersionId,
-                                    taskRowVersion = entry.arguments?.getInt(Routes.EXECUTION_TASK_ROW_VERSION_ARG)?.takeIf { it > 0 }
-                                        ?: state.taskRowVersion,
-                                    scanTitle = entry.arguments?.getString(Routes.EXECUTION_SCAN_TITLE_ARG)?.takeIf { it.isNotBlank() },
-                                    partitionLabel = entry.arguments?.getString(Routes.EXECUTION_PARTITION_ARG)?.takeIf { it.isNotBlank() }
-                                        ?: state.partitionLabel,
-                                ),
-                            ) { launchSingleTop = true }
+                            if (!state.showSubmitAction) {
+                                vm.onEvent(event)
+                            } else {
+                                vm.trackFinalizeTapped(state)
+                                navController.navigate(
+                                    Routes.submitRoute(
+                                        shedId = entry.arguments?.getString(Routes.SCAN_SHED_ARG)?.takeIf { it.isNotBlank() }
+                                            ?: state.shedId,
+                                        driveId = entry.arguments?.getString(Routes.EXECUTION_DRIVE_ARG),
+                                        batchId = entry.arguments?.getString(Routes.EXECUTION_BATCH_ARG),
+                                        taskId = entry.arguments?.getString(Routes.EXECUTION_TASK_ARG)?.takeIf { it.isNotBlank() }
+                                            ?: state.taskId,
+                                        sopVersionId = entry.arguments?.getString(Routes.EXECUTION_SOP_VERSION_ARG)?.takeIf { it.isNotBlank() }
+                                            ?: state.sopVersionId,
+                                        taskRowVersion = entry.arguments?.getInt(Routes.EXECUTION_TASK_ROW_VERSION_ARG)?.takeIf { it > 0 }
+                                            ?: state.taskRowVersion,
+                                        scanTitle = entry.arguments?.getString(Routes.EXECUTION_SCAN_TITLE_ARG)?.takeIf { it.isNotBlank() },
+                                        partitionLabel = entry.arguments?.getString(Routes.EXECUTION_PARTITION_ARG)?.takeIf { it.isNotBlank() }
+                                            ?: state.partitionLabel,
+                                    ),
+                                ) { launchSingleTop = true }
+                            }
                         }
                         ScanEvent.Back -> navController.popBackStack()
                         ScanEvent.ReconnectReader -> navController.navigate(Routes.RFID) { launchSingleTop = true }

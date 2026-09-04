@@ -1728,10 +1728,10 @@ JOIN obligation_instances oi
       oi.sop_task_id = st.task_id
       OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
  )
-JOIN protocol_rules pr
-  ON pr.tenant_id = oi.tenant_id
- AND pr.rule_id = oi.rule_id
-WHERE si.tenant_id = $1
+	JOIN protocol_rules pr
+	  ON pr.tenant_id = oi.tenant_id
+	 AND pr.rule_id = oi.rule_id
+	WHERE si.tenant_id = $1
   AND si.task_id = $2
   AND si.submission_id = $3
   AND si.goat_id IS NOT NULL
@@ -1743,6 +1743,26 @@ WHERE si.tenant_id = $1
   AND (
     sd.code IN ('vaccination.drive', 'vaccination.session')
     OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
+	  )
+	  AND (
+	    ob.batch_id IS NULL
+	    OR EXISTS (
+	      SELECT 1
+	      FROM vaccination_drive_assignment_members member
+	      JOIN vaccination_drive_assignments assignment
+        ON assignment.tenant_id = member.tenant_id
+       AND assignment.assignment_id = member.assignment_id
+      WHERE member.tenant_id = si.tenant_id
+	        AND member.goat_id = si.goat_id
+	        AND member.obligation_id = oi.obligation_id
+	        AND assignment.batch_id = ob.batch_id
+	        AND assignment.shed_id = NULLIF(substring(ss.idempotency_key FROM ':scope:([0-9a-fA-F-]{36})'), '')::uuid
+	        AND (
+	          nullif(btrim(ss.partition_label), '') IS NULL
+	          OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+           = regexp_replace(lower(btrim(ss.partition_label)), '^part[[:space:]]+', '')
+        )
+    )
   )
 ON CONFLICT DO NOTHING
 RETURNING completion_id::text`,
@@ -1879,19 +1899,27 @@ batch AS (
   JOIN t ON t.tenant_id = ob.tenant_id AND t.task_id = ob.sop_task_id
 ),
 eligible AS (
-  SELECT oi.obligation_id, oi.target_id AS goat_id, g.shed_id
-  FROM obligation_instances oi
-  JOIN batch b ON b.batch_id = oi.batch_id
-  JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
-  JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
-  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  SELECT DISTINCT oi.obligation_id, oi.target_id AS goat_id, assignment.shed_id
+  FROM batch b
+  JOIN vaccination_drive_assignments assignment
+    ON assignment.tenant_id = $1
+   AND assignment.batch_id = b.batch_id
+  JOIN vaccination_drive_assignment_members member
+    ON member.tenant_id = assignment.tenant_id
+   AND member.assignment_id = assignment.assignment_id
+  JOIN obligation_instances oi
+    ON oi.tenant_id = member.tenant_id
+   AND oi.batch_id = assignment.batch_id
+   AND oi.obligation_id = member.obligation_id
+   AND oi.target_type = 'goat'
+   AND oi.target_id = member.goat_id
   WHERE oi.tenant_id = $1
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
-    AND (oi.status <> 'scheduled' OR COALESCE(ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now())
-    AND (NOT $3::boolean OR g.shed_id = $4)
+    AND (oi.status <> 'scheduled' OR (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= now())
+    AND (NOT $3::boolean OR assignment.shed_id = $4)
     AND (
       $5::text = ''
-      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+      OR regexp_replace(lower(btrim(COALESCE(assignment.partition_label, 'whole'))), '^part[[:space:]]+', '')
        = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
     )
 ),
@@ -1909,18 +1937,11 @@ expected AS (
 handled AS (
   SELECT count(DISTINCT c.goat_id) AS n
   FROM sop_task_scan_captures c
-  JOIN goats g ON g.tenant_id = c.tenant_id AND g.goat_id = c.goat_id
-  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  JOIN eligible e ON e.goat_id = c.goat_id
   WHERE c.tenant_id = $1
     AND c.task_id = $2
     AND c.field_key IN ('goat_ids', '__scan_roster__')
     AND c.goat_id IS NOT NULL
-    AND (NOT $3::boolean OR g.shed_id = $4)
-    AND (
-      $5::text = ''
-      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
-    )
 ),
 proofed_goat AS (
   SELECT count(DISTINCT p.subject_id) AS n
@@ -1928,9 +1949,10 @@ proofed_goat AS (
   JOIN eligible e ON e.goat_id = p.subject_id
   WHERE p.tenant_id = $1
     AND p.scope_type = 'task'
-    AND p.scope_id = $2
-	    AND p.subject_type = 'goat'
-	    AND p.subject_id IS NOT NULL
+	    AND p.scope_id = $2
+		    AND p.subject_type = 'goat'
+		    AND p.proof_type = 'video'
+		    AND p.subject_id IS NOT NULL
 	    AND p.upload_state = 'completed'
 	    AND p.created_at >= COALESCE((
 	      SELECT max(c.captured_at)
@@ -2577,15 +2599,15 @@ func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, s
 	  LEFT JOIN obligation_batches ob
 	    ON ob.tenant_id = st.tenant_id
 	   AND ob.sop_task_id = st.task_id
-	  JOIN obligation_instances oi
+		  JOIN obligation_instances oi
 	    ON oi.tenant_id = si.tenant_id
 	   AND oi.target_type = 'goat'
 	   AND oi.target_id = si.goat_id
 	   AND (
 	        oi.sop_task_id = st.task_id
 	        OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
-	   )
-	  WHERE si.tenant_id = $1
+		   )
+		  WHERE si.tenant_id = $1
 	    AND si.task_id = $2
 	    AND si.submission_id = $3
 	    AND si.goat_id IS NOT NULL
@@ -2594,6 +2616,26 @@ func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, s
 	    AND (
 	      sd.code IN ('vaccination.drive', 'vaccination.session')
 	      OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
+	    )
+		    AND (
+		      ob.batch_id IS NULL
+		      OR EXISTS (
+		        SELECT 1
+		        FROM vaccination_drive_assignment_members member
+	        JOIN vaccination_drive_assignments assignment
+	          ON assignment.tenant_id = member.tenant_id
+	         AND assignment.assignment_id = member.assignment_id
+	        WHERE member.tenant_id = si.tenant_id
+		          AND member.goat_id = si.goat_id
+		          AND member.obligation_id = oi.obligation_id
+		          AND assignment.batch_id = ob.batch_id
+		          AND assignment.shed_id = NULLIF(substring(ss.idempotency_key FROM ':scope:([0-9a-fA-F-]{36})'), '')::uuid
+		          AND (
+		            nullif(btrim(ss.partition_label), '') IS NULL
+	            OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+	             = regexp_replace(lower(btrim(ss.partition_label)), '^part[[:space:]]+', '')
+	          )
+	      )
 	    )
 	)
 	SELECT count(*)::int,

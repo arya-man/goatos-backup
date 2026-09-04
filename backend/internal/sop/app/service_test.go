@@ -503,7 +503,7 @@ func TestSubmitMergesServerDraftScanCapturesOneToManyPageBoundaryStatusMatrix(t 
 		TaskID:   testTaskID,
 		Body: domain.SubmitTaskRequest{
 			SOPVersionID:   testVersionID,
-			IdempotencyKey: "retry-draft-scan",
+			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + testScopeID + ":partition:whole:rv:1",
 			Answers: map[string]any{
 				"vaccine_lot_id":      "69000000-0000-4000-8000-000000000001",
 				"cold_chain_verified": true,
@@ -539,6 +539,7 @@ func TestSubmitVaccinationShedCompletionAckSkipsGenericProofRefsWhenReady(t *tes
 		"fields":         []any{},
 	}
 	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
+	shedID := testScopeID
 	goatID := "66000000-0000-4000-8000-000000000001"
 	repo.completedTaskGoatProofRefs = []domain.ProofReference{{
 		ProofID:     "67000000-0000-4000-8000-000000000001",
@@ -555,7 +556,7 @@ func TestSubmitVaccinationShedCompletionAckSkipsGenericProofRefsWhenReady(t *tes
 		TaskID:   testTaskID,
 		Body: domain.SubmitTaskRequest{
 			SOPVersionID:   testVersionID,
-			IdempotencyKey: "vaccination-shed-ack-ready",
+			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + shedID + ":partition:whole:rv:1",
 			Answers:        map[string]any{},
 			ProofRefs:      nil,
 		},
@@ -643,6 +644,7 @@ func TestSubmitVaccinationShedCompletionAckBlocksWhenSummaryNotReady(t *testing.
 		"fields":         []any{},
 	}
 	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
+	shedID := testScopeID
 	repo.shedReadiness = ports.ShedCompletionReadiness{Enabled: false, Reason: "1 animals still need proof"}
 	service := NewService(repo)
 
@@ -652,7 +654,7 @@ func TestSubmitVaccinationShedCompletionAckBlocksWhenSummaryNotReady(t *testing.
 		TaskID:   testTaskID,
 		Body: domain.SubmitTaskRequest{
 			SOPVersionID:   testVersionID,
-			IdempotencyKey: "vaccination-shed-ack-blocked",
+			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + shedID + ":partition:whole:rv:1",
 			Answers:        map[string]any{},
 			ProofRefs:      nil,
 		},
@@ -922,7 +924,7 @@ func TestSubmitVaccinationRecordsSubmissionFanoutStatus(t *testing.T) {
 		TaskID:   testTaskID,
 		Body: domain.SubmitTaskRequest{
 			SOPVersionID:   testVersionID,
-			IdempotencyKey: "retry-vaccination",
+			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + testScopeID + ":partition:whole:rv:1",
 			Answers:        validAnswers(),
 			ProofRefs:      completedProof(),
 		},
@@ -956,7 +958,7 @@ func TestSubmitVaccinationFanoutFailureFailsRequestAndRecordsRetry(t *testing.T)
 		TaskID:   testTaskID,
 		Body: domain.SubmitTaskRequest{
 			SOPVersionID:   testVersionID,
-			IdempotencyKey: "retry-vaccination-fail",
+			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + testScopeID + ":partition:whole:rv:2",
 			Answers:        validAnswers(),
 			ProofRefs:      completedProof(),
 		},
@@ -995,7 +997,7 @@ func TestSubmitVaccinationReplaySkipsSubmissionFanout(t *testing.T) {
 		TaskID:   testTaskID,
 		Body: domain.SubmitTaskRequest{
 			SOPVersionID:   testVersionID,
-			IdempotencyKey: "retry-vaccination-replay",
+			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + testScopeID + ":partition:whole:rv:3",
 			Answers:        validAnswers(),
 			ProofRefs:      completedProof(),
 		},
@@ -1108,7 +1110,7 @@ func TestSubmitRetentionFailureDoesNotFailCommittedSubmissionOrBlockFanout(t *te
 		TaskID:   testTaskID,
 		Body: domain.SubmitTaskRequest{
 			SOPVersionID:   testVersionID,
-			IdempotencyKey: "retry-retention-post-commit",
+			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + testScopeID + ":partition:whole:rv:4",
 			Answers:        validAnswers(),
 			ProofRefs:      completedProof(),
 		},

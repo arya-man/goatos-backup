@@ -1061,6 +1061,7 @@ class SubmitViewModel @Inject constructor(
             ShedCompletionSummary(
                 taskId = summary.taskId,
                 shedName = summary.shedName,
+                partitionLabel = activePartitionLabel() ?: summary.partitionLabel,
                 operationalLocationDisplay = summary.operationalLocationDisplay,
                 driveName = summary.driveName,
                 expectedCount = summary.expectedCount,
@@ -1664,7 +1665,11 @@ class SubmitViewModel @Inject constructor(
 
         fun stableSubmissionKey(task: TaskSummaryDto, activeShedId: String?, partitionLabel: String?): String {
             val scopeId = activeShedId?.takeIf { it.isNotBlank() } ?: task.scopeId.ifBlank { task.taskId }
-            val partitionKey = partitionLabel?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "whole"
+            val partitionKey = partitionLabel?.trim()?.lowercase()
+                ?.substringAfterLast(" - ")
+                ?.replace(Regex("^part[\\s]+"), "")
+                ?.takeIf { it.isNotBlank() }
+                ?: "whole"
             val identity = ProofIdentity(
                 flow = ProofFlow.GENERIC_SUBMIT,
                 taskId = task.taskId,

@@ -163,6 +163,7 @@ data class ShedCompletionSummary(
     val proofReadyCount: Int,
     val proofMode: String,
     val submitState: String,
+    val partitionLabel: String? = null,
 )
 
 /** User intents. The ViewModel layer maps these to sync-engine commands. */
@@ -708,7 +709,24 @@ private fun ShedCompletionSummaryCard(summary: ShedCompletionSummary) {
 }
 
 private val ShedCompletionSummary.displayLocation: String
-    get() = operationalLocationDisplay.ifBlank { shedName }
+    get() {
+        val partition = partitionLabel?.trim()?.takeIf { it.isNotBlank() && !it.equals("whole", ignoreCase = true) }
+        val displayPartition = partition?.let {
+            if (it.matches(Regex("\\d+"))) "Part $it" else it
+        }
+        operationalLocationDisplay.takeIf { it.isNotBlank() }?.let { display ->
+            return if (displayPartition == null || display.contains(displayPartition, ignoreCase = true)) {
+                display
+            } else {
+                "$display - $displayPartition"
+            }
+        }
+        return if (displayPartition == null || shedName.contains(displayPartition, ignoreCase = true)) {
+            shedName
+        } else {
+            "$shedName - $displayPartition"
+        }
+    }
 
 @Composable
 private fun VaccineBreakdownRow(item: VaccineSummaryItem) {

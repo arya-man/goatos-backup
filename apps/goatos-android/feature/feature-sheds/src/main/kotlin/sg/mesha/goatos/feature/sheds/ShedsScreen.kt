@@ -1176,7 +1176,7 @@ private fun DriveAssignmentStrip(row: ShedRow) {
         row.physicalShed.takeIf { it.isNotBlank() },
         // A whole-shed drive shows the shed name only; a partitioned one adds the partition once.
         // Never "<shed> Part whole" or "<shed> Part Parts 1-3" — see [partitionDisplayLabel].
-        partitionDisplayLabel(row.partition) { partitionFmt.format(it) },
+        partitionDisplayLabel(row.partitionLabel ?: row.partition) { partitionFmt.format(it) },
     )
     if (parts.isEmpty()) return
     Spacer(Modifier.height(10.dp))

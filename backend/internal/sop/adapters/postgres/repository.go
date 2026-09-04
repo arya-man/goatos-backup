@@ -994,15 +994,29 @@ func (r *Repository) ListScanCaptures(ctx context.Context, tenantID, taskID, she
 	rows, err := r.pool.Query(ctx, `
 SELECT c.capture_id::text, c.task_id::text, c.field_key, c.tag, COALESCE(c.goat_id::text, ''), COALESCE(c.obligation_id::text, ''), c.captured_at
 FROM sop_task_scan_captures c
-LEFT JOIN goats g ON g.tenant_id = c.tenant_id AND g.goat_id = c.goat_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
 WHERE c.tenant_id = $1::uuid
   AND c.task_id = $2::uuid
-  AND (NULLIF(BTRIM($3), '') IS NULL OR g.shed_id = $3::uuid)
   AND (
-    NULLIF(BTRIM($4), '') IS NULL
-    OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-     = regexp_replace(lower(btrim($4)), '^part[[:space:]]+', '')
+    NULLIF(BTRIM($3), '') IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM obligation_batches ob
+      JOIN vaccination_drive_assignments assignment
+        ON assignment.tenant_id = ob.tenant_id
+       AND assignment.batch_id = ob.batch_id
+      JOIN vaccination_drive_assignment_members member
+        ON member.tenant_id = assignment.tenant_id
+       AND member.assignment_id = assignment.assignment_id
+       AND member.goat_id = c.goat_id
+      WHERE ob.tenant_id = c.tenant_id
+        AND ob.sop_task_id = c.task_id
+        AND assignment.shed_id = NULLIF(BTRIM($3), '')::uuid
+        AND (
+          NULLIF(BTRIM($4), '') IS NULL
+          OR regexp_replace(lower(btrim(COALESCE(assignment.partition_label, 'whole'))), '^part[[:space:]]+', '')
+           = regexp_replace(lower(btrim($4)), '^part[[:space:]]+', '')
+        )
+    )
   )
 ORDER BY c.captured_at ASC, c.capture_id ASC
 LIMIT 2000`, tenantID, taskID, shedID, partitionLabel)
@@ -1125,43 +1139,30 @@ target_shed AS (
   FROM task_scope ts
 ),
 eligible AS (
-  SELECT oi.obligation_id, oi.target_id AS goat_id, g.shed_id
-  FROM obligation_instances oi
-  JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
-  JOIN batch b ON b.batch_id = oi.batch_id
-  JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
-  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
-  LEFT JOIN LATERAL (
-    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
-    FROM vaccination_drive_assignments assignment
-    WHERE assignment.tenant_id = oi.tenant_id
-      AND assignment.batch_id = oi.batch_id
-      AND assignment.shed_id = g.shed_id
-      AND (
-        assignment.partition_label = 'whole'
-        OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
-         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-      )
-      AND (
-        cardinality(assignment.vaccine_rule_ids) = 0
-        OR assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]
-      )
-    ORDER BY assignment.planned_date ASC,
-             assignment.partition_label ASC,
-             assignment.operator_id ASC NULLS LAST,
-             assignment.assignment_id ASC
-    LIMIT 1
-  ) vda ON true
+  SELECT DISTINCT oi.obligation_id, oi.target_id AS goat_id, assignment.shed_id
+  FROM batch b
+  JOIN vaccination_drive_assignments assignment
+    ON assignment.tenant_id = $1::uuid
+   AND assignment.batch_id = b.batch_id
+  JOIN vaccination_drive_assignment_members member
+    ON member.tenant_id = assignment.tenant_id
+   AND member.assignment_id = assignment.assignment_id
+  JOIN obligation_instances oi
+    ON oi.tenant_id = member.tenant_id
+   AND oi.batch_id = assignment.batch_id
+   AND oi.obligation_id = member.obligation_id
+   AND oi.target_type = 'goat'
+   AND oi.target_id = member.goat_id
   CROSS JOIN target_shed target
   WHERE oi.tenant_id = $1::uuid
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
-    AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)
+    AND (target.shed_id IS NULL OR assignment.shed_id = target.shed_id)
     AND (
       NULLIF(BTRIM($5), '') IS NULL
-      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+      OR regexp_replace(lower(btrim(COALESCE(assignment.partition_label, 'whole'))), '^part[[:space:]]+', '')
        = regexp_replace(lower(btrim($5)), '^part[[:space:]]+', '')
     )
-    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now()
+    AND (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= now()
 ),
 expected AS (
   SELECT count(DISTINCT goat_id) AS n
@@ -1170,30 +1171,35 @@ expected AS (
 handled AS (
   SELECT count(DISTINCT c.goat_id) AS n
   FROM sop_task_scan_captures c
-  JOIN goats g ON g.tenant_id = c.tenant_id AND g.goat_id = c.goat_id
-  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-  CROSS JOIN target_shed target
+  JOIN eligible e ON e.goat_id = c.goat_id
   WHERE c.tenant_id = $1::uuid
     AND c.task_id = $2::uuid
     AND c.field_key IN ('goat_ids', '__scan_roster__')
     AND c.goat_id IS NOT NULL
-    AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)
-    AND (
-      NULLIF(BTRIM($5), '') IS NULL
-      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-       = regexp_replace(lower(btrim($5)), '^part[[:space:]]+', '')
-    )
+),
+latest_scan AS (
+  SELECT c.goat_id, max(c.captured_at) AS captured_at
+  FROM sop_task_scan_captures c
+  JOIN eligible e ON e.goat_id = c.goat_id
+  WHERE c.tenant_id = $1::uuid
+    AND c.task_id = $2::uuid
+    AND c.field_key IN ('goat_ids', '__scan_roster__')
+    AND c.goat_id IS NOT NULL
+  GROUP BY c.goat_id
 ),
 proofed_goat AS (
   SELECT count(DISTINCT subject_id) AS n
   FROM proof_artifacts p
   JOIN eligible e ON e.goat_id = p.subject_id
+  JOIN latest_scan ls ON ls.goat_id = p.subject_id
   WHERE p.tenant_id = $1::uuid
     AND p.scope_type = 'task'
     AND p.scope_id = $2::uuid
     AND p.subject_type = 'goat'
+    AND p.proof_type = 'video'
     AND p.subject_id IS NOT NULL
     AND p.upload_state = 'completed'
+    AND p.created_at >= ls.captured_at
 ),
 proofed_shed AS (
   SELECT count(*) AS n
@@ -1264,6 +1270,32 @@ WITH task_scope AS (
   FROM sop_tasks
   WHERE tenant_id = $1::uuid
     AND task_id = $2::uuid
+),
+latest_scan AS (
+  SELECT c.goat_id, max(c.captured_at) AS captured_at
+  FROM sop_task_scan_captures c
+  JOIN obligation_batches ob
+    ON ob.tenant_id = c.tenant_id
+   AND ob.sop_task_id = c.task_id
+  JOIN vaccination_drive_assignments assignment
+    ON assignment.tenant_id = ob.tenant_id
+   AND assignment.batch_id = ob.batch_id
+  JOIN vaccination_drive_assignment_members member
+    ON member.tenant_id = assignment.tenant_id
+   AND member.assignment_id = assignment.assignment_id
+   AND member.goat_id = c.goat_id
+  WHERE c.tenant_id = $1::uuid
+    AND c.task_id = $2::uuid
+    AND c.field_key IN ('goat_ids', '__scan_roster__')
+    AND c.goat_id IS NOT NULL
+    AND nullif($4, '')::uuid IS NOT NULL
+    AND assignment.shed_id = nullif($4, '')::uuid
+    AND (
+      NULLIF(BTRIM($5), '') IS NULL
+      OR regexp_replace(lower(btrim(COALESCE(assignment.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5)), '^part[[:space:]]+', '')
+    )
+  GROUP BY c.goat_id
 )
 SELECT proof_id::text,
        proof_type,
@@ -1274,7 +1306,8 @@ SELECT proof_id::text,
 FROM proof_artifacts p
 LEFT JOIN task_scope ts ON true
 WHERE p.tenant_id = $1::uuid
-  AND p.subject_type = $3
+	  AND p.subject_type = $3
+	  AND ($3 <> 'goat' OR p.proof_type = 'video')
   AND (
     ($3 = 'shed'
       AND p.scope_type = 'shed'
@@ -1292,7 +1325,20 @@ WHERE p.tenant_id = $1::uuid
     ($3 <> 'shed'
       AND p.scope_type = 'task'
       AND p.scope_id = $2::uuid
-      AND ($3 <> 'goat' OR p.subject_id IS NOT NULL))
+      AND ($3 <> 'goat' OR (
+        p.subject_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM latest_scan ls
+          WHERE ls.goat_id = p.subject_id
+            AND p.created_at >= ls.captured_at
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM latest_scan ls
+          WHERE ls.goat_id = p.subject_id
+        )
+      )))
   )
   AND p.upload_state = 'completed'
 ORDER BY created_at, proof_id`,
@@ -1378,7 +1424,7 @@ WHERE tenant_id = $1::uuid
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
 	}
 	if currentState == "accepted" {
-		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, ports.ErrConflict
+		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, fmt.Errorf("%w: task_already_accepted", ports.ErrConflict)
 	}
 	answers, err := json.Marshal(nonNilMap(cmd.Body.Answers))
 	if err != nil {
@@ -2159,16 +2205,32 @@ func (r *Repository) validateShedPartition(ctx context.Context, tx pgx.Tx, tenan
 		return nil
 	}
 	const q = `
+WITH requested AS (
+  SELECT regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '') AS label
+),
+known_partitions AS (
+  SELECT partition_label, status
+  FROM shed_partitions
+  WHERE tenant_id = $1::uuid
+    AND shed_id = $2::uuid
+  UNION ALL
+  SELECT DISTINCT gsp.partition_label, 'active'::text AS status
+  FROM goat_shed_partitions gsp
+  JOIN goats g
+    ON g.tenant_id = gsp.tenant_id
+   AND g.goat_id = gsp.goat_id
+   AND g.lifecycle_status = 'alive'
+  WHERE gsp.tenant_id = $1::uuid
+    AND gsp.shed_id = $2::uuid
+)
 SELECT
   count(*) FILTER (WHERE status = 'active') AS active_partitions,
   count(*) FILTER (
     WHERE status = 'active'
       AND regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
-        = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
+        = (SELECT label FROM requested)
   ) AS matching_partitions
-FROM shed_partitions
-WHERE tenant_id = $1::uuid
-  AND shed_id = $2::uuid`
+FROM known_partitions`
 	var active, matching int
 	var err error
 	if tx != nil {
@@ -2690,11 +2752,15 @@ func mapWriteErr(err error) error {
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
+		detail := pgErr.Code
+		if pgErr.ConstraintName != "" {
+			detail += " " + pgErr.ConstraintName
+		}
 		switch pgErr.Code {
 		case "23505":
-			return ports.ErrConflict
+			return fmt.Errorf("%w: postgres %s", ports.ErrConflict, detail)
 		case "23503", "23514", "22P02":
-			return ports.ErrConflict
+			return fmt.Errorf("%w: postgres %s", ports.ErrConflict, detail)
 		}
 	}
 	return err
@@ -2702,7 +2768,7 @@ func mapWriteErr(err error) error {
 
 func mapUpdateErr(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ports.ErrConflict
+		return fmt.Errorf("%w: no_matching_row", ports.ErrConflict)
 	}
 	return mapWriteErr(err)
 }
