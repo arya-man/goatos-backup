@@ -743,6 +743,7 @@ class SubmitViewModel @Inject constructor(
                     observeOutboxItem(result.value)
                 }
                 is AppResult.Err -> {
+                    submitInFlight = false
                     // Keep it honest: a write that can't even be queued is a visible error,
                     // never a silent drop.
                     // Answers: did the submit fail to even reach the offline outbox (the biggest

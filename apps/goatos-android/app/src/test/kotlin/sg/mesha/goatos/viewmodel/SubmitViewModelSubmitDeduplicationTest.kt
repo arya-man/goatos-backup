@@ -127,6 +127,40 @@ class SubmitViewModelSubmitDeduplicationTest {
     }
 
     @Test
+    fun `enqueue failure clears in-flight guard so operator can retry submit`() = runTest(testDispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-1",
+            sopVersionId = "sop-v1",
+            scopeType = "shed",
+            scopeId = "shed-1",
+            state = "draft",
+            rowVersion = 1,
+        )
+        val repository = DedupFakeTasksRepository(task, FormSpec.Empty)
+        val sync = DeduplicationTestSyncRepository()
+        sync.failNextEnqueue = true
+        val viewModel = viewModel(repository, sync, "task-1")
+
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
+        advanceUntilIdle()
+
+        assertEquals("First enqueue should fail before creating an outbox row", 0, sync.enqueueCalls.size)
+        assertEquals(SyncState.DEAD_LETTER, viewModel.state.value.syncState)
+        assertFalse(viewModel.state.value.showSubmitConfirmation)
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
+        advanceUntilIdle()
+
+        assertEquals("Retry after queue failure must enqueue once", 1, sync.enqueueCalls.size)
+        assertEquals(SyncState.QUEUED, viewModel.state.value.syncState)
+    }
+
+    @Test
     fun `submission queued state emits queued snackbar`() = runTest(testDispatcher) {
         val task = TaskSummaryDto(
             taskId = "task-1",
@@ -299,6 +333,7 @@ class SubmitViewModelSubmitDeduplicationTest {
         data class EnqueueCall(val itemId: String, val request: SubmitTaskRequestDto)
 
         val enqueueCalls = mutableListOf<EnqueueCall>()
+        var failNextEnqueue = false
         private val itemFlow = MutableStateFlow<SyncQueueItem?>(null)
 
         override fun observeStatus(): StateFlow<SyncStatus> = MutableStateFlow(SyncStatus.empty(online = true))
@@ -311,6 +346,10 @@ class SubmitViewModelSubmitDeduplicationTest {
             idempotencyKey: String,
             request: SubmitTaskRequestDto,
         ): AppResult<String> {
+            if (failNextEnqueue) {
+                failNextEnqueue = false
+                return AppResult.Err("enqueue failed")
+            }
             val itemId = "outbox-${enqueueCalls.size + 1}"
             enqueueCalls.add(EnqueueCall(itemId, request))
             itemFlow.value = SyncQueueItem(
