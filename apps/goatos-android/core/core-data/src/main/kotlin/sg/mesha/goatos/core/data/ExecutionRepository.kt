@@ -237,7 +237,7 @@ class DefaultExecutionRepository(
             limit = limit,
             cursor = cursor,
             includeFilterOptions = includeFilterOptions,
-            includeCardSummaries = false,
+            includeCardSummaries = true,
         )
 
     override fun observeRows(
@@ -249,7 +249,7 @@ class DefaultExecutionRepository(
         limit: Int?,
         includeFilterOptions: Boolean,
     ): Flow<Resource<VaccinationExecutionResponseDto>> {
-        val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), includeFilterOptions.toString(), limit?.toString())
+        val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), includeFilterOptions.toString(), limit?.toString(), "card_summaries")
         return rowsDao.observe(key)
             .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
@@ -265,7 +265,7 @@ class DefaultExecutionRepository(
         includeFilterOptions: Boolean,
     ): Result<Unit> = runCatching {
         val dto = rows(parkId, workState, asOf, dueBefore, openOnly, limit, cursor = null, includeFilterOptions = includeFilterOptions)
-        val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), includeFilterOptions.toString(), limit?.toString())
+        val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), includeFilterOptions.toString(), limit?.toString(), "card_summaries")
         rowsDao.upsert(ExecutionRowsCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
         rowsDao.enforceCacheBounds()
     }
@@ -281,7 +281,7 @@ class DefaultExecutionRepository(
         includeFilterOptions: Boolean,
     ): Result<Unit> = runCatching {
         rowsAppendMutex.withLock {
-            val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), includeFilterOptions.toString(), limit?.toString())
+            val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), includeFilterOptions.toString(), limit?.toString(), "card_summaries")
             val currentEntity = rowsDao.get(key)
             val current = readCachedJson<VaccinationExecutionResponseDto>(
                 json = json,

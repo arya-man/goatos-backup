@@ -810,7 +810,7 @@ private fun VaccinationExecutionRowDto.backendExecutionCardId(): String =
         append("|partition:")
         append((partitionLabel ?: partition).orEmpty().ifBlank { "whole" })
         when {
-            sopTaskId.isNotBlank() -> append("|task:").append(sopTaskId)
+            !sopTaskId.isNullOrBlank() -> append("|task:").append(sopTaskId)
             !batchId.isNullOrBlank() -> append("|batch:").append(batchId)
             !driveId.isNullOrBlank() -> append("|drive:").append(driveId)
         }
