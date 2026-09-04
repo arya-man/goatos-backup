@@ -95,7 +95,10 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
   assert.match(source, /\{!stockOnly \? \(\s*<>\s*<p className="muted small"[\s\S]*?<SegmentedLinks[\s\S]*?<SegmentedLinks[\s\S]*?<\/>\s*\) : null\}/);
   assert.match(source, /const failed = \[directed, execution, experiment, shedFeed, stockOnly \? stock : null\]\.some/s);
   assert.match(source, /\{stockOnly && tab === "items" && !failed \? \(\s*<StockCards stock=\{stock\?\.ok \? stock\.data : null\} pageContract=\{pageContract\} \/>/s);
-  assert.match(source, /\{tab === "items" && !stockOnly \? \(/);
+  // The per-feed money cards moved to the Consumption tab (maintainer request 2026-09-04). A
+  // stock-only reader's contract offers no such tab, so the Stock tab carries the stock table alone.
+  assert.match(source, /\{tab === "overview" \? \(\s*\/\/ Consumption tab/);
+  assert.doesNotMatch(source, /\{tab === "items" && !stockOnly \? \(/);
 });
 
 test("the KPI tiles name the settled day rather than the last day drawn", () => {
