@@ -304,6 +304,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Gandhi 1 - Part 3 Scan", vm.state.value.cohortLabel)
+        assertEquals("Part 3", vm.state.value.partitionLabel)
         assertEquals("Part 3", repo.lastRefreshPartitionLabel)
         reader.emit("TAG-100")
         advanceUntilIdle()

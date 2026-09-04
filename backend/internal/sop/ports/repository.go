@@ -196,7 +196,7 @@ type Repository interface {
 	RecordSubmissionFanoutStatus(ctx context.Context, cmd SubmissionFanoutStatusCommand) error
 	ListAgedFailedSubmissionFanouts(ctx context.Context, params ListAgedFailedSubmissionFanoutsParams) ([]domain.FailedSubmissionFanout, error)
 	RecordScanCapture(ctx context.Context, cmd RecordScanCaptureCommand) (domain.ScanCaptureSummary, error)
-	ListScanCaptures(ctx context.Context, tenantID, taskID string) ([]domain.ScanCaptureSummary, error)
+	ListScanCaptures(ctx context.Context, tenantID, taskID, shedID, partitionLabel string) ([]domain.ScanCaptureSummary, error)
 	RecordScanAttempt(ctx context.Context, cmd RecordScanAttemptCommand) (domain.ScanAttemptSummary, error)
 	ShedCompletionReadiness(ctx context.Context, tenantID, taskID, proofSubject, shedID, partitionLabel string, minProofs, maxProofs int) (ShedCompletionReadiness, error)
 	CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject, shedID, partitionLabel string) ([]domain.ProofReference, error)

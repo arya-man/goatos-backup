@@ -867,6 +867,7 @@ class SubmitViewModel @Inject constructor(
 
     private fun activePartitionLabel(): String? =
         routePartitionLabel?.trim()?.takeIf { it.isNotBlank() }
+            ?: currentShedCompletionSummary?.partitionLabel?.trim()?.takeIf { it.isNotBlank() }
 
     private fun clearSavedSubmission() {
         savedStateHandle.remove<String>(KEY_SUBMISSION_SCOPE)
@@ -1060,6 +1061,7 @@ class SubmitViewModel @Inject constructor(
             ShedCompletionSummary(
                 taskId = summary.taskId,
                 shedName = summary.shedName,
+                operationalLocationDisplay = summary.operationalLocationDisplay,
                 driveName = summary.driveName,
                 expectedCount = summary.expectedCount,
                 handledCount = summary.handledCount,
