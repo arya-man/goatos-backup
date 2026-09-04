@@ -232,6 +232,7 @@ export async function VaccinationCalendarPage({
   ]);
 
   const events = list.ok ? list.data.items : [];
+  const renderableEvents = events.filter(isRenderableCalendarEvent);
   const pickerEvents = datePickerOpen ? (markers?.ok ? markers.data.items : []) : events;
   if (list.ok && !list.data.presentation) {
     throw new Error(copy(pageContract, "error.presentation_missing"));
@@ -389,7 +390,7 @@ export async function VaccinationCalendarPage({
       ? scopedHref(hrefWithPagedCursor(PATH, spForList, "cursor", list.data.next_cursor, "page", "cursor_stack"))
       : null;
   const listPrevHref = scopedHref(hrefPreviousPagedCursor(PATH, spForList, "cursor", "page", "cursor_stack"));
-  const listOnPage = list.ok ? list.data.items.length : 0;
+  const listOnPage = list.ok ? renderableEvents.length : 0;
   const initialDrawerData: CalendarDrawerLoadResult | null = sel
     ? {
         eventId: sel.event.event_id,
@@ -495,7 +496,7 @@ export async function VaccinationCalendarPage({
 
       {historyMode ? (
         <HistoryView
-          events={events}
+          events={renderableEvents}
           today={today}
           eventHref={eventHref}
           driveHref={driveHref}
@@ -506,7 +507,7 @@ export async function VaccinationCalendarPage({
         />
       ) : (
         <WeekView
-          events={events}
+          events={renderableEvents}
           today={today}
           anchorDay={anchorKey}
           allWeek={allWeek}
@@ -528,7 +529,7 @@ export async function VaccinationCalendarPage({
         />
       )}
 
-      {historyMode && events.length === 0 ? <EmptyState ok={list.ok} presentation={presentation} mode="history" pageContract={pageContract} /> : null}
+      {historyMode && renderableEvents.length === 0 ? <EmptyState ok={list.ok} presentation={presentation} mode="history" pageContract={pageContract} /> : null}
       {list.ok ? <EventPager nextHref={listNextHref} prevHref={listPrevHref} page={listPage} rowsOnPage={listOnPage} pageContract={pageContract} /> : null}
 
       <CalendarEventDrawer
