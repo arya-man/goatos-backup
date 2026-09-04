@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
@@ -36,6 +38,12 @@ fun FeedPurchaseCreateScreen(
     modifier: Modifier = Modifier,
 ) {
     val locked = state.writeStatus == VendorsWriteStatus.QUEUED || state.writeStatus == VendorsWriteStatus.SYNCED
+    LaunchedEffect(state.closeAfterSave) {
+        if (state.closeAfterSave) {
+            delay(CLOSE_AFTER_SAVE_MS)
+            onEvent(FeedPurchaseCreateEvent.Back)
+        }
+    }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(title = TITLE, subtitle = STEP_TITLES.getOrNull(state.step), onBack = { onEvent(FeedPurchaseCreateEvent.Back) })
         VendorsStepper(stepCount = state.stepCount, currentIndex = state.step, caption = "Step ${state.step + 1} of ${state.stepCount}")
@@ -46,16 +54,18 @@ fun FeedPurchaseCreateScreen(
         ) {
             item(key = "result") { VendorsResultBanner(status = state.writeStatus, message = state.writeMessage) }
             state.message?.let { message -> item(key = "message") { VendorsResultBanner(status = VendorsWriteStatus.FAILED, message = message) } }
-            if (!locked) {
-                when (state.step) {
-                    0 -> item(key = "load") { LoadStep(state, onEvent) }
-                    else -> item(key = "money") { MoneyStep(state, onEvent) }
-                }
+            when (state.step) {
+                0 -> item(key = "load") { LoadStep(state, onEvent) }
+                else -> item(key = "money") { MoneyStep(state, onEvent) }
             }
         }
         VendorsWizardBar(contextLine = state.contextLine) {
             if (locked) {
-                VendorsPrimaryButton(label = RECORD_ANOTHER, enabled = true, onClick = { onEvent(FeedPurchaseCreateEvent.RecordAnother) }, modifier = Modifier.weight(1f))
+                // The record is on its way or landed; the banner above says which. Nothing to press:
+                // the screen closes on its own once the write is durable (CLOSE_AFTER_SAVE_MS).
+                // "Saved" keeps the brand green so the success reads at a glance; "Saving…" is muted.
+                val saved = state.writeStatus == VendorsWriteStatus.SYNCED
+                VendorsPrimaryButton(label = if (saved) SAVED else SAVING, enabled = saved, onClick = {}, modifier = Modifier.weight(1f))
             } else {
                 if (state.step > 0) VendorsGhostButton(label = PREVIOUS, onClick = { onEvent(FeedPurchaseCreateEvent.Previous) })
                 val last = state.step == state.stepCount - 1
@@ -131,7 +141,10 @@ private val STEP_TITLES = listOf("The load", "The money")
 private const val NEXT = "Next"
 private const val PREVIOUS = "Back"
 private const val SAVE = "Save purchase"
-private const val RECORD_ANOTHER = "Record another purchase"
+/** How long the saved banner stays on the finished form before the screen closes itself. */
+private const val CLOSE_AFTER_SAVE_MS = 2_000L
+private const val SAVING = "Saving…"
+private const val SAVED = "Saved"
 private const val LABEL_FARM = "Farm"
 private const val LABEL_FEED = "Feed"
 private const val LABEL_VENDOR = "Vendor"

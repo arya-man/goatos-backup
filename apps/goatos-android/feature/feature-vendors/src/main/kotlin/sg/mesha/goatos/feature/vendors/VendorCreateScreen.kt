@@ -24,12 +24,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -54,6 +56,12 @@ fun VendorCreateScreen(
     modifier: Modifier = Modifier,
 ) {
     val locked = state.writeStatus == VendorsWriteStatus.QUEUED || state.writeStatus == VendorsWriteStatus.SYNCED
+    LaunchedEffect(state.closeAfterSave) {
+        if (state.closeAfterSave) {
+            delay(CLOSE_AFTER_SAVE_MS)
+            onEvent(VendorCreateEvent.Back)
+        }
+    }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = TITLE,
@@ -70,17 +78,19 @@ fun VendorCreateScreen(
             state.message?.let { message ->
                 item(key = "message") { VendorsResultBanner(status = VendorsWriteStatus.FAILED, message = message) }
             }
-            if (!locked) {
-                when (state.step) {
-                    0 -> item(key = "who") { WhoStep(state, onEvent) }
-                    1 -> item(key = "where") { WhereStep(state, onEvent) }
-                    else -> item(key = "supply") { SupplyStep(state, onEvent) }
-                }
+            when (state.step) {
+                0 -> item(key = "who") { WhoStep(state, onEvent) }
+                1 -> item(key = "where") { WhereStep(state, onEvent) }
+                else -> item(key = "supply") { SupplyStep(state, onEvent) }
             }
         }
         VendorsWizardBar(contextLine = state.contextLine) {
             if (locked) {
-                VendorsPrimaryButton(label = RECORD_ANOTHER, enabled = true, onClick = { onEvent(VendorCreateEvent.RecordAnother) }, modifier = Modifier.weight(1f))
+                // The record is on its way or landed; the banner above says which. Nothing to press:
+                // the screen closes on its own once the write is durable (CLOSE_AFTER_SAVE_MS).
+                // "Saved" keeps the brand green so the success reads at a glance; "Saving…" is muted.
+                val saved = state.writeStatus == VendorsWriteStatus.SYNCED
+                VendorsPrimaryButton(label = if (saved) SAVED else SAVING, enabled = saved, onClick = {}, modifier = Modifier.weight(1f))
             } else {
                 if (state.step > 0) {
                     VendorsGhostButton(label = PREVIOUS, onClick = { onEvent(VendorCreateEvent.Previous) })
@@ -232,7 +242,10 @@ private val STEP_TITLES = listOf("Who they are", "Where they are", "What they su
 private const val NEXT = "Next"
 private const val PREVIOUS = "Back"
 private const val SAVE = "Save vendor"
-private const val RECORD_ANOTHER = "Add another vendor"
+/** How long the saved banner stays on the finished form before the screen closes itself. */
+private const val CLOSE_AFTER_SAVE_MS = 2_000L
+private const val SAVING = "Saving…"
+private const val SAVED = "Saved"
 private const val CLEAR = "Not recorded"
 private const val LABEL_BUSINESS = "Business name"
 private const val LABEL_TYPE = "Vendor type"

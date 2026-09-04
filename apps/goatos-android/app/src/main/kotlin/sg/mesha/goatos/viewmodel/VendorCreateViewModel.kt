@@ -74,6 +74,7 @@ class VendorCreateViewModel @Inject constructor(
         val voiceNoteOutboxItemId: String = "",
         val writeStatus: VendorsWriteStatus = VendorsWriteStatus.IDLE,
         val writeMessage: String = "",
+        val closeAfterSave: Boolean = false,
         val submitInFlight: Boolean = false,
         val message: String? = null,
     )
@@ -107,12 +108,17 @@ class VendorCreateViewModel @Inject constructor(
             voiceNoteLength = l.voiceNoteLength,
             writeStatus = l.writeStatus,
             writeMessage = l.writeMessage,
+            closeAfterSave = l.closeAfterSave,
             submitInFlight = l.submitInFlight,
             message = l.message,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VendorCreateUiState())
 
     fun onEvent(event: VendorCreateEvent) {
+        // A queued or accepted write is read-only: the last step stays on screen for the banner
+        // and closes by itself, so an edit or a second submit in that window has nothing to land on.
+        val locked = local.value.writeStatus == VendorsWriteStatus.QUEUED || local.value.writeStatus == VendorsWriteStatus.SYNCED
+        if (locked && event !is VendorCreateEvent.Back && event !is VendorCreateEvent.RecordAnother && event !is VendorCreateEvent.DismissMessage) return
         when (event) {
             is VendorCreateEvent.FieldChanged -> local.update {
                 it.copy(values = it.values + (event.field to event.value), fieldErrors = it.fieldErrors - event.field)
@@ -175,8 +181,8 @@ class VendorCreateViewModel @Inject constructor(
             syncRepository.followQueuedWrite(itemId).collect { outcome ->
                 local.update {
                     when (outcome) {
-                        QueuedWriteOutcome.Saved -> it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED)
-                        QueuedWriteOutcome.StillQueued -> it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED)
+                        QueuedWriteOutcome.Saved -> it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED, closeAfterSave = true)
+                        QueuedWriteOutcome.StillQueued -> it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED, closeAfterSave = true)
                         is QueuedWriteOutcome.Rejected -> it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_NOT_SAVED)
                     }
                 }
