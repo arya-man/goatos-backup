@@ -294,7 +294,7 @@ func validatedPages(def permissions.ModuleCapability, levels []string, pages []s
 	}
 	chosen := make(map[string]struct{}, len(pages))
 	for _, key := range pages {
-		key = strings.TrimSpace(key)
+		key = permissions.CanonicalPageKey(strings.TrimSpace(key))
 		if key == "" {
 			continue
 		}
@@ -315,6 +315,15 @@ func validatedPages(def permissions.ModuleCapability, levels []string, pages []s
 			return []string{}, nil
 		}
 		return nil, fmt.Errorf("%w: %s needs at least one screen ticked, or no access at all", ErrInvalidAccessRequest, def.Label)
+	}
+	if len(chosen) == len(catalog) {
+		// EVERY screen this capability opens is ticked: store the EMPTY list, which reads as
+		// "every page of this module". An explicit full list is frozen at today's screens, so
+		// a screen shipped tomorrow would reach only people who were never edited -- which is
+		// how the CXO lost ADG Analytics on 2026-09-03 while colleagues re-saved with the new
+		// key kept it. Narrowing stays explicit: the list is stored only when something is
+		// deliberately unticked.
+		return []string{}, nil
 	}
 	// Sidebar order, not request order: the stored list is diffed and rendered, and a
 	// set that reorders between saves reads as a change nobody made.

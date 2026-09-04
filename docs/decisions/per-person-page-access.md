@@ -137,3 +137,29 @@ access model, before landing.
 Verified live on the local stack the same day: his bootstrap before and after
 the retirement is identical, ticking Feed Config in the editor made the leaf and
 its page contract appear with no code change, and unticking it removed them.
+
+## A renamed screen must keep opening (maintainer decision 2026-09-04)
+
+On 2026-09-03 the Weights leaf became ADG Analytics: page key `weighing-weights` was parked and
+`weighing-analytics` added. Stored page ticks are an EXPLICIT list frozen at save time, and no
+migration remapped them, so the CXO (ticked 2026-08-31) and the Growth Director lost the screen
+while four people re-saved on 2026-09-02 with the new key kept it. Property 1 ("an empty list
+means every page") only ever protected people the editor had never touched, because the editor
+saves an explicit list every time.
+
+Three rules, each pinned:
+
+1. **A retired page key is aliased, never dropped.** `permissions.RetiredPageKeys` maps the old
+   key to its replacement and the resolver (`PageAccessForAssignments`) and the save path
+   (`validatedPages`) both canonicalise through it, so a stored or sent old key keeps opening the
+   new screen before any data is touched. `TestRetiredPageKeysResolveToLivePages` fails on an
+   alias to a dead or itself-retired page and on an alias with no remap migration.
+2. **Every screen ticked is stored as every page.** `validatedPages` returns the empty list when
+   the ticks equal every screen the capability opens, so a screen shipped later reaches the
+   person without a re-save. Narrowing is stored only when something is deliberately unticked.
+   `TestEveryScreenTickedIsStoredAsEveryPage`.
+3. **The rename ships its remap.** Migration `000248` rewrites `weighing-weights` to
+   `weighing-analytics` in `person_module_access` and `designation_module_defaults`; the same
+   statements were applied to STG by hand on 2026-09-04 (audited as
+   `person_access.page_key_remapped`).
+

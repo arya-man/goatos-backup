@@ -279,6 +279,32 @@ func hrefPath(href string) string {
 // Only WEB rows contribute (property 1 above). A module row carrying no capability grants
 // nothing -- it is the stored form of "deliberately removed". A row with an empty Pages
 // list grants every page of its module (property 2).
+// RetiredPageKeys maps a page key that once existed to the page that replaced it.
+//
+// A person's stored page ticks are an EXPLICIT list frozen at save time. When a screen is
+// renamed the old key stops resolving and the new one was never ticked, so everyone with
+// an explicit list silently loses the screen -- on 2026-09-03 `weighing-weights` became
+// `weighing-analytics` (ADG Analytics) and the CXO and the Growth Director lost it while
+// four people re-saved the day before kept it. Every rename adds a row HERE, and the
+// resolver honours it at read time, so a stored old key keeps opening the new screen even
+// before the remap migration has run. TestRetiredPageKeysResolveToLivePages pins that
+// every entry points at a page that exists and is not itself retired.
+var RetiredPageKeys = map[string]string{
+	"weighing-weights": "weighing-analytics",
+}
+
+// CanonicalPageKey resolves a stored page key through RetiredPageKeys.
+func CanonicalPageKey(key string) string {
+	for i := 0; i < 4; i++ {
+		next, retired := RetiredPageKeys[key]
+		if !retired {
+			return key
+		}
+		key = next
+	}
+	return key
+}
+
 func PageAccessForAssignments(assignments []ModuleAssignment) PageAccess {
 	access := PageAccess{
 		Pages:   make(map[string]struct{}, len(modulePages)),
@@ -320,6 +346,7 @@ func PageAccessForAssignments(assignments []ModuleAssignment) PageAccess {
 			continue
 		}
 		for _, key := range a.Pages {
+			key = CanonicalPageKey(key)
 			p, known := modulePageIndex[key]
 			if !known || p.Module != a.Module {
 				// A page key from another module, or a stale one, grants nothing. Failing
