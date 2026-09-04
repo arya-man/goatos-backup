@@ -457,6 +457,16 @@ composeCompiler {
     reportsDestination = layout.buildDirectory.dir("compose_reports")
 }
 
+val runningPaparazzi = gradle.startParameter.taskNames.any {
+    it.contains("Paparazzi", ignoreCase = true)
+}
+
+tasks.withType<Test>().configureEach {
+    if (runningPaparazzi && name == "testDevDebugUnitTest") {
+        forkEvery = 1
+    }
+}
+
 val validateStgReleaseInputs = tasks.register("validateStgReleaseInputs") {
     group = "verification"
     description = "Fails fast when the stg release signing inputs have not been restored."

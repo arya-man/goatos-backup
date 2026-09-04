@@ -34,7 +34,10 @@ class PreRecordBriefingScreenshotTest {
     val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_6)
 
     @After
-    fun resetLocale() = AppLocaleState.set("en")
+    fun resetLocale() {
+        AppLocaleState.set("en")
+        paparazzi.unsafeUpdateConfig(deviceConfig = DeviceConfig.PIXEL_6.copy(locale = "en"))
+    }
 
     @Test
     fun weighingScaleZeroBriefing_en() = shot("en")
