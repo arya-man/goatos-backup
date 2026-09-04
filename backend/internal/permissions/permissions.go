@@ -1114,8 +1114,8 @@ var rolePermissions = map[string]map[string]struct{}{
 	// (maintainer decision 2026-09-03): the Procurement phone module is offered on VendorRead.
 	RoleProcurementDirector: {
 		AdminWebBootstrap: {}, AppBootstrap: {},
-		LocationsRead:     {},
-		SalesRead:         {}, SalesWrite: {}, SalesAllocateAnimals: {},
+		LocationsRead: {},
+		SalesRead:     {}, SalesWrite: {}, SalesAllocateAnimals: {},
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 		FeedAnalyticsStockRead: {},

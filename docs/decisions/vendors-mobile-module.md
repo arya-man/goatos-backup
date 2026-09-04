@@ -45,7 +45,7 @@ module. The backfill and the web pages follow the same permissions.
 job, so `feed_director` — who reads feed purchases on the web — does not get it. The two
 procurement roles gained `app.bootstrap` for this; the earlier "admin-web only" note on the
 director is retired. Every existing person with a web `vendors` tick received a mobile one
-(migration `000249`), because a tick narrows and never widens.
+(migration `000250`), because a tick narrows and never widens.
 
 ## Vendor capacity and frequency
 
@@ -56,7 +56,7 @@ optional only"): a quantity, a unit or a frequency is recorded when given and no
 with another; an entered quantity must still be a positive amount. Both vocabularies
 are `procurement_vendor_catalog` rows (`capacity_unit`, `supply_frequency`), so the farm can
 reword or extend them without a deploy. `capacity_display` ("5,000 kg · Every 2 weeks") is
-backend-composed from the labels so the phone and the web phrase it identically. Migration `000247`.
+backend-composed from the labels so the phone and the web phrase it identically. Migration `000248`.
 
 ## The voice note
 
@@ -65,7 +65,7 @@ the existing proof pipeline end to end — durable capture row, proof outbox upl
 own group (so it lands BEFORE the vendor write that references it), tenant-scoped signed download
 for playback on the phone and the web. Nothing about it is a second media path.
 
-`audio` is a new `proof_artifacts.proof_type` (migration `000248`). The proof service holds an
+`audio` is a new `proof_artifacts.proof_type` (migration `000249`). The proof service holds an
 audio upload to the video rule's honesty: `capture_source = in_app_microphone`, a known uploader,
 a captured window; there is no gallery path. `procurement/adapters/proof` validates the ref before
 it is stored on the vendor (completed, in-tenant, declared AND stored as audio, in-app microphone),
