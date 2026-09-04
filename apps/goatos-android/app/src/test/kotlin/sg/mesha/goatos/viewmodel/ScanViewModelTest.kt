@@ -1254,6 +1254,45 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `backend-ready shed summary enables finalize while partition roster cache is cold`() = runTest(dispatcher) {
+        val tasks = FakeTasksRepositoryForCapture(
+            detail = TaskDetail(
+                task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+                form = FormSpec.Empty,
+                proofPolicy = ProofPolicy.Default,
+            ),
+            initialSummary = ShedCompletionSummaryDto(
+                taskId = "task-1",
+                expectedCount = 30,
+                handledCount = 30,
+                proofReadyCount = 30,
+                proofMode = "per_goat_video",
+                submitEnabled = true,
+                submitState = "draft",
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = FakeScanExecutionRepository(firstPage = ScanRosterResponseDto(rows = emptyList())),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = tasks,
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(30, vm.state.value.ringTotal)
+        assertEquals(30, vm.state.value.doneCount)
+        assertTrue("backend-ready summary must allow finalizing an all-proofed partition", vm.state.value.canSubmit)
+        assertTrue("missing local roster cache must not disable the final submit CTA", vm.state.value.scanEnabled)
+    }
+
+    @Test
     fun `task-wide persisted scans do not block current shed finalize`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         (1..3).forEach {

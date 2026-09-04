@@ -205,6 +205,7 @@ class ScanViewModel @Inject constructor(
     // Fires funnel_scan_completed at most once per shed session, the first time the roster is
     // fully scanned (canSubmit flips true) — see [maybeTrackScanCompleted].
     private var scanCompletedTracked = false
+    private var scanScreenOpenedTracked = false
 
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)
@@ -432,7 +433,7 @@ class ScanViewModel @Inject constructor(
             serverAllGoatProofsReady = policy.isPerGoatVideo && shedSummary.allHandledProofsReady(),
         )
         // Full-roster (page-independent) aggregates overlay the window-derived counts (R50-008).
-        val aggregated = applyFullRosterCounts(base, counts, reconciledLocalDoneGoats)
+        val aggregated = applyFullRosterCounts(base, counts, reconciledLocalDoneGoats, shedSummary)
         // Submit gate follows the task SOP. Per-goat video mode still requires synced goat clips.
         // Shed-level video mode only gates this scan screen on all goats scanned; the submit form
         // then enforces the required 1..5 shed-level video proof clips.
@@ -586,6 +587,7 @@ class ScanViewModel @Inject constructor(
     private fun loadRosterAndRefresh() {
         val id = shedId ?: return
         AnalyticsFunnels.trackScanStarted(analytics, id)
+        trackScanScreenOpened()
         taskId?.let { selectedTaskId ->
             viewModelScope.launch {
                 scanCaptureRepository.enqueuePendingScans(selectedTaskId, ROSTER_SCAN_FIELD_KEY, partitionLabel)
@@ -610,9 +612,35 @@ class ScanViewModel @Inject constructor(
             ScanEvent.DismissShedSwitcher,
             is ScanEvent.SwitchShed -> Unit
             ScanEvent.LoadMore -> loadMore()
-            ScanEvent.Submit,
+            ScanEvent.Submit -> trackFinalizeTapped(state.value)
             ScanEvent.Back,
             ScanEvent.ReconnectReader -> Unit // navigation — handled by the host.
+        }
+    }
+
+    fun trackFinalizeTapped(uiState: ScanUiState = state.value) {
+        val selectedTaskId = taskId ?: uiState.taskId.orEmpty()
+        val eventName = if (uiState.canSubmit) {
+            AnalyticsEvents.VACCINATION_FINALIZE_TAPPED
+        } else {
+            AnalyticsEvents.VACCINATION_FINALIZE_BLOCKED
+        }
+        analytics.track(
+            eventName,
+            vaccinationJourneyProps(uiState) +
+                buildMap {
+                    put(AnalyticsEvents.Params.ACTION, "finalize_shed")
+                    put(AnalyticsEvents.Params.OUTCOME, if (uiState.canSubmit) "allowed" else "blocked")
+                    put(AnalyticsEvents.Params.REASON, uiState.submitBlockingReason?.take(MAX_ANALYTICS_REASON_CHARS) ?: "none")
+                    selectedTaskId.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.CAMPAIGN_ID, it) }
+                },
+        )
+        if (!uiState.canSubmit && selectedTaskId.isNotBlank()) {
+            AnalyticsFunnels.trackSubmitBlocked(
+                analytics,
+                selectedTaskId,
+                uiState.submitBlockingReason?.take(MAX_ANALYTICS_REASON_CHARS) ?: "scan_not_ready",
+            )
         }
     }
 
@@ -974,10 +1002,22 @@ class ScanViewModel @Inject constructor(
         base: ScanUiState,
         counts: List<StatusCount>,
         localDone: Set<String>,
+        shedSummary: ShedCompletionSummaryDto?,
     ): ScanUiState {
         val id = shedId ?: return base
         val dbTotal = counts.sumOf { it.count }
-        if (dbTotal == 0) return base
+        if (dbTotal == 0) {
+            if (shedSummary == null || shedSummary.expectedCount <= 0) return base
+            val done = shedSummary.handledCount.coerceIn(0, shedSummary.expectedCount)
+            return base.copy(
+                ringTotal = shedSummary.expectedCount,
+                ringDone = done,
+                doneCount = done,
+                pendingCount = (shedSummary.expectedCount - done).coerceAtLeast(0),
+                skippedCount = 0,
+                scanEnabled = true,
+            )
+        }
         val dbDone = counts.filter { statusOf(it.status) == ScanStatus.DONE }.sumOf { it.count }
         val dbSkipped = counts.filter { statusOf(it.status) == ScanStatus.SKIPPED }.sumOf { it.count }
         // Local unsynced DONE overlay: count only ids whose persisted status is not already DONE.
@@ -1594,6 +1634,40 @@ class ScanViewModel @Inject constructor(
             )
             put(AnalyticsEvents.Params.PROOF_UPLOADED, (row?.proofUploadStatus == ProofUploadStatus.SYNCED).toString())
             row?.proofUploadStatus?.let { put("proof_upload_status", it.name.lowercase()) }
+        }
+
+    private fun trackScanScreenOpened() {
+        if (scanScreenOpenedTracked) return
+        scanScreenOpenedTracked = true
+        analytics.track(AnalyticsEvents.VACCINATION_SCAN_SCREEN_OPENED, vaccinationJourneyProps(state.value))
+    }
+
+    private fun vaccinationJourneyProps(uiState: ScanUiState): Map<String, String> =
+        buildMap {
+            taskId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.CAMPAIGN_ID, it) }
+            uiState.taskId?.takeIf(String::isNotBlank)?.let { put("task_id", it) }
+            shedId?.takeIf(String::isNotBlank)?.let {
+                put(AnalyticsEvents.Params.SHED_ID, it)
+                put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, it)
+            }
+            uiState.shedId?.takeIf(String::isNotBlank)?.let { put("ui_shed_id", it) }
+            partitionLabel?.takeIf(String::isNotBlank)?.let {
+                put(AnalyticsEvents.Params.PARTITION_ID, it)
+                put(AnalyticsEvents.Params.PARTITION_LABEL, it)
+            }
+            sopVersionId?.takeIf(String::isNotBlank)?.let { put("sop_version_id", it) }
+            put(AnalyticsEvents.Params.PROOF_MODE, proofPolicy.value.defaultSubject.name.lowercase())
+            put("ring_total", uiState.ringTotal.toString())
+            put("ring_done", uiState.ringDone.toString())
+            put("done_count", uiState.doneCount.toString())
+            put("pending_count", uiState.pendingCount.toString())
+            put("skipped_count", uiState.skippedCount.toString())
+            put("can_submit", uiState.canSubmit.toString())
+            put("scan_enabled", uiState.scanEnabled.toString())
+            put("reader_connected", (uiState.readerConnection?.connected == true).toString())
+            uiState.submitBlockingReason?.takeIf(String::isNotBlank)?.let {
+                put(AnalyticsEvents.Params.REASON, it.take(MAX_ANALYTICS_REASON_CHARS))
+            }
         }
 
     private fun retryGoatProof(goatId: String) {

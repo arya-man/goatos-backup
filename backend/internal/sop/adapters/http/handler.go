@@ -332,7 +332,7 @@ func (h *Handler) SubmitTask(w nethttp.ResponseWriter, r *nethttp.Request) {
 		TaskID:   r.PathValue("task_id"),
 		Body:     body,
 	}, traceID(r))
-	h.logSubmitOutcome(r, "submit_task", err)
+	h.logSubmitOutcome(r, "submit_task", body, err)
 	h.respond(w, r, result, err)
 }
 
@@ -340,18 +340,45 @@ func (h *Handler) SubmitTask(w nethttp.ResponseWriter, r *nethttp.Request) {
 // generic error logger only fires on status >= 400, so a successful vaccination
 // submission otherwise leaves no trace at all. Scoped to this one write route, not
 // every 2xx, to avoid a farm-scale log volume blowup.
-func (h *Handler) logSubmitOutcome(r *nethttp.Request, route string, err error) {
+func (h *Handler) logSubmitOutcome(r *nethttp.Request, route string, body domain.SubmitTaskRequest, err error) {
+	status := nethttp.StatusOK
+	code := "ok"
+	message := ""
+	retryable := false
 	if err != nil {
-		return
+		status = nethttp.StatusInternalServerError
+		code = "internal_error"
+		message = err.Error()
+		retryable = true
+		var appErr *app.Error
+		if errors.As(err, &appErr) {
+			status = appErr.HTTPStatus
+			code = appErr.Code
+			message = appErr.Message
+			retryable = appErr.Retryable
+		}
 	}
-	h.log.InfoContext(r.Context(), "sop_submit_attempt",
+
+	level := slog.LevelInfo
+	if err != nil {
+		level = slog.LevelWarn
+	}
+	h.log.LogAttrs(r.Context(), level, "sop_submit_attempt",
 		slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
 		slog.String("trace_id", traceID(r)),
 		slog.String("tenant_id", tenantID(r)),
 		slog.String("actor_id", actorID(r)),
 		slog.String("device_id", deviceID(r)),
 		slog.String("route", route),
-		slog.Int("status", nethttp.StatusOK),
+		slog.String("task_id", r.PathValue("task_id")),
+		slog.String("sop_version_id", strings.TrimSpace(body.SOPVersionID)),
+		slog.String("idempotency_key", strings.TrimSpace(body.IdempotencyKey)),
+		slog.String("partition_label", strings.TrimSpace(body.PartitionLabel)),
+		slog.Int("proof_refs", len(body.ProofRefs)),
+		slog.Int("status", status),
+		slog.String("code", code),
+		slog.String("message", message),
+		slog.Bool("retryable", retryable),
 	)
 }
 
