@@ -93,6 +93,7 @@ interface LeadershipTasksRepository {
     suspend fun refreshTaskDetail(taskId: String)
 
     /** The CXOs a director may raise a task for (online). */
+    // offline-first-guard:ignore: small permission-scoped compose-form vocabulary; no screen list renders from this one-shot call
     suspend fun assignees(): AppResult<List<LeadershipAssigneeDto>>
 
     /**
@@ -100,6 +101,7 @@ interface LeadershipTasksRepository {
      * returns the server-issued proof id the task request carries. [idempotencyKey] is the
      * caller's per-attachment key, reused verbatim on retry so the server returns the SAME proof.
      */
+    // offline-first-guard:ignore: online proof registration/upload write; returned proof id is required immediately by the draft submit
     suspend fun uploadAttachment(
         idempotencyKey: String,
         kind: String,
@@ -110,21 +112,27 @@ interface LeadershipTasksRepository {
         captureSource: String,
     ): AppResult<String>
 
+    // offline-first-guard:ignore: online idempotent write reconciles the returned task detail into Room
     suspend fun raiseTask(idempotencyKey: String, request: LeadershipTaskRaiseRequestDto): AppResult<LeadershipTaskDto>
 
+    // offline-first-guard:ignore: online idempotent write reconciles the returned task detail into Room
     suspend fun editTask(taskId: String, idempotencyKey: String, request: LeadershipTaskEditRequestDto): AppResult<LeadershipTaskDto>
 
+    // offline-first-guard:ignore: online idempotent write reconciles the returned task detail into Room
     suspend fun changeStatus(taskId: String, idempotencyKey: String, request: LeadershipTaskStatusRequestDto): AppResult<LeadershipTaskDto>
 
+    // offline-first-guard:ignore: online seen-state write reconciles the returned task detail into Room
     suspend fun markSeen(taskId: String): AppResult<LeadershipTaskDto>
 
     /** The assignee's note back on the task. */
+    // offline-first-guard:ignore: online idempotent write reconciles the returned task detail into Room
     suspend fun setComment(taskId: String, idempotencyKey: String, request: LeadershipTaskCommentRequestDto): AppResult<LeadershipTaskDto>
 
     /**
      * The local path of one attachment's bytes, downloading into app-private cache on first use.
      * A second call for the same proof returns the cached file without touching the network.
      */
+    // offline-first-guard:ignore: bounded attachment byte fetch caches into app-private storage before returning the local file path
     suspend fun attachmentFile(taskId: String, proofId: String, fileName: String): AppResult<String>
 }
 
@@ -195,10 +203,12 @@ class DefaultLeadershipTasksRepository(
             }
     }
 
+    // offline-first-guard:ignore: small permission-scoped compose-form vocabulary; no screen list renders from this one-shot call
     override suspend fun assignees(): AppResult<List<LeadershipAssigneeDto>> = call {
         api.getLeadershipTaskAssignees().assignees
     }
 
+    // offline-first-guard:ignore: online proof registration/upload write; returned proof id is required immediately by the draft submit
     override suspend fun uploadAttachment(
         idempotencyKey: String,
         kind: String,
@@ -245,21 +255,27 @@ class DefaultLeadershipTasksRepository(
         completed.proof.proofId.ifBlank { proofId }
     }
 
+    // offline-first-guard:ignore: online idempotent write reconciles the returned task detail into Room
     override suspend fun raiseTask(idempotencyKey: String, request: LeadershipTaskRaiseRequestDto): AppResult<LeadershipTaskDto> =
         write { api.raiseLeadershipTask(idempotencyKey, request) }
 
+    // offline-first-guard:ignore: online idempotent write reconciles the returned task detail into Room
     override suspend fun editTask(taskId: String, idempotencyKey: String, request: LeadershipTaskEditRequestDto): AppResult<LeadershipTaskDto> =
         write { api.editLeadershipTask(taskId, idempotencyKey, request) }
 
+    // offline-first-guard:ignore: online idempotent write reconciles the returned task detail into Room
     override suspend fun changeStatus(taskId: String, idempotencyKey: String, request: LeadershipTaskStatusRequestDto): AppResult<LeadershipTaskDto> =
         write { api.changeLeadershipTaskStatus(taskId, idempotencyKey, request) }
 
+    // offline-first-guard:ignore: online seen-state write reconciles the returned task detail into Room
     override suspend fun markSeen(taskId: String): AppResult<LeadershipTaskDto> =
         write { api.markLeadershipTaskSeen(taskId) }
 
+    // offline-first-guard:ignore: online idempotent write reconciles the returned task detail into Room
     override suspend fun setComment(taskId: String, idempotencyKey: String, request: LeadershipTaskCommentRequestDto): AppResult<LeadershipTaskDto> =
         write { api.setLeadershipTaskComment(taskId, idempotencyKey, request) }
 
+    // offline-first-guard:ignore: bounded attachment byte fetch caches into app-private storage before returning the local file path
     override suspend fun attachmentFile(taskId: String, proofId: String, fileName: String): AppResult<String> = call {
         withContext(Dispatchers.IO) {
             val dir = File(cacheRoot, ATTACHMENT_CACHE_DIR).apply { mkdirs() }
