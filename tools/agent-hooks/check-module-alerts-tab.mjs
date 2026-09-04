@@ -83,6 +83,8 @@ const PENDING_ALERTS_FEED = {
     "Approvals returned to the phone (maintainer decision 2026-08-05) with no notification feed of its own: no /approvals/alerts route and no approval alert producer exists on any branch. The module IS the queue -- an approver opens it to see what is waiting on them, so an Alerts tab would duplicate the one screen the module has. Unblocked when a producer notifies an approver that a request was raised; at that point the queue and the alerts feed become genuinely different lists (everything pending vs what arrived since you last looked).",
   vendors:
     "Vendors shipped procurement/sales execution screens before a module-scoped alert feed exists: there is no /vendors/alerts route or vendors alert producer over shared task/contact truth yet. Giving the bar an Alerts tab now would route operators to an empty screen. Unblocked when vendor onboarding, purchase, or sale exceptions produce a real feed.",
+  leadership_tasks:
+    "Leadership Tasks shipped its task inbox/detail/compose surface before a module-scoped alerts feed exists: there is no /leadership-tasks/alerts route or leadership_tasks alert producer over shared task/contact truth yet. The module itself is already the task inbox; an Alerts tab would route to an empty duplicate until an actual alert stream is added.",
 };
 
 // The verification module composes its bar per reviewed FEATURE at runtime

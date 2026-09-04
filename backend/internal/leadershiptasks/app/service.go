@@ -200,7 +200,7 @@ func (s *Service) AttachmentDownloadURL(ctx context.Context, tenantID string, ac
 			if s.downloader == nil {
 				return "", ports.ErrInvalidAttachment
 			}
-			return s.downloader.DownloadURL(ctx, tenantID, proofID)
+			return s.downloader.DownloadURL(ctx, tenantID, proofID) // scale-guard:ignore: proofID is validated against this one task's already-loaded attachment set; only the selected attachment receives a signed URL.
 		}
 	}
 	return "", ports.ErrTaskNotFound

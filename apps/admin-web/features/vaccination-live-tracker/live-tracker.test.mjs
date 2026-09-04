@@ -179,6 +179,18 @@ test("the combo header never invents a combination no animal received", () => {
   assert.match(combo, /combo\.vaccine_labels\.map/);
 });
 
+test("combo copy does not hardcode the common two-obligation case", () => {
+  const service = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
+  const compatibility = readFileSync(new URL("../../../../backend/internal/vaccination/app/compatibility.go", import.meta.url), "utf8");
+  for (const [name, source] of Object.entries({ combo, service })) {
+    assert.doesNotMatch(source, /one proof,\s*two obligations/i, `${name} must describe variable-N combos`);
+    assert.doesNotMatch(source, /1 proof\s*→\s*2 obligations/i, `${name} must describe variable-N combos`);
+    assert.doesNotMatch(source, /receives 2 administrations/i, `${name} must not hardcode two administrations`);
+    assert.doesNotMatch(source, /contributes 2 to Scheduled/i, `${name} must not hardcode two scheduled doses`);
+  }
+  assert.match(compatibility, /DefaultMaxVaccinesPerComboSession\s+int32\s+=\s+3/, "approved combo operations support up to 3");
+});
+
 test("the feed rate is measured, never the mock's hardcoded value", () => {
   assert.ok(!/~\d+\/min/.test(code(rail)), "the mock's hardcoded rate must not be reproduced");
   assert.match(rail, /uniqueScanRate\(activity\.items\)/, "the primary badge must be recent unique animals scanned per minute");

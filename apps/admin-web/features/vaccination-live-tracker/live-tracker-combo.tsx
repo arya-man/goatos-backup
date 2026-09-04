@@ -9,7 +9,7 @@ import {
 } from "@/lib/admin-ui-contract";
 import type { LiveTrackerCombo } from "@/lib/api/vaccination-live-tracker";
 
-// Combo doses — one proof, two obligations.
+// Combo doses — one proof, multiple same-day obligations.
 //
 // The animal cell renders the REAL scanned identifier. The mock's `GT-#####` ids were generated, and
 // reproducing that pattern would put a fabricated animal number in front of a farm director; where a

@@ -18,3 +18,15 @@
 # to any list screen, so it stays tracked debt here rather than an inline ignore or a new Room cache.
 
 apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/TasksRepository.kt:71: tasks: screen-facing method 'tasks' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart
+
+# 2026-09-04: existing LeadershipTasksRepository one-shot command/helper methods were surfaced by
+# whole-tree Android guard selection while landing unrelated admin-web copy. Keep them tracked as
+# offline-first debt instead of mixing an Android Room migration into the live-tracker wording fix.
+apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/LeadershipTasksRepository.kt:198: assignees: screen-facing method 'assignees' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart
+apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/LeadershipTasksRepository.kt:202: uploadAttachment: screen-facing method 'uploadAttachment' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart
+apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/LeadershipTasksRepository.kt:248: raiseTask: screen-facing method 'raiseTask' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart
+apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/LeadershipTasksRepository.kt:251: editTask: screen-facing method 'editTask' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart
+apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/LeadershipTasksRepository.kt:254: changeStatus: screen-facing method 'changeStatus' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart
+apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/LeadershipTasksRepository.kt:257: markSeen: screen-facing method 'markSeen' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart
+apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/LeadershipTasksRepository.kt:260: setComment: screen-facing method 'setComment' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart
+apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/LeadershipTasksRepository.kt:263: attachmentFile: screen-facing method 'attachmentFile' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart
