@@ -19809,7 +19809,6 @@ components:
             - video
             - audio
             - attachment
-            - audio
         subject_type:
           type: string
           enum:
@@ -19851,7 +19850,6 @@ components:
             - video
             - audio
             - attachment
-            - audio
         mime_type:
           type: string
         scope_type:
@@ -19937,7 +19935,6 @@ components:
             - video
             - audio
             - attachment
-            - audio
         subject_type:
           type: string
         subject_id:

@@ -8371,7 +8371,7 @@ export interface components {
         ProofReference: {
             proof_id: string;
             /** @enum {string} */
-            proof_type: "photo" | "video" | "audio" | "attachment" | "audio";
+            proof_type: "photo" | "video" | "audio" | "attachment";
             /** @enum {string} */
             subject_type: "batch" | "goat" | "shed" | "task" | "vial_lot" | "administration" | "other";
             subject_id?: string | null;
@@ -8383,7 +8383,7 @@ export interface components {
         };
         CreateProofUploadRequest: {
             /** @enum {string} */
-            proof_type: "photo" | "video" | "audio" | "attachment" | "audio";
+            proof_type: "photo" | "video" | "audio" | "attachment";
             mime_type: string;
             /** @enum {string} */
             scope_type: "tenant" | "farm" | "park" | "shed" | "cohort" | "batch" | "task" | "goat";
@@ -8414,7 +8414,7 @@ export interface components {
             /** @enum {string} */
             storage_provider: "local" | "gcs";
             /** @enum {string} */
-            proof_type: "photo" | "video" | "audio" | "attachment" | "audio";
+            proof_type: "photo" | "video" | "audio" | "attachment";
             subject_type: string;
             /** Format: uuid */
             subject_id?: string | null;
