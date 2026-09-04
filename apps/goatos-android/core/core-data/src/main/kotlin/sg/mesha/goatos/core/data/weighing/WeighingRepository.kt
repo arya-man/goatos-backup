@@ -148,6 +148,14 @@ data class WeighingTask(
      * Clients render it; they never author it.
      */
     val closeReason: String = "",
+    /**
+     * WHO removes feed & water the evening before this task's weigh date, as the backend recorded
+     * it. The edit wizard prefills its mandatory removal pick from this; blank on tasks that
+     * predate the precondition, in which case the planner is asked to pick.
+     */
+    val fastingOperatorUserId: String = "",
+    /** The removal task's state as the backend reports it; blank when the task has none. */
+    val fastingStatus: String = "",
     val sheds: List<WeighingTaskShed>,
 )
 
@@ -2736,6 +2744,8 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
         weighDate = startBusinessDate.ifBlank { periodStartDate },
         status = status,
         closeReason = closeReason,
+        fastingOperatorUserId = fastingOperatorUserId,
+        fastingStatus = fastingStatus,
         sheds = sheds
             .filter { it.status.lowercase() !in setOf("canceled", "cancelled") }
             .map { shed ->

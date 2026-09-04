@@ -110,6 +110,14 @@ class WeighingPlanWizardViewModel @Inject constructor(
             // pre-selected, never chosen, and the catalog for it starts loading immediately
             // rather than waiting for taps this flow never asks for.
             date = repeatSeed?.editWeighDate?.takeIf { editCampaignId != null },
+            // An edit also opens with the removal operator the task already has. The pick is
+            // mandatory on every save, updates included, so without this every edit of an
+            // already-planned task demanded a re-pick -- and on a task whose removal was already
+            // submitted, that re-pick read as an attempted rewrite of who did the work.
+            // Taken straight from the backend echo, not the park roster: the server already
+            // validated this person against the park when the task was planned.
+            fastingOperatorUserId = repeatSeed?.fastingOperatorUserId
+                ?.takeIf { editCampaignId != null && it.isNotBlank() },
             // The MAINTAINER DECISION: an edit must never be able to change the task's date or
             // park, so neither step is just pre-filled -- both are UNREACHABLE. An edit opens
             // straight on BUCKETS -- the first step that can still change -- and [back] refuses to
@@ -808,9 +816,9 @@ private data class WizardRaw(
     /**
      * The feed & water removal operator (maintainer decision 2026-09-03): who removes feed and
      * water from the selected sheds the evening before, then submits two live-camera videos
-     * before midnight. ONE person per task, mandatory before saving. The campaign READ does not
-     * echo this field back, so an EDIT opens with it unset and the planner picks again —
-     * reported as a contract gap rather than silently defaulted.
+     * before midnight. ONE person per task, mandatory before saving. An EDIT opens with the
+     * person the task already has (the campaign read echoes `fasting_operator_user_id`); a task
+     * that predates the precondition opens with it unset and the planner picks.
      */
     val fastingOperatorUserId: String? = null,
     /**

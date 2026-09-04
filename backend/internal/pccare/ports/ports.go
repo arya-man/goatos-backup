@@ -28,6 +28,11 @@ var (
 	ErrInvalidArgument = errors.New("pccare: invalid argument")
 	// ErrShedNotInPark is returned when the addressed shed is not an active shed of the park.
 	ErrShedNotInPark = errors.New("pccare: shed is not an active shed of the addressed park")
+	// ErrOperatorOutsidePark blocks assigning a task, or its feed & water
+	// removal, to someone whose active scope does not reach the task's park.
+	// Operators belong to exactly ONE park; only tenant-scoped leadership spans
+	// parks. The phone's picker filters by park, but the write is the defence.
+	ErrOperatorOutsidePark = errors.New("pccare: operator is not scoped to this park")
 	// ErrInvalidPartition is returned when a partitioned shed is addressed without a real
 	// catalog partition, or an undivided shed with a fabricated one.
 	ErrInvalidPartition = errors.New("pccare: partition_label is required and must match the shed partition catalog")

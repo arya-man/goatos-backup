@@ -803,6 +803,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "removal_operators_required", Message: "name at least one operator for the feed & water removal"}, nil)
 	case errors.Is(err, domain.ErrFeedRemovalNotApplicable):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "feed_removal_not_applicable", Message: "feed & water removal applies to deworming only"}, nil)
+	case errors.Is(err, ports.ErrOperatorOutsidePark):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "operator_outside_park", Message: "every assigned operator, including the feed & water removal operator, must work in this park"}, nil)
 	case errors.Is(err, ports.ErrShedNotInPark), errors.Is(err, ports.ErrInvalidPartition):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, err.Error(), nil)
 	case errors.Is(err, ports.ErrInvalidArgument), errors.Is(err, ports.ErrIdempotencyRequired):

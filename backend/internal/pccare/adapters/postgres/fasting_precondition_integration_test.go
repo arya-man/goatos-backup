@@ -340,3 +340,60 @@ func TestRemovalSubmitDemandsBothVideos(t *testing.T) {
 		t.Fatalf("media refs = %+v, want the two labeled removal clips in slot order", result.MediaRefs)
 	}
 }
+
+// The removal operator is held to the SAME park-scope bar as the task's own
+// assignees (review finding on PR 176): the phone's picker filters by park, but
+// a direct API caller could name a CBE operator for a CPT pen's removal. The
+// write refuses it by name, and refuses nothing when both sides are in-park.
+func TestCreateTaskRefusesARemovalOperatorOutsideThePark(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupPCCareDB(t, ctx)
+
+	_, err := repo.CreateTask(ctx, ports.CreateTaskParams{
+		TenantID:               pcTenant,
+		Category:               domain.CategoryDeworming,
+		ParkID:                 pcPark,
+		ShedID:                 pcShedA,
+		PlannedBusinessDate:    pcBusinessDay(2026, 9, 11),
+		AssigneeUserIDs:        []string{pcOperator1},
+		FeedRemovalRequired:    true,
+		RemovalOperatorUserIDs: []string{pcOtherParkOperator},
+		IdempotencyKey:         "fasting-cross-park-removal",
+		CreatedBy:              pcVerifier,
+		ActorID:                pcVerifier,
+		ActorType:              "human",
+		TraceID:                "trace-fasting-cross-park",
+	})
+	if !errors.Is(err, ports.ErrOperatorOutsidePark) {
+		t.Fatalf("cross-park removal operator err = %v, want ErrOperatorOutsidePark", err)
+	}
+	// Nothing was written: neither the deworming nor a dangling removal row.
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pc_care_tasks WHERE tenant_id = $1::uuid`, pcTenant).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("refused create left %d pc_care_tasks rows behind", n)
+	}
+
+	// The task's OWN assignee is held to the same bar.
+	_, err = repo.CreateTask(ctx, ports.CreateTaskParams{
+		TenantID:            pcTenant,
+		Category:            domain.CategoryDeworming,
+		ParkID:              pcPark,
+		ShedID:              pcShedA,
+		PlannedBusinessDate: pcBusinessDay(2026, 9, 12),
+		AssigneeUserIDs:     []string{pcOtherParkOperator},
+		IdempotencyKey:      "cross-park-assignee",
+		CreatedBy:           pcVerifier,
+		ActorID:             pcVerifier,
+		ActorType:           "human",
+		TraceID:             "trace-cross-park-assignee",
+	})
+	if !errors.Is(err, ports.ErrOperatorOutsidePark) {
+		t.Fatalf("cross-park assignee err = %v, want ErrOperatorOutsidePark", err)
+	}
+
+	// In-park on both sides: accepted, exactly as before.
+	createDewormingWithRemoval(t, ctx, repo, "fasting-in-park-removal")
+}

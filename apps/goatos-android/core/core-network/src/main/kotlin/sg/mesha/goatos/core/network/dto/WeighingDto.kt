@@ -104,6 +104,14 @@ data class WeighingCampaignDto(
     @SerialName("row_version") val rowVersion: Int = 0,
     /** Backend-recorded reason the task was ended. Blank while the task is live. */
     @SerialName("close_reason") val closeReason: String = "",
+    /**
+     * The task's feed & water removal operator, echoed by the backend so an EDIT can prefill the
+     * mandatory assignment instead of forcing a re-pick. Blank on tasks planned before the removal
+     * precondition existed, and on an older server that does not send it.
+     */
+    @SerialName("fasting_operator_user_id") val fastingOperatorUserId: String = "",
+    /** The removal task's current state (open / pending_verification / completed / rework). Blank when absent. */
+    @SerialName("fasting_status") val fastingStatus: String = "",
     @SerialName("sheds") val sheds: List<WeighingCampaignShedDto> = emptyList(),
     @SerialName("progress") val progress: WeighingProgressDto = WeighingProgressDto(),
 )

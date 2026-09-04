@@ -141,9 +141,17 @@ SELECT EXISTS (
     AND (feed_proof_ref = ANY($4::uuid[]) OR water_proof_ref = ANY($4::uuid[]))
 )`
 
-// fastingRoundFullyCoveredSQL: does every live bucket now hold a submitted
+// fastingRoundFullyCoveredSQL: does every live bucket now hold a SUBMITTED
 // pair? Runs under the parent row lock, so a concurrent sibling submit
 // serializes and exactly one of them stamps the round.
+//
+// "Submitted" is the ROW'S STATE, not the presence of a clip. Verifier items
+// are enqueued per shed the moment each shed lands, so shed A can be submitted
+// AND bounced to rework before shed B is ever submitted. A's row still carries
+// its (rejected) refs, so a ref-presence check would count it as covered and
+// B's submit would stamp the round -- opening the midnight gate while A still
+// owes fresh clips. Only a row sitting in pending_verification or completed,
+// holding BOTH refs, counts; open and rework rows leave the round unstamped.
 const fastingRoundFullyCoveredSQL = `
 SELECT NOT EXISTS (
   SELECT 1
@@ -152,7 +160,12 @@ SELECT NOT EXISTS (
     ON sp.tenant_id = cs.tenant_id AND sp.campaign_shed_id = cs.campaign_shed_id
          AND sp.fasting_task_id = $3::uuid
   WHERE cs.tenant_id = $1::uuid AND cs.campaign_id = $2::uuid AND cs.status <> 'canceled'
-    AND sp.feed_proof_ref IS NULL
+    AND (
+      sp.fasting_shed_id IS NULL
+      OR sp.status NOT IN ('pending_verification', 'completed')
+      OR sp.feed_proof_ref IS NULL
+      OR sp.water_proof_ref IS NULL
+    )
 )`
 
 // SubmitFastingShed records ONE shed's pair (maintainer correction #2). The

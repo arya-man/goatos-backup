@@ -66,6 +66,14 @@ func (r *Repository) CreateTask(ctx context.Context, p ports.CreateTaskParams) (
 	if assigneeCount != len(distinctIDs(verifyUserIDs)) {
 		return ports.TaskRow{}, ports.ErrInvalidArgument
 	}
+	// ...and every one of them must be scoped to THIS park (or tenant-wide). The
+	// removal operator is held to the same bar as the task's own assignees: a
+	// removal card handed to another park's operator is work at pens they cannot
+	// reach, and nothing downstream re-checks it (the work list filters on the
+	// assignee alone). Mirrors weighing's assertOperatorsScopedToPark.
+	if err := assertOperatorsScopedToPark(ctx, tx, p.TenantID, p.ParkID, verifyUserIDs); err != nil {
+		return ports.TaskRow{}, err
+	}
 
 	// The fingerprint gains the removal fields ONLY when the toggle rides the request, so a
 	// replay of a pre-existing plain create hashes exactly as it always did, while the same key
@@ -227,6 +235,37 @@ func distinctIDs(ids []string) []string {
 // removalTaskInsertSQL / removalAssigneesInsertSQL are the linked
 // feed_water_removal create (maintainer decision 2026-09-03) — package-level so
 // query-plan tests and the scale guard can reach them.
+// assertOperatorsScopedToPark refuses any user id in ids whose active scope grants
+// neither the tenant nor this park. One set-based read over the whole list, never
+// a query per operator.
+func assertOperatorsScopedToPark(ctx context.Context, tx pgx.Tx, tenantID, parkID string, ids []string) error {
+	distinct := distinctIDs(ids)
+	if len(distinct) == 0 {
+		return nil
+	}
+	var offending int
+	if err := tx.QueryRow(ctx, operatorsOutsideParkCountSQL, tenantID, parkID, distinct).Scan(&offending); err != nil {
+		return fmt.Errorf("pccare: verify assignee park scope: %w", err)
+	}
+	if offending > 0 {
+		return ports.ErrOperatorOutsidePark
+	}
+	return nil
+}
+
+// operatorsOutsideParkCountSQL counts the named users with NO active grant that is
+// tenant-wide or names this park.
+const operatorsOutsideParkCountSQL = `
+SELECT count(*)::int
+FROM unnest($3::uuid[]) AS u(user_id)
+WHERE NOT EXISTS (
+  SELECT 1 FROM user_scope_grants g
+  WHERE g.tenant_id = $1::uuid
+    AND g.user_id = u.user_id
+    AND g.status = 'active'
+    AND (g.scope_type = 'tenant' OR (g.scope_type = 'park' AND g.scope_id = $2::uuid))
+)`
+
 // activeMembersCountSQL verifies every named assignee (task + removal
 // operators, one set-based read) resolves to an active workforce member.
 const activeMembersCountSQL = `

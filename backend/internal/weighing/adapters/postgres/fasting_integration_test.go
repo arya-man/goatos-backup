@@ -673,3 +673,63 @@ func TestFastingListServesEveryShedStatusOnceVisible(t *testing.T) {
 		}
 	}
 }
+
+// THE ROUND STAMP READS SHED STATE, NOT CLIP PRESENCE (review finding on PR
+// 176). Verifier items are enqueued per shed as each lands, so shed A can be
+// submitted and bounced to rework BEFORE shed B is submitted. A's row still
+// carries its rejected refs; a ref-presence check counted it as covered and
+// B's submit stamped the round, opening the midnight gate while A still owed
+// fresh clips. The round is stamped only once A comes back with a fresh pair.
+func TestRoundIsNotStampedWhileASiblingShedSitsInRework(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	fastingID := seedFastingFixture(t, ctx, pool, "2026-09-04")
+	repo := NewRepository(pool, 5*time.Second)
+
+	a, err := repo.SubmitFastingShed(ctx, fastingSubmitShedA(fastingID, "fasting-early-rework-a"))
+	if err != nil {
+		t.Fatalf("shed A submit: %v", err)
+	}
+	if a.Task.SubmittedAt != nil {
+		t.Fatal("round stamped after one of two sheds")
+	}
+	// Verifier bounces A while B is still open.
+	if err := repo.ApplyFastingVerdict(ctx, domain.FastingVerdict{
+		TenantID: repoTenant, FastingShedID: a.Evidence.FastingShedID,
+		Status: domain.VerificationStatusRework, VerifiedBy: repoVerifier,
+		Reason: "Water trough still full. Redo it.", EventID: "00000000-0000-4000-8000-000000009711",
+	}); err != nil {
+		t.Fatalf("rework verdict: %v", err)
+	}
+
+	// B lands: every shed row now holds refs, but A's are REJECTED. The round
+	// must stay unstamped.
+	b, err := repo.SubmitFastingShed(ctx, fastingSubmitShedB(fastingID, "fasting-early-rework-b"))
+	if err != nil {
+		t.Fatalf("shed B submit: %v", err)
+	}
+	if b.Task.SubmittedAt != nil {
+		t.Fatalf("round stamped while shed A sits in rework: %+v — the midnight gate would open on rejected work", b.Task)
+	}
+	if b.Card.SubmittedAt != nil {
+		t.Fatalf("shed B's card echoes a round stamp that must not exist: %+v", b.Card)
+	}
+
+	// A's fresh pair is the LAST submitted shed: THAT stamps the round.
+	freshFeed := "00000000-0000-4000-8000-000000009513"
+	freshWater := "00000000-0000-4000-8000-000000009514"
+	insertLiveCameraProof(t, ctx, pool, freshFeed)
+	insertLiveCameraProof(t, ctx, pool, freshWater)
+	resub := fastingSubmitShedA(fastingID, "fasting-early-rework-a2")
+	resub.FeedProofRef = freshFeed
+	resub.WaterProofRef = freshWater
+	second, err := repo.SubmitFastingShed(ctx, resub)
+	if err != nil {
+		t.Fatalf("fresh resubmit of A: %v", err)
+	}
+	if second.Task.SubmittedAt == nil || second.Task.Status != domain.FastingStatusPendingVerification {
+		t.Fatalf("round after A's fresh pair = %+v, want submitted_at stamped + pending_verification", second.Task)
+	}
+}

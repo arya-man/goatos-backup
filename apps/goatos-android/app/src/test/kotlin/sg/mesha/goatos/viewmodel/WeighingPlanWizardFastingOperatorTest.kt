@@ -115,6 +115,84 @@ class WeighingPlanWizardFastingOperatorTest {
         assertNull("a person the park does not offer can never be assigned", repository.lastCreateDraft)
     }
 
+    /**
+     * An EDIT opens with the removal operator the task already carries (PR 176 review finding):
+     * the backend echoes `fasting_operator_user_id`, the seed carries it, and the wizard prefills
+     * it so an otherwise-valid edit is not blocked on a re-pick. Mutation check: drop the
+     * `fastingOperatorUserId` seed line from the wizard's initial state and this goes red.
+     */
+    @Test
+    fun `an edit opens with the task's existing removal operator prefilled`() = runTest(dispatcher) {
+        val repository = WeighingPlanWizardEditHydrationTest.RaceReproducingWeighingRepository()
+        val seedStore = WeighingRepeatSeedStore()
+        seedStore.stage(
+            sourceCampaignId = "campaign-cbe",
+            seed = sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeed(
+                parkId = "park-cbe",
+                parkName = "CBE",
+                sourceDateLabel = "Wed 5 Aug",
+                buckets = listOf(
+                    sg.mesha.goatos.feature.weighing.plan.WeighingRepeatBucket(
+                        "loc-yashoda-1", "individual_animal", "user-pramod",
+                    ),
+                ),
+                editCampaignId = "campaign-cbe",
+                editWeighDate = "2026-08-05",
+                fastingOperatorUserId = "user-dinakar",
+            ),
+        )
+        val vm = WeighingPlanWizardViewModel(
+            repository = repository,
+            repeatSeedStore = seedStore,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(sg.mesha.goatos.ui.Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
+            ),
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        repository.catalogRefreshGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("user-dinakar", vm.state.value.fastingOperatorUserId)
+        assertEquals("Dinakar", vm.state.value.fastingOperatorLabel)
+    }
+
+    /** A REPEAT is a new task: nothing about who removes feed & water carries over. */
+    @Test
+    fun `a repeat does not carry the source task's removal operator`() = runTest(dispatcher) {
+        val repository = WeighingPlanWizardEditHydrationTest.RaceReproducingWeighingRepository()
+        val seedStore = WeighingRepeatSeedStore()
+        seedStore.stage(
+            sourceCampaignId = "campaign-cbe",
+            seed = sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeed(
+                parkId = "park-cbe",
+                parkName = "CBE",
+                sourceDateLabel = "Wed 5 Aug",
+                buckets = listOf(
+                    sg.mesha.goatos.feature.weighing.plan.WeighingRepeatBucket(
+                        "loc-yashoda-1", "individual_animal", "user-pramod",
+                    ),
+                ),
+                fastingOperatorUserId = "user-dinakar",
+            ),
+        )
+        val vm = WeighingPlanWizardViewModel(
+            repository = repository,
+            repeatSeedStore = seedStore,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(sg.mesha.goatos.ui.Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
+            ),
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        repository.catalogRefreshGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertNull(vm.state.value.fastingOperatorUserId)
+    }
+
     @Test
     fun `the date step never offers today`() = runTest(dispatcher) {
         val repository = WeighingPlanWizardEditHydrationTest.RaceReproducingWeighingRepository()
