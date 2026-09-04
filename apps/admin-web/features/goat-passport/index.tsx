@@ -20,7 +20,7 @@ function identifierTypeLabel(type: string, pageContract: AdminUiPageContract): s
 
 function MiniMetric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div>
+    <div className="fld">
       <div className="k">{label}</div>
       <div className="v">{value}</div>
     </div>
@@ -60,7 +60,7 @@ function FormSelect({
   emptyLabel?: string;
 }) {
   return (
-    <div>
+    <div className="fld">
       <label>{label}</label>
       <select name={name} aria-label={label} required={required} defaultValue={defaultValue ?? ""}>
         {emptyLabel ? <option value="">{emptyLabel}</option> : null}
@@ -297,7 +297,10 @@ export async function GoatPassportPage({
                 <Plus className="ic" />
 	                <h3>{copy(pageContract, "section.add_identifier.title")}</h3>
               </div>
-              <div className="grid g4">
+              <div
+                className="grid goat-identifier-grid"
+                style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}
+              >
                 <FormSelect name="identifier_type" label={copy(pageContract, "field.identifier_type")} options={optionGroup(pageContract, "identifier_types")} required emptyLabel={copy(pageContract, "label.select")} />
                 <FormField name="identifier_value" label={copy(pageContract, "field.identifier_value")} required />
                 <FormField name="scope_key" label={copy(pageContract, "field.scope_key")} required placeholder={copy(pageContract, "placeholder.scope_key")} />

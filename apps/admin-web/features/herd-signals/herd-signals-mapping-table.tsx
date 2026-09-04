@@ -670,16 +670,16 @@ export function HerdSignalsMappingTable({
         ) : null}
       </span>
       <span className="sp" style={{ flex: 1 }} />
-      <span className="fsel">
-        Rows
-        <select value={params.limit} onChange={(event) => navigate(herdSignalsHref(params, { hs_limit: event.target.value }))}>
+      <label className="fsel">
+        <span>Rows</span>
+        <select aria-label="Rows per page" value={params.limit} onChange={(event) => navigate(herdSignalsHref(params, { hs_limit: event.target.value }))}>
           {PAGE_SIZE_OPTIONS.map((size) => (
             <option key={size} value={size}>
               {size}
             </option>
           ))}
         </select>
-      </span>
+      </label>
     </div>
   );
 

@@ -511,7 +511,8 @@ deploy() {
     --min-instances=1 \
     --max-instances=2 \
     --no-traffic \
-    --update-env-vars="GOATOS_CANONICAL_DASHBOARD_HOST=${GOATOS_CANONICAL_DASHBOARD_HOST},GOATOS_API_BASE_URL=${GOATOS_API_BASE_URL}" \
+    --update-env-vars="GOATOS_CANONICAL_DASHBOARD_HOST=${GOATOS_CANONICAL_DASHBOARD_HOST},GOATOS_API_BASE_URL=${GOATOS_API_BASE_URL},NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1" \
+    --update-secrets="GOATOS_FIREBASE_WEB_CONFIG=goatos-stg-firebase-web-config:latest" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
   admin_web_revision="$(gcloud run services describe "$ADMIN_WEB_SERVICE" \

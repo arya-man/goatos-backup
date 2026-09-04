@@ -263,8 +263,8 @@ function OverviewSections({
             {overview.buyers.length === 0 ? (
               <div className="empty">{copy(pageContract, "empty.buyers")}</div>
             ) : (
-              <div className="twrap">
-                <table>
+              <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.buyers.title")}>
+                <table aria-label={copy(pageContract, "section.buyers.title")}>
                   <thead>
                     <tr>
                       <th>{copy(pageContract, "column.buyer_name")}</th>
@@ -304,12 +304,20 @@ function OverviewSections({
                   <Link href={buyersHref(buyersPageNumber - 1)} scroll={false} className="btn">
                     {copy(pageContract, "action.prev_page")}
                   </Link>
-                ) : null}
+                ) : (
+                  <span className="btn" aria-disabled="true">
+                    {copy(pageContract, "action.prev_page")}
+                  </span>
+                )}
                 {buyersPageNumber < buyersPageCount ? (
                   <Link href={buyersHref(buyersPageNumber + 1)} scroll={false} className="btn">
                     {copy(pageContract, "action.next_page")}
                   </Link>
-                ) : null}
+                ) : (
+                  <span className="btn" aria-disabled="true">
+                    {copy(pageContract, "action.next_page")}
+                  </span>
+                )}
               </div>
             ) : null}
           </section>
@@ -720,7 +728,11 @@ export async function SalesPage({
               >
                 {copy(pageContract, "action.prev_page")}
               </Link>
-            ) : null}
+            ) : (
+              <span className="btn" aria-disabled="true">
+                {copy(pageContract, "action.prev_page")}
+              </span>
+            )}
             {pageNumber < pageCount ? (
               <Link
                 href={salesHref(
@@ -732,7 +744,11 @@ export async function SalesPage({
               >
                 {copy(pageContract, "action.next_page")}
               </Link>
-            ) : null}
+            ) : (
+              <span className="btn" aria-disabled="true">
+                {copy(pageContract, "action.next_page")}
+              </span>
+            )}
           </div>
         ) : null}
       </section>

@@ -7,7 +7,7 @@ import {
   TONE_SWATCH,
   type Tone,
 } from "./process-integrity";
-import { Tag } from "@/components/ui-primitives";
+import { ClipText, Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location.ts";
 import { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
@@ -147,9 +147,9 @@ function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: Adm
       ) : null}
       <div className="who">
         <span className="av xs">{initials(row.owner?.operator_name)}</span>
-        <span className="cliptext" title={ownerLabel} style={operatorMissing ? { color: "var(--danger)" } : undefined} data-truncate>
+        <ClipText title={ownerLabel} style={operatorMissing ? { color: "var(--danger)" } : undefined}>
           {ownerLabel}
-        </span>
+        </ClipText>
         <ArrowRight className="ic" style={{ width: 13, marginLeft: "auto", flexShrink: 0 }} aria-hidden="true" />
       </div>
     </>

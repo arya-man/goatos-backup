@@ -110,6 +110,7 @@ export function WeightBars({
     <ul
       className={`wbars wbars-${size}${wide ? " wbars-wide" : ""}`}
       aria-label={chartLabel}
+      tabIndex={0}
     >
       {bars.map((bar) => (
         <li className="wbar" key={bar.key}>

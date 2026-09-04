@@ -249,12 +249,20 @@ export async function ClockScreen({
               <Link href={hrefWithQuery(pathname, sp, { cursor: null })} scroll={false} className="btn">
                 {copy(pageContract, "action.prev_page")}
               </Link>
-            ) : null}
+            ) : (
+              <span className="btn" aria-disabled="true">
+                {copy(pageContract, "action.prev_page")}
+              </span>
+            )}
             {nextCursor ? (
               <Link href={hrefWithQuery(pathname, sp, { cursor: nextCursor })} scroll={false} className="btn">
                 {copy(pageContract, "action.next_page")}
               </Link>
-            ) : null}
+            ) : (
+              <span className="btn" aria-disabled="true">
+                {copy(pageContract, "action.next_page")}
+              </span>
+            )}
           </div>
         ) : null}
       </section>

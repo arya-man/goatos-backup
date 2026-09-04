@@ -162,7 +162,7 @@ export async function VendorBoardPage({
           </div>
         ) : (
           <div className="twrap">
-            <table aria-label={copy(pageContract, "section.vendors.aria")}>
+            <table className="procurement-vendors-table" aria-label={copy(pageContract, "section.vendors.aria")}>
               <thead>
                 <tr>
                   <th>{copy(pageContract, "column.business_name")}</th>
@@ -219,8 +219,6 @@ export async function VendorBoardPage({
             <span className="muted">
               {copy(pageContract, "pager.page")} {pageNumber} {copy(pageContract, "pager.of")} {pageCount}
             </span>
-            {/* Back is rendered only when there IS a previous page, rather than disabled-and-inert,
-                so the control set matches what the operator can actually do. */}
             {pageNumber > 1 ? (
               <Link
                 href={hrefWithQuery(pathname, sp, { offset: String(Math.max(0, offset - limit)) })}
@@ -229,7 +227,11 @@ export async function VendorBoardPage({
               >
                 {copy(pageContract, "action.prev_page")}
               </Link>
-            ) : null}
+            ) : (
+              <span className="btn" aria-disabled="true">
+                {copy(pageContract, "action.prev_page")}
+              </span>
+            )}
             {pageNumber < pageCount ? (
               <Link
                 href={hrefWithQuery(pathname, sp, { offset: String(offset + limit) })}
@@ -238,7 +240,11 @@ export async function VendorBoardPage({
               >
                 {copy(pageContract, "action.next_page")}
               </Link>
-            ) : null}
+            ) : (
+              <span className="btn" aria-disabled="true">
+                {copy(pageContract, "action.next_page")}
+              </span>
+            )}
           </div>
         ) : null}
       </section>

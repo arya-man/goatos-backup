@@ -162,7 +162,7 @@ else
   docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile.migrate -t "$migration_image" .
   docker push "$migration_image"
 
-  docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$admin_web_image" .
+  docker build --platform linux/amd64 --build-arg NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1 -f apps/admin-web/Dockerfile -t "$admin_web_image" .
   docker push "$admin_web_image"
 fi
 

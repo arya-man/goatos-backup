@@ -1001,8 +1001,8 @@ export async function WeighingWeightsPage({
             <span className="muted small">{gainEmptyLabel}</span>
           </div>
         ) : (
-          <div className="tablewrap">
-            <table className="tbl">
+          <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
+            <table className="tbl" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
               <thead>
                 <tr>
                   {gainThresholdColumns.map((label, index) => (
@@ -1083,8 +1083,8 @@ export async function WeighingWeightsPage({
             <span className="muted small">{copy(pageContract, "empty.load_placements.body")}</span>
           </div>
         ) : (
-          <div className="tablewrap">
-            <table className="tbl">
+          <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.load_placements.aria")}>
+            <table className="tbl" aria-label={copy(pageContract, "section.load_placements.aria")}>
               <thead>
                 <tr>
                   {placementColumns.map((label) => (

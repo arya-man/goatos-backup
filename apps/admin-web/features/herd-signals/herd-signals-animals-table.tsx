@@ -82,28 +82,12 @@ export function HerdSignalsAnimalsRow({
   return (
     <tr
       className="hs-selectable"
-      tabIndex={0}
-      role="button"
-      aria-label={`Open tag detail for ${animalPrimaryLabel(item)}`}
       onClick={(event) => {
         if (isInteractiveTarget(event.target)) return;
         pushLocalOverlayUrl(href);
       }}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        if (isInteractiveTarget(event.target)) return;
-        event.preventDefault();
-        pushLocalOverlayUrl(href);
-      }}
     >
       <td data-l="Animal" className="wide">
-        <LocalOverlayLink
-          href={href}
-          scroll={false}
-          className="hs-row-hit"
-          title="Open tag detail"
-          aria-label={`Open tag detail for ${animalPrimaryLabel(item)}`}
-        />
         <LocalOverlayLink href={href} scroll={false} title="Open tag detail">
           <b>{animalPrimaryLabel(item)}</b>
         </LocalOverlayLink>

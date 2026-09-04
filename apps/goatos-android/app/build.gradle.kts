@@ -149,6 +149,8 @@ android {
             dimension = "env"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
+            manifestPlaceholders["firebasePerformanceCollectionEnabled"] = "false"
+            manifestPlaceholders["firebasePerformanceCollectionDeactivated"] = "true"
             // Test affordance ONLY. A tester holds a handful of physical RFID tags but has to
             // exercise many sheds, so the same tag is re-read in every one of them. Weighing
             // scopes its duplicate rule per shed on purpose, so those reads are all accepted --
@@ -183,6 +185,8 @@ android {
         }
         create("stg") {
             dimension = "env"
+            manifestPlaceholders["firebasePerformanceCollectionEnabled"] = "true"
+            manifestPlaceholders["firebasePerformanceCollectionDeactivated"] = "false"
             buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
             buildConfigField("String", "PROOF_VIDEO_QUALITY_OVERRIDE", "\"\"")
             applicationIdSuffix = ".stg"
@@ -212,6 +216,8 @@ android {
         }
         create("prod") {
             dimension = "env"
+            manifestPlaceholders["firebasePerformanceCollectionEnabled"] = "true"
+            manifestPlaceholders["firebasePerformanceCollectionDeactivated"] = "false"
             signingConfig = signingConfigs.getByName("stgRelease")
             buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
             buildConfigField("String", "PROOF_VIDEO_QUALITY_OVERRIDE", "\"\"")
@@ -221,7 +227,7 @@ android {
             buildConfigField(
                 "boolean",
                 "TELEMETRY_ENABLED",
-                (project.findProperty("goatosTelemetryEnabled") as String?) ?: "false",
+                (project.findProperty("goatosTelemetryEnabled") as String?) ?: "true",
             )
             buildConfigField("String", "OTLP_ENDPOINT", "\"\"")
             firebaseAppDistribution {
