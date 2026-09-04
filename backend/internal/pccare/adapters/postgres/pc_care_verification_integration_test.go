@@ -35,6 +35,10 @@ const (
 	pcOperator1 = "9c000000-0000-4000-8000-000000005001"
 	pcOperator2 = "9c000000-0000-4000-8000-000000005002"
 	pcOutsider  = "9c000000-0000-4000-8000-000000005003"
+	// pcOtherPark is a SECOND park; pcOtherParkOperator is an active member scoped
+	// to it and to nothing in pcPark.
+	pcOtherPark         = "9c000000-0000-4000-8000-000000003002"
+	pcOtherParkOperator = "9c000000-0000-4000-8000-000000005044"
 	pcVerifier  = "9c000000-0000-4000-8000-000000006001"
 )
 
@@ -60,10 +64,21 @@ ON CONFLICT (location_id) DO NOTHING`, pcTenant, pcPark)
 	exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
 VALUES ($3::uuid, $1::uuid, 'shed', 'S-A', 'Castro', 'active', $2::uuid, 1)
 ON CONFLICT (location_id) DO NOTHING`, pcTenant, pcPark, pcShedA)
+	exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'CBE', 'CBE', 'active')
+ON CONFLICT (location_id) DO NOTHING`, pcTenant, pcOtherPark)
 	exec(`INSERT INTO workforce_members (tenant_id, display_code, display_name, status, user_id)
 VALUES ($1::uuid, 'PC-OP-1', 'Amit', 'active', $2::uuid),
-       ($1::uuid, 'PC-OP-2', 'Darshan', 'active', $3::uuid)
-ON CONFLICT DO NOTHING`, pcTenant, pcOperator1, pcOperator2)
+       ($1::uuid, 'PC-OP-2', 'Darshan', 'active', $3::uuid),
+       ($1::uuid, 'PC-OP-4', 'Sagar', 'active', $4::uuid)
+ON CONFLICT DO NOTHING`, pcTenant, pcOperator1, pcOperator2, pcOtherParkOperator)
+	// Operators are park-scoped by invariant; CreateTask refuses an assignee whose
+	// grants do not reach the task's park.
+	exec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $4::uuid, 'active', now()),
+       ($1::uuid, $3::uuid, 'operator', 'park', $4::uuid, 'active', now()),
+       ($1::uuid, $5::uuid, 'operator', 'park', $6::uuid, 'active', now())
+ON CONFLICT DO NOTHING`, pcTenant, pcOperator1, pcOperator2, pcPark, pcOtherParkOperator, pcOtherPark)
 	return NewRepository(pool, 10*time.Second), pool
 }
 

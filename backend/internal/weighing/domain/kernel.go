@@ -84,12 +84,18 @@ type KernelSweepResult struct {
 	ReconciledTerminal int    `json:"reconciled_terminal"`
 	// MergedOnCarryOver counts carry-overs CLOSED because the task already planned
 	// for that day covers the same (park, shed, date). Nothing is re-assigned.
-	MergedOnCarryOver int  `json:"merged_on_carry_over"`
-	RolledForward     int  `json:"rolled_forward"`
-	MarkedDelayed     int  `json:"marked_delayed"`
-	DayStartSurfaced  int  `json:"day_start_surfaced"`
-	CadenceEvents     int  `json:"cadence_events"`
-	Truncated         bool `json:"truncated"`
+	MergedOnCarryOver int `json:"merged_on_carry_over"`
+	RolledForward     int `json:"rolled_forward"`
+	MarkedDelayed     int `json:"marked_delayed"`
+	DayStartSurfaced  int `json:"day_start_surfaced"`
+	// FastingGatedWorkItems counts work items pushed to TOMORROW because their
+	// campaign's feed & water removal task was never submitted before the
+	// midnight deadline (maintainer decision 2026-09-03, domain/fasting.go).
+	// FastingTasksRolled counts the fasting rows re-armed for the next evening.
+	FastingGatedWorkItems int  `json:"fasting_gated_work_items"`
+	FastingTasksRolled    int  `json:"fasting_tasks_rolled"`
+	CadenceEvents         int  `json:"cadence_events"`
+	Truncated             bool `json:"truncated"`
 }
 
 // WorkItemBucket is one bucket named inside a cadence event payload. Every field

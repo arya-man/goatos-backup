@@ -123,6 +123,11 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> durableDirectReconcileLifecycle()
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> durableDirectReconcileLifecycle()
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> durableDirectReconcileLifecycle()
+        // Feed & water removal submit (maintainer decision 2026-09-03): the exact outbox item
+        // drives the screen's sent/blocked state at once, and the sync pass reconciles the
+        // server's RETURNED card (its fresh status) straight into the Room row the list and
+        // detail observe — the packing/wastage shape with an exact-item overlay.
+        OutboxOpType.WEIGHING_FASTING_SUBMIT -> overlayDirectReconcileLifecycle()
         // A scan is a durable Room animal row the screen renders immediately; the sync pass
         // reconciles that same row directly (SYNCED / DUPLICATE / FAILED) — the SCAN_CAPTURE shape.
         OutboxOpType.PC_CARE_SCAN_ADD -> durableDirectReconcileLifecycle()

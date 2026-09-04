@@ -60,6 +60,11 @@ type FeedCompletionStore interface {
 // applier registered here is that missing half.
 type WeighingVerdictStore interface {
 	weighingports.VerificationVerdictStore
+	// The fasting (feed & water removal) verdict half rides the same repository
+	// (maintainer decision 2026-09-03): approve completes the removal task,
+	// reject sends it to rework — never touching submitted_at, so the midnight
+	// gate's answer cannot be rewritten by a verdict.
+	weighingports.FastingStore
 }
 
 // PCCareVerdictStore is satisfied by *pccarepg.Repository — the pc_care_tasks verdict half
@@ -123,5 +128,5 @@ func RegisterVerificationAppliers(
 	// observation, so a decided item stops reading as still-being-applied. It may be nil (a bus
 	// built without a verification repo still applies verdicts exactly as before -- the ack is
 	// visibility, never a correctness gate).
-	weighingapp.NewVerificationVerdictHandler(weighing, log).WithApplyAcker(weighingAck).Register(bus)
+	weighingapp.NewVerificationVerdictHandler(weighing, log).WithApplyAcker(weighingAck).WithFastingStore(weighing).Register(bus)
 }

@@ -142,6 +142,10 @@ class SyncEngine(
     // stayed direct-HTTP and unmoved (see docs/decisions/weighing-rework-task-cards.md; the close
     // gate itself is unconditional and out of scope for this change).
     private val weighingTransitionEpochDao: WeighingTransitionEpochDao? = null,
+    // Feed & water removal (maintainer decision 2026-09-03): the Room card row a successful
+    // fasting submit reconciles — the server returns the fresh card in the SAME response, so the
+    // list/detail flip to "Submitted — video in review" offline-durably, not on the next fetch.
+    private val weighingFastingCardDao: sg.mesha.goatos.core.data.weighing.WeighingFastingCardDao? = null,
     private val feedRepository: sg.mesha.goatos.core.data.FeedRepository? = null,
     private val feedTransportRepository: sg.mesha.goatos.core.data.FeedTransportRepository? = null,
     // PC Care (module pc_care): the durable scanned-animal rows this engine reconciles directly
@@ -529,6 +533,7 @@ class SyncEngine(
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> dispatchWeighingScopeSubmit(item)
+        OutboxOpType.WEIGHING_FASTING_SUBMIT -> dispatchWeighingFastingSubmit(item)
         OutboxOpType.PC_CARE_SCAN_ADD -> dispatchPcCareScanAdd(item)
         OutboxOpType.PC_CARE_SLOT_REGISTER -> dispatchPcCareSlotRegister(item)
         OutboxOpType.PC_CARE_TASK_PROOF_REGISTER -> dispatchPcCareTaskProofRegister(item)
@@ -555,6 +560,9 @@ class SyncEngine(
             false
         }
     }
+
+    /** Test seam: drives the success-reconcile arm for one already-SUCCEEDED row. */
+    internal suspend fun reconcileSucceededForTest(item: OutboxEntity) = reconcileFeatureSuccess(item)
 
     private suspend fun reconcileFeatureSuccess(
         item: OutboxEntity,
@@ -593,6 +601,48 @@ class SyncEngine(
                 // upserting; this one was skipped, leaving the transition-epoch table growing
                 // unboundedly by one row per scope ever submitted. Same bound, same table.
                 weighingTransitionEpochDao?.pruneOutsideNewest(WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES)
+            }
+            OutboxOpType.WEIGHING_FASTING_SUBMIT -> {
+                item.resultJson?.let { resultJson ->
+                    // Same rationale as FEED_DISTRIBUTION_COMPLETE below: the server already
+                    // accepted this write, so a local Room mirror failure is reported, never
+                    // allowed to look like (or behave like) a dispatch failure.
+                    runCatching {
+                        val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.WeighingFastingShedCardResponseDto>(resultJson)
+                        val fresh = response.fastingShedCard
+                        if (fresh.fastingTaskId.isNotBlank() && fresh.campaignShedId.isNotBlank()) {
+                            val existing = weighingFastingCardDao?.getCard(fresh.fastingTaskId, fresh.campaignShedId)
+                            // A RETRIED submit replays the server's ORIGINAL snapshot, which can
+                            // be OLDER than what a list refresh has since written (the verifier
+                            // may already have sent this shed back). Mirroring an older snapshot
+                            // over newer state regressed a sent-back card to "Submitted" on a
+                            // real phone (2026-09-03); the row_version fence keeps the newest.
+                            val cachedVersion = existing?.let { row ->
+                                runCatching {
+                                    syncJson.decodeFromString(
+                                        sg.mesha.goatos.core.network.dto.WeighingFastingShedCardDto.serializer(),
+                                        row.dtoJson,
+                                    ).rowVersion
+                                }.getOrNull()
+                            } ?: -1
+                            if (fresh.rowVersion < cachedVersion) return@runCatching
+                            weighingFastingCardDao?.upsert(
+                                sg.mesha.goatos.core.data.weighing.WeighingFastingCardEntity(
+                                    fastingTaskId = fresh.fastingTaskId,
+                                    campaignShedId = fresh.campaignShedId,
+                                    sortIndex = existing?.sortIndex ?: 0L,
+                                    status = fresh.status,
+                                    removalBusinessDate = fresh.removalBusinessDate,
+                                    dtoJson = syncJson.encodeToString(
+                                        sg.mesha.goatos.core.network.dto.WeighingFastingShedCardDto.serializer(),
+                                        fresh,
+                                    ),
+                                    updatedAt = clock(),
+                                ),
+                            )
+                        }
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
             }
             OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> {
                 val payload = syncJson.decodeFromString<FeedDistributionCompletePayload>(item.payloadJson)
@@ -1116,6 +1166,43 @@ class SyncEngine(
             payload.cardId,
             item.idempotencyKey,
             resolveUploadedProofRef(proofItemId),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * ONE shed's feed & water removal submit (maintainer correction #2, 2026-09-03: the submit
+     * is PER SHED — `POST /app/weighing/fasting/{fasting_task_id}/sheds/{campaign_shed_id}/submit`).
+     * Same idempotent-replay contract as every other `dispatch*` — the row's STORED key rides the
+     * Idempotency-Key header verbatim on every attempt. Each clip resolves from its referenced
+     * PROOF_UPLOAD row by id: a not-yet-uploaded clip suspends the WHOLE submit on the shared
+     * proof-dependency lane WITHOUT burning retry budget, while a missing coupling or a
+     * permanently-failed upload is terminal — a gated submit without this shed's two verifiable
+     * videos must not reach the backend, which would only re-refuse it with the proof-shaped 422s
+     * or a `weighing_rejected_proof_reuse` (terminal by [recordFailure]'s check, surfaced with the
+     * server's own sentence). A `409` already-submitted refusal is likewise terminal server truth.
+     */
+    private suspend fun dispatchWeighingFastingSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingFastingSubmitPayload>(item.payloadJson)
+        // A row missing its shed or either clip reference can never satisfy the per-shed submit —
+        // terminal with a farm-worded reason (also covers any pre-per-shed queued row; the card
+        // returns to the operator's list as work still needing action).
+        if (payload.campaignShedId.isBlank() ||
+            payload.feedProofOutboxItemId.isNullOrBlank() ||
+            payload.waterProofOutboxItemId.isNullOrBlank()
+        ) {
+            throw NonRetryableSyncException("This pen's removal needs both videos. Please record them again.")
+        }
+        val response = api.submitWeighingFastingShed(
+            payload.fastingTaskId,
+            payload.campaignShedId,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.SubmitWeighingFastingShedRequestDto(
+                // Each fresh clip resolves through its own PROOF_UPLOAD row — pending suspends
+                // the WHOLE submit, permanently-failed terminalizes it.
+                feedProofRef = resolveUploadedProofRef(payload.feedProofOutboxItemId),
+                waterProofRef = resolveUploadedProofRef(payload.waterProofOutboxItemId),
+            ),
         )
         return syncJson.encodeToString(response)
     }

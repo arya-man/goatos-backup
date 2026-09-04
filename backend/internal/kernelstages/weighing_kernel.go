@@ -79,6 +79,8 @@ func (s *WeighingKernelStage) Run(ctx context.Context) error {
 			"business_date", result.BusinessDate,
 			"reconciled_terminal", result.ReconciledTerminal,
 			"rolled_forward", result.RolledForward,
+			"fasting_gated_work_items", result.FastingGatedWorkItems,
+			"fasting_tasks_rolled", result.FastingTasksRolled,
 			"marked_delayed", result.MarkedDelayed,
 			"day_start_surfaced", result.DayStartSurfaced,
 			"cadence_events", result.CadenceEvents,

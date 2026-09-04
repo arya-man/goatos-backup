@@ -169,6 +169,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalogDao
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperatorRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerParkRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao
+import sg.mesha.goatos.core.data.weighing.WeighingFastingCardDao
+import sg.mesha.goatos.core.data.weighing.WeighingFastingCardEntity
+import sg.mesha.goatos.core.data.weighing.WeighingFastingRemoteKeyEntity
 import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyDao
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyEntity
@@ -328,6 +331,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         ToxinTaskRemoteKeyEntity::class,
         ToxinTaskDetailCacheEntity::class,
         ClockBlobCacheEntity::class,
+        WeighingFastingCardEntity::class,
+        WeighingFastingRemoteKeyEntity::class,
         VendorItemEntity::class,
         VendorRemoteKeyEntity::class,
         FeedPurchaseItemEntity::class,
@@ -362,7 +367,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v57 (see [MIGRATION_56_57]) adds the three Leadership Tasks read-model tables (maintainer
     // request 2026-09-04): the paged task list rows + their per-filter remote keys (the Toxin
     // trio shape) and the task-detail JSON blob cache.
-    version = 57,
+    // v58 (see [MIGRATION_57_58]) adds the feed & water removal (fasting) per-shed card cache —
+    // `weighing_fasting_card` keyed (fastingTaskId, campaignShedId) plus its
+    // `weighing_fasting_remote_key` cursor row (docs/decisions/feed-water-removal-precondition.md).
+    version = 58,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -462,6 +470,15 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // decision 2026-08-25): the paged aflatoxin test-task list rows + their per-scope remote keys
     // (the PC Care pair shape) and the task-detail JSON blob cache carrying the server-composed
     // 7-step state contract.
+    // v53 (see [MIGRATION_52_53]) adds the two feed & water removal tables (maintainer decision
+    // 2026-09-03) — `weighing_fasting_card`, one JSON-blob row per removal card the second
+    // operator sees on the weighing list from 8 PM, plus its single keyset remote-key row — so
+    // the removal card and its detail screen are offline-first from day one like every other
+    // screen-facing read model. The card is read at night in a shed, where the network is worst.
+    // v54 (see [MIGRATION_53_54]) rebuilds `weighing_fasting_card` at the PER-SHED grain
+    // (maintainer correction #2, 2026-09-03: one card per shed, one submit per shed) — the
+    // primary key becomes (fastingTaskId, campaignShedId). Drop+recreate is acceptable here
+    // because the table is a server-backed cache the next refresh repopulates, never outbox data.
     // v51 (see [MIGRATION_50_51]) adds `clock_blob_cache` — the Clock In / Clock Out module's
     // JSON-blob-by-scope cache (module clock, maintainer decision 2026-08-27): the caller's own
     // status (My Clock + the shell reminder banner), the leadership presence board's first page
@@ -561,4 +578,6 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun leadershipTaskItemDao(): LeadershipTaskItemDao
     abstract fun leadershipTaskRemoteKeyDao(): LeadershipTaskRemoteKeyDao
     abstract fun leadershipTaskDetailCacheDao(): LeadershipTaskDetailCacheDao
+
+    abstract fun weighingFastingCardDao(): WeighingFastingCardDao
 }

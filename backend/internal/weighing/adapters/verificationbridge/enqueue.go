@@ -106,11 +106,20 @@ func (e *Enqueuer) WithdrawWeighingVerification(ctx context.Context, tenantID, r
 // footage they never watched. If the volume is a problem, the question is whether per-animal
 // video is still required — a decision about what to CAPTURE, never about how to queue it.
 func (e *Enqueuer) EnqueueWeighingVerification(ctx context.Context, in weighingapp.VerificationEnqueueRequest) error {
+	// The item's queue CATEGORY follows the evidence kind. Weigh captures
+	// (animal / shed observations) share weighing_proof; the fasting task's
+	// feed & water removal videos get their own weighing_fasting queue page, so
+	// a verifier reviewing weights is not handed removal footage under a weight
+	// label. in.Category stays the SOURCE ref_type either way.
+	category := weighingdomain.VerificationCategoryWeighing
+	if in.Category == weighingdomain.VerificationRefTypeFasting {
+		category = weighingdomain.VerificationCategoryFasting
+	}
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
 		TenantID:     in.TenantID,
 		Vertical:     weighingdomain.VerificationVerticalWeighing,
 		Module:       weighingdomain.VerificationModuleWeighing,
-		Category:     weighingdomain.VerificationCategoryWeighing,
+		Category:     category,
 		SubjectLabel: ptrIfSet(in.SubjectLabel),
 		Source: verificationdomain.SourceRef{
 			Module:  weighingdomain.VerificationModuleWeighing,

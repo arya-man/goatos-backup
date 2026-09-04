@@ -127,20 +127,24 @@ FOR UPDATE`, p.TenantID, p.TaskID).Scan(
 
 	var animalCount int
 	var mediaRefs []ports.LabeledRef
-	if category == domain.CategoryInventoryVaccine {
+	if domain.CaptureModeForCategory(category) == domain.CaptureModeTaskProof {
 		var err error
-		var requirementCount int
-		if err := tx.QueryRow(ctx, `
+		if category == domain.CategoryInventoryVaccine {
+			var requirementCount int
+			if err := tx.QueryRow(ctx, `
 SELECT count(*)::int
 FROM pc_care_task_inventory_requirements
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND required_doses > 0`,
-			p.TenantID, p.TaskID).Scan(&requirementCount); err != nil {
-			return ports.SubmitTaskResult{}, fmt.Errorf("pccare: inventory requirement count: %w", err)
+				p.TenantID, p.TaskID).Scan(&requirementCount); err != nil {
+				return ports.SubmitTaskResult{}, fmt.Errorf("pccare: inventory requirement count: %w", err)
+			}
+			if requirementCount == 0 {
+				return ports.SubmitTaskResult{}, domain.ErrProofIncomplete
+			}
 		}
-		if requirementCount == 0 {
-			return ports.SubmitTaskResult{}, domain.ErrProofIncomplete
-		}
-		mediaRefs, animalCount, err = r.inventoryTaskProofMediaRefs(ctx, tx, p.TenantID, p.TaskID)
+		// Every declared slot must carry its proof — for feed_water_removal, BOTH the feed
+		// removal video and the water removal video.
+		mediaRefs, animalCount, err = r.taskProofMediaRefs(ctx, tx, p.TenantID, p.TaskID, category)
 		if err != nil {
 			return ports.SubmitTaskResult{}, err
 		}
@@ -191,7 +195,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 		return ports.SubmitTaskResult{}, fmt.Errorf("pccare: stamp animal submits: %w", err)
 	}
 
-	if category != domain.CategoryInventoryVaccine {
+	if domain.CaptureModeForCategory(category) != domain.CaptureModeTaskProof {
 		var err error
 		mediaRefs, err = r.composeSubmitMediaRefs(ctx, tx, p.TenantID, p.TaskID, category)
 		if err != nil {

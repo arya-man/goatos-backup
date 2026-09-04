@@ -231,6 +231,23 @@ enum class OutboxOpType {
     WEIGHING_SCOPE_SUBMIT,
 
     /**
+     * Feed & water removal submit (`POST /app/weighing/fasting/{id}/submit`, maintainer decision
+     * 2026-09-03): the second operator's TWO mandatory live-camera videos — feed removal and
+     * water removal — recorded the evening before a weigh date. Adding an op type needs NO Room
+     * migration: [OutboxEntity.opType] is a plain TEXT column holding this enum's `name`.
+     *
+     * The two videos ride by REFERENCE to their PROOF_UPLOAD outbox rows, each on its OWN
+     * per-slot upload group (independent field work — one backed-off clip must not strand the
+     * other), while THIS row sits on the task-grain group key and resolves each upload's proof id
+     * at dispatch (the [FEED_DISTRIBUTION_COMPLETE] shape). A not-yet-uploaded clip suspends the
+     * dispatch on the proof-dependency lane without burning retry budget; a permanently-failed
+     * upload is terminal with an operator-facing reason. The idempotency key is STABLE per
+     * (task, proof pair): a retry replays for free, while a post-rework re-shoot names new proofs
+     * and is a genuinely new act under a new key.
+     */
+    WEIGHING_FASTING_SUBMIT,
+
+    /**
      * PC Care RFID scan (`POST /app/pc-care/tasks/{task_id}/animals`, module pc_care, maintainer
      * decision 2026-08-21): one tag scanned into a care task, stored VERBATIM server-side. Its
      * caller derives a STABLE per-(task, normalized-tag) idempotency key (never a timestamp), so a

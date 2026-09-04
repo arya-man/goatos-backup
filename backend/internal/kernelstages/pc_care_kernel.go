@@ -57,9 +57,10 @@ func (s *PcCareKernelStage) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if result.RolledForward > 0 || result.Truncated {
+	if result.RolledForward > 0 || result.HeldForRemoval > 0 || result.Truncated {
 		s.logger.Info("pc care kernel tick",
 			"rolled_forward", result.RolledForward,
+			"held_for_removal", result.HeldForRemoval,
 			"truncated", result.Truncated,
 		)
 	}

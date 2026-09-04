@@ -531,7 +531,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr))
 	// PHASE 2: the same repository also serves the Calendar / Control Tower
 	// weighing process-state read model (declared `weighing_work_item` grain).
-	weighingService := weighingapp.NewService(weighingRepo).WithProcessStateReader(weighingRepo)
+	weighingService := weighingapp.NewService(weighingRepo).
+		WithProcessStateReader(weighingRepo).
+		// The fasting (feed & water removal) precondition store rides the same
+		// repository (maintainer decision 2026-09-03, weighing/domain/fasting.go).
+		WithFastingStore(weighingRepo)
 	weighingHandler := weighinghttp.NewHandler(weighingService, log).WithMediaResolver(proofService)
 	// Growth Director: read-only reporting over weighing + herd + feed tables.
 	// Deliberately its OWN module, outside backend/internal/weighing, because
@@ -737,6 +741,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// here would silently not match its reads.
 	for _, def := range []verificationdomain.CategoryDefinition{
 		verificationcatalog.Weighing,
+		verificationcatalog.WeighingFasting,
 		verificationcatalog.HealthAdults,
 		verificationcatalog.HealthKids,
 	} {

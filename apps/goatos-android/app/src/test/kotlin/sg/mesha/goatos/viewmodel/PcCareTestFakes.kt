@@ -183,15 +183,28 @@ internal class FakePcCareRepository : PcCareRepository {
 
     override suspend fun plannerCatalog(): PcCarePlannerCatalogDto = PcCarePlannerCatalogDto()
 
+    var plannerSheds: PcCarePlannerShedsDto = PcCarePlannerShedsDto()
+
     override suspend fun plannerParkSheds(
         parkId: String,
         category: String,
         date: String,
         cursor: String?,
-    ): PcCarePlannerShedsDto = PcCarePlannerShedsDto()
+    ): PcCarePlannerShedsDto = plannerSheds
 
-    override suspend fun createTask(idempotencyKey: String, request: PcCareCreateTaskRequestDto): PcCareTaskDto =
-        pcCareTaskDtoFixture()
+    val createRequests = mutableListOf<Pair<String, PcCareCreateTaskRequestDto>>()
+
+    /** Scripted create failure — set to make the NEXT createTask throw it (then cleared). */
+    var failNextCreateWith: Throwable? = null
+
+    override suspend fun createTask(idempotencyKey: String, request: PcCareCreateTaskRequestDto): PcCareTaskDto {
+        failNextCreateWith?.let {
+            failNextCreateWith = null
+            throw it
+        }
+        createRequests += idempotencyKey to request
+        return pcCareTaskDtoFixture()
+    }
 
     override suspend fun cancelTask(taskId: String) = Unit
 

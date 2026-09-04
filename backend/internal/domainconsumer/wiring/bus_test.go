@@ -148,6 +148,28 @@ func (f *fakeWeighingStore) ApplyVerificationVerdict(_ context.Context, v weighi
 	return weighingdomain.VerificationVerdictResult{}, nil
 }
 
+// Fasting (feed & water removal) half of eventwiring.WeighingVerdictStore.
+func (f *fakeWeighingStore) ApplyFastingVerdict(_ context.Context, v weighingdomain.FastingVerdict) error {
+	f.applied = append(f.applied, v.FastingShedID)
+	return nil
+}
+
+func (f *fakeWeighingStore) ListFastingShedCardsForOperator(_ context.Context, _, _ string, _ time.Time, _ string, _ int) (weighingdomain.FastingShedCardPage, error) {
+	return weighingdomain.FastingShedCardPage{}, nil
+}
+
+func (f *fakeWeighingStore) FastingTaskByID(_ context.Context, _, _, _ string) (weighingdomain.FastingTask, error) {
+	return weighingdomain.FastingTask{}, nil
+}
+
+func (f *fakeWeighingStore) SubmitFastingShed(_ context.Context, _ weighingdomain.SubmitFastingShed) (weighingdomain.FastingShedSubmitResult, error) {
+	return weighingdomain.FastingShedSubmitResult{}, nil
+}
+
+func (f *fakeWeighingStore) CampaignStartDate(_ context.Context, _, _ string) (string, bool, bool, error) {
+	return "", false, false, nil
+}
+
 // TestVerdictReachesEveryApplierThroughThisBuilder is the root-cause proof for the defect this
 // builder carried: it hand-listed consumers and registered only the weighing verdict applier, so a
 // verifier approve/rework routed through a bus built HERE was a silent no-op for shifting, feed

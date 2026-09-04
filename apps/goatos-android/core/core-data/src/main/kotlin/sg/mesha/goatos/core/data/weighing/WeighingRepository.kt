@@ -148,6 +148,14 @@ data class WeighingTask(
      * Clients render it; they never author it.
      */
     val closeReason: String = "",
+    /**
+     * WHO removes feed & water the evening before this task's weigh date, as the backend recorded
+     * it. The edit wizard prefills its mandatory removal pick from this; blank on tasks that
+     * predate the precondition, in which case the planner is asked to pick.
+     */
+    val fastingOperatorUserId: String = "",
+    /** The removal task's state as the backend reports it; blank when the task has none. */
+    val fastingStatus: String = "",
     val sheds: List<WeighingTaskShed>,
 )
 
@@ -387,6 +395,13 @@ data class WeighingPlanDraft(
     val startBusinessDate: String,
     val plannedCapPerDay: Int,
     val operatorUserId: String,
+    /**
+     * The feed & water removal operator (maintainer decision 2026-09-03): who removes feed and
+     * water from the selected sheds the evening before the weigh date. MANDATORY on the create
+     * contract — the wizard refuses to save without one, and the server re-refuses a blank with
+     * its own farm copy (422 fasting_operator_required).
+     */
+    val fastingOperatorUserId: String,
     val sheds: List<WeighingPlannerShed>,
 )
 
@@ -2702,6 +2717,7 @@ private fun WeighingPlanDraft.toCreateRequest(): WeighingCreateCampaignRequestDt
         startBusinessDate = startBusinessDate,
         plannedCapPerDay = plannedCapPerDay,
         operatorUserId = operatorUserId,
+        fastingOperatorUserId = fastingOperatorUserId,
         sheds = sheds.map {
             WeighingCreateCampaignShedDto(
                 locationId = it.locationId,
@@ -2728,6 +2744,8 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
         weighDate = startBusinessDate.ifBlank { periodStartDate },
         status = status,
         closeReason = closeReason,
+        fastingOperatorUserId = fastingOperatorUserId,
+        fastingStatus = fastingStatus,
         sheds = sheds
             .filter { it.status.lowercase() !in setOf("canceled", "cancelled") }
             .map { shed ->

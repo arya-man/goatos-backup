@@ -176,6 +176,16 @@ enum class ProofFlow(val wireValue: String) {
      * taskId = the health_session_id, fieldKey = "health_treatment_video".
      */
     HEALTH("health"),
+
+    /**
+     * Feed & water removal videos (maintainer decision 2026-09-03): the two mandatory clips —
+     * feed removal and water removal — the second operator records the evening before a weigh
+     * date. Like [PC_CARE] it deliberately rides the GENERIC storage/idempotency branches —
+     * `proof:$taskId:weighing_fasting:$subjectKey` — with taskId = the fasting task id and
+     * fieldKey/subjectKey = `weighing_fasting_feed_video` / `weighing_fasting_water_video`, so
+     * one slot of one card is one capture identity and a re-shoot replaces it.
+     */
+    WEIGHING_FASTING("weighing_fasting"),
     ;
 
     companion object {

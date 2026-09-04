@@ -1029,6 +1029,7 @@ class WeighingViewModel @Inject constructor(
                 buckets = buckets,
                 editCampaignId = campaignId,
                 editWeighDate = task.weighDate,
+                fastingOperatorUserId = task.fastingOperatorUserId.takeIf { it.isNotBlank() },
             ),
         )
         return campaignId

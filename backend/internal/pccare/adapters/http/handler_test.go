@@ -29,6 +29,8 @@ type fakePCCareHTTPService struct {
 	stockVerdictErr  error
 	stockVerdictTask ports.TaskRow
 	plannerCatalog   ports.PlannerCatalog
+	lastCreate       app.CreateTaskInput
+	createErr        error
 }
 
 func TestOpenAPIIncludesInventoryVaccineTaskProofContract(t *testing.T) {
@@ -143,8 +145,12 @@ func (f *fakePCCareHTTPService) PlannerCatalog(_ context.Context, actor domain.A
 func (f *fakePCCareHTTPService) PlannerParkSheds(context.Context, domain.Actor, string, string, string, string, int) (ports.PlannerParkSheds, error) {
 	return ports.PlannerParkSheds{}, nil
 }
-func (f *fakePCCareHTTPService) CreateTask(context.Context, domain.Actor, app.CreateTaskInput) (ports.TaskRow, error) {
-	return ports.TaskRow{}, nil
+func (f *fakePCCareHTTPService) CreateTask(_ context.Context, _ domain.Actor, in app.CreateTaskInput) (ports.TaskRow, error) {
+	f.lastCreate = in
+	if f.createErr != nil {
+		return ports.TaskRow{}, f.createErr
+	}
+	return ports.TaskRow{TaskID: httpTask, Category: in.Category}, nil
 }
 func (f *fakePCCareHTTPService) CancelTask(context.Context, domain.Actor, string, string) error {
 	return nil

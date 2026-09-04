@@ -110,6 +110,14 @@ class WeighingPlanWizardViewModel @Inject constructor(
             // pre-selected, never chosen, and the catalog for it starts loading immediately
             // rather than waiting for taps this flow never asks for.
             date = repeatSeed?.editWeighDate?.takeIf { editCampaignId != null },
+            // An edit also opens with the removal operator the task already has. The pick is
+            // mandatory on every save, updates included, so without this every edit of an
+            // already-planned task demanded a re-pick -- and on a task whose removal was already
+            // submitted, that re-pick read as an attempted rewrite of who did the work.
+            // Taken straight from the backend echo, not the park roster: the server already
+            // validated this person against the park when the task was planned.
+            fastingOperatorUserId = repeatSeed?.fastingOperatorUserId
+                ?.takeIf { editCampaignId != null && it.isNotBlank() },
             // The MAINTAINER DECISION: an edit must never be able to change the task's date or
             // park, so neither step is just pre-filled -- both are UNREACHABLE. An edit opens
             // straight on BUCKETS -- the first step that can still change -- and [back] refuses to
@@ -252,12 +260,16 @@ class WeighingPlanWizardViewModel @Inject constructor(
         // the DATE step is unreachable in edit mode (see [raw]), so this only guards a caller
         // that reaches straight into the ViewModel bypassing the screen.
         if (current.editCampaignId != null) return
-        val today = LocalDate.now(ZoneId.of(WEIGHING_WIZARD_ZONE))
+        // Weighing always needs feed & water removed the evening before (maintainer decision
+        // 2026-09-03), so the earliest plannable date follows the 20:00 IST removal-evening rule —
+        // today is never offerable, and past dates never were. Client mirror only; the server
+        // still refuses with its own farm copy (422 fasting_window_closed).
+        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE))
         val parsed = runCatching {
             // exception:exempt date validation; unparseable date rejects state change
             LocalDate.parse(isoDate, ISO_DATE)
         }.getOrNull() ?: return
-        if (parsed.isBefore(today)) return
+        if (parsed.isBefore(earliest)) return
         if (current.date == isoDate) return
         // Changing the date invalidates every downstream answer: availability, and with it the
         // bucket set, is date-scoped.
@@ -314,6 +326,9 @@ class WeighingPlanWizardViewModel @Inject constructor(
             picked = emptySet(),
             bucketQuery = "",
             bucketCap = WEIGHING_PAGE_SIZE,
+            // A different park has different people; a removal operator chosen under another
+            // park cannot carry over (same reason the per-bucket selections are dropped).
+            fastingOperatorUserId = null,
         )
         loadParkBuckets(date, parkId)
     }
@@ -438,6 +453,17 @@ class WeighingPlanWizardViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Picks WHO removes feed & water the evening before the weigh date. ONE person for the whole
+     * task, from the same park-scoped roster the per-bucket picker offers — a pick outside the
+     * chosen park is refused, exactly like [setBucketOperator].
+     */
+    fun selectFastingOperator(operatorUserId: String) {
+        val current = raw.value
+        if (current.operatorsForPark().none { it.userId == operatorUserId }) return
+        raw.value = current.copy(fastingOperatorUserId = operatorUserId)
+    }
+
     fun toggleConfigPick(locationId: String) {
         val current = raw.value
         raw.value = current.copy(
@@ -507,6 +533,13 @@ class WeighingPlanWizardViewModel @Inject constructor(
             raw.value = current.copy(message = "Every shed bucket needs one operator before this task can be saved.")
             return
         }
+        val fastingOperatorUserId = current.fastingOperatorUserId.orEmpty()
+        if (fastingOperatorUserId.isBlank()) {
+            // The removal is what lets the weigh day run at all, so it blocks the save the same
+            // way an unassigned bucket does — with a sentence, before any network call.
+            raw.value = current.copy(message = "Pick who removes feed & water the evening before.")
+            return
+        }
         raw.value = current.copy(busy = true, message = null)
         analytics.track(AnalyticsEvents.WEIGHING_PLAN_SAVE_ATTEMPTED)
         viewModelScope.launch {
@@ -519,6 +552,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
                 startBusinessDate = date,
                 plannedCapPerDay = DEFAULT_PLANNED_CAP_PER_DAY,
                 operatorUserId = rows.first().second.operatorUserId,
+                fastingOperatorUserId = fastingOperatorUserId,
                 sheds = rows.map { (bucketKey, selection) ->
                     val shed = current.shedsInPark().first { it.operationalKey() == bucketKey }
                     WeighingPlannerShed(
@@ -780,6 +814,14 @@ private data class WizardRaw(
      */
     val editCampaignId: String? = null,
     /**
+     * The feed & water removal operator (maintainer decision 2026-09-03): who removes feed and
+     * water from the selected sheds the evening before, then submits two live-camera videos
+     * before midnight. ONE person per task, mandatory before saving. An EDIT opens with the
+     * person the task already has (the campaign read echoes `fasting_operator_user_id`); a task
+     * that predates the precondition opens with it unset and the planner picks.
+     */
+    val fastingOperatorUserId: String? = null,
+    /**
      * True when the route named a task this wizard should have opened FROM, but the in-process
      * seed that would say what it was is gone (process death). See [WeighingPlanWizardViewModel.seedLost].
      * Blocks [canContinue] and [WeighingPlanWizardViewModel.commit] outright rather than letting
@@ -970,7 +1012,9 @@ private fun WizardRaw.filteredSelections(): List<Pair<String, WizardSelection>> 
 }
 
 private fun WizardRaw.toUiState(): WeighingWizardUiState {
-    val today = LocalDate.now(ZoneId.of(WEIGHING_WIZARD_ZONE))
+    // Weighing needs the removal evening before every weigh date, so the offered days start at
+    // the 20:00 IST rule's earliest — today disappears entirely (its evening was yesterday).
+    val firstOfferedDate = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE))
     val sheds = shedsInPark()
     val shedsById = sheds.associateBy { it.operationalKey() }
     val ordered = orderedSelections()
@@ -1022,11 +1066,11 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
         canContinue = canContinue(),
         contextLine = contextLine(dateLabel, ordered.size),
         dateOptions = (0 until WEIGHING_WIZARD_DATE_OPTIONS).map { offset ->
-            val day = today.plusDays(offset.toLong())
+            val day = firstOfferedDate.plusDays(offset.toLong())
             WeighingWizardDateOption(
                 isoDate = day.format(ISO_DATE),
                 label = day.format(WIZARD_DAY),
-                note = if (offset == 0) "today" else "upcoming",
+                note = "",
                 selected = date == day.format(ISO_DATE),
             )
         },
@@ -1112,6 +1156,10 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
         operators = operatorsForPark().map {
             WeighingWizardOperatorOption(userId = it.userId, displayName = it.displayName)
         },
+        fastingOperatorUserId = fastingOperatorUserId,
+        fastingOperatorLabel = fastingOperatorUserId?.let { picked ->
+            operatorsForPark().firstOrNull { it.userId == picked }?.displayName
+        }.orEmpty(),
         // Counts stay NUMBERS. The screen names their unit and joins them, in the reader's
         // own language -- a sentence built here can only ever be English.
         configIndividualCount = individualCount,

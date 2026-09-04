@@ -184,6 +184,7 @@ import sg.mesha.goatos.feature.weighing.WeighingExportPreviewScreen
 import sg.mesha.goatos.feature.weighing.WeighingOperatorsScreen
 import sg.mesha.goatos.feature.weighing.plan.WeighingPlanWizardScreen
 import sg.mesha.goatos.feature.weighing.WeighingScreen
+import sg.mesha.goatos.feature.weighing.WeighingFastingDetailScreen
 import sg.mesha.goatos.feature.weighing.WeighingTaskDetailScreen
 import sg.mesha.goatos.feature.weighing.WeighingTasksScreen
 import sg.mesha.goatos.feature.weighing.leadership.WeighingShedDetailScreen
@@ -265,6 +266,8 @@ import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
 import sg.mesha.goatos.viewmodel.VaccinationLeadershipVideosViewModel
 import sg.mesha.goatos.viewmodel.WeighingPlanWizardViewModel
 import sg.mesha.goatos.viewmodel.WeighingViewModel
+import sg.mesha.goatos.viewmodel.WeighingFastingListViewModel
+import sg.mesha.goatos.viewmodel.WeighingFastingDetailViewModel
 import sg.mesha.goatos.viewmodel.WeighingShedDetailViewModel
 
 // Route ids. The backend nav item hrefs map onto these; unknown hrefs fall through
@@ -318,6 +321,12 @@ object Routes {
      */
     const val WEIGHING_ALERTS = "/weighing/alerts"
     const val WEIGHING_SCAN = "/weighing/scan"
+    /**
+     * The feed & water removal recording screen (maintainer decision 2026-09-03): a hosted drill
+     * with Up/Back and no root chrome. Entered ONLY from the removal card on the operator's
+     * weighing list — never from the top-right app bar (nav-entry-point-placement).
+     */
+    const val WEIGHING_REMOVAL = "/weighing/removal"
     /**
      * Hosted Calendar child destination. It deliberately differs from the
      * top-level Vaccination module route so a Calendar drill never activates
@@ -880,6 +889,9 @@ object Routes {
      * themselves are handed over in-process through [WeighingRepeatSeedStore].
      */
     const val WEIGHING_REPEAT_OF_ARG = "repeatOfCampaignId"
+    const val WEIGHING_FASTING_TASK_ARG = "fastingTaskId"
+    const val WEIGHING_FASTING_SHED_ARG = "fastingCampaignShedId"
+    const val WEIGHING_FASTING_TITLE_ARG = "fastingTitle"
 
     /** Scan (execute) entry for a shed — threads the shed id so ScanViewModel loads that
      *  shed's per-animal roster from the backend. */
@@ -962,6 +974,14 @@ object Routes {
         )
         return "$WEIGHING_SCAN?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
     }
+
+    /** Opens ONE shed's removal recording screen (maintainer correction #2, 2026-09-03: one
+     *  card per shed) — the (round, shed) pair is the full identity and both ids travel. */
+    fun weighingRemovalRoute(fastingTaskId: String, campaignShedId: String, title: String): String =
+        "$WEIGHING_REMOVAL?$WEIGHING_FASTING_TASK_ARG=${Uri.encode(fastingTaskId)}" +
+            "&$WEIGHING_FASTING_SHED_ARG=${Uri.encode(campaignShedId)}" +
+            "&$WEIGHING_FASTING_TITLE_ARG=${Uri.encode(title)}"
+
 
     private fun executionRoute(
         base: String,
@@ -1429,17 +1449,33 @@ fun AppNavHost(
             // dead after navigating back.
             val vm: WeighingViewModel = hiltViewModel(entry)
             val state by vm.state.collectAsStateWithLifecycle()
+            // The feed & water removal cards (maintainer decision 2026-09-03): their own state
+            // holder beside the work list's — a separate backend read with its own Room cache.
+            val fastingVm: WeighingFastingListViewModel = hiltViewModel(entry)
+            val fastingState by fastingVm.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
             if (canExecuteWeighing) {
                 WeighingScreen(
                     state = state,
+                    fastingCards = fastingState.cards,
+                    onOpenFastingCard = { card ->
+                        fastingVm.onCardOpened(card)
+                        navController.navigate(
+                            Routes.weighingRemovalRoute(card.fastingTaskId, card.campaignShedId, card.title),
+                        )
+                    },
                     onScanInputChange = vm::onScanInputChange,
                     onScanSubmit = vm::submitTypedScan,
                     onWeightChange = vm::onWeightInputChange,
                     onRecordIndividual = vm::recordIndividual,
                     onRecordShedPartition = vm::recordShedPartition,
                                 onSelectPark = vm::selectAssignmentPark,
-                    onRefresh = vm::refresh,
+                    // One refresh gesture refreshes BOTH reads this screen renders: the shed work
+                    // list and the removal cards (RefreshOnResume rides through here too).
+                    onRefresh = {
+                        vm.refresh()
+                        fastingVm.refresh()
+                    },
                     onOpenAssignment = { assignment ->
                         if (assignment.status.isClosedWeighingAssignmentStatus()) {
                             Toast.makeText(context, "${assignment.label} already submitted", Toast.LENGTH_SHORT).show()
@@ -1840,6 +1876,7 @@ fun AppNavHost(
                 onLoadMoreConfigRows = vm::loadMoreConfigRows,
                 onBucketCategory = vm::setBucketCategory,
                 onBucketOperator = vm::setBucketOperator,
+                onFastingOperator = vm::selectFastingOperator,
                 onToggleConfigPick = vm::toggleConfigPick,
                 onPickAllShown = vm::pickAllShownConfigRows,
                 onClearPicks = vm::clearConfigPicks,
@@ -1907,6 +1944,33 @@ fun AppNavHost(
                 onRecordRowVisible = vm::onRecordRowVisible,
                 onReopen = vm::reopen,
             )
+        }
+
+        // The feed & water removal recording screen (maintainer decision 2026-09-03): a hosted
+        // drill with Up/Back and no root chrome, entered ONLY from the removal card on the
+        // operator's weighing list. CaptureAccessGate + BindVideoCaptureSource for the two
+        // mandatory live-camera videos, exactly like every other capture destination.
+        composable(
+            route = "${Routes.WEIGHING_REMOVAL}?${Routes.WEIGHING_FASTING_TASK_ARG}={${Routes.WEIGHING_FASTING_TASK_ARG}}&${Routes.WEIGHING_FASTING_SHED_ARG}={${Routes.WEIGHING_FASTING_SHED_ARG}}&${Routes.WEIGHING_FASTING_TITLE_ARG}={${Routes.WEIGHING_FASTING_TITLE_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.WEIGHING_FASTING_TASK_ARG) { type = NavType.StringType },
+                navArgument(Routes.WEIGHING_FASTING_SHED_ARG) { type = NavType.StringType },
+                navArgument(Routes.WEIGHING_FASTING_TITLE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: WeighingFastingDetailViewModel = hiltViewModel()
+            val removalState by vm.state.collectAsStateWithLifecycle()
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                WeighingFastingDetailScreen(
+                    state = removalState,
+                    onEvent = vm::onEvent,
+                    onBack = { navController.popBackStack() },
+                )
+            }
         }
 
         composable(

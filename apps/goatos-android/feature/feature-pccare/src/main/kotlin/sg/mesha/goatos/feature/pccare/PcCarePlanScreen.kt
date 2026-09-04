@@ -260,7 +260,11 @@ fun PcCarePlanWizardScreen(
                 PcCarePlanStep.DATE -> {
                     item(key = "step_title") { WizardStepTitle("For which day?") }
                     // The weighing wizard's day list: one radio row per plannable day, today first.
-                    val days = pcCareWizardDayOptions(state.today)
+                    // With the removal toggle ON, a day whose removal evening has already begun
+                    // is not offered at all (mirrors the server's 20:00 IST rule).
+                    val days = pcCareWizardDayOptions(state.today).filter { (iso, _) ->
+                        !state.feedRemovalRequired || state.minSelectableDateIso.isBlank() || iso >= state.minSelectableDateIso
+                    }
                     items(count = days.size, key = { days[it].first }) { index ->
                         val (iso, label) = days[index]
                         WizardOptionRow(
@@ -342,6 +346,49 @@ fun PcCarePlanWizardScreen(
                             )
                         }
                     }
+                    // Feed & water removal before deworming (maintainer decision 2026-09-03) —
+                    // offered ONLY on the deworming wizard. Wording is minimal wizard chrome like
+                    // this screen's other step titles; every refusal sentence stays server-owned.
+                    if (state.feedRemovalOffered) {
+                        item(key = "feed_removal_toggle") {
+                            Column(modifier = Modifier.padding(top = 8.dp)) {
+                                WizardStepTitle("Feed removed before deworming?")
+                                Text(
+                                    text = "Tablets given in feed need feed & water taken out the evening before.",
+                                    color = MeshaColors.Muted,
+                                    style = MeshaType.caption,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                )
+                            }
+                        }
+                        item(key = "feed_removal_yes") {
+                            WizardOptionRow(
+                                label = "Yes — remove feed & water the evening before",
+                                selected = state.feedRemovalRequired,
+                                onClick = { if (!state.feedRemovalRequired) onEvent(PcCarePlanEvent.ToggleFeedRemoval) },
+                            )
+                        }
+                        item(key = "feed_removal_no") {
+                            WizardOptionRow(
+                                label = "No — given by injection",
+                                selected = !state.feedRemovalRequired,
+                                onClick = { if (state.feedRemovalRequired) onEvent(PcCarePlanEvent.ToggleFeedRemoval) },
+                            )
+                        }
+                        if (state.feedRemovalRequired) {
+                            item(key = "removal_people_title") {
+                                WizardStepTitle("Who removes feed & water?")
+                            }
+                            items(count = assignable.size, key = { "removal_" + assignable[it].key }) { index ->
+                                val option = assignable[index]
+                                WizardOptionRow(
+                                    label = option.label,
+                                    selected = option.key in state.selectedRemovalOperatorIds,
+                                    onClick = { onEvent(PcCarePlanEvent.ToggleRemovalOperator(option.key)) },
+                                )
+                            }
+                        }
+                    }
                 }
                 PcCarePlanStep.REVIEW -> {
                     item(key = "step_title") { WizardStepTitle("Review") }
@@ -360,6 +407,14 @@ fun PcCarePlanWizardScreen(
                                     .filter { it.key in state.selectedOperatorIds }
                                     .joinToString(", ") { it.label },
                             )
+                            if (state.feedRemovalRequired) {
+                                ReviewLine(
+                                    "Feed & water removal",
+                                    state.operators
+                                        .filter { it.key in state.selectedRemovalOperatorIds }
+                                        .joinToString(", ") { it.label },
+                                )
+                            }
                         }
                     }
                 }

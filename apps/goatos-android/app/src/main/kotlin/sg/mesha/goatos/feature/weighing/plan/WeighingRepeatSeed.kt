@@ -30,6 +30,14 @@ data class WeighingRepeatSeed(
     val buckets: List<WeighingRepeatBucket>,
     val editCampaignId: String? = null,
     val editWeighDate: String? = null,
+    /**
+     * The task's CURRENT feed & water removal operator, carried into an EDIT so the mandatory pick
+     * opens already answered. Re-sending the same person is a no-op on the server, so an edit of a
+     * task whose removal was already submitted saves cleanly instead of reading as an attempted
+     * rewrite of who did the work. Null for a repeat (a new task picks afresh) and for a task that
+     * predates the precondition.
+     */
+    val fastingOperatorUserId: String? = null,
 )
 
 /**

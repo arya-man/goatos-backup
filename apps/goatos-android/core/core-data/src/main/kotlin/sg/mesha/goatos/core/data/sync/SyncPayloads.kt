@@ -192,6 +192,29 @@ data class WeighingShedObservationPayload(
     @SerialName("request") val request: WeighingShedObservationRequestDto,
 )
 
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_FASTING_SUBMIT]
+ * (`POST /app/weighing/fasting/{fasting_task_id}/sheds/{campaign_shed_id}/submit`, maintainer
+ * correction #2, 2026-09-03: the submit is PER SHED — ONE shed's own feed and water videos).
+ *
+ * The two fresh clips are carried by REFERENCE to their PROOF_UPLOAD outbox rows — OUTBOX ITEM
+ * IDS, never proof ids (docs/mobile/proof-capture-sync-and-e2e.md §3a): the dispatcher resolves
+ * each row's uploaded `proof_id` at drain time. The uploads sit on their own per-slot upload
+ * groups (one backed-off clip must not strand the other), so this submit does NOT share their
+ * lane; a not-yet-uploaded clip suspends the WHOLE dispatch on the proof-dependency wait instead
+ * of burning retry budget. The (fasting task, campaign shed) pair is the outbox group key so two
+ * submits of the same shed card drain strictly oldest-first.
+ */
+@Serializable
+data class WeighingFastingSubmitPayload(
+    @SerialName("fasting_task_id") val fastingTaskId: String,
+    @SerialName("campaign_shed_id") val campaignShedId: String = "",
+    /** Outbox id of THIS shed's freshly recorded feed-removal VIDEO's PROOF_UPLOAD item. */
+    @SerialName("feed_proof_outbox_item_id") val feedProofOutboxItemId: String? = null,
+    /** Outbox id of THIS shed's freshly recorded water-removal VIDEO's PROOF_UPLOAD item. */
+    @SerialName("water_proof_outbox_item_id") val waterProofOutboxItemId: String? = null,
+)
+
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_SCOPE_SUBMIT]. */
 @Serializable
 data class WeighingScopeSubmitPayload(

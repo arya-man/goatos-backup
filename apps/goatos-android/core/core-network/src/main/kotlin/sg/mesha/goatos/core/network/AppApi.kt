@@ -181,6 +181,10 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationAlertPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingFastingShedCardDto
+import sg.mesha.goatos.core.network.dto.WeighingFastingShedCardListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingFastingShedCardResponseDto
+import sg.mesha.goatos.core.network.dto.SubmitWeighingFastingShedRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
@@ -606,6 +610,30 @@ interface AppApi {
     ): WeighingLeadershipShedVideosResponseDto
 
 
+
+    /**
+     * GET /app/weighing/fasting — the caller's own feed & water removal cards, ONE CARD PER SHED
+     * (maintainer correction #2, 2026-09-03). Keyset-paged, newest window first. The 20:00 IST
+     * serve window and the midnight roll-forward are SERVER-side: the client never derives the
+     * window from its own clock — it simply re-reads and renders what comes back.
+     */
+    suspend fun listWeighingFastingShedCards(
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+    ): WeighingFastingShedCardListResponseDto
+
+    /**
+     * POST /app/weighing/fasting/{fasting_task_id}/sheds/{campaign_shed_id}/submit — ONE shed's
+     * two removal videos. The offline sync engine drains this with a stable [idempotencyKey]
+     * (same key on every retry), so a server-committed-but-client-unrecorded replay returns the
+     * original result.
+     */
+    suspend fun submitWeighingFastingShed(
+        fastingTaskId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: SubmitWeighingFastingShedRequestDto,
+    ): WeighingFastingShedCardResponseDto
 
     /**
      * GET /app/weighing/alerts — the weighing module's OWN lifecycle feed: work assigned, shed
@@ -1908,6 +1936,26 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         WeighingCampaignDetailResponseDto()
 
     override suspend fun listWeighingParks(): WeighingParkListResponseDto = WeighingParkListResponseDto()
+
+    override suspend fun listWeighingFastingShedCards(
+        cursor: String?,
+        limit: Int,
+    ): WeighingFastingShedCardListResponseDto = WeighingFastingShedCardListResponseDto()
+
+    override suspend fun submitWeighingFastingShed(
+        fastingTaskId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: SubmitWeighingFastingShedRequestDto,
+    ): WeighingFastingShedCardResponseDto = WeighingFastingShedCardResponseDto(
+        fastingShedCard = WeighingFastingShedCardDto(
+            fastingTaskId = fastingTaskId,
+            campaignShedId = campaignShedId,
+            feedProofRef = request.feedProofRef,
+            waterProofRef = request.waterProofRef,
+            status = "pending_verification",
+        ),
+    )
 
     override suspend fun listWeighingCampaignSheds(
         campaignId: String,

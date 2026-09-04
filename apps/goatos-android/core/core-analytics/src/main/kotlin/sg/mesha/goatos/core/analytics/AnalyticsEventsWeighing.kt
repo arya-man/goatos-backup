@@ -143,4 +143,21 @@ object AnalyticsEventsWeighing {
      * instability was reintroduced.
      */
     const val WEIGHING_WEIGHT_FIELD_FOCUS_FAILED = "weighing_weight_field_focus_failed"
+
+    // ---- Feed & water removal (maintainer decision 2026-09-03) --------------------------------
+
+    /** The removal operator opened a feed & water removal card from the weighing list.
+     *  [AnalyticsEvents.Params.STATUS] carries the card's backend status at tap time. */
+    const val WEIGHING_REMOVAL_CARD_OPENED = "weighing_removal_card_opened"
+
+    /** One of the card's two videos was captured and its upload durably queued.
+     *  [AnalyticsEvents.Params.FIELD] names the slot (feed/water field key). */
+    const val WEIGHING_REMOVAL_SLOT_CAPTURED = "weighing_removal_slot_captured"
+
+    /** The removal submit was durably queued (both videos referenced). */
+    const val WEIGHING_REMOVAL_SUBMITTED = "weighing_removal_submitted"
+
+    /** A removal capture or submit failed before it could be queued.
+     *  [AnalyticsEvents.Params.REASON] carries the real message, truncated. */
+    const val WEIGHING_REMOVAL_FAILURE = "weighing_removal_failure"
 }

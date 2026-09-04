@@ -141,6 +141,14 @@ data class WeighingWizardUiState(
     val configPerOperator: List<WeighingWizardOperatorLoad> = emptyList(),
 
     /**
+     * WHO removes feed & water from the selected sheds the evening before the weigh date
+     * (maintainer decision 2026-09-03). ONE person for the whole task, picked from the same
+     * park-scoped [operators] roster, and mandatory before the task can be saved.
+     */
+    val fastingOperatorUserId: String? = null,
+    val fastingOperatorLabel: String = "",
+
+    /**
      * Set only when this task is being started FROM an existing one: names where the answers came
      * from, so the planner knows what is already filled in and can still change all of it.
      */
