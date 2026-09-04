@@ -116,6 +116,9 @@ test("weights analytics fails selected tabs instead of rendering API failures as
   assert.match(analyticsSource, /function WeightsAnalyticsLoadError/);
   assert.doesNotMatch(analyticsSource, /perParkResults/);
   assert.doesNotMatch(analyticsSource, /function mustHaveData/);
+  // A failed growth read takes the tab down above; the per-park cards read that same response and
+  // must never fall back to an empty list that reads as "no park grew".
+  assert.match(analyticsSource, /growth\?\.ok \? \(growth\.data\.by_park \?\? \[\]\) : \[\]/);
   assert.match(analyticsSource, /const demo = demographics\?\.ok \? demographics\.data : null;/);
 });
 
@@ -177,6 +180,22 @@ test("daily gain survives a park-scoped page", () => {
   assert.match(source, /\{selectedParkName \|\| copy\(pageContract, "kpi\.park_gain\.all"\)\}/);
   // Never the raw park id: that would put an internal identifier in front of a CEO.
   assert.match(source, /parks\.find\(\(park\) => park\.park_id === parkFilter\)\?\.name \?\? ""/);
+});
+
+test("the analytics General tab reads its per-park gain from the growth response", () => {
+  // The regression this pins: the per-park read was emptied to a literal `[]` while every line of
+  // card markup below it survived, so the page kept its "CBE — daily gain" / "CPT — daily gain"
+  // renderer and had nothing to render. Asserting the markup is therefore not enough -- the DATA
+  // is the half that went missing, so the data is what this test names.
+  assert.match(analyticsSource, /growth\.data\.by_park \?\? \[\]/);
+  assert.match(analyticsSource, /gain: park\.average_adg_g_per_day \?\? null/);
+  assert.match(analyticsSource, /animals: park\.headline_animals/);
+  // ...and it comes off the request the page ALREADY makes. The extra per-park round trips were
+  // removed for page speed; re-adding them is what this half of the pin forbids.
+  assert.doesNotMatch(analyticsSource, /perParkResults/);
+  assert.doesNotMatch(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow, park_id: park\.park_id \}\)/);
+  // A park narrowed to by the reader shows no card: the headline above already is that park.
+  assert.match(analyticsSource, /tab === "general" && parkFilter === ""/);
 });
 
 test("shed lists and gain chart only show sheds weighed in the selected window", () => {

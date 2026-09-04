@@ -48,6 +48,11 @@ const growthPairsCTE = `
 base AS (
   SELECT wo.observation_id, wo.weight_kg::float8 AS weight_kg, wo.accepted_at,
          wo.verification_status, wcs.location_id, wcs.display_name AS shed_name,
+         -- The PARK the weigh happened in, carried so a read can cut the herd figure per park
+         -- without re-running this whole CTE once per park. Goats never move between parks
+         -- (maintainer rule), so a pair is always formed inside one park and attributing it to
+         -- the later weigh's park partitions the herd rather than double-counting it.
+         wc.park_id,
          COALESCE(wcs.partition_label, '') AS partition_label,
          wcs.weighing_category,
          lower(btrim(wo.scanned_identifier)) AS animal_key
@@ -77,7 +82,7 @@ ordered AS (
   WINDOW w AS (PARTITION BY animal_key ORDER BY accepted_at, observation_id)
 ),
 pairs AS (
-  SELECT animal_key, location_id, shed_name, partition_label, weighing_category, observation_id, prev_observation_id,
+  SELECT animal_key, park_id, location_id, shed_name, partition_label, weighing_category, observation_id, prev_observation_id,
          verification_status, prev_verification_status, accepted_at, prev_accepted_at,
          -- Carried so a caller can state the actual change ("19.0 -> 18.2 kg"), not just a rate.
          weight_kg, prev_weight,
@@ -222,12 +227,23 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
+	// Per-park cut of the SAME headline statistic, and only when there is more than one park to
+	// cut: with a single park in scope the headline above already IS that park's figure, so the
+	// query would cost a scan to restate a number the response carries twice.
+	var byPark []domain.GrowthParkGain
+	if len(parkIDs) > 1 {
+		byPark, err = r.growthParkGains(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		if err != nil {
+			return domain.GrowthADG{}, err
+		}
+	}
 	// The tile drills into this list, so the count it shows must be the length of THIS list.
 	headline.LosingAnimalCount = len(losing)
 	return domain.GrowthADG{
 		ParkID:          singlePark,
 		ParkIDs:         parkIDs,
 		Parks:           parks,
+		ByPark:          byPark,
 		LosingAnimals:   losing,
 		PeriodStart:     periodStart.Format("2006-01-02"),
 		PeriodEnd:       periodEnd.Add(-24 * time.Hour).Format("2006-01-02"),
@@ -967,6 +983,129 @@ LIMIT 200`
 			}).Display()
 		}
 		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// growthParkGains cuts the HEADLINE statistic per park, in ONE query.
+//
+// It is deliberately the same arithmetic as growthHeadlineStats -- the animal-weighted mean over
+// every kid weighed twice (each kid once, at the median of its own pairs) PLUS every whole-shed
+// pen weighed twice, each contributing its average-weight movement once per animal it holds
+// (maintainer decision 2026-08-26) -- with a GROUP BY park instead of a single row. Two figures
+// on one page that claim to be "daily gain" must be the same statistic, so this must never drift
+// into a cheaper approximation of the number above it.
+//
+// The page used to build these cards by calling the whole growth endpoint once per park. That is
+// one extra round trip per park on a screen with a sub-500ms budget, and it was removed for page
+// speed -- which silently emptied the cards. Computing it here costs no extra request.
+//
+// projection-review: producer grain is one qualifying PAIR (weighing_observations) and one live
+// whole-shed row per (location_id, partition_label); consumer grain is one row per park.
+// animal_gain groups by (park_id, animal_key) so an animal counts ONCE in its park, and shed_span
+// carries latest.rn = 1 joined to first.rn = 1 on the same pen, so sum(animals) ranges over
+// disjoint pens. Numerator and denominator range over the IDENTICAL key set (both read `contrib`,
+// same FROM, same WHERE), which is what makes the weighted mean honest. Bounded to the parks in
+// scope -- two today -- and never paginated.
+// growthParkGainsQuery is hoisted to package level so the query-plan proof and the scale guard
+// can both reach it; it is the per-park cut of growthHeadlineStats' own arithmetic.
+const growthParkGainsQuery = `WITH ` + growthPairsCTE + `),
+-- projection-review: membership=weighing_observations pairs + live weighing_shed_observations; group_key=park_id; join_cardinality=one animal per (park, animal_key), one pen per (location_id, partition_label) via rn=1 both sides; pagination=one row per park in scope, never paged; scope=park_ids, plus the sex/origin scope applied to BOTH arms
+--
+-- The weighted mean's numerator and denominator range over the IDENTICAL key set: both read the
+-- contrib CTE, same FROM, same WHERE. That is what makes sum(gain)/sum(animals) a mean of the
+-- population it claims to describe rather than of two different ones.
+inperiod AS (
+  SELECT * FROM qualifying
+  WHERE accepted_at >= $5::timestamptz
+    AND ($10::text = '' OR weighing_category = $10::text)
+),
+animal_gain AS (
+  SELECT park_id, animal_key,
+         percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) AS g
+  FROM inperiod GROUP BY park_id, animal_key
+),
+shed_span AS (
+  SELECT latest.park_id,
+         latest.animal_count::float8 AS animals,
+         (latest.average_weight_kg - first.average_weight_kg) * 1000.0
+           / NULLIF(latest.d - first.d, 0) AS g_per_day
+  FROM (
+    SELECT c2.park_id, cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label,
+           o.average_weight_kg, o.animal_count,
+           (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY o.accepted_at DESC) AS rn
+    FROM weighing_shed_observations o
+    JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id AND cs2.tenant_id = o.tenant_id
+    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id AND c2.tenant_id = o.tenant_id
+    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
+      AND o.accepted_at >= $5::timestamptz AND o.accepted_at < $4::timestamptz
+      AND ($10::text = '' OR cs2.weighing_category = $10::text)
+      -- A whole-shed weigh carries no tag, so under a Sex/Origin filter it is claimed only when
+      -- its pen's cohort is entirely that cohort; a mixed pen is claimed by neither side, exactly
+      -- as in the headline query above.
+      AND (NOT $6::bool OR EXISTS (
+        SELECT 1 FROM unnest($8::uuid[], $9::text[]) AS b(loc, part)
+        WHERE b.loc = cs2.location_id AND b.part = COALESCE(cs2.partition_label, '')
+      ))
+  ) latest
+  JOIN (
+    SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label,
+           o.average_weight_kg,
+           (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY o.accepted_at ASC) AS rn
+    FROM weighing_shed_observations o
+    JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id AND cs2.tenant_id = o.tenant_id
+    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id AND c2.tenant_id = o.tenant_id
+    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
+      AND o.accepted_at >= $5::timestamptz AND o.accepted_at < $4::timestamptz
+      AND ($10::text = '' OR cs2.weighing_category = $10::text)
+      AND (NOT $6::bool OR EXISTS (
+        SELECT 1 FROM unnest($8::uuid[], $9::text[]) AS b(loc, part)
+        WHERE b.loc = cs2.location_id AND b.part = COALESCE(cs2.partition_label, '')
+      ))
+  ) first ON first.location_id = latest.location_id
+    AND first.partition_label = latest.partition_label
+    AND first.rn = 1
+  WHERE latest.rn = 1 AND latest.d > first.d
+),
+-- One row per contributing UNIT, so the weighted mean below is a plain sum/sum over one set: a
+-- scanned kid weighs 1, a pen of 76 kids weighs 76.
+contrib AS (
+  SELECT park_id, g AS weighted_gain, 1::float8 AS animals FROM animal_gain
+  UNION ALL
+  SELECT park_id, animals * g_per_day, animals FROM shed_span
+)
+-- The park's SHORT CODE (CBE, CPT) when it has one, falling back to its full name -- the SAME
+-- rule ShedWeightsRow.ParkName and LoadPlacement.ParkName follow, so a card, a shed row and a
+-- load placement cannot disagree about what a park is called on one screen.
+SELECT pk.location_id::text, COALESCE(NULLIF(pk.location_code, ''), pk.name, ''),
+       sum(c.weighted_gain) / NULLIF(sum(c.animals), 0),
+       sum(c.animals)::bigint
+FROM contrib c
+JOIN locations pk ON pk.tenant_id = $1::uuid AND pk.location_id = c.park_id
+GROUP BY pk.location_id, pk.location_code, pk.name
+ORDER BY COALESCE(NULLIF(pk.location_code, ''), pk.name, '') ASC`
+
+func (r *Repository) growthParkGains(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) ([]domain.GrowthParkGain, error) {
+	rows, err := r.pool.Query(ctx, growthParkGainsQuery, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags,
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.GrowthParkGain{}
+	for rows.Next() {
+		var p domain.GrowthParkGain
+		// The average scans into a POINTER: a park with nothing weighed twice contributes no
+		// `contrib` row at all and is simply absent, and one whose movements cancel out is a real
+		// 0 -- the two must not be told apart by a fabricated zero.
+		if err := rows.Scan(&p.ParkID, &p.ParkName, &p.AverageADGGPerDay, &p.HeadlineAnimals); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
 	}
 	return out, rows.Err()
 }

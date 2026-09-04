@@ -234,6 +234,15 @@ type GrowthADG struct {
 	// Parks names the ids in ParkIDs so a client can offer a park selector without inventing
 	// labels. Read from `locations`, which is an allowlisted org table -- NOT herd data.
 	Parks []GrowthPark `json:"parks"`
+	// ByPark is the headline statistic cut PER PARK, so a herd-wide page can put CBE and CPT
+	// beside the all-parks figure and read them against each other. It is the IDENTICAL
+	// statistic Headline.AverageADGGPerDay reports -- same animal-weighted mean, same
+	// whole-shed pens counted once per animal they hold, same filters -- computed in the SAME
+	// request rather than by asking this endpoint again once per park.
+	//
+	// Empty when only ONE park is in scope: the headline above already IS that park's number,
+	// and a card restating it is one figure stated twice.
+	ByPark []GrowthParkGain `json:"by_park"`
 	// LosingAnimals names the animals whose latest pair shows a LOSS. Returned so the headline
 	// count is drillable: a tappable "15 losing" that leads nowhere specific is a dead end, and
 	// the whole point of surfacing it is to let someone go and look at those animals.
@@ -250,6 +259,25 @@ type GrowthADG struct {
 	Distribution    []GrowthDistributionBucket `json:"distribution"`
 	SaleReadiness   GrowthSaleReadiness        `json:"sale_readiness"`
 	LumpSum         GrowthLumpSum              `json:"lump_sum"`
+}
+
+// GrowthParkGain is ONE park's daily gain, on exactly the terms the herd headline uses.
+//
+// It exists so the per-park cards cost NO extra request. They used to be built by calling this
+// whole endpoint once per park from the page, which was removed for page speed and took the
+// cards down with it; the statistic belongs beside the headline it must agree with anyway.
+type GrowthParkGain struct {
+	ParkID string `json:"park_id"`
+	// ParkName is resolved from `locations` -- an allowlisted org table (where a park is), never
+	// herd data -- because a card labelled with a uuid is not a card anyone can read.
+	ParkName string `json:"park_name"`
+	// AverageADGGPerDay is nil, never 0, when this park has nothing weighed twice in the period.
+	// A park that nobody weighed has no growth to report, and "0 g" reads as a herd that stopped
+	// growing -- a different, untrue statement.
+	AverageADGGPerDay *float64 `json:"average_adg_g_per_day"`
+	// HeadlineAnimals is how many kids this park's figure speaks for: its scanned animals plus
+	// every animal in its whole-shed pens that moved. It is the card's own denominator.
+	HeadlineAnimals int `json:"headline_animals"`
 }
 
 // GrowthPark is the id/name pair behind a park scope option.

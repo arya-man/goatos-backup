@@ -225,7 +225,27 @@ export async function WeighingWeightsAnalyticsPage({
   const { rows, summary, parks, period_start: periodStart, period_end: periodEnd } = weights.data;
   const demo = demographics?.ok ? demographics.data : null;
 
-  const perParkGain: Array<{ name: string; gain: number | null; animals: number }> = [];
+  // Per-park gain cards beside the all-parks one, so CBE and CPT can be read against each other
+  // and against the herd. They come off the growth read the page ALREADY made -- `by_park` is the
+  // identical statistic as the headline, cut per park in the same query -- so the cards cost no
+  // extra request.
+  //
+  // They were once built by calling that endpoint again once per park, which is one extra round
+  // trip per park on a screen with a sub-500ms budget; removing those calls for page speed left
+  // the card markup below rendering an empty list, and the cards silently vanished. The backend
+  // now carries the cut, so speed and the cards are no longer a trade.
+  //
+  // Empty whenever the reader has narrowed to one park: the card above is then that park's, and
+  // restating it beside itself says nothing. The backend applies the SAME filters to this cut as
+  // to the headline, so the cards can never describe a different population than the row above.
+  const perParkGain =
+    tab === "general" && parkFilter === ""
+      ? (growth?.ok ? (growth.data.by_park ?? []) : []).map((park) => ({
+          name: park.park_name,
+          gain: park.average_adg_g_per_day ?? null,
+          animals: park.headline_animals,
+        }))
+      : [];
 
   const modeOptions = optionGroup(pageContract, "weighing_mode");
   const parkIdByName = new Map(parks.map((park) => [park.name, park.park_id]));

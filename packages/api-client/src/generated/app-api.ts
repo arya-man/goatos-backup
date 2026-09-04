@@ -11890,6 +11890,19 @@ export interface components {
             park_id: string;
             name: string;
         };
+        /** @description One park's daily gain, on exactly the terms the herd headline uses: the animal-weighted mean over every kid weighed twice plus every whole-pen weigh, each pen counted once per animal it holds. The same filters as the rest of the response apply. */
+        WeighingParkGain: {
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /**
+             * Format: double
+             * @description Null when this park had nothing weighed twice in the period. Never 0 for that case -- a park nobody weighed twice is not a park whose herd stopped growing.
+             */
+            average_adg_g_per_day: number | null;
+            /** @description How many animals this park's figure speaks for -- the card's own denominator. */
+            headline_animals: number;
+        };
         WeighingPlannerCampaignSummary: {
             /** Format: uuid */
             campaign_id: string;
@@ -12848,6 +12861,8 @@ export interface components {
             park_ids: string[];
             /** @description Names the ids in park_ids so a client can offer a park selector. */
             parks: components["schemas"]["WeighingPark"][];
+            /** @description The headline daily gain cut PER PARK, so a herd-wide page can show each park beside the all-parks figure without asking this endpoint again once per park. Absent or empty when only one park is in scope -- the headline then already IS that park. */
+            by_park?: components["schemas"]["WeighingParkGain"][];
             losing_animals: components["schemas"]["WeighingGrowthLosingAnimal"][];
             /** Format: date */
             period_start: string;
