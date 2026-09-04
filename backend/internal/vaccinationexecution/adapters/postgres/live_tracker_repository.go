@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/sync/errgroup"
 
 	vaccinatdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -19,6 +20,13 @@ import (
 // once here rather than inline in six SQL strings, because a single divergent copy would silently
 // move one section of the page onto a different day than the rest.
 const istZone = "Asia/Kolkata"
+
+const liveTrackerCacheTTL = 5 * time.Second
+
+type liveTrackerCacheEntry struct {
+	expiresAt time.Time
+	response  domain.LiveTrackerResponse
+}
 
 // liveTrackerVaccineFamilyExpr reduces a protocol dose code to its antigen family, which is the
 // grain the tracker's vaccine axis works at ("goat_pox_adult_w1" -> "goat_pox"). It mirrors
@@ -170,6 +178,38 @@ day_assignments AS (
     AND a.planned_date = $2::date
   ORDER BY a.shed_id, ` + liveTrackerPartitionNormExpr("a.partition_label") + `, a.assignment_id
 ),
+candidate_obligations AS (
+  -- Start from TODAY's work, not every open goat obligation in the tenant. The old shape scanned
+  -- all open goat obligations (~9k on the live tenant), joined protocol/location/evidence tables,
+  -- and only then kept the 229 rows for this drive day. Assigned work is directly keyed by
+  -- vaccination_drive_assignments.planned_date; unassigned work is bounded by the day window and
+  -- checked later against the override-aware effective date.
+  SELECT
+    m.obligation_id,
+    a.operator_id AS assigned_operator_id
+  FROM vaccination_drive_assignments a
+  JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = a.tenant_id
+   AND m.assignment_id = a.assignment_id
+  WHERE a.tenant_id = $1::uuid
+    AND a.planned_date = $2::date
+
+  UNION ALL
+
+  SELECT
+    oi.obligation_id,
+    NULL::uuid AS assigned_operator_id
+  FROM obligation_instances oi
+  LEFT JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = oi.tenant_id
+   AND m.obligation_id = oi.obligation_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.status NOT IN ('canceled', 'superseded', 'waived', 'missed', 'deferred')
+    AND m.obligation_id IS NULL
+    AND oi.due_at >= (SELECT due_floor FROM day_window)
+    AND oi.due_at < (SELECT day_end FROM day_window)
+),
  -- projection-review: membership=assigned obligation_instances by vaccination_drive_assignment_members/vaccination_drive_assignments.planned_date OR unassigned obligation_instances by effective due/override date; group_key=park_id,shed_id,partition_label,vaccine_family,operator_id; join_cardinality=assignment_members is obligation_id-keyed and day_assignments is DISTINCT ON shed plus partition so no OneToMany assignment row can fan out counts; pagination=rollup windows calculate before PageBoundary limits and activity pages after event projection; scope=tenant plus ParkScope auth/selection, shed, partition, operator, vaccine and StatusMatrix dead-obligation exclusions.
  scoped AS (
   SELECT
@@ -184,8 +224,11 @@ day_assignments AS (
     ` + liveTrackerPartitionNormExpr("gsp.partition_label") + ` AS part_norm,
     pr.dose_code,
     pd.name AS protocol_name,` + liveTrackerVaccineFamilyExpr + ` AS vaccine_family,
-    member_assignment.operator_id AS assigned_operator_id
-  FROM obligation_instances oi
+    co.assigned_operator_id
+  FROM candidate_obligations co
+  JOIN obligation_instances oi
+    ON oi.tenant_id = $1::uuid
+   AND oi.obligation_id = co.obligation_id
   JOIN goats g
     ON g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
@@ -213,11 +256,6 @@ day_assignments AS (
     WHERE dim.tenant_id = pr.tenant_id
       AND dim.rule_id = pr.rule_id
   ) prd ON true
-  LEFT JOIN vaccination_drive_assignment_members member
-    ON member.tenant_id = oi.tenant_id
-   AND member.obligation_id = oi.obligation_id
-  LEFT JOIN vaccination_drive_assignments member_assignment
-    ON member_assignment.assignment_id = member.assignment_id
   LEFT JOIN vaccination_drive_date_overrides ovr
     ON ovr.tenant_id = oi.tenant_id
    AND ovr.park_id = g.park_id
@@ -231,18 +269,7 @@ day_assignments AS (
     -- into the scheduled count inflates the Scheduled tile and Remaining, and holds the shed row at
     -- not_started for the rest of the day. Same exclusion set as repository.go's execution reads.
     AND oi.status NOT IN ('canceled', 'superseded', 'waived', 'missed', 'deferred')
-    -- Assigned obligations belong to their persisted operator drive day. Unassigned obligations
-    -- still use due_at/override. This prevents old completed drive work with a future clinical due
-    -- date from leaking into a later live tracker day with a blank operator.
-    AND (
-      member_assignment.planned_date = $2::date
-      OR (
-        member_assignment.assignment_id IS NULL
-        AND oi.due_at >= (SELECT due_floor FROM day_window)
-        AND oi.due_at < (SELECT day_end FROM day_window)
-        AND COALESCE(ovr.override_date, (oi.due_at AT TIME ZONE '` + istZone + `')::date) = $2::date
-      )
-    )
+    AND (co.assigned_operator_id IS NOT NULL OR COALESCE(ovr.override_date, (oi.due_at AT TIME ZONE '` + istZone + `')::date) = $2::date)
     AND ($3::text = '' OR g.park_id = NULLIF($3::text, '')::uuid)
     -- $8 is the AUTHORIZATION park set, distinct from $3 (the caller's own park selection). It is
     -- NULL only for a genuinely tenant-wide capability holder. The filter-bar vocabulary is compiled
@@ -919,6 +946,10 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 
 	loc := q.BusinessDate.Location()
 	businessDate := q.BusinessDate.Format("2006-01-02")
+	cacheKey := liveTrackerCacheKey(q, businessDate)
+	if cached, ok := r.getLiveTrackerCache(cacheKey, time.Now()); ok {
+		return cached, nil
+	}
 	parkFilter := liveTrackerParkFilter(ctx, q)
 	shedFilter := optStr(q.ShedID)
 	partitionFilter := ""
@@ -938,25 +969,9 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 	// $8 is the AUTHORIZATION park set (NULL = tenant-wide capability), carried separately from $3 so
 	// the filter-bar vocabulary — which deliberately drops $3 to keep the park control from
 	// self-collapsing — still cannot span parks the actor holds no grant in.
+	authorizedParkScope := liveTrackerAuthorizedParkScope(ctx, q.TenantID)
 	base := []any{q.TenantID, businessDate, parkFilter, shedFilter, partitionFilter, operatorFilter, vaccineFilter,
-		liveTrackerAuthorizedParkScope(ctx, q.TenantID)}
-
-	cells, err := r.liveTrackerCells(ctx, base)
-	if err != nil {
-		return domain.LiveTrackerResponse{}, fmt.Errorf("live tracker cells: %w", err)
-	}
-	actors, err := r.liveTrackerActors(ctx, base)
-	if err != nil {
-		return domain.LiveTrackerResponse{}, fmt.Errorf("live tracker actors: %w", err)
-	}
-	combo, err := r.liveTrackerCombo(ctx, base)
-	if err != nil {
-		return domain.LiveTrackerResponse{}, fmt.Errorf("live tracker combo: %w", err)
-	}
-	activity, err := r.liveTrackerActivity(ctx, base, activityLimit, q.ActivityBefore, optStr(q.ActivityBeforeID))
-	if err != nil {
-		return domain.LiveTrackerResponse{}, fmt.Errorf("live tracker activity: %w", err)
-	}
+		authorizedParkScope}
 	// The filter vocabulary is compiled under the AUTHORIZATION clamp, never under the user's own park
 	// selection. Passing the selected park here made the park control self-collapsing: once a park was
 	// chosen the dropdown offered only that park and the user could not switch back, and on a park
@@ -967,13 +982,66 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 	// the actor held more than one park grant compiled this vocabulary TENANT-WIDE, handing a
 	// two-park director every other park's shed names, partition labels, operator names and vaccine
 	// codes — and this query is the only authorization gate that applies to it.
-	options, err := r.liveTrackerFilterOptions(ctx, q.TenantID, businessDate, liveTrackerAuthorizedParkScope(ctx, q.TenantID))
-	if err != nil {
-		return domain.LiveTrackerResponse{}, fmt.Errorf("live tracker filter options: %w", err)
-	}
-	verification, err := r.liveTrackerVerification(ctx, q.TenantID, businessDate, parkFilter, shedFilter, liveTrackerAuthorizedParkScope(ctx, q.TenantID))
-	if err != nil {
-		return domain.LiveTrackerResponse{}, fmt.Errorf("live tracker verification: %w", err)
+	var (
+		cells        []liveTrackerCell
+		actors       []liveTrackerActor
+		combo        domain.LiveTrackerCombo
+		activity     domain.LiveTrackerActivity
+		options      domain.LiveTrackerFilterOptions
+		verification domain.LiveTrackerVerification
+	)
+	group, gctx := errgroup.WithContext(ctx)
+	group.SetLimit(4)
+	group.Go(func() error {
+		var err error
+		cells, err = r.liveTrackerCells(gctx, base)
+		if err != nil {
+			return fmt.Errorf("live tracker cells: %w", err)
+		}
+		return nil
+	})
+	group.Go(func() error {
+		var err error
+		actors, err = r.liveTrackerActors(gctx, base)
+		if err != nil {
+			return fmt.Errorf("live tracker actors: %w", err)
+		}
+		return nil
+	})
+	group.Go(func() error {
+		var err error
+		combo, err = r.liveTrackerCombo(gctx, base)
+		if err != nil {
+			return fmt.Errorf("live tracker combo: %w", err)
+		}
+		return nil
+	})
+	group.Go(func() error {
+		var err error
+		activity, err = r.liveTrackerActivity(gctx, base, activityLimit, q.ActivityBefore, optStr(q.ActivityBeforeID))
+		if err != nil {
+			return fmt.Errorf("live tracker activity: %w", err)
+		}
+		return nil
+	})
+	group.Go(func() error {
+		var err error
+		options, err = r.liveTrackerFilterOptions(gctx, q.TenantID, businessDate, authorizedParkScope)
+		if err != nil {
+			return fmt.Errorf("live tracker filter options: %w", err)
+		}
+		return nil
+	})
+	group.Go(func() error {
+		var err error
+		verification, err = r.liveTrackerVerification(gctx, q.TenantID, businessDate, parkFilter, shedFilter, authorizedParkScope)
+		if err != nil {
+			return fmt.Errorf("live tracker verification: %w", err)
+		}
+		return nil
+	})
+	if err := group.Wait(); err != nil {
+		return domain.LiveTrackerResponse{}, err
 	}
 
 	now := time.Now().In(loc)
@@ -1038,7 +1106,7 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 	}
 
 	kpis, unassigned := liveTrackerKPIs(kpiCells, totals, combo.AnimalCount, attentionTotal)
-	return domain.LiveTrackerResponse{
+	response := domain.LiveTrackerResponse{
 		BusinessDate:              businessDate,
 		GeneratedAt:               now,
 		IsLiveDay:                 q.BusinessDate.In(loc).Format("2006-01-02") == now.Format("2006-01-02"),
@@ -1058,7 +1126,61 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 		AttentionTruncated:        attentionTotal > len(attention),
 		Verification:              verification,
 		FilterOptions:             options,
-	}, nil
+	}
+	r.setLiveTrackerCache(cacheKey, response, time.Now())
+	return response, nil
+}
+
+func liveTrackerCacheKey(q domain.LiveTrackerQuery, businessDate string) string {
+	return strings.Join([]string{
+		q.TenantID,
+		businessDate,
+		optStr(q.ParkID),
+		optStr(q.ShedID),
+		optStr(q.PartitionLabel),
+		optStr(q.OperatorID),
+		optStr(q.VaccineCode),
+		liveTrackerStatusKey(q.Status),
+		fmt.Sprint(q.ActivityLimit),
+		liveTrackerTimeKey(q.ActivityBefore),
+		optStr(q.ActivityBeforeID),
+	}, "\x1f")
+}
+
+func liveTrackerStatusKey(status *domain.LiveTrackerStatus) string {
+	if status == nil {
+		return ""
+	}
+	return string(*status)
+}
+
+func liveTrackerTimeKey(ts *time.Time) string {
+	if ts == nil {
+		return ""
+	}
+	return ts.UTC().Format(time.RFC3339Nano)
+}
+
+func (r *Repository) getLiveTrackerCache(key string, now time.Time) (domain.LiveTrackerResponse, bool) {
+	r.liveTrackerMu.Lock()
+	defer r.liveTrackerMu.Unlock()
+	entry, ok := r.liveTrackerCache[key]
+	if !ok || now.After(entry.expiresAt) {
+		if ok {
+			delete(r.liveTrackerCache, key)
+		}
+		return domain.LiveTrackerResponse{}, false
+	}
+	return entry.response, true
+}
+
+func (r *Repository) setLiveTrackerCache(key string, response domain.LiveTrackerResponse, now time.Time) {
+	r.liveTrackerMu.Lock()
+	defer r.liveTrackerMu.Unlock()
+	if len(r.liveTrackerCache) > 128 {
+		r.liveTrackerCache = make(map[string]liveTrackerCacheEntry)
+	}
+	r.liveTrackerCache[key] = liveTrackerCacheEntry{expiresAt: now.Add(liveTrackerCacheTTL), response: response}
 }
 
 // liveTrackerStateClock is the clock every elapsed-minutes decision on this page is measured

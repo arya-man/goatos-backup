@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -83,6 +84,8 @@ type Repository struct {
 	// its sections at once -- the board itself AND its lazy sections, which admin-web fires in
 	// parallel. See commandBoardConcurrencyBudget.
 	commandBoardSlots *semaphore.Weighted
+	liveTrackerMu     sync.Mutex
+	liveTrackerCache  map[string]liveTrackerCacheEntry
 	// log is an INSTANCE logger. Package-level slog.Warn/Error calls are banned in product code
 	// (tools/agent-hooks/check-boundaries.sh), so a degraded board section reports through this.
 	log *slog.Logger
@@ -97,6 +100,7 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 		timeout:           queryTimeout,
 		driveOptionsLimit: defaultDriveOptionsLimit,
 		commandBoardSlots: semaphore.NewWeighted(commandBoardConcurrencyBudget),
+		liveTrackerCache:  make(map[string]liveTrackerCacheEntry),
 		log:               slog.Default(),
 	}
 }

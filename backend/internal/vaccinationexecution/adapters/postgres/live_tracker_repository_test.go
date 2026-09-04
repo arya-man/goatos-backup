@@ -204,19 +204,49 @@ func TestLiveTrackerDateShiftUsesEffectiveDriveDate(t *testing.T) {
 // due timing or bad seed history and must not pull assigned closed work into another day's board.
 func TestLiveTrackerAssignedWorkUsesAssignmentScheduledDateWithOneToManyPageBoundaryParkScopeStatusMatrix(t *testing.T) {
 	for _, snippet := range []string{
-		"LEFT JOIN vaccination_drive_assignment_members member",
-		"LEFT JOIN vaccination_drive_assignments member_assignment",
-		"member_assignment.planned_date = $2::date",
-		"member_assignment.assignment_id IS NULL",
+		"candidate_obligations AS (",
+		"FROM vaccination_drive_assignments a",
+		"JOIN vaccination_drive_assignment_members m",
+		"AND a.planned_date = $2::date",
+		"FROM candidate_obligations co",
 		"COALESCE(s.assigned_operator_id, asg.operator_id) AS operator_id",
 	} {
 		if !strings.Contains(liveTrackerScopedCTE, snippet) {
 			t.Fatalf("live tracker membership/operator attribution missing %q", snippet)
 		}
 	}
-	if strings.Index(liveTrackerScopedCTE, "member_assignment.planned_date = $2::date") >
-		strings.Index(liveTrackerScopedCTE, "AND oi.due_at >= (SELECT due_floor FROM day_window)") {
-		t.Fatal("assigned work must be admitted by planned_date before falling back to due_at")
+	if strings.Index(liveTrackerScopedCTE, "candidate_obligations AS (") >
+		strings.Index(liveTrackerScopedCTE, "FROM candidate_obligations co") {
+		t.Fatal("today's candidate obligations must be selected before the decorated scoped membership")
+	}
+}
+
+// TestLiveTrackerCandidateObligationsScheduledDateOneToManyPageBoundaryParkScopeStatusMatrix
+// is the projection-review proof for the candidate-first speed fix: membership must start from the
+// day-sized assignment/member set, while still preserving cardinality, pagination, date, scope and
+// status semantics.
+func TestLiveTrackerCandidateObligationsScheduledDateOneToManyPageBoundaryParkScopeStatusMatrix(t *testing.T) {
+	candidateIdx := strings.Index(liveTrackerScopedCTE, "candidate_obligations AS (")
+	scopedJoinIdx := strings.Index(liveTrackerScopedCTE, "FROM candidate_obligations co")
+	if candidateIdx < 0 || scopedJoinIdx < 0 || candidateIdx > scopedJoinIdx {
+		t.Fatal("candidate obligations must be selected before the decorated scoped membership")
+	}
+	for _, snippet := range []string{
+		"JOIN vaccination_drive_assignment_members m",
+		"AND a.planned_date = $2::date",
+		"UNION ALL",
+		"AND m.obligation_id IS NULL",
+		"AND oi.due_at >= (SELECT due_floor FROM day_window)",
+		"AND oi.status NOT IN ('canceled', 'superseded', 'waived', 'missed', 'deferred')",
+		"($3::text = '' OR g.park_id = NULLIF($3::text, '')::uuid)",
+		"LIMIT " + fmt.Sprint(domain.LiveTrackerMaxCells),
+	} {
+		if !strings.Contains(liveTrackerScopedCTE+liveTrackerCellsSQL, snippet) {
+			t.Fatalf("candidate-first membership lost required projection guardrail %q", snippet)
+		}
+	}
+	if domain.LiveTrackerMaxCells <= 0 {
+		t.Fatal("cell pagination cap must stay positive")
 	}
 }
 
