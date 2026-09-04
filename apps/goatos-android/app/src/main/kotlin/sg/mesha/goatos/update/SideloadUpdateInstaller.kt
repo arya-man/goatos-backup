@@ -41,7 +41,11 @@ class SideloadUpdateInstaller @Inject constructor(
     suspend fun downloadApk(apkUrl: String): File = withContext(Dispatchers.IO) {
         val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
         val apkFile = File(updatesDir, "goatos-update.apk")
-        URL(apkUrl).openStream().use { input ->
+        val connection = URL(apkUrl).openConnection().apply {
+            connectTimeout = DOWNLOAD_CONNECT_TIMEOUT_MS
+            readTimeout = DOWNLOAD_READ_TIMEOUT_MS
+        }
+        connection.getInputStream().use { input ->
             apkFile.outputStream().use { output -> input.copyTo(output) }
         }
         apkFile
@@ -81,5 +85,7 @@ class SideloadUpdateInstaller @Inject constructor(
 
     companion object {
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+        private const val DOWNLOAD_CONNECT_TIMEOUT_MS = 15_000
+        private const val DOWNLOAD_READ_TIMEOUT_MS = 60_000
     }
 }

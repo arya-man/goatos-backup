@@ -120,6 +120,20 @@ class PcCarePlanFeedRemovalTest {
     }
 
     @Test
+    fun `changing park clears removal people as well as task people`() = runTest(dispatcher) {
+        val vm = viewModel(repositoryWithOnePen())
+        vm.bindWizard("deworming", "Deworming")
+        walkToOperators(vm)
+        vm.onEvent(PcCarePlanEvent.ToggleFeedRemoval)
+        vm.onEvent(PcCarePlanEvent.ToggleRemovalOperator("op-2"))
+
+        vm.onEvent(PcCarePlanEvent.SelectPark("park-2"))
+
+        assertTrue(vm.state.value.selectedOperatorIds.isEmpty())
+        assertTrue(vm.state.value.selectedRemovalOperatorIds.isEmpty())
+    }
+
+    @Test
     fun `create with toggle off sends neither field`() = runTest(dispatcher) {
         val repository = repositoryWithOnePen()
         val vm = viewModel(repository)

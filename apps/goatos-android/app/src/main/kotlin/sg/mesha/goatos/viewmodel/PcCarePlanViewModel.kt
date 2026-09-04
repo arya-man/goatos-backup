@@ -262,6 +262,7 @@ class PcCarePlanViewModel @Inject constructor(
                 // A different farm has different people: the operator step filters to the
                 // chosen park's mapping, so choices made under another park cannot carry over.
                 selectedOperatorIds = emptySet(),
+                selectedRemovalOperatorIds = emptySet(),
             )
         }
     }
