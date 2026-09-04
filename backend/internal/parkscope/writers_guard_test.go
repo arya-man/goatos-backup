@@ -1,6 +1,7 @@
 package parkscope
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,5 +78,22 @@ func TestDesiredScopesShapes(t *testing.T) {
 	}
 	if _, _, err := DesiredScopes("t1", "company", []string{"p1"}); err == nil {
 		t.Fatal("an unknown scope mode must refuse")
+	}
+}
+
+func TestTenantOnlyRoleErrorIsMatchable(t *testing.T) {
+	err := error(&TenantOnlyRoleError{Role: "verifier"})
+	if !errors.Is(err, ErrTenantOnlyRole) {
+		t.Fatal("TenantOnlyRoleError must match ErrTenantOnlyRole so handlers can map it")
+	}
+	for _, role := range []string{"ceo_internal", "verifier", "pc_director", "growth_director", "feed_director", "health_director", "procurement_director", "counts_approver", "toxin_tester"} {
+		if !TenantOnlyRoles[role] {
+			t.Fatalf("%s must be tenant-only", role)
+		}
+	}
+	for _, role := range []string{"operator", "park_head", "procurement_manager"} {
+		if TenantOnlyRoles[role] {
+			t.Fatalf("%s is a park role and must be narrowable", role)
+		}
 	}
 }

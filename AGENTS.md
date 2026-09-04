@@ -1773,7 +1773,10 @@ mode → one row per role per ticked park; stale rows revoked. The editor carrie
 field, required when more than one park is ticked, and vaccination keeps assigning by home
 park. Do not insert a `user_scope_grants` row with a scope of your own -- add the ROLE through
 `WritePersonScope` / `SyncGrantScope` / `ReconcileUser` and let the person's scope decide
-where it applies (`TestGrantScopeHasOneWriter` fails otherwise). Why: three records drifted and
+where it applies (`TestGrantScopeHasOneWriter` fails otherwise). Tenant-only roles (CEO,
+verifier, directors, counts_approver, toxin_tester) are REFUSED parks mode, never narrowed;
+a person with ONLY park roles is REFUSED tenant mode (the operator-scope invariant, enforced).
+Drift check: `tools/dev/park-scope-drift.sql`. Why: three records drifted and
 a Channapatna operator claimed Coimbatore milk work on 2026-09-01. Canonical prose:
 `docs/decisions/per-person-page-access.md` -> "One source for which park".
 

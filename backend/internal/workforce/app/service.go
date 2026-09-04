@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/localization"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -693,6 +694,12 @@ func mapRepoErr(err error) error {
 	}
 	if errors.Is(err, ports.ErrMinOperatorCoverage) {
 		return Conflict("min_operator_coverage", err.Error())
+	}
+	if errors.Is(err, parkscope.ErrParkRolesNeedAPark) {
+		return BadRequest("park_roles_need_a_park", "a person with only park roles belongs to a park; tick their parks on the People screen instead of every park")
+	}
+	if errors.Is(err, parkscope.ErrTenantOnlyRole) {
+		return BadRequest("tenant_only_role", "this role works across every park; set the person to cover every park on the People screen first")
 	}
 	var appErr *Error
 	if errors.As(err, &appErr) {

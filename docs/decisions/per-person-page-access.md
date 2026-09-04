@@ -175,10 +175,38 @@ Pinned by `TestGrantScopeHasOneWriter` (fails on any new `INSERT INTO user_scope
 outside the recorded writers), `TestSavePersonAccessDerivesGrantsAndHomeParkFromTheTicks`,
 `TestCreateGrantLandsTheRoleOnTheAuthoredScopeNotTheBody`,
 `TestCreateGrantOnAnUnsetPersonAuthorsTheScope`,
-`TestReconcileUserPullsAStrayTenantRowBackOntoTheTicks` and
-`TestSavePersonAccessResolvesTheHomePark`. The derivation was mutation-tested while being
+`TestReconcileUserPullsAStrayTenantRowBackOntoTheTicks`,
+`TestSavePersonAccessRefusesParksModeForATenantOnlyRole`,
+`TestCreateGrantRefusesATenantOnlyRoleOnAParksPerson`, `TestEmailClaimLandsOnTheAuthoredScope`,
+`TestCreatePersonAuthorsTheScopeAndDerivesTheGrant`, `TestReconcileUserLeavesATenantOnlyRoleAlone`
+and `TestSavePersonAccessResolvesTheHomePark`. Proven in Chrome on an isolated stack on
+2026-09-04: widening an operator to two parks showed the Home park select and derived the
+second grant; clearing the home park, narrowing the verifier to a park, and setting an
+operator to Every park were each refused on screen with the backend's own sentence and
+left the rows unchanged. The derivation was mutation-tested while being
 written: re-reading the role list after the revoke statement left a tenant-mode person
 holding no roles, and the integration test caught it.
+
+**Tenant-only roles cannot be narrowed.** `parkscope.TenantOnlyRoles` (CEO, verifier, every
+director, `counts_approver`, `toxin_tester`) work across every park by definition. A parks-mode
+save or a grant-API call that would put one of them on a park is REFUSED with the role named,
+never applied: narrowing would either lock the person out (their routes drop park-scoped
+grants) or show a director half the herd. The login-time claim cannot refuse a login, so it
+leaves such a row as written and the next People-screen save is where the admin decides.
+
+**Park roles need a park.** The mirror image: a person holding ONLY park roles (operator,
+park head, procurement manager) is refused "Every park" (`parkscope.ErrParkRolesNeedAPark`).
+This is the standing operator-scope invariant made enforceable: no real operator receives
+tenant scope, and a park head covering both parks is two ticks, never tenant mode. Tenant
+mode is for someone who also carries a tenant-only role (Chandrakant, Dinakar).
+
+**Concurrency.** Every derivation locks the person's `workforce_members` row, so the editor
+and the grant API cannot both pass the not-exists check and leave a duplicate active row.
+
+**Drift check.** `tools/dev/park-scope-drift.sql` is a read-only query that lists every
+person whose grant rows, ticks or home park disagree; it must print nothing on STG after
+the 2026-09-04 repair, and is the first thing to run when someone reports seeing the other
+park.
 
 Known boundary: readers that still consult grants directly (weighing operator offer,
 calendar scope, approvals) are correct by construction now that grants equal ticks, but

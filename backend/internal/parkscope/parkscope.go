@@ -46,6 +46,42 @@ type Result struct {
 	Revoked  int
 }
 
+// TenantOnlyRoles work across every park by definition: the verifier reviews proof from
+// both parks (maintainer decision 2026-08-01), directors and the CEO cover the whole
+// farm, and the per-person approver / toxin authorities are layered on directors. A
+// person holding one of these cannot be narrowed to parks -- the narrowing would either
+// lock them out (their routes refuse park-scoped grants) or, worse, silently show a
+// director half the herd. Narrowing is REFUSED with the role named, never applied.
+var TenantOnlyRoles = map[string]bool{
+	"ceo_internal":         true,
+	"verifier":             true,
+	"pc_director":          true,
+	"growth_director":      true,
+	"feed_director":        true,
+	"health_director":      true,
+	"procurement_director": true,
+	"counts_approver":      true,
+	"toxin_tester":         true,
+}
+
+// TenantOnlyRoleError says which role stopped a parks-mode write.
+type TenantOnlyRoleError struct{ Role string }
+
+func (e *TenantOnlyRoleError) Error() string {
+	return fmt.Sprintf("role %s works across every park and cannot be limited to parks", e.Role)
+}
+
+// ErrTenantOnlyRole is the errors.Is target for TenantOnlyRoleError.
+var ErrTenantOnlyRole = errors.New("tenant-only role")
+
+// ErrParkRolesNeedAPark refuses tenant mode for a person who holds ONLY park roles
+// (operator, park head, ...). The operator-scope invariant (AGENTS.md): no real operator
+// receives tenant scope; a park head who covers both parks is two park ticks, never
+// "every park". Tenant mode is for someone who also carries a tenant-only role.
+var ErrParkRolesNeedAPark = errors.New("a person with only park roles must be limited to parks")
+
+func (e *TenantOnlyRoleError) Is(target error) bool { return target == ErrTenantOnlyRole }
+
 // SyncGrantScope rewrites the active tenant/park grant rows of one user so they equal
 // roles x scope. `roles` may add roles the caller is granting in this same write; roles
 // already active on the user are always kept.
@@ -88,6 +124,21 @@ SELECT unnest($3::text[])`, tenantID, userID, roles)
 	if len(allRoles) == 0 {
 		return Result{}, nil
 	}
+	if scopeMode != "tenant" {
+		for _, role := range allRoles {
+			if TenantOnlyRoles[role] {
+				return Result{}, &TenantOnlyRoleError{Role: role}
+			}
+		}
+	}
+	// Serialize concurrent derivations for one user: the editor and the grant API can
+	// both run this, and two inserts passing the NOT EXISTS check together would leave a
+	// duplicate active row. The member row is the natural lock; every writer holds it.
+	if _, err := tx.Exec(ctx,
+		`SELECT 1 FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid FOR UPDATE`,
+		tenantID, userID); err != nil {
+		return Result{}, fmt.Errorf("lock member: %w", err)
+	}
 	// Set-based on both sides: one statement revokes every active tenant/park row that is
 	// not in roles x scope, one statement inserts every missing pair. A per-role loop would
 	// be the N+1 this repo bans, and would also let a crash between two roles leave a person
@@ -101,7 +152,10 @@ WITH desired AS (
 ),
 revoked AS (
   UPDATE user_scope_grants g
-     SET status = 'revoked', valid_to = COALESCE(g.valid_to, now())
+     SET status = 'revoked',
+         -- clock_timestamp(), not now(): a row inserted earlier in THIS transaction has
+         -- valid_from = now(), and the window check needs valid_to strictly after it.
+         valid_to = COALESCE(g.valid_to, GREATEST(clock_timestamp(), g.valid_from + interval '1 microsecond'))
    WHERE g.tenant_id = $1::uuid AND g.user_id = $2::uuid AND g.status = 'active'
      AND g.scope_type IN ('tenant', 'park')
      AND NOT EXISTS (
@@ -183,6 +237,32 @@ func DesiredScopes(tenantID, scopeMode string, parkIDs []string) ([]string, []st
 func WritePersonScope(ctx context.Context, tx pgx.Tx, tenantID, actorID, memberID, scopeMode, homeParkID string, parkIDs []string, designation *string, addRoles []string) (Result, error) {
 	if scopeMode == "tenant" {
 		parkIDs = nil
+		leadership := false
+		for _, role := range addRoles {
+			if TenantOnlyRoles[role] {
+				leadership = true
+			}
+		}
+		if !leadership {
+			if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM user_scope_grants g
+    JOIN workforce_members m ON m.tenant_id = g.tenant_id AND m.user_id = g.user_id
+   WHERE m.tenant_id = $1::uuid AND m.workforce_member_id = $2::uuid AND g.status = 'active'
+     AND g.role = ANY($3::text[]))`,
+				tenantID, memberID, tenantOnlyRoleList()).Scan(&leadership); err != nil {
+				return Result{}, fmt.Errorf("check leadership roles: %w", err)
+			}
+		}
+		if !leadership {
+			return Result{}, ErrParkRolesNeedAPark
+		}
+	} else {
+		for _, role := range addRoles {
+			if TenantOnlyRoles[role] {
+				return Result{}, &TenantOnlyRoleError{Role: role}
+			}
+		}
 	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO person_access (tenant_id, workforce_member_id, scope_mode, designation_code, updated_at, updated_by, row_version)
@@ -283,5 +363,20 @@ func ReconcileUser(ctx context.Context, tx pgx.Tx, tenantID, userID, actorID str
 		return Result{}, false, nil
 	}
 	res, err := SyncGrantScope(ctx, tx, tenantID, userID, actorID, scopeMode, parkIDs, nil)
+	if errors.Is(err, ErrTenantOnlyRole) {
+		// A login just claimed a tenant-only role for a parks-mode person. Refusing the
+		// login is not an option and narrowing the role is the thing this package exists to
+		// prevent, so the rows stay as written: the next People-screen save refuses parks
+		// mode and names the role, which is where the admin decides.
+		return Result{}, false, nil
+	}
 	return res, true, err
+}
+
+func tenantOnlyRoleList() []string {
+	out := make([]string, 0, len(TenantOnlyRoles))
+	for role := range TenantOnlyRoles {
+		out = append(out, role)
+	}
+	return out
 }
