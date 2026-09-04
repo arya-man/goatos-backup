@@ -2173,7 +2173,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"live.newest_first":                     "newest first",
 			"live.feed_rate_suffix":                 "/min",
 			"live.feed_rate_unavailable":            "rate pending",
-			"live.scan_rate_suffix":                 "animals/min",
+			"live.scan_rate_suffix":                 "animals/min recent",
 			"live.scanned_label":                    "scanned",
 			"live.proofed_label":                    "proofed",
 			"live.events_label":                     "events",

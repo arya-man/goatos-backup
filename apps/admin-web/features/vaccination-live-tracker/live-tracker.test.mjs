@@ -182,7 +182,7 @@ test("the combo header never invents a combination no animal received", () => {
 
 test("the feed rate is measured, never the mock's hardcoded value", () => {
   assert.ok(!/~\d+\/min/.test(code(rail)), "the mock's hardcoded rate must not be reproduced");
-  assert.match(rail, /uniqueScanRate\(activity\.items\)/, "the primary badge must be unique animals scanned per minute");
+  assert.match(rail, /uniqueScanRate\(activity\.items\)/, "the primary badge must be recent unique animals scanned per minute");
   assert.match(rail, /live\.scan_rate_suffix/);
   assert.match(rail, /activity\.observed_per_min/, "raw event rate may remain as secondary context");
   assert.match(rail, /live\.feed_rate_unavailable/, "no measurable window must say so rather than guess");
