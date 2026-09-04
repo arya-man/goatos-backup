@@ -4416,7 +4416,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// The one word this page lives or dies on: DIRECTED. The sheet's
 			// instruction, never a measured weight — leftovers are not captured.
 			"banner.basis":                   "Figures show feed as DIRECTED on the daily sheet, plus the milk the crew prepared. The two daily charts run through today, whose sheet is already issued; the tiles and the execution figures describe yesterday, the last finished day. Leftovers are not measured yet, so read quantities as instructions, not consumption.",
-			"tab.overview":                   "Overview",
+			"tab.overview":                   "Consumption",
 			"tab.items":                      "Stock",
 			"tab.peranimal":                  "Per Animal",
 			"tab.execution":                  "Execution",

@@ -1565,7 +1565,7 @@ func compileFeedAnalyticsOptionGroups(groups []domain.OptionGroup, input Bootstr
 	tabs := []domain.Option{option("items", "Stock", "", "")}
 	if mayReadFullFeed {
 		tabs = []domain.Option{
-			option("overview", "Overview", "", ""),
+			option("overview", "Consumption", "", ""),
 			option("items", "Stock", "", ""),
 			option("peranimal", "Per Animal", "", ""),
 			option("experiment", "Experiment", "", ""),
