@@ -568,7 +568,7 @@ class SalesEvidenceViewModel @Inject constructor(
                         QueuedWriteOutcome.Saved ->
                             it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED, closeAfterSave = true)
                         QueuedWriteOutcome.StillQueued ->
-                            it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED_OFFLINE, closeAfterSave = true)
+                            it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED_OFFLINE, closeAfterSave = false)
                         is QueuedWriteOutcome.Rejected -> it.copy(
                             writeStatus = VendorsWriteStatus.FAILED,
                             // The server's own farm copy when it sent one: "Breed required." says

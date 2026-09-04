@@ -1694,7 +1694,12 @@ class DefaultSyncRepository(
         payload: SalesPipelinePayload,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.SALES_PIPELINE_WRITE,
-        groupKey = salesPipelineGroupKey(payload.clientId.trim()),
+        groupKey = when (payload.kind) {
+            SalesPipelineKind.BUYER_LEAD_STATUS,
+            SalesPipelineKind.FPO_LEAD_STATUS,
+            -> salesPipelineLeadStatusGroupKey(payload.leadId.trim())
+            else -> salesPipelineGroupKey(payload.clientId.trim())
+        },
         idempotencyKey = salesPipelineIdempotencyKey(payload.clientId.trim()),
         payloadJson = syncJson.encodeToString(payload),
     )

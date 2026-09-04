@@ -90,8 +90,11 @@ fun salesDealPaymentIdempotencyKey(clientId: String): String = "sales:deal-payme
 /** STABLE per client id. */
 fun salesDealStatusIdempotencyKey(clientId: String): String = "sales:deal-status:$clientId"
 
-/** One lane for pipeline/evidence entry; these rows are independent of any deal. */
+/** One lane for pipeline/evidence entry; these rows are independent of any deal or lead. */
 fun salesPipelineGroupKey(clientId: String): String = "sales:pipeline:$clientId"
+
+/** One lane per lead, so rapid status changes cannot reach the server out of order. */
+fun salesPipelineLeadStatusGroupKey(leadId: String): String = "sales:pipeline-lead-status:$leadId"
 
 /** STABLE per client id; sent VERBATIM as the backend's required `Idempotency-Key`. */
 fun salesPipelineIdempotencyKey(clientId: String): String = "sales:pipeline-write:$clientId"

@@ -405,12 +405,14 @@ class FeedPurchaseDetailViewModel @Inject constructor(
     }
 
     /**
-     * Queues one change and follows the outbox row. The editor closes when the row is DURABLE, and
-     * a refusal reopens nothing but says what the server said -- the outbox accepting a row is not
-     * the server accepting it.
+     * Queues one change and follows the outbox row. The editor only closes once the row is saved
+     * or after the offline grace period; a refusal keeps the submitted fields in place and says
+     * what the server said -- the outbox accepting a row is not the server accepting it.
      */
     private fun enqueue(payload: FeedPurchaseEditPayload, done: String, failure: String) {
         viewModelScope.launch {
+            val submittedEditor = local.value.editor
+            val submittedValues = local.value.values
             local.update { it.copy(inFlight = true, failed = false, message = "") }
             when (val result = syncRepository.enqueueFeedPurchaseEdit(payload)) {
                 is AppResult.Ok -> {
@@ -418,10 +420,8 @@ class FeedPurchaseDetailViewModel @Inject constructor(
                         AnalyticsEventsVendors.VENDORS_PURCHASE_EDITED,
                         mapOf(AnalyticsEvents.Params.REASON to payload.kind),
                     )
-                    local.update {
-                        it.copy(inFlight = false, editor = FeedPurchaseEditorKind.NONE, values = emptyMap(), message = done)
-                    }
-                    followWrite(result.value, done)
+                    local.update { it.copy(message = MESSAGE_SAVING) }
+                    followWrite(result.value, submittedEditor, submittedValues, done)
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, failure) }
@@ -435,15 +435,37 @@ class FeedPurchaseDetailViewModel @Inject constructor(
         }
     }
 
-    private fun followWrite(outboxItemId: String, done: String) {
+    private fun followWrite(
+        outboxItemId: String,
+        submittedEditor: FeedPurchaseEditorKind,
+        submittedValues: Map<PurchaseField, String>,
+        done: String,
+    ) {
         viewModelScope.launch {
             syncRepository.followQueuedWrite(outboxItemId).collect { outcome ->
                 local.update {
                     when (outcome) {
-                        QueuedWriteOutcome.Saved -> it.copy(message = done, failed = false)
-                        QueuedWriteOutcome.StillQueued -> it.copy(message = MESSAGE_QUEUED_OFFLINE, failed = false)
+                        QueuedWriteOutcome.Saved -> it.copy(
+                            inFlight = false,
+                            editor = FeedPurchaseEditorKind.NONE,
+                            values = emptyMap(),
+                            errors = emptyMap(),
+                            message = done,
+                            failed = false,
+                        )
+                        QueuedWriteOutcome.StillQueued -> it.copy(
+                            inFlight = false,
+                            editor = FeedPurchaseEditorKind.NONE,
+                            values = emptyMap(),
+                            errors = emptyMap(),
+                            message = MESSAGE_QUEUED_OFFLINE,
+                            failed = false,
+                        )
                         is QueuedWriteOutcome.Rejected -> it.copy(
                             // The server's own farm copy when it sent one: it says what to fix.
+                            inFlight = false,
+                            editor = submittedEditor,
+                            values = submittedValues,
                             message = outcome.reason?.takeIf { r -> r.isNotBlank() } ?: MESSAGE_FAILED,
                             failed = true,
                         )
@@ -477,6 +499,7 @@ class FeedPurchaseDetailViewModel @Inject constructor(
         const val NOT_A_NUMBER = "Enter a number"
         const val NOT_NEGATIVE = "Cannot be negative"
         const val MORE_THAN_ZERO = "Must be more than zero"
+        const val MESSAGE_SAVING = "Saving change…"
         const val MESSAGE_PAYMENT_ADDED = "Payment added. The balance updates when it reaches the ledger."
         const val MESSAGE_EDIT_SAVED = "Purchase saved."
         const val MESSAGE_REACHED = "Load marked reached. It counts as stock once it reaches the ledger."

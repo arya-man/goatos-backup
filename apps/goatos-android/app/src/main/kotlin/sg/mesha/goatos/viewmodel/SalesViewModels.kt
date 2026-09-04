@@ -386,9 +386,9 @@ class SaleDetailViewModel @Inject constructor(
     }
 
     /**
-     * Queues one edit. The banner says the change is on its way rather than that it landed: the
-     * screen re-renders from the server's returned deal when the outbox drains, so the numbers a
-     * person reads are always the ones the server computed.
+     * Queues one edit, then follows the exact outbox row it created. Enqueue means durable on this
+     * phone, not accepted by the server, so the editor only closes once the row is saved or after
+     * the offline grace period. A terminal rejection puts the fields back with the server reason.
      */
     private fun enqueueEdit(
         editor: SalePaymentEditorUi?,
@@ -401,7 +401,8 @@ class SaleDetailViewModel @Inject constructor(
             when (val result = block()) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_SALE_EDITED)
-                    local.update { it.copy(editInFlight = false, paymentEditor = null, editMessage = done) }
+                    local.update { it.copy(editMessage = MESSAGE_SAVING, message = null) }
+                    followWrite(result.value, editor, done)
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, failure) }
@@ -414,6 +415,36 @@ class SaleDetailViewModel @Inject constructor(
                             editInFlight = false,
                             paymentEditor = editor?.copy(inFlight = false) ?: it.paymentEditor,
                             message = MESSAGE_EDIT_FAILED,
+                            editMessage = "",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun followWrite(outboxItemId: String, editor: SalePaymentEditorUi?, done: String) {
+        viewModelScope.launch {
+            syncRepository.followQueuedWrite(outboxItemId).collect { outcome ->
+                local.update {
+                    when (outcome) {
+                        QueuedWriteOutcome.Saved -> it.copy(
+                            editInFlight = false,
+                            paymentEditor = null,
+                            editMessage = done,
+                            message = null,
+                        )
+                        QueuedWriteOutcome.StillQueued -> it.copy(
+                            editInFlight = false,
+                            paymentEditor = null,
+                            editMessage = MESSAGE_QUEUED_OFFLINE,
+                            message = null,
+                        )
+                        is QueuedWriteOutcome.Rejected -> it.copy(
+                            editInFlight = false,
+                            paymentEditor = editor?.copy(inFlight = false) ?: it.paymentEditor,
+                            editMessage = "",
+                            message = outcome.reason?.takeIf { r -> r.isNotBlank() } ?: MESSAGE_EDIT_FAILED,
                         )
                     }
                 }
@@ -481,6 +512,8 @@ class SaleDetailViewModel @Inject constructor(
         const val MESSAGE_PAYMENT_SAVED = "Payment saved. The balance updates when it reaches the ledger."
         const val MESSAGE_PAYMENT_REMOVED = "Payment removed. The balance updates when it reaches the ledger."
         const val MESSAGE_STATUS_SAVED = "Status saved. It reaches the ledger when the phone is online."
+        const val MESSAGE_SAVING = "Saving change…"
+        const val MESSAGE_QUEUED_OFFLINE = "Saved on this phone. It reaches the ledger when the phone is online."
         const val MESSAGE_EDIT_FAILED = "Could not save that change. Try again."
     }
 }
