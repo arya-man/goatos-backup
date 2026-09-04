@@ -246,6 +246,11 @@ test("live tracker styles are scoped so they cannot restyle other boards", () =>
   assert.deepEqual(unscoped, [], "generic mock class names must stay under .lt-page");
 });
 
+test("wrapped combo obligation chips stay visually grouped", () => {
+  assert.match(css, /\.lt-page \.lt-dosecell\{[^}]*column-gap:7px;row-gap:5px/);
+  assert.match(css, /\.lt-page \.lt-dosecell \.tag\{[^}]*line-height:1\.18;padding:3px 8px/);
+});
+
 test("counted labels do not read as broken singulars", () => {
   // "1 extra attempts" and "0 All combo animals →" both shipped in an early render against real stg
   // data. Small wrongness in a headline is expensive: it makes a reader distrust every other number.

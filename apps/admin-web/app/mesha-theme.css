@@ -3085,7 +3085,8 @@ select:disabled { opacity: .45; }
 .lt-page .lt-comborow{display:grid;grid-template-columns:auto 1fr auto minmax(0,1.4fr);gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
 .lt-page .lt-comborow:last-child{border-bottom:0}
 .lt-page .lt-comborow-head{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
-.lt-page .lt-dosecell{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.lt-page .lt-dosecell{display:flex;column-gap:7px;row-gap:5px;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start}
+.lt-page .lt-dosecell .tag{line-height:1.18;padding:3px 8px}
 .lt-page .lt-goatid{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;font-weight:700;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--ink);text-decoration:none;display:inline-block}
 .lt-page .lt-goatid:hover{border-color:var(--brand);color:var(--brand-d)}
 
