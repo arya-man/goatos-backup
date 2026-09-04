@@ -1099,6 +1099,54 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `per-goat proof summary overrides stale required shed video form field`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-per-goat-stale-shed-video",
+            sopVersionId = "sop-per-goat-stale-shed-video",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-stale-form",
+            rowVersion = 1,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(FormField("shed_video", "Shed vaccination video", FormFieldType.VIDEO_PROOF, required = true)),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "per_goat_video",
+            subjectScope = "goat",
+            expectedSubjects = listOf("goat"),
+            minimumCount = 1,
+            maximumCount = 1,
+            allowedCaptureSources = listOf("in_app_camera"),
+        )
+        val readySummary = ShedCompletionSummaryDto(
+            taskId = task.taskId,
+            shedName = "Godel 1",
+            driveName = "CPT Adult Blue Tongue - Sep 2026",
+            expectedCount = 30,
+            handledCount = 30,
+            proofReadyCount = 30,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "Blue Tongue", count = 30)),
+            proofMode = "per_goat_video",
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "draft",
+        )
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy, shedSummary = readySummary),
+            CapturingSyncRepository(),
+            task.taskId,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertNull("stale shed video field must not render for per-goat vaccination submit", viewModel.state.value.formRunner)
+        assertTrue("backend-ready per-goat summary must enable Finalize shed", viewModel.state.value.canSubmit)
+    }
+
+    @Test
     fun `submit_enabled true overrides a stale terminal submit_state after a per-goat rework rescan`() = runTest(dispatcher) {
         // Regression for the P0 where a shed with an EARLIER accepted/verified round (task.state
         // stays "accepted" at the whole-task level) has 3 goats rejected at the item level,

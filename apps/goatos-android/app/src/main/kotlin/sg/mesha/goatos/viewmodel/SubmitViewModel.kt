@@ -630,8 +630,11 @@ class SubmitViewModel @Inject constructor(
         // backend reports submit_enabled — the empty SOP form otherwise has no client gate.
         if (currentShedCompletionSummary != null) {
             val proofReadiness = currentShedProofReadiness()
-            val formBlock = if (currentProofPolicy.isPerGoatVideo) null else buildFormRunnerState(currentForm, current)?.blockedReason
-            val ready = if (currentProofPolicy.isShedLevelVideo) {
+            val summary = currentShedCompletionSummary
+            val perGoatProofMode = usesPerGoatProof(summary)
+            val shedLevelProofMode = usesShedLevelProof(summary)
+            val formBlock = if (perGoatProofMode) null else buildFormRunnerState(currentForm, current)?.blockedReason
+            val ready = if (shedLevelProofMode) {
                 currentShedCompletionSummary?.handledCount == currentShedCompletionSummary?.expectedCount &&
                     proofReadiness.blockingReason == null &&
                     formBlock == null
@@ -1003,10 +1006,12 @@ class SubmitViewModel @Inject constructor(
 
     private fun draftState(task: TaskSummaryDto, form: FormSpec): SubmitUiState {
         val summary = currentShedCompletionSummary
+        val perGoatProofMode = usesPerGoatProof(summary)
+        val shedLevelProofMode = usesShedLevelProof(summary)
         // Vaccination shed completion is an acknowledgement screen, but SOP may require a
         // shed-level proof-video field on the submit screen. Hide the form only for the legacy
         // per-goat proof mode where proof capture lives on each goat row.
-        val formRunner = if (summary != null && currentProofPolicy.isPerGoatVideo) null else buildFormRunnerState(form, task)
+        val formRunner = if (summary != null && perGoatProofMode) null else buildFormRunnerState(form, task)
         val goatIds = currentScans
             .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
             .distinct()
@@ -1028,7 +1033,7 @@ class SubmitViewModel @Inject constructor(
                 }
         }
         val shedProofReadiness = currentShedProofReadiness()
-        val proofSummary = if (currentProofPolicy.isShedLevelVideo) {
+        val proofSummary = if (shedLevelProofMode) {
             ProofSummaryState(
                 title = "Shed proof videos",
                 label = "${shedProofReadiness.synced} of ${shedProofReadiness.maximum} shed videos synced · ${shedProofReadiness.required} required",
@@ -1058,7 +1063,7 @@ class SubmitViewModel @Inject constructor(
                 driveName = summary.driveName,
                 expectedCount = summary.expectedCount,
                 handledCount = summary.handledCount,
-                proofReadyCount = if (currentProofPolicy.isShedLevelVideo) {
+                proofReadyCount = if (shedLevelProofMode) {
                     shedProofReadiness.synced
                 } else {
                     summary.proofReadyCount
@@ -1069,12 +1074,12 @@ class SubmitViewModel @Inject constructor(
         } else null
         val vaccineBreakdown = summary?.vaccineBreakdown.orEmpty()
             .map { VaccineSummaryItem(vaccine = it.vaccine, count = it.count) }
-        val summaryReady = if (summary != null && currentProofPolicy.isShedLevelVideo) {
+        val summaryReady = if (summary != null && shedLevelProofMode) {
             summary.handledCount == summary.expectedCount && shedProofReadiness.blockingReason == null
         } else {
             summary?.submitEnabled ?: true
         }
-        val summaryBlock = if (summary != null && currentProofPolicy.isShedLevelVideo) {
+        val summaryBlock = if (summary != null && shedLevelProofMode) {
             when {
                 summary.handledCount != summary.expectedCount -> summary.blockingReason ?: "${summary.expectedCount - summary.handledCount} animals not yet scanned."
                 shedProofReadiness.blockingReason != null -> shedProofReadiness.blockingReason
@@ -1099,8 +1104,8 @@ class SubmitViewModel @Inject constructor(
             // Per-goat video proof is captured on the scan rows; once the backend shed summary says
             // the acknowledgement is ready, stale local proof/outbox rows must not repaint this
             // screen as Retry after navigating away and back.
-            canSubmit = summaryReady && (summary != null && currentProofPolicy.isPerGoatVideo || formRunner?.blockedReason == null),
-            blockingReason = summaryBlock ?: formRunner?.blockedReason?.takeUnless { summary != null && currentProofPolicy.isPerGoatVideo },
+            canSubmit = summaryReady && (summary != null && perGoatProofMode || formRunner?.blockedReason == null),
+            blockingReason = summaryBlock ?: formRunner?.blockedReason?.takeUnless { summary != null && perGoatProofMode },
             syncProgress = 0f,
             proofSummaryTitle = proofSummary.title,
             proofSummarySyncedLabel = proofSummary.label,
@@ -1190,7 +1195,7 @@ class SubmitViewModel @Inject constructor(
             // round was reopened and a fresh submission is still owed. Trust it over the coarse
             // submit_state word: a reopened shed must reach the submit form, never the ack screen.
             if (!summary.roundSubmitted) return false
-            if (currentProofPolicy.isShedLevelVideo) {
+            if (usesShedLevelProof(summary)) {
                 val readiness = currentShedProofReadiness()
                 if (readiness.uploading > 0 || readiness.failed > 0) return false
                 return readiness.blockingReason == null
@@ -1230,6 +1235,13 @@ class SubmitViewModel @Inject constructor(
                 (task.scopeType.isBlank() || task.scopeType.equals("task", ignoreCase = true))
         return if (taskIsItsOwnSubmissionUnit) task.state.isSubmissionTerminal() else scopeSubmissionAcked
     }
+
+    private fun usesPerGoatProof(summary: ShedCompletionSummaryDto? = currentShedCompletionSummary): Boolean =
+        currentProofPolicy.isPerGoatVideo || summary?.proofMode.equals("per_goat_video", ignoreCase = true)
+
+    private fun usesShedLevelProof(summary: ShedCompletionSummaryDto? = currentShedCompletionSummary): Boolean =
+        !usesPerGoatProof(summary) &&
+            (currentProofPolicy.isShedLevelVideo || summary?.proofMode.equals("shed_level_video", ignoreCase = true))
 
     private fun terminalAckState(task: TaskSummaryDto, form: FormSpec): SubmitUiState =
         draftState(task, form).copy(
