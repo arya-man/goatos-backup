@@ -113,7 +113,6 @@ function ActivityCard({
             : `${scanRate} ${copy(pageContract, "live.scan_rate_suffix")}`}
         </span>
         <div className="sp" style={{ flex: 1 }} />
-        <span className="small muted">{copy(pageContract, "live.newest_first")}</span>
       </div>
       {activity.items.length > 0 ? (
         <div className="lt-feedsummary">
@@ -130,14 +129,6 @@ function ActivityCard({
         tabIndex={0}
         role="log"
       >
-        {/* The feed is capped like every other list on this page, and every other one declares it.
-            next_cursor is non-null exactly when the server had more events than it returned, so the
-            note fires on the same condition the (unused) paging cursor does. */}
-        {activity.next_cursor != null ? (
-          <div className="note lt-truncnote" role="status">
-            {copy(pageContract, "section.activity.truncated_note")}
-          </div>
-        ) : null}
         {activity.items.length === 0 ? (
           <div className="lt-empty" style={{ padding: "14px 15px" }}>
             <div style={{ minWidth: 0, flex: 1 }}>

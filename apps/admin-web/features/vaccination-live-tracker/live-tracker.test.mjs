@@ -159,9 +159,8 @@ test("the empty state never claims the whole day when a scope is narrowing it", 
   assert.match(board, /state\.empty_filtered_title/);
 });
 
-test("every capped list on this page declares its own truncation — including the feed and the rail", () => {
-  assert.match(rail, /activity\.next_cursor != null/, "the activity feed must declare that it is capped");
-  assert.match(rail, /section\.activity\.truncated_note/);
+test("operational queues declare truncation, while the live feed stays compact", () => {
+  assert.doesNotMatch(rail, /section\.activity\.truncated_note/);
   assert.match(rail, /section\.attention\.truncated_note/);
   assert.match(board, /data\.attention_total/);
   const drawer = readFileSync(new URL("./live-tracker-passport-drawer.tsx", import.meta.url), "utf8");
