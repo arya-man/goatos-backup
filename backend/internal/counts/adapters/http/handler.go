@@ -398,6 +398,20 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// The page grain. Absent means the grain page every installed client already reads; a
+	// present-but-unknown value is REJECTED rather than silently served as one of the two, because
+	// the two pages have different total_rows and a caller paging the wrong one would read a
+	// pen count as a combination count.
+	groupByPen := false
+	switch strings.TrimSpace(query.Get("group_by")) {
+	case "", "grain":
+	case "pen":
+		groupByPen = true
+	default:
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "group_by must be grain or pen", nil)
+		return
+	}
+
 	req := domain.CountsBreakdownQuery{
 		TenantID:         tenantID,
 		LifecycleStatus:  nullableString(query.Get("lifecycle_status")),
@@ -406,6 +420,7 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 		ManagementStages: multiParam(query, "management_stage"),
 		Breeds:           multiParam(query, "breed"),
 		Sexes:            multiParam(query, "sex"),
+		GroupByPen:       groupByPen,
 		Limit:            limit,
 		Offset:           offset,
 	}

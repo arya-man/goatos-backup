@@ -20,13 +20,15 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
-import { CountsBreakdownTable } from "./counts-breakdown-table";
+import { CountsBreakdownPensTable } from "./counts-breakdown-pens-table";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
 import type { StageOption } from "./shed-stage-actions";
 import type { InlineChoice } from "./inline-cell-editor";
 
-// Counts -> Counts Breakdown. The census view: how many live animals exist at each
-// farm x stage x breed x gender x shed combination, plus the same numbers as distributions.
+// Counts -> Counts Breakdown. The census view: how many live animals stand in each PEN, with the
+// breed, gender and stage mix on the same line, and the exact farm x stage x breed x gender x pen
+// combinations one click away under each pen (maintainer decision 2026-09-04) — plus the same
+// numbers as distributions.
 //
 // Population is live animals only (lifecycle_status=alive), matching Counts -> Herd Register,
 // so the two Counts tabs never disagree about the denominator.
@@ -93,7 +95,7 @@ export async function CountsBreakdownPage({
     return idx < 0 ? value : `${value.slice(0, idx)}#${value.slice(idx + 1)}`;
   });
 
-  const pageSizeOptions = tablePageSizes(pageContract, "detail-breakdown");
+  const pageSizeOptions = tablePageSizes(pageContract, "pen-breakdown");
   const requestedLimit = Number(one(sp, "bd_limit"));
   const pageSize: VaccinationPageSize = pageSizeOptions.includes(requestedLimit)
     ? requestedLimit
@@ -114,6 +116,9 @@ export async function CountsBreakdownPage({
       management_stage: stages,
       breed: breeds,
       sex,
+      // PEN grain: the page walks pens, and each pen carries its own combination rows nested, so
+      // the drill-down needs no second read.
+      group_by: "pen",
       limit: pageSize,
       offset: (requestedPage - 1) * pageSize,
     }),
@@ -124,7 +129,7 @@ export async function CountsBreakdownPage({
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   const breakdown: CountsBreakdownResponse | null = breakdownResult.ok ? breakdownResult.data : null;
-  const rows = breakdown?.items ?? [];
+  const penRows = breakdown?.pens ?? [];
   const hasFilter = Boolean(farmParkId || shedParams.length || stages.length || breeds.length || sex);
 
   const noParkLabel = copy(pageContract, "label.unassigned_farm");
@@ -134,10 +139,11 @@ export async function CountsBreakdownPage({
   const emptyChartLabel = copy(pageContract, "chart.empty");
   const animalsNoun = copy(pageContract, "label.animals_noun");
 
-  // The compiled table contract drives the whole table: column keys, labels, visibility and which
-  // headers are sortable. `cols` remains only for the footer's colSpan.
-  const breakdownTable = table(pageContract, "detail-breakdown");
-  const cols = tableLabels(pageContract, "detail-breakdown");
+  // The compiled table contract drives the table: column keys, labels, visibility and which
+  // headers are sortable. An opened pen's rows render on the same columns. `cols` remains only
+  // for the footer's colSpan.
+  const pensTable = table(pageContract, "pen-breakdown");
+  const cols = tableLabels(pageContract, "pen-breakdown");
 
   // True when the herd carries no recorded stage at all (every animal blank), which makes both
   // the Stage column and the stage chart uniformly empty.
@@ -396,16 +402,16 @@ export async function CountsBreakdownPage({
               stays the mock's plain table. Column keys, labels and which headers carry a sort
               affordance all come from the compiled contract, so this page declares no local
               column list. */}
-          <CountsBreakdownTable
-            contract={breakdownTable}
+          <CountsBreakdownPensTable
+            contract={pensTable}
             pageContract={pageContract}
-            rows={rows}
+            pens={penRows}
             stages={stageOptions}
             breeds={breedChoices}
             genders={genderChoices}
             retagEnabled={stageChangeEnabled}
             retagDisabledReason={stageChangeReason}
-            ariaLabel={copy(pageContract, "table.breakdown.aria")}
+            ariaLabel={copy(pageContract, "table.pens.aria")}
             noParkLabel={noParkLabel}
             noStageLabel={noStageLabel}
             noBreedLabel={noBreedLabel}
@@ -422,7 +428,7 @@ export async function CountsBreakdownPage({
             footer={
               breakdown ? (
                 <tr>
-                  <th colSpan={cols.length - 1}>{copy(pageContract, "table.breakdown.total_row")}</th>
+                  <th colSpan={cols.length - 1}>{copy(pageContract, "table.pens.total_row")}</th>
                   {/* Read from the response: this is the sum across ALL matching rows, not the
                       page. Recomputing it from `rows` would silently report the page subtotal —
                       and reordering the page cannot touch it, because it is not derived from
@@ -441,7 +447,7 @@ export async function CountsBreakdownPage({
           total={pagination.total}
           start={pagination.start}
           end={pagination.end}
-          noun={copy(pageContract, "table.breakdown.noun")}
+          noun={copy(pageContract, "table.pens.noun")}
           hrefForPage={(nextPage) => hrefWithParam("bd_page", String(nextPage))}
           hrefForPageSize={(nextSize) => hrefWithParam("bd_limit", String(nextSize))}
         />

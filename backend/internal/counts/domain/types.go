@@ -528,12 +528,50 @@ type CountsBreakdownFacets struct {
 	Sheds []CountsBreakdownShedFacet `json:"sheds"`
 }
 
+// CountsBreakdownPenRow is one PEN of the census: every live animal standing in one
+// (park, shed, partition), summarised on a single line, with the exact grain rows it is made of
+// nested underneath for the drill-down.
+//
+// This is a ROLLUP of CountsBreakdownRow, never a second count: Count is the sum of Rows[].Count,
+// and Stages/Breeds/Sexes are each a one-dimensional re-roll of the same Rows, so every figure on
+// the pen line reconciles to the rows beneath it by construction. A client renders the line and
+// the rows; it does not re-sum either.
+type CountsBreakdownPenRow struct {
+	ParkID    *string `json:"park_id"`
+	ParkLabel string  `json:"park_label"`
+	ShedID    *string `json:"shed_id"`
+	ShedLabel string  `json:"shed_label"`
+	// PartitionLabel is the raw stored partition label ("2", "Part 3"), or "" for a
+	// non-partitioned shed / a shed-less row. Never the "whole" sentinel.
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	Count                      int64  `json:"count"`
+	// KidCount + AdultCount always equals Count exactly (same COALESCE rule as the page totals).
+	KidCount   int64 `json:"kid_count"`
+	AdultCount int64 `json:"adult_count"`
+	// Stages, Breeds and Sexes are the pen's composition along one dimension each, largest bucket
+	// first. Key is the raw stored value ("" for an unrecorded stage/breed); Label repeats Key so a
+	// client renders its own contract copy for the blank bucket rather than inventing a label here.
+	Stages []CountsBreakdownSeriesPoint `json:"stages"`
+	Breeds []CountsBreakdownSeriesPoint `json:"breeds"`
+	Sexes  []CountsBreakdownSeriesPoint `json:"sexes"`
+	// Rows are this pen's stage x breed x sex grain rows, largest first -- exactly the rows the
+	// grain-grouped page would list for this pen, carrying the pen's own location on each.
+	Rows []CountsBreakdownRow `json:"rows"`
+}
+
 // CountsBreakdown is the whole census breakdown payload: one page of grain rows plus
 // page-independent totals, chart series, and filter facets.
+//
+// Exactly one of Items and Pens is the page, decided by CountsBreakdownQuery.GroupByPen: the other
+// is always an empty (never nil) slice. TotalRows counts the grouping the page walks -- grain
+// combinations for the grain page, pens for the pen page -- while TotalCount/TotalKids/TotalAdults
+// are the same animal totals either way.
 type CountsBreakdown struct {
-	Items      []CountsBreakdownRow `json:"items"`
-	TotalRows  int64                `json:"total_rows"`
-	TotalCount int64                `json:"total_count"`
+	Items      []CountsBreakdownRow    `json:"items"`
+	Pens       []CountsBreakdownPenRow `json:"pens"`
+	TotalRows  int64                   `json:"total_rows"`
+	TotalCount int64                   `json:"total_count"`
 	// TotalKids and TotalAdults always partition TotalCount exactly — an animal with an unknown
 	// age band counts as an adult rather than falling out of both buckets.
 	TotalKids   int64                 `json:"total_kids"`
@@ -571,8 +609,12 @@ type CountsBreakdownQuery struct {
 	ManagementStages []string
 	Breeds           []string
 	Sexes            []string
-	Limit            int32
-	Offset           int32
+	// GroupByPen pages one line per pen (park x shed x partition) with the grain rows nested under
+	// each, instead of one line per stage x breed x sex combination. Filters, totals, charts and
+	// facets are identical in both modes; only the page grain changes.
+	GroupByPen bool
+	Limit      int32
+	Offset     int32
 }
 
 // ---------------------------------------------------------------------------

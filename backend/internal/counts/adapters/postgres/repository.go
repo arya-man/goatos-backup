@@ -2,6 +2,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -2748,6 +2749,65 @@ ORDER BY
   gr.sex
 LIMIT $9 OFFSET $10`
 
+// scale-guard:ignore: 5k-50k-envelope — same canonical read as countsBreakdownPageSQL, re-rolled one
+// grain up. OFFSET walks the PRE-AGGREGATED pen set (one row per park/shed/partition, ~150 at this
+// envelope), never canonical goats rows; the handler rejects offset > 5000 outright.
+//
+// projection-review: membership=identical to countsBreakdownPageSQL by construction (shared CTE const); group_key=(park_id, shed_id, partition_key) -- the grain rows of one pen are folded into it with sum() and jsonb_agg(), so the pen total is the sum of the grain counts it lists and nothing else; join_cardinality=locations joined twice (park, shed) on the (tenant_id, location_id) primary key AFTER the pen rollup, strict 1:{0,1} label lookups that cannot fan out the sum; pagination=total_rows counts PENS and total_count/total_kids/total_adults are window sums over the FULL pen set, invariant to limit/offset and equal to the grain page's totals for the same filters; scope=same tenant plus farm/pen/stage/breed/sex predicates as the grain page
+//
+// The nested grain rows ride along as one jsonb column rather than a second query: a pen holds a
+// handful of stage x breed x sex combinations (never more than the grain set itself), so a page of
+// pens carries at most a page's worth of grain rows -- bounded by the same limit, and one round trip
+// instead of one per expanded pen.
+const countsBreakdownPensSQL = countsBreakdownGroupedCTE + ` -- scale-guard:ignore: OFFSET walks the PRE-AGGREGATED pen set (one row per park/shed/partition, ~150 at this envelope), never canonical goats rows; handler rejects offset > 5000 outright.
+,
+pens AS (
+  SELECT
+    gr.park_id,
+    gr.shed_id,
+    gr.partition_key,
+    min(gr.partition_label_raw) AS partition_label_raw,
+    sum(gr.animal_count)        AS animal_count,
+    sum(gr.kid_count)           AS kid_count,
+    sum(gr.adult_count)         AS adult_count,
+    jsonb_agg(
+      jsonb_build_object(
+        'management_stage', gr.management_stage,
+        'breed',            gr.breed,
+        'sex',              gr.sex,
+        'count',            gr.animal_count
+      )
+      ORDER BY gr.animal_count DESC, gr.management_stage, gr.breed, gr.sex
+    ) AS grain_rows
+  FROM grouped gr
+  GROUP BY gr.park_id, gr.shed_id, gr.partition_key
+)
+SELECT
+  p.park_id::text,
+  COALESCE(NULLIF(park.location_code, ''), park.name, '') AS park_label,
+  p.shed_id::text,
+  COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_label,
+  CASE WHEN p.partition_key = 'whole' THEN '' ELSE p.partition_label_raw END AS partition_label,
+  p.animal_count,
+  p.kid_count,
+  p.adult_count,
+  p.grain_rows,
+  count(*)            OVER () AS total_rows,
+  sum(p.animal_count) OVER () AS total_count,
+  sum(p.kid_count)    OVER () AS total_kids,
+  sum(p.adult_count)  OVER () AS total_adults
+FROM pens p
+LEFT JOIN locations park
+       ON park.tenant_id = $1::uuid AND park.location_id = p.park_id
+LEFT JOIN locations shed
+       ON shed.tenant_id = $1::uuid AND shed.location_id = p.shed_id
+ORDER BY
+  p.animal_count DESC,
+  COALESCE(p.park_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(p.shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  p.partition_key
+LIMIT $9 OFFSET $10`
+
 // scale-guard:ignore: 5k-50k-envelope — same canonical read as countsBreakdownPageSQL.
 //
 // projection-review: membership=identical to countsBreakdownPageSQL by construction (shared CTE const), re-rolled into four one-dimensional series; group_key=one of breed | management_stage | sex | shed_id per UNION branch; join_cardinality=only the shed branch joins locations, on the (tenant_id, location_id) primary key, so 1:{0,1} with no fan-out, the other three branches join nothing; pagination=every series is a whole-result rollup of the full grouped set, independent of the detail table limit/offset; scope=same tenant plus farm/park/shed/stage/breed/sex predicates as the page query
@@ -3102,8 +3162,13 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		penPartitions,
 	}
 
+	pageSQL := countsBreakdownPageSQL
+	if req.GroupByPen {
+		pageSQL = countsBreakdownPensSQL
+	}
+
 	batch := &pgx.Batch{}
-	batch.Queue(countsBreakdownPageSQL, append(append([]any{}, grainArgs...), limit, offset)...)
+	batch.Queue(pageSQL, append(append([]any{}, grainArgs...), limit, offset)...)
 	batch.Queue(countsBreakdownChartsSQL, grainArgs...)
 	batch.Queue(countsBreakdownFacetsSQL, req.TenantID, lifecycle)
 
@@ -3112,6 +3177,7 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 
 	out := domain.CountsBreakdown{
 		Items:  []domain.CountsBreakdownRow{},
+		Pens:   []domain.CountsBreakdownPenRow{},
 		Charts: domain.CountsBreakdownCharts{},
 		Facets: domain.CountsBreakdownFacets{},
 	}
@@ -3120,45 +3186,12 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	if err != nil {
 		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: page query: %w", err)
 	}
-	for pageRows.Next() {
-		var row domain.CountsBreakdownRow
-		var partitionLabel *string
-		var totalRows, totalCount, totalKids, totalAdults int64
-		if err := pageRows.Scan(
-			&row.ParkID,
-			&row.ParkLabel,
-			&row.ShedID,
-			&row.ShedLabel,
-			&partitionLabel,
-			&row.ManagementStage,
-			&row.Breed,
-			&row.Sex,
-			&row.Count,
-			&totalRows,
-			&totalCount,
-			&totalKids,
-			&totalAdults,
-		); err != nil {
-			pageRows.Close()
-			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: page scan: %w", err)
+	if req.GroupByPen {
+		if err := scanCountsBreakdownPens(pageRows, &out); err != nil {
+			return domain.CountsBreakdown{}, err
 		}
-		if partitionLabel != nil {
-			row.PartitionLabel = *partitionLabel
-		}
-		row.OperationalLocationDisplay = oploc.OperationalLocation{
-			ShedName:       row.ShedLabel,
-			PartitionLabel: row.PartitionLabel,
-		}.Display()
-		// Every row carries the same window totals; the last write wins and they agree.
-		out.TotalRows = totalRows
-		out.TotalCount = totalCount
-		out.TotalKids = totalKids
-		out.TotalAdults = totalAdults
-		out.Items = append(out.Items, row)
-	}
-	pageRows.Close()
-	if err := pageRows.Err(); err != nil {
-		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: page iterate: %w", err)
+	} else if err := scanCountsBreakdownGrain(pageRows, &out); err != nil {
+		return domain.CountsBreakdown{}, err
 	}
 
 	chartRows, err := results.Query()
@@ -3277,4 +3310,157 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 
 	out.ProjectedAt = time.Now().UTC()
 	return out, nil
+}
+
+// scanCountsBreakdownGrain drains the grain page: one row per stage x breed x sex combination.
+func scanCountsBreakdownGrain(pageRows pgx.Rows, out *domain.CountsBreakdown) error {
+	defer pageRows.Close()
+	for pageRows.Next() {
+		var row domain.CountsBreakdownRow
+		var partitionLabel *string
+		var totalRows, totalCount, totalKids, totalAdults int64
+		if err := pageRows.Scan(
+			&row.ParkID,
+			&row.ParkLabel,
+			&row.ShedID,
+			&row.ShedLabel,
+			&partitionLabel,
+			&row.ManagementStage,
+			&row.Breed,
+			&row.Sex,
+			&row.Count,
+			&totalRows,
+			&totalCount,
+			&totalKids,
+			&totalAdults,
+		); err != nil {
+			return fmt.Errorf("counts breakdown: page scan: %w", err)
+		}
+		if partitionLabel != nil {
+			row.PartitionLabel = *partitionLabel
+		}
+		row.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       row.ShedLabel,
+			PartitionLabel: row.PartitionLabel,
+		}.Display()
+		// Every row carries the same window totals; the last write wins and they agree.
+		out.TotalRows = totalRows
+		out.TotalCount = totalCount
+		out.TotalKids = totalKids
+		out.TotalAdults = totalAdults
+		out.Items = append(out.Items, row)
+	}
+	if err := pageRows.Err(); err != nil {
+		return fmt.Errorf("counts breakdown: page iterate: %w", err)
+	}
+	return nil
+}
+
+// countsBreakdownGrainJSON is the wire shape of one nested grain row inside the pen page's
+// jsonb_agg column. Decoded strictly: a key the SQL emits that no field here reads would be an
+// accept-and-discard nobody notices.
+type countsBreakdownGrainJSON struct {
+	ManagementStage string `json:"management_stage"`
+	Breed           string `json:"breed"`
+	Sex             string `json:"sex"`
+	Count           int64  `json:"count"`
+}
+
+// scanCountsBreakdownPens drains the pen page: one row per park x shed x partition with that pen's
+// grain rows nested. The per-dimension composition (stages, breeds, sexes) is re-rolled here from
+// the SAME nested rows rather than fetched separately, so a pen's chips can never disagree with the
+// rows a reader sees when they expand it.
+func scanCountsBreakdownPens(pageRows pgx.Rows, out *domain.CountsBreakdown) error {
+	defer pageRows.Close()
+	for pageRows.Next() {
+		var pen domain.CountsBreakdownPenRow
+		var partitionLabel *string
+		var grainJSON []byte
+		var totalRows, totalCount, totalKids, totalAdults int64
+		if err := pageRows.Scan(
+			&pen.ParkID,
+			&pen.ParkLabel,
+			&pen.ShedID,
+			&pen.ShedLabel,
+			&partitionLabel,
+			&pen.Count,
+			&pen.KidCount,
+			&pen.AdultCount,
+			&grainJSON,
+			&totalRows,
+			&totalCount,
+			&totalKids,
+			&totalAdults,
+		); err != nil {
+			return fmt.Errorf("counts breakdown: pen scan: %w", err)
+		}
+		if partitionLabel != nil {
+			pen.PartitionLabel = *partitionLabel
+		}
+		pen.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       pen.ShedLabel,
+			PartitionLabel: pen.PartitionLabel,
+		}.Display()
+
+		var grain []countsBreakdownGrainJSON
+		dec := json.NewDecoder(bytes.NewReader(grainJSON))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&grain); err != nil {
+			return fmt.Errorf("counts breakdown: pen grain decode: %w", err)
+		}
+		pen.Rows = make([]domain.CountsBreakdownRow, 0, len(grain))
+		for _, g := range grain {
+			pen.Rows = append(pen.Rows, domain.CountsBreakdownRow{
+				ParkID:                     pen.ParkID,
+				ParkLabel:                  pen.ParkLabel,
+				ShedID:                     pen.ShedID,
+				ShedLabel:                  pen.ShedLabel,
+				PartitionLabel:             pen.PartitionLabel,
+				OperationalLocationDisplay: pen.OperationalLocationDisplay,
+				ManagementStage:            g.ManagementStage,
+				Breed:                      g.Breed,
+				Sex:                        g.Sex,
+				Count:                      g.Count,
+			})
+		}
+		pen.Stages = rollupBreakdownDimension(pen.Rows, func(r domain.CountsBreakdownRow) string { return r.ManagementStage })
+		pen.Breeds = rollupBreakdownDimension(pen.Rows, func(r domain.CountsBreakdownRow) string { return r.Breed })
+		pen.Sexes = rollupBreakdownDimension(pen.Rows, func(r domain.CountsBreakdownRow) string { return r.Sex })
+
+		out.TotalRows = totalRows
+		out.TotalCount = totalCount
+		out.TotalKids = totalKids
+		out.TotalAdults = totalAdults
+		out.Pens = append(out.Pens, pen)
+	}
+	if err := pageRows.Err(); err != nil {
+		return fmt.Errorf("counts breakdown: pen iterate: %w", err)
+	}
+	return nil
+}
+
+// rollupBreakdownDimension folds grain rows into one series along a single dimension, largest
+// bucket first and then by key so the order is deterministic for equal counts. Label repeats Key:
+// the blank bucket is the client's contract copy to name, never a label invented here.
+func rollupBreakdownDimension(rows []domain.CountsBreakdownRow, key func(domain.CountsBreakdownRow) string) []domain.CountsBreakdownSeriesPoint {
+	totals := map[string]int64{}
+	order := make([]string, 0, len(rows))
+	for _, row := range rows {
+		k := key(row)
+		if _, seen := totals[k]; !seen {
+			order = append(order, k)
+		}
+		totals[k] += row.Count
+	}
+	out := make([]domain.CountsBreakdownSeriesPoint, 0, len(order))
+	for _, k := range order {
+		out = append(out, domain.CountsBreakdownSeriesPoint{Key: k, Label: k, Count: totals[k]})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Key < out[j].Key
+	})
+	return out
 }

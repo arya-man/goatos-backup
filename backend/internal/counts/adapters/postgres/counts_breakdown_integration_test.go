@@ -1909,3 +1909,223 @@ ON CONFLICT DO NOTHING`, countsTenant, emptyShed); err != nil {
 		t.Fatalf("expected the 2 empty catalog pens beside the parent row, got %d", pens)
 	}
 }
+
+// The pen page is a ROLLUP of the grain page, never a second count. For the same filters the two
+// must agree animal for animal: every pen's count is the sum of the grain rows nested under it,
+// its stage/breed/sex chips re-roll those same rows, total_rows counts pens instead of
+// combinations, and total_count/kids/adults are byte-identical to the grain page's.
+func TestCountsBreakdownPenPageOneToManyGrainRollupReconcilesToTheGrainPage(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool) // Castro1(park1): pen "2" x3, "Part 1" x1; Castro(park2): pen "2" x2
+
+	grain, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 100})
+	if err != nil {
+		t.Fatalf("grain page: %v", err)
+	}
+	pens, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, GroupByPen: true, Limit: 100})
+	if err != nil {
+		t.Fatalf("pen page: %v", err)
+	}
+
+	if len(pens.Items) != 0 {
+		t.Errorf("pen page must not also carry the grain page: items=%d", len(pens.Items))
+	}
+	if len(grain.Pens) != 0 {
+		t.Errorf("grain page must not also carry the pen page: pens=%d", len(grain.Pens))
+	}
+	if pens.TotalRows != 3 {
+		t.Errorf("pen page total_rows=%d, want 3 pens", pens.TotalRows)
+	}
+	if pens.TotalCount != grain.TotalCount || pens.TotalKids != grain.TotalKids || pens.TotalAdults != grain.TotalAdults {
+		t.Errorf("pen page totals (%d/%d/%d) differ from grain page totals (%d/%d/%d)",
+			pens.TotalCount, pens.TotalKids, pens.TotalAdults, grain.TotalCount, grain.TotalKids, grain.TotalAdults)
+	}
+
+	// Rebuild the grain set from the nested rows and compare it to the grain page as a multiset.
+	type grainKey struct{ shed, partition, stage, breed, sex string }
+	fromGrain := map[grainKey]int64{}
+	for _, row := range grain.Items {
+		fromGrain[grainKey{ptrValue(row.ShedID), row.PartitionLabel, row.ManagementStage, row.Breed, row.Sex}] += row.Count
+	}
+	fromPens := map[grainKey]int64{}
+	var penSum int64
+	for _, pen := range pens.Pens {
+		var rowsSum int64
+		for _, row := range pen.Rows {
+			if ptrValue(row.ShedID) != ptrValue(pen.ShedID) || row.PartitionLabel != pen.PartitionLabel || row.OperationalLocationDisplay != pen.OperationalLocationDisplay {
+				t.Errorf("nested row of %q carries a different location: %+v", pen.OperationalLocationDisplay, row)
+			}
+			fromPens[grainKey{ptrValue(row.ShedID), row.PartitionLabel, row.ManagementStage, row.Breed, row.Sex}] += row.Count
+			rowsSum += row.Count
+		}
+		if rowsSum != pen.Count {
+			t.Errorf("pen %q count=%d but its rows sum to %d", pen.OperationalLocationDisplay, pen.Count, rowsSum)
+		}
+		if pen.KidCount+pen.AdultCount != pen.Count {
+			t.Errorf("pen %q kids+adults=%d, want %d", pen.OperationalLocationDisplay, pen.KidCount+pen.AdultCount, pen.Count)
+		}
+		for name, series := range map[string][]domain.CountsBreakdownSeriesPoint{"stages": pen.Stages, "breeds": pen.Breeds, "sexes": pen.Sexes} {
+			var s int64
+			for i, point := range series {
+				s += point.Count
+				if i > 0 && series[i-1].Count < point.Count {
+					t.Errorf("pen %q %s not largest-first: %+v", pen.OperationalLocationDisplay, name, series)
+				}
+			}
+			if s != pen.Count {
+				t.Errorf("pen %q %s sum to %d, want %d", pen.OperationalLocationDisplay, name, s, pen.Count)
+			}
+		}
+		penSum += pen.Count
+	}
+	if penSum != pens.TotalCount {
+		t.Errorf("pens on the page sum to %d, total_count=%d (page of 100 must hold every pen)", penSum, pens.TotalCount)
+	}
+	if !reflect.DeepEqual(fromGrain, fromPens) {
+		t.Errorf("grain set differs\n grain page: %v\n from pens:  %v", fromGrain, fromPens)
+	}
+
+	// Pens page largest-first, and the partitioned display is the canonical one, never a sentinel.
+	for i, pen := range pens.Pens {
+		if i > 0 && pens.Pens[i-1].Count < pen.Count {
+			t.Errorf("pens not ordered largest-first at %d: %+v", i, pens.Pens)
+		}
+		if pen.PartitionLabel == "whole" || pen.OperationalLocationDisplay == "" {
+			t.Errorf("pen %d leaks a sentinel or blank display: %+v", i, pen)
+		}
+	}
+	if pens.Pens[0].OperationalLocationDisplay != "Castro 1 - Part 2" && pens.Pens[0].OperationalLocationDisplay != "Castro 1 2" {
+		// Whichever convention the fixture stores, the largest pen (3 animals) is Castro 1's pen "2".
+		if pens.Pens[0].Count != 3 {
+			t.Errorf("largest pen should hold 3 animals: %+v", pens.Pens[0])
+		}
+	}
+}
+
+// The pen page honours the same filters as the grain page: a filter that narrows a pen to a subset
+// of its animals narrows the pen's line and its nested rows alike, and a pen with no matching
+// animal disappears rather than showing a zero line.
+func TestCountsBreakdownPenPagePaginationAndPageBoundaryHonourFilters(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool)
+
+	// Filter to one pen: exactly one line, whose count equals the grain page's total for the same pen.
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID:   countsTenant,
+		GroupByPen: true,
+		Pens:       []domain.CountsBreakdownPen{{ShedID: countsShedCastroOne, PartitionLabel: "Part 2"}},
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("pen filter: %v", err)
+	}
+	if got.TotalRows != 1 || len(got.Pens) != 1 {
+		t.Fatalf("one pen selected, got total_rows=%d pens=%d", got.TotalRows, len(got.Pens))
+	}
+	if got.Pens[0].Count != 3 || got.TotalCount != 3 {
+		t.Errorf("Castro 1 pen 2 holds 3 animals: pen=%d total=%d", got.Pens[0].Count, got.TotalCount)
+	}
+
+	// Paging walks PENS: a page of 1 returns one pen but still reports every pen and every animal.
+	page, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, GroupByPen: true, Limit: 1, Offset: 1})
+	if err != nil {
+		t.Fatalf("pen page 2: %v", err)
+	}
+	if len(page.Pens) != 1 || page.TotalRows != 3 || page.TotalCount != 6 {
+		t.Errorf("limit=1 offset=1: pens=%d total_rows=%d total_count=%d, want 1/3/6", len(page.Pens), page.TotalRows, page.TotalCount)
+	}
+}
+
+// Status matrix on the pen page: only the requested lifecycle bucket is counted. A dead and a sold
+// animal in an otherwise live pen must not appear on the pen's line, in its chips, or in its
+// nested rows — and a pen whose every animal has exited must vanish rather than show a zero line.
+func TestCountsBreakdownPenPageStatusMatrixCountsOnlyTheRequestedLifecycle(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool) // 6 alive: Castro1 pen "2" x3, "Part 1" x1; Castro Two pen "2" x2
+
+	// Two exited animals in Castro 1 pen 2, and one dead animal alone in a third shed.
+	for i, lifecycle := range []string{"dead", "sold"} {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(80+i), goatDisplayID(80+i), "male", "Sirohi", lifecycle, "F2",
+			strp(countsPark), strp(countsShedCastroOne), nil)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2', 'Castro 1')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET partition_label = EXCLUDED.partition_label`,
+			countsTenant, goatUUID(80+i), countsShedCastroOne); err != nil {
+			t.Fatalf("seed exited partition: %v", err)
+		}
+	}
+	insertBreakdownGoat(t, ctx, pool, goatUUID(85), goatDisplayID(85), "female", "Sirohi", "dead", "F2",
+		strp(countsPark), strp(countsShedB), nil)
+
+	live, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, GroupByPen: true, Limit: 100})
+	if err != nil {
+		t.Fatalf("live pen page: %v", err)
+	}
+	if live.TotalRows != 3 || live.TotalCount != 6 {
+		t.Errorf("live pen page total_rows=%d total_count=%d, want 3 pens / 6 animals", live.TotalRows, live.TotalCount)
+	}
+	for _, pen := range live.Pens {
+		for _, b := range pen.Breeds {
+			if b.Key == "Sirohi" {
+				t.Errorf("exited Sirohi animals leaked into live pen %q chips: %+v", pen.OperationalLocationDisplay, pen.Breeds)
+			}
+		}
+		for _, row := range pen.Rows {
+			if row.Breed == "Sirohi" {
+				t.Errorf("exited Sirohi animals leaked into live pen %q rows: %+v", pen.OperationalLocationDisplay, row)
+			}
+		}
+	}
+
+	dead, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, LifecycleStatus: strp("dead"), GroupByPen: true, Limit: 100})
+	if err != nil {
+		t.Fatalf("dead pen page: %v", err)
+	}
+	if dead.TotalRows != 2 || dead.TotalCount != 2 {
+		t.Errorf("dead pen page total_rows=%d total_count=%d, want 2 pens / 2 animals", dead.TotalRows, dead.TotalCount)
+	}
+	for _, pen := range dead.Pens {
+		if pen.Count != 1 || len(pen.Rows) != 1 || pen.Rows[0].Breed != "Sirohi" {
+			t.Errorf("dead pen %q should hold exactly one Sirohi row: %+v", pen.OperationalLocationDisplay, pen)
+		}
+	}
+}
+
+// Park scope on the pen page: a park filter keeps only that park's pens, and the pen page's total
+// for that scope equals the grain page's total for the same scope. Shed names repeat across parks
+// ("Castro 1" exists under both), so this pins that the scope is keyed on park_id, never on name.
+func TestCountsBreakdownPenPageParkScopeMatchesTheGrainPage(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool) // park1: Castro 1 pens "2" x3 + "Part 1" x1; park2: Castro pen "2" x2
+
+	for _, park := range []string{countsPark, countsParkTwo} {
+		grain, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ParkIDs: []string{park}, Limit: 100})
+		if err != nil {
+			t.Fatalf("grain page park %s: %v", park, err)
+		}
+		pens, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ParkIDs: []string{park}, GroupByPen: true, Limit: 100})
+		if err != nil {
+			t.Fatalf("pen page park %s: %v", park, err)
+		}
+		if pens.TotalCount != grain.TotalCount || pens.TotalCount == 0 {
+			t.Errorf("park %s: pen page total_count=%d, grain page total_count=%d", park, pens.TotalCount, grain.TotalCount)
+		}
+		for _, pen := range pens.Pens {
+			if ptrValue(pen.ParkID) != park {
+				t.Errorf("park %s scope leaked pen %q from park %q", park, pen.OperationalLocationDisplay, ptrValue(pen.ParkID))
+			}
+		}
+	}
+	if !(func() bool {
+		one, _ := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ParkIDs: []string{countsPark}, GroupByPen: true, Limit: 100})
+		two, _ := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ParkIDs: []string{countsParkTwo}, GroupByPen: true, Limit: 100})
+		return one.TotalRows == 2 && two.TotalRows == 1
+	})() {
+		t.Errorf("expected 2 pens in park one and 1 pen in park two")
+	}
+}

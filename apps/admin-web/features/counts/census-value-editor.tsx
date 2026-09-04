@@ -41,6 +41,7 @@ export function CensusValueEditor({
   choices,
   enabled,
   disabledReason,
+  renderCurrent,
 }: {
   pageContract: AdminUiPageContract;
   slice: CensusSlice;
@@ -50,6 +51,8 @@ export function CensusValueEditor({
   choices: InlineChoice[];
   enabled: boolean;
   disabledReason: string;
+  /** How the stored value reads on screen; the raw value when absent. The write still sends `current` verbatim. */
+  renderCurrent?: (current: string) => React.ReactNode;
 }) {
   const body = {
     shed_id: slice.shedId,
@@ -70,6 +73,7 @@ export function CensusValueEditor({
       choices={choices.filter((choice) => choice.value.toLowerCase() !== current.toLowerCase())}
       enabled={enabled}
       disabledReason={disabledReason}
+      renderCurrent={renderCurrent}
       onPreview={async (value) => {
         const result = await previewCensusCorrectionAction({ ...body, value });
         if (!result.ok) return { error: result.error.message || copy(pageContract, "action.retag.failed") };

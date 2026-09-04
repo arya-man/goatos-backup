@@ -38,7 +38,26 @@ import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
  *    reproduces a merged body cell (the feed ration grid's effective window is one visual unit
  *    across the contract's `valid_from` + `valid_to` pair) while both header labels still render,
  *    so the contract's column list and the rendered header stay identical.
+ *
+ * 4. A ROW MAY OPEN IN PLACE. `expandable` renders detail rows directly under a body row the
+ *    caller marks open. Every body row gets its own `<tbody>` so the row and its detail rows travel
+ *    as one group: sorting moves them together, and the detail rows are ordinary `<tr>`s in the
+ *    SAME column grid, so each detail value sits under the parent column it belongs to. Open/closed
+ *    is CLIENT-LOCAL state owned by the caller (the same rule as drawers: an ordinary open/close
+ *    click never navigates or refetches), and a detail row carries no toggle handler, so clicks
+ *    inside it never close the parent.
  */
+
+export type DataTableExpandable<Row> = {
+  isOpen: (row: Row) => boolean;
+  onToggle: (row: Row) => void;
+  /**
+   * One or more `<tr>` elements rendered after the open row, inside its `<tbody>`. Each must carry
+   * exactly the table's visible columns (use `contract.columns.filter(c => c.visible)`) so the
+   * cells align; the caller sets the DOM id its toggle names via aria-controls.
+   */
+  render: (row: Row) => React.ReactNode;
+};
 export type DataTableColumnMeta = {
   /** Body-cell colSpan. The following `meta.spanned` column renders no body cell. */
   colSpan?: number;
@@ -98,6 +117,7 @@ export function DataTable<Row>({
   empty,
   footer,
   initialSorting,
+  expandable,
 }: {
   columns: ColumnDef<Row>[];
   data: Row[];
@@ -109,6 +129,8 @@ export function DataTable<Row>({
   /** Whole-result totals row. Shown verbatim inside `<tfoot>`; never derived from `data`. */
   footer?: React.ReactNode;
   initialSorting?: SortingState;
+  /** Rule 4 above: rows that open an in-place detail row. */
+  expandable?: DataTableExpandable<Row>;
 }) {
   const [sorting, setSorting] = useState<SortingState>(initialSorting ?? []);
 
@@ -164,35 +186,47 @@ export function DataTable<Row>({
           })}
         </tr>
       </thead>
-      <tbody>
-        {data.length === 0 ? (
+      {data.length === 0 ? (
+        <tbody>
           <tr>
             <td colSpan={colCount}>{empty}</td>
           </tr>
-        ) : (
-          table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
-              {row.getVisibleCells().map((cell) => {
-                const meta = cell.column.columnDef.meta as DataTableColumnMeta | undefined;
-                if (meta?.spanned) return null;
-                return (
-                  <td
-                    key={cell.id}
-                    className={meta?.cellClassName}
-                    colSpan={meta?.colSpan}
-                    style={{
-                      ...(meta?.align === "right" ? { textAlign: "right" } : null),
-                      ...meta?.cellStyle,
-                    }}
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                );
-              })}
-            </tr>
-          ))
-        )}
-      </tbody>
+        </tbody>
+      ) : (
+        table.getRowModel().rows.map((row) => {
+            const open = expandable ? expandable.isOpen(row.original) : false;
+            return (
+              <tbody key={row.id} className={open ? "xgroup open" : undefined}>
+                <tr
+                  className={expandable ? (open ? "xrow open" : "xrow") : undefined}
+                  // The whole line is the affordance. Clicks that land on an interactive control
+                  // inside a cell (an inline editor, a link) keep their own meaning and do not
+                  // toggle: the control handles them and stops propagation.
+                  onClick={expandable ? () => expandable.onToggle(row.original) : undefined}
+                >
+                  {row.getVisibleCells().map((cell) => {
+                    const meta = cell.column.columnDef.meta as DataTableColumnMeta | undefined;
+                    if (meta?.spanned) return null;
+                    return (
+                      <td
+                        key={cell.id}
+                        className={meta?.cellClassName}
+                        colSpan={meta?.colSpan}
+                        style={{
+                          ...(meta?.align === "right" ? { textAlign: "right" } : null),
+                          ...meta?.cellStyle,
+                        }}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    );
+                  })}
+                </tr>
+                {expandable && open ? expandable.render(row.original) : null}
+              </tbody>
+            );
+          })
+      )}
       {footer ? <tfoot>{footer}</tfoot> : null}
     </table>
   );
