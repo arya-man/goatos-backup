@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
@@ -131,6 +132,31 @@ func TestBootstrapAllowsActiveProfileGrantCapabilityDevice(t *testing.T) {
 	}
 	if len(got.TaskQueueDescriptors) < 2 {
 		t.Fatalf("expected movement queue descriptor, got %#v", got.TaskQueueDescriptors)
+	}
+}
+
+func TestCreateGrantRefusesTenantOnlyRolesOutsideTenantScope(t *testing.T) {
+	for role := range parkscope.TenantOnlyRoles {
+		for _, scopeType := range []string{"custodian_party", "farm", "park", "shed", "cohort"} {
+			t.Run(role+"/"+scopeType, func(t *testing.T) {
+				repo := &fakeRepo{}
+				svc := NewService(repo)
+				_, err := svc.CreateGrant(context.Background(), ports.CreateGrantCommand{
+					TenantID:   testTenant,
+					ActorID:    testActor,
+					OperatorID: testOperator,
+					Body: domain.CreateGrantRequest{
+						Role:      role,
+						ScopeType: scopeType,
+						ScopeID:   testTenant,
+					},
+				}, "trace-1")
+				assertAppCode(t, err, "tenant_only_role")
+				if len(repo.createGrantCalls) != 0 {
+					t.Fatalf("CreateGrant called %d times, want 0", len(repo.createGrantCalls))
+				}
+			})
+		}
 	}
 }
 
@@ -1123,6 +1149,7 @@ type fakeRepo struct {
 	registerDeviceResult domain.DeviceSummary
 	registerDeviceErr    error
 	registerDeviceCalls  []ports.RegisterDeviceCommand
+	createGrantCalls     []ports.CreateGrantCommand
 }
 
 func (f *fakeRepo) GetMemberForActor(context.Context, string, string) (domain.OperatorProfile, error) {
@@ -1173,7 +1200,8 @@ func (f *fakeRepo) SetOperatorStatus(context.Context, ports.StatusCommand) (doma
 func (f *fakeRepo) ListGrants(context.Context, string, string) ([]domain.GrantSummary, error) {
 	return nil, ports.ErrNotFound
 }
-func (f *fakeRepo) CreateGrant(context.Context, ports.CreateGrantCommand) ([]domain.GrantSummary, error) {
+func (f *fakeRepo) CreateGrant(_ context.Context, cmd ports.CreateGrantCommand) ([]domain.GrantSummary, error) {
+	f.createGrantCalls = append(f.createGrantCalls, cmd)
 	return nil, ports.ErrNotFound
 }
 func (f *fakeRepo) AssignCapability(context.Context, ports.CapabilityCommand) (domain.CapabilityAssignment, error) {

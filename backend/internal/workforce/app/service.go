@@ -145,6 +145,9 @@ func (s *Service) CreateGrant(ctx context.Context, cmd ports.CreateGrantCommand,
 	if !validScope(cmd.Body.ScopeType, cmd.Body.ScopeID) {
 		return nil, BadRequest("invalid_scope", "scope_type and scope_id are required")
 	}
+	if parkscope.TenantOnlyRoles[cmd.Body.Role] && cmd.Body.ScopeType != "tenant" {
+		return nil, BadRequest("tenant_only_role", "this role works across every park; grant it at tenant scope")
+	}
 	if cmd.Body.ValidTo != nil {
 		v := strings.TrimSpace(*cmd.Body.ValidTo)
 		cmd.Body.ValidTo = &v
