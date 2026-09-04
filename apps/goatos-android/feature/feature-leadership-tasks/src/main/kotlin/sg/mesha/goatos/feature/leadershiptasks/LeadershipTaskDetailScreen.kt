@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -96,8 +98,21 @@ fun LeadershipTaskDetailScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        LeadershipStatusChip(label = state.statusChip)
+                        if (state.statusOptions.isNotEmpty()) {
+                            // The assignee moves the task from HERE: the status is a dropdown, not a
+                            // row of buttons (maintainer instruction 2026-09-04).
+                            LeadershipStatusDropdown(
+                                currentLabel = state.statusChip,
+                                currentStatus = state.status,
+                                options = state.statusOptions,
+                                enabled = !state.actionInFlight,
+                                onSelect = { onEvent(LeadershipTaskDetailEvent.ChangeStatus(it)) },
+                            )
+                        } else {
+                            LeadershipStatusChip(label = state.statusChip, status = state.status)
+                        }
                         Spacer(Modifier.weight(1f))
+                        if (state.actionInFlight) LeadershipInlineSpinner()
                     }
                     Text(text = state.title, color = MeshaColors.Ink, style = MeshaType.headerTitle)
                     // Backend-composed meta line, verbatim.
@@ -124,30 +139,63 @@ fun LeadershipTaskDetailScreen(
                 }
             }
 
-            if (state.statusOptions.isNotEmpty() || state.canCancel) {
-                item(key = "actions") {
+            if (state.canComment || state.comment.isNotBlank()) {
+                item(key = "comment") {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = leadershipCardModifier(),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        // One filled button per backend option, labelled with the backend's copy.
-                        state.statusOptions.forEach { option ->
+                        Text(
+                            text = stringResource(R.string.leadership_tasks_comment_label),
+                            color = MeshaColors.Faint,
+                            style = MeshaType.sectionLabel,
+                        )
+                        if (state.canComment) {
+                            OutlinedTextField(
+                                value = state.commentDraft,
+                                onValueChange = { onEvent(LeadershipTaskDetailEvent.CommentChanged(it)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text(stringResource(R.string.leadership_tasks_comment_placeholder)) },
+                                minLines = 3,
+                                maxLines = 8,
+                                enabled = !state.commentSaving,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = MeshaColors.Ink,
+                                    unfocusedTextColor = MeshaColors.Ink,
+                                    focusedBorderColor = MeshaColors.BrandD,
+                                    unfocusedBorderColor = MeshaColors.Hair,
+                                    cursorColor = MeshaColors.BrandD,
+                                    focusedPlaceholderColor = MeshaColors.Muted,
+                                    unfocusedPlaceholderColor = MeshaColors.Muted,
+                                ),
+                            )
+                            val dirty = state.commentDraft.trim() != state.comment.trim()
                             LeadershipPrimaryButton(
-                                label = option.label,
-                                enabled = !state.actionInFlight,
-                                onClick = { onEvent(LeadershipTaskDetailEvent.ChangeStatus(option.key)) },
+                                label = stringResource(
+                                    if (state.commentSaving) R.string.leadership_tasks_comment_saving else R.string.leadership_tasks_comment_save,
+                                ),
+                                enabled = dirty && !state.commentSaving,
+                                onClick = { onEvent(LeadershipTaskDetailEvent.SaveComment) },
                                 modifier = Modifier.fillMaxWidth(),
                             )
+                        } else {
+                            Text(text = state.comment, color = MeshaColors.Ink, style = MeshaType.body)
                         }
-                        if (state.canCancel) {
-                            LeadershipGhostButton(
-                                label = stringResource(R.string.leadership_tasks_action_cancel_task),
-                                enabled = !state.actionInFlight,
-                                onClick = { onEvent(LeadershipTaskDetailEvent.RequestCancel) },
-                                modifier = Modifier.fillMaxWidth(),
-                                danger = true,
-                            )
-                        }
+                    }
+                }
+            }
+
+            if (state.canCancel) {
+                item(key = "actions") {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        LeadershipGhostButton(
+                            label = stringResource(R.string.leadership_tasks_action_cancel_task),
+                            enabled = !state.actionInFlight,
+                            onClick = { onEvent(LeadershipTaskDetailEvent.RequestCancel) },
+                            modifier = Modifier.fillMaxWidth(),
+                            danger = true,
+                        )
                     }
                 }
             }
@@ -246,16 +294,23 @@ private fun LeadershipAttachmentRow(
             }
             when {
                 attachment.loading -> LeadershipInlineSpinner()
-                attachment.localPath.isBlank() -> Icon(
-                    imageVector = MeshaIcons.Download,
-                    contentDescription = stringResource(R.string.leadership_tasks_attachment_open),
-                    tint = MeshaColors.Faint,
-                    modifier = Modifier.size(18.dp),
+                attachment.localPath.isBlank() -> Text(
+                    text = stringResource(R.string.leadership_tasks_attachment_view),
+                    color = MeshaColors.BrandD,
+                    style = MeshaType.pillStrong,
                 )
                 attachment.kind == LeadershipAttachmentKind.FILE -> Icon(
                     imageVector = MeshaIcons.Expand,
                     contentDescription = stringResource(R.string.leadership_tasks_attachment_open),
                     tint = MeshaColors.Faint,
+                    modifier = Modifier.size(18.dp),
+                )
+                // Photo, video and voice stay INSIDE the app (maintainer instruction 2026-09-04):
+                // the photo and video open the in-app viewer, the voice note plays in place.
+                else -> Icon(
+                    imageVector = MeshaIcons.Check,
+                    contentDescription = null,
+                    tint = MeshaColors.Ok,
                     modifier = Modifier.size(18.dp),
                 )
             }

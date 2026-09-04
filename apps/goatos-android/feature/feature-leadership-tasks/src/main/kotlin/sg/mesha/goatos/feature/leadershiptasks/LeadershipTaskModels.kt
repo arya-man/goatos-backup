@@ -71,6 +71,8 @@ data class LeadershipTaskCardUi(
     val numberLabel: String,
     /** Backend-composed chip copy, VERBATIM. */
     val statusChip: String,
+    /** The status KEY the chip colour follows (open / in_progress / done / cancelled). */
+    val status: String = "",
     val title: String,
     /** Backend-composed meta sentence, VERBATIM. */
     val metaLine: String,
@@ -124,6 +126,7 @@ data class LeadershipTaskDetailUiState(
     val loading: Boolean = true,
     val numberLabel: String = "",
     val statusChip: String = "",
+    val status: String = "",
     val title: String = "",
     val body: String = "",
     val metaLine: String = "",
@@ -132,6 +135,11 @@ data class LeadershipTaskDetailUiState(
     val statusOptions: List<LeadershipStatusOptionUi> = emptyList(),
     val canEdit: Boolean = false,
     val canCancel: Boolean = false,
+    /** The CXO's note on the task (server truth), the draft being typed, and whether this caller may write it. */
+    val comment: String = "",
+    val commentDraft: String = "",
+    val canComment: Boolean = false,
+    val commentSaving: Boolean = false,
     val isRefreshing: Boolean = false,
     /** True while a status change / cancel is on the wire — every action is dead meanwhile. */
     val actionInFlight: Boolean = false,
@@ -151,6 +159,8 @@ sealed interface LeadershipTaskDetailEvent {
 
     /** Fetch (if needed) and open one attachment: audio plays in place, a file opens outside. */
     data class OpenAttachment(val listKey: String) : LeadershipTaskDetailEvent
+    data class CommentChanged(val value: String) : LeadershipTaskDetailEvent
+    data object SaveComment : LeadershipTaskDetailEvent
     data object DismissMessage : LeadershipTaskDetailEvent
 }
 

@@ -34,4 +34,11 @@
     <string name="leadership_tasks_send">Send</string>
     <string name="leadership_tasks_save">Save</string>
     <string name="leadership_tasks_sending">Sending…</string>
+    <string name="leadership_tasks_field_for_placeholder">Choose who this is for</string>
+    <string name="leadership_tasks_comment_label">Comments</string>
+    <string name="leadership_tasks_comment_placeholder">Add a note back on this task</string>
+    <string name="leadership_tasks_comment_save">Save comment</string>
+    <string name="leadership_tasks_comment_saving">Saving…</string>
+    <string name="leadership_tasks_status_label">Status</string>
+    <string name="leadership_tasks_attachment_view">View</string>
 </resources>

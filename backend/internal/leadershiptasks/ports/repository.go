@@ -87,6 +87,15 @@ type StatusParams struct {
 	IdempotencyKey string
 }
 
+// CommentParams sets the assignee's note on a task.
+type CommentParams struct {
+	TenantID       string
+	Actor          domain.Actor
+	TaskID         string
+	Comment        string
+	IdempotencyKey string
+}
+
 // Repository persists tasks.
 type Repository interface {
 	ListAssignees(ctx context.Context, tenantID string) ([]Assignee, error)
@@ -95,6 +104,7 @@ type Repository interface {
 	Raise(ctx context.Context, p RaiseParams) (domain.Task, error)
 	Edit(ctx context.Context, p EditParams) (domain.Task, error)
 	ChangeStatus(ctx context.Context, p StatusParams) (domain.Task, error)
+	SetComment(ctx context.Context, p CommentParams) (domain.Task, error)
 	// MarkSeen stamps seen_at once; a replay is a no-op that returns the task.
 	MarkSeen(ctx context.Context, tenantID, taskID, userID string) (domain.Task, error)
 	// UnseenCount answers the drawer badge for one person.

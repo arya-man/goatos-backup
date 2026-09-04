@@ -26,11 +26,17 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -108,30 +114,24 @@ fun LeadershipTaskComposeScreen(
                 if (state.assigneesLoading && state.assignees.isEmpty()) {
                     LeadershipInlineSpinner()
                 } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        state.assignees.forEach { assignee -> // compose-guard:ignore: the handful of CXOs a task can go to (four today), never park-scale data
-                            val selected = assignee.userId == state.selectedAssigneeId
-                            LeadershipAssigneeChip(
-                                name = assignee.name,
-                                selected = selected,
-                                enabled = !state.isEdit && !busy,
-                                onClick = { onEvent(LeadershipTaskComposeEvent.SelectAssignee(assignee.userId)) },
-                            )
-                        }
-                    }
+                    LeadershipAssigneeDropdown(
+                        assignees = state.assignees,
+                        selectedId = state.selectedAssigneeId,
+                        enabled = !state.isEdit && !busy,
+                        placeholder = stringResource(R.string.leadership_tasks_field_for_placeholder),
+                        onSelect = { onEvent(LeadershipTaskComposeEvent.SelectAssignee(it)) },
+                    )
                 }
             }
 
             Column(modifier = leadershipCardModifier(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 LeadershipTextField(
                     value = state.title,
-                    onValueChange = { onEvent(LeadershipTaskComposeEvent.TitleChanged(it)) },
+                    onValueChange = { onEvent(LeadershipTaskComposeEvent.TitleChanged(it.take(LEADERSHIP_TASK_TITLE_CAP))) },
                     label = stringResource(R.string.leadership_tasks_field_title),
                     singleLine = true,
                     enabled = !busy,
+                    counter = "${state.title.length} / $LEADERSHIP_TASK_TITLE_CAP",
                 )
                 LeadershipTextField(
                     value = state.body,
@@ -159,16 +159,13 @@ fun LeadershipTaskComposeScreen(
                 if (recording != null) {
                     LeadershipRecordingRow(elapsedMs = recording, onStop = { onEvent(LeadershipTaskComposeEvent.StopRecording) })
                 } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         LeadershipGhostButton(
                             label = stringResource(R.string.leadership_tasks_add_voice_note),
                             enabled = !busy && remaining > 0,
                             onClick = startRecording,
                             icon = MeshaIcons.Mic,
-                            modifier = Modifier.weight(1.4f),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                         LeadershipGhostButton(
                             label = stringResource(R.string.leadership_tasks_add_media),
@@ -177,14 +174,14 @@ fun LeadershipTaskComposeScreen(
                                 mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                             },
                             icon = MeshaIcons.Photo,
-                            modifier = Modifier.weight(1.2f),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                         LeadershipGhostButton(
                             label = stringResource(R.string.leadership_tasks_add_file),
                             enabled = !busy && remaining > 0,
                             onClick = { filePicker.launch(arrayOf("*/*")) },
                             icon = MeshaIcons.Document,
-                            modifier = Modifier.weight(0.9f),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
@@ -218,24 +215,71 @@ fun LeadershipTaskComposeScreen(
     }
 }
 
+/** The CXO picker: one closed dropdown, the selected name on the field, the rest on tap. */
 @Composable
-private fun LeadershipAssigneeChip(name: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    val background = if (selected) MeshaColors.BrandTint else MeshaColors.Surf
-    val border = if (selected) MeshaColors.BrandD else MeshaColors.Hair
-    val color = when {
-        selected -> MeshaColors.BrandD
-        enabled -> MeshaColors.Ink
-        else -> MeshaColors.Faint
-    }
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(background)
-            .border(1.dp, border, RoundedCornerShape(999.dp))
-            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
-    ) {
-        Text(text = name, color = color, style = MeshaType.pillStrong, maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun LeadershipAssigneeDropdown(
+    assignees: List<LeadershipAssigneeUi>,
+    selectedId: String?,
+    enabled: Boolean,
+    placeholder: String,
+    onSelect: (String) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val selectedName = assignees.firstOrNull { it.userId == selectedId }?.name
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 54.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MeshaColors.Surf)
+                .border(1.dp, if (open) MeshaColors.BrandD else MeshaColors.Hair, RoundedCornerShape(14.dp))
+                .clickable(enabled = enabled, role = Role.DropdownList) { open = true }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = selectedName ?: placeholder,
+                color = when {
+                    selectedName == null -> MeshaColors.Muted
+                    enabled -> MeshaColors.Ink
+                    else -> MeshaColors.Faint
+                },
+                style = MeshaType.bodyStrong,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = MeshaIcons.ChevronDown,
+                contentDescription = null,
+                tint = if (enabled) MeshaColors.Muted else MeshaColors.Faint,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            containerColor = MeshaColors.Surf,
+            modifier = Modifier.fillMaxWidth(0.86f),
+        ) {
+            assignees.forEach { assignee -> // compose-guard:ignore: the handful of CXOs a task can go to (five today), never park-scale data
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = assignee.name,
+                            color = if (assignee.userId == selectedId) MeshaColors.BrandD else MeshaColors.Ink,
+                            style = MeshaType.bodyStrong,
+                        )
+                    },
+                    onClick = {
+                        open = false
+                        onSelect(assignee.userId)
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -246,12 +290,14 @@ private fun LeadershipTextField(
     label: String,
     singleLine: Boolean,
     enabled: Boolean,
+    counter: String? = null,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
         label = { Text(label) },
+        supportingText = counter?.let { { Text(text = it, color = MeshaColors.Faint, style = MeshaType.caption) } },
         singleLine = singleLine,
         minLines = if (singleLine) 1 else 4,
         maxLines = if (singleLine) 1 else 10,
@@ -365,3 +411,6 @@ private fun LeadershipRecordingRow(elapsedMs: Long, onStop: () -> Unit) {
         )
     }
 }
+
+/** The title cap the phone enforces while typing; the backend refuses anything longer too. */
+const val LEADERSHIP_TASK_TITLE_CAP = 80

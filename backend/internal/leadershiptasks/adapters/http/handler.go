@@ -28,6 +28,7 @@ type Service interface {
 	Raise(ctx context.Context, p ports.RaiseParams) (domain.Task, error)
 	Edit(ctx context.Context, p ports.EditParams) (domain.Task, error)
 	ChangeStatus(ctx context.Context, p ports.StatusParams) (domain.Task, error)
+	SetComment(ctx context.Context, p ports.CommentParams) (domain.Task, error)
 	MarkSeen(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error)
 }
 
@@ -56,6 +57,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/leadership-tasks", h.Raise)
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/edit", h.Edit)
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/status", h.ChangeStatus)
+	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/comment", h.SetComment)
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/seen", h.MarkSeen)
 }
 
@@ -199,6 +201,31 @@ func (h *Handler) ChangeStatus(w http.ResponseWriter, r *http.Request) {
 		TaskID:         r.PathValue("task_id"),
 		Status:         body.Status,
 		RowVersion:     body.RowVersion,
+		IdempotencyKey: key,
+	})
+	if err != nil {
+		h.writeErr(w, r, toAppError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor), TraceID: traceID(r)})
+}
+
+// SetComment serves POST /app/leadership-tasks/{task_id}/comment -- the assignee's note.
+func (h *Handler) SetComment(w http.ResponseWriter, r *http.Request) {
+	key, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	var body commentPayload
+	if !h.decode(w, r, &body) {
+		return
+	}
+	actor := actorFrom(r)
+	task, err := h.service.SetComment(r.Context(), ports.CommentParams{
+		TenantID:       tenantID(r),
+		Actor:          actor,
+		TaskID:         r.PathValue("task_id"),
+		Comment:        body.Comment,
 		IdempotencyKey: key,
 	})
 	if err != nil {

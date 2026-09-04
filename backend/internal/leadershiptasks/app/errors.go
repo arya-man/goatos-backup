@@ -58,9 +58,11 @@ func HTTPError(err error) *Error {
 	case errors.Is(err, domain.ErrTitleRequired):
 		return BadRequest("title_required", "Give the task a short title.")
 	case errors.Is(err, domain.ErrTitleTooLong):
-		return BadRequest("title_too_long", "Keep the title under 160 characters.")
+		return BadRequest("title_too_long", "Keep the title under 80 characters.")
 	case errors.Is(err, domain.ErrBodyTooLong):
 		return BadRequest("body_too_long", "Keep the brief under 4000 characters.")
+	case errors.Is(err, domain.ErrCommentTooLong):
+		return BadRequest("comment_too_long", "Keep the comment under 2000 characters.")
 	case errors.Is(err, domain.ErrAssigneeRequired):
 		return BadRequest("assignee_required", "Choose who this task is for.")
 	case errors.Is(err, domain.ErrSelfAssignment):

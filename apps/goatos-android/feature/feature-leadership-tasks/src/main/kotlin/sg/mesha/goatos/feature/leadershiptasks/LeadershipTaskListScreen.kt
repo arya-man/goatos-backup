@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
-import sg.mesha.goatos.core.designsystem.component.MeshaIconButton
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -76,19 +75,20 @@ fun LeadershipTaskListScreen(
                 )
             },
             actions = {
-                if (state.canRaise) {
-                    MeshaIconButton(
-                        icon = MeshaIcons.Plus,
-                        contentDescription = stringResource(R.string.leadership_tasks_action_raise),
-                        onClick = { onEvent(LeadershipTaskListEvent.RaiseTask) },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
                 SyncIconButton(
                     isSyncing = state.isRefreshing,
                     onSync = { onEvent(LeadershipTaskListEvent.Refresh) },
                     contentDescription = stringResource(R.string.leadership_tasks_action_refresh),
                 )
+                if (state.canRaise) {
+                    Spacer(Modifier.width(8.dp))
+                    // The raise action, rightmost and in brand green: the one thing a director
+                    // comes to this screen to do (maintainer instruction 2026-09-04).
+                    LeadershipRaiseButton(
+                        contentDescription = stringResource(R.string.leadership_tasks_action_raise),
+                        onClick = { onEvent(LeadershipTaskListEvent.RaiseTask) },
+                    )
+                }
             },
         )
         if (state.filters.isNotEmpty()) {
@@ -197,7 +197,7 @@ internal fun LeadershipTaskCard(card: LeadershipTaskCardUi, onOpen: () -> Unit) 
                     style = MeshaType.pillStrong,
                     modifier = Modifier.weight(1f),
                 )
-                LeadershipStatusChip(label = card.statusChip)
+                LeadershipStatusChip(label = card.statusChip, status = card.status)
             }
             Text(
                 text = card.title,

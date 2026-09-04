@@ -81,6 +81,7 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskEditRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskPageDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
@@ -1019,6 +1020,13 @@ interface AppApiService {
     @POST("app/leadership-tasks/{task_id}/seen")
     suspend fun markLeadershipTaskSeen(
         @Path("task_id") taskId: String,
+    ): LeadershipTaskDetailDto
+
+    @POST("app/leadership-tasks/{task_id}/comment")
+    suspend fun setLeadershipTaskComment(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: LeadershipTaskCommentRequestDto,
     ): LeadershipTaskDetailDto
 
     @GET("feed-direction/distribution/captures")
@@ -1994,6 +2002,12 @@ class RetrofitAppApi(
 
     override suspend fun markLeadershipTaskSeen(taskId: String): LeadershipTaskDetailDto =
         service.markLeadershipTaskSeen(taskId)
+
+    override suspend fun setLeadershipTaskComment(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskCommentRequestDto,
+    ): LeadershipTaskDetailDto = service.setLeadershipTaskComment(taskId, idempotencyKey, request)
 
     override suspend fun getFeedDistributionCaptures(
         parkId: String?,

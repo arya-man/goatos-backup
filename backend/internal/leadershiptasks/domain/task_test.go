@@ -42,7 +42,7 @@ func TestStatusOptionsAndTransitionsAgree(t *testing.T) {
 		want   []string
 	}{
 		{StatusOpen, cxo, []string{StatusInProgress, StatusDone}},
-		{StatusInProgress, cxo, []string{StatusDone, StatusOpen}},
+		{StatusInProgress, cxo, []string{StatusDone}},
 		{StatusDone, cxo, []string{StatusInProgress}},
 		{StatusCancelled, cxo, nil},
 		{StatusOpen, director, []string{StatusCancelled}},
@@ -162,7 +162,7 @@ func TestCopyIsFarmWordedFromTheViewersSide(t *testing.T) {
 	if got := NumberLabel(task.TaskNo); got != "#12" {
 		t.Fatalf("number label = %q", got)
 	}
-	if StatusChip(StatusInProgress) != "In progress" || StatusChip(StatusCancelled) != "Cancelled" {
+	if StatusChip(StatusInProgress) != "Doing" || StatusChip(StatusCancelled) != "Cancelled" {
 		t.Fatal("status chips must be the farm words")
 	}
 	unnamed := task

@@ -48,13 +48,16 @@ type taskPayload struct {
 	// IsAssignee / IsRaiser name the caller's party to the task explicitly. The phone holds
 	// no user id to compare against, and deriving party from can_change_status conflates
 	// "may act" with "is the person this is for".
-	IsAssignee      bool                  `json:"is_assignee"`
-	IsRaiser        bool                  `json:"is_raiser"`
-	MetaLine        string                `json:"meta_line"`
-	RowVersion      int                   `json:"row_version"`
-	CanEdit         bool                  `json:"can_edit"`
-	CanChangeStatus bool                  `json:"can_change_status"`
-	CanCancel       bool                  `json:"can_cancel"`
+	IsAssignee      bool   `json:"is_assignee"`
+	IsRaiser        bool   `json:"is_raiser"`
+	MetaLine        string `json:"meta_line"`
+	RowVersion      int    `json:"row_version"`
+	CanEdit         bool   `json:"can_edit"`
+	CanChangeStatus bool   `json:"can_change_status"`
+	CanCancel       bool   `json:"can_cancel"`
+	// Comment is the CXO's note back on the task; CanComment says whether the caller may write it.
+	Comment         string                `json:"comment"`
+	CanComment      bool                  `json:"can_comment"`
 	StatusOptions   []statusOptionPayload `json:"status_options"`
 	AttachmentCount int                   `json:"attachment_count"`
 	Attachments     []attachmentPayload   `json:"attachments"`
@@ -113,6 +116,10 @@ type editPayload struct {
 	RowVersion  int                    `json:"row_version"`
 }
 
+type commentPayload struct {
+	Comment string `json:"comment"`
+}
+
 type statusPayload struct {
 	Status     string `json:"status"`
 	RowVersion int    `json:"row_version"`
@@ -165,6 +172,8 @@ func toTaskPayload(t domain.Task, actor domain.Actor) taskPayload {
 		CanEdit:         t.CanEdit(actor),
 		CanChangeStatus: t.CanChangeStatus(actor),
 		CanCancel:       t.CanCancel(actor),
+		Comment:         t.AssigneeComment,
+		CanComment:      t.CanComment(actor),
 		StatusOptions:   optionPayloads,
 		AttachmentCount: len(t.Attachments),
 		Attachments:     attachments,

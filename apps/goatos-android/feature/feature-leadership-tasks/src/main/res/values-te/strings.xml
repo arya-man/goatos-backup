@@ -25,4 +25,11 @@
     <string name="leadership_tasks_send">పంపండి</string>
     <string name="leadership_tasks_save">సేవ్ చేయండి</string>
     <string name="leadership_tasks_sending">పంపుతోంది…</string>
+    <string name="leadership_tasks_field_for_placeholder">ఇది ఎవరికి అని ఎంచుకోండి</string>
+    <string name="leadership_tasks_comment_label">వ్యాఖ్యలు</string>
+    <string name="leadership_tasks_comment_placeholder">ఈ పనిపై ఒక నోట్ జోడించండి</string>
+    <string name="leadership_tasks_comment_save">వ్యాఖ్యను సేవ్ చేయండి</string>
+    <string name="leadership_tasks_comment_saving">సేవ్ అవుతోంది…</string>
+    <string name="leadership_tasks_status_label">స్థితి</string>
+    <string name="leadership_tasks_attachment_view">చూడండి</string>
 </resources>

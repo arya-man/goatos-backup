@@ -157,6 +157,7 @@ internal fun LeadershipTaskDto.toCardUi(): LeadershipTaskCardUi = LeadershipTask
     taskId = taskId,
     numberLabel = numberLabel,
     statusChip = statusChip,
+    status = status,
     title = title,
     metaLine = metaLine,
     attachmentCount = attachmentCount,

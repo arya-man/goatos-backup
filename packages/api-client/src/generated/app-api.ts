@@ -3011,6 +3011,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/leadership-tasks/{task_id}/comment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set the assignee's note on a task.
+         * @description The CXO's comment back on the task (maintainer instruction 2026-09-04): one field its owner overwrites, no thread. Assignee only (403 not_assignee), while the task is not cancelled (409 task_closed). The `Idempotency-Key` header is REQUIRED.
+         */
+        post: operations["setLeadershipTaskComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/leadership-tasks/{task_id}/seen": {
         parameters: {
             query?: never;
@@ -6733,6 +6753,9 @@ export interface components {
             can_edit: boolean;
             can_change_status: boolean;
             can_cancel: boolean;
+            /** @description The CXO's note back on the task; one field its owner overwrites. */
+            comment: string;
+            can_comment: boolean;
             /** @description The statuses THIS caller may move the task to, in display order; empty when read-only. */
             status_options: components["schemas"]["LeadershipTaskStatusOption"][];
             attachment_count: number;
@@ -6785,6 +6808,9 @@ export interface components {
             /** @description The FULL new list; the server diffs it. */
             attachments?: components["schemas"]["LeadershipTaskAttachmentRef"][];
             row_version: number;
+        };
+        LeadershipTaskCommentRequest: {
+            comment: string;
         };
         LeadershipTaskStatusRequest: {
             /** @enum {string} */
@@ -20842,6 +20868,40 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setLeadershipTaskComment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadershipTaskCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description The task after the note landed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

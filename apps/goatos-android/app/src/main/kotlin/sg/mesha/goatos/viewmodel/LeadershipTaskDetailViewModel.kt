@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.LeadershipTasksRepository
 import sg.mesha.goatos.core.network.dto.LeadershipTaskDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipAttachmentKind
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipAttachmentUi
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipStatusOptionUi
@@ -75,6 +76,10 @@ class LeadershipTaskDetailViewModel @Inject constructor(
         val fetching: Set<String> = emptySet(),
         /** Idempotency keys minted for status writes, keyed by target status; kept until success. */
         val statusKeys: Map<String, String> = emptyMap(),
+        /** The comment being typed; null means "show the server's". */
+        val commentDraft: String? = null,
+        val commentSaving: Boolean = false,
+        val commentKey: String? = null,
     )
 
     private val local = MutableStateFlow(Local())
@@ -114,6 +119,8 @@ class LeadershipTaskDetailViewModel @Inject constructor(
                 changeStatus(STATUS_CANCELLED)
             }
             is LeadershipTaskDetailEvent.OpenAttachment -> openAttachment(event.listKey)
+            is LeadershipTaskDetailEvent.CommentChanged -> local.update { it.copy(commentDraft = event.value.take(MAX_COMMENT_CHARS), commentKey = null) }
+            LeadershipTaskDetailEvent.SaveComment -> saveComment()
             LeadershipTaskDetailEvent.DismissMessage -> local.update { it.copy(message = null) }
         }
     }
@@ -202,6 +209,38 @@ class LeadershipTaskDetailViewModel @Inject constructor(
         }
     }
 
+    private fun saveComment() {
+        val task = latest ?: return
+        val own = local.value
+        val draft = own.commentDraft ?: return
+        if (own.commentSaving || draft.trim() == task.comment.trim()) return
+        // One key per draft text: a retry of the same text replays, a changed text is a new write.
+        val key = own.commentKey ?: UUID.randomUUID().toString().also { minted -> local.update { it.copy(commentKey = minted) } }
+        viewModelScope.launch {
+            local.update { it.copy(commentSaving = true, message = null) }
+            try {
+                when (val result = repository.setComment(taskId, key, LeadershipTaskCommentRequestDto(comment = draft.trim()))) {
+                    is AppResult.Ok -> {
+                        local.update { it.copy(commentDraft = null, commentKey = null) }
+                        analytics.track(AnalyticsEventsLeadershipTasks.STATUS_CHANGED, mapOf(AnalyticsEvents.Params.STATUS to "comment"))
+                    }
+                    is AppResult.Err -> {
+                        result.cause?.let { crashReporter.recordException(it, "leadership task comment failed") }
+                        analytics.track(
+                            AnalyticsEventsLeadershipTasks.FAILURE,
+                            mapOf(AnalyticsEvents.Params.REASON to (result.cause?.message ?: result.message).take(MAX_REASON_CHARS)),
+                        )
+                        local.update {
+                            it.copy(message = result.message.ifBlank { appContext.getString(R.string.leadership_tasks_msg_not_sent) })
+                        }
+                    }
+                }
+            } finally {
+                local.update { it.copy(commentSaving = false) }
+            }
+        }
+    }
+
     private fun openAttachment(listKey: String) {
         val attachment = latest?.attachments?.firstOrNull { it.attachmentId.ifBlank { it.proofId } == listKey } ?: return
         val own = local.value
@@ -246,6 +285,7 @@ class LeadershipTaskDetailViewModel @Inject constructor(
             loading = false,
             numberLabel = detail.numberLabel,
             statusChip = detail.statusChip,
+            status = detail.status,
             title = detail.title,
             body = detail.body,
             metaLine = detail.metaLine,
@@ -271,6 +311,10 @@ class LeadershipTaskDetailViewModel @Inject constructor(
             // Cancel is its own ghost action with a confirm, whether the backend lists it as an
             // option or flags it — both mean the same thing for this caller.
             canCancel = detail.canCancel || detail.statusOptions.any { it.key == STATUS_CANCELLED },
+            comment = detail.comment,
+            commentDraft = own.commentDraft ?: detail.comment,
+            canComment = detail.canComment,
+            commentSaving = own.commentSaving,
             isRefreshing = own.isRefreshing,
             actionInFlight = own.actionInFlight,
             showCancelConfirm = own.showCancelConfirm,
@@ -282,5 +326,6 @@ class LeadershipTaskDetailViewModel @Inject constructor(
         const val ARG_TASK_ID = "task_id"
         const val STATUS_CANCELLED = "cancelled"
         const val MAX_REASON_CHARS = 120
+        const val MAX_COMMENT_CHARS = 2000
     }
 }

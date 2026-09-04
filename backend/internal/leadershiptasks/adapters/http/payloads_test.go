@@ -68,7 +68,10 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 		}
 	}
 	options := got["status_options"].([]any)
-	if len(options) != 2 || options[0].(map[string]any)["key"] != "in_progress" || options[0].(map[string]any)["label"] != "Start" {
+	if got["can_comment"] != true || got["comment"] != "" {
+		t.Fatalf("assignee comment = %v can_comment %v", got["comment"], got["can_comment"])
+	}
+	if len(options) != 2 || options[0].(map[string]any)["key"] != "in_progress" || options[0].(map[string]any)["label"] != "Doing" {
 		t.Fatalf("assignee status options = %v", options)
 	}
 	att := got["attachments"].([]any)[0].(map[string]any)

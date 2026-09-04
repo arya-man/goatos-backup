@@ -38,6 +38,7 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskEditRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskFilterDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.serverErrorText
 
@@ -116,6 +117,9 @@ interface LeadershipTasksRepository {
     suspend fun changeStatus(taskId: String, idempotencyKey: String, request: LeadershipTaskStatusRequestDto): AppResult<LeadershipTaskDto>
 
     suspend fun markSeen(taskId: String): AppResult<LeadershipTaskDto>
+
+    /** The assignee's note back on the task. */
+    suspend fun setComment(taskId: String, idempotencyKey: String, request: LeadershipTaskCommentRequestDto): AppResult<LeadershipTaskDto>
 
     /**
      * The local path of one attachment's bytes, downloading into app-private cache on first use.
@@ -252,6 +256,9 @@ class DefaultLeadershipTasksRepository(
 
     override suspend fun markSeen(taskId: String): AppResult<LeadershipTaskDto> =
         write { api.markLeadershipTaskSeen(taskId) }
+
+    override suspend fun setComment(taskId: String, idempotencyKey: String, request: LeadershipTaskCommentRequestDto): AppResult<LeadershipTaskDto> =
+        write { api.setLeadershipTaskComment(taskId, idempotencyKey, request) }
 
     override suspend fun attachmentFile(proofId: String, fileName: String): AppResult<String> = call {
         withContext(Dispatchers.IO) {

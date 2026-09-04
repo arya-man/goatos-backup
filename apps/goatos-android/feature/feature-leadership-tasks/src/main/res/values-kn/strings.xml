@@ -25,4 +25,11 @@
     <string name="leadership_tasks_send">ಕಳುಹಿಸಿ</string>
     <string name="leadership_tasks_save">ಉಳಿಸಿ</string>
     <string name="leadership_tasks_sending">ಕಳುಹಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="leadership_tasks_field_for_placeholder">ಇದು ಯಾರಿಗಾಗಿ ಎಂದು ಆರಿಸಿ</string>
+    <string name="leadership_tasks_comment_label">ಟಿಪ್ಪಣಿಗಳು</string>
+    <string name="leadership_tasks_comment_placeholder">ಈ ಕಾರ್ಯದ ಬಗ್ಗೆ ಟಿಪ್ಪಣಿ ಸೇರಿಸಿ</string>
+    <string name="leadership_tasks_comment_save">ಟಿಪ್ಪಣಿ ಉಳಿಸಿ</string>
+    <string name="leadership_tasks_comment_saving">ಉಳಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="leadership_tasks_status_label">ಸ್ಥಿತಿ</string>
+    <string name="leadership_tasks_attachment_view">ವೀಕ್ಷಿಸಿ</string>
 </resources>

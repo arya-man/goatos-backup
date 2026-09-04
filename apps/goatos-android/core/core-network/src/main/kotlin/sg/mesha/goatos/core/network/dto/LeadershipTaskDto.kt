@@ -87,6 +87,9 @@ data class LeadershipTaskDto(
     @SerialName("row_version") val rowVersion: Int = 0,
     @SerialName("can_edit") val canEdit: Boolean = false,
     @SerialName("can_change_status") val canChangeStatus: Boolean = false,
+    /** The CXO's note back on the task; [canComment] says whether the caller may write it. */
+    @SerialName("comment") val comment: String = "",
+    @SerialName("can_comment") val canComment: Boolean = false,
     @SerialName("can_cancel") val canCancel: Boolean = false,
     /** The statuses THIS caller may move the task to; empty when none. */
     @SerialName("status_options") val statusOptions: List<LeadershipTaskStatusOptionDto> = emptyList(),
@@ -139,6 +142,11 @@ data class LeadershipTaskEditRequestDto(
     @SerialName("body") val body: String,
     @SerialName("attachments") val attachments: List<LeadershipTaskAttachmentRefDto> = emptyList(),
     @SerialName("row_version") val rowVersion: Int,
+)
+
+@Serializable
+data class LeadershipTaskCommentRequestDto(
+    @SerialName("comment") val comment: String,
 )
 
 @Serializable

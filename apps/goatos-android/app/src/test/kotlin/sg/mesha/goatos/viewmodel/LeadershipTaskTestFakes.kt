@@ -128,6 +128,12 @@ class FakeLeadershipTasksRepository(
         return AppResult.Ok(moved)
     }
 
+    override suspend fun setComment(taskId: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto): AppResult<LeadershipTaskDto> {
+        val updated = (detail.value ?: LeadershipTaskDto(taskId = taskId)).copy(comment = request.comment)
+        detail.value = updated
+        return AppResult.Ok(updated)
+    }
+
     override suspend fun markSeen(taskId: String): AppResult<LeadershipTaskDto> {
         seenCalls += taskId
         if (failSeen) return AppResult.Err("")

@@ -64,6 +64,7 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskEditRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskPageDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
@@ -1506,6 +1507,13 @@ interface AppApi {
     /** POST /app/leadership-tasks/{task_id}/seen — the assignee opened it (no body, no key). */
     suspend fun markLeadershipTaskSeen(taskId: String): LeadershipTaskDetailDto
 
+    /** The assignee's note back on the task (one field, overwritten). */
+    suspend fun setLeadershipTaskComment(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskCommentRequestDto,
+    ): LeadershipTaskDetailDto
+
     suspend fun getFeedDistributionCaptures(
         parkId: String?,
         shedId: String,
@@ -2772,6 +2780,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): LeadershipTaskDetailDto = getLeadershipTask(taskId)
 
     override suspend fun markLeadershipTaskSeen(taskId: String): LeadershipTaskDetailDto = getLeadershipTask(taskId)
+
+    override suspend fun setLeadershipTaskComment(
+        taskId: String,
+        idempotencyKey: String,
+        request: LeadershipTaskCommentRequestDto,
+    ): LeadershipTaskDetailDto = getLeadershipTask(taskId)
 
     override suspend fun recordClockIn(
         idempotencyKey: String,

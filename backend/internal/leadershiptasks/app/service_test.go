@@ -39,6 +39,9 @@ func (f *fakeRepo) Edit(context.Context, ports.EditParams) (domain.Task, error) 
 func (f *fakeRepo) ChangeStatus(context.Context, ports.StatusParams) (domain.Task, error) {
 	return f.task, nil
 }
+func (f *fakeRepo) SetComment(context.Context, ports.CommentParams) (domain.Task, error) {
+	return f.task, nil
+}
 func (f *fakeRepo) MarkSeen(context.Context, string, string, string) (domain.Task, error) {
 	f.seen++
 	return f.task, nil

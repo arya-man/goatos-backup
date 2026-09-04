@@ -25,4 +25,11 @@
     <string name="leadership_tasks_send">भेजें</string>
     <string name="leadership_tasks_save">सहेजें</string>
     <string name="leadership_tasks_sending">भेजा जा रहा है…</string>
+    <string name="leadership_tasks_field_for_placeholder">यह किसके लिए है चुनें</string>
+    <string name="leadership_tasks_comment_label">टिप्पणियाँ</string>
+    <string name="leadership_tasks_comment_placeholder">इस कार्य पर एक नोट जोड़ें</string>
+    <string name="leadership_tasks_comment_save">टिप्पणी सहेजें</string>
+    <string name="leadership_tasks_comment_saving">सहेजा जा रहा है…</string>
+    <string name="leadership_tasks_status_label">स्थिति</string>
+    <string name="leadership_tasks_attachment_view">देखें</string>
 </resources>

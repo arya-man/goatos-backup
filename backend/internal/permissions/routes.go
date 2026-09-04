@@ -331,6 +331,7 @@ var protectedRoutes = []Route{
 	{OperationID: "raiseLeadershipTask", Method: "POST", Pattern: "/app/leadership-tasks", Permissions: []string{LeadershipTasksRaise}},
 	{OperationID: "editLeadershipTask", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/edit", Permissions: []string{LeadershipTasksRaise}},
 	{OperationID: "changeLeadershipTaskStatus", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/status", Permissions: []string{LeadershipTasksRead}},
+	{OperationID: "setLeadershipTaskComment", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/comment", Permissions: []string{LeadershipTasksAct}},
 	{OperationID: "markLeadershipTaskSeen", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/seen", Permissions: []string{LeadershipTasksRead}},
 
 	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather

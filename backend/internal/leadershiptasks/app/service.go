@@ -150,6 +150,21 @@ func (s *Service) ChangeStatus(ctx context.Context, p ports.StatusParams) (domai
 	return s.repo.ChangeStatus(ctx, p)
 }
 
+// SetComment records the assignee's note back on the task.
+func (s *Service) SetComment(ctx context.Context, p ports.CommentParams) (domain.Task, error) {
+	if strings.TrimSpace(p.IdempotencyKey) == "" {
+		return domain.Task{}, ErrIdempotencyKeyRequired
+	}
+	if !uuidutil.IsUUIDString(p.TaskID) {
+		return domain.Task{}, ports.ErrTaskNotFound
+	}
+	p.Comment = strings.TrimSpace(p.Comment)
+	if err := domain.ValidateComment(p.Comment); err != nil {
+		return domain.Task{}, err
+	}
+	return s.repo.SetComment(ctx, p)
+}
+
 // MarkSeen stamps the task seen by its assignee. Anyone else opening it is a no-op that
 // returns the task unchanged -- the raiser reading their own task is not "seen by the CXO".
 func (s *Service) MarkSeen(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error) {

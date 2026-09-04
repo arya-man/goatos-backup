@@ -466,7 +466,7 @@ class LeadershipTaskComposeViewModel @Inject constructor(
     internal companion object {
         const val ARG_TASK_ID = "task_id"
         const val KEY_TASK_IDEMPOTENCY = "leadership_task_idempotency_key"
-        const val MAX_TITLE_CHARS = 160
+        const val MAX_TITLE_CHARS = 80
         const val MAX_BODY_CHARS = 4000
         /** 50 MB per attachment. */
         const val MAX_ATTACHMENT_BYTES = 50L * 1024L * 1024L

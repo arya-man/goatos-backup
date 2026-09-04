@@ -44,10 +44,11 @@ const (
 
 // Limits. Generous for a brief, tight enough that a pasted document is refused.
 const (
-	MaxTitleRunes   = 160
+	MaxTitleRunes   = 80
 	MaxBodyRunes    = 4000
 	MaxAttachments  = 12
 	MaxFileNameRune = 200
+	MaxCommentRunes = 2000
 )
 
 // Sentinel errors. The transport maps each to a stable code and a farm-worded message.
@@ -70,25 +71,28 @@ var (
 	ErrAttachmentProofRequired  = errors.New("leadership task: attachment proof is required")
 	ErrAttachmentNotCompleted   = errors.New("leadership task: attachment upload is not complete")
 	ErrAttachmentNotAnAttachmnt = errors.New("leadership task: proof is not an attachment")
+	ErrCommentTooLong           = errors.New("leadership task: comment too long")
 )
 
 // Task is one raised task with its attachments, as stored.
 type Task struct {
-	TaskID          string
-	TenantID        string
-	TaskNo          int64
-	Title           string
-	Body            string
-	Status          string
-	RaisedByUserID  string
-	RaisedByName    string
-	AssigneeUserID  string
-	AssigneeName    string
-	RaisedAt        time.Time
-	UpdatedAt       time.Time
-	DoneAt          *time.Time
-	CancelledAt     *time.Time
-	SeenAt          *time.Time
+	TaskID         string
+	TenantID       string
+	TaskNo         int64
+	Title          string
+	Body           string
+	Status         string
+	RaisedByUserID string
+	RaisedByName   string
+	AssigneeUserID string
+	AssigneeName   string
+	RaisedAt       time.Time
+	UpdatedAt      time.Time
+	DoneAt         *time.Time
+	CancelledAt    *time.Time
+	SeenAt         *time.Time
+	// AssigneeComment is the CXO's note back on the task: one field its owner overwrites.
+	AssigneeComment string
 	RowVersion      int
 	Attachments     []Attachment
 	AttachmentCount int
@@ -199,6 +203,17 @@ func (t Task) CanChangeStatus(a Actor) bool {
 	return a.CanAct && t.IsAssignee(a) && t.Status != StatusCancelled
 }
 
+// CanComment: the assignee, while the task is not cancelled. The raiser reads it.
+func (t Task) CanComment(a Actor) bool { return t.CanChangeStatus(a) }
+
+// ValidateComment bounds the note.
+func ValidateComment(comment string) error {
+	if len([]rune(strings.TrimSpace(comment))) > MaxCommentRunes {
+		return ErrCommentTooLong
+	}
+	return nil
+}
+
 // StatusOption is one status the caller may move the task to, with its button label.
 type StatusOption struct {
 	Key   string
@@ -210,13 +225,15 @@ type StatusOption struct {
 func StatusOptionsFor(t Task, a Actor) []StatusOption {
 	var out []StatusOption
 	if t.CanChangeStatus(a) {
+		// The assignee's dropdown holds exactly two words, Doing and Done (maintainer
+		// instruction 2026-09-04); the current one is the field's value, the other is the move.
 		switch t.Status {
 		case StatusOpen:
-			out = append(out, StatusOption{Key: StatusInProgress, Label: "Start"}, StatusOption{Key: StatusDone, Label: "Mark done"})
+			out = append(out, StatusOption{Key: StatusInProgress, Label: StatusChip(StatusInProgress)}, StatusOption{Key: StatusDone, Label: StatusChip(StatusDone)})
 		case StatusInProgress:
-			out = append(out, StatusOption{Key: StatusDone, Label: "Mark done"}, StatusOption{Key: StatusOpen, Label: "Move back to open"})
+			out = append(out, StatusOption{Key: StatusDone, Label: StatusChip(StatusDone)})
 		case StatusDone:
-			out = append(out, StatusOption{Key: StatusInProgress, Label: "Reopen"})
+			out = append(out, StatusOption{Key: StatusInProgress, Label: StatusChip(StatusInProgress)})
 		}
 	}
 	if t.CanCancel(a) {
@@ -260,7 +277,7 @@ func StatusChip(status string) string {
 	case StatusOpen:
 		return "Open"
 	case StatusInProgress:
-		return "In progress"
+		return "Doing"
 	case StatusDone:
 		return "Done"
 	case StatusCancelled:
@@ -338,7 +355,7 @@ func FilterLabel(key string) string {
 	case FilterOpen:
 		return "Open"
 	case FilterInProgress:
-		return "In progress"
+		return "Doing"
 	case FilterDone:
 		return "Done"
 	}

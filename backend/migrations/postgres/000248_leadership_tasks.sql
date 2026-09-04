@@ -39,6 +39,9 @@ CREATE TABLE public.leadership_tasks (
     -- Stamped ONCE, the first time the assignee opens the task. The drawer badge is
     -- count(*) of the assignee's rows where this is NULL and status <> 'cancelled'.
     seen_at timestamptz,
+    -- The CXO's note back on the task (maintainer instruction 2026-09-04: "a box to enter
+    -- comments"). One field, overwritten by its owner, never a thread.
+    assignee_comment text NOT NULL DEFAULT '',
     row_version integer NOT NULL DEFAULT 1,
     CONSTRAINT leadership_tasks_no_uq UNIQUE (tenant_id, task_no),
     CONSTRAINT leadership_tasks_not_self CHECK (raised_by <> assignee_user_id)

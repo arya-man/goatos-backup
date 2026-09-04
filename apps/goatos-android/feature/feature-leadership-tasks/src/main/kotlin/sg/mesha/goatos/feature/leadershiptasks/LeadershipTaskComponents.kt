@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -43,15 +45,18 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /** Backend-composed status chip, rendered VERBATIM. Blank copy renders nothing at all. */
 @Composable
-internal fun LeadershipStatusChip(label: String, modifier: Modifier = Modifier) {
+internal fun LeadershipStatusChip(label: String, status: String = "", modifier: Modifier = Modifier) {
     if (label.isBlank()) return
+    // One colour per status (maintainer instruction 2026-09-04): amber while it waits, blue while
+    // it is being worked, green when finished, muted when withdrawn. The LABEL stays backend copy.
+    val accent = leadershipStatusAccent(status)
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(MeshaColors.Surf2)
+            .background(accent.copy(alpha = 0.16f))
             .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
-        Text(text = label, color = MeshaColors.Muted, style = MeshaType.pillStrong)
+        Text(text = label, color = accent, style = MeshaType.pillStrong)
     }
 }
 
@@ -275,4 +280,84 @@ fun formatBytes(bytes: Long): String {
     val mb = kb / 1024.0
     if (mb < 1024.0) return "%.1f MB".format(mb)
     return "%.1f GB".format(mb / 1024.0)
+}
+
+/** The "+" that raises a task: a 48dp brand-green disc, the one filled control in the header. */
+@Composable
+internal fun LeadershipRaiseButton(contentDescription: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Brand)
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = MeshaIcons.Plus,
+            contentDescription = contentDescription,
+            tint = MeshaColors.OnBrand,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+/**
+ * The assignee's status control: the current status as a coloured pill with a chevron, and the
+ * backend's options in a menu (maintainer instruction 2026-09-04: "a dropdown with doing and done").
+ */
+@Composable
+internal fun LeadershipStatusDropdown(
+    currentLabel: String,
+    currentStatus: String,
+    options: List<LeadershipStatusOptionUi>,
+    enabled: Boolean,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+    val accent = leadershipStatusAccent(currentStatus)
+    Box(modifier = modifier.fillMaxWidth(0.62f)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(accent.copy(alpha = 0.16f))
+                .clickable(enabled = enabled && options.isNotEmpty(), role = Role.DropdownList) { open = true }
+                .padding(start = 14.dp, end = 10.dp, top = 11.dp, bottom = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(text = currentLabel, color = accent, style = MeshaType.bodyStrong, modifier = Modifier.weight(1f))
+            Icon(
+                imageVector = MeshaIcons.ChevronDown,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            containerColor = MeshaColors.Surf,
+            modifier = Modifier.fillMaxWidth(0.62f),
+        ) {
+            options.forEach { option -> // compose-guard:ignore: at most three backend status options
+                DropdownMenuItem(
+                    text = { Text(text = option.label, color = leadershipStatusAccent(option.key), style = MeshaType.bodyStrong) },
+                    onClick = {
+                        open = false
+                        onSelect(option.key)
+                    },
+                )
+            }
+        }
+    }
+}
+
+internal fun leadershipStatusAccent(status: String) = when (status) {
+    "open" -> MeshaColors.Warn
+    "in_progress" -> MeshaColors.Info
+    "done" -> MeshaColors.Ok
+    else -> MeshaColors.Muted
 }

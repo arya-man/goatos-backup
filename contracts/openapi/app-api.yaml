@@ -7883,6 +7883,50 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/leadership-tasks/{task_id}/comment:
+    post:
+      tags:
+        - Leadership Tasks
+      operationId: setLeadershipTaskComment
+      summary: Set the assignee's note on a task.
+      description: >-
+        The CXO's comment back on the task (maintainer instruction 2026-09-04): one field its
+        owner overwrites, no thread. Assignee only (403 not_assignee), while the task is not
+        cancelled (409 task_closed). The `Idempotency-Key` header is REQUIRED.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadershipTaskCommentRequest"
+      responses:
+        "200":
+          description: The task after the note landed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadershipTaskDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/leadership-tasks/{task_id}/seen:
     post:
       tags:
@@ -16281,6 +16325,8 @@ components:
         - can_edit
         - can_change_status
         - can_cancel
+        - comment
+        - can_comment
         - status_options
         - attachment_count
         - attachments
@@ -16311,6 +16357,8 @@ components:
         can_edit: { type: boolean }
         can_change_status: { type: boolean }
         can_cancel: { type: boolean }
+        comment: { type: string, description: The CXO's note back on the task; one field its owner overwrites. }
+        can_comment: { type: boolean }
         status_options:
           type: array
           description: The statuses THIS caller may move the task to, in display order; empty when read-only.
@@ -16373,7 +16421,7 @@ components:
       type: object
       required: [title, assignee_user_id]
       properties:
-        title: { type: string, minLength: 1, maxLength: 160 }
+        title: { type: string, minLength: 1, maxLength: 80 }
         body: { type: string, maxLength: 4000 }
         assignee_user_id: { type: string, format: uuid }
         attachments:
@@ -16385,7 +16433,7 @@ components:
       type: object
       required: [title, row_version]
       properties:
-        title: { type: string, minLength: 1, maxLength: 160 }
+        title: { type: string, minLength: 1, maxLength: 80 }
         body: { type: string, maxLength: 4000 }
         attachments:
           type: array
@@ -16394,6 +16442,11 @@ components:
           items:
             $ref: "#/components/schemas/LeadershipTaskAttachmentRef"
         row_version: { type: integer }
+    LeadershipTaskCommentRequest:
+      type: object
+      required: [comment]
+      properties:
+        comment: { type: string, maxLength: 2000 }
     LeadershipTaskStatusRequest:
       type: object
       required: [status, row_version]

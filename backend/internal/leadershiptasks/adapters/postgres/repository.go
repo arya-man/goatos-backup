@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	idemScopeRaise  = "leadership_task.raise"
-	idemScopeEdit   = "leadership_task.edit"
-	idemScopeStatus = "leadership_task.status"
+	idemScopeRaise   = "leadership_task.raise"
+	idemScopeEdit    = "leadership_task.edit"
+	idemScopeStatus  = "leadership_task.status"
+	idemScopeComment = "leadership_task.comment"
 
 	resourceType = "leadership_task"
 )
@@ -71,7 +72,7 @@ func scanTask(row pgx.Row) (domain.Task, error) {
 		&t.TaskID, &t.TenantID, &t.TaskNo, &t.Title, &t.Body, &t.Status,
 		&t.RaisedByUserID, &t.RaisedByName,
 		&t.AssigneeUserID, &t.AssigneeName,
-		&t.RaisedAt, &t.UpdatedAt, &t.DoneAt, &t.CancelledAt, &t.SeenAt, &t.RowVersion,
+		&t.RaisedAt, &t.UpdatedAt, &t.DoneAt, &t.CancelledAt, &t.SeenAt, &t.AssigneeComment, &t.RowVersion,
 	)
 	if err != nil {
 		return domain.Task{}, err
@@ -501,6 +502,73 @@ func (r *Repository) ChangeStatus(ctx context.Context, p ports.StatusParams) (do
 	return after, nil
 }
 
+// SetComment records the assignee's note under the row lock. No version fence: a note is
+// its owner's own text and the latest one wins, the way a text field works.
+func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (domain.Task, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Task{}, fmt.Errorf("leadership task: begin comment: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	fingerprint := requestFingerprint(p.TaskID, p.Actor.UserID, p.Comment)
+	reservation, err := reserveIdempotency(ctx, tx, p.TenantID, idemScopeComment, p.IdempotencyKey, fingerprint)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Task{}, err
+		}
+		return r.getRow(ctx, r.pool, p.TenantID, p.TaskID, false)
+	}
+	before, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, true)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if !before.IsAssignee(p.Actor) {
+		return domain.Task{}, domain.ErrNotAssignee
+	}
+	if !before.CanComment(p.Actor) {
+		return domain.Task{}, domain.ErrTaskClosed
+	}
+	if _, err := tx.Exec(ctx, sqlSetComment, p.TenantID, p.TaskID, p.Comment, r.now().UTC()); err != nil {
+		return domain.Task{}, fmt.Errorf("leadership task: update comment: %w", err)
+	}
+	after, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, false)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     p.TenantID,
+		ActorID:      p.Actor.UserID,
+		ActorType:    "human",
+		Action:       "leadership_task.commented",
+		ResourceType: resourceType,
+		ResourceID:   p.TaskID,
+		BeforeState:  map[string]any{"comment": before.AssigneeComment},
+		AfterState:   map[string]any{"comment": after.AssigneeComment},
+		Metadata: map[string]any{
+			"domain":          "leadership_tasks",
+			"module":          "leadership_tasks",
+			"task_no":         after.TaskNo,
+			"idempotency_key": p.IdempotencyKey,
+			"operation_id":    p.IdempotencyKey,
+		},
+	}); err != nil {
+		return domain.Task{}, fmt.Errorf("leadership task: audit comment: %w", err)
+	}
+	if err := completeIdempotency(ctx, tx, p.TenantID, idemScopeComment, p.IdempotencyKey, resourceType, p.TaskID); err != nil {
+		return domain.Task{}, fmt.Errorf("leadership task: complete comment idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Task{}, fmt.Errorf("leadership task: commit comment: %w", err)
+	}
+	return after, nil
+}
+
 // MarkSeen stamps seen_at once for the assignee. A replay updates nothing (the WHERE
 // keeps it a set-if-null), so no idempotency key is needed. Audited only when it changed.
 func (r *Repository) MarkSeen(ctx context.Context, tenantID, taskID, userID string) (domain.Task, error) {
@@ -600,7 +668,7 @@ const (
 	t.task_id::text, t.tenant_id::text, t.task_no, t.title, t.body, t.status,
 	t.raised_by::text, COALESCE(rb.display_name, ''),
 	t.assignee_user_id::text, COALESCE(asg.display_name, ''),
-	t.raised_at, t.updated_at, t.done_at, t.cancelled_at, t.seen_at, t.row_version`
+	t.raised_at, t.updated_at, t.done_at, t.cancelled_at, t.seen_at, t.assignee_comment, t.row_version`
 	sqlRepository2 = `
 FROM public.leadership_tasks t
 LEFT JOIN public.workforce_members rb
@@ -669,3 +737,8 @@ INSERT INTO public.leadership_task_attachments (
 ON CONFLICT (tenant_id, task_id, proof_id) DO UPDATE
 SET kind = EXCLUDED.kind, file_name = EXCLUDED.file_name, position = EXCLUDED.position`
 )
+
+const sqlSetComment = `
+UPDATE public.leadership_tasks
+SET assignee_comment = $3::text, updated_at = $4::timestamptz, row_version = row_version + 1
+WHERE tenant_id = $1 AND task_id = $2`
