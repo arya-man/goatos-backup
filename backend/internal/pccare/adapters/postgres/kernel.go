@@ -90,7 +90,7 @@ WHERE t.tenant_id = $1::uuid AND t.task_id = claim.task_id`,
 //
 // projection-review: membership=pc_care_tasks deworming rows in ('scheduled','delayed') with
 // due_business_date <= today whose linked removal row (removal.gates_task_id = d.task_id, same
-// tenant) is live and unsubmitted; group_key=d.task_id (the UPDATE grain);
+// tenant) is live and not submitted before the deworming day began; group_key=d.task_id (the UPDATE grain);
 // join_cardinality=removal 0..1 per deworming — pc_care_tasks_gates_task_uq (tenant_id,
 // gates_task_id) WHERE gates_task_id IS NOT NULL makes the removal side unique per deworming,
 // so the join cannot multiply claim rows; consumer match columns (tenant_id, gates_task_id)
@@ -120,7 +120,7 @@ FROM (
     AND d.due_business_date <= $2::date
     AND (
       removal.submitted_at IS NULL
-      OR (removal.submitted_at AT TIME ZONE 'Asia/Kolkata')::date >= d.due_business_date
+      OR (removal.submitted_at AT TIME ZONE 'Asia/Kolkata') >= d.due_business_date::timestamp
     )
     AND removal.work_state <> 'canceled'
   ORDER BY d.due_business_date, d.task_id

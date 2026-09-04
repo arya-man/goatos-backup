@@ -285,6 +285,11 @@
     <string name="weighing_removal_recording">రికార్డ్ అవుతోంది…</string>
     <string name="weighing_removal_submit">సమర్పించండి</string>
     <string name="weighing_removal_submitted">పంపారు</string>
+    <string name="weighing_removal_submitted_line">పంపారు. వీడియోలను తర్వాత తనిఖీ చేస్తారు.</string>
+    <string name="weighing_removal_ready">రెండు వీడియోలు రికార్డ్ అయ్యాయి — సమర్పించడానికి సిద్ధం.</string>
+    <string name="weighing_removal_caption">రేపటి కోసం ఈ పెన్‌లోని మేత మరియు నీటిని తీసి, ప్రతి దశను రికార్డ్ చేయండి.</string>
+    <string name="weighing_removal_feed_hint">ఈ పెన్ నుండి మేత తీస్తున్నది చూపించండి</string>
+    <string name="weighing_removal_water_hint">ఈ పెన్ నుండి నీరు తీస్తున్నది చూపించండి</string>
     <string name="weighing_wizard_lopsided_fmt">అన్ని %1$d షెడ్ సమూహాలు %2$s కు వెళ్తాయి.</string>
     <string name="weighing_wizard_per_bucket">ప్రతి షెడ్ సమూహం</string>
     <string name="weighing_wizard_field_empty">—</string>

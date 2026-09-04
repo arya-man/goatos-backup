@@ -623,7 +623,8 @@ class SyncEngine(
                                         sg.mesha.goatos.core.network.dto.WeighingFastingShedCardDto.serializer(),
                                         row.dtoJson,
                                     ).rowVersion
-                                }.getOrNull()
+                                }.onFailure { reportCacheReconcileFailure(item, it) }
+                                    .getOrNull()
                             } ?: -1
                             if (fresh.rowVersion < cachedVersion) return@runCatching
                             weighingFastingCardDao?.upsert(

@@ -14,17 +14,20 @@ import (
 // every other cadence pass:
 //
 //  1. gate pass — every OPEN work item due today-or-earlier whose campaign has
-//     a fasting row with submitted_at IS NULL is pushed to TOMORROW (never
+//     a fasting row with no on-time submission is pushed to TOMORROW (never
 //     today). Runs BEFORE the generic roll-forward pass, so a stale gated item
 //     goes straight to tomorrow instead of being pulled to today first.
-//  2. fasting roll — the unsubmitted fasting rows themselves move their
-//     weigh_business_date to tomorrow, re-arming the operator's card for the
-//     next evening's 20:00 window. Separate from the gate pass because a
-//     not-yet-published campaign has NO work items yet and its fasting row
-//     still has to re-arm.
+//  2. fasting roll — the fasting rows that did not satisfy their CURRENT
+//     deadline move their weigh_business_date to tomorrow, making an after-
+//     midnight submit count only for the next day. Separate from the gate pass
+//     because a not-yet-published campaign has NO work items yet and its
+//     fasting row still has to re-arm.
 //
-// The gate reads submitted_at, never status: a fasting task in verifier rework
-// was still SUBMITTED before midnight and does not re-block the weighing.
+// The gate reads submitted_at against the row's own IST midnight deadline,
+// never status: a fasting task in verifier rework was still SUBMITTED before
+// midnight and does not re-block the weighing. A submit stamped after midnight
+// does not satisfy the already-started weigh date; it can satisfy the next one
+// after the row rolls.
 // Campaigns with no fasting row (pre-feature) match nothing and behave exactly
 // as before.
 //
@@ -34,9 +37,11 @@ import (
 // (migration 000252) makes the join AT MOST 1:1 per work item, so the claim
 // can never multiply rows; group_key none (row-grain update); the compared
 // key set of the two UPDATE halves is identical (tenant_id + campaign_id).
-// fastingGateClaimSQL pushes every OPEN work item of a fasting-unsubmitted
-// campaign to TOMORROW ($2::date + 1). Package-level so a query-plan test and
-// the scale guard reach it.
+// The claim locks both wi and ft so a concurrent late submit cannot let the
+// gate move work items while the fasting-row roll skips the locked task.
+// fastingGateClaimSQL pushes every OPEN work item of a campaign with no
+// on-time fasting submission to TOMORROW ($2::date + 1). Package-level so a
+// query-plan test and the scale guard reach it.
 const fastingGateClaimSQL = `
 WITH claimed AS (
   SELECT wi.work_item_id, wi.due_business_date AS sort_date
@@ -48,7 +53,7 @@ WITH claimed AS (
     AND wi.due_business_date <= $2::date
     AND (
       ft.submitted_at IS NULL
-      OR (ft.submitted_at AT TIME ZONE 'Asia/Kolkata')::date >= ft.weigh_business_date
+      OR (ft.submitted_at AT TIME ZONE 'Asia/Kolkata') >= ft.weigh_business_date::timestamp
     )
     AND (wi.due_business_date > $3::date OR (wi.due_business_date = $3::date AND wi.work_item_id > $4::uuid))
   ORDER BY wi.due_business_date, wi.work_item_id
@@ -67,8 +72,8 @@ RETURNING wi.work_item_id::text, wi.campaign_id::text, wi.campaign_shed_id::text
           wi.shed_location_id::text, wi.planned_business_date::text, wi.due_business_date::text,
           claimed.sort_date::text`
 
-// fastingRollSQL re-arms one chunk of unsubmitted, deadline-passed fasting
-// rows for tomorrow evening; the campaign join excludes ended tasks.
+// fastingRollSQL re-arms one chunk of deadline-missed fasting rows for
+// tomorrow evening; the campaign join excludes ended tasks.
 const fastingRollSQL = `
 WITH claimed AS (
   SELECT ft.fasting_task_id
@@ -76,7 +81,10 @@ WITH claimed AS (
   JOIN weighing_campaigns c
     ON c.tenant_id = ft.tenant_id AND c.campaign_id = ft.campaign_id
   WHERE ft.tenant_id = $1::uuid
-    AND ft.submitted_at IS NULL
+    AND (
+      ft.submitted_at IS NULL
+      OR (ft.submitted_at AT TIME ZONE 'Asia/Kolkata') >= ft.weigh_business_date::timestamp
+    )
     AND ft.weigh_business_date <= $2::date
     AND c.status NOT IN ('completed','closed','canceled')
   ORDER BY ft.weigh_business_date, ft.fasting_task_id

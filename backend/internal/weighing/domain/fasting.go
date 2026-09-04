@@ -103,8 +103,8 @@ type FastingTask struct {
 	// ShedCount and SubjectLabel give the card its farm-worded identity
 	// ("Remove feed & water · Coimbatore · 4 sheds") without the client
 	// composing copy.
-	ShedCount    int       `json:"shed_count"`
-	SubjectLabel string    `json:"subject_label"`
+	ShedCount    int    `json:"shed_count"`
+	SubjectLabel string `json:"subject_label"`
 	// Sheds is the per-shed evidence list: every non-canceled bucket of the
 	// campaign, each owed its own feed + water videos.
 	Sheds     []FastingShedProof `json:"sheds,omitempty"`

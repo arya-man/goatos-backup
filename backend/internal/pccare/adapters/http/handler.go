@@ -470,9 +470,9 @@ func (h *Handler) PostCreateTask(w http.ResponseWriter, r *http.Request) {
 		FeedRemovalRequired:    body.FeedRemovalRequired,
 		RemovalOperatorUserIDs: body.RemovalOperatorUserIDs,
 		IdempotencyKey:         key,
-		ActorID:             a.UserID,
-		ActorType:           "human",
-		TraceID:             httpmiddleware.TraceIDFromContext(r.Context()),
+		ActorID:                a.UserID,
+		ActorType:              "human",
+		TraceID:                httpmiddleware.TraceIDFromContext(r.Context()),
 	})
 	if err != nil {
 		h.writeServiceError(w, r, "pc care create task", err)

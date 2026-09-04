@@ -60,9 +60,11 @@ func (s *Service) SubmitFastingShed(ctx context.Context, actor domain.Actor, cmd
 	if err != nil {
 		return domain.FastingShedCard{}, err
 	}
-	// A replay ran no side effects and must not re-raise a review round; a
-	// fresh submit raises exactly one item, for exactly this shed.
-	if !result.Replayed {
+	// A replay may be the operator retrying after the submit committed but the
+	// post-commit verification enqueue failed. Re-run the enqueue from the
+	// replayed evidence; CreateItem is idempotent on this key, so an already
+	// raised item no-ops while a missing item is repaired.
+	if result.Evidence.FastingShedID != "" && result.Task.FastingTaskID != "" {
 		if err := s.enqueueFastingShedVerification(ctx, result.Task, result.Evidence); err != nil {
 			return domain.FastingShedCard{}, err
 		}

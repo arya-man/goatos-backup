@@ -728,11 +728,13 @@ class CaptureRepositoryTest {
             val itemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId
             assertTrue("Proof should have an outbox item ID", !itemId.isNullOrBlank())
             sync.emit(itemId!!, SyncItemStatus.IN_FLIGHT, resultJson = null)
+            advanceUntilIdle()
             row = repo.observeProofs("task-5").first().first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.IN_FLIGHT, row.syncStatus)
 
             val response = ProofUploadResponseDto(proof = ProofReferenceDto(proofId = "server-proof-123"))
             sync.emit(itemId, SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
+            advanceUntilIdle()
             row = repo.observeProofs("task-5").first().first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
             assertEquals("server-proof-123", row.serverProofId)
@@ -788,6 +790,7 @@ class CaptureRepositoryTest {
             assertTrue("Proof should have an outbox item ID", !itemId.isNullOrBlank())
             val response = ProofUploadResponseDto(proof = ProofReferenceDto(proofId = "server-proof-retained"))
             sync.emit(itemId!!, SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
+            advanceUntilIdle()
 
             val row = repo.observeProofs("task-retain-preview").first().single()
             assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)

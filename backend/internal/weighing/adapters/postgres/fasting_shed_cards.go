@@ -166,7 +166,26 @@ SELECT NOT EXISTS (
       OR sp.feed_proof_ref IS NULL
       OR sp.water_proof_ref IS NULL
     )
-)`
+	)`
+
+const fastingSubmitReplayTaskSQL = `
+SELECT ft.campaign_id::text, ft.operator_user_id::text, ft.park_id::text,
+       ft.planned_weigh_date::text, ft.weigh_business_date::text,
+       COALESCE(p.name, ''), ft.submitted_at
+FROM weighing_fasting_tasks ft
+LEFT JOIN locations p ON p.tenant_id = ft.tenant_id AND p.location_id = ft.park_id
+WHERE ft.tenant_id = $1::uuid AND ft.fasting_task_id = $2::uuid`
+
+const fastingSubmitReplayEvidenceSQL = `
+SELECT sp.fasting_shed_id::text, sp.campaign_shed_id::text, sp.shed_label,
+       cs.location_id::text, COALESCE(sp.feed_proof_ref::text, ''),
+       COALESCE(sp.water_proof_ref::text, ''), sp.status, sp.row_version
+FROM weighing_fasting_shed_proofs sp
+JOIN weighing_campaign_sheds cs
+  ON cs.tenant_id = sp.tenant_id AND cs.campaign_shed_id = sp.campaign_shed_id
+WHERE sp.tenant_id = $1::uuid
+  AND sp.fasting_task_id = $2::uuid
+  AND sp.campaign_shed_id = $3::uuid`
 
 // SubmitFastingShed records ONE shed's pair (maintainer correction #2). The
 // last shed's submit stamps the ROUND's submitted_at — the midnight gate's
@@ -188,8 +207,37 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		if err := json.Unmarshal(snapshot, &replay); err != nil {
 			return domain.FastingShedSubmitResult{}, err
 		}
-		// Replay: no side effects ran, and the service re-enqueues nothing.
-		return domain.FastingShedSubmitResult{Card: replay, Replayed: true}, nil
+		var campaignID, operatorID, parkID, plannedDate, weighDate, parkName string
+		var submittedAt *time.Time
+		if err := tx.QueryRow(ctx, fastingSubmitReplayTaskSQL,
+			cmd.TenantID, cmd.FastingTaskID).Scan(&campaignID, &operatorID, &parkID, &plannedDate, &weighDate, &parkName, &submittedAt); err != nil {
+			return domain.FastingShedSubmitResult{}, err
+		}
+		var shed domain.FastingShedProof
+		err := tx.QueryRow(ctx, fastingSubmitReplayEvidenceSQL,
+			cmd.TenantID, cmd.FastingTaskID, cmd.CampaignShedID).Scan(
+			&shed.FastingShedID, &shed.CampaignShedID, &shed.ShedLabel, &shed.ShedLocationID,
+			&shed.FeedProofRef, &shed.WaterProofRef, &shed.Status, &shed.RowVersion,
+		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.FastingShedSubmitResult{Card: replay, Replayed: true}, nil
+		}
+		if err != nil {
+			return domain.FastingShedSubmitResult{}, err
+		}
+		task := domain.FastingTask{
+			TenantID:            cmd.TenantID,
+			FastingTaskID:       cmd.FastingTaskID,
+			CampaignID:          campaignID,
+			ParkID:              parkID,
+			ParkName:            parkName,
+			OperatorUserID:      operatorID,
+			PlannedWeighDate:    plannedDate,
+			WeighBusinessDate:   weighDate,
+			RemovalBusinessDate: domain.RemovalBusinessDate(weighDate),
+			SubmittedAt:         submittedAt,
+		}
+		return domain.FastingShedSubmitResult{Card: replay, Evidence: shed, Task: task, Replayed: true}, nil
 	}
 
 	var operatorID, campaignID string

@@ -469,6 +469,32 @@ WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND due_business_date=$3::date
 	if stillToday != 2 {
 		t.Fatalf("work items still due today = %d, want 2 (submitted fasting must not block)", stillToday)
 	}
+
+	// Submitted AFTER the weigh date has begun does not satisfy that day's
+	// midnight gate. It is still a durable submit, but the work moves to the
+	// next day and the same submitted_at is then before the newer deadline.
+	fastingID = seedFastingFixture(t, ctx, pool, today)
+	seedWorkItems()
+	if _, err := repo.SubmitFastingShed(ctx, fastingSubmitShedA(fastingID, "fasting-gate-late-a")); err != nil {
+		t.Fatalf("late submit A: %v", err)
+	}
+	if _, err := repo.SubmitFastingShed(ctx, fastingSubmitShedB(fastingID, "fasting-gate-late-b")); err != nil {
+		t.Fatalf("late submit B: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE weighing_fasting_tasks
+SET submitted_at = $3::timestamptz
+WHERE tenant_id=$1::uuid AND fasting_task_id=$2::uuid`,
+		repoTenant, fastingID, time.Date(2026, time.September, 4, 0, 5, 0, 0, biztime.DefaultLocation())); err != nil {
+		t.Fatalf("stamp late fasting submit: %v", err)
+	}
+	late, err := repo.SweepWorkItems(ctx, domain.KernelSweepParams{TenantID: repoTenant, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("late sweep: %v", err)
+	}
+	if late.FastingGatedWorkItems != 2 || late.FastingTasksRolled != 1 {
+		t.Fatalf("late-submitted sweep gated=%d rolled=%d, want 2/1 — after-midnight submit must not open today's weighing", late.FastingGatedWorkItems, late.FastingTasksRolled)
+	}
 }
 
 // The verdict applier NEVER touches submitted_at, and a redelivery of the

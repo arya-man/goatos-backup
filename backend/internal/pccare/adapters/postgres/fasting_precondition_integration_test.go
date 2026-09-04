@@ -274,11 +274,13 @@ FROM pc_care_tasks WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
 		t.Fatalf("still-gated deworming due = %s, want 2026-09-13", due)
 	}
 
-	// Submit the removal (the gate reads submitted_at, set by the real submit path; stamping it
-	// here isolates the gate's own predicate).
+	// Submit the removal before the deworming day begins (the gate reads
+	// submitted_at, set by the real submit path; stamping it here isolates the
+	// gate's own predicate).
 	if _, err := pool.Exec(ctx, `
-UPDATE pc_care_tasks SET submitted_at = now(), submitted_by = $2::uuid
-WHERE tenant_id = $1::uuid AND task_id = $3::uuid`, pcTenant, pcOperator2, removal.taskID); err != nil {
+UPDATE pc_care_tasks SET submitted_at = $4::timestamptz, submitted_by = $2::uuid
+WHERE tenant_id = $1::uuid AND task_id = $3::uuid`,
+		pcTenant, pcOperator2, removal.taskID, time.Date(2026, time.September, 12, 23, 50, 0, 0, biztime.DefaultLocation())); err != nil {
 		t.Fatalf("stamp removal submit: %v", err)
 	}
 	tick3 := time.Date(2026, time.September, 13, 0, 5, 0, 0, biztime.DefaultLocation())
@@ -292,6 +294,22 @@ WHERE tenant_id = $1::uuid AND task_id = $3::uuid`, pcTenant, pcOperator2, remov
 	due, _, _, _ = readTask(deworming.TaskID)
 	if due != "2026-09-13" {
 		t.Fatalf("ungated deworming due = %s, want carried to today (2026-09-13) by the ordinary roll-forward only", due)
+	}
+
+	late := createDewormingWithRemoval(t, ctx, repo, "pc-fasting-gate-late")
+	lateRemoval := readRemovalRow(t, ctx, repo, late.TaskID)
+	if _, err := pool.Exec(ctx, `
+UPDATE pc_care_tasks SET submitted_at = $4::timestamptz, submitted_by = $2::uuid
+WHERE tenant_id = $1::uuid AND task_id = $3::uuid`,
+		pcTenant, pcOperator2, lateRemoval.taskID, time.Date(2026, time.September, 11, 0, 5, 0, 0, biztime.DefaultLocation())); err != nil {
+		t.Fatalf("stamp late removal submit: %v", err)
+	}
+	resultLate, err := repo.SweepTaskRollForward(ctx, pcTenant, tick, 200, 50)
+	if err != nil {
+		t.Fatalf("late removal sweep: %v", err)
+	}
+	if resultLate.HeldForRemoval != 1 {
+		t.Fatalf("HeldForRemoval after late submit = %d, want 1 — after-midnight removal must not open today's deworming", resultLate.HeldForRemoval)
 	}
 }
 

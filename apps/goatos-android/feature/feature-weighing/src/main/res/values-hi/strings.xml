@@ -285,6 +285,11 @@
     <string name="weighing_removal_recording">रिकॉर्डिंग…</string>
     <string name="weighing_removal_submit">सबमिट करें</string>
     <string name="weighing_removal_submitted">भेज दिया गया</string>
+    <string name="weighing_removal_submitted_line">भेज दिया गया। वीडियो बाद में जाँचे जाएँगे।</string>
+    <string name="weighing_removal_ready">दोनों वीडियो रिकॉर्ड हो गए — सबमिट करने के लिए तैयार।</string>
+    <string name="weighing_removal_caption">कल के लिए इस पेन का चारा और पानी निकालें, और हर चरण रिकॉर्ड करें।</string>
+    <string name="weighing_removal_feed_hint">इस पेन से चारा निकालते हुए दिखाएँ</string>
+    <string name="weighing_removal_water_hint">इस पेन से पानी निकालते हुए दिखाएँ</string>
     <string name="weighing_wizard_lopsided_fmt">सभी %1$d शेड समूह %2$s को जाते हैं।</string>
     <string name="weighing_wizard_per_bucket">हर शेड समूह</string>
     <string name="weighing_wizard_field_empty">—</string>

@@ -27,7 +27,6 @@ var (
 	// shed. Every shed of the round owes its own feed and water videos.
 	ErrFastingProofRequired = errors.New("weighing: feed and water videos are both required")
 
-
 	// ErrFastingProofInvalid refuses a submit whose proof refs do not resolve
 	// to completed in-app-camera VIDEO artifacts owned by this tenant.
 	ErrFastingProofInvalid = errors.New("weighing: fasting proof is not a completed live-camera video")
@@ -66,7 +65,6 @@ type FastingStore interface {
 	// authorization predicate inside the query (the caller must be the
 	// assigned operator); empty means an internal/oversight read.
 	FastingTaskByID(ctx context.Context, tenantID, fastingTaskID, operatorUserID string) (domain.FastingTask, error)
-
 
 	// ApplyFastingVerdict applies a verifier approve/rework to the fasting row
 	// (status + verified_by/at or rework_reason). Keyed on the verdict event id

@@ -148,6 +148,12 @@ class PcCareTaskViewModel @Inject constructor(
     private var latestRoster: List<String> = emptyList()
     private var rosterRefreshRequested = false
     private var submitObserveJob: Job? = null
+    private val pcCareTaskProofSlotKeys = setOf(
+        PC_CARE_SLOT_STOCK_FRIDGE_PHOTO,
+        PC_CARE_SLOT_STOCK_FRIDGE_VIDEO,
+        PC_CARE_SLOT_FEED_VIDEO,
+        PC_CARE_SLOT_WATER_VIDEO,
+    )
 
     val state: StateFlow<PcCareTaskUiState> = combine(
         repository.observeTaskDetail(taskId),
@@ -1017,7 +1023,7 @@ class PcCareTaskViewModel @Inject constructor(
             val slot = row.fieldKey.substringAfter(':')
             if (hasAnimalSlotKey && tag.isNotBlank() && slot.isNotBlank()) {
                 repository.registerSlotProof(taskId, tag, slot, outboxId)
-            } else if (row.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO || row.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_VIDEO) {
+            } else if (pcCareTaskProofSlotKeys.contains(row.fieldKey)) {
                 if (!pcCareStockSlotMatchesMime(row.fieldKey, row.mimeType)) {
                     analytics.track(
                         AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,

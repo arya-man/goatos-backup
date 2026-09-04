@@ -125,7 +125,8 @@ func TestUpdateCampaignFastingDateRules(t *testing.T) {
 // A shed submit demands BOTH videos before the store is ever reached; a
 // successful submit raises exactly ONE verification item, for THIS shed,
 // carrying that shed's refs in capture order and NAMING the shed; and an
-// idempotent replay re-raises nothing.
+// idempotent replay re-runs the idempotent enqueue so a prior post-commit
+// enqueue failure can be repaired.
 func TestSubmitFastingShedRequiresBothVideosAndEnqueuesThatShed(t *testing.T) {
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 	submittedAt := time.Date(2026, 7, 28, 21, 0, 0, 0, time.UTC)
@@ -187,13 +188,16 @@ func TestSubmitFastingShedRequiresBothVideosAndEnqueuesThatShed(t *testing.T) {
 		t.Fatalf("routing shed=%s park=%s, want %s/%s", got.ShedID, got.ParkID, testShedLocationID, testPark)
 	}
 
-	// A REPLAYED submit ran no side effects and must re-raise NO review round.
+	// A REPLAYED submit re-runs the idempotent enqueue. If the first response was
+	// lost after the durable submit but before the verifier item was created, the
+	// retry repairs the queue; if the item already exists, CreateItem no-ops on
+	// the same key.
 	store.submitResult.Replayed = true
 	if _, err := service.SubmitFastingShed(context.Background(), operator, cmd); err != nil {
 		t.Fatalf("replay err = %v", err)
 	}
-	if enqueuer.calls != 1 {
-		t.Fatalf("enqueue calls after replay = %d, want still 1", enqueuer.calls)
+	if enqueuer.calls != 2 {
+		t.Fatalf("enqueue calls after replay = %d, want 2", enqueuer.calls)
 	}
 }
 

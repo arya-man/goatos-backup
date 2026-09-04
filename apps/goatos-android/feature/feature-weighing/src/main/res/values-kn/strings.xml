@@ -285,6 +285,11 @@
     <string name="weighing_removal_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ…</string>
     <string name="weighing_removal_submit">ಸಲ್ಲಿಸಿ</string>
     <string name="weighing_removal_submitted">ಕಳುಹಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_removal_submitted_line">ಕಳುಹಿಸಲಾಗಿದೆ. ವೀಡಿಯೊಗಳನ್ನು ನಂತರ ಪರಿಶೀಲಿಸಲಾಗುತ್ತದೆ.</string>
+    <string name="weighing_removal_ready">ಎರಡೂ ವೀಡಿಯೊಗಳು ರೆಕಾರ್ಡ್ ಆಗಿವೆ — ಸಲ್ಲಿಸಲು ಸಿದ್ಧ.</string>
+    <string name="weighing_removal_caption">ನಾಳೆಗಾಗಿ ಈ ಪೆನ್ನಿನ ಮೇವು ಮತ್ತು ನೀರನ್ನು ತೆಗೆದು, ಪ್ರತಿಯೊಂದು ಹಂತವನ್ನೂ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
+    <string name="weighing_removal_feed_hint">ಈ ಪೆನ್ನಿನಿಂದ ಮೇವು ತೆಗೆದುಹಾಕುತ್ತಿರುವುದನ್ನು ತೋರಿಸಿ</string>
+    <string name="weighing_removal_water_hint">ಈ ಪೆನ್ನಿನಿಂದ ನೀರು ತೆಗೆದುಹಾಕುತ್ತಿರುವುದನ್ನು ತೋರಿಸಿ</string>
     <string name="weighing_wizard_lopsided_fmt">ಎಲ್ಲಾ %1$d ಶೆಡ್ ಗುಂಪುಗಳು %2$s ಗೆ ಹೋಗುತ್ತವೆ.</string>
     <string name="weighing_wizard_per_bucket">ಪ್ರತಿ ಶೆಡ್ ಗುಂಪು</string>
     <string name="weighing_wizard_field_empty">—</string>

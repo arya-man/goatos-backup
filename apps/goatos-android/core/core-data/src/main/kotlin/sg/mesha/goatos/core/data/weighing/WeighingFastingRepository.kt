@@ -73,13 +73,13 @@ interface WeighingFastingCardDao {
     fun observeWindow(limit: Int): Flow<List<WeighingFastingCardEntity>>
 
     @Query(
-        "SELECT * FROM weighing_fasting_card " +
+        "SELECT fastingTaskId, campaignShedId, sortIndex, status, removalBusinessDate, dtoJson, updatedAt FROM weighing_fasting_card " +
             "WHERE fastingTaskId = :fastingTaskId AND campaignShedId = :campaignShedId LIMIT 1",
     )
     fun observeCard(fastingTaskId: String, campaignShedId: String): Flow<WeighingFastingCardEntity?>
 
     @Query(
-        "SELECT * FROM weighing_fasting_card " +
+        "SELECT fastingTaskId, campaignShedId, sortIndex, status, removalBusinessDate, dtoJson, updatedAt FROM weighing_fasting_card " +
             "WHERE fastingTaskId = :fastingTaskId AND campaignShedId = :campaignShedId LIMIT 1",
     )
     suspend fun getCard(fastingTaskId: String, campaignShedId: String): WeighingFastingCardEntity?

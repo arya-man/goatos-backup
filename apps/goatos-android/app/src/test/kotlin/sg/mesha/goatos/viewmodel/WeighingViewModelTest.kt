@@ -1354,6 +1354,7 @@ class WeighingViewModelTest {
                     parkName = "CBE",
                     weighDate = "2026-08-03",
                     status = "published",
+                    fastingOperatorUserId = "user-dinakar",
                     sheds = listOf(
                         bucket("Gandhi 1", "user-dinakar", "Dinakar"),
                         bucket("Gandhi 2", "user-dinakar", "Dinakar"),

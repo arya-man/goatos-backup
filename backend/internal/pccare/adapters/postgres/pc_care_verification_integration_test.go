@@ -39,7 +39,7 @@ const (
 	// to it and to nothing in pcPark.
 	pcOtherPark         = "9c000000-0000-4000-8000-000000003002"
 	pcOtherParkOperator = "9c000000-0000-4000-8000-000000005044"
-	pcVerifier  = "9c000000-0000-4000-8000-000000006001"
+	pcVerifier          = "9c000000-0000-4000-8000-000000006001"
 )
 
 func pcBusinessDay(y int, m time.Month, d int) time.Time {
