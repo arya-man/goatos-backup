@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
 
 // TestEveryGrantableRoleHintIsAcceptedByTheColumnCheck closes PR #181 review finding
@@ -59,6 +61,61 @@ func TestEveryGrantableRoleHintIsAcceptedByTheColumnCheck(t *testing.T) {
 	for role, spec := range grantablePersonRoles {
 		if _, ok := accepted[spec.RoleHint]; !ok {
 			t.Errorf("role %s stamps primary_role_hint=%q, which %s's workforce_members_role_hint_check does not accept -- Add Person would validate and then fail at the INSERT", role, spec.RoleHint, source)
+		}
+		// The legacy operator create/update path pre-flights the same hint through
+		// validRoleHint (PC-181-003): a hint the form and the DB accept must not 400 there.
+		if !validRoleHint(spec.RoleHint) {
+			t.Errorf("role %s stamps primary_role_hint=%q, which validRoleHint (the CreateOperator/UpdateOperator pre-flight) rejects", role, spec.RoleHint)
+		}
+	}
+	// And validRoleHint must be EXACTLY the DB list, both ways: a hint it accepts that the
+	// CHECK refuses turns a 400 into a check_violation; one it refuses that the CHECK allows
+	// is this finding again.
+	for hint := range accepted {
+		if !validRoleHint(hint) {
+			t.Errorf("validRoleHint rejects %q, which %s's workforce_members_role_hint_check accepts", hint, source)
+		}
+	}
+	for _, hint := range []string{"operator", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "breeding_director", "verifier", "supervisor", "cxo", "other", "procurement_director", "counts_approver", "toxin_tester", ""} {
+		if _, inDB := accepted[hint]; validRoleHint(hint) != inDB {
+			t.Errorf("validRoleHint(%q)=%v but the DB CHECK says %v", hint, validRoleHint(hint), inDB)
+		}
+	}
+}
+
+// TestLegacyOperatorPathsAcceptTheBreedingDirectorHint drives the legacy service paths the
+// review named (PC-181-003): CreateOperator's body validation and UpdateOperator's hint
+// pre-flight must not answer invalid_primary_role_hint for a hint the column accepts.
+func TestLegacyOperatorPathsAcceptTheBreedingDirectorHint(t *testing.T) {
+	if err := validateCreateOperator(domain.CreateOperatorRequest{
+		DisplayCode:     "BD-1",
+		DisplayName:     "Breeding Director",
+		Status:          "active",
+		PrimaryRoleHint: "breeding_director",
+	}); err != nil {
+		t.Fatalf("CreateOperator body with primary_role_hint=breeding_director: %v", err)
+	}
+	if err := validateCreateOperator(domain.CreateOperatorRequest{
+		DisplayCode:     "X-1",
+		DisplayName:     "Nobody",
+		Status:          "active",
+		PrimaryRoleHint: "counts_approver",
+	}); err == nil {
+		t.Fatal("a per-person authority is never anyone's primary_role_hint; the pre-flight must still refuse it")
+	}
+	// UpdateOperator runs the same validRoleHint on a present hint (service.go, UpdateOperator).
+	if !validRoleHint("breeding_director") {
+		t.Fatal("UpdateOperator's hint pre-flight must accept breeding_director")
+	}
+}
+
+// TestEveryGrantableRoleIsAcceptedByTheGrantPreflight: CreateGrant pre-flights the role
+// through validRole. A role the Add Person form can grant must also be grantable to an
+// existing person, or the two entry points disagree about which jobs exist.
+func TestEveryGrantableRoleIsAcceptedByTheGrantPreflight(t *testing.T) {
+	for role := range grantablePersonRoles {
+		if !validRole(role) {
+			t.Errorf("role %s is grantable from Add Person but CreateGrant's validRole refuses it", role)
 		}
 	}
 }

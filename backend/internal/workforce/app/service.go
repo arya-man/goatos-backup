@@ -707,18 +707,30 @@ func validMemberStatus(value string) bool {
 	}
 }
 
+// validRoleHint is the legacy operator create/update path's hint check. It must accept exactly
+// what workforce_members_role_hint_check accepts -- the DB list is the truth, and this is a
+// pre-flight so a bad hint is a 400 rather than a check_violation. The two lists, plus the
+// Add Person form's grantablePersonRoles hints, are pinned against each other by
+// TestEveryGrantableRoleHintIsAcceptedByTheColumnCheck (PR #181 finding PC-181-003: this list
+// was left behind when 000247 widened the CHECK, so the operator edit path still refused
+// breeding_director).
 func validRoleHint(value string) bool {
 	switch value {
-	case "operator", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "verifier", "supervisor", "cxo", "other":
+	case "operator", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "breeding_director", "verifier", "supervisor", "cxo", "other":
 		return true
 	default:
 		return false
 	}
 }
 
+// validRole is CreateGrant's role pre-flight. Every role the Add Person form can grant
+// (grantablePersonRoles) must pass here too, or a role that lands from the form cannot be
+// added to an existing person from the grants endpoint; pinned by
+// TestEveryGrantableRoleIsAcceptedByTheGrantPreflight (PR #181 finding PC-181-003, the
+// same drift one function over from validRoleHint).
 func validRole(value string) bool {
 	switch value {
-	case "admin", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "operator", "verifier", "ceo_internal":
+	case "admin", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "breeding_director", "operator", "verifier", "ceo_internal":
 		return true
 	default:
 		return false
