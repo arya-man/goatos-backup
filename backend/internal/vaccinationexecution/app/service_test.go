@@ -20,6 +20,7 @@ type fakeRepo struct {
 	planned     []domain.PlannedSession
 	capacityCfg domain.CapacityConfig
 	carryLines  []domain.VaccineCarryLine
+	cardCalls   *int
 	err         error
 }
 
@@ -714,6 +715,9 @@ func (r fakeRepo) VaccinationExecutionCarrySummary(context.Context, domain.Execu
 }
 
 func (r fakeRepo) VaccinationExecutionCardSummaries(_ context.Context, q domain.ExecutionQuery) (map[string]*domain.ShedCardSummary, error) {
+	if r.cardCalls != nil {
+		*r.cardCalls++
+	}
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -749,6 +753,48 @@ func (r fakeRepo) VaccinationExecutionCardSummaries(_ context.Context, q domain.
 		execRows = append(execRows, row)
 	}
 	return computeCardSummariesFromRows(execRows), nil
+}
+
+func TestVaccinationExecutionPageCanSkipCardSummariesForLatencySensitiveClients(t *testing.T) {
+	t.Parallel()
+
+	cardCalls := 0
+	includeCardSummaries := false
+	svc := NewService(fakeRepo{
+		rows: []domain.ExecutionProjection{{
+			ShedID:          "shed-1",
+			ShedName:        "Gandhi 1",
+			PhysicalShed:    "Gandhi 1",
+			Partition:       "whole",
+			ProtocolName:    "Blue Tongue",
+			DoseCode:        "BT",
+			ObligationCount: 1,
+			WorkState:       domain.WorkStateDue,
+		}},
+		cardCalls: &cardCalls,
+	})
+	resp, err := svc.VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{
+		TenantID:             "tenant",
+		AsOf:                 time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
+		DueBefore:            time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC),
+		Limit:                20,
+		IncludeCardSummaries: &includeCardSummaries,
+		IncludeFilterOptions: false,
+		OperatorScopeActorID: "",
+		AuthorizedParkIDs:    nil,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecutionPage failed: %v", err)
+	}
+	if cardCalls != 0 {
+		t.Fatalf("card summary query should not run when IncludeCardSummaries=false; got %d calls", cardCalls)
+	}
+	if resp.CardSummaries != nil {
+		t.Fatalf("card summaries should be omitted when IncludeCardSummaries=false; got %+v", resp.CardSummaries)
+	}
+	if len(resp.Rows) != 1 {
+		t.Fatalf("page rows should still be returned, got %d", len(resp.Rows))
+	}
 }
 
 func TestVaccinationExecutionCarrySummaryPageIndependentOneToManyExecutionDateParkScopeStatusBuckets(t *testing.T) {

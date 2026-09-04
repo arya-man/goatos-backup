@@ -686,6 +686,14 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		}
 		q.IncludeFilterOptions = includeFilterOptions
 	}
+	if raw := query.Get("include_card_summaries"); raw != "" {
+		includeCardSummaries, err := strconv.ParseBool(raw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_include_card_summaries", "include_card_summaries must be true or false")
+			return vaccexecd.ExecutionQuery{}, false
+		}
+		q.IncludeCardSummaries = &includeCardSummaries
+	}
 	if raw := query.Get("cursor"); raw != "" {
 		cursor, err := vaccexecd.DecodeExecutionCursor(raw)
 		if err != nil {

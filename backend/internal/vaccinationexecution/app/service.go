@@ -122,13 +122,16 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		filterOptions = &domain.ExecutionFilters{Parks: parks}
 	}
 
-	// For all requests: compute per-card summaries (page-independent, full-filter aggregation)
-	// via a separate SQL GROUP BY query that uses the SAME filter predicates as the page query
-	// but WITHOUT the LIMIT/cursor. This ensures cards spanning page boundaries report correct
-	// counts/status from ALL matching rows, not just the paginated subset.
-	cardSummaries, err := s.repo.VaccinationExecutionCardSummaries(ctx, q)
-	if err != nil {
-		return domain.ExecutionResponse{}, err
+	includeCardSummaries := q.IncludeCardSummaries == nil || *q.IncludeCardSummaries
+	var cardSummaries map[string]*domain.ShedCardSummary
+	if includeCardSummaries {
+		// Per-card summaries are page-independent full-filter aggregation. They are useful
+		// when explicitly requested, but expensive enough for mobile to opt out.
+		var err error
+		cardSummaries, err = s.repo.VaccinationExecutionCardSummaries(ctx, q)
+		if err != nil {
+			return domain.ExecutionResponse{}, err
+		}
 	}
 
 	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions, CardSummaries: cardSummaries}, nil

@@ -264,6 +264,9 @@ type ExecutionQuery struct {
 	HistoricalAsOf       bool
 	OpenOnly             bool
 	IncludeFilterOptions bool
+	// IncludeCardSummaries is tri-state for backward compatibility: nil keeps the
+	// legacy default, while false lets latency-sensitive callers fetch only the visible page.
+	IncludeCardSummaries *bool
 	Limit                int
 }
 

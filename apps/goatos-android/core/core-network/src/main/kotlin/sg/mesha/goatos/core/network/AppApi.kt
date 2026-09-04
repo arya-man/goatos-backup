@@ -418,6 +418,7 @@ interface AppApi {
         limit: Int? = null,
         cursor: String? = null,
         includeFilterOptions: Boolean = false,
+        includeCardSummaries: Boolean = true,
     ): VaccinationExecutionResponseDto
 
     /** GET /app/vaccination/execution/sheds/{shed_id} — one mobile shed execution context. */
@@ -1758,6 +1759,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int?,
         cursor: String?,
         includeFilterOptions: Boolean,
+        includeCardSummaries: Boolean,
     ): VaccinationExecutionResponseDto = VaccinationExecutionResponseDto()
 
     override suspend fun getVaccinationExecutionShed(

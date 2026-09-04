@@ -228,7 +228,17 @@ class DefaultExecutionRepository(
         cursor: String?,
         includeFilterOptions: Boolean,
     ): VaccinationExecutionResponseDto =
-        api.listVaccinationExecution(parkId, workState, asOf, dueBefore, openOnly, limit, cursor, includeFilterOptions)
+        api.listVaccinationExecution(
+            parkId = parkId,
+            workState = workState,
+            asOf = asOf,
+            dueBefore = dueBefore,
+            openOnly = openOnly,
+            limit = limit,
+            cursor = cursor,
+            includeFilterOptions = includeFilterOptions,
+            includeCardSummaries = false,
+        )
 
     override fun observeRows(
         parkId: String?,

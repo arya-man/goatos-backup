@@ -230,6 +230,7 @@ interface AppApiService {
         @Query("limit") limit: Int?,
         @Query("cursor") cursor: String?,
         @Query("include_filter_options") includeFilterOptions: Boolean?,
+        @Query("include_card_summaries") includeCardSummaries: Boolean?,
     ): VaccinationExecutionResponseDto
 
     @GET("app/vaccination/execution/sheds/{shed_id}")
@@ -1250,8 +1251,9 @@ class RetrofitAppApi(
         limit: Int?,
         cursor: String?,
         includeFilterOptions: Boolean,
+        includeCardSummaries: Boolean,
     ): VaccinationExecutionResponseDto =
-        service.listVaccinationExecution(parkId, workState, asOf, dueBefore, openOnly, limit, cursor, includeFilterOptions)
+        service.listVaccinationExecution(parkId, workState, asOf, dueBefore, openOnly, limit, cursor, includeFilterOptions, includeCardSummaries)
 
     override suspend fun getVaccinationExecutionShed(
         shedId: String,
