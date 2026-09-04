@@ -448,6 +448,7 @@ type shedCompletionVaccineBreakdownItem struct {
 type shedCompletionSummaryResponse struct {
 	TaskID           string                               `json:"task_id"`
 	ShedName         string                               `json:"shed_name"`
+	PartitionLabel   string                               `json:"partition_label,omitempty"`
 	DriveName        string                               `json:"drive_name"`
 	ExpectedCount    int64                                `json:"expected_count"`
 	HandledCount     int64                                `json:"handled_count"`
@@ -505,6 +506,7 @@ func (h *Handler) ShedCompletionSummary(w http.ResponseWriter, r *http.Request) 
 	httpresponse.WriteJSON(w, http.StatusOK, shedCompletionSummaryResponse{
 		TaskID:           summary.TaskID,
 		ShedName:         summary.ShedName,
+		PartitionLabel:   summary.PartitionLabel,
 		DriveName:        summary.DriveName,
 		ExpectedCount:    summary.ExpectedCount,
 		HandledCount:     summary.HandledCount,

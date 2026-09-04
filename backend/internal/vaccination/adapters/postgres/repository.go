@@ -2075,6 +2075,7 @@ LEFT JOIN shed ON true`,
 	summary := domain.ShedCompletionSummary{
 		TaskID:           taskID,
 		ShedName:         shedName,
+		PartitionLabel:   partitionLabel,
 		DriveName:        driveName,
 		ExpectedCount:    expectedCount,
 		HandledCount:     handledCount,

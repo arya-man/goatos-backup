@@ -2184,7 +2184,8 @@ fun AppNavHost(
                                     taskRowVersion = entry.arguments?.getInt(Routes.EXECUTION_TASK_ROW_VERSION_ARG)?.takeIf { it > 0 }
                                         ?: state.taskRowVersion,
                                     scanTitle = entry.arguments?.getString(Routes.EXECUTION_SCAN_TITLE_ARG)?.takeIf { it.isNotBlank() },
-                                    partitionLabel = entry.arguments?.getString(Routes.EXECUTION_PARTITION_ARG)?.takeIf { it.isNotBlank() },
+                                    partitionLabel = entry.arguments?.getString(Routes.EXECUTION_PARTITION_ARG)?.takeIf { it.isNotBlank() }
+                                        ?: state.partitionLabel,
                                 ),
                             ) { launchSingleTop = true }
                         }

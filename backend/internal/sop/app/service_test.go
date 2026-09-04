@@ -583,6 +583,12 @@ func TestSubmitVaccinationPerGoatCompletionAckUsesScopedShedReadiness(t *testing
 	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
 	shedID := testScopeID
 	goatID := "66000000-0000-4000-8000-000000000001"
+	repo.scanCaptures = []domain.ScanCaptureSummary{{
+		FieldKey:   "__scan_roster__",
+		Tag:        "901007000504392",
+		GoatID:     goatID,
+		CapturedAt: "2026-09-04T12:00:00Z",
+	}}
 	repo.completedTaskGoatProofRefs = []domain.ProofReference{{
 		ProofID:     "67000000-0000-4000-8000-000000000001",
 		ProofType:   "video",
@@ -598,7 +604,8 @@ func TestSubmitVaccinationPerGoatCompletionAckUsesScopedShedReadiness(t *testing
 		TaskID:   testTaskID,
 		Body: domain.SubmitTaskRequest{
 			SOPVersionID:   testVersionID,
-			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + shedID + ":rv:1",
+			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + shedID + ":partition:part 1:rv:1",
+			PartitionLabel: "Part 1",
 			Answers:        map[string]any{},
 			ProofRefs:      nil,
 		},
@@ -609,11 +616,20 @@ func TestSubmitVaccinationPerGoatCompletionAckUsesScopedShedReadiness(t *testing
 	if got := repo.lastShedReadinessShedID; got != shedID {
 		t.Fatalf("readiness shed id = %q, want %q", got, shedID)
 	}
+	if got := repo.lastListScanCapturesShedID; got != shedID {
+		t.Fatalf("scan capture shed id = %q, want %q", got, shedID)
+	}
+	if got := repo.lastListScanCapturesPartitionLabel; got != "Part 1" {
+		t.Fatalf("scan capture partition label = %q, want Part 1", got)
+	}
 	if got := repo.lastCompletedProofRefsShedID; got != shedID {
 		t.Fatalf("server-proof recovery shed id = %q, want %q", got, shedID)
 	}
 	if got := repo.lastSubmit.Body.ProofRefs; len(got) != 1 || got[0].ProofID != "67000000-0000-4000-8000-000000000001" {
 		t.Fatalf("proof refs = %#v, want recovered server goat proof", got)
+	}
+	if got := repo.lastSubmit.SubmissionItems; len(got) != 1 || got[0].GoatID != goatID {
+		t.Fatalf("submission items = %#v, want backend scan-derived goat item", got)
 	}
 }
 
@@ -1657,38 +1673,40 @@ func TestListSOPsNormalizesFiltersAndReturnsOpaqueNextCursor(t *testing.T) {
 }
 
 type fakeRepo struct {
-	sop                          domain.SOPDefinition
-	task                         domain.TaskSummary
-	version                      domain.SOPVersion
-	submissions                  []domain.SubmissionSummary
-	lastSubmit                   ports.SubmitTaskCommand
-	reviewFanouts                []ports.ReviewFanoutAttempt
-	recordedFanouts              []ports.ReviewFanoutStatusCommand
-	submissionFanouts            []ports.SubmissionFanoutAttempt
-	recordedSubmissionFanouts    []ports.SubmissionFanoutStatusCommand
-	failedSubmissionFanouts      []domain.FailedSubmissionFanout
-	lastFailedSubmissionFanouts  ports.ListAgedFailedSubmissionFanoutsParams
-	scanCaptures                 []domain.ScanCaptureSummary
-	shedReadiness                ports.ShedCompletionReadiness
-	shedReadinessErr             error
-	lastShedReadinessShedID      string
-	completedTaskGoatProofRefs   []domain.ProofReference
-	completedTaskGoatProofErr    error
-	lastCompletedProofRefsShedID string
-	lastScanCapture              ports.RecordScanCaptureCommand
-	scanAttempts                 []domain.ScanAttemptSummary
-	lastScanAttempt              ports.RecordScanAttemptCommand
-	submitReplay                 bool
-	submitErr                    error
-	reviewCalls                  int
-	listSOPsResult               []domain.SOPDefinition
-	lastListSOPs                 ports.ListSOPsParams
-	latestVersionsForResult      map[string]domain.SOPVersion
-	latestVersionsForCalls       int
-	lastLatestVersionsForIDs     []string
-	listTasksResult              []domain.TaskSummary
-	listTasksTotal               int64
-	lastListTasks                ports.ListTasksParams
+	sop                                domain.SOPDefinition
+	task                               domain.TaskSummary
+	version                            domain.SOPVersion
+	submissions                        []domain.SubmissionSummary
+	lastSubmit                         ports.SubmitTaskCommand
+	reviewFanouts                      []ports.ReviewFanoutAttempt
+	recordedFanouts                    []ports.ReviewFanoutStatusCommand
+	submissionFanouts                  []ports.SubmissionFanoutAttempt
+	recordedSubmissionFanouts          []ports.SubmissionFanoutStatusCommand
+	failedSubmissionFanouts            []domain.FailedSubmissionFanout
+	lastFailedSubmissionFanouts        ports.ListAgedFailedSubmissionFanoutsParams
+	scanCaptures                       []domain.ScanCaptureSummary
+	shedReadiness                      ports.ShedCompletionReadiness
+	shedReadinessErr                   error
+	lastShedReadinessShedID            string
+	lastListScanCapturesShedID         string
+	lastListScanCapturesPartitionLabel string
+	completedTaskGoatProofRefs         []domain.ProofReference
+	completedTaskGoatProofErr          error
+	lastCompletedProofRefsShedID       string
+	lastScanCapture                    ports.RecordScanCaptureCommand
+	scanAttempts                       []domain.ScanAttemptSummary
+	lastScanAttempt                    ports.RecordScanAttemptCommand
+	submitReplay                       bool
+	submitErr                          error
+	reviewCalls                        int
+	listSOPsResult                     []domain.SOPDefinition
+	lastListSOPs                       ports.ListSOPsParams
+	latestVersionsForResult            map[string]domain.SOPVersion
+	latestVersionsForCalls             int
+	lastLatestVersionsForIDs           []string
+	listTasksResult                    []domain.TaskSummary
+	listTasksTotal                     int64
+	lastListTasks                      ports.ListTasksParams
 }
 
 func newFakeRepo() *fakeRepo {
@@ -1829,7 +1847,9 @@ func (f *fakeRepo) RecordScanCapture(_ context.Context, cmd ports.RecordScanCapt
 	f.scanCaptures = append(f.scanCaptures, capture)
 	return capture, nil
 }
-func (f *fakeRepo) ListScanCaptures(context.Context, string, string) ([]domain.ScanCaptureSummary, error) {
+func (f *fakeRepo) ListScanCaptures(_ context.Context, _ string, _ string, shedID string, partitionLabel string) ([]domain.ScanCaptureSummary, error) {
+	f.lastListScanCapturesShedID = shedID
+	f.lastListScanCapturesPartitionLabel = partitionLabel
 	return f.scanCaptures, nil
 }
 func (f *fakeRepo) RecordScanAttempt(_ context.Context, cmd ports.RecordScanAttemptCommand) (domain.ScanAttemptSummary, error) {

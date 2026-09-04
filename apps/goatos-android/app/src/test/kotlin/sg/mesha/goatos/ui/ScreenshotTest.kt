@@ -247,6 +247,7 @@ class ScreenshotTest {
                 shedCompletionSummary = sg.mesha.goatos.feature.submit.ShedCompletionSummary(
                     taskId = "task-shed",
                     shedName = "Shed A — Weaners",
+                    operationalLocationDisplay = "Shed A — Weaners",
                     driveName = "Vaccination · July 2026",
                     expectedCount = 50,
                     handledCount = 50,

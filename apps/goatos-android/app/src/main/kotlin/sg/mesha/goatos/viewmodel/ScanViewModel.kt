@@ -1106,6 +1106,7 @@ class ScanViewModel @Inject constructor(
         val pending = (rosterRows.size - done - skipped).coerceAtLeast(0)
         return emptyScanState().copy(
             shedId = shedId?.takeIf { it.isNotBlank() },
+            partitionLabel = partitionLabel?.takeIf { it.isNotBlank() },
             taskId = taskId?.takeIf { it.isNotBlank() },
             sopVersionId = sopVersionId?.takeIf { it.isNotBlank() },
             taskRowVersion = taskRowVersion?.takeIf { it > 0 },

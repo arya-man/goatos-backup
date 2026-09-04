@@ -29,6 +29,15 @@ class ExecutionRouteIdentityTest {
     }
 
     @Test
+    fun `scan to submit navigation falls back to scan state partition identity`() {
+        val navHost = Path.of("src/main/kotlin/sg/mesha/goatos/ui/AppNavHost.kt").readText()
+        val scanRoute = navHost.substringAfter("route = executionRoutePattern(Routes.SCAN)")
+            .substringBefore("ScanEvent.Back -> navController.popBackStack()")
+
+        assertTrue(scanRoute.contains("?: state.partitionLabel"))
+    }
+
+    @Test
     fun `route never invents absent task identity`() {
         val route = Routes.scanRoute("shed-a")
         assertFalse(route.contains("taskId="))

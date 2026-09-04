@@ -549,11 +549,6 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if task.AssignedTo != nil && *task.AssignedTo != cmd.ActorID {
 		return nil, Forbidden("task_not_assigned", "task is not assigned to this actor")
 	}
-	scanCaptures, err := s.repo.ListScanCaptures(ctx, cmd.TenantID, cmd.TaskID)
-	if err != nil {
-		return nil, mapRepoErr(err)
-	}
-	cmd.Body.Answers = mergeDraftScanAnswers(version.FormDSL, cmd.Body.Answers, scanCaptures)
 	if s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
 		proofRefs, err := s.proofs.ResolveProofRefs(ctx, cmd.TenantID, proofBindingForSubmission(task, cmd.Body.ProofRefs), cmd.Body.ProofRefs)
 		if err != nil {
@@ -567,9 +562,10 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	}
 	shedCompletionAck := false
 	proofPolicy := version.ProofPolicy
+	shedProofSubjectID := ""
 	if submissionFanoutNeeded(task) {
 		gate := vaccinationCompletionProofGate(version.ProofPolicy)
-		shedProofSubjectID := submittedShedProofSubjectID(cmd.Body.ProofRefs)
+		shedProofSubjectID = submittedShedProofSubjectID(cmd.Body.ProofRefs)
 		if shedProofSubjectID == "" {
 			shedProofSubjectID = shedScopeFromSubmissionKey(cmd.Body.IdempotencyKey)
 		}
@@ -608,6 +604,11 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		}
 		shedCompletionAck = true
 	}
+	scanCaptures, err := s.repo.ListScanCaptures(ctx, cmd.TenantID, cmd.TaskID, shedProofSubjectID, cmd.Body.PartitionLabel)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	cmd.Body.Answers = mergeDraftScanAnswers(version.FormDSL, cmd.Body.Answers, scanCaptures)
 	evaluation := domain.DryRunResponse{Valid: true, WorkflowPath: []string{"operator_submission"}, FinalState: "accepted"}
 	if !shedCompletionAck {
 		evaluation = Evaluate(version.FormDSL, proofPolicy, cmd.Body.Answers, cmd.Body.ProofRefs)
@@ -1201,14 +1202,14 @@ func buildSubmissionItems(formDSL map[string]any, answers map[string]any) []port
 
 func buildSubmissionItemsWithDraftScans(formDSL map[string]any, answers map[string]any, captures []domain.ScanCaptureSummary) []ports.SubmissionItemInput {
 	sourceField := repeatSourceField(formDSL)
-	if sourceField == "" {
-		return buildSubmissionItems(formDSL, answers)
-	}
 	target := rosterScanTargetFieldKey(formDSL)
 	out := make([]ports.SubmissionItemInput, 0, len(captures))
 	seen := map[string]struct{}{}
 	for _, capture := range captures {
-		if !captureMatchesScanField(capture.FieldKey, sourceField, target) {
+		if sourceField != "" && !captureMatchesScanField(capture.FieldKey, sourceField, target) {
+			continue
+		}
+		if sourceField == "" && !captureMatchesScanField(capture.FieldKey, "__scan_roster__", target) {
 			continue
 		}
 		itemKey := strings.TrimSpace(capture.GoatID)

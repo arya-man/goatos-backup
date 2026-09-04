@@ -988,16 +988,24 @@ RETURNING capture_id::text, task_id::text, field_key, tag, COALESCE(goat_id::tex
 	return item, nil
 }
 
-func (r *Repository) ListScanCaptures(ctx context.Context, tenantID, taskID string) ([]domain.ScanCaptureSummary, error) {
+func (r *Repository) ListScanCaptures(ctx context.Context, tenantID, taskID, shedID, partitionLabel string) ([]domain.ScanCaptureSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
-SELECT capture_id::text, task_id::text, field_key, tag, COALESCE(goat_id::text, ''), COALESCE(obligation_id::text, ''), captured_at
-FROM sop_task_scan_captures
-WHERE tenant_id = $1::uuid
-  AND task_id = $2::uuid
-ORDER BY captured_at ASC, capture_id ASC
-LIMIT 2000`, tenantID, taskID)
+SELECT c.capture_id::text, c.task_id::text, c.field_key, c.tag, COALESCE(c.goat_id::text, ''), COALESCE(c.obligation_id::text, ''), c.captured_at
+FROM sop_task_scan_captures c
+LEFT JOIN goats g ON g.tenant_id = c.tenant_id AND g.goat_id = c.goat_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+WHERE c.tenant_id = $1::uuid
+  AND c.task_id = $2::uuid
+  AND (NULLIF(BTRIM($3), '') IS NULL OR g.shed_id = $3::uuid)
+  AND (
+    NULLIF(BTRIM($4), '') IS NULL
+    OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+     = regexp_replace(lower(btrim($4)), '^part[[:space:]]+', '')
+  )
+ORDER BY c.captured_at ASC, c.capture_id ASC
+LIMIT 2000`, tenantID, taskID, shedID, partitionLabel)
 	if err != nil {
 		return nil, err
 	}

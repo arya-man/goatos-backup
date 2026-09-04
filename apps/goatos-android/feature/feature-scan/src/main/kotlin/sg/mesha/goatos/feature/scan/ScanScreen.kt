@@ -266,6 +266,7 @@ data class ScanUiState(
     val submitBlockingReason: String? = null,     // reason Finalize is blocked, shown when button tapped while disabled
     val readerConnection: ScanReaderConnection? = null,
     val shedId: String? = null,
+    val partitionLabel: String? = null,
     val taskId: String? = null,
     val sopVersionId: String? = null,
     val taskRowVersion: Int? = null,

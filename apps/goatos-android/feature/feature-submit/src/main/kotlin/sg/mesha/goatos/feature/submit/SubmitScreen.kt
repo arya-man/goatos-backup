@@ -156,6 +156,7 @@ data class SubmitUiState(
 data class ShedCompletionSummary(
     val taskId: String,
     val shedName: String,
+    val operationalLocationDisplay: String,
     val driveName: String,
     val expectedCount: Int,
     val handledCount: Int,
@@ -428,7 +429,7 @@ fun SubmitScreen(
 private fun SubmitHeader(state: SubmitUiState) {
     val title = when (state.syncState) {
         SyncState.ACKED -> stringResource(R.string.submit_record_submitted_title)
-        else -> state.shedCompletionSummary?.shedName?.takeIf { it.isNotBlank() }
+        else -> state.shedCompletionSummary?.displayLocation?.takeIf { it.isNotBlank() }
             ?: state.title.ifBlank { stringResource(R.string.submit_record_title) }
     }
     Column(
@@ -686,7 +687,7 @@ private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
 private fun ShedCompletionSummaryCard(summary: ShedCompletionSummary) {
     GoatCard {
         // Shed name
-        SummaryRow(stringResource(R.string.submit_summary_shed), summary.shedName)
+        SummaryRow(stringResource(R.string.submit_summary_shed), summary.displayLocation)
         HairLine()
         // Drive name
         SummaryRow(stringResource(R.string.submit_summary_drive), summary.driveName)
@@ -705,6 +706,9 @@ private fun ShedCompletionSummaryCard(summary: ShedCompletionSummary) {
         SummaryRow(proofReadyLabel, summary.proofReadyCount.toString())
     }
 }
+
+private val ShedCompletionSummary.displayLocation: String
+    get() = operationalLocationDisplay.ifBlank { shedName }
 
 @Composable
 private fun VaccineBreakdownRow(item: VaccineSummaryItem) {

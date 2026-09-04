@@ -103,6 +103,8 @@ data class VaccineBreakdownItemDto(
 data class ShedCompletionSummaryDto(
     @SerialName("task_id") val taskId: String = "",
     @SerialName("shed_name") val shedName: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     @SerialName("drive_name") val driveName: String = "",
     @SerialName("expected_count") val expectedCount: Int = 0,
     @SerialName("handled_count") val handledCount: Int = 0,

@@ -422,6 +422,7 @@ type VaccineBreakdownItem struct {
 type ShedCompletionSummary struct {
 	TaskID           string
 	ShedName         string
+	PartitionLabel   string
 	DriveName        string
 	ExpectedCount    int64
 	HandledCount     int64
