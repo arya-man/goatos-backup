@@ -250,6 +250,7 @@ class ShedsExecutionIdentityTest {
                 proofStatus = "uploaded",
                 verificationStatus = "",
                 sopStatus = "draft",
+                operatorCanContinue = true,
                 primaryActionKey = "submit",
             ),
         )
@@ -259,6 +260,29 @@ class ShedsExecutionIdentityTest {
         assertEquals(ShedStatus.PENDING, shedStatusForRows(uploadedButNotSubmitted))
         assertEquals(0, summary?.reviewItemCount)
         assertFalse(uploadedButNotSubmitted.opensSubmittedRecordOnly())
+    }
+
+    @Test
+    fun `review-like backend work state is not review while operator can still continue`() {
+        val proofReadyButNotSubmitted = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 30,
+                openCount = 0,
+                doneCount = 30,
+                workState = "verification_pending",
+                proofStatus = "uploaded",
+                verificationStatus = "pending",
+                sopStatus = "needs_review",
+                operatorCanContinue = true,
+                primaryActionKey = "submit",
+            ),
+        )
+
+        val summary = protocolAdherenceSummary(proofReadyButNotSubmitted)
+
+        assertEquals(ShedStatus.PENDING, shedStatusForRows(proofReadyButNotSubmitted))
+        assertEquals(0, summary?.reviewItemCount)
+        assertFalse(proofReadyButNotSubmitted.opensSubmittedRecordOnly())
     }
 
     @Test

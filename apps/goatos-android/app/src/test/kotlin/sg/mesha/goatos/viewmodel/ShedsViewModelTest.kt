@@ -547,9 +547,14 @@ class ShedsViewModelTest {
         val row = vm.state.value.rows.firstOrNull { it.shedId == "shed-verification-pending" }
         assertTrue("partial proof shed must stay on the list", row != null)
         assertEquals(
+            "verificationStatus=pending while operator can continue must not show In review",
+            "In progress",
+            row!!.statusLabel,
+        )
+        assertEquals(
             "verificationStatus=pending alone (partial evidence, no terminal sopStatus) must not lock",
             false,
-            row!!.opensRecordOnly,
+            row.opensRecordOnly,
         )
     }
 

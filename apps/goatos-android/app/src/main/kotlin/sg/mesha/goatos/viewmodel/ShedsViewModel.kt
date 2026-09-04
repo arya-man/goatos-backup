@@ -863,10 +863,13 @@ internal fun VaccinationExecutionRowDto.isVisibleForOperatorDay(
 }
 
 private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
-    verificationStatus.equals("pending", ignoreCase = true) ||
-        sopStatus.equals("submitted", ignoreCase = true) ||
-        sopStatus.equals("needs_review", ignoreCase = true) ||
-        workState.equals("verification_pending", ignoreCase = true)
+    hasSubmittedRecord() &&
+        (
+            verificationStatus.equals("pending", ignoreCase = true) ||
+                sopStatus.equals("submitted", ignoreCase = true) ||
+                sopStatus.equals("needs_review", ignoreCase = true) ||
+                workState.equals("verification_pending", ignoreCase = true)
+        )
 
 /**
  * Overdue-ness is BACKEND-OWNED: `workState` already carries `overdue`/`missed`
