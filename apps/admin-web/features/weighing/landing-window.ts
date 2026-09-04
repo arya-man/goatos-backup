@@ -55,7 +55,6 @@ export async function landingWindow(
 ): Promise<Window> {
   const selected = explicitWindow(params, today);
   if (selected) return selected;
-
   const lookback = {
     from: istDayPlus(today, -(LATEST_LUMP_LOOKBACK_DAYS - 1)),
     to: today,

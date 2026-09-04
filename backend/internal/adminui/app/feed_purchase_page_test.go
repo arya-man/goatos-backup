@@ -31,7 +31,7 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 	if ledger.DataSource != "/procurement/feed-purchases" {
 		t.Fatalf("ledger table source = %q", ledger.DataSource)
 	}
-	if ledger.RowClick.Param != "feed_purchase_id" {
+	if ledger.RowClick.Param != "purchase_id" {
 		t.Fatalf("ledger row param = %q", ledger.RowClick.Param)
 	}
 	// The column ORDER is part of the contract: the renderer maps the contract's labels into its

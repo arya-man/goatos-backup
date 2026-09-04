@@ -263,8 +263,6 @@ export async function FeedPurchasesPage({
             <span className="muted">
               {copy(pageContract, "pager.page")} {pageNumber} {copy(pageContract, "pager.of")} {pageCount}
             </span>
-            {/* Back is rendered only when there IS a previous page, rather than disabled-and-inert,
-                so the control set matches what the operator can actually do. */}
             {pageNumber > 1 ? (
               <Link
                 href={hrefWithQuery(sp, { offset: String(Math.max(0, offset - limit)) })}
@@ -273,12 +271,20 @@ export async function FeedPurchasesPage({
               >
                 {copy(pageContract, "action.prev_page")}
               </Link>
-            ) : null}
+            ) : (
+              <span className="btn" aria-disabled="true">
+                {copy(pageContract, "action.prev_page")}
+              </span>
+            )}
             {pageNumber < pageCount ? (
               <Link href={hrefWithQuery(sp, { offset: String(offset + limit) })} scroll={false} className="btn">
                 {copy(pageContract, "action.next_page")}
               </Link>
-            ) : null}
+            ) : (
+              <span className="btn" aria-disabled="true">
+                {copy(pageContract, "action.next_page")}
+              </span>
+            )}
           </div>
         ) : null}
       </section>

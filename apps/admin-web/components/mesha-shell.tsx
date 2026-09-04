@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { CEOAIChat, type CEOAIChatCopy } from "@/components/ceo-ai-chat";
+import { preloadFirebasePerformance, startFirebasePerformanceTrace } from "@/lib/firebase-performance";
 import { reportAdminPerformanceEvent } from "@/lib/performance-events";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
@@ -45,6 +46,7 @@ type PendingNavigationTiming = {
   to: string;
   source: string;
   startedAt: number;
+  firebaseTrace?: ReturnType<typeof startFirebasePerformanceTrace>;
   timedOut?: boolean;
 };
 
@@ -176,6 +178,14 @@ function hrefPathname(href: string): string {
   }
 }
 
+function targetPathname(href: string): string {
+  try {
+    return new URL(href, typeof window === "undefined" ? "http://admin.local" : window.location.href).pathname;
+  } catch {
+    return href.split("?")[0] || "/";
+  }
+}
+
 function normalizeTrail(items: TrailItem[]): TrailItem[] {
   const out: TrailItem[] = [];
   for (const item of items) {
@@ -256,7 +266,6 @@ export function MeshaShell({
   const pendingAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingNavigationRef = useRef<PendingNavigationTiming | null>(null);
-  const prefetchedNavHrefsRef = useRef<Set<string>>(new Set());
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const g of groups) {
@@ -311,6 +320,10 @@ export function MeshaShell({
   const alertDisplayRules = contract.display_rules.filter((rule) => rule.id.includes("error"));
 
   useEffect(() => {
+    preloadFirebasePerformance();
+  }, []);
+
+  useEffect(() => {
     trailRef.current = navTrail;
   }, [navTrail]);
 
@@ -343,6 +356,21 @@ export function MeshaShell({
   }, []);
 
   const startRoutePending = useCallback((anchor?: HTMLAnchorElement | null, toHref?: string, source = "unknown") => {
+    const superseded = pendingNavigationRef.current;
+    if (superseded) {
+      superseded.firebaseTrace?.stop({
+        result: "superseded",
+        duration_ms: Math.round(performance.now() - superseded.startedAt),
+      });
+      reportAdminPerformanceEvent("admin_route_navigation_superseded", "admin_shell", superseded.from, {
+        navigation_id: superseded.id,
+        from: superseded.from,
+        to: superseded.to,
+        source: superseded.source,
+        duration_ms: Math.round(performance.now() - superseded.startedAt),
+      });
+      pendingNavigationRef.current = null;
+    }
     pendingAnchorRef.current?.removeAttribute("data-route-pending");
     pendingAnchorRef.current?.removeAttribute("aria-busy");
     if (anchor) {
@@ -361,6 +389,11 @@ export function MeshaShell({
       to: toHref ?? anchor?.href ?? "",
       source,
       startedAt: performance.now(),
+      firebaseTrace: startFirebasePerformanceTrace("admin_route_navigation", {
+        source,
+        from_path: window.location.pathname,
+        to_path: targetPathname(toHref ?? anchor?.href ?? ""),
+      }),
     };
     reportAdminPerformanceEvent("admin_route_navigation_start", "admin_shell", from, {
       navigation_id: pendingNavigationRef.current.id,
@@ -369,6 +402,22 @@ export function MeshaShell({
       source,
     });
     if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    const targetHref = toHref ?? anchor?.href ?? "";
+    const targetUrl = targetHref ? new URL(targetHref, window.location.href) : null;
+    let frames = 0;
+    function clearWhenLocationCommits() {
+      if (
+        targetUrl &&
+        window.location.pathname === targetUrl.pathname &&
+        window.location.search === targetUrl.search
+      ) {
+        clearRoutePending();
+        return;
+      }
+      frames += 1;
+      if (frames < 180) window.requestAnimationFrame(clearWhenLocationCommits);
+    }
+    if (targetUrl) window.requestAnimationFrame(clearWhenLocationCommits);
     pendingTimerRef.current = setTimeout(() => {
       const pending = pendingNavigationRef.current;
       if (pending) {
@@ -379,6 +428,10 @@ export function MeshaShell({
           to: pending.to,
           source: pending.source,
           timeout_ms: Math.round(performance.now() - pending.startedAt),
+        });
+        pending.firebaseTrace?.stop({
+          result: "timeout",
+          duration_ms: Math.round(performance.now() - pending.startedAt),
         });
       }
       clearRoutePending();
@@ -393,6 +446,7 @@ export function MeshaShell({
       if (pending.timedOut && pending.to !== route) {
         pendingNavigationRef.current = null;
       } else {
+        clearRoutePending();
         reportAdminPerformanceEvent("admin_route_navigation_commit", "admin_shell", route, {
           navigation_id: pending.id,
           from: pending.from,
@@ -407,6 +461,11 @@ export function MeshaShell({
               from: pending.from,
               to: pending.to,
               source: pending.source,
+              commit_ms: Math.round(committedAt - pending.startedAt),
+              render_ms: Math.round(performance.now() - pending.startedAt),
+            });
+            pending.firebaseTrace?.stop({
+              result: "rendered",
               commit_ms: Math.round(committedAt - pending.startedAt),
               render_ms: Math.round(performance.now() - pending.startedAt),
             });
@@ -437,7 +496,26 @@ export function MeshaShell({
       // keep the old page visible while the RSC payload swaps in, so the global route-busy affordance
       // reads as a stuck full-page navigation when the payload finishes before React reports a route
       // change. Reserve it for actual path changes.
-      if (nextUrl.pathname === window.location.pathname) return;
+      if (nextUrl.pathname === window.location.pathname) {
+        const trace = startFirebasePerformanceTrace("admin_query_navigation", {
+          source: anchor.closest(".side") ? "sidebar" : "link",
+          from_path: window.location.pathname,
+          to_path: nextUrl.pathname,
+        });
+        const startedAt = performance.now();
+        window.requestAnimationFrame(() => {
+          trace?.stop({
+            result: "query_only",
+            duration_ms: Math.round(performance.now() - startedAt),
+          });
+        });
+        reportAdminPerformanceEvent("admin_query_navigation", "admin_shell", `${nextUrl.pathname}${nextUrl.search}`, {
+          from: `${window.location.pathname}${window.location.search}`,
+          to: `${nextUrl.pathname}${nextUrl.search}`,
+          source: anchor.closest(".side") ? "sidebar" : "link",
+        });
+        return;
+      }
       startRoutePending(anchor, `${nextUrl.pathname}${nextUrl.search}`, anchor.closest(".side") ? "sidebar" : "link");
       if (anchor.closest(".navback")) return;
 
@@ -514,14 +592,6 @@ export function MeshaShell({
     const dateScope = leaf.href === "/calendar" ? { asOf: null } : {};
     return scopeHref(leaf.href, renderedScope, dateScope, leaf.extra ?? {});
   }
-  function prefetchNavHref(href: string): void {
-    if (prefetchedNavHrefsRef.current.has(href)) return;
-    prefetchedNavHrefsRef.current.add(href);
-    router.prefetch(href);
-    reportAdminPerformanceEvent("admin_route_prefetch_intent", "admin_shell", pathname, {
-      href,
-    });
-  }
   function navActive(leaf: NavItem): boolean {
     if (active !== leaf.href) return false;
     // Most routes have exactly one nav entry, so pathname alone decides. The verifier workspace is
@@ -597,7 +667,7 @@ export function MeshaShell({
             ) : null}
             <ChevronDown className="ic" style={{ width: 12 }} aria-hidden="true" />
           </button>
-          <div className={`parkmenu ${scopeMenuOpen ? "on" : ""}`} role="menu" aria-label={shellCopy(contract, "scope.park_menu_aria")}>
+          <div className={`parkmenu ${scopeMenuOpen ? "on" : ""}`} role="listbox" aria-label={shellCopy(contract, "scope.park_menu_aria")}>
             <div className="pm-label">{contract.top_bar.park_selector.label}</div>
             <div className="pm-list">
               <Link
@@ -606,6 +676,8 @@ export function MeshaShell({
                 scroll={false}
                 onClick={closeMenus}
                 className={`pm-item ${!activeParkId ? "on" : ""}`}
+                role="option"
+                aria-selected={!activeParkId}
               >
                 <span className="pn">
                   {shellCopy(contract, "scope.all_parks")}{" "}
@@ -623,6 +695,8 @@ export function MeshaShell({
                   scroll={false}
                   onClick={closeMenus}
                   className={`pm-item ${activeParkId === p.id ? "on" : ""}`}
+                  role="option"
+                  aria-selected={activeParkId === p.id}
                 >
                   {p.code ? <span className="pc">{p.code}</span> : null}
                   <span className="pn">{p.name}</span>
@@ -712,8 +786,6 @@ export function MeshaShell({
                 href={navHref(n)}
                 className={`nav ${navActive(n) ? "on" : ""}`}
                 onClick={() => setNavOpen(false)}
-                onFocus={() => prefetchNavHref(navHref(n))}
-                onMouseEnter={() => prefetchNavHref(navHref(n))}
               >
                 <Icon className="ic" />
                 {n.label}
@@ -761,8 +833,6 @@ export function MeshaShell({
                         href={navHref(l)}
                         className={`leaf ${navActive(l) ? "on" : ""}`}
                         onClick={() => setNavOpen(false)}
-                        onFocus={() => prefetchNavHref(navHref(l))}
-                        onMouseEnter={() => prefetchNavHref(navHref(l))}
                       >
                         {l.label}
                       </Link>

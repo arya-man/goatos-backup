@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Read-only parity check for the maintainer OCI Postgres clone versus Goat OS staging.
-# It proves schema equality and fingerprints critical dashboard/MCP tables before
-# a local MCP/assistant E2E run is treated as staging-equivalent. It is read-only:
+# Read-only full-table parity check for the maintainer OCI Postgres clone versus
+# Goat OS staging. It proves semantic schema equality and fingerprints every
+# non-system base table before OCI is treated as staging-equivalent. It is read-only:
 # no writes, migrations, grants, or repair steps are attempted here.
 set -euo pipefail
 
@@ -10,6 +10,7 @@ OUT_DIR="${GOATOS_DB_PARITY_OUT_DIR:-${REPO_ROOT}/tools/ceo-ai/eval/out/db-parit
 OCI_DSN="${GOATOS_OCI_DATABASE_URL:-${DATABASE_URL:-}}"
 STG_DSN="${GOATOS_STG_DATABASE_URL:-}"
 started_proxy_pid=""
+fingerprint_tmp_dir=""
 CHECK_GRANTS="${GOATOS_DB_PARITY_CHECK_GRANTS:-0}"
 
 if [[ -z "$OCI_DSN" ]]; then
@@ -29,6 +30,9 @@ die() { echo "db-parity: $*" >&2; exit 2; }
 cleanup() {
   if [[ -n "$started_proxy_pid" ]]; then
     kill "$started_proxy_pid" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$fingerprint_tmp_dir" && -d "$fingerprint_tmp_dir" ]]; then
+    rm -rf "$fingerprint_tmp_dir"
   fi
 }
 trap cleanup EXIT
@@ -100,37 +104,13 @@ case "$OCI_DSN" in
 esac
 
 mkdir -p "$OUT_DIR"
+command -v shasum >/dev/null 2>&1 || die "shasum is required for all-table content fingerprints"
+fingerprint_tmp_dir="$(mktemp -d "$OUT_DIR/.fingerprint-tmp.XXXXXX")"
 
 schema_dump() {
   local dsn="$1" out="$2"
   pg_dump "$dsn" --schema-only --no-owner --no-privileges \
     --exclude-schema='pg_*' --exclude-schema='information_schema' > "$out"
-}
-
-critical_relations=(
-  public.sales_deals
-  public.sales_buyer_leads
-  public.sales_fpo_leads
-  public.sales_sold_animal_tags
-  public.sales_weight_audit
-  public.sales_market_benchmarks
-  public.weighing_campaigns
-  public.weighing_campaign_sheds
-  public.weighing_observations
-  public.weighing_shed_observations
-  public.weighing_work_items
-  public.goats
-  public.locations
-)
-
-fingerprint_relation() {
-  local dsn="$1" rel="$2"
-  psql "$dsn" -X -v ON_ERROR_STOP=1 -At -F $'\t' <<SQL
-SELECT '${rel}' AS relation,
-       count(*)::bigint AS rows,
-       COALESCE(md5(string_agg(md5(to_jsonb(t)::text), '' ORDER BY to_jsonb(t)::text)), md5('')) AS hash
-FROM ${rel} AS t;
-SQL
 }
 
 inventory_db() {
@@ -180,33 +160,37 @@ SQL
 
 fingerprint_db() {
   local dsn="$1" out="$2"
+  local relation_list schema_name table_name relation_name raw_hashes row_count row_hash
+  relation_list="$fingerprint_tmp_dir/relations.tsv"
+  psql "$dsn" -X -v ON_ERROR_STOP=1 -At -F $'\t' <<'SQL' > "$relation_list"
+SELECT n.nspname, c.relname
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND n.nspname NOT LIKE 'pg_toast%'
+  AND c.relkind IN ('r', 'p')
+  -- A partitioned parent query includes every child row, so hashing its children
+  -- again would duplicate the same data and make the daily all-data check slow.
+  AND NOT c.relispartition
+ORDER BY n.nspname, c.relname;
+SQL
+
   : > "$out"
-  psql "$dsn" -X -v ON_ERROR_STOP=1 -At -F $'\t' <<'SQL' >> "$out"
-SELECT 'schema_migration_table',
-       COALESCE((SELECT table_schema || '.' || table_name
-                 FROM information_schema.tables
-                 WHERE table_name IN ('goose_db_version', 'schema_migrations')
-                 ORDER BY table_schema, table_name
-                 LIMIT 1), 'absent'),
-       md5(COALESCE((SELECT table_schema || '.' || table_name
-                     FROM information_schema.tables
-                     WHERE table_name IN ('goose_db_version', 'schema_migrations')
-                     ORDER BY table_schema, table_name
-                     LIMIT 1), 'absent'));
+  while IFS=$'\t' read -r schema_name table_name; do
+    relation_name="$(psql "$dsn" -X -v ON_ERROR_STOP=1 -At -v schema_name="$schema_name" -v table_name="$table_name" <<'SQL'
+SELECT format('%I.%I', :'schema_name', :'table_name');
 SQL
-  for rel in "${critical_relations[@]}"; do
-    fingerprint_relation "$dsn" "$rel" >> "$out"
-  done
-  psql "$dsn" -X -v ON_ERROR_STOP=1 -At -F $'\t' <<'SQL' >> "$out"
-WITH views AS (
-  SELECT format('%I.%I', table_schema, table_name) AS name
-  FROM information_schema.views
-  WHERE table_schema = 'ceo_ai'
-)
-SELECT name, 'view-present' AS rows, md5(name) AS hash
-FROM views
-ORDER BY name;
-SQL
+)"
+    raw_hashes="$(mktemp "$fingerprint_tmp_dir/row-hashes.XXXXXX")"
+    # Stream one fixed-width digest per row, then sort those digests locally.
+    # This preserves multiplicity and is independent of row storage order while
+    # avoiding a huge string_agg/sort inside Cloud SQL for history tables.
+    psql "$dsn" -X -v ON_ERROR_STOP=1 -At -c "SELECT md5(to_jsonb(t)::text) FROM ${relation_name} AS t;" > "$raw_hashes"
+    row_count="$(wc -l < "$raw_hashes" | tr -d ' ')"
+    row_hash="$(LC_ALL=C sort "$raw_hashes" | shasum -a 256 | awk '{print $1}')"
+    printf '%s\t%s\t%s\n' "$relation_name" "$row_count" "$row_hash" >> "$out"
+    rm -f "$raw_hashes"
+  done < "$relation_list"
   sort -o "$out" "$out"
 }
 
@@ -227,7 +211,7 @@ if ! diff -u "$OUT_DIR/stg.inventory.tsv" "$OUT_DIR/oci.inventory.tsv" > "$OUT_D
   exit 1
 fi
 
-echo "db-parity: fingerprinting critical dashboard tables/views"
+echo "db-parity: fingerprinting every user base table"
 fingerprint_db "$OCI_DSN" "$OUT_DIR/oci.fingerprint.tsv"
 fingerprint_db "$STG_DSN" "$OUT_DIR/stg.fingerprint.tsv"
 
@@ -236,5 +220,5 @@ if ! diff -u "$OUT_DIR/stg.fingerprint.tsv" "$OUT_DIR/oci.fingerprint.tsv" > "$O
   exit 1
 fi
 
-echo "db-parity: PASS (schema + inventory + critical row-count fingerprints match)"
+echo "db-parity: PASS (schema + inventory + every-table row-count/content fingerprints match)"
 echo "db-parity: artifacts in $OUT_DIR"

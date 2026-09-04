@@ -6,5 +6,6 @@ export const dynamic = "force-dynamic";
 
 // Vendors — the procurement register of every counterparty the farm buys from or contracts with.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  return <VendorBoardPage searchParams={await searchParams} pageContract={await requireAdminWebPageContract("vendors")} />;
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("vendors")]);
+  return <VendorBoardPage searchParams={params} pageContract={pageContract} />;
 }

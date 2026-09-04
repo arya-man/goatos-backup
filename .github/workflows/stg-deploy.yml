@@ -60,7 +60,7 @@ jobs:
       - name: Build and push migration image
         run: docker buildx build --platform linux/amd64 --push --build-arg GIT_SHA=${{ github.sha }} -f backend/Dockerfile.migrate -t "$MIGRATION_IMAGE" .
       - name: Build and push admin-web image
-        run: docker buildx build --platform linux/amd64 --push -f apps/admin-web/Dockerfile -t "$ADMIN_WEB_IMAGE" .
+        run: docker buildx build --platform linux/amd64 --push --build-arg NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1 -f apps/admin-web/Dockerfile -t "$ADMIN_WEB_IMAGE" .
       - name: Create Cloud Deploy release
         run: |
           release_id="goatos-stg-${IMAGE_TAG}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"

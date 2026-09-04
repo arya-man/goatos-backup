@@ -5,10 +5,11 @@ import type { RouteSearchParams } from "@/lib/search-params";
 export const dynamic = "force-dynamic";
 
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("health-config")]);
   return (
     <HealthConfigPage
-      searchParams={await searchParams}
-      pageContract={await requireAdminWebPageContract("health-config")}
+      searchParams={params}
+      pageContract={pageContract}
     />
   );
 }

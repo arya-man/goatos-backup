@@ -17,7 +17,6 @@ import {
   getShedWeights,
   getWeighingGrowth,
   getWeightDemographics,
-  type ApiResult,
   type ShedWeightsResponse,
   type ShedWeightsRow,
   type ShedWeightsSummary,
@@ -226,36 +225,7 @@ export async function WeighingWeightsAnalyticsPage({
   const { rows, summary, parks, period_start: periodStart, period_end: periodEnd } = weights.data;
   const demo = demographics?.ok ? demographics.data : null;
 
-  // Per-park gain cards beside the all-parks one, so CBE and CPT can be read against each other
-  // and against the herd. One call per PARK -- a handful of rows (two today), never a paginated
-  // entity list: the banned shape is draining a cursor, not asking a bounded vocabulary. Skipped
-  // entirely when the reader has already narrowed to one park, because the card above is then
-  // that park's, and skipped off the General tab because nothing else on the page renders them.
-  //
-  // Each card carries the SAME filters as the rest of the page. They were the one read on the
-  // Weights page that once did not, and it showed a filtered headline above two unfiltered park
-  // cards -- three numbers about three different populations, side by side, with nothing saying so.
-  let perParkGain: Array<{ name: string; gain: number | null; animals: number }> = [];
-  if (tab === "general" && parkFilter === "" && parks.length > 1) {
-    const perParkResults = await Promise.all(
-      parks.map(async (park) => ({
-        park,
-        result: await getWeighingGrowth({ ...scope, ...readWindow, park_id: park.park_id }),
-      })),
-    );
-    if (firstAuthRequiredError(...perParkResults.map(({ result }) => result))) redirect(INTERNAL_LOGIN_PATH);
-    if (perParkResults.some(({ result }) => !result.ok)) {
-      return <WeightsAnalyticsLoadError pageContract={pageContract} />;
-    }
-    perParkGain = perParkResults.map(({ park, result }) => {
-      const headline = mustHaveData(result).headline;
-      return {
-        name: park.name,
-        gain: headline.average_adg_g_per_day ?? null,
-        animals: headline.headline_animals,
-      };
-    });
-  }
+  const perParkGain: Array<{ name: string; gain: number | null; animals: number }> = [];
 
   const modeOptions = optionGroup(pageContract, "weighing_mode");
   const parkIdByName = new Map(parks.map((park) => [park.name, park.park_id]));
@@ -447,12 +417,6 @@ function WeightsAnalyticsLoadError({ pageContract }: { pageContract: AdminUiPage
     </section>
   );
 }
-
-function mustHaveData<T>(result: ApiResult<T>): T {
-  if (!result.ok) throw new Error("unreachable API failure after load-error guard");
-  return result.data;
-}
-
 
 /**
  * GENERAL — the Weights page's own summary, unchanged.

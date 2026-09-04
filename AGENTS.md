@@ -33,6 +33,20 @@ forecasted cost of about `₹34,382.31`, mostly driven by Cloud Run
 (`₹2,152.09`). Always read the report table before guessing from the overview
 balance.
 
+## Google Account Selection Rule
+
+For Goat OS work in Firebase, Google Cloud Console / `gcloud`, Google Drive,
+Docs, Sheets, Gmail, or any other Google surface where multiple signed-in
+accounts are present, always use `ravi@mesha.sg` unless the maintainer
+explicitly names a different account for that task. In browser URLs, prefer the
+matching `authuser` for `ravi@mesha.sg`; if the visible page is on another
+account, switch accounts instead of continuing from the wrong identity.
+
+Do not stop just because the first visible Google account lacks access. Switch
+to `ravi@mesha.sg`, retry the target page or command, and only report a blocker
+after verifying that `ravi@mesha.sg` itself lacks the required permission or the
+session needs an interactive reauth that Codex cannot complete.
+
 ## Vaccination Anchor Date Rule
 
 When the maintainer tells Codex, Claude, or any other agent to add a vaccination

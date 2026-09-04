@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const [sp, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("vaccination-live-tracker")]);
   return (
-    <Suspense key={JSON.stringify(sp)} fallback={<LiveTrackerSkeleton pageContract={pageContract} />}>
+    <Suspense fallback={<LiveTrackerSkeleton pageContract={pageContract} />}>
       <LiveTrackerBoard searchParams={sp} pageContract={pageContract} />
     </Suspense>
   );

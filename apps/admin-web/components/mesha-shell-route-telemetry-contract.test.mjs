@@ -17,3 +17,9 @@ assert.doesNotMatch(
   /const route = `\$\{pathname\}\$\{searchKey\}`;/,
   "route telemetry must not concatenate pathname and query string without a '?'",
 );
+
+assert.doesNotMatch(
+  source,
+  /window\.location\.assign\(nextUrl\.href\)/,
+  "sidebar navigation must stay inside App Router; slow pages need loading boundaries instead of hard reloads",
+);

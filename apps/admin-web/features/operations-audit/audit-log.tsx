@@ -145,7 +145,10 @@ export async function OperationsAuditPage({
         </div>
       )}
 
-      <div className="grid g4" style={{ marginBottom: 14 }}>
+      <div
+        className="grid audit-kpi-grid"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginBottom: 14 }}
+      >
 	        <KPI label={copy(pageContract, "label.actions_in_view")} value={summary ? String(summary.actions) : "—"} hint={copy(pageContract, "label.tap_clear_filters")} tone="info" icon={Zap} href={clearedHref} />
 	        <KPI label={copy(pageContract, "label.awaiting_verification")} value={summary ? String(summary.awaiting_verification) : "—"} hint={copy(pageContract, "label.proof_signoff")} tone="warn" icon={Clock} href={hrefWithUpdates(sp, { status: "verification_pending", result: null, proof_gaps: null, cursor: null, page: null })} />
 	        <KPI label={copy(pageContract, "label.proof_coverage")} value={summary ? `${summary.proof_coverage_percent}%` : "—"} hint={copy(pageContract, "label.tap_proof_gaps")} tone="teal" icon={ShieldCheck} href={hrefWithUpdates(sp, { proof_gaps: filters.proofGaps ? null : "true", cursor: null, page: null })} />

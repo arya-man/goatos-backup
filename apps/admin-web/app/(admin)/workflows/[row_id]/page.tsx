@@ -12,12 +12,16 @@ export default async function Page({
   params: Promise<{ row_id: string }>;
   searchParams?: Promise<RouteSearchParams>;
 }) {
-  const { row_id } = await params;
+  const [{ row_id }, sp, pageContract] = await Promise.all([
+    params,
+    searchParams,
+    requireAdminWebPageContract("workflow-record"),
+  ]);
   return (
     <VaccinationWorkflowDrilldownPage
       rowId={decodeURIComponent(row_id)}
-      searchParams={await searchParams}
-      pageContract={await requireAdminWebPageContract("workflow-record")}
+      searchParams={sp}
+      pageContract={pageContract}
     />
   );
 }

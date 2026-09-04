@@ -19,13 +19,14 @@ export const dynamic = "force-dynamic";
 // ObservabilityErrorBoundary (app/(admin)/layout.tsx); the primary approve/reject action fires a
 // Faro pushEvent from features/approvals/approvals-telemetry.tsx inside the drawer.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
+  const [params, routeOffered] = await Promise.all([searchParams, adminWebRouteOffered("/approvals")]);
   // Local literal copy means there is no page contract to withhold from an out-of-authority
   // principal, so this route must check reachability itself. Without it, the verifier-only
   // workspace (which drops every other page contract) would still render the full Approvals
   // chrome — Birth/Death/Shifting tabs and queue — to anyone who typed the URL, even though the
   // decision endpoints independently 403 on counts.approve_access.
-  if (!(await adminWebRouteOffered("/approvals"))) {
+  if (!routeOffered) {
     redirect((await adminWebLandingHref()) ?? "/verify");
   }
-  return <ApprovalsPage searchParams={await searchParams} />;
+  return <ApprovalsPage searchParams={params} />;
 }

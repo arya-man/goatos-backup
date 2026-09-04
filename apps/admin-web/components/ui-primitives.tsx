@@ -45,8 +45,17 @@ export function ClipText({
   style?: CSSProperties;
 }) {
   const inferredTitle = typeof children === "string" || typeof children === "number" ? String(children) : undefined;
+  const truncateStyle: CSSProperties = {
+    display: className.split(/\s+/).includes("inline") ? "inline-block" : "block",
+    minWidth: 0,
+    maxWidth: "100%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: className.split(/\s+/).includes("two") ? undefined : "nowrap",
+    ...style,
+  };
   return (
-    <span className={`cliptext${className ? ` ${className}` : ""}`} title={title ?? inferredTitle} style={style} data-truncate>
+    <span className={`cliptext${className ? ` ${className}` : ""}`} title={title ?? inferredTitle} style={truncateStyle} data-truncate>
       {children}
     </span>
   );

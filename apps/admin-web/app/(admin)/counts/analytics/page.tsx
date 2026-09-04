@@ -7,10 +7,11 @@ export const dynamic = "force-dynamic";
 // Counts -> Herd Analytics. The leadership read: what the herd is made of right now,
 // beside what changed it month by month.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("herd-analytics")]);
   return (
     <HerdAnalyticsPage
-      searchParams={await searchParams}
-      pageContract={await requireAdminWebPageContract("herd-analytics")}
+      searchParams={params}
+      pageContract={pageContract}
     />
   );
 }

@@ -467,6 +467,22 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "action.close": "Close",
     "vaccination.clinical_due": "clinical due",
   },
+  "herd-register": {
+    "section.vaccination.title": "Vaccination",
+    "vaccination.awaiting_verify": "Awaiting verify",
+    "vaccination.clinical_due": "clinical due",
+    "vaccination.empty_history": "No vaccination history yet.",
+    "vaccination.empty_open": "No open vaccination obligations.",
+    "vaccination.history": "Vaccination history",
+    "vaccination.last_accepted": "Last accepted",
+    "vaccination.next_due": "Next due",
+    "vaccination.no_upcoming": "No upcoming vaccination",
+    "vaccination.open_due_rows": "Open due rows",
+    "vaccination.open_obligations": "Open obligations",
+    "vaccination.proof_verified": "Proof verified",
+    "vaccination.rework_rejected": "Rework rejected",
+    "vaccination.unavailable_prefix": "Vaccination data unavailable",
+  },
   // Oversight-analytics copy added with the section's rebuild (mock `card > .hd/.bd` + `.kpi`/`.bar`
   // anatomy). The backend owns these strings (adminui service.go, "verification-review"); these
   // fallbacks only keep the section rendering against a backend one release behind, instead of
@@ -653,6 +669,56 @@ const OPTION_GROUP_FALLBACKS: Record<string, Record<string, AdminUiOption[]>> = 
 };
 
 const TABLE_FALLBACKS: Record<string, Record<string, AdminUiTableContract>> = {
+  "herd-register": {
+    "vaccination-open-obligations": {
+      id: "vaccination-open-obligations",
+      title: "Open obligations",
+      data_source: "/goats/{goat_id}/vaccination-passport",
+      columns: [
+        { key: "drive", label: "Drive", sortable: false, visible: true },
+        { key: "dose", label: "Dose", sortable: false, visible: true },
+        { key: "due", label: "Due", sortable: false, visible: true },
+        { key: "state", label: "State", sortable: false, visible: true },
+        { key: "operator", label: "Operator", sortable: false, visible: true },
+      ],
+      filters: [],
+      sort_keys: [],
+      page_size_options: [],
+      row_click: {
+        enabled: false,
+        param: "vaccination_obligation",
+        target_drawer: "",
+        summary_fields: [],
+        detail_fields: [],
+      },
+      summary_fields: [],
+      detail_fields: [],
+    },
+    "vaccination-history": {
+      id: "vaccination-history",
+      title: "Vaccination history",
+      data_source: "/goats/{goat_id}/vaccination-passport",
+      columns: [
+        { key: "drive", label: "Drive", sortable: false, visible: true },
+        { key: "dose", label: "Dose", sortable: false, visible: true },
+        { key: "date", label: "Date", sortable: false, visible: true },
+        { key: "state", label: "State", sortable: false, visible: true },
+        { key: "evidence", label: "Evidence", sortable: false, visible: true },
+      ],
+      filters: [],
+      sort_keys: [],
+      page_size_options: [],
+      row_click: {
+        enabled: false,
+        param: "vaccination_history",
+        target_drawer: "",
+        summary_fields: [],
+        detail_fields: [],
+      },
+      summary_fields: [],
+      detail_fields: [],
+    },
+  },
   vaccination: {
     "full-vaccine-schedule": {
       id: "full-vaccine-schedule",

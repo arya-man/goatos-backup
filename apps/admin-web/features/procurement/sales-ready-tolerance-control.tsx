@@ -43,7 +43,7 @@ export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label,
   return (
     <div className="sales-ready-tolerance" aria-label={label}>
       <div className="sales-ready-tolerance-head">
-        <span>{label}</span>
+        <label htmlFor="sale-ready-tolerance">{label}</label>
         <strong>{thresholdLabel(draftG)}</strong>
       </div>
       <div className="sales-ready-tolerance-row">

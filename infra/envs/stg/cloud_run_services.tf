@@ -344,6 +344,11 @@ resource "google_cloud_run_v2_service" "admin_web" {
       }
 
       env {
+        name  = "NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED"
+        value = "1"
+      }
+
+      env {
         name = "GOATOS_FIREBASE_WEB_CONFIG"
         value_source {
           secret_key_ref {

@@ -54,7 +54,7 @@ export function MonthColumns({
   const max = Math.max(1, ...data.map((d) => d.value));
 
   return (
-    <div className="mcols" role="img" aria-label={chartLabel}>
+    <div className="mcols" role="img" aria-label={chartLabel} tabIndex={0}>
       {data.map((datum) => {
         const pct = (datum.value / max) * 100;
         const tooltip = `${datum.label}: ${datum.value.toLocaleString("en-IN")} ${valueNoun}${

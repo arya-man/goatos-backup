@@ -620,11 +620,12 @@
   .vr-selbtn{appearance:none;border:1px solid var(--line);background:var(--panel);border-radius:18px;padding:7px 30px 7px 12px;font-size:12.5px;font-weight:550;color:var(--ink);cursor:pointer;min-width:176px;font-family:inherit}
   .vr-selbtn:hover,.vr-selbtn:focus{border-color:var(--brand)}
   .vr-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
-  .vr-lg{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:18px;padding:7px 14px;font-size:12.5px;font-weight:550;color:var(--muted);cursor:pointer;background:transparent}
+  .vr-lg{display:flex;align-items:center;gap:8px;min-height:40px;border:1px solid var(--line);border-radius:18px;padding:7px 14px;font-size:12.5px;font-weight:550;color:var(--muted);cursor:pointer;background:transparent}
   .vr-lg:hover{border-color:var(--brand);color:var(--ink)}
   .vr-lg.on{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
   .vr-lg i{width:8px;height:8px;border-radius:50%;display:block;flex:none}
   .vr-lg .n{font-size:11.5px;font-weight:700;color:var(--faint)}
+  .vr-lg .n{color:color-mix(in srgb,var(--muted) 76%,var(--ink))}
   /* Verification oversight (CEO/director analytics above the queue). The section is a real mock
      `card` — `.hd` header rule + padded `.bd` — because the previous build dropped a bare title and
      inline-styled divs into a padding-less `.card`, which is why every label sat flush on the card
@@ -653,6 +654,7 @@
   .vr-okpis .kpi .lab{font-size:11px;line-height:1.35;align-items:flex-start;min-height:2.7em}
   .vr-okpis .kpi .val{font-size:23px;margin-top:4px}
   .vr-okpis .kpi .dl{font-size:11px;margin-top:5px;line-height:1.35;font-weight:550}
+  .kpi .dl.muted{color:color-mix(in srgb,var(--muted) 72%,var(--ink))}
   .vr-osec+.vr-osec{margin-top:18px;padding-top:18px;border-top:1px solid var(--line2)}
   .vr-osec-hd{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px}
   /* One ranked row per module: the widest bar is the bottleneck. A wrapping chip row of raw counts
@@ -701,7 +703,7 @@
   .vr-owatch span.bad b{color:var(--danger)}
   .vr-secthd{display:flex;align-items:baseline;gap:12px;margin:4px 0 10px}
   .vr-secthd h2{font-size:14px;font-weight:650;margin:0}
-  .vr-secthd .hint{margin-left:auto;font-size:11.5px;color:var(--faint)}
+  .vr-secthd .hint{margin-left:auto;font-size:11.5px;color:color-mix(in srgb,var(--muted) 78%,var(--ink))}
   /* `.screen th` (line ~1091) has the SAME specificity as a bare `.vr-table th` and is declared
      LATER, so it silently won: the verifier's column headers rendered 11px UPPERCASE with +0.4px
      letter-spacing instead of the 12px, normal-case, normal-tracking headers the locked spec
@@ -797,7 +799,7 @@
      so every cell paid the generic padding AND the row-link's own 11px 12px inside it -- doubling
      the vertical space and inflating a one-line row past 150px. */
   .screen .vr-row td{padding:0}
-  .vr-rowlink{display:block;padding:11px 12px;color:inherit;text-decoration:none;font:inherit}
+  .vr-rowlink{display:block;min-height:42px;padding:11px 12px;color:inherit;text-decoration:none;font:inherit}
   .vr-row:hover td{background:var(--bg)}
   .vr-rowlink:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:6px}
   /* Subject cell: the queue's densest column. subject_label arrives as a "·"-joined string whose
@@ -807,7 +809,7 @@
      and the operator trails as muted context. */
   .vr-subj{display:flex;flex-direction:column;gap:4px;min-width:0}
   .vr-subj .t{font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .vr-subj .m{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:var(--faint);font-size:11.5px;white-space:nowrap}
+  .vr-subj .m{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:color-mix(in srgb,var(--muted) 78%,var(--ink));font-size:11.5px;white-space:nowrap}
   .vr-subj .chip{border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700;line-height:1.5}
   .vr-subj .chip.count{background:var(--okx);color:var(--ok)}
   .vr-subj .chip.kg{background:var(--infox);color:var(--info)}
@@ -844,7 +846,7 @@
   .kpi .lab{color:var(--muted);font-size:12px;font-weight:600;display:flex;align-items:center;gap:7px}
   .kpi .val{font-size:26px;font-weight:740;letter-spacing:-.6px;margin-top:7px}
   .kpi .val small{font-size:13px;color:var(--faint);font-weight:600}
-  .kpi .dl{margin-top:4px;font-size:12px;font-weight:650}
+  .kpi .dl{margin-top:4px;font-size:12px;font-weight:650;color:color-mix(in srgb,var(--muted) 64%,var(--ink))}
   .people-availability-card{overflow:hidden}
   .people-availability-body{overflow:visible}
   .people-availability-list{display:grid;gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:10px;overflow:hidden}
@@ -912,7 +914,7 @@
      option (e.g. "Mandela 2 - Part 10 . Coimbatore" once partition + park
      disambiguation landed) stretched the Shed control to 436px and wrapped the
      whole filter bar onto a second row. Option text must never drive layout. */
-  .tsize{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px;color:var(--ink);max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .tsize{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px;color:var(--ink);max-width:200px;min-height:40px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .tfoot{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line2)}
   .trange{font-size:12px;color:var(--muted);font-weight:600}
   .pager{display:flex;gap:5px}
@@ -947,7 +949,18 @@
   .main .twrap{min-width:0;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
   /* People/HRMS directory: same nowrap rule — names, emails, and park labels must never
      character-wrap inside a clickable cell; the twrap owns horizontal scrolling. */
+  .main table.people-table{min-width:1120px}
   .main table.people-table th,.main table.people-table td,.main table.people-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.people-table th:nth-child(1),.main table.people-table td:nth-child(1){min-width:160px}
+  .main table.people-table th:nth-child(2),.main table.people-table td:nth-child(2){min-width:120px}
+  .main table.people-table th:nth-child(4),.main table.people-table td:nth-child(4){min-width:130px}
+  .main table.people-table th:nth-child(5),.main table.people-table td:nth-child(5){min-width:190px}
+  .main table.people-table th:nth-child(6),.main table.people-table td:nth-child(6){min-width:90px}
+  .main table.people-table th:nth-child(7),.main table.people-table td:nth-child(7){min-width:130px}
+  .main table.people-table td .celllink{max-width:none;min-width:max-content}
+  .goat-identifier-grid{grid-template-columns:minmax(190px,1fr) minmax(190px,1fr) minmax(190px,1fr) minmax(150px,.8fr)}
+  @media(max-width:1080px){.goat-identifier-grid{grid-template-columns:repeat(2,minmax(190px,1fr))}}
+  @media(max-width:640px){.goat-identifier-grid{grid-template-columns:1fr}}
   /* Same single-line rule for the sales LOAD-WISE table: its cells are counts, money figures and
      short labels, and the global .celllink overflow-wrap:anywhere otherwise splits "91" into "9"
      and "1" and stacks "CPT" a letter per line. The .twrap owns the horizontal scroll. */
@@ -957,9 +970,14 @@
      the column. Short cells stay single-line; Feed (3) and Vendor (8) wrap at word boundaries
      only, with a floor so table auto-layout can't crush them; the twrap owns horizontal scroll. */
   .main table.feed-purchases-table th,.main table.feed-purchases-table td,.main table.feed-purchases-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.feed-purchases-table td .celllink{max-width:none;min-width:max-content}
   .main table.feed-purchases-table th:nth-child(3),.main table.feed-purchases-table td:nth-child(3),.main table.feed-purchases-table td:nth-child(3) .celllink,
   .main table.feed-purchases-table th:nth-child(8),.main table.feed-purchases-table td:nth-child(8),.main table.feed-purchases-table td:nth-child(8) .celllink{white-space:normal;overflow-wrap:normal;word-break:normal}
   .main table.feed-purchases-table td:nth-child(3),.main table.feed-purchases-table td:nth-child(8){min-width:200px}
+  .main table.procurement-vendors-table th,.main table.procurement-vendors-table td,.main table.procurement-vendors-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.procurement-vendors-table td .celllink{max-width:none;min-width:max-content}
+  .main table.procurement-vendors-table th:nth-child(1),.main table.procurement-vendors-table td:nth-child(1){min-width:180px}
+  .main table.procurement-vendors-table th:nth-child(5),.main table.procurement-vendors-table td:nth-child(5){min-width:90px}
   /* Per-column min-width so table auto-layout can't collapse a column to a sliver and force a wrap.
      Cols: 1 Display ID · 2 Tag 1 · 3 Tag 2 · 4 Park · 5 Shed · 6 Breed · 7 Sex · 8 Weight ·
      9 Lifecycle · 10 Health · 11 Breeding. */
@@ -987,7 +1005,7 @@
   /* The popover sits inside a nowrap census cell, so it opts back into normal wrapping and is
      allowed to paint outside the cell box. */
   .tagedit-pop{white-space:normal}
-  .tagedit-value{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left;border-radius:6px}
+  .tagedit-value{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left;border-radius:6px;min-width:40px;min-height:40px;display:inline-flex;align-items:center}
   .tagedit-value:hover .tag{border-color:var(--brand)}
   .tagedit-value:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   /* Portaled to <body> with fixed coordinates from the anchor cell, so the table's scroll
@@ -1060,7 +1078,7 @@
      button is a bare inline trigger, so an unsorted table looks identical to the mock. The
      indicator sits at the mock's muted tone until a sort is active, when it takes the brand colour
      so the ordered column is obvious at a glance. */
-  .main th .thsort{display:inline-flex;align-items:center;gap:6px;background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer}
+  .main th .thsort{display:inline-flex;align-items:center;gap:6px;background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer;min-width:40px}
   .main th .thsort:hover{color:var(--brand-d)}
   .main th .thsort:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:3px}
   .main th .thsort-ind{font-size:9px;line-height:1;opacity:.55}
@@ -1069,7 +1087,7 @@
   /* Feed items status chip — editable in place (double-click). A chip that writes must not look
      identical to the read-only chips elsewhere on the page, so it carries a dashed underline and a
      text cursor hint; the tone colour still comes from the contract's option group. */
-  .main .feed-item-status{cursor:pointer;border-bottom:1px dashed currentColor}
+  .main .feed-item-status{cursor:pointer;min-width:40px;min-height:40px;justify-content:center;border-bottom:1px dashed currentColor}
   .main .feed-item-status:hover{filter:brightness(.94)}
   .main .feed-item-status:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   /* Vaccination Command Board */
@@ -1191,12 +1209,12 @@
      taller than the shed heat cell and reads top-down: headline, counts, date. */
   .cbm-cohort-heat .cbm-cell.cbm-cohort-cell{min-width:146px;height:auto;padding:8px 10px;text-align:left;line-height:1.3}
   .cbm-cohort-heat .cbm-cell.cbm-cohort-cell .cbm-cell-head{display:block;font-size:18px;font-weight:700;letter-spacing:-.01em}
-  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell small{display:block;font-size:10.5px;font-weight:500;opacity:.88;white-space:nowrap}
-  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell .cbm-cell-date{opacity:.72;font-variant-numeric:tabular-nums}
+  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell small{display:block;font-size:10.5px;font-weight:500;color:inherit;white-space:nowrap}
+  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell .cbm-cell-date{color:color-mix(in srgb,currentColor 88%,#fff);font-variant-numeric:tabular-nums}
   /* An exception rides ON TOP of the state colour: a clean cohort and a cohort with animals whose
      earlier dose was never accepted must never read as the same block of green. */
   .cbm-cell.cbm-cell-on{outline:2px solid var(--brand);outline-offset:-2px}
-  .cbm-rowh-note{display:block;font-size:10px;font-weight:500;color:var(--faint);letter-spacing:0;text-transform:none;margin-top:2px;white-space:normal;overflow-wrap:anywhere}
+  .cbm-rowh-note{display:block;font-size:10px;font-weight:500;color:color-mix(in srgb,var(--muted) 62%,var(--ink));letter-spacing:0;text-transform:none;margin-top:2px;white-space:normal;overflow-wrap:anywhere}
   /* First column stays readable while the vaccine columns scroll horizontally. */
   .cbm-cohort-heat th.cbm-rowh{position:sticky;left:0;z-index:2;background:var(--panel)}
   .cbm-daylist,.cbm-goatlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
@@ -1500,7 +1518,7 @@
   .schedule-load-head{display:flex;align-items:baseline;gap:6px;line-height:1.05}
   .schedule-load-total{font-size:16px;font-weight:900;color:var(--ink);font-variant-numeric:tabular-nums}
   .schedule-load-total-label{color:var(--muted);font-size:11px;font-weight:700}
-  .schedule-load-goats{margin-left:auto;color:var(--faint);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .schedule-load-goats{margin-left:auto;color:color-mix(in srgb,var(--muted) 58%,var(--ink));font-size:11px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
   .schedule-load-bar{display:flex;gap:1px;height:8px;border-radius:5px;overflow:hidden;background:var(--line2)}
   .schedule-load-seg{display:block;height:100%;min-width:2px}
   .schedule-load-seg.tone-ok{background:var(--ok)}
@@ -1625,6 +1643,9 @@
   div.bar{height:7px;border-radius:6px;background:var(--line2);overflow:hidden}
   div.bar > i{display:block;height:100%;border-radius:6px;background:var(--brand)}
   .feed{display:flex;flex-direction:column}
+  .feed .tag.t-ok{color:color-mix(in srgb,var(--ok) 58%,var(--ink));background:color-mix(in srgb,var(--ok) 20%,var(--panel))}
+  .feed .btn.sm{min-width:40px}
+  .main .btn.sm{min-width:40px}
   .fitem{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--line2);min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
   .fitem:last-child{border-bottom:0}
   .fic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none}
@@ -1721,6 +1742,7 @@
 	  .auditops .fitem .tx{min-width:0}
 	  .auditops .fitem .tx b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 	  .auditops .fitem .mt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+	  .audit-kpi-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 	  .spansearch{margin:8px 14px 2px}
 	  .spansearch input{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 10px;font:inherit;color:var(--ink);outline:0}
 	  .pager2{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:10px 14px;border-top:1px solid var(--line2);flex-wrap:wrap}
@@ -2058,6 +2080,7 @@
     .phead .btn{padding:7px 10px;font-size:12.5px}
   }
   @media(max-width:380px){ .g4{grid-template-columns:1fr} }
+  @media(max-width:1080px){ .audit-kpi-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))} }
   @media(max-width:860px){
     .wrap{overflow-x:hidden}
     .card .bd{overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -2300,7 +2323,7 @@
 .kpi .acc { position: absolute; top: 0; left: 0; width: 100%; height: 3px; }
 .kpi .lab { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 6px; }
 .kpi .val { font-size: 26px; font-weight: 800; margin-top: 6px; }
-.kpi .dl { font-size: 11px; color: var(--faint); margin-top: 2px; }
+.kpi .dl { font-size: 11px; color: color-mix(in srgb,var(--muted) 64%,var(--ink)); margin-top: 2px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; margin-top: 16px; overflow: hidden; }
 .card .hd { display: flex; align-items: center; gap: 9px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
 .card .hd h3 { margin: 0; font-size: 14.5px; }
@@ -2321,7 +2344,7 @@
 .btn { border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); border-radius: 9px; padding: 8px 13px; font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
 .btn:hover { border-color: var(--brand); }
 .btn.b { background: var(--brand); color: #08130B; border-color: var(--brand); }
-.btn.sm { padding: 5px 10px; font-size: 12px; }
+.btn.sm { padding: 5px 10px; font-size: 12px; min-width: 64px; justify-content: center; }
 .btn.ghost { background: transparent; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -2485,6 +2508,7 @@ select:disabled { opacity: .45; }
 .cbm-unavailable { padding: 16px; color: var(--faint); }
 .cbm-kpi-row { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
 .cbm-kpi-row .kpi { flex: 1; min-width: 120px; }
+.cbm-kpi-row .kpi .dl { color: color-mix(in srgb,var(--muted) 58%,var(--ink)); }
 .cbm-kpi-verified .val { color: var(--ok); }
 .cbm-kpi-awaiting .val { color: var(--warn); }
 .cbm-kpi-overdue .val { color: var(--danger); }
@@ -2525,8 +2549,8 @@ select:disabled { opacity: .45; }
 /* Drive labels carry vaccine + window + status, so they need more room than a vaccine name. */
 .cbm-select-wide { max-width: 320px; }
 .cbm-select:disabled { opacity: .55; cursor: not-allowed; }
-.cbm-chip { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 18px; border: 1px solid transparent; background: var(--panel); color: var(--muted); font-size: 12.5px; cursor: pointer; opacity: .5; }
-.cbm-chip.cbm-chip-on { opacity: 1; color: var(--ink); border-color: var(--line); }
+.cbm-chip { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 13px; border-radius: 18px; border: 1px solid var(--line); background: var(--panel); color: color-mix(in srgb,var(--muted) 60%,var(--ink)); font-size: 12.5px; cursor: pointer; }
+.cbm-chip.cbm-chip-on { color: var(--ink); border-color: var(--line2); background: var(--panel-2); }
 .cbm-chip i { width: 8px; height: 8px; border-radius: 999px; display: inline-block; background: var(--faint); }
 .cbm-chip-verified i { background: var(--ok); }
 .cbm-chip-awaiting i { background: var(--amber); }
@@ -2536,7 +2560,7 @@ select:disabled { opacity: .45; }
 .cbm .cbm-section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
 .cbm .cbm-section-head h3, .cbm .cbm-cohort-title { margin: 0 0 12px; font-size: 14px; }
 .cbm .cbm-section-head h3 { margin-bottom: 0; }
-.cbm .cbm-section-head .cbm-meta { margin-left: auto; font-size: 11.5px; color: var(--faint); }
+.cbm .cbm-section-head .cbm-meta { margin-left: auto; font-size: 11.5px; color: color-mix(in srgb,var(--muted) 62%,var(--ink)); }
 .cbm .cbm-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: 11.5px; color: var(--muted); align-items: center; }
 .cbm .cbm-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .cbm .cbm-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; background: var(--faint); }
@@ -2728,7 +2752,7 @@ select:disabled { opacity: .45; }
 @media(max-width:1080px){.kpi-row{gap:12px}}
 .sales-loads-page .kpi-row{grid-template-columns:repeat(4,minmax(136px,1fr))}
 .sales-loads-page .kpi .val{overflow-wrap:normal;word-break:normal;white-space:nowrap;font-size:clamp(21px,4.8vw,26px)}
-.sales-loads-page .kpi .dl{line-height:1.35}
+.sales-loads-page .kpi .dl{line-height:1.35;color:color-mix(in srgb,var(--muted) 62%,var(--ink))}
 @media(max-width:820px){
   .sales-loads-page .kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
@@ -2995,7 +3019,7 @@ select:disabled { opacity: .45; }
 .lt-page .lt-headbtns{display:flex;gap:8px;flex-wrap:wrap}
 .lt-page .lt-scopenote{flex-basis:100%;margin-top:4px}
 .lt-page .lt-livebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
-.lt-page .lt-livebadge{display:inline-flex;align-items:center;gap:7px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger);border-radius:999px;padding:5px 13px;font:inherit;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
+.lt-page .lt-livebadge{display:inline-flex;align-items:center;gap:7px;min-height:40px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger);border-radius:999px;padding:5px 13px;font:inherit;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
 .lt-page .lt-livedot{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:lt-lp 1.4s ease-in-out infinite}
 .lt-page .lt-livebadge.paused{background:var(--panel-2);border-color:var(--line);color:var(--muted)}
 .lt-page .lt-livebadge.paused .lt-livedot{background:var(--faint);animation:none}
@@ -3003,7 +3027,7 @@ select:disabled { opacity: .45; }
 .lt-page .lt-refreshmeta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
 .lt-page .lt-refreshmeta b{color:var(--ink);font-variant-numeric:tabular-nums}
 .lt-page .lt-intervalpick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
-.lt-page .lt-intervalpick button{border:0;background:transparent;padding:4px 9px;border-radius:6px;font:inherit;font-weight:650;font-size:11px;color:var(--muted);cursor:pointer}
+.lt-page .lt-intervalpick button{border:0;background:transparent;min-width:40px;min-height:40px;padding:4px 9px;border-radius:6px;font:inherit;font-weight:650;font-size:11px;color:var(--muted);cursor:pointer}
 .lt-page .lt-intervalpick button.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
 .lt-page .lt-stale{display:inline-flex;align-items:center;gap:8px;background:var(--warnx);border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn);border-radius:9px;padding:8px 13px;font-size:12px;font-weight:650}
 
@@ -3042,7 +3066,7 @@ select:disabled { opacity: .45; }
 .lt-page .lt-avx{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:10.5px;flex:none;background:var(--brand-soft);color:var(--brand-d);border:1px solid var(--line)}
 .lt-page .lt-code{display:block;margin-left:35px;font-size:10.5px}
 .lt-page .lt-shedlbl{font-weight:650}
-.lt-page .lt-shedlbl small{display:block;color:var(--faint);font-weight:600;font-size:10.5px}
+.lt-page .lt-shedlbl small{display:block;color:color-mix(in srgb,var(--muted) 64%,var(--ink));font-weight:700;font-size:10.5px}
 .lt-page .lt-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);align-items:center}
 .lt-page .lt-legend span{display:inline-flex;align-items:center;gap:5px}
 .lt-page .lt-swatch{width:9px;height:9px;border-radius:3px;font-style:normal;display:inline-block;padding:0}
@@ -3054,7 +3078,7 @@ select:disabled { opacity: .45; }
 
 /* `t-live` is this page's own tone: a pulsing dot inside the pill, which is how
    the mock distinguishes "happening right now" from a static ok/warn state. */
-.lt-page .tag.t-live{display:inline-flex;align-items:center;gap:5px;background:var(--dangerx);color:var(--danger);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap}
+.lt-page .tag.t-live{display:inline-flex;align-items:center;gap:5px;background:var(--dangerx);color:color-mix(in srgb,var(--danger) 55%,var(--ink));border-radius:6px;padding:2px 8px;font-size:11px;font-weight:800;white-space:nowrap}
 .lt-page .tag.t-live i{width:6px;height:6px;border-radius:50%;background:var(--danger);animation:lt-lp 1.4s ease-in-out infinite;font-style:normal;display:inline-block}
 
 .lt-page .lt-combo-chip{display:inline-flex;align-items:center;gap:4px;background:var(--purplex);color:var(--purple);border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:800}
@@ -3173,7 +3197,7 @@ select:disabled { opacity: .45; }
    in the markup, hidden, and revealed on hover/focus of its column. It reads every series at once,
    which a native title attribute cannot do legibly. */
 .gcol{position:relative}
-.gcols{padding-top:118px;margin-top:-108px}
+.gcols{padding-top:118px}
 .gtip{position:absolute;bottom:calc(100% - 96px);left:50%;transform:translateX(-50%) translateY(4px);
   z-index:5;min-width:200px;padding:10px 12px;border-radius:10px;background:var(--panel-2);
   border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.35);
@@ -3295,11 +3319,11 @@ select:disabled { opacity: .45; }
    pieces this page needed that no earlier screen had declared.
    ============================================================================ */
 .herd-signals-page .segs{display:flex;gap:4px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:4px;margin:0 0 14px}
-.herd-signals-page .segs a{border:0;background:transparent;padding:7px 13px;border-radius:8px;font:inherit;font-weight:650;font-size:12.5px;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:7px;text-decoration:none}
+.herd-signals-page .segs a{border:0;background:transparent;min-height:40px;padding:7px 13px;border-radius:8px;font:inherit;font-weight:650;font-size:12.5px;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:7px;text-decoration:none}
 .herd-signals-page .segs a:hover{color:var(--ink)}
 .herd-signals-page .segs a.on{background:var(--brand-soft);color:var(--brand-d)}
 .herd-signals-page .segs a .cnt{font-size:10.5px;font-weight:800;background:var(--panel-2);color:var(--muted);border-radius:999px;padding:1px 6px}
-.herd-signals-page .segs a.on .cnt{background:color-mix(in srgb,var(--brand) 24%,transparent);color:var(--brand-d)}
+.herd-signals-page .segs a.on .cnt{background:color-mix(in srgb,var(--brand) 34%,var(--panel));color:var(--ink)}
 
 .herd-signals-page .fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
 .herd-signals-page .fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
@@ -3310,7 +3334,10 @@ select:disabled { opacity: .45; }
 .herd-signals-page .fsel.search input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);flex:1;min-width:0;padding:0;line-height:normal}
 .herd-signals-page .fsel.search input::placeholder{color:var(--faint)}
 .herd-signals-page .qclr{border:0;background:transparent;color:var(--faint);cursor:pointer;font:inherit;padding:0 2px}
-.herd-signals-page .fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
+.herd-signals-page .fnote{color:color-mix(in srgb,var(--muted) 76%,var(--ink));font-size:11px;margin-left:auto;white-space:nowrap}
+.herd-signals-page .hd > .small.faint,
+.herd-signals-page table .faint{color:color-mix(in srgb,var(--muted) 70%,var(--ink))}
+.herd-signals-page .animcell small{color:color-mix(in srgb,var(--muted) 72%,var(--ink))}
 
 /* mock/herd-signals-mock.html `.kpis{grid-template-columns:repeat(auto-fit,minmax(158px,1fr))}` --
    auto-fit already reflows the strip at narrow widths, so the fixed repeat(6) here (plus its
@@ -3329,11 +3356,12 @@ select:disabled { opacity: .45; }
 .herd-signals-page .kpi.active .act{display:block}
 .herd-signals-page .kpi .hint{font-size:10px;color:var(--faint);margin-top:4px;opacity:0;transition:opacity .12s}
 .herd-signals-page .kpi:hover .hint{opacity:1}
-.herd-signals-page .kpi .ty{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--faint);margin-top:4px}
+.herd-signals-page .kpi .ty{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:color-mix(in srgb,var(--muted) 74%,var(--ink));margin-top:4px}
 .herd-signals-page .kpi.k-ok{border-left-color:var(--ok)}.herd-signals-page .kpi.k-ok .val{color:var(--ok)}
 .herd-signals-page .kpi.k-warn{border-left-color:var(--warn)}.herd-signals-page .kpi.k-warn .val{color:var(--warn)}
 .herd-signals-page .kpi.k-info{border-left-color:var(--info)}.herd-signals-page .kpi.k-info .val{color:var(--info)}
 .herd-signals-page .kpi.k-dng{border-left-color:var(--danger)}.herd-signals-page .kpi.k-dng .val{color:var(--danger)}
+.herd-signals-page .tag.t-dng{color:color-mix(in srgb,var(--danger-tag-ink) 60%,var(--ink));background:color-mix(in srgb,var(--danger) 20%,var(--panel))}
 .herd-signals-page .kpi.k-mut .val{color:var(--muted)}
 .herd-signals-page .kpi.k-info{border-left-color:var(--info)}.herd-signals-page .kpi.k-info .val{color:var(--info)}
 .herd-signals-page .kpi.k-purple{border-left-color:var(--purple)}.herd-signals-page .kpi.k-purple .val{color:var(--purple)}
@@ -3385,7 +3413,7 @@ select:disabled { opacity: .45; }
 .herd-signals-page table.resp td.animcell{font-weight:650}
 .herd-signals-page .animcell a{color:inherit;text-decoration:none;border-bottom:1px dashed var(--line)}
 .herd-signals-page .animcell a:hover{color:var(--brand-d);border-color:var(--brand-d)}
-.herd-signals-page .animcell small{display:block;color:var(--faint);font-weight:600;font-size:10.5px}
+.herd-signals-page .animcell small{display:block;color:color-mix(in srgb,var(--muted) 72%,var(--ink));font-weight:600;font-size:10.5px}
 .herd-signals-page .delta{font-variant-numeric:tabular-nums;font-weight:700}
 .herd-signals-page .delta.up{color:var(--ok)}
 .herd-signals-page .delta.zero{color:var(--muted)}
@@ -3443,7 +3471,7 @@ select:disabled { opacity: .45; }
 .herd-signals-page .hs-btn.sm{padding:4px 9px;font-size:11.5px;border-radius:7px}
 
 .herd-signals-page .livebar,.herd-signals-livebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.herd-signals-page .livebadge{display:inline-flex;align-items:center;gap:7px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger);border-radius:999px;padding:5px 13px;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
+.herd-signals-page .livebadge{display:inline-flex;align-items:center;gap:7px;min-height:40px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger);border-radius:999px;padding:5px 13px;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
 .herd-signals-page .livedot{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:hs-lp 1.4s ease-in-out infinite}
 @keyframes hs-lp{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 55%,transparent)}50%{opacity:.55;box-shadow:0 0 0 5px transparent}}
 .herd-signals-page .livebadge.paused{background:var(--panel-2);border-color:var(--line);color:var(--muted)}
@@ -3453,7 +3481,7 @@ select:disabled { opacity: .45; }
 .herd-signals-page .refreshmeta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
 .herd-signals-page .refreshmeta b{color:var(--ink);font-variant-numeric:tabular-nums}
 .herd-signals-page .intervalpick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
-.herd-signals-page .intervalpick button{border:0;background:transparent;padding:4px 9px;border-radius:6px;font:inherit;font-weight:650;font-size:11px;color:var(--muted);cursor:pointer}
+.herd-signals-page .intervalpick button{border:0;background:transparent;min-width:40px;min-height:40px;padding:4px 9px;border-radius:6px;font:inherit;font-weight:650;font-size:11px;color:var(--muted);cursor:pointer}
 .herd-signals-page .intervalpick button.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
 
 .herd-signals-page .kv{display:grid;grid-template-columns:auto 1fr;gap:7px 12px;font-size:12.5px;align-items:baseline}
@@ -3633,6 +3661,8 @@ select:disabled { opacity: .45; }
 .herd-signals-page tr.hs-selectable:hover{background:var(--panel-2)}
 .herd-signals-page tr.hs-selectable:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
 .herd-signals-page tr.hs-selectable.on{background:var(--brand-soft)}
+.herd-signals-page tr.hs-selectable td:first-child{position:relative}
+.herd-signals-page tr.hs-selectable td:first-child > a:not(.hs-row-hit){display:inline-flex;align-items:center;min-height:40px}
 .herd-signals-page tr.hs-selectable.on td:first-child{box-shadow:inset 3px 0 0 var(--brand)}
 .herd-signals-page tr.hs-selectable .hs-row-hit{position:absolute;inset:0;z-index:1;overflow:hidden;white-space:nowrap;text-indent:200%;border:0}
 

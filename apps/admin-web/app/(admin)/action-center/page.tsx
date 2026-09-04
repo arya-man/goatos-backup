@@ -6,5 +6,6 @@ export const dynamic = "force-dynamic";
 
 // Action Center is a top-level command screen. Vaccination-only is the data scope, not the UI hierarchy.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  return <VaccinationActionCenterPage searchParams={await searchParams} pageContract={await requireAdminWebPageContract("action-center")} />;
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("action-center")]);
+  return <VaccinationActionCenterPage searchParams={params} pageContract={pageContract} />;
 }

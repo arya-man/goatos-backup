@@ -25,17 +25,17 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   const versionId = one(params, "version");
   if (!versionId) notFound();
 
-  const [contract, configs, version] = await Promise.all([
+  const [contract, configs, version, preview] = await Promise.all([
     requireAdminWebPageContract("vaccination-plan"),
     listProtocolConfigs("vaccination"),
     getProtocolVersion(versionId),
+    previewVaccinationImpact({}),
   ]);
 
   if (!version.ok || version.data.status !== "draft") redirect("/vaccination/plan");
 
   // Sized against the current herd by the backend's own rollup. A failure here
   // hides the card rather than showing a zero, which would read as "no effect".
-  const preview = await previewVaccinationImpact({});
   const impact = preview.ok
     ? {
         eligibleAnimals: preview.data.eligible_animals,

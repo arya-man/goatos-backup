@@ -6,5 +6,6 @@ export const dynamic = "force-dynamic";
 
 // Workflows is a top-level command screen. Vaccination-only is the data scope, not the UI hierarchy.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  return <VaccinationWorkflowsPage searchParams={await searchParams} pageContract={await requireAdminWebPageContract("workflows")} />;
+  const [params, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("workflows")]);
+  return <VaccinationWorkflowsPage searchParams={params} pageContract={pageContract} />;
 }

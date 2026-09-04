@@ -772,7 +772,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
       <div className="hd">
         <h2>{copy(pageContract, "section.command_board.title")}</h2>
       </div>
-      <div className="bd">
+      <div className="bd" tabIndex={0} role="region" aria-label={copy(pageContract, "section.command_board.title")}>
         {filterBar}
         {/* KPI Row - 5 cards with colored stripes */}
         <div className="cbm-kpi-row">
@@ -894,7 +894,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 <h3>{copy(pageContract, "command_board.shed_vaccine.title")}</h3>
                 <span className="cbm-meta">{copy(pageContract, "command_board.shed_vaccine.meta")}</span>
               </div>
-              <div className="cbm-hm">
+              <div className="cbm-hm" tabIndex={0} aria-label={copy(pageContract, "command_board.shed_vaccine.title")}>
                 <table className="cbm-heat cbm-sv-heat">
                   <thead>
                     <tr>
@@ -1005,7 +1005,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           {pendingVaccinesByShed.length === 0 ? (
             <p className="cbm-empty">{copy(pageContract, "command_board.pending_sheds.empty")}</p>
           ) : (
-            <div className="cbm-hm">
+            <div className="cbm-hm" tabIndex={0} aria-label={copy(pageContract, "command_board.pending_sheds.title")}>
               <table className="cbm-heat cbm-pending-table">
                 <thead>
                   <tr>
@@ -1085,7 +1085,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 <h3>{copy(pageContract, "command_board.shed_matrix.title")}</h3>
                 <span className="cbm-meta">{copy(pageContract, "command_board.shed_matrix.meta")}</span>
               </div>
-              <div className="cbm-hm">
+              <div className="cbm-hm" tabIndex={0} aria-label={copy(pageContract, "command_board.shed_matrix.title")}>
                 <table className="cbm-heat">
                   <thead>
                     <tr>
@@ -1212,7 +1212,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 farms.map(({ farm, vaccines, rows }) => (
                   <div key={farm} className="cbm-farm-block">
                     <h4 className="cbm-farm-name">{farm || copy(pageContract, "command_board.cohort_matrix.no_farm")}</h4>
-                    <div className="cbm-hm">
+                    <div className="cbm-hm" tabIndex={0} aria-label={copy(pageContract, "command_board.cohort_matrix.title")}>
                       <table className="cbm-heat cbm-cohort-heat">
                         <thead>
                           <tr>
@@ -1364,7 +1364,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 {futureCampaigns.length} {copy(pageContract, "command_board.future_drives.count_suffix")} · {futureDrives.length} {copy(pageContract, "command_board.future_drives.lines_suffix")}
               </span>
             </div>
-            <div className="cbm-future-table-wrap">
+            <div className="cbm-future-table-wrap" tabIndex={0} aria-label={copy(pageContract, "command_board.future_drives.title")}>
               <table className="cbm-future-table">
                 <thead>
                   <tr>

@@ -69,6 +69,10 @@ func (s *Service) ActionCenterCounts(ctx context.Context, q domain.Query) (domai
 
 func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain.ProtocolAdherenceResponse, error) {
 	q = s.defaults(q)
+	if q.DueAfter == nil {
+		dueAfter := q.AsOf.Add(-30 * 24 * time.Hour)
+		q.DueAfter = &dueAfter
+	}
 	category := domain.CategoryVaccination
 	q.Category = &category
 	q.IncludeCompleted = true

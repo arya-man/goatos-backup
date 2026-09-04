@@ -141,6 +141,35 @@ When `NEXT_PUBLIC_FARO_COLLECTOR_URL` is unset, `FaroProvider` no-ops (no SDK
 initialization, no network calls) — safe for local dev and any environment
 without a deployed collector.
 
+### Web Performance Monitoring
+
+Firebase Performance Monitoring for Web is enabled in staging and uses the same
+Firebase Web App config served by `/api/auth/firebase-config`; do not create a
+separate project just for browser perf. Keep it on per environment:
+
+```bash
+export NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1
+```
+
+Set `NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=0` only when intentionally
+disabling collection for a local or diagnostic run.
+
+The shell records a custom `admin_route_navigation` trace for route switches,
+including sidebar switches, with low-cardinality attributes plus duration
+metrics. The existing Faro + `/api/admin-web/performance-events` path remains
+the richer high-cardinality event stream for exact from/to URLs and backend
+correlation.
+
+For lab reports:
+
+```bash
+npm run perf:lighthouse
+PAGESPEED_URL=https://stg.dashboard.mesha.sg npm run perf:pagespeed
+```
+
+Lighthouse works against local authenticated admin-web runs. PageSpeed Insights
+only works for deployed URLs Google can reach.
+
 ## Generated Client
 
 The app imports `@goatos/api-client` from the repo package:

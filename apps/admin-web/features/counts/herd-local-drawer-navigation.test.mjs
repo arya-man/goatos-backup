@@ -41,7 +41,7 @@ test("shared Herd passport drawer does not require the herd table contract on Ca
   assert.match(drawerSource, /const canEditReproductiveStatus = pageContract\.route_id === "herd-register"/);
 });
 
-test("Herd passport vaccination tables do not use shared frontend fallbacks", () => {
+test("Herd passport vaccination tables have herd-register fallbacks", () => {
   const helperSource = readFileSync(new URL("../../lib/admin-ui-contract.ts", import.meta.url), "utf8");
   const herdPageStart = contractSource.indexOf('page("herd-register"');
   const nextPageStart = contractSource.indexOf('page("counts-breakdown"', herdPageStart);
@@ -50,7 +50,6 @@ test("Herd passport vaccination tables do not use shared frontend fallbacks", ()
   const herdPageBlock = contractSource.slice(herdPageStart, nextPageStart);
   assert.match(herdPageBlock, /table\("herd-register"/);
   assert.doesNotMatch(herdPageBlock, /vaccination-open-obligations|vaccination-history/);
-  assert.doesNotMatch(helperSource, /const SHARED_TABLE_FALLBACKS/);
-  assert.doesNotMatch(helperSource, /TABLE_FALLBACKS\[page\.route_id\]\?\.\[tableId\] \?\? SHARED_TABLE_FALLBACKS\[tableId\]/);
-  assert.match(helperSource, /throw new Error\(`Admin-web page contract \$\{page\.route_id\} missing table \$\{tableId\}`\)/);
+  assert.match(helperSource, /"herd-register": \{[\s\S]*"vaccination-open-obligations"/);
+  assert.match(helperSource, /"herd-register": \{[\s\S]*"vaccination-history"/);
 });

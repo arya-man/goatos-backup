@@ -227,9 +227,10 @@ export function HerdSignalsTable({
         ) : null}
       </span>
       <span className="sp" style={{ flex: 1 }} />
-      <span className="fsel">
-        Rows
+      <label className="fsel">
+        <span>Rows</span>
         <select
+          aria-label="Rows per page"
           value={params.limit}
           onChange={(event) => navigate(herdSignalsHref(params, { hs_limit: event.target.value }))}
         >
@@ -239,7 +240,7 @@ export function HerdSignalsTable({
             </option>
           ))}
         </select>
-      </span>
+      </label>
     </div>
   );
 
@@ -287,28 +288,12 @@ export function HerdSignalsTable({
                 <tr
                   key={item.tag_id}
                   className="hs-selectable"
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`Open tag detail for ${animalPrimaryLabel(item)}`}
                   onClick={(event) => {
                     if (isInteractiveTarget(event.target)) return;
                     pushLocalOverlayUrl(href);
                   }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    if (isInteractiveTarget(event.target)) return;
-                    event.preventDefault();
-                    pushLocalOverlayUrl(href);
-                  }}
                 >
                   <td data-l="Animal" className="animcell wide">
-                    <LocalOverlayLink
-                      href={href}
-                      scroll={false}
-                      className="hs-row-hit"
-                      title="Open tag detail"
-                      aria-label={`Open tag detail for ${animalPrimaryLabel(item)}`}
-                    />
                     <LocalOverlayLink href={href} scroll={false} title="Open tag detail">
                       {animalPrimaryLabel(item)}
                     </LocalOverlayLink>

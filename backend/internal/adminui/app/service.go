@@ -831,7 +831,7 @@ func loadwiseTable() domain.TableContract {
 func feedPurchaseTable() domain.TableContract {
 	t := tableP("feed-purchases", "Purchases", "/procurement/feed-purchases",
 		[]string{"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "total_cost", "per_kg_cost", "vendor", "payment_status", "payment_balance"},
-		"feed_purchase_id", []int{25, 50, 100})
+		"purchase_id", []int{25, 50, 100})
 	copy := pageCopy("feed-purchases")
 	for i := range t.Columns {
 		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {

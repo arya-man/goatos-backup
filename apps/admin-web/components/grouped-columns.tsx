@@ -82,7 +82,7 @@ export function GroupedColumns({
           </span>
         ))}
       </div>
-      <div className="gcols" role="img" aria-label={chartLabel}>
+      <div className="gcols" role="img" aria-label={chartLabel} tabIndex={0}>
         {data.map((datum) => {
           // The hover card is rendered in the markup and revealed by CSS, never by a title
           // attribute: the native tooltip is unstyled, slow to appear, and cannot show a value

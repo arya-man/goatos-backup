@@ -130,7 +130,7 @@ function FeedConfigFormShell({
 
   if (!idem.open) {
     const openButton = (
-      <button type="button" className="btn sm" onClick={handleOpen} title={openLabel}>
+      <button type="button" className="btn sm" style={{ minWidth: 128, whiteSpace: "normal" }} onClick={handleOpen} title={openLabel}>
         <Pencil className="ic" aria-hidden="true" />
         {editLabel}
       </button>
