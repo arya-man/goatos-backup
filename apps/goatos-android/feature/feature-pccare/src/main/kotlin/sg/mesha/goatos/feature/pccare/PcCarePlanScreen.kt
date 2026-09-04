@@ -214,7 +214,7 @@ private fun PcCareMonitorTaskCard(card: PcCareTaskCardUi, onOpen: () -> Unit, on
 }
 
 /**
- * The plan-wizard drill (`/pc/plan/{category}`): day → farm → pen → people → review, category
+ * The plan-wizard drill (`/pc/plan/{category}`): day → farm → pens → people → review, category
  * fixed by the launching tab. Chrome ports the weighing plan wizard: a segment stepper under the
  * header and a sticky bottom action bar with a context line.
  */
@@ -286,17 +286,17 @@ fun PcCarePlanWizardScreen(
                     }
                 }
                 PcCarePlanStep.PEN -> {
-                    item(key = "step_title") { WizardStepTitle("Which pen?") }
+                    item(key = "step_title") { WizardStepTitle("Which pens?") }
                     items(count = state.pens.size, key = { state.pens[it].shedId + "|partition|" + state.pens[it].partitionLabel }) { index ->
                         val pen = state.pens[index]
                         val taken = pen.existingTaskId.isNotBlank()
                         WizardOptionRow(
                             // Backend-composed pen display, verbatim.
                             label = pen.locationDisplay,
-                            selected = pen.shedId == state.selectedShedId && pen.partitionLabel == state.selectedPartitionLabel,
+                            selected = pen.selectionKey() in state.selectedPenKeys,
                             enabled = !taken,
                             trailing = if (taken) "Already planned" else "",
-                            onClick = { onEvent(PcCarePlanEvent.SelectPen(pen.shedId, pen.partitionLabel)) },
+                            onClick = { onEvent(PcCarePlanEvent.TogglePen(pen.shedId, pen.partitionLabel)) },
                         )
                     }
                     if (!state.pensEndReached) {
@@ -400,7 +400,7 @@ fun PcCarePlanWizardScreen(
                             ReviewLine("Work", state.selectedCategoryLabel)
                             ReviewLine("Day", pcCareFriendlyDate(state.selectedDate) ?: state.selectedDate)
                             ReviewLine("Farm", state.selectedParkLabel)
-                            ReviewLine("Pen", state.selectedPenLabel)
+                            ReviewLine("Pens", state.selectedPenLabel)
                             ReviewLine(
                                 "People",
                                 state.operators
@@ -450,7 +450,7 @@ fun PcCarePlanWizardScreen(
 private fun wizardStepComplete(state: PcCarePlanUiState): Boolean = when (state.step) {
     PcCarePlanStep.DATE -> state.selectedDate.isNotBlank()
     PcCarePlanStep.PARK -> state.selectedParkId.isNotBlank()
-    PcCarePlanStep.PEN -> state.selectedShedId.isNotBlank()
+    PcCarePlanStep.PEN -> state.selectedPenKeys.isNotEmpty()
     PcCarePlanStep.OPERATORS -> state.selectedOperatorIds.isNotEmpty()
     else -> true
 }

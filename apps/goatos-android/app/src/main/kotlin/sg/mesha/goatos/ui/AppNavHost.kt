@@ -3910,7 +3910,10 @@ fun AppNavHost(
                 state = state,
                 onEvent = { event ->
                     when (event) {
-                        sg.mesha.goatos.feature.pccare.PcCarePlanEvent.CloseCreate -> navController.popBackStack()
+                        sg.mesha.goatos.feature.pccare.PcCarePlanEvent.CloseCreate -> {
+                            vm.onEvent(event)
+                            navController.popBackStack()
+                        }
                         else -> vm.onEvent(event)
                     }
                 },

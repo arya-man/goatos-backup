@@ -278,6 +278,8 @@ data class PcCarePlanPenUi(
     val existingTaskId: String,
 )
 
+fun PcCarePlanPenUi.selectionKey(): String = "$shedId|$partitionLabel"
+
 /**
  * Wizard steps. LIST is the monitor face of a category tab; the wizard itself runs
  * DATE -> PARK -> PEN -> OPERATORS -> REVIEW with the category fixed by the launching tab.
@@ -319,6 +321,7 @@ data class PcCarePlanUiState(
     val selectedShedId: String = "",
     val selectedPartitionLabel: String = "",
     val selectedPenLabel: String = "",
+    val selectedPenKeys: Set<String> = emptySet(),
     val selectedOperatorIds: Set<String> = emptySet(),
     // -- Feed & water removal before deworming (maintainer decision 2026-09-03) ---------------
     /** True only on the deworming wizard: the toggle + removal-people section is offered. */
@@ -346,7 +349,7 @@ sealed interface PcCarePlanEvent {
     data object CloseCreate : PcCarePlanEvent
     data class SelectDate(val date: LocalDate) : PcCarePlanEvent
     data class SelectPark(val parkId: String) : PcCarePlanEvent
-    data class SelectPen(val shedId: String, val partitionLabel: String) : PcCarePlanEvent
+    data class TogglePen(val shedId: String, val partitionLabel: String) : PcCarePlanEvent
     data object LoadMorePens : PcCarePlanEvent
     data class ToggleOperator(val userId: String) : PcCarePlanEvent
     data object ToggleFeedRemoval : PcCarePlanEvent

@@ -40,6 +40,11 @@ class AnalyticsContractTest {
         assertEquals("feed_distribution_teammate_proof_adopted", AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED)
         assertEquals("feed_distribution_submit_sources", AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES)
         assertEquals("feed_distribution_live_status_changed", AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED)
+        assertEquals("pc_care_plan_wizard_viewed", AnalyticsEvents.PC_CARE_PLAN_WIZARD_VIEWED)
+        assertEquals("pc_care_plan_wizard_step_reached", AnalyticsEvents.PC_CARE_PLAN_WIZARD_STEP_REACHED)
+        assertEquals("pc_care_plan_wizard_interaction", AnalyticsEvents.PC_CARE_PLAN_WIZARD_INTERACTION)
+        assertEquals("pc_care_plan_create_attempted", AnalyticsEvents.PC_CARE_PLAN_CREATE_ATTEMPTED)
+        assertEquals("pc_care_plan_task_created", AnalyticsEvents.PC_CARE_PLAN_TASK_CREATED)
     }
 
     @Test

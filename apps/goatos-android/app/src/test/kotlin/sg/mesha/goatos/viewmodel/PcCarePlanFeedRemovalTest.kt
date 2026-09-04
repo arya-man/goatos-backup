@@ -55,6 +55,25 @@ class PcCarePlanFeedRemovalTest {
         )
     }
 
+    private fun repositoryWithTwoPens() = FakePcCareRepository().apply {
+        plannerSheds = PcCarePlannerShedsDto(
+            sheds = listOf(
+                PcCarePlannerShedDto(
+                    shedId = "shed-1",
+                    shedLabel = "Castro",
+                    partitionLabel = "Part 1",
+                    operationalLocationDisplay = "Castro - 1",
+                ),
+                PcCarePlannerShedDto(
+                    shedId = "shed-2",
+                    shedLabel = "Gandhi",
+                    partitionLabel = "",
+                    operationalLocationDisplay = "Gandhi",
+                ),
+            ),
+        )
+    }
+
     private fun viewModel(repository: FakePcCareRepository) = PcCarePlanViewModel(
         repository = repository,
         submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) },
@@ -68,7 +87,7 @@ class PcCarePlanFeedRemovalTest {
         vm.onEvent(PcCarePlanEvent.SelectPark("park-1"))
         vm.onEvent(PcCarePlanEvent.NextStep) // PARK -> PEN (loads pens)
         advanceUntilIdle()
-        vm.onEvent(PcCarePlanEvent.SelectPen("shed-1", "Part 1"))
+        vm.onEvent(PcCarePlanEvent.TogglePen("shed-1", "Part 1"))
         vm.onEvent(PcCarePlanEvent.NextStep) // PEN -> OPERATORS
         vm.onEvent(PcCarePlanEvent.ToggleOperator("op-1"))
         assertEquals(PcCarePlanStep.OPERATORS, vm.state.value.step)
@@ -117,6 +136,34 @@ class PcCarePlanFeedRemovalTest {
         assertEquals(listOf("op-2"), request.removalOperatorUserIds)
         assertEquals("deworming", request.category)
         assertEquals("shed-1", request.shedId)
+    }
+
+    @Test
+    fun `deworming create fans out one task per selected pen including feed removal`() = runTest(dispatcher) {
+        val repository = repositoryWithTwoPens()
+        val vm = viewModel(repository)
+        vm.bindWizard("deworming", "Deworming")
+        vm.onEvent(PcCarePlanEvent.NextStep)
+        vm.onEvent(PcCarePlanEvent.SelectPark("park-1"))
+        vm.onEvent(PcCarePlanEvent.NextStep)
+        advanceUntilIdle()
+        vm.onEvent(PcCarePlanEvent.TogglePen("shed-1", "Part 1"))
+        vm.onEvent(PcCarePlanEvent.TogglePen("shed-2", ""))
+        vm.onEvent(PcCarePlanEvent.NextStep)
+        vm.onEvent(PcCarePlanEvent.ToggleOperator("op-1"))
+        vm.onEvent(PcCarePlanEvent.ToggleFeedRemoval)
+        vm.onEvent(PcCarePlanEvent.ToggleRemovalOperator("op-2"))
+
+        vm.onEvent(PcCarePlanEvent.Create)
+        advanceUntilIdle()
+
+        val requests = repository.createRequests.map { it.second }
+        assertEquals(2, requests.size)
+        assertEquals(listOf("shed-1", "shed-2"), requests.map { it.shedId })
+        assertEquals(listOf("Part 1", ""), requests.map { it.partitionLabel })
+        assertTrue(requests.all { it.feedRemovalRequired == true })
+        assertTrue(requests.all { it.removalOperatorUserIds == listOf("op-2") })
+        assertEquals(2, repository.createRequests.map { it.first }.distinct().size)
     }
 
     @Test

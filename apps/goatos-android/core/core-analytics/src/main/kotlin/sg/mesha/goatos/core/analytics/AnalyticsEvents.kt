@@ -621,6 +621,18 @@ object AnalyticsEvents {
     /** A task in rework was opened (the verifier's reason is on screen). */
     const val PC_CARE_REWORK_VIEWED = "pc_care_rework_viewed"
 
+    /** The planner create wizard was opened; [Params.KIND] carries the category key. */
+    const val PC_CARE_PLAN_WIZARD_VIEWED = "pc_care_plan_wizard_viewed"
+
+    /** The planner wizard reached a step; [Params.FIELD] carries the lowercase step key. */
+    const val PC_CARE_PLAN_WIZARD_STEP_REACHED = "pc_care_plan_wizard_step_reached"
+
+    /** A planner wizard control was used; [Params.ACTION] names the bounded action. */
+    const val PC_CARE_PLAN_WIZARD_INTERACTION = "pc_care_plan_wizard_interaction"
+
+    /** The planner tapped Create; [Params.COUNT] carries selected pen count. */
+    const val PC_CARE_PLAN_CREATE_ATTEMPTED = "pc_care_plan_create_attempted"
+
     /** The planner created a PC Care task; [Params.KIND] carries the category key. */
     const val PC_CARE_PLAN_TASK_CREATED = "pc_care_plan_task_created"
 

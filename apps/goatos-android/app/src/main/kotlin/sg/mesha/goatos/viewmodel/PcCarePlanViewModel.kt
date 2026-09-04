@@ -33,6 +33,7 @@ import sg.mesha.goatos.feature.pccare.PcCarePlanPenUi
 import sg.mesha.goatos.feature.pccare.PcCarePlanStep
 import sg.mesha.goatos.feature.pccare.PcCarePlanUiState
 import sg.mesha.goatos.feature.pccare.PcCareTaskCardUi
+import sg.mesha.goatos.feature.pccare.selectionKey
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -71,6 +72,7 @@ class PcCarePlanViewModel @Inject constructor(
 
     /** One key per wizard session, reused across retries of the SAME planned task. */
     private var createIdempotencyKey: String = UUID.randomUUID().toString()
+    private var lastTrackedStep: PcCarePlanStep? = null
 
     private var catalog: PcCarePlannerCatalogDto? = null
     private var pensCursor: String? = null
@@ -96,18 +98,24 @@ class PcCarePlanViewModel @Inject constructor(
             PcCarePlanEvent.Refresh -> refresh()
             is PcCarePlanEvent.SelectMonitorDate -> selectMonitorDate(event.date)
             is PcCarePlanEvent.CancelTask -> cancelTask(event.taskId)
-            PcCarePlanEvent.CloseCreate -> Unit // navigation-owned: the wizard screen pops itself
+            PcCarePlanEvent.CloseCreate -> trackWizardInteraction("close_create")
             is PcCarePlanEvent.SelectDate -> selectCreateDate(event.date)
             is PcCarePlanEvent.SelectPark -> selectPark(event.parkId)
-            is PcCarePlanEvent.SelectPen -> selectPen(event.shedId, event.partitionLabel)
-            PcCarePlanEvent.LoadMorePens -> loadPens(append = true)
+            is PcCarePlanEvent.TogglePen -> togglePen(event.shedId, event.partitionLabel)
+            PcCarePlanEvent.LoadMorePens -> {
+                trackWizardInteraction("load_more_pens")
+                loadPens(append = true)
+            }
             is PcCarePlanEvent.ToggleOperator -> toggleOperator(event.userId)
             PcCarePlanEvent.ToggleFeedRemoval -> toggleFeedRemoval()
             is PcCarePlanEvent.ToggleRemovalOperator -> toggleRemovalOperator(event.userId)
             PcCarePlanEvent.NextStep -> nextStep()
             PcCarePlanEvent.PreviousStep -> previousStep()
             PcCarePlanEvent.Create -> create()
-            PcCarePlanEvent.DismissMessage -> _state.update { it.copy(message = null) }
+            PcCarePlanEvent.DismissMessage -> {
+                trackWizardInteraction("dismiss_message")
+                _state.update { it.copy(message = null) }
+            }
         }
     }
 
@@ -130,6 +138,7 @@ class PcCarePlanViewModel @Inject constructor(
     fun bindWizard(categoryKey: String, title: String) {
         // A NEW wizard session is a NEW act: fresh key, cleared choices.
         createIdempotencyKey = UUID.randomUUID().toString()
+        lastTrackedStep = null
         _state.update {
             it.copy(
                 title = title,
@@ -144,6 +153,7 @@ class PcCarePlanViewModel @Inject constructor(
                 selectedShedId = "",
                 selectedPartitionLabel = "",
                 selectedPenLabel = "",
+                selectedPenKeys = emptySet(),
                 selectedOperatorIds = emptySet(),
                 // Feed & water removal is a DEWORMING question only (maintainer decision
                 // 2026-09-03): tablets given in feed need feed & water removed the evening
@@ -157,6 +167,29 @@ class PcCarePlanViewModel @Inject constructor(
                 message = null,
             )
         }
+        analytics.track(AnalyticsEvents.PC_CARE_PLAN_WIZARD_VIEWED, mapOf(AnalyticsEvents.Params.KIND to categoryKey))
+        trackStepReached(PcCarePlanStep.DATE, categoryKey)
+    }
+
+    private fun trackStepReached(step: PcCarePlanStep, category: String = _state.value.selectedCategoryKey) {
+        if (step == PcCarePlanStep.LIST || lastTrackedStep == step) return
+        lastTrackedStep = step
+        analytics.track(
+            AnalyticsEvents.PC_CARE_PLAN_WIZARD_STEP_REACHED,
+            mapOf(
+                AnalyticsEvents.Params.KIND to category,
+                AnalyticsEvents.Params.FIELD to step.name.lowercase(),
+            ),
+        )
+    }
+
+    private fun trackWizardInteraction(action: String, count: Int? = null) {
+        val params = mutableMapOf(
+            AnalyticsEvents.Params.KIND to _state.value.selectedCategoryKey,
+            AnalyticsEvents.Params.ACTION to action,
+        )
+        if (count != null) params[AnalyticsEvents.Params.COUNT] = count.toString()
+        analytics.track(AnalyticsEvents.PC_CARE_PLAN_WIZARD_INTERACTION, params)
     }
 
     // ---- Monitor -----------------------------------------------------------------------------
@@ -246,11 +279,22 @@ class PcCarePlanViewModel @Inject constructor(
         // own farm copy).
         val minIso = _state.value.minSelectableDateIso
         if (_state.value.feedRemovalRequired && minIso.isNotBlank() && date.toString() < minIso) return
-        _state.update { it.copy(selectedDate = date.toString(), pens = emptyList(), selectedShedId = "", selectedPartitionLabel = "", selectedPenLabel = "") }
+        trackWizardInteraction("select_date")
+        _state.update {
+            it.copy(
+                selectedDate = date.toString(),
+                pens = emptyList(),
+                selectedShedId = "",
+                selectedPartitionLabel = "",
+                selectedPenLabel = "",
+                selectedPenKeys = emptySet(),
+            )
+        }
     }
 
     private fun selectPark(parkId: String) {
         val label = _state.value.parks.firstOrNull { it.key == parkId }?.label.orEmpty()
+        trackWizardInteraction("select_park")
         _state.update {
             it.copy(
                 selectedParkId = parkId,
@@ -259,6 +303,7 @@ class PcCarePlanViewModel @Inject constructor(
                 selectedShedId = "",
                 selectedPartitionLabel = "",
                 selectedPenLabel = "",
+                selectedPenKeys = emptySet(),
                 // A different farm has different people: the operator step filters to the
                 // chosen park's mapping, so choices made under another park cannot carry over.
                 selectedOperatorIds = emptySet(),
@@ -267,15 +312,25 @@ class PcCarePlanViewModel @Inject constructor(
         }
     }
 
-    private fun selectPen(shedId: String, partitionLabel: String) {
+    private fun togglePen(shedId: String, partitionLabel: String) {
         // Pens are one row PER PARTITION, so shedId alone is not unique (Castro 1/2/3 share it).
         val pen = _state.value.pens.firstOrNull { it.shedId == shedId && it.partitionLabel == partitionLabel } ?: return
         if (pen.existingTaskId.isNotBlank()) return
-        _state.update {
-            it.copy(
-                selectedShedId = shedId,
-                selectedPartitionLabel = pen.partitionLabel,
-                selectedPenLabel = pen.locationDisplay,
+        _state.update { current ->
+            val key = pen.selectionKey()
+            val selectedKeys = if (key in current.selectedPenKeys) current.selectedPenKeys - key else current.selectedPenKeys + key
+            val selectedPens = current.pens.filter { it.selectionKey() in selectedKeys }
+            val selectedLabel = when (selectedPens.size) {
+                0 -> ""
+                1 -> selectedPens.first().locationDisplay
+                else -> "${selectedPens.size} pens selected"
+            }
+            trackWizardInteraction(if (key in current.selectedPenKeys) "remove_pen" else "add_pen", selectedKeys.size)
+            current.copy(
+                selectedShedId = selectedPens.firstOrNull()?.shedId.orEmpty(),
+                selectedPartitionLabel = selectedPens.firstOrNull()?.partitionLabel.orEmpty(),
+                selectedPenLabel = selectedLabel,
+                selectedPenKeys = selectedKeys,
             )
         }
     }
@@ -283,7 +338,9 @@ class PcCarePlanViewModel @Inject constructor(
     private fun toggleOperator(userId: String) {
         _state.update {
             val selected = it.selectedOperatorIds
-            it.copy(selectedOperatorIds = if (userId in selected) selected - userId else selected + userId)
+            val next = if (userId in selected) selected - userId else selected + userId
+            trackWizardInteraction(if (userId in selected) "remove_operator" else "add_operator", next.size)
+            it.copy(selectedOperatorIds = next)
         }
     }
 
@@ -298,6 +355,7 @@ class PcCarePlanViewModel @Inject constructor(
         if (!current.feedRemovalOffered) return
         val next = !current.feedRemovalRequired
         if (!next) {
+            trackWizardInteraction("feed_removal_off")
             _state.update {
                 it.copy(feedRemovalRequired = false, selectedRemovalOperatorIds = emptySet(), minSelectableDateIso = "")
             }
@@ -307,6 +365,7 @@ class PcCarePlanViewModel @Inject constructor(
         val earliestIso = earliest.toString()
         val selected = current.selectedDate
         val bumped = selected.isNotBlank() && selected < earliestIso
+        trackWizardInteraction("feed_removal_on")
         _state.update {
             it.copy(
                 feedRemovalRequired = true,
@@ -324,7 +383,9 @@ class PcCarePlanViewModel @Inject constructor(
     private fun toggleRemovalOperator(userId: String) {
         _state.update {
             val selected = it.selectedRemovalOperatorIds
-            it.copy(selectedRemovalOperatorIds = if (userId in selected) selected - userId else selected + userId)
+            val next = if (userId in selected) selected - userId else selected + userId
+            trackWizardInteraction(if (userId in selected) "remove_removal_operator" else "add_removal_operator", next.size)
+            it.copy(selectedRemovalOperatorIds = next)
         }
     }
 
@@ -333,7 +394,7 @@ class PcCarePlanViewModel @Inject constructor(
         val next = when (current.step) {
             PcCarePlanStep.DATE -> if (current.selectedDate.isBlank()) null else PcCarePlanStep.PARK
             PcCarePlanStep.PARK -> if (current.selectedParkId.isBlank()) null else PcCarePlanStep.PEN
-            PcCarePlanStep.PEN -> if (current.selectedShedId.isBlank()) null else PcCarePlanStep.OPERATORS
+            PcCarePlanStep.PEN -> if (current.selectedPenKeys.isEmpty()) null else PcCarePlanStep.OPERATORS
             PcCarePlanStep.OPERATORS -> when {
                 current.selectedOperatorIds.isEmpty() -> null
                 current.feedRemovalRequired && current.selectedRemovalOperatorIds.isEmpty() -> {
@@ -345,10 +406,13 @@ class PcCarePlanViewModel @Inject constructor(
             else -> null
         }
         if (next == null) {
+            trackWizardInteraction("next_step_blocked")
             _state.update { it.copy(message = "Choose one to continue") }
             return
         }
+        trackWizardInteraction("next_step")
         _state.update { it.copy(step = next, message = null) }
+        trackStepReached(next, current.selectedCategoryKey)
         if (next == PcCarePlanStep.PEN) loadPens(append = false)
     }
 
@@ -361,7 +425,9 @@ class PcCarePlanViewModel @Inject constructor(
             PcCarePlanStep.REVIEW -> PcCarePlanStep.OPERATORS
             PcCarePlanStep.LIST -> PcCarePlanStep.LIST
         }
+        trackWizardInteraction("previous_step")
         _state.update { it.copy(step = previous, message = null) }
+        trackStepReached(previous)
     }
 
     /** One ~20-row pen page per call; the screen's passive footer asks for the next page. */
@@ -416,7 +482,7 @@ class PcCarePlanViewModel @Inject constructor(
         val current = _state.value
         if (current.creating) return
         if (current.selectedCategoryKey.isBlank() || current.selectedParkId.isBlank() ||
-            current.selectedShedId.isBlank() || current.selectedOperatorIds.isEmpty()
+            current.selectedPenKeys.isEmpty() || current.selectedOperatorIds.isEmpty()
         ) {
             _state.update { it.copy(message = "Complete every step first") }
             return
@@ -425,30 +491,48 @@ class PcCarePlanViewModel @Inject constructor(
             _state.update { it.copy(message = "Pick who removes feed & water the evening before") }
             return
         }
+        analytics.track(
+            AnalyticsEvents.PC_CARE_PLAN_CREATE_ATTEMPTED,
+            mapOf(
+                AnalyticsEvents.Params.KIND to current.selectedCategoryKey,
+                AnalyticsEvents.Params.COUNT to current.selectedPenKeys.size.toString(),
+                AnalyticsEvents.Params.OUTCOME to if (current.feedRemovalRequired) "with_feed_removal" else "without_feed_removal",
+            ),
+        )
         _state.update { it.copy(creating = true) }
         viewModelScope.launch {
             try {
-                val created = repository.createTask(
-                    // REUSED on retry: a network blip + second tap replays the SAME planned task.
-                    idempotencyKey = createIdempotencyKey,
-                    request = PcCareCreateTaskRequestDto(
-                        category = current.selectedCategoryKey,
-                        parkId = current.selectedParkId,
-                        shedId = current.selectedShedId,
-                        partitionLabel = current.selectedPartitionLabel,
-                        plannedBusinessDate = current.selectedDate,
-                        assigneeUserIds = current.selectedOperatorIds.toList(),
-                        // Sent ONLY when the toggle was offered and turned on; null keeps every
-                        // other category's payload byte-identical to before this feature.
-                        feedRemovalRequired = if (current.feedRemovalRequired) true else null,
-                        removalOperatorUserIds = current.selectedRemovalOperatorIds
-                            .takeIf { current.feedRemovalRequired }
-                            ?.toList(),
-                    ),
-                )
+                val selectedPens = current.pens.filter { it.selectionKey() in current.selectedPenKeys }
+                var firstCreatedTaskId = ""
+                selectedPens.forEachIndexed { index, pen ->
+                    val created = repository.createTask(
+                        // REUSED on retry per pen: a network blip + second tap replays the SAME
+                        // planned tasks, while each selected pen gets its own backend idempotency row.
+                        idempotencyKey = "$createIdempotencyKey:${pen.selectionKey().replace(Regex("[^A-Za-z0-9._-]"), "_")}",
+                        request = PcCareCreateTaskRequestDto(
+                            category = current.selectedCategoryKey,
+                            parkId = current.selectedParkId,
+                            shedId = pen.shedId,
+                            partitionLabel = pen.partitionLabel,
+                            plannedBusinessDate = current.selectedDate,
+                            assigneeUserIds = current.selectedOperatorIds.toList(),
+                            // Sent ONLY when the toggle was offered and turned on; null keeps every
+                            // other category's payload byte-identical to before this feature.
+                            feedRemovalRequired = if (current.feedRemovalRequired) true else null,
+                            removalOperatorUserIds = current.selectedRemovalOperatorIds
+                                .takeIf { current.feedRemovalRequired }
+                                ?.toList(),
+                        ),
+                    )
+                    if (index == 0) firstCreatedTaskId = created.taskId.ifBlank { "created" }
+                }
                 analytics.track(
                     AnalyticsEvents.PC_CARE_PLAN_TASK_CREATED,
-                    mapOf(AnalyticsEvents.Params.KIND to current.selectedCategoryKey),
+                    mapOf(
+                        AnalyticsEvents.Params.KIND to current.selectedCategoryKey,
+                        AnalyticsEvents.Params.COUNT to selectedPens.size.toString(),
+                        AnalyticsEvents.Params.OUTCOME to if (current.feedRemovalRequired) "with_feed_removal" else "without_feed_removal",
+                    ),
                 )
                 // The monitor list for the planned day must show this task immediately: drop its
                 // cache marker so the next pager load refetches instead of TTL-skipping.
@@ -465,7 +549,7 @@ class PcCarePlanViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         creating = false,
-                        createdTaskId = created.taskId.ifBlank { "created" },
+                        createdTaskId = firstCreatedTaskId.ifBlank { "created" },
                         message = null,
                     )
                 }
@@ -475,7 +559,11 @@ class PcCarePlanViewModel @Inject constructor(
                 crashReporter.recordException(error, "pc care planner create failed")
                 analytics.track(
                     AnalyticsEvents.PC_CARE_FAILURE,
-                    mapOf(AnalyticsEvents.Params.REASON to (error.message ?: "create_failed").take(MAX_REASON_CHARS)),
+                    mapOf(
+                        AnalyticsEvents.Params.REASON to (error.message ?: "create_failed").take(MAX_REASON_CHARS),
+                        AnalyticsEvents.Params.KIND to current.selectedCategoryKey,
+                        AnalyticsEvents.Params.COUNT to current.selectedPenKeys.size.toString(),
+                    ),
                 )
                 // The key is deliberately KEPT: retrying is the same planned task. The SERVER's
                 // own sentence is surfaced verbatim where one exists (fasting_window_closed,
