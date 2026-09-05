@@ -398,7 +398,7 @@ func (r *Repository) BounceDistributionForRework(ctx context.Context, p ports.Bo
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	tag, err := r.pool.Exec(ctx, `
+	tag, err := r.execAndInvalidateReadCache(ctx, `
 UPDATE feed_distribution_completions
 SET status = 'rework',
     rework_reason = nullif($3, ''),

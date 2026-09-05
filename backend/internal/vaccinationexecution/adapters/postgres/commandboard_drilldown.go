@@ -361,7 +361,7 @@ func (r *Repository) CommandBoardShedDoseMatrix(ctx context.Context, q domain.Co
 	if q.DriveBatchID != nil {
 		driveBatchID = strings.TrimSpace(*q.DriveBatchID)
 	}
-	cacheKey := strings.Join([]string{"command_board_shed_dose_matrix", strings.TrimSpace(q.TenantID), vaccinationCacheTimeBucket(asOf), parkID, driveBatchID}, "|")
+	cacheKey := strings.Join([]string{"command_board_shed_dose_matrix", strings.TrimSpace(q.TenantID), vaccinationCacheExactTime(asOf), parkID, driveBatchID}, "|")
 	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
 		if cachedPage, ok := cached.(domain.CommandBoardShedDoseMatrixPage); ok {
 			return cachedPage, nil

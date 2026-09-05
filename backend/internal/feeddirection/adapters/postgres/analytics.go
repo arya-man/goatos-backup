@@ -64,7 +64,7 @@ func (r *Repository) setReadCacheIfEpoch(key string, value any, epoch uint64) {
 	if len(r.readCache) > 256 {
 		r.readCache = map[string]readCacheEntry{}
 	}
-	r.readCache[key] = readCacheEntry{expiresAt: time.Now().Add(feedAnalyticsCacheTTL), value: value}
+	r.readCache[key] = readCacheEntry{expiresAt: time.Now().Add(feedAnalyticsCacheTTL), value: value, epoch: epoch}
 }
 
 func (r *Repository) getOrLoadReadCache(ctx context.Context, key string, load func(context.Context) (any, error)) (any, error) {
@@ -83,6 +83,9 @@ func (r *Repository) getOrLoadReadCache(ctx context.Context, key string, load fu
 			if flight.err != nil {
 				return nil, flight.err
 			}
+			if flight.epoch != r.readCacheEpoch() {
+				return r.getOrLoadReadCache(ctx, key, load)
+			}
 			return flight.value, nil
 		}
 	}
@@ -98,6 +101,7 @@ func (r *Repository) getOrLoadReadCache(ctx context.Context, key string, load fu
 	r.cacheMu.Lock()
 	flight.value = value
 	flight.err = err
+	flight.epoch = cacheEpoch
 	close(flight.done)
 	if r.readFlight[key] == flight {
 		delete(r.readFlight, key)

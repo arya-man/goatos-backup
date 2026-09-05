@@ -134,7 +134,7 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	if q.DriveBatchID != nil {
 		driveBatchID = strings.TrimSpace(*q.DriveBatchID)
 	}
-	cacheKey := strings.Join([]string{"command_board", strings.TrimSpace(q.TenantID), vaccinationCacheTimeBucket(asOf), catalogScopeID, boardParkID, driveBatchID}, "|")
+	cacheKey := strings.Join([]string{"command_board", strings.TrimSpace(q.TenantID), vaccinationCacheExactTime(asOf), catalogScopeID, boardParkID, driveBatchID}, "|")
 	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
 		if cachedResp, ok := cached.(domain.CommandBoardResponse); ok {
 			return cachedResp, nil
@@ -945,7 +945,7 @@ func (r *Repository) CommandBoardCohortMatrix(ctx context.Context, q domain.Comm
 	if q.DriveBatchID != nil {
 		driveBatchID = strings.TrimSpace(*q.DriveBatchID)
 	}
-	cacheKey := strings.Join([]string{"command_board_cohort_matrix", strings.TrimSpace(q.TenantID), vaccinationCacheTimeBucket(asOf), parkID, driveBatchID}, "|")
+	cacheKey := strings.Join([]string{"command_board_cohort_matrix", strings.TrimSpace(q.TenantID), vaccinationCacheExactTime(asOf), parkID, driveBatchID}, "|")
 	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
 		if cachedPage, ok := cached.(domain.CommandBoardCohortMatrixPage); ok {
 			return cachedPage, nil

@@ -58,7 +58,7 @@ func (r *Repository) MaterializeTransportTasks(ctx context.Context, p ports.Mate
 		return ports.MaterializeTransportResult{}, fmt.Errorf("feeddirection: inspect transport task arbiter: %w", err)
 	}
 	if oldShedArbiterPresent {
-		tag, err := r.pool.Exec(ctx, `
+		tag, err := r.execAndInvalidateReadCache(ctx, `
 INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at)
 SELECT s.tenant_id, s.parent_location_id, s.location_id, '', $2::date,
        (($2::date + time '15:30') AT TIME ZONE 'Asia/Kolkata')
@@ -79,7 +79,7 @@ ON CONFLICT (tenant_id, business_date, shed_id) DO NOTHING`, p.TenantID, day.For
 	// exactly the contract. Legacy pen rows keep their own key and survive as history without
 	// colliding. 000152 does NOT rebuild the index for this reason -- a CONCURRENTLY rebuild on a
 	// live table buys nothing here.
-	tag, err := r.pool.Exec(ctx, `
+	tag, err := r.execAndInvalidateReadCache(ctx, `
 INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at)
 SELECT s.tenant_id, s.parent_location_id, s.location_id, '', $2::date,
        (($2::date + time '15:30') AT TIME ZONE 'Asia/Kolkata')

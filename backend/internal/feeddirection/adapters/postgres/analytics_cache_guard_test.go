@@ -96,6 +96,7 @@ func TestFeedAnalyticsCacheInvalidatesAfterMutableWrites(t *testing.T) {
 		"func (r *Repository) invalidateReadCache()",
 		"r.cacheEpoch++",
 		"func (r *Repository) commitAndInvalidateReadCache(ctx context.Context, tx pgx.Tx) error",
+		"func (r *Repository) execAndInvalidateReadCache(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)",
 	} {
 		if !strings.Contains(repo, required) {
 			t.Fatalf("feed repository must expose cache invalidation helper; missing %q", required)
@@ -116,11 +117,15 @@ func TestFeedAnalyticsCacheInvalidatesAfterMutableWrites(t *testing.T) {
 		if !strings.Contains(src, "r.commitAndInvalidateReadCache(ctx, tx)") {
 			t.Fatalf("%s must invalidate analytics cache after successful mutable write commits", file)
 		}
+		if strings.Contains(src, "r.pool.Exec(ctx,") {
+			t.Fatalf("%s must not bypass analytics cache invalidation with direct pool Exec writes", file)
+		}
 	}
 	analytics := mustReadAnalyticsSource(t)
 	for _, required := range []string{
 		"cacheEpoch := r.readCacheEpoch()",
 		"r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)",
+		"flight.epoch != r.readCacheEpoch()",
 		"if r.readFlight[key] == flight",
 	} {
 		if !strings.Contains(analytics, required) {

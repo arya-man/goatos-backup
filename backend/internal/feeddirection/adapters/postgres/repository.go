@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
@@ -46,12 +47,14 @@ func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 type readCacheEntry struct {
 	expiresAt time.Time
 	value     any
+	epoch     uint64
 }
 
 type readFlight struct {
 	done  chan struct{}
 	value any
 	err   error
+	epoch uint64
 }
 
 func (r *Repository) invalidateReadCache() {
@@ -68,6 +71,17 @@ func (r *Repository) commitAndInvalidateReadCache(ctx context.Context, tx pgx.Tx
 	}
 	r.invalidateReadCache()
 	return nil
+}
+
+func (r *Repository) execAndInvalidateReadCache(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	tag, err := r.pool.Exec(ctx, sql, args...)
+	if err != nil {
+		return tag, err
+	}
+	if tag.RowsAffected() > 0 {
+		r.invalidateReadCache()
+	}
+	return tag, nil
 }
 
 var _ ports.ConfigRepository = (*Repository)(nil)
