@@ -97,7 +97,7 @@ func buildLeadFilter(tenantID string, f domain.LeadFilter) (string, []any) {
 // literal text rather than matching every lead. Backslash is Postgres LIKE's default escape
 // character, so no ESCAPE clause is needed.
 func escapeLikePattern(v string) string {
-	return strings.NewReplacer(`\\`, `\\\\`, "%", `\\%`, "_", `\\_`).Replace(v)
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(v)
 }
 
 func (r *Repository) ListBuyerLeads(ctx context.Context, tenantID string, filter domain.LeadFilter, limit, offset int) (ports.BuyerLeadPage, error) {
