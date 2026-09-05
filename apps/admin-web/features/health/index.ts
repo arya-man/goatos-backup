@@ -1,7 +1,11 @@
 // Public entrypoint for the Health vertical. App routes import from "@/features/health" (not deep
 // submodule paths) per the import-boundary convention.
 //
-// One module surface today:
+// Two module surfaces:
+//   Health Analytics — the leadership READ: what the herd is being treated for, whether the
+//                   prescribed courses are carried out, and what it is dying of. Note the
+//                   limit its own banner states: Goat OS records no cause of death, so a
+//                   death carries a disease only where a case was open at the time.
 //   Health Config — the authored treatment rulebook: per disease, per age band, the day-by-day
 //                   course of medicines, actions and critical handoffs.
 //
@@ -13,3 +17,4 @@
 // draft. Collapsing that into an in-place edit would change the dosage an animal mid-course
 // receives.
 export { HealthConfigPage } from "./health-config";
+export { HealthAnalyticsPage } from "./health-analytics";
