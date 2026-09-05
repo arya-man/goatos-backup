@@ -264,8 +264,8 @@ type ExecutionQuery struct {
 	HistoricalAsOf       bool
 	OpenOnly             bool
 	IncludeFilterOptions bool
-	// IncludeCardSummaries is tri-state: nil keeps the default page-only read, while
-	// true opts into the page-independent full-filter card summary aggregate.
+	// IncludeCardSummaries is tri-state: nil keeps the legacy default with card summaries,
+	// false lets latency-sensitive clients opt out, and true explicitly includes them.
 	IncludeCardSummaries *bool
 	Limit                int
 }

@@ -14,7 +14,7 @@
 //
 // It renders NO copy of its own: labels arrive already resolved from the page contract.
 import { useEffect, useRef, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 export type SegmentedOption = {
   /** Stable identity for this option, compared against `current`. */
@@ -34,6 +34,7 @@ export function SegmentedLinks({
   /** Already resolved from the page contract by the caller; omitted when the group is unlabelled. */
   ariaLabel?: string;
 }) {
+  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, setIsPending] = useState(false);
@@ -108,6 +109,7 @@ export function SegmentedLinks({
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
               return;
             }
+            event.preventDefault();
             setOptimistic(option.value);
             setIsPending(true);
             restoreTo.current = window.scrollY;
@@ -120,13 +122,7 @@ export function SegmentedLinks({
                 detail: { value: option.value, href: option.href },
               }),
             );
-            fallbackTimer.current = window.setTimeout(() => {
-              fallbackTimer.current = null;
-              const target = new URL(option.href, window.location.origin);
-              const currentUrl = new URL(window.location.href);
-              if (currentUrl.pathname === target.pathname && paramsEqual(currentUrl.searchParams, target.searchParams)) return;
-              window.location.assign(option.href);
-            }, 750);
+            router.push(option.href, { scroll: false });
           }}
         >
           {option.label}
@@ -134,15 +130,4 @@ export function SegmentedLinks({
       ))}
     </span>
   );
-}
-
-function paramsEqual(left: URLSearchParams, right: URLSearchParams): boolean {
-  return normalizedParams(left) === normalizedParams(right);
-}
-
-function normalizedParams(params: URLSearchParams): string {
-  return [...params.entries()]
-    .sort(([leftKey, leftValue], [rightKey, rightValue]) => leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue))
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-    .join("&");
 }

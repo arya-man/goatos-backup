@@ -47,7 +47,7 @@ type processIntegrityCountCacheEntry struct {
 }
 
 func processIntegrityReadCacheKey(prefix string, q domain.Query) string {
-	asOfBucket := q.AsOf.Truncate(5 * time.Minute).UTC().Format(time.RFC3339)
+	asOf := q.AsOf.UTC().Format(time.RFC3339Nano)
 	dueAfter := ""
 	if q.DueAfter != nil {
 		dueAfter = q.DueAfter.UTC().Format(time.RFC3339Nano)
@@ -64,7 +64,7 @@ func processIntegrityReadCacheKey(prefix string, q domain.Query) string {
 		prefix, q.TenantID, textValue(q.ParkID), textValue(q.ShedID), dueAfter,
 		q.DueBefore.UTC().Format(time.RFC3339Nano), textEnum(q.WorkState), textEnum(q.Severity),
 		textValue(q.OwnerID), textValue(q.ProtocolVersionID), q.OnlyBrokenOrAtRisk,
-		q.IncludeCompleted, q.ScopeLatestDrive, q.IncludeAdherenceSummary, q.Limit, asOfBucket+"|"+rowID+"|"+cursor+"|"+textValue(q.Category))
+		q.IncludeCompleted, q.ScopeLatestDrive, q.IncludeAdherenceSummary, q.Limit, asOf+"|"+rowID+"|"+cursor+"|"+textValue(q.Category))
 }
 
 func processIntegrityCountCacheKey(q domain.Query) string {

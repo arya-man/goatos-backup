@@ -801,7 +801,7 @@ func TestVaccinationExecutionPageCanSkipCardSummariesForLatencySensitiveClients(
 	}
 }
 
-func TestVaccinationExecutionPageSkipsCardSummariesByDefault(t *testing.T) {
+func TestVaccinationExecutionPageKeepsLegacyCardSummariesByDefault(t *testing.T) {
 	t.Parallel()
 
 	cardCalls := 0
@@ -818,11 +818,11 @@ func TestVaccinationExecutionPageSkipsCardSummariesByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VaccinationExecutionPage failed: %v", err)
 	}
-	if cardCalls != 0 {
-		t.Fatalf("card summary query should be opt-in; got %d calls", cardCalls)
+	if cardCalls != 1 {
+		t.Fatalf("nil IncludeCardSummaries must keep the legacy card summary default; got %d calls", cardCalls)
 	}
-	if resp.CardSummaries != nil {
-		t.Fatalf("default card summaries should be omitted; got %+v", resp.CardSummaries)
+	if resp.CardSummaries == nil {
+		t.Fatal("default card summaries should be included for legacy callers")
 	}
 }
 

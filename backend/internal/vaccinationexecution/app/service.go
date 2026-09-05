@@ -125,7 +125,7 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		filterOptions = &domain.ExecutionFilters{Parks: parks}
 	}
 
-	includeCardSummaries := q.IncludeCardSummaries != nil && *q.IncludeCardSummaries
+	includeCardSummaries := q.IncludeCardSummaries == nil || *q.IncludeCardSummaries
 	var cardSummaries map[string]*domain.ShedCardSummary
 	if includeCardSummaries {
 		// Per-card summaries are page-independent full-filter aggregation. They are useful
