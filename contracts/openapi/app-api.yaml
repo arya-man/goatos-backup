@@ -13338,12 +13338,12 @@ paths:
         `months` or from the bounded `deaths` list.
 
 
-        MORTALITY ATTRIBUTION. Goat OS records no CODED cause of death: the death
-        workflow captures a written account and two videos, and `exit_reason` is
-        the manner of exit, never a diagnosis. A death is therefore attributed to
-        a disease only where a health case was OPEN when the animal died;
-        every other death is `unattributed` and carries no disease. The two
-        buckets are disjoint and sum to the death total.
+        MORTALITY ATTRIBUTION. A death is attributed when it carries a recorded
+        cause from the death form. Deaths recorded before that field existed keep
+        the legacy inference: they are attributed only where a health case was
+        OPEN when the animal died. Every other death is `unattributed` and
+        carries no disease. The two buckets are disjoint and sum to the death
+        total.
         `deaths_never_diagnosed` is a SUBSET of the unattributed bucket — an
         animal with no case on record at all, as against one whose case had
         already closed — and must never be added to the other two.
@@ -15278,13 +15278,15 @@ components:
         deaths_attributed:
           type: integer
           format: int64
-          description: Deaths where a health case was OPEN at the time. Disjoint from deaths_unattributed.
+          description: >-
+            Deaths with either a recorded cause from the death form or the legacy
+            open-case inference. Disjoint from deaths_unattributed.
         deaths_unattributed:
           type: integer
           format: int64
           description: >-
-            Deaths with no case open at the time. deaths_attributed +
-            deaths_unattributed always equals deaths.
+            Deaths with neither a recorded cause nor the legacy open-case inference.
+            deaths_attributed + deaths_unattributed always equals deaths.
         deaths_never_diagnosed:
           type: integer
           format: int64
@@ -15464,9 +15466,9 @@ components:
         disease_label:
           type: string
           description: >-
-            The disease the animal was under treatment for. ALWAYS empty for an
-            unattributed death: Goat OS records no cause of death, so one must never be
-            rendered for an animal that had no case open.
+            The recorded cause where one exists, otherwise the disease inferred from an
+            open case on older deaths. ALWAYS empty for an unattributed death: one must
+            never be rendered when neither recorded cause nor legacy inference exists.
         never_diagnosed:
           type: boolean
           description: The animal had no case on record at all, as against one whose case had closed.
@@ -15483,7 +15485,10 @@ components:
           type: integer
           format: int64
           nullable: true
-          description: Earliest open case start to the death date. Null for an unattributed death.
+          description: >-
+            For a recorded cause, the matched cause case start to the death date. For a
+            legacy inferred death, the earliest open case start to the death date. Null
+            when no case matched the cause or the death is unattributed.
     HealthAnalyticsResponse:
       type: object
       additionalProperties: false

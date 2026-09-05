@@ -594,7 +594,7 @@ var protectedRoutes = []Route{
 	//
 	// It is a READ of a static clinical rule list with no animal, no tenant data and no
 	// patient in it, so it is the least sensitive surface in the module.
-	{OperationID: "listHealthDeathCauses", Method: "GET", Pattern: "/app/health/death-causes", Permissions: []string{HealthReport, HealthRead, CountsWrite}},
+	{OperationID: "listHealthDeathCauses", Method: "GET", Pattern: "/app/health/death-causes", AnyPermissions: []string{HealthReport, HealthRead, CountsWrite}},
 	// Health Analytics (/health/analytics), the leadership read.
 	//
 	// HealthRead, not a dedicated permission and not HealthConfigRead. A dedicated one is what

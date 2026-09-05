@@ -4283,7 +4283,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.deaths.label":       "Deaths",
 			"kpi.deaths.sub":         "Animals recorded dead in the window",
 			"kpi.unattributed.label": "Not attributed",
-			"kpi.unattributed.sub":   "Deaths with no case open at the time",
+			"kpi.unattributed.sub":   "No recorded cause or open-case link",
 
 			"chart.deaths.title": "Deaths by month",
 			"chart.deaths.hint": "One column per India calendar month. Every death falls in exactly one of the two, " +

@@ -5143,7 +5143,7 @@ export interface paths {
          * What the herd is being treated for, whether the courses are carried out, and what it is dying of.
          * @description The Health leadership read; ONE call serves the whole screen so the tabs cannot disagree with each other. Case figures are at CASE grain and keyed on the diagnosis REGISTER RULE where one exists, never on `disease_key`, which names the treatment card and is many-to-one across diseases. Buckets are `Asia/Kolkata` calendar months, never UTC and never a rolling day window, and a month with no activity is returned as an explicit zero rather than omitted. `totals` are whole-window rollups over exactly the requested days and must be read from the response, never re-derived from `months` or from the bounded `deaths` list.
          *
-         *     MORTALITY ATTRIBUTION. Goat OS records no CODED cause of death: the death workflow captures a written account and two videos, and `exit_reason` is the manner of exit, never a diagnosis. A death is therefore attributed to a disease only where a health case was OPEN when the animal died; every other death is `unattributed` and carries no disease. The two buckets are disjoint and sum to the death total. `deaths_never_diagnosed` is a SUBSET of the unattributed bucket — an animal with no case on record at all, as against one whose case had already closed — and must never be added to the other two.
+         *     MORTALITY ATTRIBUTION. A death is attributed when it carries a recorded cause from the death form. Deaths recorded before that field existed keep the legacy inference: they are attributed only where a health case was OPEN when the animal died. Every other death is `unattributed` and carries no disease. The two buckets are disjoint and sum to the death total. `deaths_never_diagnosed` is a SUBSET of the unattributed bucket — an animal with no case on record at all, as against one whose case had already closed — and must never be added to the other two.
          */
         get: operations["getHealthAnalytics"];
         put?: never;
@@ -6068,12 +6068,12 @@ export interface components {
             deaths: number;
             /**
              * Format: int64
-             * @description Deaths where a health case was OPEN at the time. Disjoint from deaths_unattributed.
+             * @description Deaths with either a recorded cause from the death form or the legacy open-case inference. Disjoint from deaths_unattributed.
              */
             deaths_attributed: number;
             /**
              * Format: int64
-             * @description Deaths with no case open at the time. deaths_attributed + deaths_unattributed always equals deaths.
+             * @description Deaths with neither a recorded cause nor the legacy open-case inference. deaths_attributed + deaths_unattributed always equals deaths.
              */
             deaths_unattributed: number;
             /**
@@ -6221,7 +6221,7 @@ export interface components {
             age_band: string;
             /** @enum {string} */
             attribution: "attributed" | "unattributed";
-            /** @description The disease the animal was under treatment for. ALWAYS empty for an unattributed death: Goat OS records no cause of death, so one must never be rendered for an animal that had no case open. */
+            /** @description The recorded cause where one exists, otherwise the disease inferred from an open case on older deaths. ALWAYS empty for an unattributed death: one must never be rendered when neither recorded cause nor legacy inference exists. */
             disease_label: string;
             /** @description The animal had no case on record at all, as against one whose case had closed. */
             never_diagnosed: boolean;
@@ -6229,7 +6229,7 @@ export interface components {
             cause_recorded: boolean;
             /**
              * Format: int64
-             * @description Earliest open case start to the death date. Null for an unattributed death.
+             * @description For a recorded cause, the matched cause case start to the death date. For a legacy inferred death, the earliest open case start to the death date. Null when no case matched the cause or the death is unattributed.
              */
             days_under_treatment: number | null;
         };

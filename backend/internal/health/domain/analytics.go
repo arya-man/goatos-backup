@@ -12,20 +12,16 @@ import (
 // sick with, whether the prescribed treatment is actually being carried out,
 // and what it is dying of.
 //
-// THE THIRD QUESTION HAS A HOLE IN IT, AND THIS FILE IS WHERE THAT IS RECORDED.
-// Nothing in Goat OS stores a CODED cause of death. The death workflow captures
-// a written account ("what happened", 3-500 characters), a death video and a
-// post-mortem video, and then exits the animal as dead/died -- `exit_reason` is
-// the MANNER of exit (sold, died, culled, transferred, lost), never a diagnosis.
-// The post-mortem is filmed and never read back into a field.
-//
-// So mortality is attributed the only honest way the schema allows: an animal
-// that died while a health case was OPEN has that case held at
+// THE THIRD QUESTION HAS A HISTORY GAP, AND THIS FILE IS WHERE THAT IS RECORDED.
+// New deaths can carry the coded cause the operator named on the death form.
+// Deaths recorded before that field existed still have only the old inference:
+// an animal that died while a health case was OPEN has that case held at
 // 'held_death_review' and closed at 'closed_dead', which names the disease it
-// was being treated for. An animal that died with no open case is reported as
-// UNATTRIBUTED and is never assigned a disease. That unattributed share is not
-// missing data to be tidied away -- it measures how much of the herd's mortality
-// the health system never saw coming, and it is a headline figure here.
+// was being treated for. An animal with neither a recorded cause nor that legacy
+// open-case link is reported as UNATTRIBUTED and is never assigned a disease.
+// That unattributed share is not missing data to be tidied away -- it measures
+// how much of the herd's mortality the health system never saw coming, and it is
+// a headline figure here.
 //
 // TIME GRAIN IS THE INDIA BUSINESS DAY, and the flow series buckets by
 // `Asia/Kolkata` calendar MONTH. Never a UTC instant, never a rolling 30-day

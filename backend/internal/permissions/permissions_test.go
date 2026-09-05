@@ -1,6 +1,9 @@
 package permissions
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestRolePermissionMatrix(t *testing.T) {
 	tests := []struct {
@@ -833,6 +836,34 @@ func TestAppCountsShiftingDestinationsIsReachableByOperators(t *testing.T) {
 		if RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
 			t.Fatalf("%s must not authorize %s", role, pattern)
 		}
+	}
+}
+
+// TestHealthDeathCausesCatalogUsesEitherOrPermissions pins the death-cause vocabulary as an
+// either/or route. Counts operators need it for the death form, and Health users need it from the
+// treatment path; requiring all three permissions would make the dropdown 403 for the exact people
+// who record deaths.
+func TestHealthDeathCausesCatalogUsesEitherOrPermissions(t *testing.T) {
+	const pattern = "/app/health/death-causes"
+
+	route, ok := Match("GET", pattern)
+	if !ok {
+		t.Fatalf("%s is not registered", pattern)
+	}
+	if len(route.Permissions) != 0 {
+		t.Fatalf("permissions=%v, want none because this route is either/or", route.Permissions)
+	}
+	wantAny := []string{HealthReport, HealthRead, CountsWrite}
+	if !reflect.DeepEqual(route.AnyPermissions, wantAny) {
+		t.Fatalf("any_permissions=%v, want %v", route.AnyPermissions, wantAny)
+	}
+	for _, role := range []string{RoleOperator, RoleHealthDirector, RoleCEOInternal} {
+		if !AuthorizeRoute(route, []string{role}) {
+			t.Fatalf("%s must authorize %s through one of %v", role, pattern, wantAny)
+		}
+	}
+	if AuthorizeRoute(route, []string{RoleVerifier}) {
+		t.Fatalf("%s must not authorize %s", RoleVerifier, pattern)
 	}
 }
 
