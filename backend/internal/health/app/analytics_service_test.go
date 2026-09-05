@@ -84,6 +84,23 @@ func TestAnalyticsServiceCarriesARealParkThrough(t *testing.T) {
 	}
 }
 
+func TestAnalyticsServiceRefusesAMalformedPark(t *testing.T) {
+	park := "not-a-uuid"
+	reader := &recordingAnalyticsReader{}
+	svc := NewAnalyticsService(reader).WithClock(fixedClock(t, "2026-09-05"))
+
+	_, err := svc.GetHealthAnalytics(context.Background(), domain.HealthAnalyticsQuery{
+		TenantID: analyticsTenant,
+		ParkID:   &park,
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+	if reader.seen.TenantID != "" {
+		t.Fatal("the repository was read with a park id the service should have refused")
+	}
+}
+
 // A malformed window never reaches the repository. Without this the SQL would
 // fall back to its own default and serve a window nobody asked for under the
 // label the caller chose.
