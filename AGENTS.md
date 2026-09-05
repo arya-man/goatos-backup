@@ -1716,8 +1716,7 @@ The side is CATALOG DATA, never a list in Go: business-managed vocabularies come
 the farm can add a sixth sales category without a deploy. It is NOT a column on the vendor row —
 a vendor's side is implied entirely by its record type, and storing it twice would let the two
 disagree. The halves are COMPLEMENTARY BY CONSTRUCTION (sales = types marked `sales`, procurement =
-everything else, expressed `NOT EXISTS` and never `NOT IN`, whose NULLs would empty the procurement
-register): every vendor is on exactly one side and NONE is on neither, so an UNCATALOGUED record
+everything else): every vendor is on exactly one side and NONE is on neither, so an UNCATALOGUED record
 type — a real state, because `domain.Validate` deliberately does not check `record_type` against the
 catalog — falls to PROCUREMENT rather than vanishing from both pages. An ABSENT side reads the whole
 register (what the vendor picklist needs); an UNKNOWN side is REFUSED `vendor_side_unknown`, never

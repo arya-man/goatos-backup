@@ -45,13 +45,19 @@ every re-categorisation would need a backfill.
 ### The two sides are complementary, and that is the load-bearing property
 
 Sales is the record types marked `sales`; procurement is **everything else**. Every vendor is on
-exactly one side and **none is on neither**. Two specific failure modes are guarded:
+exactly one side and **none is on neither**.
 
-- `record_type NOT IN (SELECT value …)` instead of `NOT EXISTS`. One NULL in that subquery makes
-  `NOT IN` evaluate to NULL for every row and the procurement register comes back **empty**.
-- A predicate requiring a catalog row to exist at all. `domain.Validate` deliberately does not check
-  `record_type` against the catalog, so an **uncatalogued** record type is a real state — and under
-  such a predicate that vendor would vanish from both pages and be unfindable.
+The failure mode guarded against is a predicate that requires a catalog row to exist at all.
+`domain.Validate` deliberately does not check `record_type` against the catalog, so an
+**uncatalogued** record type is a real state — and under such a predicate that vendor would vanish
+from both pages and be unfindable. Mutation-tested: dropping the `NOT` from the procurement branch
+makes the uncatalogued vendor disappear and turns the test red.
+
+The predicate is spelled `NOT EXISTS` rather than `NOT IN`. That is a robustness preference and
+**not** a live bug guard — the subquery projects `value`, which is `NOT NULL` inside the catalog's
+primary key, so the `NOT IN` null-swallowing trap cannot fire here. Confirmed by mutation: the
+`IN`/`NOT IN` form keeps the test green. `NOT EXISTS` is kept because it stays correct if the
+subquery is ever widened to project something nullable.
 
 An uncatalogued type therefore falls to **procurement**, which is where it is listed today. Failing
 toward the status quo is the choice; the alternative is a vendor nobody can find.

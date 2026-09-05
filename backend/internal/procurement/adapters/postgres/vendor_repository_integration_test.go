@@ -479,16 +479,18 @@ func TestVendorCatalogOffersBuyerRecordTypes(t *testing.T) {
 // 2026-09-05 split: Procurement > Vendors and Sales > Vendors are COMPLEMENTARY. Every vendor
 // appears on exactly one of them -- never both, and, crucially, never NEITHER.
 //
-// It is an integration test because the whole rule lives in SQL. The side predicate is an
-// EXISTS/NOT EXISTS pair against procurement_vendor_catalog, and the two failure modes it guards
-// against are both invisible to a compiler and to any fake repository:
+// It is an integration test because the whole rule lives in SQL. The failure mode it guards against
+// is invisible to a compiler and to any fake repository: an INNER-style predicate that requires a
+// catalog row to exist at all. domain.Validate deliberately does not check record_type against the
+// catalog (the vocabulary is business-managed and grows without a deploy), so an uncatalogued type
+// is a REAL state -- and under such a predicate that vendor vanishes from both pages and is
+// unfindable. Mutation-tested by dropping the NOT from the procurement branch: the uncatalogued
+// vendor disappears and this test goes red on two assertions.
 //
-//   - `record_type NOT IN (SELECT value ...)` instead of NOT EXISTS. A single NULL in that subquery
-//     makes NOT IN evaluate to NULL for every row, and the procurement register comes back EMPTY.
-//   - an INNER-style predicate that requires a catalog row to exist at all. domain.Validate
-//     deliberately does not check record_type against the catalog (the vocabulary is business-
-//     managed and grows without a deploy), so an uncatalogued type is a real state -- and under
-//     such a predicate that vendor would vanish from both pages and be unfindable.
+// (The predicate is spelled NOT EXISTS rather than NOT IN. That is a robustness preference, NOT a
+// live bug guard: the subquery projects `value`, which is NOT NULL in the catalog's primary key,
+// so the NOT IN null-swallowing trap cannot fire here -- confirmed by mutation, the IN/NOT IN form
+// keeps this test green.)
 //
 // The third vendor below carries a record type that is in NO catalog row, which is what makes the
 // "neither" case a real assertion rather than a hypothetical.

@@ -124,8 +124,13 @@ func buildVendorFilter(tenantID string, f domain.VendorFilter) (string, []any) {
 	// COMPLEMENTARY BY CONSTRUCTION: sales is the record types marked 'sales', procurement is
 	// everything else. Every vendor is therefore on exactly one side and none is on neither.
 	//
-	// NOT EXISTS, never `record_type NOT IN (SELECT ...)`: a single NULL value in that subquery
-	// makes NOT IN return NULL for every row and the procurement register would come back empty.
+	// NOT EXISTS rather than `record_type NOT IN (SELECT ...)`. Both are CORRECT today -- the
+	// projected column is procurement_vendor_catalog.value, which is `text NOT NULL` inside the
+	// primary key, so the NULL that makes NOT IN return NULL for every row cannot occur (checked by
+	// mutation: swapping this for the IN/NOT IN pair leaves TestTheTwoRegisterSidesPartitionTheWholeRegister
+	// green). NOT EXISTS is kept because it does not DEPEND on that: it stays correct if the
+	// subquery is ever widened to project a nullable expression, and the failure it would otherwise
+	// hide is an empty procurement register, which reads as "no suppliers" rather than as an error.
 	//
 	// The subquery probes procurement_vendor_catalog on (tenant_id, kind, value), which IS its
 	// primary key, so this is a unique index lookup rather than a scan.

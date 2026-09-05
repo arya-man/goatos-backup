@@ -24,11 +24,13 @@
 -- two disagree, and every rename or re-categorisation would need a backfill.
 --
 -- THE DEFAULT IS 'procurement', AND THAT IS THE SAFE DIRECTION. The two pages are complementary by
--- construction: sales lists the record types marked 'sales', procurement lists everything else
--- (NOT EXISTS, never NOT IN -- a NULL would swallow the row). So a record type nobody has
--- catalogued -- possible, because domain.Validate deliberately does not check record_type against
--- the catalog -- keeps appearing exactly where it appears today, on the procurement register,
--- rather than vanishing from both. Every vendor is on exactly one side; none is on neither.
+-- construction: sales lists the record types marked 'sales', procurement lists everything else. So
+-- a record type nobody has catalogued -- possible, because domain.Validate deliberately does not
+-- check record_type against the catalog -- keeps appearing exactly where it appears today, on the
+-- procurement register, rather than vanishing from both. THAT is the property under test; the
+-- read-side predicate spells it NOT EXISTS, which is equivalent to NOT IN here because `value` is
+-- NOT NULL in this table's primary key, and is preferred only because it does not depend on that
+-- staying true. Every vendor is on exactly one side; none is on neither.
 --
 -- The column is NOT NULL DEFAULT, so it applies to the kinds that have no side (breed, state, city,
 -- status, feed, capacity_unit, supply_frequency) as an inert value. Only kind='record_type' is ever
