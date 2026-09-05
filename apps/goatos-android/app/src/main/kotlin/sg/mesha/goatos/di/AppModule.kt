@@ -1160,7 +1160,10 @@ private class DeferredPcCareRepository(
         taskId: String,
         slotFieldKey: String,
         proofOutboxItemId: String,
-    ) = delegate.registerTaskProof(taskId, slotFieldKey, proofOutboxItemId)
+        gatedTaskId: String,
+    ) = delegate.registerTaskProof(taskId, slotFieldKey, proofOutboxItemId, gatedTaskId)
+    override fun observeRemovalPens(taskId: String) = delegate.observeRemovalPens(taskId)
+    override suspend fun refreshRemovalPens(taskId: String) = delegate.refreshRemovalPens(taskId)
     override suspend fun proofDownloadUrl(proofId: String) = delegate.proofDownloadUrl(proofId)
     override suspend fun submitTask(taskId: String, rowVersion: Int) = delegate.submitTask(taskId, rowVersion)
     override suspend fun persistTaskSubmitResult(taskId: String, status: String, rowVersion: Int, animalCount: Int) =

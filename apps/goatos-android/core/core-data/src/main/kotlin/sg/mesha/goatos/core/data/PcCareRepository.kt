@@ -33,6 +33,7 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.PcCareAnimalRowDto
 import sg.mesha.goatos.core.network.dto.PcCareCloseRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareRemovalPenDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
@@ -64,6 +65,13 @@ private const val PC_CARE_ROSTER_MAX_PAGES = 15 // mobile-guard:ignore: bounded 
 
 /** Namespaces the roster blob beside the task-detail blob in the same bounded cache table. */
 private fun rosterCacheKey(taskId: String): String = "roster:$taskId"
+
+/**
+ * A ROUND-grain feed & water removal card's pens (maintainer decision 2026-09-05). Its own
+ * namespace so a removal card's pens and its detail can never overwrite one another in the
+ * shared blob cache.
+ */
+private fun removalPensCacheKey(taskId: String): String = "removal-pens:$taskId"
 
 /** Bump whenever the cached task-row JSON changes shape incompatibly (see PACKING_CACHE_SHAPE's
  *  kdoc in FeedRepository.kt for why a stale-shape row must be orphaned, never leniently decoded). */
@@ -169,7 +177,19 @@ interface PcCareRepository {
         taskId: String,
         slotFieldKey: String,
         proofOutboxItemId: String,
+        /** Names the PEN on a round-grain feed & water removal; blank for an ordinary slot. */
+        gatedTaskId: String = "",
     ): AppResult<String>
+
+    /**
+     * The pen-by-pen slot list of a round-grain feed & water removal card, from ROOM — the
+     * screen renders this and the network refresh runs behind it, so re-entering the card shows
+     * the pens instantly instead of a blank wall.
+     */
+    fun observeRemovalPens(taskId: String): Flow<List<PcCareRemovalPenDto>>
+
+    /** Refreshes the removal card's pens into Room. Non-blocking: a failure leaves the cache. */
+    suspend fun refreshRemovalPens(taskId: String)
 
     /** Resolves a completed proof id to a short-lived playback URL for previews. */
     suspend fun proofDownloadUrl(proofId: String): AppResult<String>
@@ -412,12 +432,47 @@ class DefaultPcCareRepository(
         )
     }
 
+    override fun observeRemovalPens(taskId: String): Flow<List<PcCareRemovalPenDto>> =
+        detailDao.observe(removalPensCacheKey(taskId))
+            .map { entity ->
+                readCachedJson<List<PcCareRemovalPenDto>>(
+                    json = json,
+                    cacheKey = removalPensCacheKey(taskId),
+                    dtoJson = entity?.dtoJson,
+                    updatedAt = entity?.updatedAt,
+                    now = clock(),
+                    quarantine = { detailDao.delete(it) },
+                ).data.orEmpty()
+            }
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun refreshRemovalPens(taskId: String) {
+        // exception:exempt expected refresh failure (offline/timeout/5xx); the cached pens keep
+        // serving and the next open/refresh repairs it — the non-blocking refresh contract.
+        runCatching {
+            val pens = api.getPcCareRemovalPens(taskId).pens
+            detailDao.upsert(
+                PcCareTaskDetailCacheEntity(
+                    cacheKey = removalPensCacheKey(taskId),
+                    dtoJson = json.encodeToString(pens),
+                    updatedAt = clock(),
+                ),
+            )
+            detailDao.enforceCacheBounds()
+        }.onFailure {
+            if (it is CancellationException) throw it
+            android.util.Log.w(LOG_TAG, "pc_care_removal_pens_refresh_failed task=$taskId", it)
+        }
+    }
+
     override suspend fun registerTaskProof(
         taskId: String,
         slotFieldKey: String,
         proofOutboxItemId: String,
+        gatedTaskId: String,
     ): AppResult<String> =
         syncRepository.enqueuePcCareTaskProofRegister(
+            gatedTaskId = gatedTaskId,
             taskId = taskId,
             slotFieldKey = slotFieldKey,
             proofOutboxItemId = proofOutboxItemId,

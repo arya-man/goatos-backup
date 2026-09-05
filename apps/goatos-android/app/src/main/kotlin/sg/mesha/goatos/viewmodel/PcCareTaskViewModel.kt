@@ -47,6 +47,7 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.pcCareTaskGroupKey
 import sg.mesha.goatos.core.network.dto.PcCareAnimalSlotDto
+import sg.mesha.goatos.core.network.dto.PcCareRemovalPenDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskProofDto
@@ -136,6 +137,13 @@ class PcCareTaskViewModel @Inject constructor(
         val verdictInFlight: Boolean = false,
         val showRejectDialog: Boolean = false,
         val rejectReasonInput: String = "",
+        /**
+         * A ROUND-grain feed & water removal's pens (maintainer decision 2026-09-05). The card
+         * is one evening's job; the evidence is one feed video and one water video PER PEN,
+         * because a single clip stretched over four pens proves nothing and the verifier cannot
+         * tell which pen was actually emptied. Empty on every other card.
+         */
+        val removalPens: List<PcCareRemovalPenDto> = emptyList(),
     )
 
     private val local = MutableStateFlow(LocalBits())
@@ -169,12 +177,25 @@ class PcCareTaskViewModel @Inject constructor(
         analytics.track(AnalyticsEvents.PC_CARE_TASK_OPENED, mapOf(AnalyticsEvents.Params.KIND to taskId))
         viewModelScope.launch { repository.refreshTaskDetail(taskId) }
         viewModelScope.launch { repository.pollTaskOnce(taskId) }
+        // Room is the source of truth for the removal card's pens: the screen renders what is
+        // cached and the refresh above fills it in behind.
+        viewModelScope.launch {
+            repository.observeRemovalPens(taskId).collect { pens ->
+                local.update { it.copy(removalPens = pens) }
+            }
+        }
         // Track the durable snapshots the act paths read.
         viewModelScope.launch {
             repository.observeTaskDetail(taskId).collect { detail ->
                 latestDetail = detail
                 if (pcCareIsTaskProofMode(detail)) {
                     hydrateTaskProofPreviews(detail)
+                }
+                // The pen list rides the card's own contract, so it may arrive after screen
+                // entry; refresh it once the category is known and only once it is a removal.
+                // The RENDER comes from Room below, so a cached card shows its pens at once.
+                if (pcCareIsFeedWaterRemoval(detail) && local.value.removalPens.isEmpty()) {
+                    refreshRemovalPens()
                 }
                 // The roster tap list exists only for roster_pick work — fetch it once the mode is
                 // known (the mode rides the task contract, so it may arrive after screen entry).
@@ -745,7 +766,17 @@ class PcCareTaskViewModel @Inject constructor(
                                 ),
                             )
                             captureDrafts.putProof(CaptureFlow.PC_CARE, taskId, slotFieldKey, proofOutboxId)
-                            when (val registered = repository.registerTaskProof(taskId, slotFieldKey, proofOutboxId)) {
+                            // A round-grain removal's key carries its pen; the register splits it back out so the
+                            // write lands on THAT pen's evidence row rather than on the card.
+                            val (gatedTaskId, wireSlot) = pcCareSplitRemovalSlotKey(slotFieldKey)
+                            when (
+                                val registered = repository.registerTaskProof(
+                                    taskId,
+                                    wireSlot,
+                                    proofOutboxId,
+                                    gatedTaskId,
+                                )
+                            ) {
                                 is AppResult.Ok -> {
                                     analytics.track(
                                         AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
@@ -979,6 +1010,16 @@ class PcCareTaskViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Pulls a round-grain removal card's PENS. Failure is swallowed on purpose: the card still
+     * renders from what is cached, and a removal with no pens falls back to the flat two-slot
+     * face rather than showing the operator an empty screen.
+     */
+    private suspend fun refreshRemovalPens() {
+        if (!pcCareIsFeedWaterRemoval(latestDetail)) return
+        repository.refreshRemovalPens(taskId)
+    }
+
     private fun refresh() {
         if (local.value.isRefreshing) return
         val detail = latestDetail
@@ -995,6 +1036,7 @@ class PcCareTaskViewModel @Inject constructor(
                 syncRepository.triggerDrain()
                 repository.refreshTaskDetail(taskId)
                 repository.pollTaskOnce(taskId)
+                refreshRemovalPens()
                 if (pcCareIsTaskProofMode(detail)) {
                     analytics.track(
                         AnalyticsEvents.PC_CARE_STOCK_PROOF_SYNC,
@@ -1024,7 +1066,7 @@ class PcCareTaskViewModel @Inject constructor(
             if (hasAnimalSlotKey && tag.isNotBlank() && slot.isNotBlank()) {
                 repository.registerSlotProof(taskId, tag, slot, outboxId)
             } else if (pcCareTaskProofSlotKeys.contains(row.fieldKey)) {
-                if (!pcCareStockSlotMatchesMime(row.fieldKey, row.mimeType)) {
+                if (!pcCareStockSlotMatchesMime(pcCareSplitRemovalSlotKey(row.fieldKey).second, row.mimeType)) {
                     analytics.track(
                         AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
                         pcCareStockProofAnalyticsProps(
@@ -1039,7 +1081,13 @@ class PcCareTaskViewModel @Inject constructor(
                     return@forEach
                 }
                 val slotFieldKey = row.fieldKey
-                val result = repository.registerTaskProof(taskId, slotFieldKey, outboxId)
+                val (reconcileGatedTaskId, reconcileWireSlot) = pcCareSplitRemovalSlotKey(slotFieldKey)
+                val result = repository.registerTaskProof(
+                    taskId,
+                    reconcileWireSlot,
+                    outboxId,
+                    reconcileGatedTaskId,
+                )
                 analytics.track(
                     AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
                     pcCareStockProofAnalyticsProps(
@@ -1100,6 +1148,20 @@ class PcCareTaskViewModel @Inject constructor(
             detail?.category == PC_CARE_CATEGORY_INVENTORY_VACCINE ||
             detail?.category == PC_CARE_CATEGORY_FEED_WATER_REMOVAL
 
+    /**
+     * A round-grain removal's slot key carries the PEN as well as the slot, because the same
+     * two slot names repeat once per pen and a bare slot key would collide across them. The
+     * capture pipeline keys everything by this string, so nothing else needs to know a pen
+     * exists; only the slot builder writes it and only the register call reads it back.
+     */
+    private fun pcCareRemovalSlotKey(gatedTaskId: String, slot: String) = gatedTaskId + "::" + slot
+
+    /** Splits [pcCareRemovalSlotKey] back into (gated task id, slot); blank id when not one. */
+    private fun pcCareSplitRemovalSlotKey(key: String): Pair<String, String> {
+        val at = key.indexOf("::")
+        return if (at < 0) "" to key else key.substring(0, at) to key.substring(at + 2)
+    }
+
     /** True on the feed & water removal face — two backend-served VIDEO slots, no fridge pair. */
     private fun pcCareIsFeedWaterRemoval(detail: PcCareTaskDto?): Boolean =
         routeCategory == PC_CARE_CATEGORY_FEED_WATER_REMOVAL ||
@@ -1114,6 +1176,31 @@ class PcCareTaskViewModel @Inject constructor(
     private fun pcCareTaskProofExpectedSlots(detail: PcCareTaskDto): List<PcCareSlotDto> {
         val byKey = detail.expectedSlots.associateBy { it.fieldKey }
         if (pcCareIsFeedWaterRemoval(detail)) {
+            // A ROUND's removal is proved PEN BY PEN: the backend's two slots repeat once per
+            // pen, each keyed and labelled by the pen so the operator (and later the verifier)
+            // can tell which pen a clip proves. A legacy single-pen removal has no pens and
+            // keeps the flat two-slot face byte for byte.
+            val pens = local.value.removalPens
+            if (pens.isNotEmpty()) {
+                val slots = if (detail.expectedSlots.isNotEmpty()) {
+                    detail.expectedSlots
+                } else {
+                    listOf(
+                        PcCareSlotDto(fieldKey = PC_CARE_SLOT_FEED_VIDEO, label = "Feed removal video"),
+                        PcCareSlotDto(fieldKey = PC_CARE_SLOT_WATER_VIDEO, label = "Water removal video"),
+                    )
+                }
+                return pens.flatMap { pen ->
+                    slots.map { slot ->
+                        slot.copy(
+                            fieldKey = pcCareRemovalSlotKey(pen.gatedTaskId, slot.fieldKey),
+                            // The pen label is BACKEND-COMPOSED and rendered verbatim; the phone
+                            // never builds a pen name of its own.
+                            label = pen.penLabel + " · " + slot.label,
+                        )
+                    }
+                }
+            }
             // The removal card's slot set is BACKEND-SERVED (feed_video + water_video with their
             // own labels/descriptions); the fallbacks below only cover a detail cached by an
             // older server that had not sent slots yet.

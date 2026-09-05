@@ -545,6 +545,7 @@ interface SyncRepository {
         taskId: String,
         slotFieldKey: String,
         proofOutboxItemId: String,
+        gatedTaskId: String = "",
     ): AppResult<String> = AppResult.Err("pc care task proof sync is not configured")
 
     /**
@@ -1562,12 +1563,20 @@ class DefaultSyncRepository(
         taskId: String,
         slotFieldKey: String,
         proofOutboxItemId: String,
+        gatedTaskId: String,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.PC_CARE_TASK_PROOF_REGISTER,
         groupKey = pcCareTaskGroupKey(taskId.trim()),
-        idempotencyKey = pcCareTaskProofIdempotencyKey(taskId.trim(), slotFieldKey, proofOutboxItemId),
+        // The PEN is part of the key on a round-grain removal: two pens' feed videos are two
+        // different acts, and a key that named only the slot would collapse them into one.
+        idempotencyKey = pcCareTaskProofIdempotencyKey(
+            taskId.trim(),
+            if (gatedTaskId.isBlank()) slotFieldKey else gatedTaskId.trim() + ":" + slotFieldKey,
+            proofOutboxItemId,
+        ),
         payloadJson = syncJson.encodeToString(
             PcCareTaskProofRegisterPayload(
+                gatedTaskId = gatedTaskId.trim(),
                 taskId = taskId.trim(),
                 slotFieldKey = slotFieldKey,
                 proofOutboxItemId = proofOutboxItemId,

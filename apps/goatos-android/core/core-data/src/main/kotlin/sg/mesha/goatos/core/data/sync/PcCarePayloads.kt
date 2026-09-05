@@ -84,6 +84,13 @@ data class PcCareTaskProofRegisterPayload(
 	@SerialName("task_id") val taskId: String,
 	@SerialName("slot_field_key") val slotFieldKey: String,
 	@SerialName("proof_outbox_item_id") val proofOutboxItemId: String,
+	/**
+	 * Set ONLY for a ROUND-grain feed & water removal, where the evidence is one feed video
+	 * and one water video PER PEN and the pen is named by the work task it gates (maintainer
+	 * decision 2026-09-05). Blank means the ordinary task-level slot, so a row queued before
+	 * rounds existed decodes and dispatches exactly as it always did.
+	 */
+	@SerialName("gated_task_id") val gatedTaskId: String = "",
 )
 
 /**

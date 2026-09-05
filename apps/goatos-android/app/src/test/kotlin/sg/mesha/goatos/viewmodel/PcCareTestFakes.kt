@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
+import sg.mesha.goatos.core.network.dto.PcCareRemovalPenDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
@@ -164,9 +165,17 @@ internal class FakePcCareRepository : PcCareRepository {
         taskId: String,
         slotFieldKey: String,
         proofOutboxItemId: String,
+        gatedTaskId: String,
     ): AppResult<String> {
         taskProofRegistrations += listOf(taskId, slotFieldKey, proofOutboxItemId)
         return AppResult.Ok("task-proof-outbox-${taskProofRegistrations.size}")
+    }
+
+    var removalPens: List<PcCareRemovalPenDto> = emptyList()
+    private val removalPensFlow = MutableStateFlow<List<PcCareRemovalPenDto>>(emptyList())
+    override fun observeRemovalPens(taskId: String): Flow<List<PcCareRemovalPenDto>> = removalPensFlow
+    override suspend fun refreshRemovalPens(taskId: String) {
+        removalPensFlow.value = removalPens
     }
 
     override suspend fun proofDownloadUrl(proofId: String): AppResult<String> =

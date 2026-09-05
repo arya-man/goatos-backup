@@ -1498,6 +1498,21 @@ class SyncEngine(
 
     private suspend fun dispatchPcCareTaskProofRegister(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<PcCareTaskProofRegisterPayload>(item.payloadJson)
+        // A ROUND-grain feed & water removal stores its evidence PER PEN, so it dispatches to
+        // the pen route with the pen named by the work task it gates. Anything else is the
+        // ordinary task-level slot and takes the path it always took.
+        if (payload.gatedTaskId.isNotBlank()) {
+            api.putPcCareRemovalPenProof(
+                payload.taskId,
+                payload.slotFieldKey,
+                item.idempotencyKey,
+                sg.mesha.goatos.core.network.dto.PcCareRemovalPenProofRequestDto(
+                    gatedTaskId = payload.gatedTaskId,
+                    proofRef = resolveUploadedProofRef(payload.proofOutboxItemId),
+                ),
+            )
+            return "{}"
+        }
         api.registerPcCareTaskProof(
             payload.taskId,
             payload.slotFieldKey,
