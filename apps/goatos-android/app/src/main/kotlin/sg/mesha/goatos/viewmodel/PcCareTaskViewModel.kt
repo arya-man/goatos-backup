@@ -1060,6 +1060,16 @@ class PcCareTaskViewModel @Inject constructor(
         proofs.forEach { row ->
             val outboxId = row.outboxItemId
             if (outboxId.isNullOrBlank() || row.syncStatus == CaptureSyncStatus.FAILED) return@forEach
+            // A ROUND-grain removal key is "<gated task id>::<slot>" and it is matched FIRST.
+            // It also contains a colon, so the animal branch below would otherwise claim it and
+            // file a pen's removal video as some ANIMAL's scan proof, with a task id for a tag
+            // and ":feed_video" for a slot — a wrong write, not merely a missed retry.
+            val (removalGatedTaskId, removalSlot) = pcCareSplitRemovalSlotKey(row.fieldKey)
+            if (removalGatedTaskId.isNotBlank() && pcCareTaskProofSlotKeys.contains(removalSlot)) {
+                if (!pcCareStockSlotMatchesMime(removalSlot, row.mimeType)) return@forEach
+                repository.registerTaskProof(taskId, removalSlot, outboxId, removalGatedTaskId)
+                return@forEach
+            }
             val hasAnimalSlotKey = row.fieldKey.contains(':')
             val tag = row.fieldKey.substringBefore(':')
             val slot = row.fieldKey.substringAfter(':')

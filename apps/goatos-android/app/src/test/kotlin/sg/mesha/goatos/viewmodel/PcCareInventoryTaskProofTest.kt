@@ -394,7 +394,7 @@ class PcCareInventoryTaskProofTest {
 
         assertEquals(1, photoSource.captureCount)
         assertEquals("image/jpeg", proofRepo.captureCalls.single().mimeType)
-        assertEquals(listOf(listOf("task-1", stockPhotoSlot.fieldKey, "proof-outbox-1")), repo.taskProofRegistrations)
+        assertEquals(listOf(listOf("task-1", stockPhotoSlot.fieldKey, "proof-outbox-1", "")), repo.taskProofRegistrations)
     }
 
     @Test
@@ -424,7 +424,7 @@ class PcCareInventoryTaskProofTest {
 
         assertEquals(1, proofSource.captureCount)
         assertEquals("video/mp4", proofRepo.captureCalls.single().mimeType)
-        assertEquals(listOf(listOf("task-1", stockVideoSlot.fieldKey, "proof-outbox-1")), repo.taskProofRegistrations)
+        assertEquals(listOf(listOf("task-1", stockVideoSlot.fieldKey, "proof-outbox-1", "")), repo.taskProofRegistrations)
     }
 
     @Test
@@ -455,7 +455,7 @@ class PcCareInventoryTaskProofTest {
         vm.onEvent(PcCareTaskEvent.Refresh)
         runCurrent()
 
-        assertEquals(listOf(listOf("task-1", stockVideoSlot.fieldKey, "proof-outbox-orphan")), repo.taskProofRegistrations)
+        assertEquals(listOf(listOf("task-1", stockVideoSlot.fieldKey, "proof-outbox-orphan", "")), repo.taskProofRegistrations)
         assertEquals(emptyList<List<String>>(), repo.slotRegistrations)
     }
 

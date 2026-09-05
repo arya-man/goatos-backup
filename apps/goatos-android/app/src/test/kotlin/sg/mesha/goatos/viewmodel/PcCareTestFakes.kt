@@ -168,14 +168,14 @@ internal class FakePcCareRepository : PcCareRepository {
         proofOutboxItemId: String,
         gatedTaskId: String,
     ): AppResult<String> {
-        taskProofRegistrations += listOf(taskId, slotFieldKey, proofOutboxItemId)
+        taskProofRegistrations += listOf(taskId, slotFieldKey, proofOutboxItemId, gatedTaskId)
         return AppResult.Ok("task-proof-outbox-${taskProofRegistrations.size}")
     }
 
     var roundCards: List<PcCareRoundCardDto> = emptyList()
     private val roundCardsFlow = MutableStateFlow<List<PcCareRoundCardDto>>(emptyList())
-    override fun observeRoundCards(category: String, date: String): Flow<List<PcCareRoundCardDto>> = roundCardsFlow
-    override suspend fun refreshRoundCards(category: String, date: String) {
+    override fun observeRoundCards(category: String, filter: String): Flow<List<PcCareRoundCardDto>> = roundCardsFlow
+    override suspend fun refreshRoundCards(category: String, filter: String) {
         roundCardsFlow.value = roundCards
     }
 
