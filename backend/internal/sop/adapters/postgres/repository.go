@@ -1488,7 +1488,7 @@ INSERT INTO sop_submissions (
 	if err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, mapWriteErr(err)
 	}
-	if err := insertSubmissionItems(ctx, tx, cmd, submissionID); err != nil {
+	if err := insertSubmissionItems(ctx, tx, cmd, submissionID, submitShedID); err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
 	}
 	var taskID string
@@ -2140,15 +2140,22 @@ func (r *Repository) existingSubmission(ctx context.Context, tx pgx.Tx, cmd port
 	return domain.SubmissionSummary{}, false, ports.ErrNotFound
 }
 
-func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand, submissionID string) error {
+func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand, submissionID, submitShedID string) error {
 	keys := cmd.SubmissionItems
 	if len(keys) == 0 {
 		keys = itemKeys(cmd.Body.Answers)
 	}
 	var err error
-	keys, err = filterSubmissionItemsToPartition(ctx, tx, cmd.TenantID, cmd.Body.PartitionLabel, keys)
+	var usedAssignmentMembers bool
+	keys, usedAssignmentMembers, err = filterSubmissionItemsToVaccinationAssignmentMembers(ctx, tx, cmd, submitShedID, keys)
 	if err != nil {
 		return err
+	}
+	if !usedAssignmentMembers {
+		keys, err = filterSubmissionItemsToPartition(ctx, tx, cmd.TenantID, cmd.Body.PartitionLabel, keys)
+		if err != nil {
+			return err
+		}
 	}
 	keys, err = filterSubmissionItemsToProofSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, cmd.Body.IdempotencyKey, keys)
 	if err != nil {
@@ -2169,6 +2176,78 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, '')::uuid, $5, $6, $7::jsonb)`,
 		}
 	}
 	return nil
+}
+
+func filterSubmissionItemsToVaccinationAssignmentMembers(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand, submitShedID string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, bool, error) {
+	partitionLabel := strings.TrimSpace(cmd.Body.PartitionLabel)
+	shedID := strings.TrimSpace(submitShedID)
+	if shedID == "" || !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+		return keys, false, nil
+	}
+	goatIDs := make([]string, 0, len(keys))
+	for _, item := range keys {
+		if goatID := strings.TrimSpace(item.GoatID); goatID != "" {
+			goatIDs = append(goatIDs, goatID)
+		}
+	}
+	if len(goatIDs) == 0 {
+		return keys, false, nil
+	}
+	rows, err := tx.Query(ctx, `
+WITH task_batch AS (
+  SELECT batch_id
+  FROM obligation_batches
+  WHERE tenant_id = $1::uuid
+    AND sop_task_id = $2::uuid
+)
+SELECT DISTINCT member.goat_id::text
+FROM task_batch tb
+JOIN vaccination_drive_assignments assignment
+  ON assignment.tenant_id = $1::uuid
+ AND assignment.batch_id = tb.batch_id
+ AND assignment.shed_id = $3::uuid
+ AND regexp_replace(lower(btrim(COALESCE(assignment.partition_label, 'whole'))), '^part[[:space:]]+', '')
+   = regexp_replace(lower(btrim($4::text)), '^part[[:space:]]+', '')
+JOIN vaccination_drive_assignment_members member
+  ON member.tenant_id = assignment.tenant_id
+ AND member.assignment_id = assignment.assignment_id
+WHERE member.goat_id = ANY($5::uuid[])`,
+		cmd.TenantID,
+		cmd.TaskID,
+		shedID,
+		partitionLabel,
+		goatIDs,
+	)
+	if err != nil {
+		return nil, true, err
+	}
+	defer rows.Close()
+	allowed := map[string]struct{}{}
+	for rows.Next() {
+		var goatID string
+		if err := rows.Scan(&goatID); err != nil {
+			return nil, true, err
+		}
+		allowed[goatID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, true, err
+	}
+	filtered := keys[:0]
+	for _, item := range keys {
+		goatID := strings.TrimSpace(item.GoatID)
+		if goatID == "" {
+			filtered = append(filtered, item)
+			continue
+		}
+		if _, ok := allowed[goatID]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	if len(filtered) != len(keys) {
+		return nil, true, ports.ErrInvalidFilter
+	}
+	return filtered, true, nil
 }
 
 func filterSubmissionItemsToPartition(ctx context.Context, tx pgx.Tx, tenantID, partitionLabel string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {

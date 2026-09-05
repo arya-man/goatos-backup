@@ -2001,6 +2001,7 @@ SELECT
     OR classified.is_icu
   ) AS has_deferred,
   BOOL_OR(classified.work_state = 'overdue') AS has_overdue,
+  BOOL_OR(classified.work_state IN ('verification_pending', 'proof_pending')) AS has_review_pending,
   -- Reachable now: classified.work_state is the CARD-GRAIN state derived in stateful/classified
   -- (operator absence -> blocked, task rework/rejected or completion_rejected -> rejected, etc),
   -- not the per-row eff_status proxy the old filtered_by_state CTE filtered by. That proxy never
@@ -4413,12 +4414,12 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 		var batchID *string
 		var driveID *string
 		var obligationCount, doneCount, openCount int64
-		var hasMissed, hasDeferred, hasOverdue, hasRejected bool
+		var hasMissed, hasDeferred, hasOverdue, hasReviewPending, hasRejected bool
 		var vaccineLabels []string
 		var vaccineLabelCounts []string
 
 		if err := rows.Scan(&shedID, &partLabel, &taskID, &batchID, &driveID, &obligationCount, &doneCount, &openCount,
-			&hasMissed, &hasDeferred, &hasOverdue, &hasRejected, &vaccineLabels, &vaccineLabelCounts); err != nil {
+			&hasMissed, &hasDeferred, &hasOverdue, &hasReviewPending, &hasRejected, &vaccineLabels, &vaccineLabelCounts); err != nil {
 			return nil, fmt.Errorf("vaccination execution: card summaries scan: %w", err)
 		}
 
@@ -4428,6 +4429,8 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 			status = domain.WorkStateRejected // SENT_BACK
 		} else if hasOverdue || hasMissed {
 			status = domain.WorkStateOverdue // DELAYED
+		} else if hasReviewPending {
+			status = domain.WorkStateVerificationPending
 		} else if openCount == 0 && obligationCount > 0 {
 			status = domain.WorkStateCompleted // DONE
 		} else {

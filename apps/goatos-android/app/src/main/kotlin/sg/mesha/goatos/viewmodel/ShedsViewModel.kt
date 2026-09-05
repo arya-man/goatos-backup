@@ -434,8 +434,14 @@ class ShedsViewModel @Inject constructor(
                     done = cardSummary.doneCount,
                 )
                 effectiveDone = cardSummary.doneCount
-                statusLabel = status.readable()
-                statusChips = listOf(ShedStatusChip(status.toChipKey(), status.toChipTone()))
+                val summaryInReview = cardSummary.status.equals("verification_pending", ignoreCase = true) ||
+                    cardSummary.status.equals("proof_pending", ignoreCase = true)
+                statusLabel = if (summaryInReview) "In review" else status.readable()
+                statusChips = if (summaryInReview) {
+                    listOf(ShedStatusChip(ShedStatusChipKey.IN_REVIEW, ShedStatusTone.INFO))
+                } else {
+                    listOf(ShedStatusChip(status.toChipKey(), status.toChipTone()))
+                }
                 vaccineGroups = cardSummary.vaccineGroups.map { summary ->
                     VaccineGroup(
                         label = summary.label,
@@ -686,6 +692,7 @@ internal fun cardSummaryStatusToShedStatus(backendStatus: String, needsRedo: Boo
     return when (backendStatus.lowercase()) {
         "rejected", "deferred" -> ShedStatus.SENT_BACK
         "overdue", "missed", "blocked" -> ShedStatus.DELAYED
+        "verification_pending", "proof_pending" -> ShedStatus.DONE
         "completed" -> ShedStatus.DONE
         else -> ShedStatus.PENDING
     }
