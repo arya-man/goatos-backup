@@ -40,8 +40,9 @@ func TestEveryNotificationTypeIsAllowedByTheCheckConstraint(t *testing.T) {
 }
 
 var (
-	notificationTypeConstRe = regexp.MustCompile(`(?m)^const\s+NotificationType\w*\s*=\s*"([^"]+)"`)
-	checkValueRe            = regexp.MustCompile(`'([a-z_]+)'::text`)
+	notificationTypeConstRe      = regexp.MustCompile(`(?m)^\s*NotificationType\w*\s*=\s*"([^"]+)"`)
+	singleNotificationTypeConstRe = regexp.MustCompile(`(?m)^const\s+NotificationType\w*\s*=\s*"([^"]+)"`)
+	checkValueRe                  = regexp.MustCompile(`'([a-z_]+)'::text`)
 )
 
 // declaredNotificationTypes collects the notification_type values this package writes.
@@ -60,6 +61,9 @@ func declaredNotificationTypes(t *testing.T) []string {
 		source, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
+		}
+		for _, match := range singleNotificationTypeConstRe.FindAllStringSubmatch(string(source), -1) {
+			seen[match[1]] = true
 		}
 		for _, match := range notificationTypeConstRe.FindAllStringSubmatch(string(source), -1) {
 			seen[match[1]] = true

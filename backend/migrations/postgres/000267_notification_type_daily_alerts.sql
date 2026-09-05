@@ -59,6 +59,8 @@ ALTER TABLE notification_requests
     'rework'::text,
     'advance_notice'::text,
     'due_today'::text,
+    'leadership_task_raised'::text,
+    'leadership_task_done'::text,
     -- Alerts raised by notificationbridge notifiers. None has a cadence/reminder shape, which is
     -- why none of the nine values above fits; the three daily ones are each queued once per
     -- business date by a notifier riding the shared operational cadence.
@@ -75,7 +77,7 @@ ALTER TABLE notification_requests
 -- +goose Down
 SET lock_timeout = '5s';
 
--- The Down narrows the enum back to the baseline nine. Rows already written under the three added
+-- The Down narrows the enum back to the pre-alert set. Rows already written under the added
 -- types would violate it, so they are removed first: a queued notification is transient work, not
 -- history (the audit trail of what was actually delivered lives in the delivery log), and leaving
 -- them would make the VALIDATE fail and the rollback impossible.
@@ -100,7 +102,9 @@ ALTER TABLE notification_requests
     'verification_closed'::text,
     'rework'::text,
     'advance_notice'::text,
-    'due_today'::text
+    'due_today'::text,
+    'leadership_task_raised'::text,
+    'leadership_task_done'::text
   ]))) NOT VALID;
 
 -- seed-migration-guard:ignore owner=manohark issue=feed-proof-times-slack-report reason=enum-widening-on-a-table-no-seed-path-writes expiry=2026-12-31
