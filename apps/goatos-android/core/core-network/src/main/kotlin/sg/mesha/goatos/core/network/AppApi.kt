@@ -1635,20 +1635,47 @@ interface AppApi {
 
     // Pipeline and evidence: the five panels the retired Sales DB sheet carried.
 
-    /** GET /sales/buyer-leads — the buyer demand board, newest first. */
-    suspend fun getSalesBuyerLeads(limit: Int? = null, offset: Int? = null): SalesBuyerLeadPageDto
+    /**
+     * GET /sales/buyer-leads — the buyer demand board, newest first.
+     *
+     * [search] matches anywhere inside the lead's own text (name, place, animal, breed) and inside
+     * the phone number, so a half-remembered name or the last four digits both find the row.
+     * [status] is one exact call-status word from the board's own vocabulary. Both narrow the
+     * server's `total`, which is why the count under the title always answers the filter in force.
+     */
+    suspend fun getSalesBuyerLeads(
+        limit: Int? = null,
+        offset: Int? = null,
+        search: String? = null,
+        status: String? = null,
+    ): SalesBuyerLeadPageDto
 
     /** POST /sales/buyer-leads — records one buyer enquiry. */
     suspend fun createSalesBuyerLead(idempotencyKey: String, request: SalesBuyerLeadWriteDto): SalesBuyerLeadDto
 
+    /**
+     * POST /sales/buyer-leads/{lead_id} — REPLACES every editable field of one lead, the phone
+     * number included. It carries the whole record, never a patch, so what the operator saw on the
+     * form is exactly what the row becomes.
+     */
+    suspend fun updateSalesBuyerLead(leadId: String, idempotencyKey: String, request: SalesBuyerLeadWriteDto): SalesBuyerLeadDto
+
     /** POST /sales/buyer-leads/{lead_id}/status — moves where that conversation stands. */
     suspend fun setSalesBuyerLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesBuyerLeadDto
 
-    /** GET /sales/fpo-leads — the farmer-group board. */
-    suspend fun getSalesFpoLeads(limit: Int? = null, offset: Int? = null): SalesFpoLeadPageDto
+    /** GET /sales/fpo-leads — the farmer-group board. Same two narrowings as the buyer board. */
+    suspend fun getSalesFpoLeads(
+        limit: Int? = null,
+        offset: Int? = null,
+        search: String? = null,
+        status: String? = null,
+    ): SalesFpoLeadPageDto
 
     /** POST /sales/fpo-leads — records one farmer group. */
     suspend fun createSalesFpoLead(idempotencyKey: String, request: SalesFpoLeadWriteDto): SalesFpoLeadDto
+
+    /** POST /sales/fpo-leads/{lead_id} — the buyer twin: a REPLACE of every editable field. */
+    suspend fun updateSalesFpoLead(leadId: String, idempotencyKey: String, request: SalesFpoLeadWriteDto): SalesFpoLeadDto
 
     /** POST /sales/fpo-leads/{lead_id}/status. */
     suspend fun setSalesFpoLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesFpoLeadDto
@@ -3047,26 +3074,32 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun setSalesDealStatus(dealId: String, idempotencyKey: String, request: SalesDealStatusWriteDto): SalesDealDto =
         fakeSalesDeal().copy(dealId = dealId, status = request.status)
 
-    override suspend fun getSalesBuyerLeads(limit: Int?, offset: Int?): SalesBuyerLeadPageDto = SalesBuyerLeadPageDto(
-        leads = listOf(SalesBuyerLeadDto("lead-1", "2026-09-01", "CBE", "Kumar Traders", "Hosur", "Goat", "Malai", "Interested")),
+    override suspend fun getSalesBuyerLeads(limit: Int?, offset: Int?, search: String?, status: String?): SalesBuyerLeadPageDto = SalesBuyerLeadPageDto(
+        leads = listOf(SalesBuyerLeadDto("lead-1", "2026-09-01", "CBE", "Kumar Traders", "Hosur", "Goat", "Malai", "9876500001", "Interested")),
         total = 1,
         statusOptions = listOf("Interested", "Not Interested", "Call Later"),
     )
 
     override suspend fun createSalesBuyerLead(idempotencyKey: String, request: SalesBuyerLeadWriteDto): SalesBuyerLeadDto =
-        SalesBuyerLeadDto("lead-new", request.recordedDate, request.farm, request.buyerName, request.buyerPlace, request.animalType, request.breed, request.callStatus)
+        SalesBuyerLeadDto("lead-new", request.recordedDate, request.farm, request.buyerName, request.buyerPlace, request.animalType, request.breed, request.phoneNumber, request.callStatus)
+
+    override suspend fun updateSalesBuyerLead(leadId: String, idempotencyKey: String, request: SalesBuyerLeadWriteDto): SalesBuyerLeadDto =
+        SalesBuyerLeadDto(leadId, request.recordedDate, request.farm, request.buyerName, request.buyerPlace, request.animalType, request.breed, request.phoneNumber, request.callStatus)
 
     override suspend fun setSalesBuyerLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesBuyerLeadDto =
         SalesBuyerLeadDto(leadId, buyerName = "Kumar Traders", callStatus = request.callStatus)
 
-    override suspend fun getSalesFpoLeads(limit: Int?, offset: Int?): SalesFpoLeadPageDto = SalesFpoLeadPageDto(
-        leads = listOf(SalesFpoLeadDto("fpo-1", "Erode Farmer Group", "Maize", "Erode", "Bhavani", "TN", "Interested")),
+    override suspend fun getSalesFpoLeads(limit: Int?, offset: Int?, search: String?, status: String?): SalesFpoLeadPageDto = SalesFpoLeadPageDto(
+        leads = listOf(SalesFpoLeadDto("fpo-1", "Erode Farmer Group", "Maize", "Erode", "Bhavani", "TN", "9876500002", "Interested")),
         total = 1,
         statusOptions = listOf("Interested", "Not Interested", "Call Later"),
     )
 
     override suspend fun createSalesFpoLead(idempotencyKey: String, request: SalesFpoLeadWriteDto): SalesFpoLeadDto =
-        SalesFpoLeadDto("fpo-new", request.fpoName, request.crops, request.district, request.taluk, request.state, request.callStatus)
+        SalesFpoLeadDto("fpo-new", request.fpoName, request.crops, request.district, request.taluk, request.state, request.phoneNumber, request.callStatus)
+
+    override suspend fun updateSalesFpoLead(leadId: String, idempotencyKey: String, request: SalesFpoLeadWriteDto): SalesFpoLeadDto =
+        SalesFpoLeadDto(leadId, request.fpoName, request.crops, request.district, request.taluk, request.state, request.phoneNumber, request.callStatus)
 
     override suspend fun setSalesFpoLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesFpoLeadDto =
         SalesFpoLeadDto(leadId, fpoName = "Erode Farmer Group", callStatus = request.callStatus)

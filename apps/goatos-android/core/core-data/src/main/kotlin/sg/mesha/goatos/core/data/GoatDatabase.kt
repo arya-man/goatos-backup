@@ -147,6 +147,10 @@ import sg.mesha.goatos.core.data.cache.SalesDealItemEntity
 import sg.mesha.goatos.core.data.cache.SalesDealRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.SalesDealItemDao
 import sg.mesha.goatos.core.data.cache.SalesDealRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.SalesLeadItemDao
+import sg.mesha.goatos.core.data.cache.SalesLeadItemEntity
+import sg.mesha.goatos.core.data.cache.SalesLeadRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.SalesLeadRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowCardDao
@@ -342,6 +346,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         VendorsBlobCacheEntity::class,
         SalesDealItemEntity::class,
         SalesDealRemoteKeyEntity::class,
+        SalesLeadItemEntity::class,
+        SalesLeadRemoteKeyEntity::class,
         LeadershipTaskItemEntity::class,
         LeadershipTaskRemoteKeyEntity::class,
         LeadershipTaskDetailCacheEntity::class,
@@ -374,9 +380,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // `weighing_fasting_card` keyed (fastingTaskId, campaignShedId) plus its
     // `weighing_fasting_remote_key` cursor row (docs/decisions/feed-water-removal-precondition.md).
     // v59 (see [MIGRATION_58_59]) adds `death_cause_catalog`, the single-row disease vocabulary the
-    // death form's "due to disease" dropdown searches. Cached because the moment an operator needs
-    // that list is the moment they are standing in a pen with no signal (cause of death, maintainer
-    // decision 2026-09-05).
+    // death form's "due to disease" dropdown searches, and the sales LEAD board pair
+    // (`sales_lead_items` + `sales_lead_remote_keys`) so buyer/FPO leads page by side/search/status.
     version = 59,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
@@ -582,6 +587,8 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun vendorsBlobCacheDao(): VendorsBlobCacheDao
     abstract fun salesDealItemDao(): SalesDealItemDao
     abstract fun salesDealRemoteKeyDao(): SalesDealRemoteKeyDao
+    abstract fun salesLeadItemDao(): SalesLeadItemDao
+    abstract fun salesLeadRemoteKeyDao(): SalesLeadRemoteKeyDao
     abstract fun leadershipTaskItemDao(): LeadershipTaskItemDao
     abstract fun leadershipTaskRemoteKeyDao(): LeadershipTaskRemoteKeyDao
     abstract fun leadershipTaskDetailCacheDao(): LeadershipTaskDetailCacheDao

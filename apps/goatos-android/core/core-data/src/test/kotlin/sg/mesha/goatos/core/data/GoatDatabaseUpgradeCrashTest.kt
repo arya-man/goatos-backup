@@ -403,6 +403,12 @@ class GoatDatabaseUpgradeCrashTest {
             //     fresh-install test — only reopening a real old file and round-tripping each
             //     table catches it before an upgraded phone crashes on open.
             assertLeadershipTaskTablesRoundTrip(upgraded, base = 220L)
+
+            // 18. The two v59 SALES LEAD board tables (MIGRATION_58_59). Same MOB-007 proof:
+            //     purely additive, so an omitted or mis-shaped CREATE still passes every
+            //     fresh-install test — only reopening a real old file and round-tripping each
+            //     table catches it before an upgraded phone crashes on open.
+            assertSalesLeadTablesRoundTrip(upgraded, base = 240L)
         } finally {
             upgraded.close()
         }
@@ -420,6 +426,33 @@ class GoatDatabaseUpgradeCrashTest {
         )
         val row = upgraded.clockBlobCacheDao().observe("status").first()
         assertEquals("{\"probe\":\"clock\"}", row?.dtoJson)
+    }
+
+    /** Round-trips both sales LEAD tables so a missing/mismatched CREATE in MIGRATION_58_59
+     *  fails here — the MOB-007 upgrade-crash class — rather than on a phone. */
+    private suspend fun assertSalesLeadTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.salesLeadItemDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.SalesLeadItemEntity(
+                    queryKey = "sales-leads",
+                    grainKey = "lead-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.salesLeadItemDao().countForQuery("sales-leads"))
+        assertEquals(1, upgraded.salesLeadItemDao().rowsForLead("lead-1").size)
+        upgraded.salesLeadRemoteKeyDao().upsert(
+            sg.mesha.goatos.core.data.cache.SalesLeadRemoteKeyEntity(
+                queryKey = "sales-leads",
+                nextCursor = "20",
+                endReached = false,
+                updatedAt = base,
+            ),
+        )
+        assertEquals("20", upgraded.salesLeadRemoteKeyDao().get("sales-leads")?.nextCursor)
     }
 
     /** Round-trips the three Leadership Task tables so a missing/mismatched CREATE in

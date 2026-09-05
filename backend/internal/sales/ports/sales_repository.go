@@ -66,22 +66,27 @@ type SalesRepository interface {
 
 	// ListBuyerLeads returns one page of the buyer pipeline (newest first) plus the whole-filter
 	// total and the tenant's existing call-status vocabulary (for the status picker).
-	ListBuyerLeads(ctx context.Context, tenantID string, limit, offset int) (BuyerLeadPage, error)
+	ListBuyerLeads(ctx context.Context, tenantID string, filter domain.LeadFilter, limit, offset int) (BuyerLeadPage, error)
 
 	// CreateBuyerLead records a buyer lead. Same one-transaction idempotency contract as CreateDeal.
 	CreateBuyerLead(ctx context.Context, tenantID string, write domain.BuyerLeadWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
 
 	// SetBuyerLeadStatus updates one buyer lead's call status. Same idempotency contract.
 	SetBuyerLeadStatus(ctx context.Context, tenantID, leadID string, write domain.LeadStatusWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
+	// UpdateBuyerLead replaces a lead's editable fields -- the path that lets a caller attach the
+	// phone number no imported lead carries, and correct a name or place that used to be permanent.
+	UpdateBuyerLead(ctx context.Context, tenantID, leadID string, write domain.BuyerLeadWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
 
 	// ListFPOLeads mirrors ListBuyerLeads for the farmer-group pipeline.
-	ListFPOLeads(ctx context.Context, tenantID string, limit, offset int) (FPOLeadPage, error)
+	ListFPOLeads(ctx context.Context, tenantID string, filter domain.LeadFilter, limit, offset int) (FPOLeadPage, error)
 
 	// CreateFPOLead records a farmer-group lead. Same idempotency contract.
 	CreateFPOLead(ctx context.Context, tenantID string, write domain.FPOLeadWrite, actorID, idempotencyKey string) (domain.FPOLead, error)
 
 	// SetFPOLeadStatus updates one farmer-group lead's call status. Same idempotency contract.
 	SetFPOLeadStatus(ctx context.Context, tenantID, leadID string, write domain.LeadStatusWrite, actorID, idempotencyKey string) (domain.FPOLead, error)
+	// UpdateFPOLead replaces a farmer-group lead's editable fields. Same reasoning as the buyer twin.
+	UpdateFPOLead(ctx context.Context, tenantID, leadID string, write domain.FPOLeadWrite, actorID, idempotencyKey string) (domain.FPOLead, error)
 
 	// CreateBenchmark records one market quote. Same idempotency contract.
 	CreateBenchmark(ctx context.Context, tenantID string, write domain.BenchmarkWrite, actorID, idempotencyKey string) error

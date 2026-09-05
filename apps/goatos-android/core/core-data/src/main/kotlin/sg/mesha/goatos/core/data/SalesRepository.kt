@@ -21,6 +21,8 @@ import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.cache.SalesDealItemEntity
 import sg.mesha.goatos.core.data.cache.SalesDealRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.SalesLeadItemEntity
+import sg.mesha.goatos.core.data.cache.SalesLeadRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.VendorsBlobCacheEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
@@ -31,15 +33,44 @@ import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
 import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
 import sg.mesha.goatos.core.network.dto.SaleLocationsDto
 import sg.mesha.goatos.core.network.dto.SalePreviewDto
-import sg.mesha.goatos.core.network.dto.SalesBuyerLeadPageDto
+import sg.mesha.goatos.core.network.dto.SalesBuyerLeadDto
 import sg.mesha.goatos.core.network.dto.SalesDealDto
-import sg.mesha.goatos.core.network.dto.SalesFpoLeadPageDto
+import sg.mesha.goatos.core.network.dto.SalesFpoLeadDto
+import sg.mesha.goatos.core.network.dto.SalesLeadBoardMetaDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
 import sg.mesha.goatos.core.network.dto.VendorOptionsDto
 import sg.mesha.goatos.core.network.serverErrorText
 
 /** Whole-filter totals of the deals ledger, refreshed with every page-one fetch. */
 data class SalesDealTotals(val total: Int = 0)
+
+/** Which lead board a scope belongs to. The wire value is only ever part of a cache key. */
+enum class SalesLeadSide(val wireValue: String) { BUYER("buyer"), FARMER_GROUP("fpo") }
+
+/** One screen-page of leads -- bounds BOTH the network request and the Room window. */
+private const val SALES_LEADS_PAGE_SIZE = 20
+private const val SALES_LEADS_CACHE_SHAPE = "sales-v1"
+/** How many lead scopes stay cached; a board visits a handful of searches in one sitting. */
+private const val SALES_LEAD_CACHED_QUERIES = 6
+
+/**
+ * One lead board scope's Room key. The SIDE, the SEARCH and the STATUS are all in it, and all three
+ * have to be: two boards sharing a `sales_lead_items.queryKey` would render each other's rows, and
+ * a search that reused the unfiltered key would leave the whole board showing the four leads its
+ * last search matched -- or hand a searcher the unfiltered board and call it a result.
+ *
+ * Search is trimmed and lower-cased so one typist's spacing is not a second cached scope.
+ */
+internal fun salesLeadScopeKey(side: SalesLeadSide, search: String, status: String): String =
+    cacheKey(SALES_LEADS_CACHE_SHAPE, "sales-leads", side.wireValue, search.trim().lowercase(), status, SALES_LEADS_PAGE_SIZE.toString())
+
+/**
+ * Where that scope's whole-filter count and status vocabulary are cached. Derived from the scope
+ * key for the same reason: the count answers the filter in force, so it cannot be shared with
+ * another filter's board.
+ */
+internal fun salesLeadMetaCacheKey(side: SalesLeadSide, search: String, status: String): String =
+    "sales-lead-meta:" + salesLeadScopeKey(side, search, status)
 
 /**
  * Sales on the phone (maintainer instruction 2026-09-04): the Procurement module's Sales tab.
@@ -62,15 +93,23 @@ interface SalesRepository {
     /** The server's returned row after a queued create, receipt or status change landed. */
     suspend fun persistServerDeal(deal: SalesDealDto)
 
-    // --- pipeline and evidence boards (maintainer instruction 2026-09-04) ---
+    // --- lead boards (maintainer instruction 2026-09-04; searched and paged 2026-09-05) ---
     //
-    // Both are BOUNDED reads (the newest [PIPELINE_PAGE_SIZE]), cached as one blob each and
-    // observed from Room, so the panel opens on what it last saw and refreshes behind that. The
-    // call-status vocabulary rides on the same payload and is rendered verbatim.
-    fun observeBuyerLeads(): Flow<SalesBuyerLeadPageDto?>
-    suspend fun refreshBuyerLeads()
-    fun observeFpoLeads(): Flow<SalesFpoLeadPageDto?>
-    suspend fun refreshFpoLeads()
+    // Both boards page from Room, ~20 rows at a time, per (side, search, status) scope. They used
+    // to be one bounded blob of the newest twenty rows each, which left 188 of 208 buyer leads
+    // unreachable and gave no way to find one by name or by number.
+    //
+    // The call-status vocabulary and the whole-filter count ride on the same page response and are
+    // cached beside the rows, so a board opened without a signal still shows both.
+    fun buyerLeads(search: String, status: String): Flow<PagingData<SalesBuyerLeadDto>>
+    fun fpoLeads(search: String, status: String): Flow<PagingData<SalesFpoLeadDto>>
+    fun observeLeadMeta(side: SalesLeadSide, search: String, status: String): Flow<SalesLeadBoardMetaDto?>
+    /** The unfiltered count behind the hub row for one board. */
+    suspend fun refreshLeadMeta(side: SalesLeadSide)
+    suspend fun invalidateLeads(side: SalesLeadSide, search: String, status: String)
+    /** The server's returned row after a queued lead edit landed, into every cached scope. */
+    suspend fun persistServerBuyerLead(lead: SalesBuyerLeadDto)
+    suspend fun persistServerFpoLead(lead: SalesFpoLeadDto)
 
     // --- tagging animals (online) ---
     suspend fun saleLocations(): AppResult<SaleLocationsDto>
@@ -136,26 +175,77 @@ class DefaultSalesRepository(
             }
     }
 
-    override fun observeBuyerLeads(): Flow<SalesBuyerLeadPageDto?> = observeBlob(BUYER_LEADS_KEY)
+    @OptIn(ExperimentalPagingApi::class)
+    override fun buyerLeads(search: String, status: String): Flow<PagingData<SalesBuyerLeadDto>> =
+        leadPages(SalesLeadSide.BUYER, search, status)
+            .map { page -> page.map { entity -> json.decodeFromString<SalesBuyerLeadDto>(entity.dtoJson) } }
+            .flowOn(Dispatchers.Default)
 
-    override suspend fun refreshBuyerLeads() {
-        // exception:exempt expected refresh failure; the cached board stays on screen.
-        runCatching { putBlob(BUYER_LEADS_KEY, json.encodeToString(api.getSalesBuyerLeads(PIPELINE_PAGE_SIZE, 0))) }
-            .onFailure {
-                if (it is CancellationException) throw it
-                android.util.Log.w(LOG_TAG, "sales_buyer_leads_refresh_failed", it)
-            }
+    @OptIn(ExperimentalPagingApi::class)
+    override fun fpoLeads(search: String, status: String): Flow<PagingData<SalesFpoLeadDto>> =
+        leadPages(SalesLeadSide.FARMER_GROUP, search, status)
+            .map { page -> page.map { entity -> json.decodeFromString<SalesFpoLeadDto>(entity.dtoJson) } }
+            .flowOn(Dispatchers.Default)
+
+    @OptIn(ExperimentalPagingApi::class)
+    private fun leadPages(side: SalesLeadSide, search: String, status: String): Flow<PagingData<SalesLeadItemEntity>> {
+        val key = salesLeadScopeKey(side, search, status)
+        return Pager(
+            config = PagingConfig(
+                pageSize = SALES_LEADS_PAGE_SIZE,
+                initialLoadSize = SALES_LEADS_PAGE_SIZE,
+                prefetchDistance = 3,
+                enablePlaceholders = false,
+                maxSize = SALES_LEADS_PAGE_SIZE * 3,
+            ),
+            remoteMediator = SalesLeadRemoteMediator(side, search, status, key, api, database, json, clock),
+            pagingSourceFactory = { database.salesLeadItemDao().pagingSource(key) },
+        ).flow
     }
 
-    override fun observeFpoLeads(): Flow<SalesFpoLeadPageDto?> = observeBlob(FPO_LEADS_KEY)
+    override fun observeLeadMeta(side: SalesLeadSide, search: String, status: String): Flow<SalesLeadBoardMetaDto?> =
+        observeBlob(salesLeadMetaCacheKey(side, search, status))
 
-    override suspend fun refreshFpoLeads() {
-        // exception:exempt expected refresh failure; the cached board stays on screen.
-        runCatching { putBlob(FPO_LEADS_KEY, json.encodeToString(api.getSalesFpoLeads(PIPELINE_PAGE_SIZE, 0))) }
-            .onFailure {
-                if (it is CancellationException) throw it
-                android.util.Log.w(LOG_TAG, "sales_fpo_leads_refresh_failed", it)
+    override suspend fun refreshLeadMeta(side: SalesLeadSide) {
+        // exception:exempt expected refresh failure; the cached count stays on the hub row.
+        runCatching {
+            // One row is enough: the hub shows the COUNT, and the board fetches its own pages.
+            val meta = when (side) {
+                SalesLeadSide.BUYER -> api.getSalesBuyerLeads(1, 0, null, null)
+                    .let { SalesLeadBoardMetaDto(total = it.total, statusOptions = it.statusOptions) }
+                SalesLeadSide.FARMER_GROUP -> api.getSalesFpoLeads(1, 0, null, null)
+                    .let { SalesLeadBoardMetaDto(total = it.total, statusOptions = it.statusOptions) }
             }
+            putBlob(salesLeadMetaCacheKey(side, "", ""), json.encodeToString(meta))
+        }.onFailure {
+            if (it is CancellationException) throw it
+            android.util.Log.w(LOG_TAG, "sales_lead_meta_refresh_failed", it)
+        }
+    }
+
+    override suspend fun invalidateLeads(side: SalesLeadSide, search: String, status: String) {
+        database.salesLeadRemoteKeyDao().delete(salesLeadScopeKey(side, search, status))
+    }
+
+    override suspend fun persistServerBuyerLead(lead: SalesBuyerLeadDto) =
+        persistServerLead(lead.leadId, json.encodeToString(lead))
+
+    override suspend fun persistServerFpoLead(lead: SalesFpoLeadDto) =
+        persistServerLead(lead.leadId, json.encodeToString(lead))
+
+    /**
+     * Writes the server's own row over every cached copy of that lead. The scopes' freshness
+     * markers are dropped too: an edited name or status can move the row into or out of a search,
+     * and only a refetch knows which.
+     */
+    private suspend fun persistServerLead(leadId: String, rowJson: String) {
+        if (leadId.isBlank()) return
+        val now = clock()
+        val itemDao = database.salesLeadItemDao()
+        database.withTransaction {
+            itemDao.upsertAll(itemDao.rowsForLead(leadId).map { it.copy(dtoJson = rowJson, updatedAt = now) })
+            database.salesLeadRemoteKeyDao().deleteAll()
+        }
     }
 
     override suspend fun persistServerDeal(deal: SalesDealDto) {
@@ -226,11 +316,85 @@ class DefaultSalesRepository(
         const val DEAL_KEY_PREFIX = "sale:"
         const val OPTIONS_KEY = "sales-options"
         const val VENDOR_OPTIONS_KEY = "sales-vendor-options"
-        const val BUYER_LEADS_KEY = "sales-buyer-leads"
-        const val FPO_LEADS_KEY = "sales-fpo-leads"
-        /** One screen of leads. Bounded on purpose: the board answers "who called lately", and a
-         *  phone that walked the whole history would be the banned full-table read. */
-        const val PIPELINE_PAGE_SIZE = 20
+    }
+
+    /**
+     * Fills Room from `GET /sales/{buyer,fpo}-leads` page by page for ONE (side, search, status)
+     * scope; the per-scope "cursor" is the next offset. Both boards use it, because they differ
+     * only in which endpoint answers and which row shape comes back.
+     *
+     * The whole-filter count and the status vocabulary ride on every page response and are written
+     * to the scope's meta blob here, so the board's count answers the filter that produced it.
+     */
+    @OptIn(ExperimentalPagingApi::class)
+    private class SalesLeadRemoteMediator(
+        private val side: SalesLeadSide,
+        private val search: String,
+        private val status: String,
+        private val queryKey: String,
+        private val api: AppApi,
+        private val database: GoatDatabase,
+        private val json: Json,
+        private val clock: () -> Long,
+    ) : RemoteMediator<Int, SalesLeadItemEntity>() {
+        override suspend fun initialize(): InitializeAction = InitializeAction.LAUNCH_INITIAL_REFRESH
+
+        override suspend fun load(loadType: LoadType, state: PagingState<Int, SalesLeadItemEntity>): MediatorResult {
+            val offset = when (loadType) {
+                LoadType.PREPEND -> return MediatorResult.Success(endOfPaginationReached = true)
+                LoadType.REFRESH -> 0
+                LoadType.APPEND -> {
+                    val remoteKey = database.salesLeadRemoteKeyDao().get(queryKey)
+                        ?: return MediatorResult.Success(endOfPaginationReached = true)
+                    if (remoteKey.endReached) return MediatorResult.Success(endOfPaginationReached = true)
+                    remoteKey.nextCursor.toIntOrNull() ?: return MediatorResult.Success(endOfPaginationReached = true)
+                }
+            }
+            return try {
+                val text = search.trim().ifBlank { null }
+                val word = status.ifBlank { null }
+                val rows: List<Pair<String, String>>
+                val meta: SalesLeadBoardMetaDto
+                when (side) {
+                    SalesLeadSide.BUYER -> {
+                        val response = api.getSalesBuyerLeads(SALES_LEADS_PAGE_SIZE, offset, text, word)
+                        rows = response.leads.map { it.leadId to json.encodeToString(it) }
+                        meta = SalesLeadBoardMetaDto(total = response.total, statusOptions = response.statusOptions)
+                    }
+                    SalesLeadSide.FARMER_GROUP -> {
+                        val response = api.getSalesFpoLeads(SALES_LEADS_PAGE_SIZE, offset, text, word)
+                        rows = response.leads.map { it.leadId to json.encodeToString(it) }
+                        meta = SalesLeadBoardMetaDto(total = response.total, statusOptions = response.statusOptions)
+                    }
+                }
+                val now = clock()
+                val nextOffset = offset + rows.size
+                val endReached = rows.isEmpty() || nextOffset >= meta.total
+                database.withTransaction {
+                    val itemDao = database.salesLeadItemDao()
+                    if (loadType == LoadType.REFRESH) itemDao.deleteQuery(queryKey)
+                    val base = if (loadType == LoadType.REFRESH) 0 else itemDao.countForQuery(queryKey)
+                    itemDao.upsertAll(
+                        rows.mapIndexed { index, (leadId, rowJson) ->
+                            SalesLeadItemEntity(queryKey = queryKey, grainKey = leadId, sortIndex = base + index, dtoJson = rowJson, updatedAt = now)
+                        },
+                    )
+                    database.vendorsBlobCacheDao().upsert(
+                        VendorsBlobCacheEntity(salesLeadMetaCacheKey(side, search, status), json.encodeToString(meta), now),
+                    )
+                    database.salesLeadRemoteKeyDao().upsert(SalesLeadRemoteKeyEntity(queryKey, nextOffset.toString(), endReached, now))
+                    database.salesLeadRemoteKeyDao().deleteOutsideNewestQueries(SALES_LEAD_CACHED_QUERIES)
+                    itemDao.deleteRowsOutsideNewestQueries(SALES_LEAD_CACHED_QUERIES)
+                }
+                database.vendorsBlobCacheDao().enforceCacheBounds()
+                MediatorResult.Success(endOfPaginationReached = endReached)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // exception:exempt offline/timeout/5xx: cached rows keep serving; Paging reports it.
+                MediatorResult.Error(e)
+            }
+        }
     }
 
     /** Fills Room from `GET /sales/deals` page by page; the per-scope "cursor" is the next offset. */

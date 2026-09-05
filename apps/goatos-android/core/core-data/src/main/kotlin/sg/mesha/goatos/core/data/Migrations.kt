@@ -1612,15 +1612,18 @@ val MIGRATION_57_58: Migration = object : Migration(57, 58) {
 }
 
 /**
- * v58 -> v59: the death form's disease vocabulary cache — `death_cause_catalog`, one JSON-blob row
- * (see [sg.mesha.goatos.core.data.cache.DeathCauseCatalogEntity] for why it is a blob and why there
- * is only ever one row).
+ * v58 -> v59: additive offline caches for death-cause vocabulary and sales lead boards.
+ *
+ * `death_cause_catalog` is one JSON-blob row for the death form's disease vocabulary. The sales
+ * LEAD board pair (`sales_lead_items` + `sales_lead_remote_keys`) matches the deals pair in
+ * [MIGRATION_55_56] and scopes each paged lead window by side, search and status.
  *
  * CREATE, not ALTER: an @Entity added to the @Database with no migration to create its table works
- * on a fresh install and CRASHES every upgrade on open. Purely additive — no existing table
- * changes, so an installed APK carrying an unsynced write outbox upgrades in place with no data
- * loss. The table name is spelled out as a literal so `make room-migration-guard` can statically
- * match the new v59 @Entity against this CREATE (docs/decisions/room-migration-safety.md).
+ * on a fresh install and crashes every upgrade on open. Purely additive -- no existing table
+ * changes, so an installed phone carrying an unsynced write outbox upgrades in place with no data
+ * loss. Each CREATE spells its table name out as a literal so `make room-migration-guard` can
+ * statically match every new v59 @Entity table against a CREATE here
+ * (docs/decisions/room-migration-safety.md).
  */
 val MIGRATION_58_59: Migration = object : Migration(58, 59) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -1630,6 +1633,24 @@ val MIGRATION_58_59: Migration = object : Migration(58, 59) {
                 "`dtoJson` TEXT NOT NULL, " +
                 "`updatedAt` INTEGER NOT NULL, " +
                 "PRIMARY KEY(`scopeKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `sales_lead_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_sales_lead_items_queryKey_sortIndex` " +
+                "ON `sales_lead_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_sales_lead_items_grainKey` ON `sales_lead_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `sales_lead_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
         )
     }
 }

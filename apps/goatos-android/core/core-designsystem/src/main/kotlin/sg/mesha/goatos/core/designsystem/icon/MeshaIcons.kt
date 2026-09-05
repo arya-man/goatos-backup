@@ -341,6 +341,12 @@ object MeshaIcons {
         "M13.5 6.5l3 3",
     )
 
+    /** Handset — a number that can be called. */
+    val Phone: ImageVector = strokeIcon(
+        "phone",
+        "M6.5 3.5h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1 -2 2A16.5 16.5 0 0 1 4.5 5.5a2 2 0 0 1 2 -2z",
+    )
+
     /** Microphone — an in-app voice note. */
     val Mic: ImageVector = strokeIcon(
         "mic",

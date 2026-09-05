@@ -157,6 +157,10 @@ func (s *SalesService) DeleteDealPayment(ctx context.Context, tenantID, dealID, 
 
 // LeadListQuery is one page request against a pipeline list.
 type LeadListQuery struct {
+	// Filter narrows the board to what the caller is looking for -- a name/place/phone search and a
+	// call-status facet. Empty lists the board unfiltered, which is what every caller did before the
+	// boards could reach past their newest 20 rows.
+	Filter domain.LeadFilter
 	Limit  int
 	Offset int
 }
@@ -182,7 +186,7 @@ func (s *SalesService) ListBuyerLeads(ctx context.Context, tenantID string, q Le
 	if err := q.validate(); err != nil {
 		return ports.BuyerLeadPage{}, err
 	}
-	return s.repo.ListBuyerLeads(ctx, tenantID, domain.ClampLeadPageSize(q.Limit), q.Offset)
+	return s.repo.ListBuyerLeads(ctx, tenantID, q.Filter, domain.ClampLeadPageSize(q.Limit), q.Offset)
 }
 
 // CreateBuyerLead validates and records a buyer lead.
@@ -211,12 +215,41 @@ func (s *SalesService) SetBuyerLeadStatus(ctx context.Context, tenantID, leadID 
 	return s.repo.SetBuyerLeadStatus(ctx, tenantID, leadID, normalized, actorID, key)
 }
 
+// UpdateBuyerLead validates and applies an edit to a buyer lead.
+//
+// Held to the SAME bar as a create (ValidateForCreate's shared Validate): an edit that could store
+// what a create refuses would be a way around the rules, one screen over.
+func (s *SalesService) UpdateBuyerLead(ctx context.Context, tenantID, leadID string, write domain.BuyerLeadWrite, actorID, idempotencyKey string) (domain.BuyerLead, error) {
+	key, err := requireKey(idempotencyKey)
+	if err != nil {
+		return domain.BuyerLead{}, err
+	}
+	normalized := write.Normalize()
+	if err := normalized.Validate(); err != nil {
+		return domain.BuyerLead{}, err
+	}
+	return s.repo.UpdateBuyerLead(ctx, tenantID, leadID, normalized, actorID, key)
+}
+
+// UpdateFPOLead validates and applies an edit to a farmer-group lead.
+func (s *SalesService) UpdateFPOLead(ctx context.Context, tenantID, leadID string, write domain.FPOLeadWrite, actorID, idempotencyKey string) (domain.FPOLead, error) {
+	key, err := requireKey(idempotencyKey)
+	if err != nil {
+		return domain.FPOLead{}, err
+	}
+	normalized := write.Normalize()
+	if err := normalized.Validate(); err != nil {
+		return domain.FPOLead{}, err
+	}
+	return s.repo.UpdateFPOLead(ctx, tenantID, leadID, normalized, actorID, key)
+}
+
 // ListFPOLeads returns one farmer-group page plus total and status vocabulary.
 func (s *SalesService) ListFPOLeads(ctx context.Context, tenantID string, q LeadListQuery) (ports.FPOLeadPage, error) {
 	if err := q.validate(); err != nil {
 		return ports.FPOLeadPage{}, err
 	}
-	return s.repo.ListFPOLeads(ctx, tenantID, domain.ClampLeadPageSize(q.Limit), q.Offset)
+	return s.repo.ListFPOLeads(ctx, tenantID, q.Filter, domain.ClampLeadPageSize(q.Limit), q.Offset)
 }
 
 // CreateFPOLead validates and records a farmer-group lead.

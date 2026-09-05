@@ -29,10 +29,14 @@ import { dealStatusTone, humanDate, inr, num } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 import { SalesPipelineDrawers, type SalesPanel } from "./sales-pipeline-drawers";
+import { BUYER_LEAD_PARAMS, FPO_LEAD_PARAMS } from "./sales-lead-params";
 import { LoadCostDrawer } from "./load-cost-drawer";
 
 const PAGE_PATH = "/sales/config";
 const DEFAULT_LIMIT = 25;
+// One drawer-sized page of leads. Small enough to read inside the panel, and paged over the
+// backend's whole-filter total so every one of the 208 buyers is reachable.
+const LEAD_PAGE_SIZE = 20;
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
   const query = new URLSearchParams();
@@ -90,6 +94,17 @@ export async function SalesConfigPage({
   const offset = boundedInt(one(sp, "offset"), 0, 0, 10000);
   const canRecordPipeline = controlEnabled(pageContract, "record_pipeline", false);
 
+  // The two lead boards' own search, facet and page, each under its own parameter names so the two
+  // panels sharing one URL cannot narrow each other. Bounds match the backend's own: offset is
+  // capped where the endpoint caps it, so a hand-typed page past the end fails as a normal empty
+  // result rather than an error.
+  const buyerSearch = one(sp, BUYER_LEAD_PARAMS.search) ?? "";
+  const buyerStatus = one(sp, BUYER_LEAD_PARAMS.status) ?? "";
+  const buyerOffset = boundedInt(one(sp, BUYER_LEAD_PARAMS.offset), 0, 0, 10000);
+  const groupSearch = one(sp, FPO_LEAD_PARAMS.search) ?? "";
+  const groupStatus = one(sp, FPO_LEAD_PARAMS.status) ?? "";
+  const groupOffset = boundedInt(one(sp, FPO_LEAD_PARAMS.offset), 0, 0, 10000);
+
   // The whole screen's data in ONE parallel read. Every drawer opens from this data: a
   // LocalOverlayLink changes the URL without an RSC request, so a form that fetched on open would
   // never see its own data arrive.
@@ -97,8 +112,22 @@ export async function SalesConfigPage({
     await Promise.all([
       listSalesDeals({ farm: "all", limit, offset }),
       getLoadwiseSales(),
-      canRecordPipeline ? listSalesBuyerLeads({ limit: 20 }) : Promise.resolve(null),
-      canRecordPipeline ? listSalesFpoLeads({ limit: 20 }) : Promise.resolve(null),
+      canRecordPipeline
+        ? listSalesBuyerLeads({
+            limit: LEAD_PAGE_SIZE,
+            offset: buyerOffset,
+            search: buyerSearch || undefined,
+            status: buyerStatus || undefined,
+          })
+        : Promise.resolve(null),
+      canRecordPipeline
+        ? listSalesFpoLeads({
+            limit: LEAD_PAGE_SIZE,
+            offset: groupOffset,
+            search: groupSearch || undefined,
+            status: groupStatus || undefined,
+          })
+        : Promise.resolve(null),
       // The tag-animals picker's park/shed/pen vocabulary, backend-owned.
       listSaleLocations(),
       // Every sale is made TO a vendor (maintainer decision 2026-08-27). ONE bounded read, never
@@ -130,8 +159,13 @@ export async function SalesConfigPage({
   const canRecordCost = controlEnabled(pageContract, "record_load_cost", false);
   const none = copy(pageContract, "value.none");
   const dealColumns = tableLabels(pageContract, "sales-deals");
-  const listHref = hrefWithQuery(sp, { deal_id: null, panel: null, cost_load: null, tag_sale: null });
-  const panelHrefFor = (panel: SalesPanel) => hrefWithQuery(sp, { deal_id: null, cost_load: null, panel });
+  // The reopened-row parameters are cleared here and re-added by the edit form itself: they mean
+  // "the save just came back from this row", so carrying an old one forward would reopen a lead
+  // nobody touched on the next save.
+  const clearOpen = { [BUYER_LEAD_PARAMS.open]: null, [FPO_LEAD_PARAMS.open]: null };
+  const listHref = hrefWithQuery(sp, { deal_id: null, panel: null, cost_load: null, tag_sale: null, ...clearOpen });
+  const panelHrefFor = (panel: SalesPanel) =>
+    hrefWithQuery(sp, { deal_id: null, cost_load: null, panel, ...clearOpen });
   const pagerHref = (nextOffset: number) => hrefWithQuery(sp, { offset: nextOffset > 0 ? String(nextOffset) : null });
 
   return (
@@ -392,10 +426,26 @@ export async function SalesConfigPage({
           weight_check: panelHrefFor("weight_check"),
         }}
         canRecord={canRecordPipeline}
-        buyerLeads={buyerLeadPage.leads}
-        buyerStatusOptions={buyerLeadPage.status_options}
-        fpoLeads={fpoLeadPage.leads}
-        fpoStatusOptions={fpoLeadPage.status_options}
+        buyerBoard={{
+          leads: buyerLeadPage.leads,
+          total: buyerLeadPage.total,
+          statusOptions: buyerLeadPage.status_options,
+          limit: LEAD_PAGE_SIZE,
+          offset: buyerOffset,
+          search: buyerSearch,
+          status: buyerStatus,
+          openLeadId: one(sp, BUYER_LEAD_PARAMS.open) ?? "",
+        }}
+        fpoBoard={{
+          leads: fpoLeadPage.leads,
+          total: fpoLeadPage.total,
+          statusOptions: fpoLeadPage.status_options,
+          limit: LEAD_PAGE_SIZE,
+          offset: groupOffset,
+          search: groupSearch,
+          status: groupStatus,
+          openLeadId: one(sp, FPO_LEAD_PARAMS.open) ?? "",
+        }}
       />
       <LoadCostDrawer
         loads={loads}

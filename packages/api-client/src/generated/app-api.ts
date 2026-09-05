@@ -3536,6 +3536,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/buyer-leads/{lead_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edit a buyer lead.
+         * @description REPLACES the lead's editable fields. This is the path that attaches a PHONE NUMBER -- absent on every imported lead, so without it the number could only be added by creating a duplicate lead -- and the path that corrects a name or place that was otherwise permanent. It is a replace, not a patch: a field sent empty clears the column, so the only supported caller is a form that renders every field. Identity and import provenance are never touched. Same idempotency contract as the other sales writes.
+         */
+        post: operations["updateSalesBuyerLead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/buyer-leads/{lead_id}/status": {
         parameters: {
             query?: never;
@@ -3574,6 +3594,26 @@ export interface paths {
          * @description Records one farmer-group lead. Same idempotency contract as the other sales writes.
          */
         post: operations["createSalesFpoLead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/fpo-leads/{lead_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edit a farmer-group lead.
+         * @description REPLACES the lead's editable fields. This is the path that attaches a PHONE NUMBER -- absent on every imported lead, so without it the number could only be added by creating a duplicate lead -- and the path that corrects a name or place that was otherwise permanent. It is a replace, not a patch: a field sent empty clears the column, so the only supported caller is a form that renders every field. Identity and import provenance are never touched. Same idempotency contract as the other sales writes.
+         */
+        post: operations["updateSalesFpoLead"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6572,6 +6612,8 @@ export interface components {
             buyer_place?: string | null;
             animal_type?: string | null;
             breed?: string | null;
+            /** @description The number to call this buyer on. Null on every row imported from the 2026-08-17 sheet, which never carried one; attached later through the lead edit. */
+            phone_number?: string | null;
             /** @description Null means not yet called; the overview reports that bucket as "uncontacted". */
             call_status?: string | null;
             /** Format: date-time */
@@ -6598,6 +6640,8 @@ export interface components {
             buyer_place?: string;
             animal_type?: string;
             breed?: string;
+            /** @description Optional; free text, may hold more than one number. */
+            phone_number?: string;
             /** @description Optional; empty means not yet called. */
             call_status?: string;
         };
@@ -6610,6 +6654,8 @@ export interface components {
             district?: string | null;
             taluk?: string | null;
             state?: string | null;
+            /** @description The number to call this farmer group on. Null on every imported row. */
+            phone_number?: string | null;
             call_status?: string | null;
             /** Format: date-time */
             created_at: string;
@@ -6627,6 +6673,8 @@ export interface components {
             district?: string;
             taluk?: string;
             state?: string;
+            /** @description Optional; free text, may hold more than one number. */
+            phone_number?: string;
             call_status?: string;
         };
         /** @description Sets one lead's call status; empty clears it back to "not yet called". */
@@ -22501,6 +22549,10 @@ export interface operations {
     listSalesBuyerLeads: {
         parameters: {
             query?: {
+                /** @description Infix match over the lead's own identifying text -- for a buyer, name, place, animal type and breed; for a farmer group, name, district, taluk and state -- and, on both, the PHONE NUMBER, so a caller holding a number can find the lead without recalling the name. Served by a generated column and a trigram index (migration 000258). Longer terms are truncated. */
+                search?: string;
+                /** @description Exact `call_status` match, so the facet and the pipeline chart (which buckets by exact string) always agree. The sentinel `uncontacted` selects the not-yet-called rows, which are stored as null or blank and so cannot be expressed as an equality. */
+                status?: string;
                 limit?: number;
                 offset?: number;
             };
@@ -22556,6 +22608,40 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    updateSalesBuyerLead: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesBuyerLeadWrite"];
+            };
+        };
+        responses: {
+            /** @description The updated lead. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesBuyerLead"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     setSalesBuyerLeadStatus: {
         parameters: {
             query?: never;
@@ -22593,6 +22679,10 @@ export interface operations {
     listSalesFpoLeads: {
         parameters: {
             query?: {
+                /** @description Infix match over the lead's own identifying text -- for a buyer, name, place, animal type and breed; for a farmer group, name, district, taluk and state -- and, on both, the PHONE NUMBER, so a caller holding a number can find the lead without recalling the name. Served by a generated column and a trigram index (migration 000258). Longer terms are truncated. */
+                search?: string;
+                /** @description Exact `call_status` match, so the facet and the pipeline chart (which buckets by exact string) always agree. The sentinel `uncontacted` selects the not-yet-called rows, which are stored as null or blank and so cannot be expressed as an equality. */
+                status?: string;
                 limit?: number;
                 offset?: number;
             };
@@ -22644,6 +22734,40 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateSalesFpoLead: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesFpoLeadWrite"];
+            };
+        };
+        responses: {
+            /** @description The updated lead. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesFpoLead"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };

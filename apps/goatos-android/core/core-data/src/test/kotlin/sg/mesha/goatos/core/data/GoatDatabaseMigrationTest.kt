@@ -388,14 +388,18 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
-    fun `migration 58 to 59 creates the death cause catalog and preserves existing rows`() {
+    fun `migration 58 to 59 creates death cause and sales lead tables while preserving existing rows`() {
         helper.createDatabase(DB_NAME, 58).apply {
-            // A pre-upgrade row proves the additive migration touches nothing existing. This is the
-            // property that matters most in the field: an installed phone can be carrying unsynced
-            // operator writes when it upgrades, and a migration that loses them loses real work.
+            // Pre-upgrade rows prove the additive migration touches nothing existing and that a
+            // phone carrying cached field data upgrades in place rather than crashing.
             execSQL(
                 "INSERT INTO `clock_blob_cache` (`cacheKey`, `dtoJson`, `updatedAt`) " +
                     "VALUES ('status', '{}', 1)",
+            )
+            execSQL(
+                "INSERT INTO `sales_deal_items` " +
+                    "(`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('scope-1', 'deal-1', 0, '{}', 1)",
             )
             close()
         }
@@ -420,7 +424,17 @@ class GoatDatabaseMigrationTest {
             assertEquals(true, cursor.moveToFirst())
             assertEquals(1, cursor.getInt(0))
         }
+        listOf("sales_lead_items", "sales_lead_remote_keys").forEach { table ->
+            db.query("SELECT COUNT(*) FROM `$table`").use { cursor ->
+                assertEquals("table $table must exist after v59", true, cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
         db.query("SELECT `dtoJson` FROM `clock_blob_cache` WHERE `cacheKey`='status'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{}", cursor.getString(0))
+        }
+        db.query("SELECT `dtoJson` FROM `sales_deal_items` WHERE `grainKey`='deal-1'").use { cursor ->
             assertEquals(true, cursor.moveToFirst())
             assertEquals("{}", cursor.getString(0))
         }

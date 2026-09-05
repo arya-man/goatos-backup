@@ -1706,7 +1706,9 @@ class DefaultSyncRepository(
         groupKey = when (payload.kind) {
             SalesPipelineKind.BUYER_LEAD_STATUS,
             SalesPipelineKind.FPO_LEAD_STATUS,
-            -> salesPipelineLeadStatusGroupKey(payload.leadId.trim())
+            SalesPipelineKind.BUYER_LEAD_EDIT,
+            SalesPipelineKind.FPO_LEAD_EDIT,
+            -> salesPipelineLeadGroupKey(payload.leadId.trim())
             else -> salesPipelineGroupKey(payload.clientId.trim())
         },
         idempotencyKey = salesPipelineIdempotencyKey(payload.clientId.trim()),

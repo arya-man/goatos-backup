@@ -284,3 +284,87 @@ interface SalesDealRemoteKeyDao {
     )
     suspend fun deleteOutsideNewestQueries(keepQueries: Int)
 }
+
+// ---------------------------------------------------------------------------------------------
+// Sales LEADS (maintainer instruction 2026-09-05): the buyer-demand and farmer-group boards used
+// to be one bounded blob of the newest twenty rows, so 188 of 208 buyer leads could not be reached
+// at all. They now page exactly like every other list on the phone -- one row per (scope, lead),
+// an offset cursor per scope -- where the SCOPE is (side, search, status). The filters belong IN
+// the key: without them a searched board and an unfiltered board share one `queryKey` and each
+// renders the other's rows.
+//
+// Both boards share these two tables. `grainKey` is the lead id and `queryKey` already names the
+// side, so a buyer lead and a farmer group can never land in the same window.
+// ---------------------------------------------------------------------------------------------
+
+@Entity(
+    tableName = "sales_lead_items",
+    primaryKeys = ["queryKey", "grainKey"],
+    indices = [
+        Index(value = ["queryKey", "sortIndex"]),
+        Index(value = ["grainKey"]),
+    ],
+)
+data class SalesLeadItemEntity(
+    /** (side, search, status, page size) -- see `salesLeadScopeKey`. */
+    val queryKey: String,
+    /** The LEAD id -- the row grain the board pages by. */
+    val grainKey: String,
+    val sortIndex: Int,
+    val dtoJson: String,
+    val updatedAt: Long,
+)
+
+@Entity(tableName = "sales_lead_remote_keys")
+data class SalesLeadRemoteKeyEntity(
+    @PrimaryKey val queryKey: String,
+    val nextCursor: String,
+    val endReached: Boolean,
+    val updatedAt: Long,
+)
+
+@Dao
+interface SalesLeadItemDao {
+    @Query("SELECT * FROM sales_lead_items WHERE queryKey = :queryKey ORDER BY sortIndex ASC")
+    fun pagingSource(queryKey: String): PagingSource<Int, SalesLeadItemEntity>
+
+    /** Every cached copy of one lead's row, across scopes -- the reconcile target after an edit. */
+    @Query("SELECT * FROM sales_lead_items WHERE grainKey = :leadId")
+    suspend fun rowsForLead(leadId: String): List<SalesLeadItemEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(items: List<SalesLeadItemEntity>)
+
+    @Query("DELETE FROM sales_lead_items WHERE queryKey = :queryKey")
+    suspend fun deleteQuery(queryKey: String)
+
+    @Query("SELECT COUNT(*) FROM sales_lead_items WHERE queryKey = :queryKey")
+    suspend fun countForQuery(queryKey: String): Int
+
+    @Query(
+        "DELETE FROM sales_lead_items WHERE queryKey NOT IN " +
+            "(SELECT queryKey FROM sales_lead_remote_keys ORDER BY updatedAt DESC LIMIT :keepQueries)",
+    )
+    suspend fun deleteRowsOutsideNewestQueries(keepQueries: Int)
+}
+
+@Dao
+interface SalesLeadRemoteKeyDao {
+    @Query("SELECT * FROM sales_lead_remote_keys WHERE queryKey = :queryKey")
+    suspend fun get(queryKey: String): SalesLeadRemoteKeyEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(key: SalesLeadRemoteKeyEntity)
+
+    @Query("DELETE FROM sales_lead_remote_keys WHERE queryKey = :queryKey")
+    suspend fun delete(queryKey: String)
+
+    @Query("DELETE FROM sales_lead_remote_keys")
+    suspend fun deleteAll()
+
+    @Query(
+        "DELETE FROM sales_lead_remote_keys WHERE queryKey NOT IN " +
+            "(SELECT queryKey FROM sales_lead_remote_keys ORDER BY updatedAt DESC LIMIT :keepQueries)",
+    )
+    suspend fun deleteOutsideNewestQueries(keepQueries: Int)
+}

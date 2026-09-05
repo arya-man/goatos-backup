@@ -3214,6 +3214,39 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.load_entry.row_hint":     "click a load to record its cost",
 			"section.sales_entry.row_hint":    "click a sale to add a payment or change its status",
 			"empty.loads":                     "No purchased loads yet. Loads appear here as source entry accepts them into the herd.",
+			// The two lead boards inside the pipeline drawer. Each is the WHOLE pipeline --
+			// 208 buyers, 53 farmer groups -- so it carries a search, a call-status facet and a
+			// pager; listing only the newest twenty left 188 buyers with no way to reach them.
+			"drawer.add_lead.all":             "All buyer leads",
+			"drawer.add_fpo.all":              "All farmer groups",
+			"section.leads.row_hint":          "click a lead to see and edit its details",
+			"section.groups.row_hint":         "click a group to see and edit its details",
+			"filter.lead_search.label":        "Search buyer leads",
+			"filter.lead_search.placeholder":  "Search a buyer by name, place, animal or number",
+			"filter.group_search.label":       "Search farmer groups",
+			"filter.group_search.placeholder": "Search a group by name, district, state or number",
+			"filter.lead_status":              "Call status",
+			"filter.lead_status.all":          "Any call status",
+			"filter.apply":                    "Apply",
+			"filter.applying":                 "Applying...",
+			"filter.apply.nothing_staged":     "Change the search or the call status first.",
+			"empty.lead_search":               "No buyer leads match this search.",
+			"empty.group_search":              "No farmer groups match this search.",
+			// The number is the point of a call list, so it gets its own label, its own empty
+			// state and its own dial control rather than sitting inside a detail blob.
+			"field.phone_number":        "Phone number",
+			"value.no_phone":            "No number yet",
+			"hint.no_phone":             "Add the number here so this lead can be called.",
+			"action.call":               "Call this number",
+			"action.expand_lead":        "Show details",
+			"action.collapse_lead":      "Hide details",
+			"action.save_lead":          "Save lead",
+			"action.save_group":         "Save group",
+			"action.lead_updated":       "Buyer lead updated.",
+			"action.lead_update_failed": "Could not update this lead. Check the fields and try again.",
+			"action.fpo_updated":        "Farmer group updated.",
+			"action.fpo_update_failed":  "Could not update this farmer group. Check the fields and try again.",
+
 			// Where the entered facts are READ back. Named so the person who just recorded
 			// something knows where it shows up, without guessing from the sidebar.
 			"link.sales_board": "See the sales board",

@@ -93,8 +93,16 @@ fun salesDealStatusIdempotencyKey(clientId: String): String = "sales:deal-status
 /** One lane for pipeline/evidence entry; these rows are independent of any deal or lead. */
 fun salesPipelineGroupKey(clientId: String): String = "sales:pipeline:$clientId"
 
-/** One lane per lead, so rapid status changes cannot reach the server out of order. */
-fun salesPipelineLeadStatusGroupKey(leadId: String): String = "sales:pipeline-lead-status:$leadId"
+/**
+ * One lane per LEAD, so two changes to the same lead reach the server in the order they were made.
+ * An EDIT and a status change share it deliberately: an edit REPLACES every editable field, so a
+ * status change that overtook one would be undone by the edit landing behind it.
+ *
+ * The string still says `status` because that is what the lane held when it was minted, and an
+ * installed phone may already carry queued rows under it; renaming the STRING would split one
+ * lead's queued work across two lanes and lose the ordering this exists for.
+ */
+fun salesPipelineLeadGroupKey(leadId: String): String = "sales:pipeline-lead-status:$leadId"
 
 /** STABLE per client id; sent VERBATIM as the backend's required `Idempotency-Key`. */
 fun salesPipelineIdempotencyKey(clientId: String): String = "sales:pipeline-write:$clientId"
@@ -132,8 +140,12 @@ data class SalesDealStatusPayload(
 object SalesPipelineKind {
     const val BUYER_LEAD = "buyer_lead"
     const val BUYER_LEAD_STATUS = "buyer_lead_status"
+    /** A REPLACE of one buyer lead's editable fields, the phone number included. */
+    const val BUYER_LEAD_EDIT = "buyer_lead_edit"
     const val FPO_LEAD = "fpo_lead"
     const val FPO_LEAD_STATUS = "fpo_lead_status"
+    /** A REPLACE of one farmer group's editable fields, the phone number included. */
+    const val FPO_LEAD_EDIT = "fpo_lead_edit"
     const val BENCHMARK = "benchmark"
     const val SOLD_TAGS = "sold_tags"
     const val WEIGHT_CHECK = "weight_check"

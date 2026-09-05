@@ -16,6 +16,7 @@ type buyerLeadPayload struct {
 	BuyerPlace   *string `json:"buyer_place"`
 	AnimalType   *string `json:"animal_type"`
 	Breed        *string `json:"breed"`
+	PhoneNumber  *string `json:"phone_number"`
 	CallStatus   *string `json:"call_status"`
 	CreatedAt    string  `json:"created_at"`
 }
@@ -29,6 +30,7 @@ func toBuyerLeadPayload(l domain.BuyerLead) buyerLeadPayload {
 		BuyerPlace:   l.BuyerPlace,
 		AnimalType:   l.AnimalType,
 		Breed:        l.Breed,
+		PhoneNumber:  l.PhoneNumber,
 		CallStatus:   l.CallStatus,
 		CreatedAt:    l.CreatedAt,
 	}
@@ -47,6 +49,7 @@ type buyerLeadWritePayload struct {
 	BuyerPlace   string `json:"buyer_place"`
 	AnimalType   string `json:"animal_type"`
 	Breed        string `json:"breed"`
+	PhoneNumber  string `json:"phone_number"`
 	CallStatus   string `json:"call_status"`
 }
 
@@ -58,6 +61,7 @@ func (p buyerLeadWritePayload) toDomain() domain.BuyerLeadWrite {
 		BuyerPlace:   p.BuyerPlace,
 		AnimalType:   p.AnimalType,
 		Breed:        p.Breed,
+		PhoneNumber:  p.PhoneNumber,
 		CallStatus:   p.CallStatus,
 	}
 }
@@ -65,26 +69,28 @@ func (p buyerLeadWritePayload) toDomain() domain.BuyerLeadWrite {
 // ---- FPO leads ----
 
 type fpoLeadPayload struct {
-	LeadID     string  `json:"lead_id"`
-	FPOName    string  `json:"fpo_name"`
-	Crops      *string `json:"crops"`
-	District   *string `json:"district"`
-	Taluk      *string `json:"taluk"`
-	State      *string `json:"state"`
-	CallStatus *string `json:"call_status"`
-	CreatedAt  string  `json:"created_at"`
+	LeadID      string  `json:"lead_id"`
+	FPOName     string  `json:"fpo_name"`
+	Crops       *string `json:"crops"`
+	District    *string `json:"district"`
+	Taluk       *string `json:"taluk"`
+	State       *string `json:"state"`
+	PhoneNumber *string `json:"phone_number"`
+	CallStatus  *string `json:"call_status"`
+	CreatedAt   string  `json:"created_at"`
 }
 
 func toFPOLeadPayload(l domain.FPOLead) fpoLeadPayload {
 	return fpoLeadPayload{
-		LeadID:     l.LeadID,
-		FPOName:    l.FPOName,
-		Crops:      l.Crops,
-		District:   l.District,
-		Taluk:      l.Taluk,
-		State:      l.State,
-		CallStatus: l.CallStatus,
-		CreatedAt:  l.CreatedAt,
+		LeadID:      l.LeadID,
+		FPOName:     l.FPOName,
+		Crops:       l.Crops,
+		District:    l.District,
+		Taluk:       l.Taluk,
+		State:       l.State,
+		PhoneNumber: l.PhoneNumber,
+		CallStatus:  l.CallStatus,
+		CreatedAt:   l.CreatedAt,
 	}
 }
 
@@ -95,22 +101,24 @@ type fpoLeadPagePayload struct {
 }
 
 type fpoLeadWritePayload struct {
-	FPOName    string `json:"fpo_name"`
-	Crops      string `json:"crops"`
-	District   string `json:"district"`
-	Taluk      string `json:"taluk"`
-	State      string `json:"state"`
-	CallStatus string `json:"call_status"`
+	FPOName     string `json:"fpo_name"`
+	Crops       string `json:"crops"`
+	District    string `json:"district"`
+	Taluk       string `json:"taluk"`
+	State       string `json:"state"`
+	PhoneNumber string `json:"phone_number"`
+	CallStatus  string `json:"call_status"`
 }
 
 func (p fpoLeadWritePayload) toDomain() domain.FPOLeadWrite {
 	return domain.FPOLeadWrite{
-		FPOName:    p.FPOName,
-		Crops:      p.Crops,
-		District:   p.District,
-		Taluk:      p.Taluk,
-		State:      p.State,
-		CallStatus: p.CallStatus,
+		FPOName:     p.FPOName,
+		Crops:       p.Crops,
+		District:    p.District,
+		Taluk:       p.Taluk,
+		State:       p.State,
+		PhoneNumber: p.PhoneNumber,
+		CallStatus:  p.CallStatus,
 	}
 }
 

@@ -3601,6 +3601,10 @@ fun AppNavHost(
         ) { entry ->
             val vm: SalesLeadBoardViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
             val panel = runCatching {
                 // exception:exempt an unreadable panel argument is a bad link, not a failure to
                 // report: the screen simply opens on its default panel.
@@ -3609,6 +3613,7 @@ fun AppNavHost(
             SalesLeadBoardScreen(
                 state = state,
                 panel = panel,
+                rows = rows,
                 onEvent = { event ->
                     when (event) {
                         SalesLeadBoardEvent.Back -> navController.popBackStack()

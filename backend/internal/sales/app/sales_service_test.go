@@ -13,6 +13,9 @@ import (
 // fakeRepo records what the service actually asked for, so these tests pin the service's
 // validation and filter normalization without a database.
 type fakeRepo struct {
+	// what the service handed down, so a test can assert the filter reached the repository
+	buyerFilter   domain.LeadFilter
+	fpoFilter     domain.LeadFilter
 	statusDealID  string
 	dealStatus    string
 	paymentDealID string
@@ -68,7 +71,8 @@ func (f *fakeRepo) DeleteDealPayment(_ context.Context, _ string, dealID, _ stri
 	return domain.Deal{DealID: dealID}, nil
 }
 
-func (f *fakeRepo) ListBuyerLeads(_ context.Context, _ string, limit, offset int) (ports.BuyerLeadPage, error) {
+func (f *fakeRepo) ListBuyerLeads(_ context.Context, _ string, filter domain.LeadFilter, limit, offset int) (ports.BuyerLeadPage, error) {
+	f.buyerFilter = filter
 	f.listLimit, f.listOffset = limit, offset
 	return ports.BuyerLeadPage{Total: 208}, nil
 }
@@ -86,7 +90,8 @@ func (f *fakeRepo) SetBuyerLeadStatus(_ context.Context, _ string, leadID string
 	return domain.BuyerLead{LeadID: leadID, CallStatus: &status}, nil
 }
 
-func (f *fakeRepo) ListFPOLeads(_ context.Context, _ string, limit, offset int) (ports.FPOLeadPage, error) {
+func (f *fakeRepo) ListFPOLeads(_ context.Context, _ string, filter domain.LeadFilter, limit, offset int) (ports.FPOLeadPage, error) {
+	f.fpoFilter = filter
 	f.listLimit, f.listOffset = limit, offset
 	return ports.FPOLeadPage{Total: 53}, nil
 }
@@ -342,4 +347,21 @@ func TestSetDealStatusCanonicalizesAndRejects(t *testing.T) {
 	if _, err := svc.SetDealStatus(context.Background(), "t", "d1", "Partially Closed", "actor"); !errors.As(err, &v) || v.Field != "status" {
 		t.Fatalf("unknown status => %v, want a status rejection", err)
 	}
+}
+
+func (f *fakeRepo) UpdateBuyerLead(_ context.Context, _ string, leadID string, write domain.BuyerLeadWrite, _ string, key string) (domain.BuyerLead, error) {
+	f.createdKey = key
+	return domain.BuyerLead{LeadID: leadID, BuyerName: write.BuyerName, PhoneNumber: strPtrOrNil(write.PhoneNumber)}, nil
+}
+
+func (f *fakeRepo) UpdateFPOLead(_ context.Context, _ string, leadID string, write domain.FPOLeadWrite, _ string, key string) (domain.FPOLead, error) {
+	f.createdKey = key
+	return domain.FPOLead{LeadID: leadID, FPOName: write.FPOName, PhoneNumber: strPtrOrNil(write.PhoneNumber)}, nil
+}
+
+func strPtrOrNil(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }

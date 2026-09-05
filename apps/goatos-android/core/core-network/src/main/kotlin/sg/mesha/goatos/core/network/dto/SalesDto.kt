@@ -245,6 +245,8 @@ data class SalesBuyerLeadDto(
     @SerialName("buyer_place") val buyerPlace: String? = null,
     @SerialName("animal_type") val animalType: String? = null,
     @SerialName("breed") val breed: String? = null,
+    /** The number to call. Null on every imported row until someone adds one. */
+    @SerialName("phone_number") val phoneNumber: String? = null,
     @SerialName("call_status") val callStatus: String? = null,
     @SerialName("created_at") val createdAt: String = "",
 )
@@ -265,6 +267,7 @@ data class SalesBuyerLeadWriteDto(
     @SerialName("buyer_place") val buyerPlace: String = "",
     @SerialName("animal_type") val animalType: String = "",
     @SerialName("breed") val breed: String = "",
+    @SerialName("phone_number") val phoneNumber: String = "",
     @SerialName("call_status") val callStatus: String = "",
 )
 
@@ -276,6 +279,8 @@ data class SalesFpoLeadDto(
     @SerialName("district") val district: String? = null,
     @SerialName("taluk") val taluk: String? = null,
     @SerialName("state") val state: String? = null,
+    /** The number to call. Null on every imported row until someone adds one. */
+    @SerialName("phone_number") val phoneNumber: String? = null,
     @SerialName("call_status") val callStatus: String? = null,
     @SerialName("created_at") val createdAt: String = "",
 )
@@ -294,7 +299,20 @@ data class SalesFpoLeadWriteDto(
     @SerialName("district") val district: String = "",
     @SerialName("taluk") val taluk: String = "",
     @SerialName("state") val state: String = "",
+    @SerialName("phone_number") val phoneNumber: String = "",
     @SerialName("call_status") val callStatus: String = "",
+)
+
+/**
+ * What a lead board knows about its WHOLE filter, kept beside the paged rows: the server's own
+ * count for the search and status in force, and the call-status vocabulary it offers. Both ride on
+ * every lead page response; this is where the phone keeps the last one it saw, so a board opened
+ * without a signal still shows its count and still offers the same status words.
+ */
+@Serializable
+data class SalesLeadBoardMetaDto(
+    @SerialName("total") val total: Int = 0,
+    @SerialName("status_options") val statusOptions: List<String> = emptyList(),
 )
 
 /** `POST /sales/{buyer,fpo}-leads/{lead_id}/status`. */

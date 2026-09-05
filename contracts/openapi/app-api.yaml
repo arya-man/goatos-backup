@@ -9021,6 +9021,23 @@ paths:
         exact string on the overview, so the picker offers the stored spellings rather than
         inventing a new vocabulary that would fragment the pipeline chart.
       parameters:
+        - name: search
+          in: query
+          required: false
+          description: >-
+            Infix match over the lead's own identifying text -- for a buyer, name, place, animal type
+            and breed; for a farmer group, name, district, taluk and state -- and, on both, the PHONE
+            NUMBER, so a caller holding a number can find the lead without recalling the name. Served
+            by a generated column and a trigram index (migration 000258). Longer terms are truncated.
+          schema: { type: string, maxLength: 120 }
+        - name: status
+          in: query
+          required: false
+          description: >-
+            Exact `call_status` match, so the facet and the pipeline chart (which buckets by exact
+            string) always agree. The sentinel `uncontacted` selects the not-yet-called rows, which
+            are stored as null or blank and so cannot be expressed as an equality.
+          schema: { type: string }
         - name: limit
           in: query
           required: false
@@ -9081,6 +9098,53 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /sales/buyer-leads/{lead_id}:
+    post:
+      tags:
+        - Sales
+      operationId: updateSalesBuyerLead
+      summary: Edit a buyer lead.
+      description: >-
+        REPLACES the lead's editable fields. This is the path that attaches a PHONE NUMBER -- absent
+        on every imported lead, so without it the number could only be added by creating a duplicate
+        lead -- and the path that corrects a name or place that was otherwise permanent.
+        It is a replace, not a patch: a field sent empty clears the column, so the only supported
+        caller is a form that renders every field. Identity and import provenance are never touched.
+        Same idempotency contract as the other sales writes.
+      parameters:
+        - name: lead_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesBuyerLeadWrite"
+      responses:
+        "200":
+          description: The updated lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesBuyerLead"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/buyer-leads/{lead_id}/status:
     post:
       tags:
@@ -9134,6 +9198,23 @@ paths:
         Farmer-group (FPO) leads newest first, plus the whole-filter total and the stored
         call-status vocabulary. Company-wide -- the source carries no farm.
       parameters:
+        - name: search
+          in: query
+          required: false
+          description: >-
+            Infix match over the lead's own identifying text -- for a buyer, name, place, animal type
+            and breed; for a farmer group, name, district, taluk and state -- and, on both, the PHONE
+            NUMBER, so a caller holding a number can find the lead without recalling the name. Served
+            by a generated column and a trigram index (migration 000258). Longer terms are truncated.
+          schema: { type: string, maxLength: 120 }
+        - name: status
+          in: query
+          required: false
+          description: >-
+            Exact `call_status` match, so the facet and the pipeline chart (which buckets by exact
+            string) always agree. The sentinel `uncontacted` selects the not-yet-called rows, which
+            are stored as null or blank and so cannot be expressed as an equality.
+          schema: { type: string }
         - name: limit
           in: query
           required: false
@@ -9187,6 +9268,53 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/fpo-leads/{lead_id}:
+    post:
+      tags:
+        - Sales
+      operationId: updateSalesFpoLead
+      summary: Edit a farmer-group lead.
+      description: >-
+        REPLACES the lead's editable fields. This is the path that attaches a PHONE NUMBER -- absent
+        on every imported lead, so without it the number could only be added by creating a duplicate
+        lead -- and the path that corrects a name or place that was otherwise permanent.
+        It is a replace, not a patch: a field sent empty clears the column, so the only supported
+        caller is a form that renders every field. Identity and import provenance are never touched.
+        Same idempotency contract as the other sales writes.
+      parameters:
+        - name: lead_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesFpoLeadWrite"
+      responses:
+        "200":
+          description: The updated lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesFpoLead"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
         "500":
@@ -16221,6 +16349,12 @@ components:
         buyer_place: { type: string, nullable: true }
         animal_type: { type: string, nullable: true }
         breed: { type: string, nullable: true }
+        phone_number:
+          type: string
+          nullable: true
+          description: >-
+            The number to call this buyer on. Null on every row imported from the 2026-08-17 sheet,
+            which never carried one; attached later through the lead edit.
         call_status:
           type: string
           nullable: true
@@ -16250,6 +16384,7 @@ components:
         buyer_place: { type: string }
         animal_type: { type: string }
         breed: { type: string }
+        phone_number: { type: string, description: "Optional; free text, may hold more than one number." }
         call_status: { type: string, description: Optional; empty means not yet called. }
     SalesFpoLead:
       type: object
@@ -16262,6 +16397,10 @@ components:
         district: { type: string, nullable: true }
         taluk: { type: string, nullable: true }
         state: { type: string, nullable: true }
+        phone_number:
+          type: string
+          nullable: true
+          description: The number to call this farmer group on. Null on every imported row.
         call_status: { type: string, nullable: true }
         created_at: { type: string, format: date-time }
     SalesFpoLeadPage:
@@ -16286,6 +16425,7 @@ components:
         district: { type: string }
         taluk: { type: string }
         state: { type: string }
+        phone_number: { type: string, description: "Optional; free text, may hold more than one number." }
         call_status: { type: string }
     SalesLeadStatusWrite:
       type: object

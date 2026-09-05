@@ -21,9 +21,17 @@ import {
   setSalesBuyerLeadStatus,
   setSalesFpoLeadStatus,
   setLoadCost,
+  updateSalesBuyerLead,
+  updateSalesFpoLead,
   updateSalesDealPayment,
 } from "@/lib/api/procurement-server";
-import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite, SalesDealStatusWrite } from "@/lib/api/procurement";
+import type {
+  SalesBuyerLeadWrite,
+  SalesDealWrite,
+  SalesFpoLeadWrite,
+  SalesSoldTagsWrite,
+  SalesDealStatusWrite,
+} from "@/lib/api/procurement";
 
 // Every sales write is submitted from /sales/config (maintainer decision 2026-09-01), so that is
 // the page whose cache must be invalidated -- a save that revalidated only the read board would
@@ -117,19 +125,42 @@ function parseOptionalNumber(formData: FormData, key: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * The whole buyer lead off the form, shared by the create and the edit.
+ *
+ * ONE reader for both on purpose: the edit REPLACES every editable field, so a field the create
+ * writes and the edit forgets would be silently blanked the first time someone corrected a phone
+ * number. A cleared optional field is sent as "" -- the backend stores that as not set, which is
+ * what clearing a box means.
+ */
+function readBuyerLeadForm(formData: FormData): SalesBuyerLeadWrite {
+  return {
+    recorded_date: optionalString(formData, "recorded_date") ?? "",
+    farm: (optionalString(formData, "farm") ?? "") as SalesBuyerLeadWrite["farm"],
+    buyer_name: requiredString(formData, "buyer_name"),
+    buyer_place: optionalString(formData, "buyer_place") ?? "",
+    animal_type: optionalString(formData, "animal_type") ?? "",
+    breed: optionalString(formData, "breed") ?? "",
+    phone_number: optionalString(formData, "phone_number") ?? "",
+    call_status: optionalString(formData, "call_status") ?? "",
+  };
+}
+
+/** The whole farmer-group lead off the form. Same create/edit sharing as the buyer reader above. */
+function readFpoLeadForm(formData: FormData): SalesFpoLeadWrite {
+  return {
+    fpo_name: requiredString(formData, "fpo_name"),
+    crops: optionalString(formData, "crops") ?? "",
+    district: optionalString(formData, "district") ?? "",
+    taluk: optionalString(formData, "taluk") ?? "",
+    state: optionalString(formData, "state") ?? "",
+    phone_number: optionalString(formData, "phone_number") ?? "",
+    call_status: optionalString(formData, "call_status") ?? "",
+  };
+}
+
 export async function recordBuyerLeadAction(formData: FormData): Promise<void> {
-  const result = await createSalesBuyerLead(
-    {
-      recorded_date: optionalString(formData, "recorded_date") ?? "",
-      farm: (optionalString(formData, "farm") ?? "") as SalesBuyerLeadWrite["farm"],
-      buyer_name: requiredString(formData, "buyer_name"),
-      buyer_place: optionalString(formData, "buyer_place") ?? "",
-      animal_type: optionalString(formData, "animal_type") ?? "",
-      breed: optionalString(formData, "breed") ?? "",
-      call_status: optionalString(formData, "call_status") ?? "",
-    },
-    randomUUID(),
-  );
+  const result = await createSalesBuyerLead(readBuyerLeadForm(formData), randomUUID());
   if (!result.ok) {
     actionRedirect(formData, "error", "action.lead_record_failed");
   }
@@ -150,18 +181,29 @@ export async function updateBuyerLeadStatusAction(formData: FormData): Promise<v
   actionRedirect(formData, "success", "action.lead_status_updated");
 }
 
-export async function recordFpoLeadAction(formData: FormData): Promise<void> {
-  const result = await createSalesFpoLead(
-    {
-      fpo_name: requiredString(formData, "fpo_name"),
-      crops: optionalString(formData, "crops") ?? "",
-      district: optionalString(formData, "district") ?? "",
-      taluk: optionalString(formData, "taluk") ?? "",
-      state: optionalString(formData, "state") ?? "",
-      call_status: optionalString(formData, "call_status") ?? "",
-    },
+/**
+ * Saves one buyer lead's whole record from the expanded row -- name, place, animal, breed, date,
+ * phone number and call status.
+ *
+ * A FRESH key per submit, like every other sales write: a key derived from the lead would turn a
+ * later legitimate correction back to an earlier value into an idempotent replay the backend
+ * skips, so the second edit would silently do nothing.
+ */
+export async function updateBuyerLeadAction(formData: FormData): Promise<void> {
+  const result = await updateSalesBuyerLead(
+    requiredString(formData, "lead_id"),
+    readBuyerLeadForm(formData),
     randomUUID(),
   );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.lead_update_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.lead_updated");
+}
+
+export async function recordFpoLeadAction(formData: FormData): Promise<void> {
+  const result = await createSalesFpoLead(readFpoLeadForm(formData), randomUUID());
   if (!result.ok) {
     actionRedirect(formData, "error", "action.fpo_record_failed");
   }
@@ -180,6 +222,20 @@ export async function updateFpoLeadStatusAction(formData: FormData): Promise<voi
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.lead_status_updated");
+}
+
+/** Saves one farmer group's whole record from the expanded row. Fresh key per submit, as above. */
+export async function updateFpoLeadAction(formData: FormData): Promise<void> {
+  const result = await updateSalesFpoLead(
+    requiredString(formData, "lead_id"),
+    readFpoLeadForm(formData),
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.fpo_update_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.fpo_updated");
 }
 
 export async function recordBenchmarkAction(formData: FormData): Promise<void> {

@@ -522,7 +522,11 @@ export async function setSalesDealStatus(
 }
 
 export async function listSalesBuyerLeads(
-  params: { limit?: number; offset?: number } = {},
+  // `search` is an infix over the lead's own words AND its phone number; `status` is an exact
+  // call_status, with the sentinel "uncontacted" selecting the not-yet-called bucket. Both are
+  // resolved by the backend against the WHOLE pipeline, so `total` stays a whole-filter count and
+  // the drawer's pager can reach the last lead of 208 rather than the newest twenty.
+  params: { limit?: number; offset?: number; search?: string; status?: string } = {},
 ): Promise<ApiResult<SalesBuyerLeadPage>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -530,7 +534,12 @@ export async function listSalesBuyerLeads(
   return request(() =>
     client.request<SalesBuyerLeadPage>("/sales/buyer-leads", {
       cache: "no-store",
-      query: compactQuery({ limit: params.limit, offset: params.offset }),
+      query: compactQuery({
+        limit: params.limit,
+        offset: params.offset,
+        search: params.search,
+        status: params.status,
+      }),
     }),
   );
 }
@@ -571,8 +580,35 @@ export async function setSalesBuyerLeadStatus(
   );
 }
 
+/**
+ * Replaces every editable field on one buyer lead.
+ *
+ * A REPLACE, not a patch: the drawer's edit form always submits the whole lead, so a field the
+ * person cleared is genuinely cleared rather than silently keeping its old value. The status-only
+ * setter above stays as the fast path used while working down a call list.
+ */
+export async function updateSalesBuyerLead(
+  leadId: string,
+  body: SalesBuyerLeadWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesBuyerLead>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/sales/buyer-leads/${encodeURIComponent(leadId)}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<SalesBuyerLead>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
 export async function listSalesFpoLeads(
-  params: { limit?: number; offset?: number } = {},
+  // Same search/status contract as the buyer pipeline above.
+  params: { limit?: number; offset?: number; search?: string; status?: string } = {},
 ): Promise<ApiResult<SalesFpoLeadPage>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -580,7 +616,12 @@ export async function listSalesFpoLeads(
   return request(() =>
     client.request<SalesFpoLeadPage>("/sales/fpo-leads", {
       cache: "no-store",
-      query: compactQuery({ limit: params.limit, offset: params.offset }),
+      query: compactQuery({
+        limit: params.limit,
+        offset: params.offset,
+        search: params.search,
+        status: params.status,
+      }),
     }),
   );
 }
@@ -611,6 +652,26 @@ export async function setSalesFpoLeadStatus(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   const path = `/sales/fpo-leads/${encodeURIComponent(leadId)}/status` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<SalesFpoLead>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+/** Replaces every editable field on one farmer-group lead. Same replace semantics as the buyer edit. */
+export async function updateSalesFpoLead(
+  leadId: string,
+  body: SalesFpoLeadWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesFpoLead>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/sales/fpo-leads/${encodeURIComponent(leadId)}` as keyof AppApiPaths & string;
   return request(() =>
     client.request<SalesFpoLead>(path, {
       method: "POST",

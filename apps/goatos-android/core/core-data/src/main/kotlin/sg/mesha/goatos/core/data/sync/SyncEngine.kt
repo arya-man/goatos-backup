@@ -1122,10 +1122,14 @@ class SyncEngine(
                 api.createSalesBuyerLead(key, requireNotNull(payload.buyerLead) { "buyer lead carries no body" })
             SalesPipelineKind.BUYER_LEAD_STATUS ->
                 api.setSalesBuyerLeadStatus(payload.leadId, key, requireNotNull(payload.leadStatus) { "lead status carries no body" })
+            SalesPipelineKind.BUYER_LEAD_EDIT ->
+                api.updateSalesBuyerLead(payload.leadId, key, requireNotNull(payload.buyerLead) { "buyer lead carries no body" })
             SalesPipelineKind.FPO_LEAD ->
                 api.createSalesFpoLead(key, requireNotNull(payload.fpoLead) { "farmer group carries no body" })
             SalesPipelineKind.FPO_LEAD_STATUS ->
                 api.setSalesFpoLeadStatus(payload.leadId, key, requireNotNull(payload.leadStatus) { "lead status carries no body" })
+            SalesPipelineKind.FPO_LEAD_EDIT ->
+                api.updateSalesFpoLead(payload.leadId, key, requireNotNull(payload.fpoLead) { "farmer group carries no body" })
             SalesPipelineKind.BENCHMARK ->
                 api.createSalesMarketBenchmark(key, requireNotNull(payload.benchmark) { "market quote carries no body" })
             SalesPipelineKind.SOLD_TAGS ->

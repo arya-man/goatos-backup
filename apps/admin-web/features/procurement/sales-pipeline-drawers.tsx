@@ -23,12 +23,30 @@ import {
   recordFpoLeadAction,
   recordSoldTagsAction,
   recordWeightCheckAction,
+  updateBuyerLeadAction,
   updateBuyerLeadStatusAction,
+  updateFpoLeadAction,
   updateFpoLeadStatusAction,
 } from "./sales-actions";
+import { SalesLeadBoard, type LeadEditField, type LeadRow } from "./sales-lead-board";
+import { BUYER_LEAD_PARAMS, FPO_LEAD_PARAMS } from "./sales-lead-params";
 
 export const SALES_PANELS = ["buyer_leads", "fpo_leads", "quote", "tags", "weight_check"] as const;
 export type SalesPanel = (typeof SALES_PANELS)[number];
+
+/** One board's server-resolved state: the page of rows, and the whole-filter facts around it. */
+export type LeadBoardState<T> = {
+  leads: T[];
+  /** WHOLE-FILTER count from the backend, so the pager can reach the last of 208 leads. */
+  total: number;
+  statusOptions: string[];
+  limit: number;
+  offset: number;
+  search: string;
+  status: string;
+  /** The row a save just returned from, so it reopens instead of collapsing under the reader. */
+  openLeadId: string;
+};
 
 function readPanelParam(): string {
   return new URL(window.location.href).searchParams.get("panel") ?? "";
@@ -48,10 +66,8 @@ export function SalesPipelineDrawers({
   listHref,
   panelHrefs,
   canRecord,
-  buyerLeads,
-  buyerStatusOptions,
-  fpoLeads,
-  fpoStatusOptions,
+  buyerBoard,
+  fpoBoard,
 }: {
   pageContract: AdminUiPageContract;
   /** The list URL to restore on close (current farm/paging, no panel param). */
@@ -61,11 +77,10 @@ export function SalesPipelineDrawers({
       the RSC boundary. */
   panelHrefs: Record<SalesPanel, string>;
   canRecord: boolean;
-  /** First page of the buyer pipeline, newest first, server-fetched with the page. */
-  buyerLeads: SalesBuyerLead[];
-  buyerStatusOptions: string[];
-  fpoLeads: SalesFpoLead[];
-  fpoStatusOptions: string[];
+  /** The buyer pipeline board — the requested page, plus the whole-filter total around it. */
+  buyerBoard: LeadBoardState<SalesBuyerLead>;
+  /** The farmer-group board, same shape. */
+  fpoBoard: LeadBoardState<SalesFpoLead>;
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const selection = useSyncExternalStore(subscribeToOverlayUrl, readPanelParam, () => "");
@@ -121,34 +136,51 @@ export function SalesPipelineDrawers({
     </div>
   );
 
-  // A per-row status updater: select + save, one form per lead.
-  const statusRow = (
-    lead: { id: string; name: string; detail: string; status: string | null | undefined },
-    options: string[],
-    action: typeof updateBuyerLeadStatusAction,
-    returnTo: string,
-  ) => (
-    <form key={lead.id} action={action} className="sales-leadrow">
-      <input type="hidden" name="lead_id" value={lead.id} />
-      <input type="hidden" name="return_to" value={returnTo} />
-      <span className="sales-leadname" title={lead.detail ? `${lead.name} · ${lead.detail}` : lead.name}>
-        <b>{lead.name}</b>
-        {lead.detail ? <span className="muted small"> · {lead.detail}</span> : null}
-      </span>
-      <select name="call_status" defaultValue={lead.status ?? ""} aria-label={field("call_status")}>
-        <option value="">{uncontacted}</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-        {lead.status && !options.includes(lead.status) ? <option value={lead.status}>{lead.status}</option> : null}
-      </select>
-      <button type="submit" className="btn sm">
-        {copy(pageContract, "action.update_status")}
-      </button>
-    </form>
-  );
+  const blankFarm = copy(pageContract, "value.none");
+
+  /**
+   * One buyer lead reduced to what the board renders.
+   *
+   * FARM is in the edit field list on purpose: the edit REPLACES every editable field, so a farm
+   * left off the form would be blanked the first time someone attached a phone number.
+   */
+  const buyerRow = (lead: SalesBuyerLead): LeadRow => ({
+    id: lead.lead_id,
+    name: lead.buyer_name,
+    detail: [lead.buyer_place, lead.animal_type].filter(Boolean).join(" · "),
+    status: lead.call_status ?? "",
+    phone: lead.phone_number ?? "",
+    fields: [
+      { kind: "text", name: "buyer_name", label: field("buyer_lead_name"), value: lead.buyer_name, required: true },
+      { kind: "text", name: "buyer_place", label: field("buyer_place"), value: lead.buyer_place ?? "" },
+      {
+        kind: "select",
+        name: "farm",
+        label: field("farm"),
+        value: lead.farm ?? "",
+        blankLabel: blankFarm,
+        options: farmOptions.map((option) => ({ value: option.key, label: option.label })),
+      },
+      { kind: "text", name: "animal_type", label: field("animal_type"), value: lead.animal_type ?? "" },
+      { kind: "text", name: "breed", label: field("breed"), value: lead.breed ?? "" },
+      { kind: "date", name: "recorded_date", label: field("recorded_date"), value: lead.recorded_date ?? "" },
+    ] satisfies LeadEditField[],
+  });
+
+  const fpoRow = (lead: SalesFpoLead): LeadRow => ({
+    id: lead.lead_id,
+    name: lead.fpo_name,
+    detail: [lead.district, lead.state].filter(Boolean).join(" · "),
+    status: lead.call_status ?? "",
+    phone: lead.phone_number ?? "",
+    fields: [
+      { kind: "text", name: "fpo_name", label: field("fpo_name"), value: lead.fpo_name, required: true },
+      { kind: "text", name: "district", label: field("district"), value: lead.district ?? "" },
+      { kind: "text", name: "taluk", label: field("taluk"), value: lead.taluk ?? "" },
+      { kind: "text", name: "state", label: field("state"), value: lead.state ?? "" },
+      { kind: "text", name: "crops", label: field("crops"), value: lead.crops ?? "" },
+    ] satisfies LeadEditField[],
+  });
 
   return (
     <>
@@ -182,6 +214,29 @@ export function SalesPipelineDrawers({
 
         {panel === "buyer_leads" ? (
           <div className="dc">
+            <SalesLeadBoard
+              pageContract={pageContract}
+              heading={copy(pageContract, "drawer.add_lead.all")}
+              searchLabelKey="filter.lead_search.label"
+              searchPlaceholderKey="filter.lead_search.placeholder"
+              emptySearchKey="empty.lead_search"
+              emptyUnsetKey="empty.buyer_pipeline"
+              saveLabelKey="action.save_lead"
+              totalLabelKey="pipeline.buyers.total"
+              rowHintKey="section.leads.row_hint"
+              rows={buyerBoard.leads.map(buyerRow)}
+              total={buyerBoard.total}
+              limit={buyerBoard.limit}
+              offset={buyerBoard.offset}
+              search={buyerBoard.search}
+              status={buyerBoard.status}
+              statusOptions={buyerBoard.statusOptions}
+              params={BUYER_LEAD_PARAMS}
+              returnTo={panelHrefs.buyer_leads}
+              openLeadId={buyerBoard.openLeadId}
+              statusAction={updateBuyerLeadStatusAction}
+              editAction={updateBuyerLeadAction}
+            />
             <div className="mt">{copy(pageContract, "drawer.add_lead.new")}</div>
             <form action={recordBuyerLeadAction}>
               <input type="hidden" name="return_to" value={panelHrefs.buyer_leads} />
@@ -208,10 +263,14 @@ export function SalesPipelineDrawers({
                 <input id="bl-recorded_date" name="recorded_date" type="date" />
               </div>
               <div className="fld">
+                <label htmlFor="bl-phone_number">{copy(pageContract, "field.phone_number")}</label>
+                <input id="bl-phone_number" name="phone_number" type="tel" maxLength={160} />
+              </div>
+              <div className="fld">
                 <label htmlFor="bl-call_status">{field("call_status")}</label>
                 <input id="bl-call_status" name="call_status" maxLength={160} list="bl-status-options" placeholder={uncontacted} />
                 <datalist id="bl-status-options">
-                  {buyerStatusOptions.map((option) => (
+                  {buyerBoard.statusOptions.map((option) => (
                     <option key={option} value={option} />
                   ))}
                 </datalist>
@@ -222,27 +281,34 @@ export function SalesPipelineDrawers({
                 </button>
               </div>
             </form>
-            <div className="mt">{copy(pageContract, "drawer.add_lead.recent")}</div>
-            <div className="sales-leadlist">
-              {buyerLeads.map((lead) =>
-                statusRow(
-                  {
-                    id: lead.lead_id,
-                    name: lead.buyer_name,
-                    detail: [lead.buyer_place, lead.animal_type].filter(Boolean).join(" · "),
-                    status: lead.call_status,
-                  },
-                  buyerStatusOptions,
-                  updateBuyerLeadStatusAction,
-                  panelHrefs.buyer_leads,
-                ),
-              )}
-            </div>
           </div>
         ) : null}
 
         {panel === "fpo_leads" ? (
           <div className="dc">
+            <SalesLeadBoard
+              pageContract={pageContract}
+              heading={copy(pageContract, "drawer.add_fpo.all")}
+              searchLabelKey="filter.group_search.label"
+              searchPlaceholderKey="filter.group_search.placeholder"
+              emptySearchKey="empty.group_search"
+              emptyUnsetKey="empty.fpo_pipeline"
+              saveLabelKey="action.save_group"
+              totalLabelKey="pipeline.fpo.total"
+              rowHintKey="section.groups.row_hint"
+              rows={fpoBoard.leads.map(fpoRow)}
+              total={fpoBoard.total}
+              limit={fpoBoard.limit}
+              offset={fpoBoard.offset}
+              search={fpoBoard.search}
+              status={fpoBoard.status}
+              statusOptions={fpoBoard.statusOptions}
+              params={FPO_LEAD_PARAMS}
+              returnTo={panelHrefs.fpo_leads}
+              openLeadId={fpoBoard.openLeadId}
+              statusAction={updateFpoLeadStatusAction}
+              editAction={updateFpoLeadAction}
+            />
             <div className="mt">{copy(pageContract, "drawer.add_fpo.new")}</div>
             <form action={recordFpoLeadAction}>
               <input type="hidden" name="return_to" value={panelHrefs.fpo_leads} />
@@ -268,10 +334,14 @@ export function SalesPipelineDrawers({
                 <input id="fp-crops" name="crops" maxLength={160} />
               </div>
               <div className="fld">
+                <label htmlFor="fp-phone_number">{copy(pageContract, "field.phone_number")}</label>
+                <input id="fp-phone_number" name="phone_number" type="tel" maxLength={160} />
+              </div>
+              <div className="fld">
                 <label htmlFor="fp-call_status">{field("call_status")}</label>
                 <input id="fp-call_status" name="call_status" maxLength={160} list="fp-status-options" placeholder={uncontacted} />
                 <datalist id="fp-status-options">
-                  {fpoStatusOptions.map((option) => (
+                  {fpoBoard.statusOptions.map((option) => (
                     <option key={option} value={option} />
                   ))}
                 </datalist>
@@ -282,22 +352,6 @@ export function SalesPipelineDrawers({
                 </button>
               </div>
             </form>
-            <div className="mt">{copy(pageContract, "drawer.add_fpo.recent")}</div>
-            <div className="sales-leadlist">
-              {fpoLeads.map((lead) =>
-                statusRow(
-                  {
-                    id: lead.lead_id,
-                    name: lead.fpo_name,
-                    detail: [lead.district, lead.state].filter(Boolean).join(" · "),
-                    status: lead.call_status,
-                  },
-                  fpoStatusOptions,
-                  updateFpoLeadStatusAction,
-                  panelHrefs.fpo_leads,
-                ),
-              )}
-            </div>
           </div>
         ) : null}
 

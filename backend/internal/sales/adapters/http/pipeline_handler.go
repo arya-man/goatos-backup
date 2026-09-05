@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/sales/app"
+	"github.com/vgoats/goatos/backend/internal/sales/domain"
 )
 
 // leadQuery reads the shared limit/offset pair off a pipeline list request.
@@ -36,6 +37,13 @@ func (h *SalesHandler) leadQuery(w http.ResponseWriter, r *http.Request) (app.Le
 			return out, false
 		}
 		out.Offset = parsed
+	}
+	// The board's two narrowings. `search` is an infix match over the lead's own identifying text
+	// (name, place, animal/crops, and the phone number itself); `status` is an exact call_status,
+	// with the sentinel "uncontacted" selecting the not-yet-called bucket the chart shows.
+	out.Filter = domain.LeadFilter{
+		Search: q.Get("search"),
+		Status: q.Get("status"),
 	}
 	return out, true
 }
@@ -142,6 +150,47 @@ func (h *SalesHandler) ListFPOLeads(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, fpoLeadPagePayload{
 		Leads: items, Total: page.Total, StatusOptions: page.StatusOptions,
 	})
+}
+
+// UpdateBuyerLead serves POST /sales/buyer-leads/{lead_id}.
+//
+// A REPLACE of the lead's editable fields. It is a POST rather than a PUT for the reason every other
+// write on this surface is: the phone posts these through an offline outbox that replays, and the
+// route carries a mandatory Idempotency-Key so a replay reads back the original result instead of
+// applying twice.
+func (h *SalesHandler) UpdateBuyerLead(w http.ResponseWriter, r *http.Request) {
+	key, ok := h.requireIdemKey(w, r)
+	if !ok {
+		return
+	}
+	var body buyerLeadWritePayload
+	if !h.decodeInto(w, r, &body) {
+		return
+	}
+	lead, err := h.service.UpdateBuyerLead(r.Context(), tenantID(r), r.PathValue("lead_id"), body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()), key)
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toBuyerLeadPayload(lead))
+}
+
+// UpdateFPOLead serves POST /sales/fpo-leads/{lead_id}. Same shape as the buyer twin.
+func (h *SalesHandler) UpdateFPOLead(w http.ResponseWriter, r *http.Request) {
+	key, ok := h.requireIdemKey(w, r)
+	if !ok {
+		return
+	}
+	var body fpoLeadWritePayload
+	if !h.decodeInto(w, r, &body) {
+		return
+	}
+	lead, err := h.service.UpdateFPOLead(r.Context(), tenantID(r), r.PathValue("lead_id"), body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()), key)
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toFPOLeadPayload(lead))
 }
 
 // CreateFPOLead serves POST /sales/fpo-leads.

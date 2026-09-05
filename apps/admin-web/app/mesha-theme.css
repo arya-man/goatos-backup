@@ -3316,10 +3316,30 @@ select:disabled { opacity: .45; }
 .main .sales-card .hbarlist{padding-top:10px;padding-bottom:12px}
 
 /* Sales pipeline drawers: the recent-leads list (name · detail | status select | save). */
-.sales-leadlist{display:grid;gap:8px;margin-top:8px}
-.sales-leadrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,150px) auto;gap:8px;align-items:center}
-.sales-leadname{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px}
+.sales-leadlist{display:grid;gap:6px;margin-top:8px}
+.sales-leadrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(112px,144px) auto;gap:8px;align-items:center}
+/* The name is the expand control, so it is a real button -- reset to read as the row's text. */
+.sales-leadname{display:flex;align-items:center;gap:4px;min-width:0;font-size:12.5px;text-align:left;
+  background:none;border:0;padding:0;color:inherit;font:inherit;cursor:pointer}
+.sales-leadname .ic{width:13px;height:13px;flex:none;color:var(--muted)}
+.sales-leadnametext{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sales-leadname:hover .sales-leadnametext b{text-decoration:underline}
 .sales-leadrow select{width:100%;min-width:0}
+/* One lead: the always-visible row, plus the panel it expands onto in place. */
+.sales-leaditem{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--panel)}
+.sales-leaditem.on{border-color:var(--brand-d);background:var(--bg)}
+.sales-leaddetail{margin-top:9px;padding-top:9px;border-top:1px solid var(--line2)}
+/* The number leads the panel: a call list that cannot be dialled is the defect this fixes. */
+.sales-leadphone{display:flex;align-items:center;gap:7px;margin-bottom:9px;font-size:13px;font-weight:650}
+.sales-leadphone .ic{width:14px;height:14px;flex:none;color:var(--info)}
+.sales-leadphone a{color:var(--info)}
+.sales-leadphone .muted{font-weight:400;font-size:12px}
+.sales-leadfields{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:8px}
+.sales-leadfields .fld{margin-bottom:0;min-width:0}
+.sales-leadfilters{margin-bottom:8px;gap:6px}
+.sales-leadfilters .input{flex:1 1 150px;min-width:0}
+.sales-leadcount{margin-bottom:6px}
+.sales-leadpager{padding:10px 0 0;border-top:0}
 .sales-check{display:flex;align-items:center;gap:8px;cursor:pointer}
 
 /* ---------- Sales: "Tag animals to sale" picker drawer ----------

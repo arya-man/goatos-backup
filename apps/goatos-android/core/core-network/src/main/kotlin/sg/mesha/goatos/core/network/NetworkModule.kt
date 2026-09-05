@@ -1137,10 +1137,19 @@ interface AppApiService {
     suspend fun getSalesBuyerLeads(
         @Query("limit") limit: Int?,
         @Query("offset") offset: Int?,
+        @Query("search") search: String?,
+        @Query("status") status: String?,
     ): SalesBuyerLeadPageDto
 
     @POST("sales/buyer-leads")
     suspend fun createSalesBuyerLead(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesBuyerLeadWriteDto,
+    ): SalesBuyerLeadDto
+
+    @POST("sales/buyer-leads/{lead_id}")
+    suspend fun updateSalesBuyerLead(
+        @Path("lead_id") leadId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: SalesBuyerLeadWriteDto,
     ): SalesBuyerLeadDto
@@ -1156,10 +1165,19 @@ interface AppApiService {
     suspend fun getSalesFpoLeads(
         @Query("limit") limit: Int?,
         @Query("offset") offset: Int?,
+        @Query("search") search: String?,
+        @Query("status") status: String?,
     ): SalesFpoLeadPageDto
 
     @POST("sales/fpo-leads")
     suspend fun createSalesFpoLead(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesFpoLeadWriteDto,
+    ): SalesFpoLeadDto
+
+    @POST("sales/fpo-leads/{lead_id}")
+    suspend fun updateSalesFpoLead(
+        @Path("lead_id") leadId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: SalesFpoLeadWriteDto,
     ): SalesFpoLeadDto
@@ -2259,20 +2277,26 @@ class RetrofitAppApi(
     override suspend fun setSalesDealStatus(dealId: String, idempotencyKey: String, request: SalesDealStatusWriteDto): SalesDealDto =
         service.setSalesDealStatus(dealId, idempotencyKey, request)
 
-    override suspend fun getSalesBuyerLeads(limit: Int?, offset: Int?): SalesBuyerLeadPageDto =
-        service.getSalesBuyerLeads(limit, offset)
+    override suspend fun getSalesBuyerLeads(limit: Int?, offset: Int?, search: String?, status: String?): SalesBuyerLeadPageDto =
+        service.getSalesBuyerLeads(limit, offset, search, status)
 
     override suspend fun createSalesBuyerLead(idempotencyKey: String, request: SalesBuyerLeadWriteDto): SalesBuyerLeadDto =
         service.createSalesBuyerLead(idempotencyKey, request)
 
+    override suspend fun updateSalesBuyerLead(leadId: String, idempotencyKey: String, request: SalesBuyerLeadWriteDto): SalesBuyerLeadDto =
+        service.updateSalesBuyerLead(leadId, idempotencyKey, request)
+
     override suspend fun setSalesBuyerLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesBuyerLeadDto =
         service.setSalesBuyerLeadStatus(leadId, idempotencyKey, request)
 
-    override suspend fun getSalesFpoLeads(limit: Int?, offset: Int?): SalesFpoLeadPageDto =
-        service.getSalesFpoLeads(limit, offset)
+    override suspend fun getSalesFpoLeads(limit: Int?, offset: Int?, search: String?, status: String?): SalesFpoLeadPageDto =
+        service.getSalesFpoLeads(limit, offset, search, status)
 
     override suspend fun createSalesFpoLead(idempotencyKey: String, request: SalesFpoLeadWriteDto): SalesFpoLeadDto =
         service.createSalesFpoLead(idempotencyKey, request)
+
+    override suspend fun updateSalesFpoLead(leadId: String, idempotencyKey: String, request: SalesFpoLeadWriteDto): SalesFpoLeadDto =
+        service.updateSalesFpoLead(leadId, idempotencyKey, request)
 
     override suspend fun setSalesFpoLeadStatus(leadId: String, idempotencyKey: String, request: SalesLeadStatusWriteDto): SalesFpoLeadDto =
         service.setSalesFpoLeadStatus(leadId, idempotencyKey, request)

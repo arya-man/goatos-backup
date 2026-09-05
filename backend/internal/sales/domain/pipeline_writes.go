@@ -47,8 +47,12 @@ type BuyerLead struct {
 	BuyerPlace   *string
 	AnimalType   *string
 	Breed        *string
-	CallStatus   *string // nil = not yet called ("uncontacted")
-	CreatedAt    string
+	// PhoneNumber is the number to CALL this buyer on. nil on every imported row -- the 2026-08-17
+	// sheet never carried one -- so a board working these leads is expected to fill it in as the
+	// caller learns it, which is why the edit path exists (maintainer instruction 2026-09-05).
+	PhoneNumber *string
+	CallStatus  *string // nil = not yet called ("uncontacted")
+	CreatedAt   string
 }
 
 // BuyerLeadWrite records a new buyer lead.
@@ -59,6 +63,7 @@ type BuyerLeadWrite struct {
 	BuyerPlace   string
 	AnimalType   string
 	Breed        string
+	PhoneNumber  string // optional; free text, may hold two numbers
 	CallStatus   string // optional; "" means not yet called
 }
 
@@ -70,6 +75,7 @@ func (w BuyerLeadWrite) Normalize() BuyerLeadWrite {
 	out.BuyerPlace = collapseSpace(w.BuyerPlace)
 	out.AnimalType = collapseSpace(w.AnimalType)
 	out.Breed = collapseSpace(w.Breed)
+	out.PhoneNumber = collapseSpace(w.PhoneNumber)
 	out.CallStatus = collapseSpace(w.CallStatus)
 	return out
 }
@@ -87,6 +93,7 @@ func (w BuyerLeadWrite) Validate() error {
 	for field, v := range map[string]string{
 		"buyer_name": w.BuyerName, "buyer_place": w.BuyerPlace,
 		"animal_type": w.AnimalType, "breed": w.Breed, "call_status": w.CallStatus,
+		"phone_number": w.PhoneNumber,
 	} {
 		if len(v) > maxDealShortField {
 			return ErrFieldValidation{Field: field, Reason: "too long"}
@@ -97,24 +104,28 @@ func (w BuyerLeadWrite) Validate() error {
 
 // FPOLead is one row of the farmer-group pipeline.
 type FPOLead struct {
-	LeadID     string
-	FPOName    string
-	Crops      *string
-	District   *string
-	Taluk      *string
-	State      *string
-	CallStatus *string
-	CreatedAt  string
+	LeadID   string
+	FPOName  string
+	Crops    *string
+	District *string
+	Taluk    *string
+	State    *string
+	// PhoneNumber -- the number to call this farmer group on. Same story as the buyer column: nil on
+	// every imported row, filled in by whoever works the board.
+	PhoneNumber *string
+	CallStatus  *string
+	CreatedAt   string
 }
 
 // FPOLeadWrite records a new farmer-group lead.
 type FPOLeadWrite struct {
-	FPOName    string
-	Crops      string
-	District   string
-	Taluk      string
-	State      string
-	CallStatus string
+	FPOName     string
+	Crops       string
+	District    string
+	Taluk       string
+	State       string
+	PhoneNumber string
+	CallStatus  string
 }
 
 func (w FPOLeadWrite) Normalize() FPOLeadWrite {
@@ -124,6 +135,7 @@ func (w FPOLeadWrite) Normalize() FPOLeadWrite {
 	out.District = collapseSpace(w.District)
 	out.Taluk = collapseSpace(w.Taluk)
 	out.State = collapseSpace(w.State)
+	out.PhoneNumber = collapseSpace(w.PhoneNumber)
 	out.CallStatus = collapseSpace(w.CallStatus)
 	return out
 }
@@ -135,6 +147,7 @@ func (w FPOLeadWrite) Validate() error {
 	for field, v := range map[string]string{
 		"fpo_name": w.FPOName, "crops": w.Crops, "district": w.District,
 		"taluk": w.Taluk, "state": w.State, "call_status": w.CallStatus,
+		"phone_number": w.PhoneNumber,
 	} {
 		if len(v) > maxDealShortField {
 			return ErrFieldValidation{Field: field, Reason: "too long"}
@@ -303,3 +316,51 @@ func ClampLeadPageSize(requested int) int {
 		return requested
 	}
 }
+
+// ---------------------------------------------------------------------------------------------
+// Finding a lead (maintainer report 2026-09-05)
+// ---------------------------------------------------------------------------------------------
+
+// LeadFilter narrows a pipeline board to the leads a caller is actually looking for.
+//
+// It exists because the boards could always CHANGE a lead's call status and never FIND one: they
+// read the newest 20 rows with no search, so 188 of 208 buyer leads were unreachable and the
+// feature read, from the desk, as missing entirely.
+//
+// Both fields are optional; the zero value lists the board unfiltered, which is what every caller
+// did before this existed.
+type LeadFilter struct {
+	// Search is an infix match over the lead's own identifying text -- for a buyer, name, place,
+	// animal type and breed; for a farmer group, name, district, taluk and state. It is served by
+	// the generated search_text column and its trigram index (migration 000258).
+	Search string
+	// Status is an EXACT match on call_status, because that is how the pipeline charts bucket and a
+	// facet that disagreed with the chart it sits under would be worse than no facet. The sentinel
+	// UncontactedStatusKey selects the rows with no status at all -- the "Not yet called" bucket --
+	// which cannot be expressed as an equality on a NULL.
+	Status string
+}
+
+// MaxLeadSearchLength bounds the search term. A trigram index degrades on very long inputs and no
+// legitimate lead search is near this long.
+const MaxLeadSearchLength = 120
+
+// Normalize lower-cases and collapses the filter so it matches the generated search_text column and
+// the stored status values.
+//
+// The status is NOT lower-cased: call_status is free text whose stored spellings are the sheet's own
+// ("Not Intrested", "Connected and he will get back"), the charts bucket by exact string, and the
+// facet is built from those exact values -- so folding case here would silently match nothing.
+func (f LeadFilter) Normalize() LeadFilter {
+	out := f
+	out.Search = strings.ToLower(collapseSpace(f.Search))
+	if len(out.Search) > MaxLeadSearchLength {
+		out.Search = out.Search[:MaxLeadSearchLength]
+	}
+	out.Status = collapseSpace(f.Status)
+	return out
+}
+
+// IsUncontacted reports whether the status filter selects the "not yet called" bucket, which is
+// stored as NULL or blank rather than as a value.
+func (f LeadFilter) IsUncontacted() bool { return f.Status == UncontactedStatusKey }

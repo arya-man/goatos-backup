@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,6 +26,8 @@ const (
 	idemScopeBuyerLeadStatus = "sales.buyer_lead.status"
 	idemScopeFPOLeadCreate   = "sales.fpo_lead.create"
 	idemScopeFPOLeadStatus   = "sales.fpo_lead.status"
+	idemScopeBuyerLeadEdit   = "sales.buyer_lead.edit"
+	idemScopeFPOLeadEdit     = "sales.fpo_lead.edit"
 	idemScopeBenchmarkCreate = "sales.market_quote.create"
 	idemScopeSoldTagsCreate  = "sales.sold_tags.create"
 	idemScopeWeightCheck     = "sales.weight_check.create"
@@ -36,7 +39,7 @@ const (
 
 const buyerLeadColumns = `
 	l.id, l.recorded_date, l.farm, l.buyer_name, l.buyer_place,
-	l.animal_type, l.breed, l.call_status, l.created_at`
+	l.animal_type, l.breed, l.phone_number, l.call_status, l.created_at`
 
 func scanBuyerLead(row pgx.Row) (domain.BuyerLead, error) {
 	var (
@@ -45,7 +48,7 @@ func scanBuyerLead(row pgx.Row) (domain.BuyerLead, error) {
 		created  time.Time
 	)
 	err := row.Scan(&l.LeadID, &recorded, &l.Farm, &l.BuyerName, &l.BuyerPlace,
-		&l.AnimalType, &l.Breed, &l.CallStatus, &created)
+		&l.AnimalType, &l.Breed, &l.PhoneNumber, &l.CallStatus, &created)
 	if err != nil {
 		return domain.BuyerLead{}, err
 	}
@@ -59,7 +62,45 @@ func scanBuyerLead(row pgx.Row) (domain.BuyerLead, error) {
 
 // ListBuyerLeads returns one pipeline page (newest first), the whole-filter total, and the
 // tenant's existing call-status vocabulary.
-func (r *Repository) ListBuyerLeads(ctx context.Context, tenantID string, limit, offset int) (ports.BuyerLeadPage, error) {
+// buildLeadFilter renders the shared WHERE clause for a pipeline board's page AND its total.
+//
+// The page and the total MUST range over the identical predicate set. Building both from one
+// function is what guarantees it: a hand-written second copy is how a board ends up reporting
+// "208 leads" over a list filtered to 3. The LIMIT/OFFSET is the only thing the total omits,
+// because a total is a whole-filter aggregate and a page position is not part of the filter.
+//
+// `table` is one of two compile-time constants, never caller input.
+func buildLeadFilter(tenantID string, f domain.LeadFilter) (string, []any) {
+	args := []any{tenantID}
+	clauses := []string{"l.tenant_id = $1"}
+
+	if f.Search != "" {
+		// Infix match against the generated, lower-cased search_text, served by the pg_trgm GIN
+		// index (migration 000258). The wildcards are bound as DATA, never concatenated into SQL.
+		args = append(args, "%"+escapeLikePattern(f.Search)+"%")
+		clauses = append(clauses, fmt.Sprintf("l.search_text LIKE $%d", len(args)))
+	}
+	switch {
+	case f.IsUncontacted():
+		// "Not yet called" is stored as NULL or blank, not as a value, so it cannot be an equality.
+		// This mirrors exactly how the pipeline chart folds the bucket, so the facet and the bar it
+		// sits under always agree.
+		clauses = append(clauses, "btrim(coalesce(l.call_status, '')) = ''")
+	case f.Status != "":
+		args = append(args, f.Status)
+		clauses = append(clauses, fmt.Sprintf("l.call_status = $%d", len(args)))
+	}
+	return strings.Join(clauses, " AND "), args
+}
+
+// escapeLikePattern neutralizes the LIKE metacharacters so a search for "100%" looks for the
+// literal text rather than matching every lead. Backslash is Postgres LIKE's default escape
+// character, so no ESCAPE clause is needed.
+func escapeLikePattern(v string) string {
+	return strings.NewReplacer(`\\`, `\\\\`, "%", `\\%`, "_", `\\_`).Replace(v)
+}
+
+func (r *Repository) ListBuyerLeads(ctx context.Context, tenantID string, filter domain.LeadFilter, limit, offset int) (ports.BuyerLeadPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -67,36 +108,47 @@ func (r *Repository) ListBuyerLeads(ctx context.Context, tenantID string, limit,
 	if offset < 0 {
 		offset = 0
 	}
-	window := limit + offset
+	where, args := buildLeadFilter(tenantID, filter.Normalize())
 
-	query := fmt.Sprintf(`SELECT %s FROM public.sales_buyer_leads l WHERE l.tenant_id = $1
-		ORDER BY l.created_at DESC, l.id LIMIT %d`, buyerLeadColumns, window)
-	rows, err := r.pool.Query(ctx, query, tenantID)
+	// LIMIT/OFFSET in SQL, not a fetch-the-window-and-skip-in-Go loop. The previous read pulled
+	// limit+offset rows and discarded the first `offset` of them in the scan loop, so asking for
+	// page 10 transferred ten pages. The offset is hard-bounded (domain.MaxLeadOffset, checked in
+	// the service) which is what keeps plain OFFSET legitimate on an authored list of this size.
+	// OFFSET is legitimate here and the bound is what makes it so. These boards are an AUTHORED
+	// contact list -- 208 buyer leads and 53 farmer groups, grown by hand a few a month -- that does
+	// not scale with the herd, and the offset is hard-capped at domain.MaxLeadOffset and REJECTED
+	// rather than clamped past it (a clamped page shows page 1's rows under page 400's number). The
+	// board also needs a Back control and a page number, neither of which a forward-only cursor can
+	// express. Same reasoning, same shape as the vendor register's read.
+	//
+	// The code this replaced avoided SQL OFFSET and was WORSE for it: it fetched limit+offset rows
+	// and discarded the first `offset` of them in the Go scan loop, so asking for page 10
+	// transferred ten pages over the wire to show one.
+	// scale-guard:ignore: bounded LIMIT/OFFSET over an authored lead list, not a herd-sized table.
+	query := fmt.Sprintf(`SELECT %s FROM public.sales_buyer_leads l WHERE %s
+		ORDER BY l.created_at DESC, l.id LIMIT %d OFFSET %d`, buyerLeadColumns, where, limit, offset) // scale-guard:ignore: bounded authored lead list, offset capped at MaxLeadOffset and rejected beyond it
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return ports.BuyerLeadPage{}, fmt.Errorf("list buyer leads: %w", err)
 	}
 	defer rows.Close()
 
 	page := ports.BuyerLeadPage{Leads: make([]domain.BuyerLead, 0, limit)}
-	seen := 0
 	for rows.Next() {
 		l, err := scanBuyerLead(rows)
 		if err != nil {
 			return ports.BuyerLeadPage{}, fmt.Errorf("list buyer leads scan: %w", err)
 		}
-		if seen < offset {
-			seen++
-			continue
-		}
-		seen++
 		page.Leads = append(page.Leads, l)
 	}
 	if err := rows.Err(); err != nil {
 		return ports.BuyerLeadPage{}, fmt.Errorf("list buyer leads rows: %w", err)
 	}
 
+	// The WHOLE-FILTER total, over the same predicate the page used, so the count above the list
+	// and the list itself can never disagree.
 	if err := r.pool.QueryRow(ctx,
-		`SELECT count(*) FROM public.sales_buyer_leads l WHERE l.tenant_id = $1`, tenantID,
+		fmt.Sprintf(`SELECT count(*) FROM public.sales_buyer_leads l WHERE %s`, where), args...,
 	).Scan(&page.Total); err != nil {
 		return ports.BuyerLeadPage{}, fmt.Errorf("count buyer leads: %w", err)
 	}
@@ -171,14 +223,15 @@ func (r *Repository) CreateBuyerLead(ctx context.Context, tenantID string, write
 	var leadID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO public.sales_buyer_leads (
-			tenant_id, recorded_date, farm, buyer_name, buyer_place, animal_type, breed, call_status
+			tenant_id, recorded_date, farm, buyer_name, buyer_place, animal_type, breed,
+			phone_number, call_status
 		) VALUES (
 			$1, nullif($2, '')::date, nullif($3, ''), $4, nullif($5, ''),
-			nullif($6, ''), nullif($7, ''), nullif($8, '')
+			nullif($6, ''), nullif($7, ''), nullif($8, ''), nullif($9, '')
 		)
 		RETURNING id::text`,
 		tenantID, write.RecordedDate, write.Farm, write.BuyerName, write.BuyerPlace,
-		write.AnimalType, write.Breed, write.CallStatus,
+		write.AnimalType, write.Breed, write.PhoneNumber, write.CallStatus,
 	).Scan(&leadID)
 	if err != nil {
 		return domain.BuyerLead{}, fmt.Errorf("sales: create buyer lead: %w", err)
@@ -246,19 +299,166 @@ func (r *Repository) SetBuyerLeadStatus(ctx context.Context, tenantID, leadID st
 	return r.getBuyerLead(ctx, tenantID, leadID)
 }
 
+// The two lead EDIT statements, hoisted to package level so a query-plan test can reach them and so
+// the guard that bans inline multi-line SQL on a hot path stays honest. Both are keyed on
+// (tenant_id, id) -- the primary key -- so each is a single-row unique index update.
+const updateBuyerLeadSQL = `
+	UPDATE public.sales_buyer_leads SET
+		recorded_date = nullif($3, '')::date,
+		farm          = nullif($4, ''),
+		buyer_name    = $5,
+		buyer_place   = nullif($6, ''),
+		animal_type   = nullif($7, ''),
+		breed         = nullif($8, ''),
+		phone_number  = nullif($9, ''),
+		call_status   = nullif($10, ''),
+		updated_at    = now()
+	WHERE tenant_id = $1 AND id = $2`
+
+const updateFPOLeadSQL = `
+	UPDATE public.sales_fpo_leads SET
+		fpo_name     = $3,
+		crops        = nullif($4, ''),
+		district     = nullif($5, ''),
+		taluk        = nullif($6, ''),
+		state        = nullif($7, ''),
+		phone_number = nullif($8, ''),
+		call_status  = nullif($9, ''),
+		updated_at   = now()
+	WHERE tenant_id = $1 AND id = $2`
+
+// UpdateBuyerLead replaces a buyer lead's editable fields (maintainer instruction 2026-09-05).
+//
+// WHY THIS EXISTS. Until now a lead could be created and its call status changed, and nothing else.
+// A lead's PHONE NUMBER -- the field the whole board exists to act on -- is absent on all 208
+// imported rows, so without an edit path the number could only ever be attached by creating a
+// SECOND lead for the same person. The same gap made a typo'd name or place permanent.
+//
+// It is a REPLACE, not a patch: every editable field is written from the payload, so a cleared field
+// clears the column. That is safe here and only here because the one caller is the expanded lead row,
+// which renders every one of these fields; a partial form driving a replace would silently erase
+// what it did not show. The lead's identity (id, tenant, created_at) and its import provenance
+// (source_row_no, source_sales_id) are NOT touched -- provenance is a fact about where the row came
+// from and no edit can change that.
+//
+// call_status is included because it is part of the record being edited. The separate
+// SetBuyerLeadStatus route stays: it is the one-click path used while working DOWN a list, and it
+// carries its own audit action, so "she changed his status after the call" and "she corrected his
+// details" stay distinguishable in the trail.
+func (r *Repository) UpdateBuyerLead(ctx context.Context, tenantID, leadID string, write domain.BuyerLeadWrite, actorID, idempotencyKey string) (domain.BuyerLead, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.BuyerLead{}, fmt.Errorf("sales: begin buyer lead edit: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	fingerprint := requestFingerprint("buyer_lead_edit", leadID, write.RecordedDate, write.Farm,
+		write.BuyerName, write.BuyerPlace, write.AnimalType, write.Breed, write.PhoneNumber, write.CallStatus)
+	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeBuyerLeadEdit, idempotencyKey, fingerprint)
+	if err != nil {
+		return domain.BuyerLead{}, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.BuyerLead{}, fmt.Errorf("sales: commit replay read: %w", err)
+		}
+		return r.getBuyerLead(ctx, tenantID, leadID)
+	}
+
+	tag, err := tx.Exec(ctx, updateBuyerLeadSQL,
+		tenantID, leadID, write.RecordedDate, write.Farm, write.BuyerName, write.BuyerPlace,
+		write.AnimalType, write.Breed, write.PhoneNumber, write.CallStatus)
+	if err != nil {
+		return domain.BuyerLead{}, fmt.Errorf("sales: update buyer lead: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.BuyerLead{}, ports.ErrLeadNotFound
+	}
+
+	if err := r.recordAudit(ctx, tx, tenantID, actorID, "sales.buyer_lead.edit", "sales_buyer_lead", leadID, idempotencyKey, map[string]any{
+		"buyer_name":   write.BuyerName,
+		"phone_number": write.PhoneNumber,
+		"call_status":  write.CallStatus,
+	}); err != nil {
+		return domain.BuyerLead{}, err
+	}
+	if err := completeIdempotency(ctx, tx, tenantID, idemScopeBuyerLeadEdit, idempotencyKey, "sales_buyer_lead", leadID); err != nil {
+		return domain.BuyerLead{}, fmt.Errorf("sales: complete buyer lead edit idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.BuyerLead{}, fmt.Errorf("sales: commit buyer lead edit: %w", err)
+	}
+	return r.getBuyerLead(ctx, tenantID, leadID)
+}
+
+// UpdateFPOLead replaces a farmer-group lead's editable fields. Same shape and same reasoning as
+// UpdateBuyerLead above.
+func (r *Repository) UpdateFPOLead(ctx context.Context, tenantID, leadID string, write domain.FPOLeadWrite, actorID, idempotencyKey string) (domain.FPOLead, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.FPOLead{}, fmt.Errorf("sales: begin fpo lead edit: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	fingerprint := requestFingerprint("fpo_lead_edit", leadID, write.FPOName, write.Crops,
+		write.District, write.Taluk, write.State, write.PhoneNumber, write.CallStatus)
+	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeFPOLeadEdit, idempotencyKey, fingerprint)
+	if err != nil {
+		return domain.FPOLead{}, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.FPOLead{}, fmt.Errorf("sales: commit replay read: %w", err)
+		}
+		return r.getFPOLead(ctx, tenantID, leadID)
+	}
+
+	tag, err := tx.Exec(ctx, updateFPOLeadSQL,
+		tenantID, leadID, write.FPOName, write.Crops, write.District, write.Taluk,
+		write.State, write.PhoneNumber, write.CallStatus)
+	if err != nil {
+		return domain.FPOLead{}, fmt.Errorf("sales: update fpo lead: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.FPOLead{}, ports.ErrLeadNotFound
+	}
+
+	if err := r.recordAudit(ctx, tx, tenantID, actorID, "sales.fpo_lead.edit", "sales_fpo_lead", leadID, idempotencyKey, map[string]any{
+		"fpo_name":     write.FPOName,
+		"phone_number": write.PhoneNumber,
+		"call_status":  write.CallStatus,
+	}); err != nil {
+		return domain.FPOLead{}, err
+	}
+	if err := completeIdempotency(ctx, tx, tenantID, idemScopeFPOLeadEdit, idempotencyKey, "sales_fpo_lead", leadID); err != nil {
+		return domain.FPOLead{}, fmt.Errorf("sales: complete fpo lead edit idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.FPOLead{}, fmt.Errorf("sales: commit fpo lead edit: %w", err)
+	}
+	return r.getFPOLead(ctx, tenantID, leadID)
+}
+
 // ---------------------------------------------------------------------------
 // FPO leads
 // ---------------------------------------------------------------------------
 
 const fpoLeadColumns = `
-	l.id, l.fpo_name, l.crops, l.district, l.taluk, l.state, l.call_status, l.created_at`
+	l.id, l.fpo_name, l.crops, l.district, l.taluk, l.state, l.phone_number, l.call_status, l.created_at`
 
 func scanFPOLead(row pgx.Row) (domain.FPOLead, error) {
 	var (
 		l       domain.FPOLead
 		created time.Time
 	)
-	err := row.Scan(&l.LeadID, &l.FPOName, &l.Crops, &l.District, &l.Taluk, &l.State, &l.CallStatus, &created)
+	err := row.Scan(&l.LeadID, &l.FPOName, &l.Crops, &l.District, &l.Taluk, &l.State,
+		&l.PhoneNumber, &l.CallStatus, &created)
 	if err != nil {
 		return domain.FPOLead{}, err
 	}
@@ -267,7 +467,7 @@ func scanFPOLead(row pgx.Row) (domain.FPOLead, error) {
 }
 
 // ListFPOLeads mirrors ListBuyerLeads for the farmer-group pipeline.
-func (r *Repository) ListFPOLeads(ctx context.Context, tenantID string, limit, offset int) (ports.FPOLeadPage, error) {
+func (r *Repository) ListFPOLeads(ctx context.Context, tenantID string, filter domain.LeadFilter, limit, offset int) (ports.FPOLeadPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -275,28 +475,33 @@ func (r *Repository) ListFPOLeads(ctx context.Context, tenantID string, limit, o
 	if offset < 0 {
 		offset = 0
 	}
-	window := limit + offset
+	where, args := buildLeadFilter(tenantID, filter.Normalize())
 
-	query := fmt.Sprintf(`SELECT %s FROM public.sales_fpo_leads l WHERE l.tenant_id = $1
-		ORDER BY l.created_at DESC, l.id LIMIT %d`, fpoLeadColumns, window)
-	rows, err := r.pool.Query(ctx, query, tenantID)
+	// OFFSET is legitimate here and the bound is what makes it so. These boards are an AUTHORED
+	// contact list -- 208 buyer leads and 53 farmer groups, grown by hand a few a month -- that does
+	// not scale with the herd, and the offset is hard-capped at domain.MaxLeadOffset and REJECTED
+	// rather than clamped past it (a clamped page shows page 1's rows under page 400's number). The
+	// board also needs a Back control and a page number, neither of which a forward-only cursor can
+	// express. Same reasoning, same shape as the vendor register's read.
+	//
+	// The code this replaced avoided SQL OFFSET and was WORSE for it: it fetched limit+offset rows
+	// and discarded the first `offset` of them in the Go scan loop, so asking for page 10
+	// transferred ten pages over the wire to show one.
+	// scale-guard:ignore: bounded LIMIT/OFFSET over an authored lead list, not a herd-sized table.
+	query := fmt.Sprintf(`SELECT %s FROM public.sales_fpo_leads l WHERE %s
+		ORDER BY l.created_at DESC, l.id LIMIT %d OFFSET %d`, fpoLeadColumns, where, limit, offset) // scale-guard:ignore: bounded authored lead list, offset capped at MaxLeadOffset and rejected beyond it
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return ports.FPOLeadPage{}, fmt.Errorf("list fpo leads: %w", err)
 	}
 	defer rows.Close()
 
 	page := ports.FPOLeadPage{Leads: make([]domain.FPOLead, 0, limit)}
-	seen := 0
 	for rows.Next() {
 		l, err := scanFPOLead(rows)
 		if err != nil {
 			return ports.FPOLeadPage{}, fmt.Errorf("list fpo leads scan: %w", err)
 		}
-		if seen < offset {
-			seen++
-			continue
-		}
-		seen++
 		page.Leads = append(page.Leads, l)
 	}
 	if err := rows.Err(); err != nil {
@@ -304,7 +509,7 @@ func (r *Repository) ListFPOLeads(ctx context.Context, tenantID string, limit, o
 	}
 
 	if err := r.pool.QueryRow(ctx,
-		`SELECT count(*) FROM public.sales_fpo_leads l WHERE l.tenant_id = $1`, tenantID,
+		fmt.Sprintf(`SELECT count(*) FROM public.sales_fpo_leads l WHERE %s`, where), args...,
 	).Scan(&page.Total); err != nil {
 		return ports.FPOLeadPage{}, fmt.Errorf("count fpo leads: %w", err)
 	}
@@ -356,12 +561,14 @@ func (r *Repository) CreateFPOLead(ctx context.Context, tenantID string, write d
 	var leadID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO public.sales_fpo_leads (
-			tenant_id, fpo_name, crops, district, taluk, state, call_status
+			tenant_id, fpo_name, crops, district, taluk, state, phone_number, call_status
 		) VALUES (
-			$1, $2, nullif($3, ''), nullif($4, ''), nullif($5, ''), nullif($6, ''), nullif($7, '')
+			$1, $2, nullif($3, ''), nullif($4, ''), nullif($5, ''), nullif($6, ''),
+			nullif($7, ''), nullif($8, '')
 		)
 		RETURNING id::text`,
-		tenantID, write.FPOName, write.Crops, write.District, write.Taluk, write.State, write.CallStatus,
+		tenantID, write.FPOName, write.Crops, write.District, write.Taluk, write.State,
+		write.PhoneNumber, write.CallStatus,
 	).Scan(&leadID)
 	if err != nil {
 		return domain.FPOLead{}, fmt.Errorf("sales: create fpo lead: %w", err)

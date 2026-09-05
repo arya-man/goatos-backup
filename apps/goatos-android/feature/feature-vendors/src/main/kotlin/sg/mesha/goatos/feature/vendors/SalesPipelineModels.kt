@@ -50,6 +50,9 @@ sealed interface SalesPipelineHubEvent {
 /** One lead on the board. Every line is composed from the server's own row. */
 @Immutable
 data class SalesLeadCardUi(
+    /** Stable list key: the board's side and the lead id, so a buyer lead and a farmer group that
+     *  happened to share an id could still never share a row. */
+    val listKey: String,
     val leadId: String,
     /** Buyer name or farmer-group name, VERBATIM. */
     val title: String,
@@ -60,18 +63,28 @@ data class SalesLeadCardUi(
     /** Backend call-status word, VERBATIM; blank when the row carries none. */
     val statusLabel: String,
     val statusTone: VendorsTone,
+    /** The number to dial, exactly as recorded. Blank when the lead carries none. */
+    val phoneNumber: String = "",
+    /** Everything the server knows about this lead, for the expanded row. */
+    val details: List<VendorsDetailRowUi> = emptyList(),
+    /**
+     * The row's own values keyed by form field, so Change opens on exactly what is recorded. It
+     * rides on the card because the board is a paged read: nothing else on the phone holds the
+     * lead the finger just landed on, and keeping a side map of every lead ever scrolled past
+     * would be the growing in-heap accumulator the memory rule bans.
+     */
+    val editValues: Map<String, String> = emptyMap(),
 )
 
 /** Fields of the buyer-lead form. */
-enum class SalesBuyerLeadField { RECORDED_DATE, FARM, BUYER_NAME, BUYER_PLACE, ANIMAL_TYPE, BREED, CALL_STATUS }
+enum class SalesBuyerLeadField { RECORDED_DATE, FARM, BUYER_NAME, BUYER_PLACE, ANIMAL_TYPE, BREED, PHONE_NUMBER, CALL_STATUS }
 
 /** Fields of the farmer-group form. */
-enum class SalesFpoLeadField { FPO_NAME, CROPS, DISTRICT, TALUK, STATE, CALL_STATUS }
+enum class SalesFpoLeadField { FPO_NAME, CROPS, DISTRICT, TALUK, STATE, PHONE_NUMBER, CALL_STATUS }
 
 @Immutable
 data class SalesLeadBoardUiState(
     val title: String = "",
-    val cards: List<SalesLeadCardUi> = emptyList(),
     /** The call-status vocabulary, backend-owned. */
     val statusOptions: List<VendorsOptionUi> = emptyList(),
     /** Farms and the product/breed vocabularies, for the buyer-lead form only. */
@@ -79,10 +92,20 @@ data class SalesLeadBoardUiState(
     val animalTypes: List<VendorsOptionUi> = emptyList(),
     val breeds: List<VendorsOptionUi> = emptyList(),
     val today: String = "",
-    /** Non-null while the add form is open. */
+    /** Non-null while the add or edit form is open. */
     val form: SalesLeadFormUi? = null,
     /** Non-blank while the status picker is open on one lead. */
     val statusPickerLeadId: String = "",
+    /** Non-blank while one lead is opened out in place, showing everything known about it. */
+    val expandedLeadId: String = "",
+    /** What is typed in the search box, echoed back so the field renders what was typed. */
+    val search: String = "",
+    /** Status chips, "All" first; the selected one is the filter in force. */
+    val filters: List<VendorsFilterUi> = emptyList(),
+    /** What the search box invites: the fields a search actually matches. */
+    val searchPlaceholder: String = "",
+    /** Shown in place of a phone number on a lead that carries none. */
+    val noPhoneMessage: String = "",
     val countLine: String = "",
     val emptyMessage: String = "",
     val isRefreshing: Boolean = false,
@@ -92,12 +115,18 @@ data class SalesLeadBoardUiState(
     val writeMessage: String = "",
 )
 
-/** The add-lead form's draft. Keys are the field enums' names, so ONE state serves both boards. */
+/**
+ * The lead form's draft. Keys are the field enums' names, so ONE state serves both boards and both
+ * verbs. [editingLeadId] is blank while a NEW lead is being entered and carries the lead id while
+ * an existing one is being changed -- a change REPLACES every editable field, so the form opens
+ * pre-filled with what the row already holds.
+ */
 @Immutable
 data class SalesLeadFormUi(
     val values: Map<String, String> = emptyMap(),
     val fieldErrors: Map<String, String> = emptyMap(),
     val inFlight: Boolean = false,
+    val editingLeadId: String = "",
 )
 
 sealed interface SalesLeadBoardEvent {
@@ -110,6 +139,15 @@ sealed interface SalesLeadBoardEvent {
     /** Open the status picker on one lead; blank closes it. */
     data class OpenStatusPicker(val leadId: String) : SalesLeadBoardEvent
     data class ChangeStatus(val leadId: String, val status: String) : SalesLeadBoardEvent
+    data class SearchChanged(val text: String) : SalesLeadBoardEvent
+    data class SelectStatus(val key: String) : SalesLeadBoardEvent
+    /** Open one lead out in place; the same lead again closes it. */
+    data class ToggleExpanded(val leadId: String) : SalesLeadBoardEvent
+    /** Change this lead: the form opens on what the row already holds, which is why the CARD
+     *  travels with the event -- a paged board holds no other copy of the row that was tapped. */
+    data class EditLead(val card: SalesLeadCardUi) : SalesLeadBoardEvent
+    /** The number was tapped; the screen hands it to the dialler. */
+    data class CallLead(val leadId: String) : SalesLeadBoardEvent
 }
 
 // ---------------------------------------------------------------------------------------------
