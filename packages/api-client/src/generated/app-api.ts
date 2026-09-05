@@ -6626,6 +6626,8 @@ export interface components {
             total: number;
             /** @description The tenant's stored call-status vocabulary, for the status picker. */
             status_options: string[];
+            /** @description The call-status FACET, leading with the not-yet-called bucket. */
+            status_filters: components["schemas"]["SalesLeadStatusFilter"][];
         };
         /** @description Records one buyer lead. Optional text sent as "" is stored as not set. */
         SalesBuyerLeadWrite: {
@@ -6665,6 +6667,8 @@ export interface components {
             leads: components["schemas"]["SalesFpoLead"][];
             total: number;
             status_options: string[];
+            /** @description The call-status FACET, leading with the not-yet-called bucket. */
+            status_filters: components["schemas"]["SalesLeadStatusFilter"][];
         };
         /** @description Records one farmer-group lead. */
         SalesFpoLeadWrite: {
@@ -6676,6 +6680,12 @@ export interface components {
             /** @description Optional; free text, may hold more than one number. */
             phone_number?: string;
             call_status?: string;
+        };
+        /** @description One option on a board's call-status facet. SEPARATE from `status_options`, which is the WRITE vocabulary: the facet must offer the not-yet-called bucket, which is stored as null and so can never appear in a DISTINCT call_status read, while the write vocabulary must NOT offer it or the literal string could be saved as a status and invent a sixth bucket beside the real one. The label is backend-owned so every surface words the bucket identically. */
+        SalesLeadStatusFilter: {
+            /** @description Send back as the `status` query parameter; `uncontacted` selects the null bucket. */
+            value: string;
+            label: string;
         };
         /** @description Sets one lead's call status; empty clears it back to "not yet called". */
         SalesLeadStatusWrite: {

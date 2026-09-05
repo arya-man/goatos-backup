@@ -364,3 +364,39 @@ func (f LeadFilter) Normalize() LeadFilter {
 // IsUncontacted reports whether the status filter selects the "not yet called" bucket, which is
 // stored as NULL or blank rather than as a value.
 func (f LeadFilter) IsUncontacted() bool { return f.Status == UncontactedStatusKey }
+
+// LeadStatusFilter is one selectable option on a board's call-status facet.
+//
+// It is SEPARATE from StatusOptions, which is the WRITE vocabulary, and the split is load-bearing.
+// The facet must offer "not yet called" -- 164 of 208 buyer leads sit there and it is the actual
+// call list -- but that bucket is stored as NULL, so it can never appear in the DISTINCT call_status
+// read that builds the write vocabulary. Folding the sentinel into StatusOptions instead would put
+// the literal string "uncontacted" in the create form's picker and let someone SAVE it as a status,
+// inventing a sixth bucket that the chart would then report beside the real "Not yet called" one.
+//
+// The LABEL is backend-owned and travels with the value, so the phone and the web word the bucket
+// identically without either inventing copy. Before this existed, neither surface offered the
+// filter at all: both took the write vocabulary and used it as the facet.
+type LeadStatusFilter struct {
+	// Value is what to send back as the `status` query parameter -- a stored call_status, or the
+	// UncontactedStatusKey sentinel.
+	Value string
+	Label string
+}
+
+// UncontactedStatusLabel is the farm's word for the no-status bucket, matching what the pipeline
+// chart on /sales calls it.
+const UncontactedStatusLabel = "Not yet called"
+
+// LeadStatusFilters builds a board's facet from its stored vocabulary: the not-yet-called bucket
+// FIRST, because it is the biggest and the one a caller works through, then each stored status
+// labelled as itself (the spellings are the farm's own and the chart buckets by exact string, so
+// relabelling one here would make the facet and the bar disagree).
+func LeadStatusFilters(stored []string) []LeadStatusFilter {
+	out := make([]LeadStatusFilter, 0, len(stored)+1)
+	out = append(out, LeadStatusFilter{Value: UncontactedStatusKey, Label: UncontactedStatusLabel})
+	for _, s := range stored {
+		out = append(out, LeadStatusFilter{Value: s, Label: s})
+	}
+	return out
+}

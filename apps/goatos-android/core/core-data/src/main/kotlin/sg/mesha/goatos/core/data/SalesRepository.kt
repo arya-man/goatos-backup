@@ -212,9 +212,9 @@ class DefaultSalesRepository(
             // One row is enough: the hub shows the COUNT, and the board fetches its own pages.
             val meta = when (side) {
                 SalesLeadSide.BUYER -> api.getSalesBuyerLeads(1, 0, null, null)
-                    .let { SalesLeadBoardMetaDto(total = it.total, statusOptions = it.statusOptions) }
+                    .let { SalesLeadBoardMetaDto(total = it.total, statusOptions = it.statusOptions, statusFilters = it.statusFilters) }
                 SalesLeadSide.FARMER_GROUP -> api.getSalesFpoLeads(1, 0, null, null)
-                    .let { SalesLeadBoardMetaDto(total = it.total, statusOptions = it.statusOptions) }
+                    .let { SalesLeadBoardMetaDto(total = it.total, statusOptions = it.statusOptions, statusFilters = it.statusFilters) }
             }
             putBlob(salesLeadMetaCacheKey(side, "", ""), json.encodeToString(meta))
         }.onFailure {
@@ -359,12 +359,12 @@ class DefaultSalesRepository(
                     SalesLeadSide.BUYER -> {
                         val response = api.getSalesBuyerLeads(SALES_LEADS_PAGE_SIZE, offset, text, word)
                         rows = response.leads.map { it.leadId to json.encodeToString(it) }
-                        meta = SalesLeadBoardMetaDto(total = response.total, statusOptions = response.statusOptions)
+                        meta = SalesLeadBoardMetaDto(total = response.total, statusOptions = response.statusOptions, statusFilters = response.statusFilters)
                     }
                     SalesLeadSide.FARMER_GROUP -> {
                         val response = api.getSalesFpoLeads(SALES_LEADS_PAGE_SIZE, offset, text, word)
                         rows = response.leads.map { it.leadId to json.encodeToString(it) }
-                        meta = SalesLeadBoardMetaDto(total = response.total, statusOptions = response.statusOptions)
+                        meta = SalesLeadBoardMetaDto(total = response.total, statusOptions = response.statusOptions, statusFilters = response.statusFilters)
                     }
                 }
                 val now = clock()

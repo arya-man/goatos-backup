@@ -16363,7 +16363,7 @@ components:
     SalesBuyerLeadPage:
       type: object
       description: One page of the buyer pipeline plus whole-filter total and status vocabulary.
-      required: [leads, total, status_options]
+      required: [leads, total, status_options, status_filters]
       properties:
         leads:
           type: array
@@ -16373,6 +16373,11 @@ components:
           type: array
           items: { type: string }
           description: The tenant's stored call-status vocabulary, for the status picker.
+        status_filters:
+          type: array
+          items: { $ref: "#/components/schemas/SalesLeadStatusFilter" }
+          description: The call-status FACET, leading with the not-yet-called bucket.
+
     SalesBuyerLeadWrite:
       type: object
       description: Records one buyer lead. Optional text sent as "" is stored as not set.
@@ -16406,7 +16411,7 @@ components:
     SalesFpoLeadPage:
       type: object
       description: One page of the farmer-group pipeline plus whole-filter total and status vocabulary.
-      required: [leads, total, status_options]
+      required: [leads, total, status_options, status_filters]
       properties:
         leads:
           type: array
@@ -16415,6 +16420,11 @@ components:
         status_options:
           type: array
           items: { type: string }
+        status_filters:
+          type: array
+          items: { $ref: "#/components/schemas/SalesLeadStatusFilter" }
+          description: The call-status FACET, leading with the not-yet-called bucket.
+
     SalesFpoLeadWrite:
       type: object
       description: Records one farmer-group lead.
@@ -16427,6 +16437,20 @@ components:
         state: { type: string }
         phone_number: { type: string, description: "Optional; free text, may hold more than one number." }
         call_status: { type: string }
+    SalesLeadStatusFilter:
+      type: object
+      description: >-
+        One option on a board's call-status facet. SEPARATE from `status_options`, which is the
+        WRITE vocabulary: the facet must offer the not-yet-called bucket, which is stored as null and
+        so can never appear in a DISTINCT call_status read, while the write vocabulary must NOT offer
+        it or the literal string could be saved as a status and invent a sixth bucket beside the real
+        one. The label is backend-owned so every surface words the bucket identically.
+      required: [value, label]
+      properties:
+        value:
+          type: string
+          description: Send back as the `status` query parameter; `uncontacted` selects the null bucket.
+        label: { type: string }
     SalesLeadStatusWrite:
       type: object
       description: Sets one lead's call status; empty clears it back to "not yet called".

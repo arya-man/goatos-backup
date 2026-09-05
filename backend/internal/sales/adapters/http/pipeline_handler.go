@@ -91,6 +91,7 @@ func (h *SalesHandler) ListBuyerLeads(w http.ResponseWriter, r *http.Request) {
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, buyerLeadPagePayload{
 		Leads: items, Total: page.Total, StatusOptions: page.StatusOptions,
+		StatusFilters: toStatusFilterPayloads(page.StatusFilters),
 	})
 }
 
@@ -149,6 +150,7 @@ func (h *SalesHandler) ListFPOLeads(w http.ResponseWriter, r *http.Request) {
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, fpoLeadPagePayload{
 		Leads: items, Total: page.Total, StatusOptions: page.StatusOptions,
+		StatusFilters: toStatusFilterPayloads(page.StatusFilters),
 	})
 }
 

@@ -235,8 +235,14 @@ class SalesLeadBoardViewModel @Inject constructor(
             SalesLeadBoardUiState(
                 title = if (buyerBoard) "Buyer leads" else "Farmer groups",
                 statusOptions = statusOptions.map { VendorsOptionUi(it, it) },
+                // The facet is the BACKEND's list, not the write vocabulary. It leads with the
+                // not-yet-called bucket -- 164 of 208 buyer leads sit there and it is the call list
+                // itself -- which is stored as null and so never appears in statusOptions. Building
+                // the chips from statusOptions is what left that bucket unreachable on this screen.
                 filters = listOf(VendorsFilterUi(key = "", label = FILTER_ALL, selected = current.status.isBlank())) +
-                    statusOptions.map { VendorsFilterUi(key = it, label = it, selected = it == current.status) },
+                    (meta?.statusFilters.orEmpty()).map {
+                        VendorsFilterUi(key = it.value, label = it.label, selected = it.value == current.status)
+                    },
                 search = text,
                 searchPlaceholder = if (buyerBoard) SEARCH_BUYERS else SEARCH_GROUPS,
                 noPhoneMessage = NO_PHONE,

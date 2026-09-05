@@ -105,6 +105,10 @@ type BuyerLeadPage struct {
 	Leads         []domain.BuyerLead
 	Total         int
 	StatusOptions []string
+	// StatusFilters is the FACET, which is not the same list as StatusOptions: it leads with the
+	// not-yet-called bucket, which is stored as NULL and so can never appear in the write
+	// vocabulary. See domain.LeadStatusFilters.
+	StatusFilters []domain.LeadStatusFilter
 }
 
 // FPOLeadPage mirrors BuyerLeadPage for farmer groups.
@@ -112,4 +116,5 @@ type FPOLeadPage struct {
 	Leads         []domain.FPOLead
 	Total         int
 	StatusOptions []string
+	StatusFilters []domain.LeadStatusFilter
 }

@@ -37,9 +37,10 @@ func toBuyerLeadPayload(l domain.BuyerLead) buyerLeadPayload {
 }
 
 type buyerLeadPagePayload struct {
-	Leads         []buyerLeadPayload `json:"leads"`
-	Total         int                `json:"total"`
-	StatusOptions []string           `json:"status_options"`
+	Leads         []buyerLeadPayload        `json:"leads"`
+	Total         int                       `json:"total"`
+	StatusOptions []string                  `json:"status_options"`
+	StatusFilters []leadStatusFilterPayload `json:"status_filters"`
 }
 
 type buyerLeadWritePayload struct {
@@ -95,9 +96,10 @@ func toFPOLeadPayload(l domain.FPOLead) fpoLeadPayload {
 }
 
 type fpoLeadPagePayload struct {
-	Leads         []fpoLeadPayload `json:"leads"`
-	Total         int              `json:"total"`
-	StatusOptions []string         `json:"status_options"`
+	Leads         []fpoLeadPayload          `json:"leads"`
+	Total         int                       `json:"total"`
+	StatusOptions []string                  `json:"status_options"`
+	StatusFilters []leadStatusFilterPayload `json:"status_filters"`
 }
 
 type fpoLeadWritePayload struct {
@@ -123,6 +125,21 @@ func (p fpoLeadWritePayload) toDomain() domain.FPOLeadWrite {
 }
 
 // ---- Shared status write ----
+
+// leadStatusFilterPayload is one option on the board's call-status facet: the value to send back
+// and the farm's word for it. Backend-owned so the phone and the web word the bucket identically.
+type leadStatusFilterPayload struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+func toStatusFilterPayloads(in []domain.LeadStatusFilter) []leadStatusFilterPayload {
+	out := make([]leadStatusFilterPayload, 0, len(in))
+	for _, f := range in {
+		out = append(out, leadStatusFilterPayload{Value: f.Value, Label: f.Label})
+	}
+	return out
+}
 
 type leadStatusWritePayload struct {
 	CallStatus string `json:"call_status"`

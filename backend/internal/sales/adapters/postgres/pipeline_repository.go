@@ -158,6 +158,8 @@ func (r *Repository) ListBuyerLeads(ctx context.Context, tenantID string, filter
 		return ports.BuyerLeadPage{}, err
 	}
 	page.StatusOptions = options
+	// The FACET, which leads with the not-yet-called bucket the write vocabulary can never contain.
+	page.StatusFilters = domain.LeadStatusFilters(options)
 	return page, nil
 }
 
@@ -519,6 +521,8 @@ func (r *Repository) ListFPOLeads(ctx context.Context, tenantID string, filter d
 		return ports.FPOLeadPage{}, err
 	}
 	page.StatusOptions = options
+	// The FACET, which leads with the not-yet-called bucket the write vocabulary can never contain.
+	page.StatusFilters = domain.LeadStatusFilters(options)
 	return page, nil
 }
 

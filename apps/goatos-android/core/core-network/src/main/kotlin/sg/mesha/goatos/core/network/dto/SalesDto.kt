@@ -251,12 +251,25 @@ data class SalesBuyerLeadDto(
     @SerialName("created_at") val createdAt: String = "",
 )
 
+/**
+ * One option on the board's call-status facet. SEPARATE from `status_options`, which is the WRITE
+ * vocabulary: the facet must offer the not-yet-called bucket (stored as null, so it can never appear
+ * in a DISTINCT read of the column), and the write vocabulary must not, or the literal sentinel
+ * could be saved as a status. The label is backend-owned and rendered verbatim.
+ */
+@Serializable
+data class SalesLeadStatusFilterDto(
+    @SerialName("value") val value: String = "",
+    @SerialName("label") val label: String = "",
+)
+
 @Serializable
 data class SalesBuyerLeadPageDto(
     @SerialName("leads") val leads: List<SalesBuyerLeadDto> = emptyList(),
     @SerialName("total") val total: Int = 0,
     /** The call-status vocabulary, BACKEND-owned; the phone offers exactly these. */
     @SerialName("status_options") val statusOptions: List<String> = emptyList(),
+    @SerialName("status_filters") val statusFilters: List<SalesLeadStatusFilterDto> = emptyList(),
 )
 
 @Serializable
@@ -290,6 +303,7 @@ data class SalesFpoLeadPageDto(
     @SerialName("leads") val leads: List<SalesFpoLeadDto> = emptyList(),
     @SerialName("total") val total: Int = 0,
     @SerialName("status_options") val statusOptions: List<String> = emptyList(),
+    @SerialName("status_filters") val statusFilters: List<SalesLeadStatusFilterDto> = emptyList(),
 )
 
 @Serializable
@@ -313,6 +327,7 @@ data class SalesFpoLeadWriteDto(
 data class SalesLeadBoardMetaDto(
     @SerialName("total") val total: Int = 0,
     @SerialName("status_options") val statusOptions: List<String> = emptyList(),
+    @SerialName("status_filters") val statusFilters: List<SalesLeadStatusFilterDto> = emptyList(),
 )
 
 /** `POST /sales/{buyer,fpo}-leads/{lead_id}/status`. */
