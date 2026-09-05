@@ -178,7 +178,9 @@ SELECT count(*)::int,
 FROM pc_care_task_animals
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
 			p.TenantID, p.TaskID,
-			category == domain.CategoryDeworming || category == domain.CategoryTicksRemoval,
+			// The ONE-video categories. Anti protozoan is deworming's twin here: miss it and
+			// the readiness check would demand the three trimming slots and refuse every submit.
+			domain.IsSingleVideoCategory(category),
 		).Scan(&animalCount, &missingCount); err != nil {
 			return ports.SubmitTaskResult{}, fmt.Errorf("pccare: submit readiness count: %w", err)
 		}

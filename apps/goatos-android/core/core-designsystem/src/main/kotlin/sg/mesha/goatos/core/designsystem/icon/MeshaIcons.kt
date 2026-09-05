@@ -285,6 +285,18 @@ object MeshaIcons {
         "M8.5 8.5l7 7",
     )
 
+    /**
+     * A protozoan cell: an irregular single-celled body with its nucleus, and the cilia along
+     * one edge. Deliberately NOT the deworming capsule — the two tabs sit side by side and a
+     * shared mark would make the pair unreadable at a glance.
+     */
+    val AntiProtozoan: ImageVector = strokeIcon(
+        "anti_protozoan",
+        "M13.8 4.2c3.4.6 5.6 3.3 5.4 6.6-.2 3.6-3 6.4-6.4 6.9-3.1.4-6-1.3-6.7-4-.8-3.1 1-6.3 3.8-8 1.2-.8 2.6-1.1 3.9-.9z",
+        "M12.2 10.1a2.1 2.1 0 1 0 0 4.2 2.1 2.1 0 0 0 0-4.2z",
+        "M6.2 6.6 4.4 5.2M4.9 9.6 2.8 9M4.9 13.2l-2 .9",
+    )
+
     /** The tick itself: capsule body, antennae, splayed legs. */
     val Tick: ImageVector = strokeIcon(
         "tick",
@@ -425,6 +437,7 @@ object MeshaIcons {
         // each tab names its own work so four tabs on one bar never share a mark.
         "pc_care" -> PcCare
         "pc_deworming" -> Deworming
+        "pc_anti_protozoan" -> AntiProtozoan
         // Vendors module (maintainer decision 2026-09-03): the register wears the storefront and
         // its Feed Purchases tab the package, so the two tabs on one bar never share a mark.
         "vendors" -> Store

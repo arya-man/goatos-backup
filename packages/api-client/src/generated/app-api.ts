@@ -8232,10 +8232,10 @@ export interface components {
             completed_pens: number;
         };
         /**
-         * @description A PC Care work category (maintainer decision 2026-08-21).
+         * @description A PC Care work category (maintainer decision 2026-08-21; anti_protozoan added 2026-09-05). `anti_protozoan` is deworming's twin — one dose per animal, scanned free-flow, one live-camera video each — differing only in that it has NO feed & water removal, because that dose does not go in the feed. Sending the removal fields with it is refused (422 feed_removal_not_applicable), as with every non-deworming category.
          * @enum {string}
          */
-        PCCareCategory: "deworming" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "inventory_vaccine" | "feed_water_removal";
+        PCCareCategory: "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "inventory_vaccine" | "feed_water_removal";
         /** @description One expected proof slot for a task's category — the BACKEND-OWNED slot contract. The min_duration_hint_seconds on the trimming "during" clip is recorder guidance, never a client-enforced cap. */
         PCCareSlot: {
             /** @enum {string} */

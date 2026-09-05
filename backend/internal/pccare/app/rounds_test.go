@@ -295,3 +295,37 @@ func TestListRoundCardsAcceptsNoDateAndCarriesTheTab(t *testing.T) {
 		t.Fatalf("malformed date err = %v, want ErrInvalidArgument", err)
 	}
 }
+
+// The removal toggle is refused on ANTI PROTOZOAN at the service gate, with the same error a
+// planner gets for any other non-deworming category. It is refused because the category is not
+// deworming — nothing special-cases it — and this proves the refusal actually reaches it.
+func TestAntiProtozoanRoundRefusesFeedAndWaterRemoval(t *testing.T) {
+	svc, rounds := roundSvc(pinnedIST(10, 9, 0))
+
+	in := dewormingRoundInput("2026-09-11")
+	in.Category = domain.CategoryAntiProtozoan
+	in.FeedRemovalRequired = true
+	in.RemovalOperatorUserIDs = []string{fastingRemover}
+
+	if _, err := svc.CreateRound(plannerCtx(), plannerActor(), in); !errors.Is(err, domain.ErrFeedRemovalNotApplicable) {
+		t.Fatalf("anti protozoan with the removal toggle err = %v, want ErrFeedRemovalNotApplicable", err)
+	}
+	if rounds.createCalls != 0 {
+		t.Fatalf("a refused round reached the store %d times, want 0", rounds.createCalls)
+	}
+
+	// WITHOUT the toggle it plans exactly like deworming — including at an hour that would have
+	// been refused for deworming-with-removal, because there is no evening crew to staff.
+	late, lateRounds := roundSvc(pinnedIST(10, 23, 0))
+	ok := dewormingRoundInput("2026-09-11")
+	ok.Category = domain.CategoryAntiProtozoan
+	if _, err := late.CreateRound(plannerCtx(), plannerActor(), ok); err != nil {
+		t.Fatalf("anti protozoan round err = %v, want nil", err)
+	}
+	if lateRounds.createCalls != 1 {
+		t.Fatalf("store create calls = %d, want 1", lateRounds.createCalls)
+	}
+	if lateRounds.lastCreate.FeedRemovalRequired {
+		t.Fatal("an anti protozoan round must carry no removal to the store")
+	}
+}

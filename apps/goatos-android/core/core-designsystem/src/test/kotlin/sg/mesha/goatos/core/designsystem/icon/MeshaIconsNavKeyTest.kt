@@ -48,6 +48,7 @@ class MeshaIconsNavKeyTest {
         // print, scissors) — the exact same-bar collision class as bugs 2 and 3 above.
         "pc_care",
         "pc_deworming",
+        "pc_anti_protozoan",
         "pc_ticks",
         "pc_hoof_trimming",
         "pc_hair_trimming",

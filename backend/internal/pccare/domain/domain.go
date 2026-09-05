@@ -29,7 +29,13 @@ func PartitionMatchKey(label string) string {
 // The four work categories. These are STORAGE/CONTRACT tokens, never user-facing copy — clients
 // render the backend-owned labels carried on the nav/worklist contracts.
 const (
-	CategoryDeworming        = "deworming"
+	CategoryDeworming = "deworming"
+	// CategoryAntiProtozoan is deworming's twin (maintainer instruction 2026-09-05): one dose
+	// per animal, scanned free-flow, one live-camera video each, verifier-reviewed. The ONE
+	// difference is that it has NO feed & water removal — deworming's tablet goes in the feed,
+	// this dose does not — and that difference is an absence, not a variant: the removal fields
+	// are admitted for deworming alone, so this category is refused one automatically.
+	CategoryAntiProtozoan    = "anti_protozoan"
 	CategoryTicksRemoval     = "ticks_removal"
 	CategoryHoofTrimming     = "hoof_trimming"
 	CategoryHairTrimming     = "hair_trimming"
@@ -43,11 +49,11 @@ const (
 )
 
 // Categories lists every valid category, in display order.
-var Categories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine, CategoryFeedWaterRemoval}
+var Categories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine, CategoryFeedWaterRemoval}
 
 // PlannerCategories lists categories humans may plan through the PC Care create wizard.
 // Kernel-owned categories stay readable/listable, but are created by reconciliation stages.
-var PlannerCategories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
+var PlannerCategories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
 
 // TrimmingCategories are the planner categories a holder of pc_care.plan_trimming may plan
 // (maintainer decision 2026-09-04: the Breeding Director owns hoof and hair trimming while
@@ -68,7 +74,7 @@ func IsTrimmingCategory(c string) bool {
 // IsValidCategory reports whether c names a real PC Care category.
 func IsValidCategory(c string) bool {
 	switch c {
-	case CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine, CategoryFeedWaterRemoval:
+	case CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine, CategoryFeedWaterRemoval:
 		return true
 	}
 	return false
@@ -86,7 +92,7 @@ func IsKernelOwnedCategory(c string) bool {
 // the vaccine-stock check is recorded by park operators and approved by the PC DIRECTOR on the
 // module's own stock-verdict route — the toxin-module approval-gate shape — so the verifier
 // never sees stock work and no verification item is enqueued for it.
-var VerifierReviewedCategories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryFeedWaterRemoval}
+var VerifierReviewedCategories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryFeedWaterRemoval}
 
 // IsDirectorApprovedCategory reports whether a category's submitted proof is judged by the PC
 // Director instead of the tenant verifier.
@@ -161,6 +167,11 @@ func SlotsForCategory(category string) []Slot {
 			FieldKey: SlotVideo, Label: "Deworming video",
 			Description: "Show the dose being given to this animal",
 		}}
+	case CategoryAntiProtozoan:
+		return []Slot{{
+			FieldKey: SlotVideo, Label: "Anti Protozoan video",
+			Description: "Show the dose being given to this animal",
+		}}
 	case CategoryTicksRemoval:
 		return []Slot{{
 			FieldKey: SlotVideo, Label: "Ticks removal video",
@@ -208,6 +219,14 @@ func SlotsForCategory(category string) []Slot {
 	return nil
 }
 
+// IsSingleVideoCategory reports the categories whose animals carry exactly ONE video, as
+// opposed to the trimming pair's before/while/after. Derived from SlotsForCategory so a new
+// category cannot be added to the slot map and forgotten by the submit readiness check.
+func IsSingleVideoCategory(category string) bool {
+	slots := SlotsForCategory(category)
+	return len(slots) == 1 && slots[0].FieldKey == SlotVideo
+}
+
 // IsValidSlotForCategory reports whether fieldKey is one of category's expected slots.
 func IsValidSlotForCategory(category, fieldKey string) bool {
 	for _, s := range SlotsForCategory(category) {
@@ -225,6 +244,8 @@ func CategoryLabel(category string) string {
 	switch category {
 	case CategoryDeworming:
 		return "Deworming"
+	case CategoryAntiProtozoan:
+		return "Anti Protozoan"
 	case CategoryTicksRemoval:
 		return "Ticks Removal"
 	case CategoryHoofTrimming:
@@ -256,6 +277,7 @@ const (
 	VerificationVerticalPreventiveCare   = "preventive_care"
 	VerificationModulePCCare             = "pc_care"
 	VerificationCategoryDeworming        = "pc_deworming"
+	VerificationCategoryAntiProtozoan    = "pc_anti_protozoan"
 	VerificationCategoryTicksRemoval     = "pc_ticks_removal"
 	VerificationCategoryHoofTrimming     = "pc_hoof_trimming"
 	VerificationCategoryHairTrimming     = "pc_hair_trimming"
@@ -274,6 +296,8 @@ func VerificationCategoryFor(category string) string {
 	switch category {
 	case CategoryDeworming:
 		return VerificationCategoryDeworming
+	case CategoryAntiProtozoan:
+		return VerificationCategoryAntiProtozoan
 	case CategoryTicksRemoval:
 		return VerificationCategoryTicksRemoval
 	case CategoryHoofTrimming:

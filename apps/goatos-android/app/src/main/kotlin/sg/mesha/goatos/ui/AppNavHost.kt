@@ -527,6 +527,7 @@ object Routes {
     // (bootstrap_copy.go), plus the CEO planner tab. Category keys are the backend's category
     // vocabulary (backend/internal/pccare/domain).
     const val PC_DEWORMING = "/pc/deworming"
+    const val PC_ANTI_PROTOZOAN = "/pc/anti-protozoan"
     const val PC_VACCINE_STOCK = "/pc/vaccine-stock"
     const val PC_TICKS = "/pc/ticks"
     const val PC_HOOF_TRIMMING = "/pc/hoof-trimming"
@@ -3875,6 +3876,10 @@ fun AppNavHost(
         // Titles mirror the backend nav labels ("nav.pc_*" in bootstrap_copy.go) so the screen
         // header and the bottom-bar tab read identically.
         pcCareCategoryComposable(Routes.PC_DEWORMING, "deworming", "Deworming", navController, canExecutePcCare, canPlanPcCare)
+        // Anti protozoan (maintainer instruction 2026-09-05) is deworming's twin: the same
+        // per-animal dose, scan and video. It differs only by what it does NOT have — no feed &
+        // water removal, because this dose does not go in the feed.
+        pcCareCategoryComposable(Routes.PC_ANTI_PROTOZOAN, "anti_protozoan", "Anti Protozoan", navController, canExecutePcCare, canPlanPcCare)
         pcCareCategoryComposable(
             Routes.PC_VACCINE_STOCK,
             "inventory_vaccine",
@@ -4432,11 +4437,12 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_COLOSTRUM,
     Routes.HEALTH_ADULTS,
     Routes.HEALTH_KIDS,
-    // PC Care roots (maintainer decision 2026-08-21): the four backend-composed category tabs
+    // PC Care roots (maintainer decision 2026-08-21; anti protozoan 2026-09-05): the backend-composed category tabs
     // ARE the module bar (the Feed shape) — there is no fifth planner tab. Each is an L0
     // bottom-bar destination exactly like its siblings; what a tab renders is decided by the
     // backend pc_care_execute / pc_care_plan capability flags, never by a role string.
     Routes.PC_DEWORMING,
+    Routes.PC_ANTI_PROTOZOAN,
     Routes.PC_VACCINE_STOCK,
     Routes.PC_TICKS,
     Routes.PC_HOOF_TRIMMING,
