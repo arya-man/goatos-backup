@@ -113,7 +113,7 @@ log, nothing is queued, and the alert never arrives — which is indistinguishab
 was nothing to alert about". **A daily alert that has never once fired looks identical to a
 farm with no low stock and no overdue load.**
 
-Migration `000259_notification_type_daily_alerts.sql` widens the enum for all four together.
+Migration `000267_notification_type_daily_alerts.sql` widens the enum for all four together.
 Fixing only the new one would have left the constraint still rejecting three shipped
 notifiers — not a smaller change, the same change with three known defects left in.
 
@@ -131,7 +131,7 @@ had missed. It is mutation-tested: dropping a value from the migration turns it 
 | the notifier + 17:30 gate | `backend/internal/notificationbridge/feed_proof_times_notify.go` |
 | the stage | `backend/internal/kernelstages/feed_proof_times.go` |
 | per-channel Slack routing | `backend/internal/notification/adapters/gateway/gateway.go` |
-| the enum widening | `backend/migrations/postgres/000259_notification_type_daily_alerts.sql` |
+| the enum widening | `backend/migrations/postgres/000267_notification_type_daily_alerts.sql` |
 
 ## Pinned by
 
