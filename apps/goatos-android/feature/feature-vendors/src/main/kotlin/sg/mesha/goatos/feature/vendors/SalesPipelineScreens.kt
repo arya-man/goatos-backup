@@ -260,6 +260,8 @@ private fun LeadCard(
                 selectedValue = card.statusLabel,
                 options = state.statusOptions,
                 onSelect = { onEvent(SalesLeadBoardEvent.ChangeStatus(card.leadId, it)) },
+                allowClear = true,
+                clearLabel = CLEAR_CALL_STATUS,
             )
         }
     }
@@ -302,7 +304,7 @@ private fun LeadForm(
             VendorsDropdownField(LABEL_BREED, value(SalesBuyerLeadField.BREED.name), state.breeds, changed(SalesBuyerLeadField.BREED.name), error = error(SalesBuyerLeadField.BREED.name), placeholder = HINT_PICK)
             VendorsTextField(value(SalesBuyerLeadField.PHONE_NUMBER.name), changed(SalesBuyerLeadField.PHONE_NUMBER.name), LABEL_PHONE, keyboard = KeyboardType.Phone, error = error(SalesBuyerLeadField.PHONE_NUMBER.name))
             VendorsDateField(LABEL_RECORDED_ON, value(SalesBuyerLeadField.RECORDED_DATE.name), changed(SalesBuyerLeadField.RECORDED_DATE.name), error = error(SalesBuyerLeadField.RECORDED_DATE.name), maxIso = state.today)
-            VendorsDropdownField(LABEL_CALL_STATUS, value(SalesBuyerLeadField.CALL_STATUS.name), state.statusOptions, changed(SalesBuyerLeadField.CALL_STATUS.name), error = error(SalesBuyerLeadField.CALL_STATUS.name), placeholder = HINT_PICK)
+            VendorsDropdownField(LABEL_CALL_STATUS, value(SalesBuyerLeadField.CALL_STATUS.name), state.statusOptions, changed(SalesBuyerLeadField.CALL_STATUS.name), error = error(SalesBuyerLeadField.CALL_STATUS.name), placeholder = HINT_PICK, allowClear = true, clearLabel = CLEAR_CALL_STATUS)
         } else {
             VendorsTextField(value(SalesFpoLeadField.FPO_NAME.name), changed(SalesFpoLeadField.FPO_NAME.name), LABEL_FPO_NAME, required = true, error = error(SalesFpoLeadField.FPO_NAME.name))
             VendorsTextField(value(SalesFpoLeadField.CROPS.name), changed(SalesFpoLeadField.CROPS.name), LABEL_CROPS, error = error(SalesFpoLeadField.CROPS.name))
@@ -310,7 +312,7 @@ private fun LeadForm(
             VendorsTextField(value(SalesFpoLeadField.TALUK.name), changed(SalesFpoLeadField.TALUK.name), LABEL_TALUK, error = error(SalesFpoLeadField.TALUK.name))
             VendorsTextField(value(SalesFpoLeadField.STATE.name), changed(SalesFpoLeadField.STATE.name), LABEL_STATE, error = error(SalesFpoLeadField.STATE.name))
             VendorsTextField(value(SalesFpoLeadField.PHONE_NUMBER.name), changed(SalesFpoLeadField.PHONE_NUMBER.name), LABEL_PHONE, keyboard = KeyboardType.Phone, error = error(SalesFpoLeadField.PHONE_NUMBER.name))
-            VendorsDropdownField(LABEL_CALL_STATUS, value(SalesFpoLeadField.CALL_STATUS.name), state.statusOptions, changed(SalesFpoLeadField.CALL_STATUS.name), error = error(SalesFpoLeadField.CALL_STATUS.name), placeholder = HINT_PICK)
+            VendorsDropdownField(LABEL_CALL_STATUS, value(SalesFpoLeadField.CALL_STATUS.name), state.statusOptions, changed(SalesFpoLeadField.CALL_STATUS.name), error = error(SalesFpoLeadField.CALL_STATUS.name), placeholder = HINT_PICK, allowClear = true, clearLabel = CLEAR_CALL_STATUS)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             VendorsGhostButton(label = CANCEL, onClick = { onEvent(SalesLeadBoardEvent.CloseForm) }, enabled = !form.inFlight)
@@ -455,6 +457,7 @@ private const val QUOTE_GROUP = "MARKET QUOTE"
 private const val WEIGHT_GROUP = "WEIGHT CHECK"
 private const val TAGS_GROUP = "SOLD TAGS"
 private const val HINT_PICK = "Tap to choose"
+private const val CLEAR_CALL_STATUS = "Not yet called"
 private const val CANCEL = "Cancel"
 private const val SAVE = "Save"
 private const val SAVING = "Saving…"
