@@ -240,6 +240,13 @@ type HealthAnalyticsDeath struct {
 	// NeverDiagnosed marks an animal that never had a case at all, as against
 	// one whose case had already closed.
 	NeverDiagnosed bool `json:"never_diagnosed"`
+	// CauseRecorded distinguishes a disease the operator NAMED on the death form from one
+	// merely INFERRED because a case happened to be open when the animal died. Both read as
+	// attributed, and they are not the same claim: the first is causation as the farm
+	// recorded it, the second is co-incidence and is all that was available before causes
+	// existed. A reader must never be shown a guess and a recorded fact as if they were
+	// alike, so the row carries which one it is and the screen says so.
+	CauseRecorded bool `json:"cause_recorded"`
 	// DaysUnderTreatment is the case start to the death date, in whole days.
 	// Nil for an unattributed death.
 	DaysUnderTreatment *int64 `json:"days_under_treatment"`

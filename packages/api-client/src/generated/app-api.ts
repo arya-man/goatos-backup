@@ -5106,6 +5106,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/health/death-causes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The searchable disease list the death form's "due to disease" dropdown reads.
+         * @description Every disease a death may be attributed to, from the DIAGNOSIS REGISTER — the same vocabulary `health_cases.register_rule_id` stores and the Health Analytics disease board counts, so a cause of death can be read straight against the incidence board.
+         *
+         *     ONE READ, NO PAGING, and static for the life of the server process: the register is embedded, validated at start-up, and cannot change under a running process, so a client may cache the list as long as it likes. It is roughly 33 diseases — an operator searches it with a thumb while standing over a dead animal, and a paged dropdown that round-trips per keystroke is the wrong shape for that moment.
+         *
+         *     FIELD ACTIONS ARE EXCLUDED. The register also carries advisory actions (tick treatment, hoof trimming, antihistamine, separate feeding); those are things to DO, not conditions an animal dies of, and never appear here.
+         *
+         *     `animal_classes` says which registers carry each disease. A client may narrow the list to the animal in front of the operator, but it is never a reason to REJECT a selection: an animal can change class between its diagnosis and its death.
+         */
+        get: operations["listHealthDeathCauses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/analytics": {
         parameters: {
             query?: never;
@@ -5997,6 +6023,22 @@ export interface components {
             /** @description Whether another page exists. Deliberately NOT a total count: counting the filtered set on every page is compute-on-read, and the grid needs "is there more", not a total. */
             has_more: boolean;
         };
+        HealthDeathCauseOption: {
+            /** @description The diagnosis register rule id, submitted verbatim as `death_cause_key`. */
+            key: string;
+            /** @enum {string} */
+            kind: "register_rule";
+            /** @description What the operator reads. Never the rule id, which is a machine key. */
+            label: string;
+            /** @description The registers that carry this disease (adult, kid_milk, kid_weaning, kid_fattening). */
+            animal_classes: string[];
+        };
+        HealthDeathCauseCatalog: {
+            /** @description Every selectable disease, sorted by the label the operator reads. */
+            options: components["schemas"]["HealthDeathCauseOption"][];
+            /** @description The rule tables that produced this list, so a selection stays interpretable after the registers are edited. */
+            register_versions: string[];
+        };
         HealthAnalyticsTotals: {
             /**
              * Format: int64
@@ -6183,6 +6225,8 @@ export interface components {
             disease_label: string;
             /** @description The animal had no case on record at all, as against one whose case had closed. */
             never_diagnosed: boolean;
+            /** @description TRUE when the operator NAMED this disease on the death form. FALSE when it was merely INFERRED because a case happened to be open at the time — the only thing available for deaths recorded before causes existed. Both read as attributed and they are not the same claim: the first is causation as the farm recorded it, the second is co-incidence. A screen must not present a guess and a recorded fact alike. */
+            cause_recorded: boolean;
             /**
              * Format: int64
              * @description Earliest open case start to the death date. Null for an unattributed death.
@@ -15454,8 +15498,15 @@ export interface components {
             lifecycle_status: "dead";
             /** @constant */
             exit_reason: "died";
-            /** @description The operator's account of the death. */
-            reason: string;
+            /** @description The operator's account of the death. REQUIRED on a normal death and OPTIONAL once a disease is named, where the coded cause is the recorded fact and the note is extra detail. A note that IS supplied is length-checked either way. */
+            reason?: string;
+            /** @description The disease the animal died of, chosen from `GET /app/health/death-causes`. ABSENT means a NORMAL death — a complete answer, not missing data. A key the diagnosis register does not name is REJECTED rather than stored as typed: the value of a coded cause is that it groups, and one death filed under `MASTITIS` beside another under a near-miss is two diseases on the board and one in the barn. Must be given together with `death_cause_kind`, and only on a death — a cull is refused with sales and transfers, because a cull is a decision and a death is an outcome. */
+            death_cause_key?: string;
+            /**
+             * @description Which vocabulary `death_cause_key` belongs to. Only `register_rule` may be submitted; `disease_key` exists in stored data for a pre-engine case and is resolved by the server from the animal's own case, never accepted from a client.
+             * @enum {string}
+             */
+            death_cause_kind?: "register_rule" | "disease_key";
             /**
              * Format: date-time
              * @description When the death occurred. Defaults to the time the event is recorded.
@@ -25289,6 +25340,29 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listHealthDeathCauses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole searchable cause-of-death vocabulary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthDeathCauseCatalog"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

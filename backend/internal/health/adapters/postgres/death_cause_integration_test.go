@@ -142,6 +142,137 @@ WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND is_death_cause`, healthTenant,
 	}
 }
 
+// THE COUNTING BUG THIS FIXES, stated as a test.
+//
+// An animal treated for Fever AND Mastitis dies of Mastitis. Before a cause could be
+// recorded, BOTH cases closed as dead-closed and both diseases took a death — so Fever's
+// case-fatality rate carried a death it had no part in, and the two diseases together
+// reported two deaths for one animal.
+//
+// With the cause named, only Mastitis takes it. Fever still shows the case (the animal was
+// genuinely treated for it) and shows zero deaths.
+func TestOnlyTheNamedDiseaseTakesTheDeathOnTheBoard(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+
+	repo := NewRepository(pool, 30*time.Second)
+	diagnoseFever(t, ctx, pool, healthGoat, "obs-board-split")
+	if _, err := pool.Exec(ctx, `
+INSERT INTO health_cases (tenant_id, goat_id, health_protocol_version_id, disease_key, disease_name,
+                          age_band, start_date, duration_days, status, park_id, shed_id,
+                          register_rule_id, idempotency_key, request_fingerprint)
+SELECT c.tenant_id, c.goat_id, c.health_protocol_version_id, 'mastitis', 'Mastitis',
+       c.age_band, c.start_date, c.duration_days, 'active', c.park_id, c.shed_id,
+       'MASTITIS', 'board-split-mastitis', 'board-split-mastitis'
+FROM health_cases c WHERE c.tenant_id=$1::uuid AND c.goat_id=$2::uuid LIMIT 1`,
+		healthTenant, healthGoat); err != nil {
+		t.Fatalf("seed the mastitis case: %v", err)
+	}
+
+	if err := repo.CloseForApprovedDeath(ctx, healthTenant, healthGoat,
+		domain.DeathCause{Key: "MASTITIS", Kind: domain.DeathCauseKindRegisterRule}); err != nil {
+		t.Fatalf("close for approved death: %v", err)
+	}
+	// The identity module's own exit, carrying the cause it recorded.
+	if _, err := pool.Exec(ctx, `
+UPDATE goats SET lifecycle_status='dead', exit_reason='died', exited_at=now(),
+                 death_cause_key='MASTITIS', death_cause_kind='register_rule'
+WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, healthTenant, healthGoat); err != nil {
+		t.Fatalf("exit the animal: %v", err)
+	}
+
+	from, to := analyticsWindow(t)
+	got, err := repo.GetHealthAnalytics(ctx, domain.HealthAnalyticsQuery{TenantID: healthTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("read analytics: %v", err)
+	}
+
+	byKey := map[string]domain.HealthAnalyticsDisease{}
+	for _, row := range got.Diseases {
+		byKey[row.Key] = row
+	}
+	mastitis, ok := byKey["MASTITIS"]
+	if !ok {
+		t.Fatalf("no MASTITIS row: %+v", got.Diseases)
+	}
+	fever, ok := byKey["FEVER"]
+	if !ok {
+		t.Fatalf("no FEVER row: %+v", got.Diseases)
+	}
+	if mastitis.Died != 1 {
+		t.Errorf("MASTITIS died = %d, want 1 -- it is the named cause", mastitis.Died)
+	}
+	// THE BUG. Fever was open, and the animal did not die of it.
+	if fever.Died != 0 {
+		t.Errorf("FEVER died = %d, want 0 -- the animal died of mastitis, and fever must not carry that death", fever.Died)
+	}
+	if fever.NewCases != 1 {
+		t.Errorf("FEVER new cases = %d, want 1 -- the animal really was treated for it", fever.NewCases)
+	}
+	// One animal, one death, however many diseases it was carrying.
+	if got.Totals.Deaths != 1 || got.Totals.DeathsAttributed != 1 {
+		t.Errorf("deaths = %d attributed = %d, want 1 and 1", got.Totals.Deaths, got.Totals.DeathsAttributed)
+	}
+
+	// The death row names the RECORDED cause and says it was recorded, not inferred.
+	if len(got.Deaths) != 1 {
+		t.Fatalf("death rows = %d, want 1", len(got.Deaths))
+	}
+	row := got.Deaths[0]
+	if !row.CauseRecorded {
+		t.Error("the row does not say the cause was recorded; a reader cannot tell it from an inference")
+	}
+	if row.DiseaseLabel != "Mastitis" {
+		t.Errorf("death row disease = %q, want the named cause Mastitis", row.DiseaseLabel)
+	}
+}
+
+// A LEGACY death — recorded before causes existed — keeps the behaviour it had. Its cases
+// still each take the death, because nothing named one, and the row reads as INFERRED so a
+// reader can tell it from a fact the farm actually recorded.
+func TestALegacyDeathKeepsTheOldInferenceAndSaysSo(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+
+	repo := NewRepository(pool, 30*time.Second)
+	diagnoseFever(t, ctx, pool, healthGoat, "obs-legacy")
+	if err := repo.CloseForApprovedDeath(ctx, healthTenant, healthGoat, domain.DeathCause{}); err != nil {
+		t.Fatalf("close for approved death: %v", err)
+	}
+	exitAsDied(t, ctx, pool, healthGoat)
+
+	from, to := analyticsWindow(t)
+	got, err := repo.GetHealthAnalytics(ctx, domain.HealthAnalyticsQuery{TenantID: healthTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("read analytics: %v", err)
+	}
+	if got.Totals.DeathsAttributed != 1 {
+		t.Errorf("attributed = %d, want 1 -- the inference still serves a legacy death", got.Totals.DeathsAttributed)
+	}
+	if len(got.Deaths) != 1 {
+		t.Fatalf("death rows = %d, want 1", len(got.Deaths))
+	}
+	if got.Deaths[0].CauseRecorded {
+		t.Error("a legacy death claims a recorded cause; it only ever had an inference")
+	}
+	if got.Deaths[0].DiseaseLabel != "Fever" {
+		t.Errorf("inferred disease = %q, want Fever", got.Deaths[0].DiseaseLabel)
+	}
+	for _, row := range got.Diseases {
+		if row.Key == "FEVER" && row.Died != 1 {
+			t.Errorf("FEVER died = %d, want 1 -- a legacy death still counts as it always did", row.Died)
+		}
+	}
+}
+
 // A NORMAL death still closes every case and marks NO cause. This is the path every death
 // took before causes existed, and it must be untouched: a farm that never uses the disease
 // toggle sees exactly the behaviour it has always had.

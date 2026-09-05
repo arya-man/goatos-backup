@@ -107,7 +107,13 @@ new_cases AS (
 deaths AS (
   SELECT to_char((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM') AS month_key,
          count(*)::bigint AS deaths,
-         count(*) FILTER (WHERE EXISTS (
+         -- ATTRIBUTED means the death carries a disease. Two ways it can, and the order
+         -- matters: a RECORDED cause is what the operator actually named on the form and
+         -- is authoritative; the open-case test is the INFERENCE that was the only thing
+         -- available before causes existed, and it still serves every death recorded
+         -- before this shipped. A recorded cause never needs the inference, so the two can
+         -- never disagree about one animal.
+         count(*) FILTER (WHERE g.death_cause_key IS NOT NULL OR EXISTS (
            SELECT 1 FROM health_cases hc
            WHERE hc.tenant_id = g.tenant_id
              AND hc.goat_id = g.goat_id
@@ -158,7 +164,24 @@ scoped AS (
               THEN 'register_rule' ELSE 'disease_key' END AS key_kind,
          hc.disease_name,
          hc.age_band,
-         hc.status
+         hc.status,
+         -- DID THIS DISEASE KILL THE ANIMAL, or was it merely open when something else
+         -- did? Before causes existed the two were indistinguishable, so an animal that
+         -- died of mastitis while also being treated for bloat put a death on BOTH boards
+         -- and inflated bloat's case fatality with a death it had no part in.
+         --
+         -- A case counts as a death when it is the NAMED cause; and, where the animal's
+         -- death records no cause at all, every dead-closed case still counts exactly as
+         -- it did before, so nothing about a legacy death changes shape.
+         (hc.status = 'closed_dead' AND (
+            hc.is_death_cause
+            OR NOT EXISTS (
+              SELECT 1 FROM goats dg
+              WHERE dg.tenant_id = hc.tenant_id
+                AND dg.goat_id = hc.goat_id
+                AND dg.death_cause_key IS NOT NULL
+            )
+         )) AS died_of_this
   FROM health_cases hc, bounds b
   WHERE hc.tenant_id = $1::uuid
     AND ($4 = '' OR hc.park_id = NULLIF($4, '')::uuid)
@@ -172,7 +195,7 @@ SELECT s.key,
        count(*)::bigint AS new_cases,
        count(*) FILTER (WHERE s.status IN ('active','continued','referred'))::bigint,
        count(*) FILTER (WHERE s.status = 'recovered')::bigint,
-       count(*) FILTER (WHERE s.status = 'closed_dead')::bigint
+       count(*) FILTER (WHERE s.died_of_this)::bigint
 FROM scoped s
 GROUP BY s.key
 ORDER BY new_cases DESC, s.key
@@ -395,6 +418,8 @@ dead AS (
          g.shed_id,
          g.park_id,
          COALESCE(g.age_band, '') AS age_band,
+         g.death_cause_key,
+         g.death_cause_kind,
          (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date
   FROM goats g, bounds b
   WHERE g.tenant_id = $1::uuid
@@ -418,7 +443,13 @@ SELECT d.goat_id::text,
        EXISTS (
          SELECT 1 FROM health_cases prior
          WHERE prior.tenant_id = $1::uuid AND prior.goat_id = d.goat_id
-       ) AS ever_had_case
+       ) AS ever_had_case,
+       -- The RECORDED cause, and the name of the case that carries it. Both empty for a
+       -- normal death and for every death recorded before causes existed, where the row
+       -- falls back to the inferred label above.
+       COALESCE(d.death_cause_key, ''),
+       COALESCE(d.death_cause_kind, ''),
+       COALESCE(cause_case.disease_name, '')
 FROM dead d
 LEFT JOIN locations pk
        ON pk.tenant_id = $1::uuid AND pk.location_id = d.park_id
@@ -439,6 +470,13 @@ LEFT JOIN LATERAL (
     AND c.goat_id = d.goat_id
     AND c.status IN ('closed_dead','held_death_review')
 ) hc ON true
+LEFT JOIN LATERAL (
+  -- The one case marked as the cause. A partial unique index guarantees at most one per
+  -- animal, so this cannot fan the row out.
+  SELECT c.disease_name
+  FROM health_cases c
+  WHERE c.tenant_id = $1::uuid AND c.goat_id = d.goat_id AND c.is_death_cause
+) cause_case ON true
 ORDER BY d.business_date DESC, d.goat_id
 `
 
@@ -656,28 +694,46 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 		var diseaseLabel string
 		var caseStart *time.Time
 		var everHadCase bool
+		var causeKey, causeKind, causeCaseDiseaseName string
 		if err := deathRows.Scan(
 			&row.GoatID, &row.DisplayID, &shedID, &row.ParkLabel,
 			&businessDate, &row.AgeBand, &row.Tag,
 			&diseaseLabel, &caseStart, &everHadCase,
+			&causeKey, &causeKind, &causeCaseDiseaseName,
 		); err != nil {
 			deathRows.Close()
 			return nil, fmt.Errorf("health analytics: deaths scan: %w", err)
 		}
 		row.BusinessDate = businessDate.Format(domain.HealthAnalyticsDateLayout)
-		// A disease name is only carried when a case was actually open at death.
-		// Everything else is unattributed and is never given one.
-		if diseaseLabel != "" {
+		switch {
+		case causeKey != "":
+			// THE RECORDED CAUSE WINS. The operator named this disease on the death form;
+			// nothing inferred may override or contradict it.
+			row.Attribution = "attributed"
+			row.CauseRecorded = true
+			// A register rule is labelled from the shared vocabulary, so the death list and
+			// the dropdown that produced it read the same words. A treatment-card cause
+			// borrows the name off the case it came from, because the card key is not in
+			// that vocabulary.
+			if causeKind == domain.DeathCauseKindRegisterRule {
+				row.DiseaseLabel = domain.DeathCauseLabel(causeKey)
+			} else {
+				row.DiseaseLabel = causeCaseDiseaseName
+			}
+			if caseStart != nil {
+				row.DaysUnderTreatment = daysBetween(businessDate, *caseStart)
+			}
+		case diseaseLabel != "":
+			// INFERRED, and only for a death recorded before causes existed: a case was
+			// open when the animal died, which is co-incidence rather than causation. The
+			// row says so through CauseRecorded, so a reader is never shown a guess and a
+			// recorded fact as if they were the same thing.
 			row.Attribution = "attributed"
 			row.DiseaseLabel = diseaseLabel
 			if caseStart != nil {
-				days := int64(businessDate.Sub(*caseStart).Hours() / 24)
-				if days < 0 {
-					days = 0
-				}
-				row.DaysUnderTreatment = &days
+				row.DaysUnderTreatment = daysBetween(businessDate, *caseStart)
 			}
-		} else {
+		default:
 			row.Attribution = "unattributed"
 			row.NeverDiagnosed = !everHadCase
 		}
@@ -758,4 +814,15 @@ func (r *Repository) attachDeathLocations(ctx context.Context, tenantID string, 
 		out.Deaths[i].OperationalLocationDisplay = location.Display()
 	}
 	return nil
+}
+
+// daysBetween is whole days from a case start to the death date, never negative: a case
+// opened on the day the animal died is 0 days, not -0 or a negative number from a clock
+// skew.
+func daysBetween(death time.Time, start time.Time) *int64 {
+	days := int64(death.Sub(start).Hours() / 24)
+	if days < 0 {
+		days = 0
+	}
+	return &days
 }

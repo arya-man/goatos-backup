@@ -13283,6 +13283,43 @@ paths:
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "409": { $ref: "#/components/responses/WriteConflict" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/death-causes:
+    get:
+      tags:
+        - Health
+      operationId: listHealthDeathCauses
+      summary: The searchable disease list the death form's "due to disease" dropdown reads.
+      description: >-
+        Every disease a death may be attributed to, from the DIAGNOSIS REGISTER — the same
+        vocabulary `health_cases.register_rule_id` stores and the Health Analytics disease
+        board counts, so a cause of death can be read straight against the incidence board.
+
+
+        ONE READ, NO PAGING, and static for the life of the server process: the register is
+        embedded, validated at start-up, and cannot change under a running process, so a
+        client may cache the list as long as it likes. It is roughly 33 diseases — an
+        operator searches it with a thumb while standing over a dead animal, and a paged
+        dropdown that round-trips per keystroke is the wrong shape for that moment.
+
+
+        FIELD ACTIONS ARE EXCLUDED. The register also carries advisory actions (tick
+        treatment, hoof trimming, antihistamine, separate feeding); those are things to DO,
+        not conditions an animal dies of, and never appear here.
+
+
+        `animal_classes` says which registers carry each disease. A client may narrow the
+        list to the animal in front of the operator, but it is never a reason to REJECT a
+        selection: an animal can change class between its diagnosis and its death.
+      responses:
+        "200":
+          description: The whole searchable cause-of-death vocabulary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDeathCauseCatalog"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /health/analytics:
     get:
       tags:
@@ -15170,6 +15207,38 @@ components:
           description: >-
             Whether another page exists. Deliberately NOT a total count: counting the filtered set on
             every page is compute-on-read, and the grid needs "is there more", not a total.
+    HealthDeathCauseOption:
+      type: object
+      additionalProperties: false
+      required: [key, kind, label, animal_classes]
+      properties:
+        key:
+          type: string
+          description: The diagnosis register rule id, submitted verbatim as `death_cause_key`.
+        kind:
+          type: string
+          enum: [register_rule]
+        label:
+          type: string
+          description: What the operator reads. Never the rule id, which is a machine key.
+        animal_classes:
+          type: array
+          description: The registers that carry this disease (adult, kid_milk, kid_weaning, kid_fattening).
+          items: { type: string }
+    HealthDeathCauseCatalog:
+      type: object
+      additionalProperties: false
+      required: [options, register_versions]
+      properties:
+        options:
+          type: array
+          description: Every selectable disease, sorted by the label the operator reads.
+          items:
+            $ref: "#/components/schemas/HealthDeathCauseOption"
+        register_versions:
+          type: array
+          description: The rule tables that produced this list, so a selection stays interpretable after the registers are edited.
+          items: { type: string }
     HealthAnalyticsTotals:
       type: object
       additionalProperties: false
@@ -15375,6 +15444,7 @@ components:
         - attribution
         - disease_label
         - never_diagnosed
+        - cause_recorded
         - days_under_treatment
       properties:
         goat_id: { type: string, format: uuid }
@@ -15400,6 +15470,15 @@ components:
         never_diagnosed:
           type: boolean
           description: The animal had no case on record at all, as against one whose case had closed.
+        cause_recorded:
+          type: boolean
+          description: >-
+            TRUE when the operator NAMED this disease on the death form. FALSE when it was
+            merely INFERRED because a case happened to be open at the time — the only thing
+            available for deaths recorded before causes existed. Both read as attributed and
+            they are not the same claim: the first is causation as the farm recorded it, the
+            second is co-incidence. A screen must not present a guess and a recorded fact
+            alike.
         days_under_treatment:
           type: integer
           format: int64
@@ -36772,7 +36851,6 @@ components:
         - goat_id
         - lifecycle_status
         - exit_reason
-        - reason
         - evidence_refs
         - row_version
       properties:
@@ -36787,10 +36865,31 @@ components:
           type: string
           const: died
         reason:
-          description: The operator's account of the death.
+          description: >-
+            The operator's account of the death. REQUIRED on a normal death and OPTIONAL
+            once a disease is named, where the coded cause is the recorded fact and the
+            note is extra detail. A note that IS supplied is length-checked either way.
           type: string
           minLength: 3
           maxLength: 500
+        death_cause_key:
+          description: >-
+            The disease the animal died of, chosen from `GET /app/health/death-causes`.
+            ABSENT means a NORMAL death — a complete answer, not missing data. A key the
+            diagnosis register does not name is REJECTED rather than stored as typed: the
+            value of a coded cause is that it groups, and one death filed under `MASTITIS`
+            beside another under a near-miss is two diseases on the board and one in the
+            barn. Must be given together with `death_cause_kind`, and only on a death — a
+            cull is refused with sales and transfers, because a cull is a decision and a
+            death is an outcome.
+          type: string
+        death_cause_kind:
+          description: >-
+            Which vocabulary `death_cause_key` belongs to. Only `register_rule` may be
+            submitted; `disease_key` exists in stored data for a pre-engine case and is
+            resolved by the server from the animal's own case, never accepted from a client.
+          type: string
+          enum: [register_rule, disease_key]
         occurred_at:
           description: When the death occurred. Defaults to the time the event is recorded.
           type: string
