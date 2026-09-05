@@ -89,6 +89,11 @@ export function toDeathRows(
       // and both are unattributed. Collapsing them would hide the detection gap.
       attributionLabel: row.never_diagnosed ? labels.never : labels.unattributed,
       attributed,
+      // A disease the operator NAMED and one merely INFERRED because a case was open both
+      // read as attributed, and they are not the same claim. The row carries which it is so
+      // the table can mark the inferred ones; presenting a guess and a recorded fact alike
+      // is exactly what this whole feature exists to stop.
+      causeRecorded: row.cause_recorded === true,
       // THE RULE. A disease name survives only on an ATTRIBUTED row. Even if the backend
       // were to send one on an unattributed row, this drops it: the page must not be the
       // place a cause of death is invented.

@@ -487,6 +487,7 @@ export async function HealthAnalyticsPage({
               ariaLabel={ha(pageContract, "section.deaths.title")}
               empty={ha(pageContract, "empty.deaths")}
               noDataLabel={ha(pageContract, "label.no_pen")}
+              inferredLabel={ha(pageContract, "label.inferred")}
             />
           </section>
         </>

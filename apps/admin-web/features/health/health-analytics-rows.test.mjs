@@ -25,10 +25,40 @@ function deathRow(overrides) {
     attribution: "attributed",
     disease_label: "Fever",
     never_diagnosed: false,
+    cause_recorded: true,
     days_under_treatment: 3,
     ...overrides,
   };
 }
+
+// A RECORDED cause and an INFERRED one both read as attributed, and they are not the same
+// claim: the first is the disease the operator named on the death form, the second says
+// only that a case happened to be open when the animal died. The row must carry which it
+// is, or the table shows a guess and a fact in identical type.
+test("a death row distinguishes a recorded cause from an inferred one", () => {
+  const [recorded] = toDeathRows([deathRow()], DEATH_LABELS, AGE_BANDS, fmtDate);
+  assert.equal(recorded.attributed, true);
+  assert.equal(recorded.causeRecorded, true);
+
+  const [inferred] = toDeathRows(
+    [deathRow({ cause_recorded: false })],
+    DEATH_LABELS,
+    AGE_BANDS,
+    fmtDate,
+  );
+  assert.equal(inferred.attributed, true);
+  assert.equal(inferred.causeRecorded, false);
+});
+
+// A wire that has not been regenerated yet, or an older server, sends no flag at all. That
+// must read as NOT recorded: claiming a cause the farm never named is the one direction
+// this feature must never fail in.
+test("a missing cause_recorded flag reads as inferred, never as recorded", () => {
+  const row = deathRow();
+  delete row.cause_recorded;
+  const [mapped] = toDeathRows([row], DEATH_LABELS, AGE_BANDS, fmtDate);
+  assert.equal(mapped.causeRecorded, false);
+});
 
 test("an attributed death carries its disease and its days under treatment", () => {
   const [row] = toDeathRows([deathRow()], DEATH_LABELS, AGE_BANDS, fmtDate);

@@ -87,6 +87,8 @@ export type DeathRow = {
   ageBandLabel: string;
   attributionLabel: string;
   attributed: boolean;
+  /** TRUE when the operator named the disease; FALSE when it was inferred from an open case. */
+  causeRecorded: boolean;
   diseaseLabel: string;
   daysUnderTreatment: number | null;
 };
@@ -97,6 +99,7 @@ export function DeathsTable({
   ariaLabel,
   empty,
   noDataLabel,
+  inferredLabel,
 }: {
   contract: AdminUiTableContract;
   rows: DeathRow[];
@@ -104,6 +107,8 @@ export function DeathsTable({
   empty: React.ReactNode;
   /** Backend copy for a cell with nothing to show. Never composed here. */
   noDataLabel: string;
+  /** Backend copy marking a disease that was inferred rather than recorded. */
+  inferredLabel: string;
 }) {
   const columns = columnsFromContract<DeathRow>(contract, {
     animal: {
@@ -125,7 +130,13 @@ export function DeathsTable({
       cell: (row) =>
         row.attributed ? (
           <div>
-            <Tag tone="teal">{row.diseaseLabel}</Tag>
+            {/* A RECORDED cause reads plainly; an INFERRED one is marked, because it says
+                only that this case was open when the animal died — co-incidence, not
+                causation, and the reader is owed the difference. */}
+            <Tag tone={row.causeRecorded ? "teal" : "mut"}>{row.diseaseLabel}</Tag>
+            {row.causeRecorded ? null : (
+              <div className="muted small">{inferredLabel}</div>
+            )}
           </div>
         ) : (
           <Tag tone="mut">{row.attributionLabel}</Tag>

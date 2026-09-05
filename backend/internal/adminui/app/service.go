@@ -4341,10 +4341,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"stat.never.label":        "Never had a case",
 			"stat.never.sub":          "Of the deaths not attributed, animals with no case on record at all",
 
-			"label.attributed":     "Under treatment",
-			"label.unattributed":   "Not attributed",
-			"label.never":          "No case on record",
-			"label.no_disease":     "Not recorded",
+			"label.attributed":   "Under treatment",
+			"label.unattributed": "Not attributed",
+			"label.never":        "No case on record",
+			"label.no_disease":   "Not recorded",
+			// A death recorded before causes existed carries only the case that happened to
+			// be open at the time. The copy has to say that plainly: it is co-incidence, and
+			// a reader who takes it for a recorded cause is reading a claim the farm never
+			// made.
+			"label.inferred":       "Open case at the time, cause not recorded",
 			"label.no_pen":         "Pen not recorded",
 			"label.no_tag":         "No tag recorded",
 			"label.age.adult":      "Adult",
