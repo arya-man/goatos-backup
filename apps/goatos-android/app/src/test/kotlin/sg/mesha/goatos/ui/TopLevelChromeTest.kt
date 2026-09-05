@@ -153,6 +153,7 @@ class TopLevelChromeTest {
         // No bar: the shell renders MeshaNavBar only when this list is non-empty, so a single
         // "Tasks" tab under a screen already titled Tasks is gone.
         assertTrue(state.barItems("leadership_tasks", "/leadership-tasks").isEmpty())
+        assertTrue(state.barItems(null, "/leadership-tasks").isEmpty())
 
         // ...and the screen is still TOP LEVEL, which is what keeps the drawer hamburger on it.
         // Derived from module.href, not from bar items -- computing it from the bar (as the

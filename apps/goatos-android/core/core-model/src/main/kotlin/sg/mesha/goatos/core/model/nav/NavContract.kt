@@ -119,10 +119,13 @@ fun NavState.resolveModule(selectedKey: String?, currentRoute: String?): NavModu
     val available = availableModules()
     val selected = available.firstOrNull { it.key == selectedKey }
     val currentBaseRoute = currentRoute?.substringBefore('?')
-    if (selected != null && selected.navItems.any { it.href == currentBaseRoute }) return selected
-    val owningRoute = available.firstOrNull { module -> module.navItems.any { it.href == currentBaseRoute } }
+    if (selected != null && selected.ownsRoute(currentBaseRoute)) return selected
+    val owningRoute = available.firstOrNull { module -> module.ownsRoute(currentBaseRoute) }
     return owningRoute ?: selected ?: available.firstOrNull()
 }
+
+private fun NavModule.ownsRoute(route: String?): Boolean =
+    route != null && (href == route || navItems.any { it.href == route })
 
 /**
  * The bottom-bar items for the resolved module. Falls back to [NavState.items] when the
