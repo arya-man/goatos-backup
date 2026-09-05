@@ -23,18 +23,25 @@ import (
 )
 
 type Config struct {
-	WebhookURL         string
-	SlackWebhookURL    string
-	EmailWebhookURL    string
-	EmailAuthToken     string
-	EmailDefaultTo     string
-	IncidentWebhookURL string
-	IncidentAuthToken  string
-	FCMProjectID       string
-	FCMEndpoint        string
-	FCMBearerToken     string
-	DryRun             bool
-	HTTPTimeout        time.Duration
+	WebhookURL      string
+	SlackWebhookURL string
+	// SlackChannelWebhookURLs routes a Slack request to the webhook of the channel it names, keyed
+	// by Slack channel id (e.g. "C0BV1GXCX8B"). An INCOMING WEBHOOK URL IS BOUND TO ONE CHANNEL by
+	// Slack -- it cannot be retargeted by anything in the payload -- so addressing a second channel
+	// means holding a second URL, and this map is that. A request whose RecipientRef is empty, or
+	// names a channel with no URL here, falls back to SlackWebhookURL (the incident channel), which
+	// keeps the existing incident path byte-for-byte unchanged.
+	SlackChannelWebhookURLs map[string]string
+	EmailWebhookURL         string
+	EmailAuthToken          string
+	EmailDefaultTo          string
+	IncidentWebhookURL      string
+	IncidentAuthToken       string
+	FCMProjectID            string
+	FCMEndpoint             string
+	FCMBearerToken          string
+	DryRun                  bool
+	HTTPTimeout             time.Duration
 	// LocalStubUnconfiguredChannels reuses the existing "local-stub" delivery path (see the
 	// "local-stub" case below) for any channel that would otherwise fail with
 	// ErrChannelNotConfigured, instead of exhausting the request on its first attempt. It exists so
@@ -128,7 +135,9 @@ func (g *Gateway) dispatchByChannel(ctx context.Context, channel string, request
 		)
 		return ports.DeliveryResult{}, nil
 	case "slack":
-		return ports.DeliveryResult{}, g.sendSlack(ctx, request)
+		// The channel is the request's own recipient_ref: the destination address, exactly as the
+		// FCM token is for a push.
+		return ports.DeliveryResult{}, g.sendSlack(ctx, request.RecipientRef, request)
 	case "webhook":
 		if strings.TrimSpace(g.config.WebhookURL) == "" {
 			return ports.DeliveryResult{}, fmt.Errorf("%w: webhook", ports.ErrChannelNotConfigured)
@@ -153,7 +162,9 @@ func (g *Gateway) sendIncident(ctx context.Context, channel string, request doma
 				slog.String("calendar_event_id", request.CalendarEventID),
 				slog.String("incident_channel", channel),
 			)
-			return g.sendSlack(ctx, request)
+			// The empty channel is deliberate: incident fallback goes to the INCIDENT Slack webhook,
+			// not to whatever channel this request's recipient_ref happens to name.
+			return g.sendSlack(ctx, "", request)
 		}
 		return fmt.Errorf("%w: incident", ports.ErrChannelNotConfigured)
 	}
@@ -173,11 +184,20 @@ func (g *Gateway) sendIncident(ctx context.Context, channel string, request doma
 	return g.postJSONWithHeaders(ctx, g.config.IncidentWebhookURL, payload, headers)
 }
 
-func (g *Gateway) sendSlack(ctx context.Context, request domain.Request) error {
-	if strings.TrimSpace(g.config.SlackWebhookURL) == "" {
-		return fmt.Errorf("%w: slack", ports.ErrChannelNotConfigured)
+// sendSlack posts to the webhook of the channel the request names.
+//
+// A Slack request addresses its destination the same way every other channel does: recipient_ref
+// carries the delivery address, which here is the channel id. The channel is NOT read from the
+// payload by Slack -- the URL alone decides where an incoming-webhook message lands -- so an
+// unmapped channel id is a CONFIGURATION error, and it must not quietly deliver to the incident
+// channel instead. It falls back only when the request names no channel at all, which is what the
+// incident path (and any legacy caller) does.
+func (g *Gateway) sendSlack(ctx context.Context, channelID string, request domain.Request) error {
+	webhookURL, err := g.slackWebhookURL(channelID)
+	if err != nil {
+		return err
 	}
-	return g.postJSON(ctx, g.config.SlackWebhookURL, map[string]any{
+	return g.postJSON(ctx, webhookURL, map[string]any{
 		"text": fmt.Sprintf("%s\n%s", request.Title, request.Body),
 		"metadata": map[string]any{
 			"notification_request_id": request.NotificationRequestID,
@@ -185,6 +205,22 @@ func (g *Gateway) sendSlack(ctx context.Context, request domain.Request) error {
 			"notification_type":       request.NotificationType,
 		},
 	})
+}
+
+func (g *Gateway) slackWebhookURL(recipientRef string) (string, error) {
+	channelID := strings.TrimSpace(recipientRef)
+	if channelID != "" {
+		if url := strings.TrimSpace(g.config.SlackChannelWebhookURLs[channelID]); url != "" {
+			return url, nil
+		}
+		// Loud rather than misdelivered: a report meant for the farm channel must never surface in
+		// the incident channel because its webhook was not configured.
+		return "", fmt.Errorf("%w: slack channel %s", ports.ErrChannelNotConfigured, channelID)
+	}
+	if url := strings.TrimSpace(g.config.SlackWebhookURL); url != "" {
+		return url, nil
+	}
+	return "", fmt.Errorf("%w: slack", ports.ErrChannelNotConfigured)
 }
 
 func incidentSeverity(request domain.Request) string {
@@ -779,4 +815,31 @@ func requestPayload(request domain.Request) map[string]any {
 		"trace_id":                request.TraceID,
 		"context":                 json.RawMessage(request.Context),
 	}
+}
+
+// ChannelWebhookURLsFromJSON parses the SlackChannelWebhookURLs map from its env representation: a
+// JSON object mapping Slack channel id to the incoming-webhook URL bound to that channel, e.g.
+//
+//	{"C0BV1GXCX8B":"https://hooks.slack.com/services/..."}
+//
+// Blank input is not an error -- it means no per-channel destination is configured. Malformed input
+// returns the error for the caller to LOG and carry on with an empty map: a dispatcher that refused
+// to start over one bad env var would take every other channel down with it.
+func ChannelWebhookURLsFromJSON(raw string) (map[string]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	parsed := map[string]string{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil, fmt.Errorf("gateway: parse channel webhook urls: %w", err)
+	}
+	out := make(map[string]string, len(parsed))
+	for channelID, url := range parsed {
+		channelID, url = strings.TrimSpace(channelID), strings.TrimSpace(url)
+		if channelID != "" && url != "" {
+			out[channelID] = url
+		}
+	}
+	return out, nil
 }

@@ -26,18 +26,21 @@ type NotificationDispatcherStage struct {
 func NewNotificationDispatcherStage(deps Deps, tenantID string) *NotificationDispatcherStage {
 	repo := notificationpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	gateway := notificationgateway.New(notificationgateway.Config{
-		WebhookURL:         getenv("GOATOS_NOTIFICATION_WEBHOOK_URL"),
-		SlackWebhookURL:    getenv("GOATOS_SLACK_WEBHOOK_URL"),
-		EmailWebhookURL:    getenv("GOATOS_EMAIL_WEBHOOK_URL"),
-		EmailAuthToken:     getenv("GOATOS_EMAIL_WEBHOOK_AUTH_TOKEN"),
-		EmailDefaultTo:     getenv("GOATOS_EMAIL_DEFAULT_TO"),
-		IncidentWebhookURL: getenv("GOATOS_INCIDENT_WEBHOOK_URL"),
-		IncidentAuthToken:  getenv("GOATOS_INCIDENT_WEBHOOK_AUTH_TOKEN"),
-		FCMProjectID:       firstNonEmptyEnv("GOATOS_FCM_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"),
-		FCMEndpoint:        getenv("GOATOS_FCM_ENDPOINT"),
-		FCMBearerToken:     getenv("GOATOS_FCM_BEARER_TOKEN"),
-		DryRun:             envTruthy("GOATOS_NOTIFICATION_DRY_RUN"),
-		HTTPTimeout:        durationEnv("GOATOS_NOTIFICATION_HTTP_TIMEOUT", 5*time.Second),
+		WebhookURL:      getenv("GOATOS_NOTIFICATION_WEBHOOK_URL"),
+		SlackWebhookURL: getenv("GOATOS_SLACK_WEBHOOK_URL"),
+		// Per-channel Slack destinations (see SlackChannelWebhookURLsEnv). The single
+		// GOATOS_SLACK_WEBHOOK_URL above stays the incident channel and is unaffected.
+		SlackChannelWebhookURLs: slackChannelWebhookURLs(deps.Logger),
+		EmailWebhookURL:         getenv("GOATOS_EMAIL_WEBHOOK_URL"),
+		EmailAuthToken:          getenv("GOATOS_EMAIL_WEBHOOK_AUTH_TOKEN"),
+		EmailDefaultTo:          getenv("GOATOS_EMAIL_DEFAULT_TO"),
+		IncidentWebhookURL:      getenv("GOATOS_INCIDENT_WEBHOOK_URL"),
+		IncidentAuthToken:       getenv("GOATOS_INCIDENT_WEBHOOK_AUTH_TOKEN"),
+		FCMProjectID:            firstNonEmptyEnv("GOATOS_FCM_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"),
+		FCMEndpoint:             getenv("GOATOS_FCM_ENDPOINT"),
+		FCMBearerToken:          getenv("GOATOS_FCM_BEARER_TOKEN"),
+		DryRun:                  envTruthy("GOATOS_NOTIFICATION_DRY_RUN"),
+		HTTPTimeout:             durationEnv("GOATOS_NOTIFICATION_HTTP_TIMEOUT", 5*time.Second),
 		// Local/E2E only -- see the config field doc in
 		// notification/adapters/gateway/gateway.go. Must never be set true in a real environment.
 		LocalStubUnconfiguredChannels: envTruthy("GOATOS_NOTIFICATION_LOCAL_STUB_UNCONFIGURED_CHANNELS"),

@@ -177,6 +177,12 @@ func run(ctx context.Context, args []string) error {
 			// once-per-day mechanism as the low-stock alert above -- a business-date idempotency
 			// key, not a cron expression.
 			kernelstages.NewLoadAgeAlertStage(deps, tenantID, logger),
+			// Daily 17:30 IST feed-proof-times post to Slack, one message per park (maintainer
+			// decision 2026-09-05): when each pen's feed weight, feed distribution and water
+			// captures reached the backend. Same lane and the same once-per-day mechanism as the
+			// two alerts above; the 17:30 cutoff is a gate inside the notifier, not a cron
+			// expression, so a worker that was down at 17:30 still posts when it returns.
+			kernelstages.NewFeedProofTimesStage(deps, tenantID, logger),
 			kernelstages.NewMilkFeedingStage(deps, tenantID),
 			// WEIGHING PHASE 2 cadence. No new worker binary: the weighing
 			// work-item kernel (terminal reconcile -> roll-forward ->

@@ -674,3 +674,94 @@ func TestFCMUnregisteredTokenDetection(t *testing.T) {
 		})
 	}
 }
+
+// A Slack request goes to the webhook of the channel it names. An incoming webhook cannot be
+// retargeted by its payload, so the channel-to-URL map IS the routing.
+func TestSlackRequestGoesToItsOwnChannelWebhook(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	g := New(Config{
+		SlackWebhookURL:         server.URL + "/incident",
+		SlackChannelWebhookURLs: map[string]string{"C0BV1GXCX8B": server.URL + "/farm"},
+	}, nil)
+
+	if _, err := g.SendWithResult(context.Background(), domain.Request{
+		Channel:      "slack",
+		RecipientRef: "C0BV1GXCX8B",
+		Title:        "Coimbatore · feed proof times",
+		Body:         "```diff\n- Castro 1  Evening  --\n```",
+	}); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	if gotPath != "/farm" {
+		t.Errorf("posted to %q, want the named channel's own webhook", gotPath)
+	}
+}
+
+// An unmapped channel FAILS rather than falling back to the incident webhook. Misdelivering a farm
+// report into the incident channel would look like a successful send while nobody who needed it saw
+// it, and the incident channel would carry traffic it never agreed to.
+func TestAnUnmappedSlackChannelFailsInsteadOfMisdelivering(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	g := New(Config{SlackWebhookURL: server.URL + "/incident"}, nil)
+
+	_, err := g.SendWithResult(context.Background(), domain.Request{
+		Channel:      "slack",
+		RecipientRef: "C0BV1GXCX8B",
+		Title:        "Coimbatore · feed proof times",
+	})
+	if !errors.Is(err, ports.ErrChannelNotConfigured) {
+		t.Fatalf("want ErrChannelNotConfigured for an unmapped channel, got %v", err)
+	}
+}
+
+// A Slack request that names NO channel keeps the pre-existing behaviour: the single incident
+// webhook. This is the path the incident fallback uses, and it must not have moved.
+func TestASlackRequestWithNoChannelStillUsesTheIncidentWebhook(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	g := New(Config{
+		SlackWebhookURL:         server.URL + "/incident",
+		SlackChannelWebhookURLs: map[string]string{"C0BV1GXCX8B": server.URL + "/farm"},
+	}, nil)
+
+	if _, err := g.SendWithResult(context.Background(), domain.Request{Channel: "slack", Title: "legacy"}); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	if gotPath != "/incident" {
+		t.Errorf("posted to %q, want the incident webhook", gotPath)
+	}
+}
+
+func TestChannelWebhookURLsFromJSON(t *testing.T) {
+	urls, err := ChannelWebhookURLsFromJSON(`{"C0BV1GXCX8B":" https://hooks.slack.com/x ","":"y","C2":""}`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := urls["C0BV1GXCX8B"]; got != "https://hooks.slack.com/x" {
+		t.Errorf("url = %q, want the trimmed webhook", got)
+	}
+	if len(urls) != 1 {
+		t.Errorf("blank channel ids and blank urls must be dropped, got %v", urls)
+	}
+	if _, err := ChannelWebhookURLsFromJSON("   "); err != nil {
+		t.Errorf("blank input is not an error, got %v", err)
+	}
+	if _, err := ChannelWebhookURLsFromJSON("{oops"); err == nil {
+		t.Error("malformed input must return an error for the caller to log")
+	}
+}

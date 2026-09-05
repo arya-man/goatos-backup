@@ -64,19 +64,27 @@ func run(args []string) error {
 
 	logger := observability.New(observability.Config{Service: "notification-dispatcher"})
 	repo := notificationpg.NewRepository(pool, pgCfg.QueryTimeout)
+	slackChannelWebhooks, err := notificationgateway.ChannelWebhookURLsFromJSON(getenv("GOATOS_SLACK_CHANNEL_WEBHOOKS"))
+	if err != nil {
+		// Logged, not fatal: one malformed env var must not take every other channel down.
+		logger.Warn("slack_channel_webhooks_unparsable", "env", "GOATOS_SLACK_CHANNEL_WEBHOOKS", "error", err.Error())
+	}
 	gateway := notificationgateway.New(notificationgateway.Config{
-		WebhookURL:         getenv("GOATOS_NOTIFICATION_WEBHOOK_URL"),
-		SlackWebhookURL:    getenv("GOATOS_SLACK_WEBHOOK_URL"),
-		EmailWebhookURL:    getenv("GOATOS_EMAIL_WEBHOOK_URL"),
-		EmailAuthToken:     getenv("GOATOS_EMAIL_WEBHOOK_AUTH_TOKEN"),
-		EmailDefaultTo:     getenv("GOATOS_EMAIL_DEFAULT_TO"),
-		IncidentWebhookURL: getenv("GOATOS_INCIDENT_WEBHOOK_URL"),
-		IncidentAuthToken:  getenv("GOATOS_INCIDENT_WEBHOOK_AUTH_TOKEN"),
-		FCMProjectID:       firstNonEmptyEnv("GOATOS_FCM_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"),
-		FCMEndpoint:        getenv("GOATOS_FCM_ENDPOINT"),
-		FCMBearerToken:     getenv("GOATOS_FCM_BEARER_TOKEN"),
-		DryRun:             *dryRun,
-		HTTPTimeout:        envDuration("GOATOS_NOTIFICATION_HTTP_TIMEOUT", 5*time.Second),
+		WebhookURL:      getenv("GOATOS_NOTIFICATION_WEBHOOK_URL"),
+		SlackWebhookURL: getenv("GOATOS_SLACK_WEBHOOK_URL"),
+		// Per-channel Slack destinations, mirroring the in-worker dispatcher stage so the one-shot
+		// binary can deliver the same posts. See kernelstages.SlackChannelWebhookURLsEnv.
+		SlackChannelWebhookURLs: slackChannelWebhooks,
+		EmailWebhookURL:         getenv("GOATOS_EMAIL_WEBHOOK_URL"),
+		EmailAuthToken:          getenv("GOATOS_EMAIL_WEBHOOK_AUTH_TOKEN"),
+		EmailDefaultTo:          getenv("GOATOS_EMAIL_DEFAULT_TO"),
+		IncidentWebhookURL:      getenv("GOATOS_INCIDENT_WEBHOOK_URL"),
+		IncidentAuthToken:       getenv("GOATOS_INCIDENT_WEBHOOK_AUTH_TOKEN"),
+		FCMProjectID:            firstNonEmptyEnv("GOATOS_FCM_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"),
+		FCMEndpoint:             getenv("GOATOS_FCM_ENDPOINT"),
+		FCMBearerToken:          getenv("GOATOS_FCM_BEARER_TOKEN"),
+		DryRun:                  *dryRun,
+		HTTPTimeout:             envDuration("GOATOS_NOTIFICATION_HTTP_TIMEOUT", 5*time.Second),
 		// Local/E2E only -- see the config field doc in adapters/gateway/gateway.go. Must never be
 		// set true in a real environment; there is no flag/default that turns it on implicitly.
 		LocalStubUnconfiguredChannels: envBool("GOATOS_NOTIFICATION_LOCAL_STUB_UNCONFIGURED_CHANNELS"),
