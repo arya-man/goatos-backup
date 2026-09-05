@@ -122,11 +122,11 @@ func TestValidateCauseAcceptsTheRegisterAndRefusesAnythingElse(t *testing.T) {
 	svc := NewDeathCauseCatalogService()
 	ctx := context.Background()
 
-	if err := svc.ValidateCause(ctx, domain.DeathCause{Key: "MASTITIS", Kind: domain.DeathCauseKindRegisterRule}); err != nil {
+	if err := svc.ValidateCause(ctx, "MASTITIS", domain.DeathCauseKindRegisterRule); err != nil {
 		t.Errorf("a real register rule was refused: %v", err)
 	}
 	// A normal death names no disease, and that is a complete answer.
-	if err := svc.ValidateCause(ctx, domain.DeathCause{}); err != nil {
+	if err := svc.ValidateCause(ctx, "", ""); err != nil {
 		t.Errorf("a normal death was refused: %v", err)
 	}
 	for _, cause := range []domain.DeathCause{
@@ -136,7 +136,7 @@ func TestValidateCauseAcceptsTheRegisterAndRefusesAnythingElse(t *testing.T) {
 		{Key: "supportive", Kind: domain.DeathCauseKindDiseaseKey},
 		{Key: "MASTITIS"},
 	} {
-		if err := svc.ValidateCause(ctx, cause); err == nil {
+		if err := svc.ValidateCause(ctx, cause.Key, cause.Kind); err == nil {
 			t.Errorf("%+v was accepted as a cause of death", cause)
 		}
 	}

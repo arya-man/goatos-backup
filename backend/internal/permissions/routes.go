@@ -585,6 +585,16 @@ var protectedRoutes = []Route{
 	// HealthDiagnose -- the same authority tier that opens a configured course, and the first
 	// route that permission gates (it was granted since 2026-07-30 with no surface behind it).
 	{OperationID: "closeAppHealthCase", Method: "POST", Pattern: "/app/health/cases/{health_case_id}/close", Permissions: []string{HealthDiagnose}},
+	// The cause-of-death vocabulary the death form's "due to disease" dropdown searches.
+	//
+	// EITHER/OR across the two people who record a death: the field operator who raises a
+	// sick-animal report and then loses the animal (HealthReport), and the Counts capture
+	// operator filling in the death form (CountsWrite). Gating on one alone would leave the
+	// other with a dropdown that 403s at the moment they need it.
+	//
+	// It is a READ of a static clinical rule list with no animal, no tenant data and no
+	// patient in it, so it is the least sensitive surface in the module.
+	{OperationID: "listHealthDeathCauses", Method: "GET", Pattern: "/app/health/death-causes", Permissions: []string{HealthReport, HealthRead, CountsWrite}},
 	// Health Analytics (/health/analytics), the leadership read.
 	//
 	// HealthRead, not a dedicated permission and not HealthConfigRead. A dedicated one is what

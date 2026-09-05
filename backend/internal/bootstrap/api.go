@@ -607,6 +607,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// service opens no case and completes no session.
 	healthAnalyticsService := healthapp.NewAnalyticsService(healthRepo)
 	healthAnalyticsHandler := healthhttp.NewAnalyticsHandler(healthAnalyticsService, log)
+	// The cause-of-death vocabulary: the diagnosis register, folded once into a searchable
+	// list. It is the death form's dropdown AND the check that refuses a cause the register
+	// does not name — one source, so the list an operator picks from and the list the
+	// server accepts cannot drift apart.
+	healthDeathCauseService := healthapp.NewDeathCauseCatalogService()
+	healthDeathCauseHandler := healthhttp.NewDeathCauseHandler(healthDeathCauseService, log)
 	countsApprovalRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
 		WithIdentityTxWriter(identityRepo).
 		WithDeathEvidenceTxGate(tasksWorkflowRepo)
@@ -621,6 +627,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countsPenReconciliationService := countsapp.NewPenReconciliationService(countsRepo, nil)
 	countsAppWriteHandler := countshttp.NewAppWriteHandler(countsService, log).
 		WithApprovalWorkflow(countsApprovalService, identityService).
+		// The clinical vocabulary a death may be attributed to belongs to Health. Counts
+		// holds a narrow port over it so a coded cause is refused at RAISE time, in front
+		// of the operator, rather than surfacing later in an approver's queue.
+		WithDeathCauses(healthDeathCauseService).
 		// Raiser and shed NAMES for the approvals queue, so neither the phone nor admin-web
 		// renders a UUID at an approver (golden frontend rule: the label is backend-owned).
 		WithApprovalNames(countsApprovalRepo).
@@ -1208,6 +1218,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	herdsignalshttp.Register(protectedMux, herdSignalsHandler)
 	healthhttp.RegisterDiagnosis(protectedMux, healthDiagnosisHandler)
 	healthhttp.RegisterAnalytics(protectedMux, healthAnalyticsHandler)
+	healthhttp.RegisterDeathCauses(protectedMux, healthDeathCauseHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)

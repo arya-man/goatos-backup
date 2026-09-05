@@ -43,12 +43,15 @@ func (s *DeathCauseCatalogService) Catalog(context.Context) (domain.DeathCauseCa
 // of a coded cause is that it groups, and one death filed under 'MASTITIS' beside another
 // under a near-miss is two diseases on the board and one in the barn. An operator who
 // cannot find the disease records a NORMAL death and says so in the note.
-func (s *DeathCauseCatalogService) ValidateCause(ctx context.Context, cause domain.DeathCause) error {
+// The signature is STRING-SHAPED rather than domain-typed so the module that records
+// deaths can hold a narrow port over it without importing health's types. Counts is that
+// caller: it records that an animal died, and has no business knowing what diseases exist.
+func (s *DeathCauseCatalogService) ValidateCause(ctx context.Context, key, kind string) error {
 	catalog, err := s.Catalog(ctx)
 	if err != nil {
 		return err
 	}
-	return domain.ValidateDeathCause(cause, catalog)
+	return domain.ValidateDeathCause(domain.DeathCause{Key: key, Kind: kind}, catalog)
 }
 
 func (s *DeathCauseCatalogService) build() {
