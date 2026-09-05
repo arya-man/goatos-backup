@@ -53,25 +53,36 @@ const config: Config = {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
-        /* Mesha dashboard design tokens */
+        /* Mesha design system. These were raw hexes, so `bg-surface`,
+           `text-positive` etc. never tracked the theme and stayed dark-mode
+           coloured on light paper. They now read the same CSS variables
+           mesha-theme.css defines, so they follow both themes. */
         surface: {
-          DEFAULT: "#1A1D24",
-          muted: "#22262E",
+          DEFAULT: "var(--panel)",
+          muted: "var(--panel-2)",
         },
         zinc: {
-          750: "#334155",
-          850: "#334155",
+          750: "var(--line)",
+          850: "var(--line2)",
         },
-        positive: "#4ade80",
-        negative: "#f87171",
+        positive: "var(--ok)",
+        negative: "var(--danger)",
+        brand: "var(--brand)",
+        value: "var(--value)",
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        /* The system is 2px on surfaces and a full pill on controls; the old
+           lg/md/sm ramp subtracted px off a 10px radius and produced negatives
+           against the 2px token. All three collapse to the system radius. */
+        lg: "var(--r)",
+        md: "var(--r)",
+        sm: "var(--r)",
+        pill: "var(--r-pill)",
       },
       fontFamily: {
-        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        sans: ["var(--f)", "Instrument Sans", "system-ui", "sans-serif"],
+        serif: ["var(--f-serif)", "Instrument Serif", "Georgia", "serif"],
+        mono: ["var(--fm)", "Spline Sans Mono", "ui-monospace", "monospace"],
       },
     },
   },

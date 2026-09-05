@@ -375,7 +375,7 @@ export function LoadWriteActions({
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {actionableGoats.map((goat) => (
-              <div key={goat.load_goat_id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12 }}>
+              <div key={goat.load_goat_id} style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <HeartPulse className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
                   <b style={{ fontSize: 13 }}>{goatLabel(goat)}</b>
@@ -493,7 +493,7 @@ export function LoadWriteActions({
               name="goats"
               rows={4}
               placeholder={copy(pageContract, "placeholder.arrival_rows")}
-              style={{ fontFamily: "var(--mono, monospace)" }}
+              style={{ fontFamily: "var(--fm)" }}
             />
             <span className="muted small">
               {copy(pageContract, "note.arrival_rows")}

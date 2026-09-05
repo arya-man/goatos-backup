@@ -22,17 +22,40 @@ type ViewState =
   | { kind: "loaded"; trace: TraceRecord }
   | { kind: "error"; status: number; message: string };
 
-const STATUS_TONE: Record<string, string> = {
-  ok: "bg-emerald-500/15 text-emerald-300",
-  rejected: "bg-amber-500/15 text-amber-300",
-  over_budget: "bg-amber-500/15 text-amber-300",
-  degraded: "bg-amber-500/15 text-amber-300",
-  error: "bg-rose-500/15 text-rose-300",
+// Status tones are theme tokens, never raw palette values, so the trace viewer
+// reads as the same product in both the dark `:root` and `:root.light` themes.
+const STATUS_TONE: Record<string, React.CSSProperties> = {
+  ok: { background: "var(--okx)", color: "var(--ok)" },
+  rejected: { background: "var(--warnx)", color: "var(--warn)" },
+  over_budget: { background: "var(--warnx)", color: "var(--warn)" },
+  degraded: { background: "var(--warnx)", color: "var(--warn)" },
+  error: { background: "var(--dangerx)", color: "var(--danger)" },
 };
 
-function toneFor(status: string): string {
-  return STATUS_TONE[status] ?? "bg-slate-500/15 text-slate-300";
+const NEUTRAL_TONE: React.CSSProperties = { background: "var(--panel-2)", color: "var(--muted)" };
+
+function toneFor(status: string): React.CSSProperties {
+  return STATUS_TONE[status] ?? NEUTRAL_TONE;
 }
+
+const SURFACE: React.CSSProperties = {
+  background: "var(--panel)",
+  border: "1px solid var(--line)",
+  borderRadius: "var(--r)",
+};
+
+const CHIP: React.CSSProperties = {
+  background: "var(--panel-2)",
+  color: "var(--muted)",
+  borderRadius: "var(--r-pill)",
+};
+
+const UPPER_LABEL: React.CSSProperties = {
+  fontFamily: "var(--fm)",
+  letterSpacing: ".18em",
+  textTransform: "uppercase",
+  color: "var(--faint)",
+};
 
 async function fetchTrace(requestId: string): Promise<{ ok: true; trace: TraceRecord } | { ok: false; status: number; message: string }> {
   const res = await fetch(`/api/ceo-ai/admin/trace/${encodeURIComponent(requestId)}`, {
@@ -108,10 +131,10 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
   }, []);
 
   return (
-    <section className="flex flex-col gap-6 text-slate-200">
+    <section className="flex flex-col gap-6" style={{ color: "var(--ink)" }}>
       <header className="flex flex-col gap-1">
-        <h1 className="text-lg font-semibold text-slate-100">Assistant step-trace (admin debug)</h1>
-        <p className="max-w-2xl text-sm text-slate-400">
+        <h1 className="text-lg" style={{ fontFamily: "var(--f-serif)", fontWeight: 400, color: "var(--ink)" }}>Assistant step-trace (admin debug)</h1>
+        <p className="max-w-2xl text-sm" style={{ color: "var(--muted)" }}>
           Internal execution trace for one leadership-assistant request: sub-questions, resolved tool/tier,
           redacted params, row counts, latency, and review verdict. Admin/engineering only — this trace never
           appears in the leadership chat answer.
@@ -125,10 +148,17 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
           void lookup(requestId);
         }}
       >
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
+        <label className="flex flex-col gap-1 text-xs" style={UPPER_LABEL}>
           Request ID
           <input
-            className="w-96 max-w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-500"
+            className="w-96 max-w-full px-3 py-2 text-sm outline-none"
+            style={{
+              background: "var(--panel)",
+              border: "1px solid var(--line)",
+              borderRadius: "var(--r)",
+              color: "var(--ink)",
+              fontFamily: "var(--f)",
+            }}
             value={requestId}
             onChange={(e) => setRequestId(e.target.value)}
             placeholder="e.g. 9f2c1b7a-..."
@@ -138,7 +168,7 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
         </label>
         <button
           type="submit"
-          className="rounded-md bg-slate-100 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-white disabled:opacity-50"
+          className="btn p"
           disabled={view.kind === "loading"}
         >
           {view.kind === "loading" ? "Looking up…" : "Look up trace"}
@@ -146,7 +176,15 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
       </form>
 
       {view.kind === "error" ? (
-        <div className="rounded-md border border-rose-800 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
+        <div
+          className="px-4 py-3 text-sm"
+          style={{
+            background: "var(--dangerx)",
+            border: "1px solid var(--danger)",
+            borderRadius: "var(--r)",
+            color: "var(--danger)",
+          }}
+        >
           {view.message}
         </div>
       ) : null}
@@ -162,7 +200,7 @@ function TraceDetail({ trace }: { trace: TraceRecord }): React.ReactElement {
   return (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Meta label="Status" value={<span className={`rounded px-2 py-0.5 text-xs ${toneFor(trace.status)}`}>{trace.status || "—"}</span>} />
+        <Meta label="Status" value={<span className="px-2 py-0.5 text-xs" style={{ ...toneFor(trace.status), borderRadius: "var(--r-pill)" }}>{trace.status || "—"}</span>} />
         <Meta label="Route tier" value={trace.route_tier || "—"} />
         <Meta label="Tool" value={trace.tool_called || "—"} />
         <Meta label="Latency" value={`${trace.latency_ms} ms`} />
@@ -173,18 +211,18 @@ function TraceDetail({ trace }: { trace: TraceRecord }): React.ReactElement {
       </div>
 
       <Panel title="Question (redacted)">
-        <p className="whitespace-pre-wrap break-words text-sm text-slate-300">{trace.question_redacted || "—"}</p>
+        <p className="whitespace-pre-wrap break-words text-sm" style={{ color: "var(--muted)" }}>{trace.question_redacted || "—"}</p>
       </Panel>
 
       {trace.rejection_reason ? (
         <Panel title="Rejection reason">
-          <p className="text-sm text-amber-300">{trace.rejection_reason}</p>
+          <p className="text-sm" style={{ color: "var(--warn)" }}>{trace.rejection_reason}</p>
         </Panel>
       ) : null}
 
       {trace.review_verdict ? (
         <Panel title="Review verdict">
-          <p className="text-sm text-slate-300">{trace.review_verdict}</p>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>{trace.review_verdict}</p>
         </Panel>
       ) : null}
 
@@ -192,7 +230,7 @@ function TraceDetail({ trace }: { trace: TraceRecord }): React.ReactElement {
         <Panel title="Source views">
           <div className="flex flex-wrap gap-2">
             {views.map((v) => (
-              <span key={v} className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+              <span key={v} className="px-2 py-0.5 text-xs" style={CHIP}>
                 {v}
               </span>
             ))}
@@ -202,49 +240,52 @@ function TraceDetail({ trace }: { trace: TraceRecord }): React.ReactElement {
 
       <Panel title={`Steps (${steps.length})`}>
         {steps.length === 0 ? (
-          <p className="text-sm text-slate-500">No steps recorded for this request.</p>
+          <p className="text-sm" style={{ color: "var(--faint)" }}>No steps recorded for this request.</p>
         ) : (
           <ol className="flex flex-col gap-3">
             {steps.map((step, i) => (
-              <li key={i} className="rounded-md border border-slate-800 bg-slate-900/60 p-3">
-                <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                  <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300">#{i + 1}</span>
-                  <span className="rounded bg-slate-800 px-2 py-0.5">{step.route || "—"}</span>
-                  <span className="font-medium text-slate-200">{step.tool_name || "—"}</span>
+              <li key={i} className="p-3" style={{ ...SURFACE, background: "var(--panel-2)" }}>
+                <div className="mb-1 flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--muted)" }}>
+                  <span className="px-2 py-0.5" style={{ ...CHIP, background: "var(--panel)", color: "var(--ink)" }}>#{i + 1}</span>
+                  <span className="px-2 py-0.5" style={{ ...CHIP, background: "var(--panel)" }}>{step.route || "—"}</span>
+                  <span className="font-medium" style={{ color: "var(--ink)" }}>{step.tool_name || "—"}</span>
                   <span className="ml-auto">{step.duration_ms} ms · {step.row_count} rows</span>
                 </div>
                 {step.sub_question ? (
-                  <p className="text-sm text-slate-300">{step.sub_question}</p>
+                  <p className="text-sm" style={{ color: "var(--muted)" }}>{step.sub_question}</p>
                 ) : null}
                 {step.params ? (
-                  <pre className="mt-2 overflow-x-auto rounded bg-slate-950 p-2 text-xs text-slate-400">{step.params}</pre>
+                  <pre
+                    className="mt-2 overflow-x-auto p-2 text-xs"
+                    style={{ background: "var(--bg)", border: "1px solid var(--line2)", borderRadius: "var(--r)", color: "var(--muted)", fontFamily: "var(--fm)" }}
+                  >{step.params}</pre>
                 ) : null}
-                {step.verdict ? <p className="mt-1 text-xs text-slate-400">verdict: {step.verdict}</p> : null}
-                {step.err ? <p className="mt-1 text-xs text-rose-300">error: {step.err}</p> : null}
+                {step.verdict ? <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>verdict: {step.verdict}</p> : null}
+                {step.err ? <p className="mt-1 text-xs" style={{ color: "var(--danger)" }}>error: {step.err}</p> : null}
               </li>
             ))}
           </ol>
         )}
       </Panel>
 
-      <p className="text-xs text-slate-500">Recorded {dateTime(trace.created_at)}</p>
+      <p className="text-xs" style={{ color: "var(--faint)" }}>Recorded {dateTime(trace.created_at)}</p>
     </div>
   );
 }
 
 function Meta({ label, value }: { label: string; value: React.ReactNode }): React.ReactElement {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-900/60 px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-0.5 text-sm text-slate-200">{value}</div>
+    <div className="px-3 py-2" style={SURFACE}>
+      <div className="text-[11px]" style={UPPER_LABEL}>{label}</div>
+      <div className="mt-0.5 text-sm" style={{ color: "var(--ink)" }}>{value}</div>
     </div>
   );
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-900/40 p-4">
-      <h2 className="mb-2 text-sm font-semibold text-slate-200">{title}</h2>
+    <div className="p-4" style={SURFACE}>
+      <h2 className="mb-2 text-sm font-semibold" style={{ color: "var(--ink)" }}>{title}</h2>
       {children}
     </div>
   );

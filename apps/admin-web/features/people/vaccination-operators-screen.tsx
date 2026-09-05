@@ -682,7 +682,7 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
   }
 
   if (loading) return <div className="p-6">Loading...</div>;
-  if (error) return <div className="p-6 text-red-600">{error}</div>;
+  if (error) return <div className="p-6" style={{ color: "var(--danger)" }}>{error}</div>;
 
   // BUG-019: a caller whose authorized scope covers several parks must CHOOSE one before any roster,
   // capacity KPI, weekly preview, or default-operator dropdown is rendered — those are all park-scoped
@@ -1039,7 +1039,7 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
             <div className="fld">
               <label aria-hidden="true">&nbsp;</label>
               <button
-                className="btn b"
+                className="btn p"
                 onClick={persistOperatorConfig}
                 disabled={configSaving}
               >
@@ -1189,7 +1189,7 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
               )}
             </div>
             <div className="df">
-              <button className="btn b" style={{ width: '100%' }} onClick={() => openModal(drawerTarget!)}>
+              <button className="btn p" style={{ width: '100%' }} onClick={() => openModal(drawerTarget!)}>
                 ＋ Add leave
               </button>
             </div>

@@ -426,7 +426,7 @@ function MappingDialog({
 
   return (
     <>
-      <div onClick={close} aria-hidden="true" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 210 }} />
+      <div onClick={close} aria-hidden="true" style={{ position: "fixed", inset: 0, background: "var(--scrim)", zIndex: 210 }} />
       <div
         ref={panelRef}
         className="modal on card hs-mapping-modal"

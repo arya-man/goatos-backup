@@ -613,7 +613,7 @@ function CalendarEventDrawerPanel({
                   style={{
                     padding: 0,
                     border: "1px solid var(--line2)",
-                    borderRadius: 10,
+                    borderRadius: "var(--r)",
                     overflowX: "auto",
                     overflowY: "hidden",
                   }}

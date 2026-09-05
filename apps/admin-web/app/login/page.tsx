@@ -107,7 +107,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
                       marginTop: 8,
                       background: "var(--bg)",
                       border: "1px solid var(--line)",
-                      borderRadius: 8,
+                      borderRadius: "var(--r)",
                       padding: "6px 10px",
                       color: "var(--brand-d)",
                     }}

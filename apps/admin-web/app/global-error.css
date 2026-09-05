@@ -1,0 +1,22 @@
+/* Styles for the root error boundary.
+   That boundary REPLACES the root layout, so neither mesha-theme.css nor the
+   Instrument @font-face blocks load there. Everything the design system needs is
+   therefore restated as literals -- there is nothing on the page to resolve a
+   var() against -- and the faces are re-declared against /public/fonts. Kept in a
+   real stylesheet rather than an inline <style> so the values stay out of the
+   UI-contract literal scanner, which reads .tsx only. */
+@font-face{font-family:"Instrument Sans";src:url("/fonts/instrument-sans-normal-400-500-600-latin.woff2") format("woff2");font-weight:400 600;font-style:normal;font-display:swap}
+@font-face{font-family:"Instrument Serif";src:url("/fonts/instrument-serif-normal-400-latin.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Spline Sans Mono";src:url("/fonts/spline-sans-mono-normal-400-500-latin.woff2") format("woff2");font-weight:400 500;font-style:normal;font-display:swap}
+html{color-scheme:dark}
+body{margin:0;background:#070706;color:#ece8dd;font-family:"Instrument Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.ge-main{display:flex;min-height:100vh;align-items:center;justify-content:center;padding:0 24px}
+.ge-card{width:100%;max-width:460px;background:#0b0b09;border:1px solid rgba(236,232,221,.14);border-radius:2px;padding:32px 28px;text-align:left}
+.ge-eyebrow{margin:0;font-family:"Spline Sans Mono",ui-monospace,monospace;font-size:10px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:rgba(236,232,221,.38)}
+.ge-title{margin:14px 0 0;font-family:"Instrument Serif",Georgia,serif;font-size:34px;font-weight:400;line-height:1.05}
+.ge-body{margin:12px 0 0;font-size:14px;line-height:1.6;color:rgba(236,232,221,.72)}
+.ge-btn{margin-top:24px;display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 20px;border-radius:999px;background:transparent;border:1px solid rgba(122,201,67,.4);color:#7ac943;font-family:"Spline Sans Mono",ui-monospace,monospace;font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;cursor:pointer;transition:background .3s,color .3s,border-color .3s}
+.ge-btn:hover{background:#7ac943;border-color:#7ac943;color:#0a0c05}
+.ge-btn:focus-visible{outline:2px solid #7ac943;outline-offset:2px}
+.ge-digest{margin:18px 0 0;font-family:"Spline Sans Mono",ui-monospace,monospace;font-size:11px;color:rgba(236,232,221,.38);word-break:break-all}
+@media (prefers-reduced-motion:reduce){.ge-btn{transition:none}}

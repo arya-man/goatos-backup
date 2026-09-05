@@ -16,7 +16,7 @@ export default function Loading() {
         </div>
         <div className="chipset" style={{ padding: "12px 14px" }}>
           {[110, 92, 130, 96, 140, 120].map((width, index) => (
-            <div key={index} className="skel" style={{ width, height: 30, borderRadius: 999 }} />
+            <div key={index} className="skel" style={{ width, height: 30, borderRadius: "var(--r-pill)" }} />
           ))}
         </div>
         <div className="bd">

@@ -2,12 +2,13 @@
 @config "../tailwind.config.ts";
 
 /* ── Scrollbar ─────────────────────────────────────────────────────────────
-   Thin, theme-blended scrollbar. Track is invisible; thumb is a subtle
-   teal-blue tint that shows only when there is content to scroll.
+   Thin, theme-blended scrollbar. Track is invisible; the thumb is a tint of
+   the theme's ink, so it follows the design system in BOTH themes -- it used to
+   be a hardcoded slate-blue that stayed dark-mode-coloured on light paper.
 ───────────────────────────────────────────────────────────────────────── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2d3f52 transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -20,12 +21,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2d3f52;
+  background: var(--scroll-thumb);
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3d5068;
+  background: var(--scroll-thumb-hover);
 }
 
 ::-webkit-scrollbar-corner {
@@ -38,48 +39,87 @@
   scrollbar-color: transparent transparent;
 }
 .sidebar-scroll:hover {
-  scrollbar-color: #2d3f52 transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb {
   background: transparent;
 }
 .sidebar-scroll:hover::-webkit-scrollbar-thumb {
-  background: #2d3f52;
+  background: var(--scroll-thumb);
 }
 
 @layer base {
+  /* The shadcn/Tailwind token set. It is almost entirely unused by this app --
+     the real design lives in mesha-theme.css -- but it is NOT dead: the
+     `* { @apply border-border }` and `body { @apply bg-background }` rules below
+     make it the default border colour and the fallback page ground. So it is
+     re-pointed at the design system rather than left on neutral greys, and a
+     light override is added (it previously had none, so a light-theme user got
+     dark-theme borders). Values are the HSL of the same hexes mesha-theme uses. */
   :root {
-    --font-sans: system-ui, sans-serif;
-    --background: 0 0% 3.5%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 90%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 10%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 9.4%;
-    --muted-foreground: 0 0% 63%;
-    --accent: 0 0% 10%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3% 13%;
-    --input: 240 3% 13%;
-    --ring: 0 0% 63%;
-    --radius: 0.625rem;
-    --sidebar-background: 0 0% 3.5%;
-    --sidebar-foreground: 0 0% 98%;
-    --sidebar-primary: 0 0% 98%;
-    --sidebar-primary-foreground: 0 0% 9%;
-    --sidebar-accent: 0 0% 10%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 3% 13%;
-    --sidebar-ring: 0 0% 63%;
+    --font-sans: "Instrument Sans", system-ui, sans-serif;
+    --font-serif: "Instrument Serif", Georgia, serif;
+    --font-mono: "Spline Sans Mono", ui-monospace, monospace;
+    --background: 60 8% 3%;          /* #070706 */
+    --foreground: 44 28% 90%;        /* #ece8dd */
+    --card: 60 10% 4%;               /* #0b0b09 */
+    --card-foreground: 44 28% 90%;
+    --popover: 60 10% 4%;
+    --popover-foreground: 44 28% 90%;
+    --primary: 95 55% 53%;           /* MESHA green #7ac943 */
+    --primary-foreground: 75 43% 4%; /* #0a0c05 ink on brand */
+    --secondary: 60 8% 7%;
+    --secondary-foreground: 44 28% 90%;
+    --muted: 60 8% 7%;
+    --muted-foreground: 44 12% 60%;
+    --accent: 95 55% 53%;
+    --accent-foreground: 75 43% 4%;
+    --destructive: 3 67% 66%;        /* #e2726d */
+    --destructive-foreground: 75 43% 4%;
+    --border: 60 6% 12%;             /* ivory hairline over the ground */
+    --input: 60 6% 12%;
+    --ring: 95 55% 53%;
+    --radius: 0.125rem;              /* the system's 2px, not 10px */
+    --sidebar-background: 60 8% 3%;
+    --sidebar-foreground: 44 28% 90%;
+    --sidebar-primary: 95 55% 53%;
+    --sidebar-primary-foreground: 75 43% 4%;
+    --sidebar-accent: 60 8% 7%;
+    --sidebar-accent-foreground: 44 28% 90%;
+    --sidebar-border: 60 6% 12%;
+    --sidebar-ring: 95 55% 53%;
+  }
+  :root.light {
+    --background: 44 28% 90%;        /* ivory paper */
+    --foreground: 60 11% 8%;
+    --card: 45 33% 94%;
+    --card-foreground: 60 11% 8%;
+    --popover: 45 33% 94%;
+    --popover-foreground: 60 11% 8%;
+    --primary: 95 63% 33%;           /* #4c8a1f */
+    --primary-foreground: 45 33% 94%;
+    --secondary: 44 20% 85%;
+    --secondary-foreground: 60 11% 8%;
+    --muted: 44 20% 85%;
+    --muted-foreground: 45 7% 32%;
+    --accent: 95 63% 33%;
+    --accent-foreground: 45 33% 94%;
+    --destructive: 2 54% 51%;        /* #b03a35 */
+    --destructive-foreground: 45 33% 94%;
+    --border: 60 11% 82%;
+    --input: 60 11% 82%;
+    --ring: 95 63% 33%;
+    --sidebar-background: 44 20% 85%;
+    --sidebar-foreground: 60 11% 8%;
+    --sidebar-primary: 95 63% 33%;
+    --sidebar-primary-foreground: 45 33% 94%;
+    --sidebar-accent: 44 20% 85%;
+    --sidebar-accent-foreground: 60 11% 8%;
+    --sidebar-border: 60 11% 82%;
+    --sidebar-ring: 95 63% 33%;
   }
 }
+
 
 @layer base {
   * {

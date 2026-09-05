@@ -156,7 +156,7 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
       {passwordError || message ? (
         <p
           style={{
-            borderRadius: 9,
+            borderRadius: "var(--r)",
             border: "1px solid color-mix(in srgb, var(--danger) 40%, transparent)",
             background: "var(--dangerx)",
             color: "var(--danger)",

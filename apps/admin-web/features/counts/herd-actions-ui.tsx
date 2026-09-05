@@ -193,7 +193,7 @@ export function Drawer({
 
   return (
     <>
-      <div onClick={onClose} aria-hidden="true" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 210 }} />
+      <div onClick={onClose} aria-hidden="true" style={{ position: "fixed", inset: 0, background: "var(--scrim)", zIndex: 210 }} />
       <div
         ref={panelRef}
         className="modal on card"
@@ -720,7 +720,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
               value={csv}
               onChange={(e) => updateCSV(e.target.value)}
               placeholder={bulkColumns.join(",")}
-              style={{ fontFamily: "var(--mono, monospace)", fontSize: 12 }}
+              style={{ fontFamily: "var(--fm)", fontSize: 12 }}
             />
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
@@ -961,7 +961,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
               value={csv}
               onChange={(e) => updateCSV(e.target.value)}
               placeholder={shedColumns.join(",")}
-              style={{ fontFamily: "var(--mono, monospace)", fontSize: 12 }}
+              style={{ fontFamily: "var(--fm)", fontSize: 12 }}
             />
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>

@@ -8,7 +8,7 @@ export default function Loading() {
           <div className="skel" style={{ width: 640, maxWidth: "100%", height: 18 }} />
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <div className="skel" style={{ width: 160, height: 42, borderRadius: 8 }} />
+        <div className="skel" style={{ width: 160, height: 42, borderRadius: "var(--r)" }} />
       </div>
       <section className="card" style={{ marginBottom: 16 }} aria-busy="true">
         <div className="bd">
@@ -34,7 +34,7 @@ export default function Loading() {
         </div>
         <div className="chipset" style={{ padding: "12px 14px" }}>
           {[96, 86, 116, 72, 110, 132].map((w, i) => (
-            <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: 999 }} />
+            <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: "var(--r-pill)" }} />
           ))}
         </div>
       </section>
