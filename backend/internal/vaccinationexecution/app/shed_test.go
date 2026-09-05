@@ -180,6 +180,27 @@ func TestShedSummaryCachesDecoratedResponseForRouteSwitches(t *testing.T) {
 	}
 }
 
+func TestShedSummaryCachePreservesExactAsOfSnapshots(t *testing.T) {
+	proj := []domain.ShedSummaryProjection{
+		{ParkID: "p1", ParkName: "CBE", ShedID: "s1", ShedName: "Castro 1", Animals: 54, DueAnimals: 53, Sessions: 1, Capacity: domain.CapacityWithinCap, Status: domain.ShedStatusDue, TotalCount: 1},
+	}
+	repoCalls := 0
+	ownerCalls := 0
+	svc := NewService(fakeRepo{shedRows: proj, shedCalls: &repoCalls}, fakeOwnership{calls: &ownerCalls})
+	firstAsOf := time.Date(2026, 9, 4, 12, 1, 0, 0, time.UTC)
+	secondAsOf := time.Date(2026, 9, 4, 12, 4, 0, 0, time.UTC)
+
+	if _, err := svc.ShedSummary(context.Background(), domain.ShedSummaryQuery{TenantID: "t1", Limit: 50, AsOf: firstAsOf}); err != nil {
+		t.Fatalf("first ShedSummary: %v", err)
+	}
+	if _, err := svc.ShedSummary(context.Background(), domain.ShedSummaryQuery{TenantID: "t1", Limit: 50, AsOf: secondAsOf}); err != nil {
+		t.Fatalf("second ShedSummary: %v", err)
+	}
+	if repoCalls != 2 || ownerCalls != 2 {
+		t.Fatalf("repo/owner calls = %d/%d, want exact as_of cache miss 2/2", repoCalls, ownerCalls)
+	}
+}
+
 func TestShedDetailBuildsPlannedSessionsAndHeader(t *testing.T) {
 	next := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 	proj := []domain.ShedSummaryProjection{

@@ -1110,7 +1110,7 @@ type shedSummaryCacheEntry struct {
 }
 
 func shedSummaryCacheTimeBucket(t time.Time) string {
-	return t.Truncate(5 * time.Minute).UTC().Format(time.RFC3339)
+	return t.UTC().Format(time.RFC3339Nano)
 }
 
 func shedSummaryResponseCacheKey(q domain.ShedSummaryQuery, at time.Time) string {

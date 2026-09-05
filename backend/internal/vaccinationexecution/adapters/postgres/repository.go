@@ -3371,7 +3371,7 @@ func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummary
 		capacity = string(*q.Capacity)
 	}
 	cacheKey := fmt.Sprintf("shed_summary|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%s",
-		q.TenantID, vaccinationCacheTimeBucket(asOf), vaccinationCacheTimeBucket(dueBefore), optStr(q.ParkID),
+		q.TenantID, asOf.UTC().Format(time.RFC3339Nano), dueBefore.UTC().Format(time.RFC3339Nano), optStr(q.ParkID),
 		optStr(q.ShedID), optStr(q.Search), status, capacity, limit, q.Offset, shedSummaryOrderBy(q.Sort))
 	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
 		if rows, ok := cached.([]domain.ShedSummaryProjection); ok {
