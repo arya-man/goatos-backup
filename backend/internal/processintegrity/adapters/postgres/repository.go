@@ -22,6 +22,8 @@ const (
 	defaultQueryTimeout          = 3 * time.Second
 	defaultClosedHistoryAge      = 14 * 24 * time.Hour
 	processIntegrityReadCacheTTL = 60 * time.Second
+	// Clock granularity of the read-cache KEY. See processIntegrityReadCacheKey.
+	processIntegrityReadCacheBucket = 30 * time.Second
 	defaultLimit                 = 100
 	maxLimit                     = 500
 	countQueryArgCount           = 16
@@ -46,8 +48,22 @@ type processIntegrityCountCacheEntry struct {
 	value     []domain.CountByWorkState
 }
 
+// The read cache is keyed on a BUCKETED clock, not the raw one.
+//
+// Failing behaviour this replaces: the handler sets AsOf (and DueBefore =
+// AsOf+30d) from time.Now(), and this key formatted both with RFC3339Nano. Two
+// requests a millisecond apart therefore produced two different keys, so the
+// 60s read/count cache below never returned a hit on the default Action Center
+// / Protocol Adherence request -- it was dead code. Every hit paid the full
+// canonical query again (~52ms planning + ~240ms execution, 223k buffer hits to
+// return 36 rows).
+//
+// Bucketing is sound because the cache's own TTL already defines the staleness
+// contract: a hit may serve data up to processIntegrityReadCacheTTL old. The
+// bucket is half the TTL, so a served entry is never staler than the TTL that
+// was already deemed acceptable, and the cache actually hits.
 func processIntegrityReadCacheKey(prefix string, q domain.Query) string {
-	asOf := q.AsOf.UTC().Format(time.RFC3339Nano)
+	asOf := q.AsOf.UTC().Truncate(processIntegrityReadCacheBucket).Format(time.RFC3339Nano)
 	dueAfter := ""
 	if q.DueAfter != nil {
 		dueAfter = q.DueAfter.UTC().Format(time.RFC3339Nano)
@@ -62,7 +78,7 @@ func processIntegrityReadCacheKey(prefix string, q domain.Query) string {
 	}
 	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%t|%t|%t|%t|%d|%s",
 		prefix, q.TenantID, textValue(q.ParkID), textValue(q.ShedID), dueAfter,
-		q.DueBefore.UTC().Format(time.RFC3339Nano), textEnum(q.WorkState), textEnum(q.Severity),
+		q.DueBefore.UTC().Truncate(processIntegrityReadCacheBucket).Format(time.RFC3339Nano), textEnum(q.WorkState), textEnum(q.Severity),
 		textValue(q.OwnerID), textValue(q.ProtocolVersionID), q.OnlyBrokenOrAtRisk,
 		q.IncludeCompleted, q.ScopeLatestDrive, q.IncludeAdherenceSummary, q.Limit, asOf+"|"+rowID+"|"+cursor+"|"+textValue(q.Category))
 }
