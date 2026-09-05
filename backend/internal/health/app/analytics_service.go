@@ -49,6 +49,8 @@ func (s *AnalyticsService) GetHealthAnalytics(ctx context.Context, req domain.He
 		park := strings.TrimSpace(*req.ParkID)
 		if park == "" {
 			req.ParkID = nil
+		} else if !validUUID(park) {
+			return domain.HealthAnalytics{}, ErrInvalidInput
 		} else {
 			req.ParkID = &park
 		}
