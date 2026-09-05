@@ -23,6 +23,11 @@ const (
 )
 
 type fakePCCareHTTPService struct {
+	lastCloseTaskID     string
+	lastReopenTaskID    string
+	lastCloseRoundID    string
+	lastCloseReason     string
+	lifecycleErr        error
 	removalPens         []ports.RemovalPenProofRow
 	removalPensErr      error
 	lastRemovalPenProof app.RegisterRemovalPenProofInput
@@ -194,8 +199,17 @@ func (f *fakePCCareHTTPService) GetRound(_ context.Context, _ domain.Actor, roun
 	}
 	return ports.RoundRow{RoundID: roundID, Category: f.lastCreateRound.Category}, nil
 }
-func (f *fakePCCareHTTPService) CancelTask(context.Context, domain.Actor, string, string) error {
-	return nil
+func (f *fakePCCareHTTPService) CloseTask(_ context.Context, _ domain.Actor, taskID, reason, _ string) error {
+	f.lastCloseTaskID, f.lastCloseReason = taskID, reason
+	return f.lifecycleErr
+}
+func (f *fakePCCareHTTPService) ReopenTask(_ context.Context, _ domain.Actor, taskID, _ string) error {
+	f.lastReopenTaskID = taskID
+	return f.lifecycleErr
+}
+func (f *fakePCCareHTTPService) CloseRound(_ context.Context, _ domain.Actor, roundID, reason, _ string) error {
+	f.lastCloseRoundID, f.lastCloseReason = roundID, reason
+	return f.lifecycleErr
 }
 func (f *fakePCCareHTTPService) ListTasks(context.Context, domain.Actor, string, string, string, string, int, bool) (ports.TaskPage, error) {
 	return ports.TaskPage{}, nil

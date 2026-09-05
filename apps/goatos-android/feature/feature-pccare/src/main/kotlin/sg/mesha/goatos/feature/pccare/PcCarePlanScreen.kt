@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -105,12 +108,20 @@ fun PcCareMonitorScreen(
                 items(count = rows.itemCount, key = rows.itemKey { it.listKey }) { index ->
                     rows[index]?.let { card ->
                         PcCareMonitorTaskCard(
-                            // Cancel is PLANNER authority (pc_care.plan; the backend refuses it
-                            // for anyone else), so the affordance follows planEnabled — the PC
-                            // Director's stock-approval monitor face must not offer it.
-                            card = card.copy(cancellable = card.cancellable && planEnabled),
+                            // Close and reopen are PLANNER authority (pc_care.plan; the backend
+                            // refuses them for anyone else), so both affordances follow
+                            // planEnabled — the PC Director's stock-approval monitor face must
+                            // not offer them.
+                            card = card.copy(
+                                closable = card.closable && planEnabled,
+                                reopenable = card.reopenable && planEnabled,
+                            ),
                             onOpen = { onOpenTask(card) },
-                            onCancel = { onEvent(PcCarePlanEvent.CancelTask(card.taskId)) },
+                            // Closing ASKS FOR A REASON first: whoever later reads this row is
+                            // owed an answer to "why did this pen's work never happen", and the
+                            // server refuses a reasonless close anyway.
+                            onClose = { onEvent(PcCarePlanEvent.AskCloseTask(card.taskId)) },
+                            onReopen = { onEvent(PcCarePlanEvent.ReopenTask(card.taskId)) },
                         )
                     }
                 }
@@ -135,7 +146,58 @@ fun PcCareMonitorScreen(
                     .padding(16.dp),
             )
         }
+        if (state.closingTaskId.isNotBlank()) {
+            PcCareEndWorkDialog(
+                reason = state.closeReason,
+                onReasonChange = { onEvent(PcCarePlanEvent.CloseReasonChanged(it)) },
+                onConfirm = { onEvent(PcCarePlanEvent.CloseTask(state.closingTaskId, state.closeReason)) },
+                onDismiss = { onEvent(PcCarePlanEvent.DismissCloseTask) },
+            )
+        }
     }
+}
+
+/**
+ * Ending work asks WHY. Ending is not erasing — the pen stays taken for the day and this
+ * sentence is what whoever reads the row later sees in answer to "why did this never happen",
+ * so the confirm stays disabled until something is typed.
+ */
+@Composable
+private fun PcCareEndWorkDialog(
+    reason: String,
+    onReasonChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "End this work?", style = MeshaType.cardTitle, color = MeshaColors.Ink) },
+        text = {
+            Column {
+                Text(
+                    text = "The pen stays booked for today. Say why this work is being ended.",
+                    style = MeshaType.cardSubtitle,
+                    color = MeshaColors.Muted,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = onReasonChange,
+                    singleLine = false,
+                    placeholder = { Text(text = "Reason", style = MeshaType.cardSubtitle) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = reason.isNotBlank()) {
+                Text(text = "End work", color = if (reason.isNotBlank()) MeshaColors.Danger else MeshaColors.Muted)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(text = "Keep it", color = MeshaColors.Muted) }
+        },
+    )
 }
 
 /**
@@ -144,7 +206,12 @@ fun PcCareMonitorScreen(
  * done" (which animals are in, which videos are recorded) without any capture controls.
  */
 @Composable
-private fun PcCareMonitorTaskCard(card: PcCareTaskCardUi, onOpen: () -> Unit, onCancel: () -> Unit) {
+private fun PcCareMonitorTaskCard(
+    card: PcCareTaskCardUi,
+    onOpen: () -> Unit,
+    onClose: () -> Unit,
+    onReopen: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -201,12 +268,20 @@ private fun PcCareMonitorTaskCard(card: PcCareTaskCardUi, onOpen: () -> Unit, on
                 PcCareTaskPill(label = card.animalCountLabel, fg = MeshaColors.BrandD, bg = MeshaColors.Surf3)
             }
             Spacer(Modifier.weight(1f))
-            if (card.cancellable) {
+            if (card.closable) {
                 Text(
-                    text = "Cancel this task",
+                    text = "End this work",
                     color = MeshaColors.Danger,
                     style = MeshaType.caption,
-                    modifier = pcCareInlineActionModifier(onCancel),
+                    modifier = pcCareInlineActionModifier(onClose),
+                )
+            }
+            if (card.reopenable) {
+                Text(
+                    text = "Start it again",
+                    color = MeshaColors.BrandD,
+                    style = MeshaType.caption,
+                    modifier = pcCareInlineActionModifier(onReopen),
                 )
             }
         }

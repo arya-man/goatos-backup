@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.PcCareAnimalRowDto
+import sg.mesha.goatos.core.network.dto.PcCareCloseRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
@@ -201,7 +202,14 @@ interface PcCareRepository {
      */
     suspend fun createRound(idempotencyKey: String, request: PcCareCreateRoundRequestDto): PcCareRoundDto
 
-    suspend fun cancelTask(taskId: String)
+    /**
+     * End a task's work with a reason (maintainer decision 2026-09-05, replacing cancel).
+     * Refused by the server while the task's evidence is awaiting a verdict.
+     */
+    suspend fun closeTask(taskId: String, reason: String)
+
+    /** Undo a close. */
+    suspend fun reopenTask(taskId: String)
 
     /**
      * The PC Director's approve/reject on a submitted vaccine-stock task (maintainer decision
@@ -472,8 +480,15 @@ class DefaultPcCareRepository(
         round.pens.forEach { upsertDetail(it) }
     }
 
-    override suspend fun cancelTask(taskId: String) {
-        api.cancelPcCareTask(taskId)
+    override suspend fun closeTask(taskId: String, reason: String) {
+        api.closePcCareTask(taskId, PcCareCloseRequestDto(reason = reason))
+        // The cached detail is dropped rather than patched: the next read re-fetches the
+        // closed row with its reason, so the phone never renders a locally-invented close.
+        detailDao.delete(taskId)
+    }
+
+    override suspend fun reopenTask(taskId: String) {
+        api.reopenPcCareTask(taskId)
         detailDao.delete(taskId)
     }
 

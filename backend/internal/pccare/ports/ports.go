@@ -70,6 +70,27 @@ type CreateTaskParams struct {
 	TraceID                string
 }
 
+// CloseTaskParams ends one task's work.
+type CloseTaskParams struct {
+	TenantID string
+	TaskID   string
+	// Reason is the closer's own words, rendered verbatim to whoever later asks why this
+	// pen's work never happened. Required.
+	Reason   string
+	ClosedBy string
+	ActorID  string
+	TraceID  string
+}
+
+// ReopenTaskParams undoes a close.
+type ReopenTaskParams struct {
+	TenantID   string
+	TaskID     string
+	ReopenedBy string
+	ActorID    string
+	TraceID    string
+}
+
 // TaskRow is one task as served to planner/monitor/worklist reads and echoed by writes.
 type TaskRow struct {
 	TaskID         string
@@ -86,6 +107,8 @@ type TaskRow struct {
 	DueBusinessDate     string
 	WorkState           string
 	Status              string
+	// CloseReason is the closer's words on a CLOSED task, rendered verbatim; empty otherwise.
+	CloseReason string
 	ReworkReason        string
 	RowVersion          int32
 	SubmittedBy         string
@@ -348,9 +371,16 @@ type TaskStore interface {
 	// natural-key collision returns domain.ErrTaskAlreadyPlanned.
 	CreateTask(ctx context.Context, p CreateTaskParams) (TaskRow, error)
 
-	// CancelTask flips work_state -> canceled (planner authority). Idempotent; a terminal task
-	// is a no-op.
-	CancelTask(ctx context.Context, tenantID, taskID, actorID, traceID string) error
+	// CloseTask ends one task's work: work_state -> closed, stamped with who closed it and
+	// why (planner authority). REFUSED while the task's evidence is awaiting a verdict
+	// (domain.ErrVerificationPending) — the gate is unconditional, and a caller cannot pass
+	// it. A task that is already terminal is an idempotent no-op.
+	CloseTask(ctx context.Context, p CloseTaskParams) error
+
+	// ReopenTask undoes a close: work_state closed -> scheduled, clearing the close stamp. A
+	// task that is not closed returns domain.ErrNotClosed — reopen undoes a CLOSE and nothing
+	// else, so a completed task's accepted work is never reopened this way.
+	ReopenTask(ctx context.Context, p ReopenTaskParams) error
 
 	// GetTask reads one task row (with assignees + animal count), clamped to the authorized
 	// parks. Returns ErrNotFound outside scope.

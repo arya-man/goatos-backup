@@ -31,7 +31,8 @@ const (
 type plannerFakeStore struct {
 	fakeStore
 	created       []ports.CreateTaskParams
-	canceled      []string
+	closed        []string
+	reopened      []string
 	shedPages     []string
 	catalogParks  []ports.PlannerPark
 	catalogCalled int
@@ -42,8 +43,13 @@ func (f *plannerFakeStore) CreateTask(_ context.Context, p ports.CreateTaskParam
 	return ports.TaskRow{TaskID: trimmingTask, Category: p.Category, ParkID: p.ParkID}, nil
 }
 
-func (f *plannerFakeStore) CancelTask(_ context.Context, _, taskID, _, _ string) error {
-	f.canceled = append(f.canceled, taskID)
+func (f *plannerFakeStore) CloseTask(_ context.Context, p ports.CloseTaskParams) error {
+	f.closed = append(f.closed, p.TaskID)
+	return nil
+}
+
+func (f *plannerFakeStore) ReopenTask(_ context.Context, p ports.ReopenTaskParams) error {
+	f.reopened = append(f.reopened, p.TaskID)
 	return nil
 }
 
@@ -128,24 +134,51 @@ func TestCreateTaskHonoursTheTrimmingPlannerCarveOut(t *testing.T) {
 	}
 }
 
-// TestCancelTaskHonoursTheTrimmingPlannerCarveOut: cancel is judged on the TASK's category,
-// read from the store -- the caller never names it.
-func TestCancelTaskHonoursTheTrimmingPlannerCarveOut(t *testing.T) {
+// TestCloseTaskHonoursTheTrimmingPlannerCarveOut: close (which REPLACED cancel, maintainer
+// decision 2026-09-05) is judged on the TASK's category, read from the store -- the caller
+// never names it. Reopen shares the same gate, so the two verbs cannot drift apart on who
+// may act.
+func TestCloseTaskHonoursTheTrimmingPlannerCarveOut(t *testing.T) {
 	store := &plannerFakeStore{}
 	svc := NewService(store)
 	ctx := context.Background()
 
-	if err := svc.CancelTask(ctx, breedingDirectorActor(), trimmingTask, "trace"); err != nil {
-		t.Fatalf("breeding_director cancel hoof-trimming task: %v, want success", err)
+	if err := svc.CloseTask(ctx, breedingDirectorActor(), trimmingTask, "pen empty", "trace"); err != nil {
+		t.Fatalf("breeding_director close hoof-trimming task: %v, want success", err)
 	}
-	if err := svc.CancelTask(ctx, breedingDirectorActor(), dewormingTask, "trace"); !errors.Is(err, ports.ErrForbidden) {
-		t.Fatalf("breeding_director cancel deworming task: err=%v, want ErrForbidden", err)
+	if err := svc.CloseTask(ctx, breedingDirectorActor(), dewormingTask, "pen empty", "trace"); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("breeding_director close deworming task: err=%v, want ErrForbidden", err)
 	}
-	if len(store.canceled) != 1 || store.canceled[0] != trimmingTask {
-		t.Fatalf("store canceled %v, want only the hoof-trimming task", store.canceled)
+	if len(store.closed) != 1 || store.closed[0] != trimmingTask {
+		t.Fatalf("store closed %v, want only the hoof-trimming task", store.closed)
 	}
-	if err := svc.CancelTask(ctx, ceoActor(), dewormingTask, "trace"); err != nil {
-		t.Fatalf("ceo cancel deworming task: %v, want success", err)
+	if err := svc.CloseTask(ctx, ceoActor(), dewormingTask, "pen empty", "trace"); err != nil {
+		t.Fatalf("ceo close deworming task: %v, want success", err)
+	}
+
+	// Reopen is gated identically.
+	if err := svc.ReopenTask(ctx, breedingDirectorActor(), dewormingTask, "trace"); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("breeding_director reopen deworming task: err=%v, want ErrForbidden", err)
+	}
+	if err := svc.ReopenTask(ctx, breedingDirectorActor(), trimmingTask, "trace"); err != nil {
+		t.Fatalf("breeding_director reopen hoof-trimming task: %v, want success", err)
+	}
+	if len(store.reopened) != 1 || store.reopened[0] != trimmingTask {
+		t.Fatalf("store reopened %v, want only the hoof-trimming task", store.reopened)
+	}
+}
+
+// A close with no reason is refused before the store is touched: whoever later asks why a
+// pen's work never happened is owed an answer in the closer's own words.
+func TestCloseTaskRequiresAReason(t *testing.T) {
+	store := &plannerFakeStore{}
+	svc := NewService(store)
+
+	if err := svc.CloseTask(context.Background(), ceoActor(), dewormingTask, "   ", "trace"); !errors.Is(err, domain.ErrCloseReasonRequired) {
+		t.Fatalf("blank reason err=%v, want ErrCloseReasonRequired", err)
+	}
+	if len(store.closed) != 0 {
+		t.Fatalf("a reasonless close reached the store: %v", store.closed)
 	}
 }
 
@@ -259,8 +292,8 @@ func TestPerPersonTicksDecideTheServiceCheckExactlyAsTheyDecidedTheRoute(t *test
 	if _, err := svc.CreateTask(ctx, tickedOnly, createInput(domain.CategoryDeworming)); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("pc_trimming@configure must still be refused deworming: err=%v", err)
 	}
-	if err := svc.CancelTask(ctx, tickedOnly, trimmingTask, "trace"); err != nil {
-		t.Fatalf("pc_trimming@configure cancels a trimming task: %v", err)
+	if err := svc.CloseTask(ctx, tickedOnly, trimmingTask, "pen empty", "trace"); err != nil {
+		t.Fatalf("pc_trimming@configure closes a trimming task: %v", err)
 	}
 	catalog, err := svc.PlannerCatalog(ctx, tickedOnly)
 	if err != nil {
@@ -280,11 +313,11 @@ func TestPerPersonTicksDecideTheServiceCheckExactlyAsTheyDecidedTheRoute(t *test
 	if _, err := svc.CreateTask(ctx, roleButUnticked, createInput(domain.CategoryHoofTrimming)); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("a breeding_director whose ticks removed planning must be refused: err=%v", err)
 	}
-	if err := svc.CancelTask(ctx, roleButUnticked, trimmingTask, "trace"); !errors.Is(err, ports.ErrForbidden) {
-		t.Fatalf("same on cancel: err=%v", err)
+	if err := svc.CloseTask(ctx, roleButUnticked, trimmingTask, "pen empty", "trace"); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("same on close: err=%v", err)
 	}
-	if len(store.created) != 1 || len(store.canceled) != 1 {
-		t.Fatalf("store saw created=%d canceled=%d, want 1 and 1", len(store.created), len(store.canceled))
+	if len(store.created) != 1 || len(store.closed) != 1 {
+		t.Fatalf("store saw created=%d closed=%d, want 1 and 1", len(store.created), len(store.closed))
 	}
 }
 

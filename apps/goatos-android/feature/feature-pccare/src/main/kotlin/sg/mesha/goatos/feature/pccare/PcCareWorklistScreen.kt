@@ -121,7 +121,7 @@ fun PcCareWorklistScreen(
 @Composable
 internal fun PcCareTaskCard(
     card: PcCareTaskCardUi,
-    onCancel: (() -> Unit)? = null,
+    onClose: (() -> Unit)? = null,
     onOpen: () -> Unit,
 ) {
     Column(
@@ -166,12 +166,12 @@ internal fun PcCareTaskCard(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        if (onCancel != null && card.cancellable) {
+        if (onClose != null && card.closable) {
             Text(
-                text = "Cancel this task",
+                text = "End this work",
                 color = MeshaColors.Danger,
                 style = MeshaType.pillStrong,
-                modifier = pcCareInlineActionModifier(onCancel),
+                modifier = pcCareInlineActionModifier(onClose),
             )
         }
     }

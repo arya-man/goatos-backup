@@ -23,6 +23,7 @@ const (
 	pcCareRemovalPenResourceType  = "pc_care_removal_pen"
 	pcCareRemovalPenProofAction   = "pc_care.removal_pen.proof_recorded"
 	pcCareRemovalPenVerdictAction = "pc_care.removal_pen.verdict_applied"
+	pcCareRoundClosedAction       = "pc_care.round.closed"
 )
 
 // penPlan is one validated pen of a round create: its identity, the display label the
@@ -808,4 +809,96 @@ WHERE t.tenant_id = $1::uuid AND t.task_id = $2::uuid`,
 	}
 	committed = true
 	return true, nil
+}
+
+// CloseRound ends a whole round (maintainer decision 2026-09-05). Every pen not already
+// completed or closed goes to closed, and so does the round's feed & water removal card.
+//
+// A COMPLETED pen keeps that status. Completed is accepted work — the animals were treated
+// and a verifier said so — and a close must never rewrite it into "ended without being
+// done". Weighing's campaign close makes the identical exception for the identical reason.
+//
+// THE GATE ASKS ABOUT THE WHOLE ROUND, not about the rows this UPDATE would touch: if ANY
+// pen holds evidence awaiting a verdict the close is refused. Scoping the question to
+// closable rows is precisely the mistake weighing recorded in its own close path — it let
+// the ordinary submit → pending → close sequence walk straight through the gate.
+func (r *Repository) CloseRound(ctx context.Context, p ports.CloseRoundParams) error {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+
+	reason := strings.TrimSpace(p.Reason)
+	if reason == "" {
+		return domain.ErrCloseReasonRequired
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("pccare: begin close round tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	var parkID string
+	err = tx.QueryRow(ctx, `
+SELECT park_id::text FROM pc_care_rounds
+WHERE tenant_id = $1::uuid AND round_id = $2::uuid
+FOR UPDATE`, p.TenantID, p.RoundID).Scan(&parkID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("pccare: lock round for close: %w", err)
+	}
+
+	// One read over the round's pens AND its removal card. Both are pc_care_tasks rows, and
+	// either holding an undecided verdict blocks the close.
+	var pending int
+	if err := tx.QueryRow(ctx, `
+SELECT count(*)::int
+FROM pc_care_tasks t
+WHERE t.tenant_id = $1::uuid
+  AND (t.round_id = $2::uuid OR t.gates_round_id = $2::uuid)
+  AND t.status = 'pending_verification'`, p.TenantID, p.RoundID).Scan(&pending); err != nil {
+		return fmt.Errorf("pccare: read round close gate: %w", err)
+	}
+	if pending > 0 {
+		return domain.ErrVerificationPending
+	}
+
+	// ONE set-based cascade over the pens and the removal card together.
+	if _, err := tx.Exec(ctx, `
+UPDATE pc_care_tasks
+SET work_state = 'closed', terminal_at = now(), closed_by = $3::uuid, close_reason = $4,
+    updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND (round_id = $2::uuid OR gates_round_id = $2::uuid)
+  AND work_state IN ('scheduled', 'delayed')`,
+		p.TenantID, p.RoundID, p.ClosedBy, reason); err != nil {
+		return fmt.Errorf("pccare: close round pens: %w", err)
+	}
+
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     p.TenantID,
+		ActorID:      p.ActorID,
+		ActorType:    "human",
+		Action:       pcCareRoundClosedAction,
+		ResourceType: pcCareRoundResourceType,
+		ResourceID:   p.RoundID,
+		ScopeType:    "park",
+		ScopeID:      parkID,
+		AfterState:   map[string]any{"work_state": domain.WorkStateClosed, "close_reason": reason},
+		Metadata:     map[string]any{"source": "pc-care-planner"},
+		TraceID:      p.TraceID,
+	}); err != nil {
+		return fmt.Errorf("pccare: write round close audit: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("pccare: commit close round: %w", err)
+	}
+	committed = true
+	return nil
 }

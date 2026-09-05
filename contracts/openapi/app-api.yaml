@@ -6639,15 +6639,68 @@ paths:
           description: Unknown category, no assignees, or a pen outside the shed's partition catalog.
           content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
         "500": { $ref: "#/components/responses/ServerError" }
-  /app/pc-care/tasks/{task_id}/cancel:
+  /app/pc-care/tasks/{task_id}/close:
     post:
       tags: [PC Care]
-      operationId: appCancelPCCareTask
-      summary: Cancel an unsubmitted PC Care task.
+      operationId: appClosePCCareTask
+      summary: End one PC Care task's work, with a reason.
       description: >-
-        Cancels an unfinished task when the caller holds the planning capability for that
-        task's own category: `pc_care.plan` for every human-plannable PC Care category, or
-        `pc_care.plan_trimming` for hoof_trimming and hair_trimming only.
+        PC Care has exactly TWO verbs, on par with weighing: CLOSE a task, or REOPEN it if it
+        is already closed (maintainer decision 2026-09-05, retiring the cancel this replaces).
+        There is no third verb and no force, override or skip variant of close.
+
+        Closing is not erasing. Cancel removed a plan and freed the pen-day to be planned
+        again as though nothing had been there; close records that the work was planned and
+        then ended, and the pen-day STAYS TAKEN. A closed deworming also closes its linked
+        feed & water removal when that removal has not been submitted — a crew must not be
+        sent out to empty pens for work nobody will do.
+
+        THE CLOSE GATE IS UNCONDITIONAL: a task whose evidence is awaiting a verdict answers
+        409 verification_pending, and no caller-supplied field passes it. The way out is to
+        resolve the review. An already-terminal task is an accepted no-op.
+
+        Authority is the planning capability for the task's OWN category, exactly as on
+        create: a `pc_care.plan_trimming` holder closes hoof/hair trimming only.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PCCareCloseRequest" } } }
+      responses:
+        "200":
+          description: The task's work is ended (idempotent — an already-terminal task is a no-op).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                required: [status]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409":
+          description: The task's evidence is awaiting a verdict (verification_pending).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "422":
+          description: No reason given (close_reason_required).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/reopen:
+    post:
+      tags: [PC Care]
+      operationId: appReopenPCCareTask
+      summary: Start a closed PC Care task again.
+      description: >-
+        Undoes a close, clearing the close stamp and putting the task back in the work list.
+        Only a CLOSED task reopens: a completed task is accepted work and answers 409
+        not_closed rather than being quietly rewritten. The due date is left alone, so an
+        overdue reopened task is carried by the ordinary roll-forward, the same path every
+        other late task takes.
       parameters:
         - in: path
           name: task_id
@@ -6655,7 +6708,7 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         "200":
-          description: The task is canceled (idempotent — an already-terminal task is a no-op).
+          description: The task is scheduled again.
           content:
             application/json:
               schema:
@@ -6666,6 +6719,50 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409":
+          description: The task is not closed (not_closed).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/rounds/{round_id}/close:
+    post:
+      tags: [PC Care]
+      operationId: appClosePCCareRound
+      summary: End a whole PC Care round's work, with a reason.
+      description: >-
+        Closes every pen of the round that is not already completed or closed, plus the
+        round's feed & water removal card. A COMPLETED pen KEEPS that status: completed is
+        accepted work, and a close must never rewrite it into "ended without being done".
+
+        The gate asks about the WHOLE round — if ANY pen holds evidence awaiting a verdict the
+        close answers 409 verification_pending — not about the rows the write would touch.
+      parameters:
+        - in: path
+          name: round_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PCCareCloseRequest" } } }
+      responses:
+        "200":
+          description: The round's work is ended.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                required: [status]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409":
+          description: A pen of this round holds evidence awaiting a verdict (verification_pending).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "422":
+          description: No reason given (close_reason_required).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
         "500": { $ref: "#/components/responses/ServerError" }
   /app/pc-care/worklist:
     get:
@@ -19286,6 +19383,12 @@ components:
         rework_reason:
           type: string
           description: The verifier's rejection sentence, rendered verbatim (backend-owned copy).
+        close_reason:
+          type: string
+          description: >-
+            Why this work was ended, in the closer's own words, on a CLOSED task; rendered
+            verbatim. Empty on every other work_state. `canceled` remains in the work_state
+            enum for rows retired before close replaced cancel; nothing writes it any more.
         row_version: { type: integer }
         submitted_at: { type: string, format: date-time }
         assignee_user_ids:
@@ -19452,6 +19555,16 @@ components:
             required: [shed_id, shed_label, operational_location_display]
         next_cursor: { type: string }
       required: [sheds]
+    PCCareCloseRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          description: >-
+            The closer's own words, shown verbatim to whoever later asks why this pen's work
+            never happened. Required — a close with no reason leaves that unanswerable.
+      required: [reason]
     PCCareRoundPen:
       type: object
       description: One pen named by a round create. Identity ONLY — the display label is composed server-side from the pen catalog, so a client cannot name a pen the farm does not use.

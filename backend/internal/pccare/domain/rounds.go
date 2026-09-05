@@ -37,6 +37,17 @@ var (
 	// ErrRemovalPenNotInRound is returned when a removal proof names a pen the gated
 	// round does not contain.
 	ErrRemovalPenNotInRound = errors.New("pccare: this pen is not part of the gated round")
+	// ErrVerificationPending is the CLOSE GATE (maintainer decision 2026-09-05, weighing's
+	// ledger D-5 shape): a task cannot close while its evidence is awaiting a verdict, and
+	// there is no caller-supplied way past it. If a task will not close, the answer is to
+	// RESOLVE the verification — get the verdict — never to add a path around the gate.
+	ErrVerificationPending = errors.New("pccare: this work is waiting for a video review")
+	// ErrNotClosed is returned when a reopen names a task that is not closed. Reopen undoes a
+	// CLOSE and nothing else: a completed task is accepted work and is never reopened this way.
+	ErrNotClosed = errors.New("pccare: only a closed task can be reopened")
+	// ErrCloseReasonRequired is returned when a close carries no reason. Whoever asks later why
+	// a pen's work never happened is owed an answer in the closer's own words.
+	ErrCloseReasonRequired = errors.New("pccare: a reason is required to close")
 	// ErrRemovalProofIncomplete is returned when a removal submit leaves any pen without
 	// BOTH its feed and its water video. One clip stretched over several pens proves
 	// nothing, which is exactly why the evidence is per pen.

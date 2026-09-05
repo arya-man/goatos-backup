@@ -200,12 +200,16 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
             )
         },
         reworkReason = if (effectiveStatus == PC_CARE_STATUS_REWORK) reworkReason else "",
-        cancellable = effectiveStatus == PC_CARE_STATUS_OPEN,
+        // END offers on work still open; START AGAIN offers on work that was ended. The two
+        // are mutually exclusive by construction, so a card never shows both.
+        closable = effectiveStatus == PC_CARE_STATUS_OPEN && workState != PC_CARE_WORK_STATE_CLOSED,
+        reopenable = workState == PC_CARE_WORK_STATE_CLOSED,
         // Submitted rows still open the detail record; the detail screen owns the read-only lock.
         openable = true,
     )
 }
 
+internal const val PC_CARE_WORK_STATE_CLOSED = "closed"
 internal const val PC_CARE_STATUS_OPEN = "open"
 internal const val PC_CARE_STATUS_PENDING_VERIFICATION = "pending_verification"
 internal const val PC_CARE_STATUS_REWORK = "rework"

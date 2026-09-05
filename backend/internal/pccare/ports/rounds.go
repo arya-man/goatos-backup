@@ -125,6 +125,16 @@ type ApplyRemovalPenVerdictParams struct {
 	TraceID      string
 }
 
+// CloseRoundParams ends a whole round.
+type CloseRoundParams struct {
+	TenantID string
+	RoundID  string
+	Reason   string
+	ClosedBy string
+	ActorID  string
+	TraceID  string
+}
+
 // RoundStore is the round half of the PC Care write surface. It is a separate interface
 // so a reader of the task store is not handed round writes it has no business making;
 // the Postgres adapter implements both.
@@ -134,6 +144,14 @@ type RoundStore interface {
 	// Either the whole round lands or none of it does: a deworming shipped without the
 	// gate it was planned with would run on unfasted animals.
 	CreateRound(ctx context.Context, p CreateRoundParams) (RoundRow, error)
+
+	// CloseRound ends a whole round: every pen that is not already completed or closed goes
+	// to closed, and so does the round's feed & water removal card. A COMPLETED pen keeps
+	// that status — completed is accepted work and a close must never rewrite it. REFUSED
+	// (domain.ErrVerificationPending) when ANY pen of the round holds evidence awaiting a
+	// verdict; the question is "does this round hold unverified work", not "which rows would
+	// this UPDATE touch".
+	CloseRound(ctx context.Context, p CloseRoundParams) error
 
 	// GetRound reads one round with its pen buckets, clamped to the authorized parks.
 	GetRound(ctx context.Context, tenantID, roundID string, authorizedParkIDs []string, tenantWide bool) (RoundRow, error)

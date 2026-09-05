@@ -165,6 +165,45 @@ func (s *Service) GetRound(ctx context.Context, actor domain.Actor, roundID stri
 	return s.rounds.GetRound(ctx, actor.TenantID, roundID, authorizedParkSlice(parks), tenantWide)
 }
 
+// CloseRound ends a whole round: every pen that is not already completed or closed, plus the
+// round's feed & water removal card. Refused while ANY pen of the round holds evidence
+// awaiting a verdict — the gate is unconditional, and the answer to a round that will not
+// close is to resolve the verification, never to route around it.
+func (s *Service) CloseRound(ctx context.Context, actor domain.Actor, roundID, reason, traceID string) error {
+	if !canPlanAny(actor) {
+		return ports.ErrForbidden
+	}
+	roundID = strings.TrimSpace(roundID)
+	if !uuidutil.IsUUIDString(roundID) {
+		return ports.ErrInvalidArgument
+	}
+	if strings.TrimSpace(reason) == "" {
+		return domain.ErrCloseReasonRequired
+	}
+	if s.rounds == nil {
+		return ports.ErrStoreUnavailable
+	}
+	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planCapabilities...)
+	round, err := s.rounds.GetRound(ctx, actor.TenantID, roundID, authorizedParkSlice(parks), tenantWide)
+	if err != nil {
+		return err
+	}
+	if !canPlanCategory(actor, round.Category) {
+		return ports.ErrForbidden
+	}
+	if err := checkParkScopeForAnyCapability(ctx, actor.TenantID, round.ParkID, planCapabilitiesForCategory(round.Category)...); err != nil {
+		return err
+	}
+	return s.rounds.CloseRound(ctx, ports.CloseRoundParams{
+		TenantID: actor.TenantID,
+		RoundID:  round.RoundID,
+		Reason:   strings.TrimSpace(reason),
+		ClosedBy: actor.UserID,
+		ActorID:  actor.UserID,
+		TraceID:  traceID,
+	})
+}
+
 // RegisterRemovalPenProofInput attaches ONE pen's feed or water video to a round-grain feed
 // & water removal card. The pen is named by the WORK TASK it gates, so a client cannot aim
 // a pen's evidence at a pen outside the gated round.

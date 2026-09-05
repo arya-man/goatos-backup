@@ -207,6 +207,15 @@ data class PcCarePlannerShedsDto(
 )
 
 /**
+ * The reason a task or round is being CLOSED — the closer's own words, shown verbatim to
+ * whoever later asks why this pen's work never happened. Required by the server.
+ */
+@Serializable
+data class PcCareCloseRequestDto(
+    @SerialName("reason") val reason: String,
+)
+
+/**
  * ONE pen named by a round create. Identity only: the pen's display label is composed
  * server-side from the pen catalog, so the phone never names a pen the farm does not use.
  */

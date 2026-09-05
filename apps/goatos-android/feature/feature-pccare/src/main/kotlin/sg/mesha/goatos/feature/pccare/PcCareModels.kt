@@ -40,7 +40,10 @@ data class PcCareTaskCardUi(
     /** The verifier's rejection sentence, backend-owned, rendered VERBATIM; blank unless rework. */
     val reworkReason: String = "",
     /** True while an open-for-cancel action is offered (planner monitor only). */
-    val cancellable: Boolean = false,
+    /** Whether this card offers CLOSE — work that is still open and unsubmitted. */
+    val closable: Boolean = false,
+    /** Whether this card offers REOPEN — work that was closed. */
+    val reopenable: Boolean = false,
     /** True when the visible row can open its detail record; detail owns any read-only lock. */
     val openable: Boolean = true,
 )
@@ -307,6 +310,11 @@ data class PcCarePlanUiState(
     val categories: List<PcCarePlanOption> = emptyList(),
     val isRefreshing: Boolean = false,
     val emptyMessage: String? = null,
+    // The task whose "why are you ending this" prompt is open, and what has been typed into
+    // it. Blank id means no prompt. The reason is required — a close with none leaves the
+    // question unanswerable, and the server refuses it anyway.
+    val closingTaskId: String = "",
+    val closeReason: String = "",
     // Create wizard.
     val parks: List<PcCarePlanOption> = emptyList(),
     val operators: List<PcCarePlanOption> = emptyList(),
@@ -345,7 +353,12 @@ data class PcCarePlanUiState(
 sealed interface PcCarePlanEvent {
     data object Refresh : PcCarePlanEvent
     data class SelectMonitorDate(val date: LocalDate) : PcCarePlanEvent
-    data class CancelTask(val taskId: String) : PcCarePlanEvent
+    /** Ask for a reason before closing; the sheet's confirm sends [CloseTask]. */
+    data class AskCloseTask(val taskId: String) : PcCarePlanEvent
+    data object DismissCloseTask : PcCarePlanEvent
+    data class CloseReasonChanged(val reason: String) : PcCarePlanEvent
+    data class CloseTask(val taskId: String, val reason: String) : PcCarePlanEvent
+    data class ReopenTask(val taskId: String) : PcCarePlanEvent
     data object CloseCreate : PcCarePlanEvent
     data class SelectDate(val date: LocalDate) : PcCarePlanEvent
     data class SelectPark(val parkId: String) : PcCarePlanEvent

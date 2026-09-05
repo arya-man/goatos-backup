@@ -24,7 +24,8 @@ const (
 	pcCareCreateIdemScope  = "pc_care.task.create"
 
 	pcCareCreatedAction  = "pc_care.task.created"
-	pcCareCanceledAction = "pc_care.task.canceled"
+	pcCareClosedAction   = "pc_care.task.closed"
+	pcCareReopenedAction = "pc_care.task.reopened"
 )
 
 // pcCareAssignableRoles is WHO may be assigned a PC Care task: field operators and the PC
@@ -290,13 +291,120 @@ const removalAssigneesInsertSQL = `
 INSERT INTO pc_care_task_assignees (tenant_id, task_id, operator_user_id)
 SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`
 
-func (r *Repository) CancelTask(ctx context.Context, tenantID, taskID, actorID, traceID string) error {
+// CloseTask ends one task's work (maintainer decision 2026-09-05, RETIRING the cancel verb
+// this replaces): work_state -> closed, stamped with who closed it and why.
+//
+// PC Care is now on par with weighing, which has never had a cancel: "exactly two verbs —
+// CLOSE a task, or REOPEN it if it is already closed. There is no third verb." The
+// difference is not cosmetic. CANCEL erased a plan, and because the natural key excludes
+// canceled rows the pen-day became re-plannable as though nothing had ever been planned
+// there. CLOSE records what happened — planned, then ended without being done — and the
+// pen-day STAYS TAKEN.
+//
+// THE CLOSE GATE IS UNCONDITIONAL, exactly as weighing's is (ledger D-5). A task whose
+// evidence is awaiting a verdict cannot close, and there is no caller-supplied way past
+// that: if a task will not close, the answer is to RESOLVE the verification — get the
+// verdict — never to add a path around the gate. An already-terminal task is an idempotent
+// no-op, so a retried tap after a network blip reports success rather than an error.
+func (r *Repository) CloseTask(ctx context.Context, p ports.CloseTaskParams) error {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+
+	reason := strings.TrimSpace(p.Reason)
+	if reason == "" {
+		return domain.ErrCloseReasonRequired
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("pccare: begin close tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	// The gate is read under the row lock, so a verdict landing mid-close cannot slip past it.
+	var status, workState, shedID, parkID string
+	err = tx.QueryRow(ctx, `
+SELECT status, work_state, coalesce(shed_id::text, ''), park_id::text
+FROM pc_care_tasks
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid
+FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &workState, &shedID, &parkID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("pccare: lock task for close: %w", err)
+	}
+	if status == domain.StatusPendingVerification {
+		return domain.ErrVerificationPending
+	}
+	if workState != domain.WorkStateScheduled && workState != domain.WorkStateDelayed {
+		// Already closed, completed or canceled: settled work, reported as an accepted no-op.
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+UPDATE pc_care_tasks
+SET work_state = 'closed', terminal_at = now(), closed_by = $3::uuid, close_reason = $4,
+    updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+		p.TenantID, p.TaskID, p.ClosedBy, reason); err != nil {
+		return fmt.Errorf("pccare: close task: %w", err)
+	}
+
+	// CLOSE CASCADES TO THE LINKED REMOVAL, as cancel did before it (maintainer decision
+	// 2026-09-03): a closed deworming's evening feed & water removal serves nothing, and
+	// leaving it live would put a crew out to empty pens for work nobody will do. Only a
+	// not-yet-submitted removal is closed — submitted evidence is history, and its verdict
+	// still belongs to the verifier. This is the LEGACY 1:1 pair only; a ROUND's removal card
+	// gates the round's other pens too, so it is closed by CloseRound rather than by any one
+	// pen's close.
+	if _, err := tx.Exec(ctx, `
+UPDATE pc_care_tasks
+SET work_state = 'closed', terminal_at = now(), closed_by = $3::uuid, close_reason = $4,
+    updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND gates_task_id = $2::uuid
+  AND work_state IN ('scheduled', 'delayed')
+  AND status IN ('open', 'rework')
+  AND submitted_at IS NULL`, p.TenantID, p.TaskID, p.ClosedBy, reason); err != nil {
+		return fmt.Errorf("pccare: close linked removal task: %w", err)
+	}
+
+	if err := recordTaskLifecycleAudit(ctx, tx, p.TenantID, p.ActorID, pcCareClosedAction, p.TaskID, shedID, parkID, map[string]any{
+		"work_state":   domain.WorkStateClosed,
+		"close_reason": reason,
+	}, p.TraceID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("pccare: commit close task: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+// ReopenTask undoes a close: work_state closed -> scheduled, clearing the close stamp. The
+// due date is left alone — an overdue reopened task is carried by the ordinary roll-forward
+// sweep, the same path every other late task takes.
+//
+// Only a CLOSED task reopens. A completed task is accepted work and is never reopened this
+// way, and a canceled one is pre-retirement history. Refusing beats silently doing nothing:
+// a planner who reopened the wrong task is owed the correction.
+func (r *Repository) ReopenTask(ctx context.Context, p ports.ReopenTaskParams) error {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return fmt.Errorf("pccare: begin cancel tx: %w", err)
+		return fmt.Errorf("pccare: begin reopen tx: %w", err)
 	}
 	committed := false
 	defer func() {
@@ -308,36 +416,31 @@ func (r *Repository) CancelTask(ctx context.Context, tenantID, taskID, actorID, 
 	var shedID, parkID string
 	err = tx.QueryRow(ctx, `
 UPDATE pc_care_tasks
-SET work_state = 'canceled', terminal_at = now(), updated_at = now(), row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND task_id = $2::uuid
-  AND work_state IN ('scheduled', 'delayed')
-  AND status IN ('open', 'rework')
-RETURNING coalesce(shed_id::text, ''), park_id::text`, tenantID, taskID).Scan(&shedID, &parkID)
+SET work_state = 'scheduled', terminal_at = NULL, closed_by = NULL, close_reason = NULL,
+    updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND work_state = 'closed'
+RETURNING coalesce(shed_id::text, ''), park_id::text`, p.TenantID, p.TaskID).Scan(&shedID, &parkID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Already canceled/terminal/submitted: accepted stale cancel, no side effects.
-		if commitErr := tx.Commit(ctx); commitErr != nil {
-			return commitErr
-		}
-		committed = true
-		return nil
+		return domain.ErrNotClosed
 	}
 	if err != nil {
-		return fmt.Errorf("pccare: cancel task: %w", err)
+		return fmt.Errorf("pccare: reopen task: %w", err)
 	}
-	// CANCEL CASCADES TO THE LINKED REMOVAL (maintainer decision 2026-09-03):
-	// a canceled deworming's evening feed & water removal serves nothing, and
-	// leaving it live would 409 any re-plan of the same pen/date. Only a
-	// not-yet-submitted removal is canceled — submitted evidence is history.
-	if _, err := tx.Exec(ctx, `
-UPDATE pc_care_tasks
-SET work_state = 'canceled', terminal_at = now(), updated_at = now(), row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND gates_task_id = $2::uuid
-  AND work_state IN ('scheduled', 'delayed')
-  AND status IN ('open', 'rework')
-  AND submitted_at IS NULL`, tenantID, taskID); err != nil {
-		return fmt.Errorf("pccare: cancel linked removal task: %w", err)
+	if err := recordTaskLifecycleAudit(ctx, tx, p.TenantID, p.ActorID, pcCareReopenedAction, p.TaskID, shedID, parkID, map[string]any{
+		"work_state": domain.WorkStateScheduled,
+	}, p.TraceID); err != nil {
+		return err
 	}
-	// A per-vaccine stock task has no shed; its audit scope is the park.
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("pccare: commit reopen task: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+// recordTaskLifecycleAudit writes the close/reopen audit row. A per-vaccine stock task has
+// no shed, so its audit scope is the park.
+func recordTaskLifecycleAudit(ctx context.Context, tx pgx.Tx, tenantID, actorID, action, taskID, shedID, parkID string, after map[string]any, traceID string) error {
 	scopeType, scopeID := "shed", shedID
 	if shedID == "" {
 		scopeType, scopeID = "park", parkID
@@ -346,21 +449,17 @@ WHERE tenant_id = $1::uuid AND gates_task_id = $2::uuid
 		TenantID:     tenantID,
 		ActorID:      actorID,
 		ActorType:    "human",
-		Action:       pcCareCanceledAction,
+		Action:       action,
 		ResourceType: pcCareTaskResourceType,
 		ResourceID:   taskID,
 		ScopeType:    scopeType,
 		ScopeID:      scopeID,
-		AfterState:   map[string]any{"work_state": domain.WorkStateCanceled},
+		AfterState:   after,
 		Metadata:     map[string]any{"source": "pc-care-planner"},
 		TraceID:      traceID,
 	}); err != nil {
-		return fmt.Errorf("pccare: write cancel audit: %w", err)
+		return fmt.Errorf("pccare: write %s audit: %w", action, err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("pccare: commit cancel task: %w", err)
-	}
-	committed = true
 	return nil
 }
 
@@ -380,6 +479,7 @@ const taskSelectColumns = `
   t.work_state,
   t.status,
   coalesce(t.rework_reason, ''),
+  coalesce(t.close_reason, ''),
   t.row_version,
   coalesce(t.submitted_by::text, ''),
   t.submitted_at,
@@ -450,7 +550,7 @@ func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 	if err := row.Scan(
 		&t.TaskID, &t.Category, &t.ParkID, &t.ParkName, &t.ShedID, &t.ShedName,
 		&t.PartitionLabel, &t.VaccineLabel, &t.PlannedBusinessDate, &t.DueBusinessDate,
-		&t.WorkState, &t.Status, &t.ReworkReason, &t.RowVersion,
+		&t.WorkState, &t.Status, &t.ReworkReason, &t.CloseReason, &t.RowVersion,
 		&t.SubmittedBy, &submittedAt, &t.AssigneeUserIDs, &t.AssigneeNames, &t.AnimalCount,
 		&requirementsJSON, &taskProofsJSON,
 	); err != nil {

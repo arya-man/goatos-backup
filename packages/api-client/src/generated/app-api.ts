@@ -2498,7 +2498,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/app/pc-care/tasks/{task_id}/cancel": {
+    "/app/pc-care/tasks/{task_id}/close": {
         parameters: {
             query?: never;
             header?: never;
@@ -2508,10 +2508,54 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cancel an unsubmitted PC Care task.
-         * @description Cancels an unfinished task when the caller holds the planning capability for that task's own category: `pc_care.plan` for every human-plannable PC Care category, or `pc_care.plan_trimming` for hoof_trimming and hair_trimming only.
+         * End one PC Care task's work, with a reason.
+         * @description PC Care has exactly TWO verbs, on par with weighing: CLOSE a task, or REOPEN it if it is already closed (maintainer decision 2026-09-05, retiring the cancel this replaces). There is no third verb and no force, override or skip variant of close.
+         *     Closing is not erasing. Cancel removed a plan and freed the pen-day to be planned again as though nothing had been there; close records that the work was planned and then ended, and the pen-day STAYS TAKEN. A closed deworming also closes its linked feed & water removal when that removal has not been submitted — a crew must not be sent out to empty pens for work nobody will do.
+         *     THE CLOSE GATE IS UNCONDITIONAL: a task whose evidence is awaiting a verdict answers 409 verification_pending, and no caller-supplied field passes it. The way out is to resolve the review. An already-terminal task is an accepted no-op.
+         *     Authority is the planning capability for the task's OWN category, exactly as on create: a `pc_care.plan_trimming` holder closes hoof/hair trimming only.
          */
-        post: operations["appCancelPCCareTask"];
+        post: operations["appClosePCCareTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a closed PC Care task again.
+         * @description Undoes a close, clearing the close stamp and putting the task back in the work list. Only a CLOSED task reopens: a completed task is accepted work and answers 409 not_closed rather than being quietly rewritten. The due date is left alone, so an overdue reopened task is carried by the ordinary roll-forward, the same path every other late task takes.
+         */
+        post: operations["appReopenPCCareTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/rounds/{round_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a whole PC Care round's work, with a reason.
+         * @description Closes every pen of the round that is not already completed or closed, plus the round's feed & water removal card. A COMPLETED pen KEEPS that status: completed is accepted work, and a close must never rewrite it into "ended without being done".
+         *     The gate asks about the WHOLE round — if ANY pen holds evidence awaiting a verdict the close answers 409 verification_pending — not about the rows the write would touch.
+         */
+        post: operations["appClosePCCareRound"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8222,6 +8266,8 @@ export interface components {
             status: "open" | "pending_verification" | "completed" | "rework";
             /** @description The verifier's rejection sentence, rendered verbatim (backend-owned copy). */
             rework_reason?: string;
+            /** @description Why this work was ended, in the closer's own words, on a CLOSED task; rendered verbatim. Empty on every other work_state. `canceled` remains in the work_state enum for rows retired before close replaced cancel; nothing writes it any more. */
+            close_reason?: string;
             row_version: number;
             /** Format: date-time */
             submitted_at?: string;
@@ -8317,6 +8363,10 @@ export interface components {
                 existing_task_id?: string;
             }[];
             next_cursor?: string;
+        };
+        PCCareCloseRequest: {
+            /** @description The closer's own words, shown verbatim to whoever later asks why this pen's work never happened. Required — a close with no reason leaves that unanswerable. */
+            reason: string;
         };
         /** @description One pen named by a round create. Identity ONLY — the display label is composed server-side from the pen catalog, so a client cannot name a pen the farm does not use. */
         PCCareRoundPen: {
@@ -20253,7 +20303,58 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
-    appCancelPCCareTask: {
+    appClosePCCareTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareCloseRequest"];
+            };
+        };
+        responses: {
+            /** @description The task's work is ended (idempotent — an already-terminal task is a no-op). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The task's evidence is awaiting a verdict (verification_pending). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description No reason given (close_reason_required). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appReopenPCCareTask: {
         parameters: {
             query?: never;
             header?: never;
@@ -20264,7 +20365,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The task is canceled (idempotent — an already-terminal task is a no-op). */
+            /** @description The task is scheduled again. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -20278,6 +20379,66 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The task is not closed (not_closed). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appClosePCCareRound: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                round_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareCloseRequest"];
+            };
+        };
+        responses: {
+            /** @description The round's work is ended. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description A pen of this round holds evidence awaiting a verdict (verification_pending). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description No reason given (close_reason_required). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };

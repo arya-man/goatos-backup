@@ -35,7 +35,10 @@ type Service interface {
 	RemovalPenProofs(ctx context.Context, actor domain.Actor, removalTaskID string) ([]ports.RemovalPenProofRow, error)
 	// RegisterRemovalPenProof stores one pen's feed or water video on a removal card.
 	RegisterRemovalPenProof(ctx context.Context, actor domain.Actor, in app.RegisterRemovalPenProofInput) error
-	CancelTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error
+	// PC Care's two verbs (maintainer decision 2026-09-05, retiring cancel).
+	CloseTask(ctx context.Context, actor domain.Actor, taskID, reason, traceID string) error
+	ReopenTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error
+	CloseRound(ctx context.Context, actor domain.Actor, roundID, reason, traceID string) error
 	ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int, currentOrCarry bool) (ports.TaskPage, error)
 	Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error)
 	GetTask(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error)
@@ -67,7 +70,12 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/pc-care/rounds", h.PostCreateRound)
 	mux.HandleFunc("GET /app/pc-care/rounds/{round_id}", h.GetRound)
 	mux.HandleFunc("POST /app/pc-care/tasks", h.PostCreateTask)
-	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/cancel", h.PostCancelTask)
+	// PC Care has TWO verbs, on par with weighing: CLOSE a task, or REOPEN it if it is
+	// already closed (maintainer decision 2026-09-05, retiring cancel). There is no third
+	// verb and no force/override variant of close.
+	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/close", h.PostCloseTask)
+	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/reopen", h.PostReopenTask)
+	mux.HandleFunc("POST /app/pc-care/rounds/{round_id}/close", h.PostCloseRound)
 	mux.HandleFunc("GET /app/pc-care/tasks", h.GetTasks)
 	mux.HandleFunc("GET /app/pc-care/worklist", h.GetWorklist)
 	mux.HandleFunc("GET /app/pc-care/tasks/{task_id}", h.GetTask)
@@ -124,17 +132,19 @@ type taskDTO struct {
 	// OperationalLocationDisplay is the backend-composed "Castro - 2" (oploc.Display) — the
 	// Operational Location convention's mandatory display half; clients render it verbatim.
 	// Empty for per-vaccine stock tasks, which have no operational location.
-	OperationalLocationDisplay string     `json:"operational_location_display"`
-	PlannedBusinessDate        string     `json:"planned_business_date"`
-	DueBusinessDate            string     `json:"due_business_date"`
-	WorkState                  string     `json:"work_state"`
-	Status                     string     `json:"status"`
-	ReworkReason               string     `json:"rework_reason,omitempty"`
-	RowVersion                 int32      `json:"row_version"`
-	SubmittedAt                *time.Time `json:"submitted_at,omitempty"`
-	AssigneeUserIDs            []string   `json:"assignee_user_ids"`
-	AssigneeNames              []string   `json:"assignee_names"`
-	AnimalCount                int32      `json:"animal_count"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	PlannedBusinessDate        string `json:"planned_business_date"`
+	DueBusinessDate            string `json:"due_business_date"`
+	WorkState                  string `json:"work_state"`
+	Status                     string `json:"status"`
+	ReworkReason               string `json:"rework_reason,omitempty"`
+	// CloseReason is why this work was ended, in the closer's own words, on a CLOSED task.
+	CloseReason     string     `json:"close_reason,omitempty"`
+	RowVersion      int32      `json:"row_version"`
+	SubmittedAt     *time.Time `json:"submitted_at,omitempty"`
+	AssigneeUserIDs []string   `json:"assignee_user_ids"`
+	AssigneeNames   []string   `json:"assignee_names"`
+	AnimalCount     int32      `json:"animal_count"`
 	// CaptureMode is the BACKEND-OWNED capture flow for this task's category: "scan_record"
 	// (scan a tag → the recorder opens immediately) or "roster_pick" (tap an RFID off the pen
 	// roster → record). Clients branch on it verbatim and never hardcode a category→mode map.
@@ -220,6 +230,7 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 		WorkState:                  t.WorkState,
 		Status:                     t.Status,
 		ReworkReason:               t.ReworkReason,
+		CloseReason:                t.CloseReason,
 		RowVersion:                 t.RowVersion,
 		SubmittedAt:                t.SubmittedAt,
 		AssigneeUserIDs:            assigneeIDs,
@@ -496,16 +507,56 @@ func (h *Handler) PostCreateTask(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, taskDTOFrom(task))
 }
 
-func (h *Handler) PostCancelTask(w http.ResponseWriter, r *http.Request) {
+// closeRequest carries the closer's own words. A close with no reason leaves "why did this
+// pen's work never happen" unanswerable, so it is required rather than optional.
+type closeRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (h *Handler) PostCloseTask(w http.ResponseWriter, r *http.Request) {
 	a, ok := h.requireAuthed(w, r)
 	if !ok {
 		return
 	}
-	if err := h.service.CancelTask(r.Context(), a, r.PathValue("task_id"), httpmiddleware.TraceIDFromContext(r.Context())); err != nil {
-		h.writeServiceError(w, r, "pc care cancel task", err)
+	var body closeRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, map[string]string{"status": "canceled"})
+	if err := h.service.CloseTask(r.Context(), a, r.PathValue("task_id"), body.Reason, httpmiddleware.TraceIDFromContext(r.Context())); err != nil {
+		h.writeServiceError(w, r, "pc care close task", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]string{"status": "closed"})
+}
+
+func (h *Handler) PostReopenTask(w http.ResponseWriter, r *http.Request) {
+	a, ok := h.requireAuthed(w, r)
+	if !ok {
+		return
+	}
+	if err := h.service.ReopenTask(r.Context(), a, r.PathValue("task_id"), httpmiddleware.TraceIDFromContext(r.Context())); err != nil {
+		h.writeServiceError(w, r, "pc care reopen task", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]string{"status": "scheduled"})
+}
+
+func (h *Handler) PostCloseRound(w http.ResponseWriter, r *http.Request) {
+	a, ok := h.requireAuthed(w, r)
+	if !ok {
+		return
+	}
+	var body closeRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
+		return
+	}
+	if err := h.service.CloseRound(r.Context(), a, r.PathValue("round_id"), body.Reason, httpmiddleware.TraceIDFromContext(r.Context())); err != nil {
+		h.writeServiceError(w, r, "pc care close round", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]string{"status": "closed"})
 }
 
 func (h *Handler) GetTasks(w http.ResponseWriter, r *http.Request) {
@@ -817,6 +868,26 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "invalid_verdict", Message: "unknown decision"}, nil)
 	case errors.Is(err, domain.ErrStockRejectReasonRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "reason_required", Message: "say why this is being sent back"}, nil)
+	case errors.Is(err, domain.ErrVerificationPending):
+		// The close gate, in farm words. It names the way OUT — resolve the review — because
+		// there is deliberately no way past it.
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, codedError{Code: "verification_pending", Message: "this work is waiting for a video review — finish the review, then close it"}, nil)
+	case errors.Is(err, domain.ErrNotClosed):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, codedError{Code: "not_closed", Message: "only closed work can be reopened"}, nil)
+	case errors.Is(err, domain.ErrCloseReasonRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "close_reason_required", Message: "say why this work is being ended"}, nil)
+	case errors.Is(err, domain.ErrRoundCategoryNotPlannable):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "category_not_plannable", Message: "this work is not planned as a round"}, nil)
+	case errors.Is(err, domain.ErrNoPens):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "pens_required", Message: "pick at least one pen"}, nil)
+	case errors.Is(err, domain.ErrTooManyPens):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "too_many_pens", Message: "too many pens for one round"}, nil)
+	case errors.Is(err, domain.ErrDuplicatePen):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "duplicate_pen", Message: "the same pen is picked twice"}, nil)
+	case errors.Is(err, domain.ErrRemovalPenNotInRound):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "pen_not_in_round", Message: "this pen is not part of the work this removal covers"}, nil)
+	case errors.Is(err, domain.ErrRemovalProofIncomplete):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "removal_proof_incomplete", Message: "every pen needs both its feed and its water video"}, nil)
 	case errors.Is(err, domain.ErrAssigneesRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "assignees_required", Message: "assign at least one operator"}, nil)
 	case errors.Is(err, domain.ErrFastingWindowClosed):

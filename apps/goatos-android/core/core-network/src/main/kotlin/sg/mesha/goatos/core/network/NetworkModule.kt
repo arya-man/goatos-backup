@@ -65,6 +65,7 @@ import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementResponseDto
 import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
 import sg.mesha.goatos.core.network.dto.PcCareCapturesDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareCloseRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundPenDto
@@ -919,9 +920,21 @@ interface AppApiService {
         @Body request: PcCareRemovalPenProofRequestDto,
     )
 
-    @POST("app/pc-care/tasks/{task_id}/cancel")
-    suspend fun cancelPcCareTask(
+    @POST("app/pc-care/tasks/{task_id}/close")
+    suspend fun closePcCareTask(
         @Path("task_id") taskId: String,
+        @Body request: PcCareCloseRequestDto,
+    ): Unit
+
+    @POST("app/pc-care/tasks/{task_id}/reopen")
+    suspend fun reopenPcCareTask(
+        @Path("task_id") taskId: String,
+    ): Unit
+
+    @POST("app/pc-care/rounds/{round_id}/close")
+    suspend fun closePcCareRound(
+        @Path("round_id") roundId: String,
+        @Body request: PcCareCloseRequestDto,
     ): Unit
 
     // The PC Director's approve/reject on a submitted vaccine-stock task (maintainer decision
@@ -2106,7 +2119,13 @@ class RetrofitAppApi(
         request: PcCareRemovalPenProofRequestDto,
     ) = service.putPcCareRemovalPenProof(taskId, slot, idempotencyKey, request)
 
-    override suspend fun cancelPcCareTask(taskId: String) = service.cancelPcCareTask(taskId)
+    override suspend fun closePcCareTask(taskId: String, request: PcCareCloseRequestDto) =
+        service.closePcCareTask(taskId, request)
+
+    override suspend fun reopenPcCareTask(taskId: String) = service.reopenPcCareTask(taskId)
+
+    override suspend fun closePcCareRound(roundId: String, request: PcCareCloseRequestDto) =
+        service.closePcCareRound(roundId, request)
 
     override suspend fun recordPcCareStockVerdict(
         taskId: String,

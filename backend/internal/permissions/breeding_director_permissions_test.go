@@ -52,7 +52,8 @@ func TestBreedingDirectorPlansTrimmingOnly(t *testing.T) {
 		{"GET", "/app/pc-care/planner/catalog"},
 		{"GET", "/app/pc-care/planner/parks/98000000-0000-4000-8000-000000000001/sheds"},
 		{"POST", "/app/pc-care/tasks"},
-		{"POST", "/app/pc-care/tasks/98000000-0000-4000-8000-000000000001/cancel"},
+		{"POST", "/app/pc-care/tasks/98000000-0000-4000-8000-000000000001/close"},
+		{"POST", "/app/pc-care/tasks/98000000-0000-4000-8000-000000000001/reopen"},
 		{"GET", "/app/pc-care/tasks"},
 		{"GET", "/app/pc-care/tasks/98000000-0000-4000-8000-000000000001"},
 	} {

@@ -441,32 +441,69 @@ func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateT
 	})
 }
 
-// CancelTask cancels an unfinished task (planner authority, park-scoped through the task read).
-// The task's own category decides which plan capability must be held: a trimming planner can
-// cancel a hoof-trimming task and is refused a deworming one, exactly as on create.
-func (s *Service) CancelTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error {
+// CloseTask ends one task's work (planner authority, park-scoped through the task read).
+// It REPLACES the retired cancel verb, putting PC Care on par with weighing's two verbs.
+// The task's own category decides which plan capability must be held, exactly as on create:
+// a trimming planner can close a hoof-trimming task and is refused a deworming one.
+func (s *Service) CloseTask(ctx context.Context, actor domain.Actor, taskID, reason, traceID string) error {
+	task, err := s.plannableTaskForLifecycle(ctx, actor, taskID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(reason) == "" {
+		return domain.ErrCloseReasonRequired
+	}
+	return s.store.CloseTask(ctx, ports.CloseTaskParams{
+		TenantID: actor.TenantID,
+		TaskID:   task.TaskID,
+		Reason:   strings.TrimSpace(reason),
+		ClosedBy: actor.UserID,
+		ActorID:  actor.UserID,
+		TraceID:  traceID,
+	})
+}
+
+// ReopenTask undoes a close (planner authority, same category gate as the close).
+func (s *Service) ReopenTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error {
+	task, err := s.plannableTaskForLifecycle(ctx, actor, taskID)
+	if err != nil {
+		return err
+	}
+	return s.store.ReopenTask(ctx, ports.ReopenTaskParams{
+		TenantID:   actor.TenantID,
+		TaskID:     task.TaskID,
+		ReopenedBy: actor.UserID,
+		ActorID:    actor.UserID,
+		TraceID:    traceID,
+	})
+}
+
+// plannableTaskForLifecycle resolves a task the caller may CLOSE or REOPEN: it must exist
+// inside a park the caller plans, and the caller must hold the plan capability for that
+// task's OWN category. Shared by both verbs so the two can never drift apart on who may act.
+func (s *Service) plannableTaskForLifecycle(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error) {
 	if !canPlanAny(actor) {
-		return ports.ErrForbidden
+		return ports.TaskRow{}, ports.ErrForbidden
 	}
 	taskID = strings.TrimSpace(taskID)
 	if !uuidutil.IsUUIDString(taskID) {
-		return ports.ErrInvalidArgument
+		return ports.TaskRow{}, ports.ErrInvalidArgument
 	}
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planCapabilities...)
 	task, err := s.store.GetTask(ctx, actor.TenantID, taskID, authorizedParkSlice(parks), tenantWide)
 	if err != nil {
-		return err
+		return ports.TaskRow{}, err
 	}
 	if !canPlanCategory(actor, task.Category) {
-		return ports.ErrForbidden
+		return ports.TaskRow{}, ports.ErrForbidden
 	}
 	// Re-clamp the park to the capability that actually authorizes THIS category: the read
 	// above admitted any planning grant so the task could be found, but a trimming grant
-	// scoped to one park must not cancel a trimming task in another.
+	// scoped to one park must not act on a trimming task in another.
 	if err := checkParkScopeForAnyCapability(ctx, actor.TenantID, task.ParkID, planCapabilitiesForCategory(task.Category)...); err != nil {
-		return err
+		return ports.TaskRow{}, err
 	}
-	return s.store.CancelTask(ctx, actor.TenantID, task.TaskID, actor.UserID, traceID)
+	return task, nil
 }
 
 // ---------------------------------------------------------------------------

@@ -233,7 +233,28 @@ internal class FakePcCareRepository : PcCareRepository {
         )
     }
 
-    override suspend fun cancelTask(taskId: String) = Unit
+    /** Every close the planner made: task id + reason. */
+    val closed = mutableListOf<Pair<String, String>>()
+    val reopened = mutableListOf<String>()
+
+    /** Scripted lifecycle failure — set to make the NEXT close/reopen throw it (then cleared). */
+    var failNextLifecycleWith: Throwable? = null
+
+    override suspend fun closeTask(taskId: String, reason: String) {
+        failNextLifecycleWith?.let {
+            failNextLifecycleWith = null
+            throw it
+        }
+        closed += taskId to reason
+    }
+
+    override suspend fun reopenTask(taskId: String) {
+        failNextLifecycleWith?.let {
+            failNextLifecycleWith = null
+            throw it
+        }
+        reopened += taskId
+    }
 
     // PC Director's stock verdict (maintainer decision 2026-09-02).
     val stockVerdicts = mutableListOf<Triple<String, String, String>>()

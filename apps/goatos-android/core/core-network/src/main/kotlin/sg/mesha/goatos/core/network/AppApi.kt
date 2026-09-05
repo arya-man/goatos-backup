@@ -48,6 +48,7 @@ import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementResponseDto
 import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
 import sg.mesha.goatos.core.network.dto.PcCareCapturesDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareCloseRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundPenDto
@@ -1394,7 +1395,18 @@ interface AppApi {
         request: PcCareRemovalPenProofRequestDto,
     )
 
-    suspend fun cancelPcCareTask(taskId: String)
+    /**
+     * POST /app/pc-care/tasks/{task_id}/close — end a task's work with a reason (maintainer
+     * decision 2026-09-05, RETIRING cancel). REFUSED (409) while the task's evidence is
+     * awaiting a verdict; the way out is to finish the review, never to force the close.
+     */
+    suspend fun closePcCareTask(taskId: String, request: PcCareCloseRequestDto)
+
+    /** POST /app/pc-care/tasks/{task_id}/reopen — undo a close. */
+    suspend fun reopenPcCareTask(taskId: String)
+
+    /** POST /app/pc-care/rounds/{round_id}/close — end a whole round with a reason. */
+    suspend fun closePcCareRound(roundId: String, request: PcCareCloseRequestDto)
 
     /**
      * POST /app/pc-care/tasks/{task_id}/stock-verdict — the PC Director's approve/reject on a
@@ -2806,7 +2818,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         request: PcCareRemovalPenProofRequestDto,
     ) = Unit
 
-    override suspend fun cancelPcCareTask(taskId: String) = Unit
+    override suspend fun closePcCareTask(taskId: String, request: PcCareCloseRequestDto) = Unit
+
+    override suspend fun reopenPcCareTask(taskId: String) = Unit
+
+    override suspend fun closePcCareRound(roundId: String, request: PcCareCloseRequestDto) = Unit
 
     override suspend fun recordPcCareStockVerdict(
         taskId: String,

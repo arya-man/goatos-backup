@@ -21,6 +21,7 @@ const fastingShed2 = "9c000000-0000-4000-8000-000000001003"
 type fakeRoundStore struct {
 	createCalls int
 	lastCreate  ports.CreateRoundParams
+	closed      []ports.CloseRoundParams
 }
 
 func (f *fakeRoundStore) CreateRound(_ context.Context, p ports.CreateRoundParams) (ports.RoundRow, error) {
@@ -32,6 +33,11 @@ func (f *fakeRoundStore) CreateRound(_ context.Context, p ports.CreateRoundParam
 
 func (f *fakeRoundStore) GetRound(_ context.Context, _, roundID string, _ []string, _ bool) (ports.RoundRow, error) {
 	return ports.RoundRow{RoundID: roundID}, nil
+}
+
+func (f *fakeRoundStore) CloseRound(_ context.Context, p ports.CloseRoundParams) error {
+	f.closed = append(f.closed, p)
+	return nil
 }
 
 func (f *fakeRoundStore) ListRemovalPenProofs(_ context.Context, _, _ string) ([]ports.RemovalPenProofRow, error) {

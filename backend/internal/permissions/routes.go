@@ -694,7 +694,12 @@ var protectedRoutes = []Route{
 	{OperationID: "appCreatePCCareRound", Method: "POST", Pattern: "/app/pc-care/rounds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
 	{OperationID: "appGetPCCareRound", Method: "GET", Pattern: "/app/pc-care/rounds/{round_id}", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appCreatePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
-	{OperationID: "appCancelPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/cancel", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	// CLOSE and REOPEN carry exactly the authority the retired cancel carried: the planner
+	// who could un-plan a task is the planner who can now end or resume one. Changing WHO may
+	// act would be a second decision, and this change is about the VERBS.
+	{OperationID: "appClosePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/close", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	{OperationID: "appReopenPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/reopen", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	{OperationID: "appClosePCCareRound", Method: "POST", Pattern: "/app/pc-care/rounds/{round_id}/close", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
 	{OperationID: "appListPCCareTasks", Method: "GET", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appPCCareWorklist", Method: "GET", Pattern: "/app/pc-care/worklist", Permissions: []string{PCCareExecute}},
 	{OperationID: "appGetPCCareTask", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},

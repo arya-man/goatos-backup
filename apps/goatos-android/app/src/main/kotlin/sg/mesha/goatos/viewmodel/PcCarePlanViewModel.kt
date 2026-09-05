@@ -98,7 +98,11 @@ class PcCarePlanViewModel @Inject constructor(
         when (event) {
             PcCarePlanEvent.Refresh -> refresh()
             is PcCarePlanEvent.SelectMonitorDate -> selectMonitorDate(event.date)
-            is PcCarePlanEvent.CancelTask -> cancelTask(event.taskId)
+            is PcCarePlanEvent.AskCloseTask -> _state.update { it.copy(closingTaskId = event.taskId, closeReason = "") }
+            is PcCarePlanEvent.DismissCloseTask -> _state.update { it.copy(closingTaskId = "", closeReason = "") }
+            is PcCarePlanEvent.CloseReasonChanged -> _state.update { it.copy(closeReason = event.reason) }
+            is PcCarePlanEvent.CloseTask -> closeTask(event.taskId, event.reason)
+            is PcCarePlanEvent.ReopenTask -> reopenTask(event.taskId)
             PcCarePlanEvent.CloseCreate -> trackWizardInteraction("close_create")
             is PcCarePlanEvent.SelectDate -> selectCreateDate(event.date)
             is PcCarePlanEvent.SelectPark -> selectPark(event.parkId)
@@ -221,21 +225,54 @@ class PcCarePlanViewModel @Inject constructor(
         monitorSelection.value = monitorSelection.value.copy(date = iso)
     }
 
-    private fun cancelTask(taskId: String) {
+    // END and START AGAIN are PC Care's only two verbs, on par with weighing (maintainer
+    // decision 2026-09-05, retiring cancel). Ending is not erasing: the pen-day stays taken
+    // and the reason stays readable, which is why a reason is asked for and not optional.
+    private fun closeTask(taskId: String, reason: String) {
+        if (reason.isBlank()) {
+            _state.update { it.copy(message = "Say why this work is being ended") }
+            return
+        }
         viewModelScope.launch {
             try {
-                repository.cancelTask(taskId)
-                _state.update { it.copy(message = "Task canceled") }
+                repository.closeTask(taskId, reason.trim())
+                _state.update { it.copy(message = "Work ended", closingTaskId = "", closeReason = "") }
                 refresh()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                crashReporter.recordException(error, "pc care planner cancel failed")
+                crashReporter.recordException(error, "pc care planner close failed")
                 analytics.track(
                     AnalyticsEvents.PC_CARE_FAILURE,
-                    mapOf(AnalyticsEvents.Params.REASON to (error.message ?: "cancel_failed").take(MAX_REASON_CHARS)),
+                    mapOf(AnalyticsEvents.Params.REASON to (error.message ?: "close_failed").take(MAX_REASON_CHARS)),
                 )
-                _state.update { it.copy(message = "Couldn't cancel the task. Try again.") }
+                // The SERVER's own sentence is surfaced verbatim where one exists — the close
+                // gate's "waiting for a video review" names the way out, and inventing local
+                // copy for it would hide that.
+                _state.update {
+                    it.copy(message = error.userFacingMessage("Couldn't end this work. Try again."))
+                }
+            }
+        }
+    }
+
+    private fun reopenTask(taskId: String) {
+        viewModelScope.launch {
+            try {
+                repository.reopenTask(taskId)
+                _state.update { it.copy(message = "Work started again") }
+                refresh()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                crashReporter.recordException(error, "pc care planner reopen failed")
+                analytics.track(
+                    AnalyticsEvents.PC_CARE_FAILURE,
+                    mapOf(AnalyticsEvents.Params.REASON to (error.message ?: "reopen_failed").take(MAX_REASON_CHARS)),
+                )
+                _state.update {
+                    it.copy(message = error.userFacingMessage("Couldn't start this work again. Try again."))
+                }
             }
         }
     }
