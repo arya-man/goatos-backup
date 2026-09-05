@@ -686,6 +686,13 @@ func (r *Repository) RegisterRemovalPenProof(ctx context.Context, p ports.Regist
 		return nil
 	}
 
+	// ONE COLUMN PER CALL, and the table allows that on purpose: the operator shoots the feed
+	// video, walks the pen, then shoots the water one. The pair CHECK on
+	// pc_care_removal_pen_proofs permits a half-filled row (a CHECK passes unless it evaluates
+	// to FALSE, and the unset side makes it NULL) while still refusing an empty string; BOTH
+	// videos are demanded at SUBMIT instead, which is where that rule belongs. See the
+	// constraint's own comment in migration 000256 before changing either half.
+	//
 	// One named const per slot rather than a column spliced into the string: a query the guard
 	// and a plan test can both reach, and a shape where no caller-derived text touches SQL.
 	updateSQL := removalPenFeedProofSQL

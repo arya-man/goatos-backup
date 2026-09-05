@@ -179,6 +179,27 @@ CREATE TABLE IF NOT EXISTS public.pc_care_removal_pen_proofs (
   -- One evidence row per pen per card: what makes the verdict join 1:1 and a
   -- replayed submit an upsert instead of a duplicate.
   CONSTRAINT pc_care_removal_pen_proofs_pen_uq UNIQUE (tenant_id, removal_task_id, gated_task_id),
+  -- PARTIAL CAPTURE IS ALLOWED HERE ON PURPOSE. Read this before "fixing" it.
+  --
+  -- The operator shoots the feed video, then the water video, so a pen sits with ONE of them
+  -- for as long as it takes to walk the pen. This constraint permits that, and it is NOT an
+  -- oversight: a Postgres CHECK is satisfied unless it evaluates to FALSE, and with feed set
+  -- and water NULL the second branch is (TRUE AND NULL) = NULL, so FALSE OR NULL = NULL =
+  -- satisfied. A single-column UPDATE therefore succeeds, which is exactly what
+  -- RegisterRemovalPenProof does one slot at a time.
+  --
+  -- It is NOT vacuous either: an EMPTY STRING in either column still fails, which is the abuse
+  -- this exists to stop (a client "recording" a slot with a blank ref).
+  --
+  -- BOTH videos are enforced at SUBMIT, not here, because that is where the rule belongs: a
+  -- pen with one video is mid-capture, a pen SUBMITTED with one video is a lie about the
+  -- evening's work. removalPenSubmitRefs refuses it with ErrRemovalProofIncomplete (422
+  -- removal_proof_incomplete, "every pen needs both its feed and its water video").
+  --
+  -- Reported as a P1 in review on 2026-09-05 ("the first slot cannot save, the flow is
+  -- unusable") and closed as working-as-designed after reproducing all three behaviours on a
+  -- live database. Pinned by TestRemovalPenPartialCaptureIsAllowedAndSubmitStillDemandsBoth;
+  -- see context/repo-audits/pc-care-rounds-do-not-reopen-ledger.md.
   CONSTRAINT pc_care_removal_pen_proofs_pair CHECK (
     (feed_proof_ref IS NULL AND water_proof_ref IS NULL)
     OR (btrim(feed_proof_ref) <> '' AND btrim(water_proof_ref) <> '')
