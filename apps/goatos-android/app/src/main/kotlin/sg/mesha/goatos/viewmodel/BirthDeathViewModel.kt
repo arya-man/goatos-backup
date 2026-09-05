@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CountsRepository
+import sg.mesha.goatos.core.data.DeathCauseVocabulary
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
@@ -32,6 +33,8 @@ import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathMode
 import sg.mesha.goatos.feature.counts.BirthDeathUiState
 import sg.mesha.goatos.feature.counts.CountsFilterOptionUi
+import sg.mesha.goatos.feature.counts.DeathCauseKind
+import sg.mesha.goatos.feature.counts.DeathCauseOptionUi
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
 import sg.mesha.goatos.rfid.ScanSource
 import java.time.LocalDate
@@ -76,6 +79,12 @@ import javax.inject.Inject
 class BirthDeathViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val countsRepository: CountsRepository,
+    // The disease vocabulary is HEALTH's, not Counts': the death form borrows the same list the
+    // diagnosis engine names cases from, so a death and a case can never be filed under two
+    // different spellings of one disease. Held as the NARROW port, not the whole Health
+    // repository -- this form fills one dropdown and has no business reaching Health's paging or
+    // diagnosis surface.
+    private val deathCauses: DeathCauseVocabulary,
     private val scanSource: ScanSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -103,6 +112,8 @@ class BirthDeathViewModel @Inject constructor(
         refreshDestinations()
         observeBreedOptions()
         refreshBreedOptions()
+        observeDeathCauses()
+        refreshDeathCauses()
         recomputeSubmitGate()
     }
 
@@ -116,6 +127,9 @@ class BirthDeathViewModel @Inject constructor(
             is BirthDeathEvent.EditAnimalQuery -> onEditAnimalQuery(event.value)
             BirthDeathEvent.LookupAnimals -> lookupAnimals()
             is BirthDeathEvent.SelectAnimal -> onSelectAnimal(event.goatId)
+            is BirthDeathEvent.SelectDeathCauseKind -> onSelectDeathCauseKind(event.kind)
+            is BirthDeathEvent.EditDeathCauseQuery -> onEditDeathCauseQuery(event.value)
+            is BirthDeathEvent.SelectDeathCause -> onSelectDeathCause(event.key)
             BirthDeathEvent.Submit -> submit()
             BirthDeathEvent.RecordAnother -> onRecordAnother()
             BirthDeathEvent.Back -> Unit // navigation — handled by the nav host.
@@ -515,6 +529,116 @@ class BirthDeathViewModel @Inject constructor(
         ),
     )
 
+    /**
+     * Follows the Room-cached disease vocabulary. Emits whatever the device already holds
+     * immediately, so the dropdown is usable on a cold network, and again after
+     * [refreshDeathCauses].
+     *
+     * A refresh that no longer offers the disease the operator had already picked CLEARS the
+     * selection rather than submitting a key the register has stopped naming — the same rule the
+     * breed vocabulary follows, and for the same reason: the server would reject it, but only
+     * after the operator had left the form believing the death was recorded.
+     */
+    private fun observeDeathCauses() {
+        viewModelScope.launch {
+            deathCauses.observeDeathCauses().collect { catalog ->
+                val options = catalog?.options
+                    ?.filter { it.key.isNotBlank() && it.label.isNotBlank() }
+                    ?.map { DeathCauseOptionUi(key = it.key, kind = it.kind, label = it.label) }
+                    .orEmpty()
+                _state.update { current ->
+                    val stillOffered = options.any { it.key == current.selectedDeathCause?.key }
+                    current.copy(
+                        deathCauseOptions = options,
+                        selectedDeathCause = if (stillOffered) current.selectedDeathCause else null,
+                        // Only clear the unavailable notice once a list actually arrived.
+                        deathCauseMessage = if (options.isEmpty()) current.deathCauseMessage else null,
+                    )
+                }
+                recomputeSubmitGate()
+            }
+        }
+    }
+
+    /**
+     * Warms the disease vocabulary from `GET /app/health/death-causes`.
+     *
+     * Non-fatal by design: a phone that cannot reach the server keeps the cached list, and one
+     * that has never had it shows the disease choice as unavailable WITH ITS REASON rather than as
+     * an empty dropdown. The operator's way through is a normal death plus the written account,
+     * which is honest — the alternative, an empty list, reads as "this farm has no diseases" and
+     * would file a disease death as normal without anyone noticing.
+     */
+    private fun refreshDeathCauses() {
+        viewModelScope.launch {
+            deathCauses.refreshDeathCauses()
+                .onFailure { error ->
+                    crashReporter.recordException(error, "counts birth-death disease vocabulary refresh failed")
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_READ_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.KIND to "death_cause_vocabulary",
+                            AnalyticsEvents.Params.REASON to (error.message ?: "unknown"),
+                        ),
+                    )
+                    _state.update { current ->
+                        if (current.deathCauseOptions.isNotEmpty()) {
+                            current
+                        } else {
+                            current.copy(deathCauseMessage = DEATH_CAUSES_UNAVAILABLE_MESSAGE)
+                        }
+                    }
+                    recomputeSubmitGate()
+                }
+        }
+    }
+
+    /**
+     * The normal/disease toggle.
+     *
+     * Switching back to NORMAL DROPS the disease and the search text. Keeping them would leave a
+     * chosen disease invisibly attached to a death the operator has just said was not caused by
+     * one, and it is the submit gate — not the screen — that decides what is sent.
+     */
+    private fun onSelectDeathCauseKind(kind: DeathCauseKind) {
+        if (_state.value.result.isCommitted) return
+        _state.update { current ->
+            if (kind == DeathCauseKind.NORMAL) {
+                current.copy(deathCauseKind = kind, deathCauseQuery = "", selectedDeathCause = null)
+            } else {
+                current.copy(deathCauseKind = kind)
+            }
+        }
+        recomputeSubmitGate()
+    }
+
+    /**
+     * Filtering is LOCAL — the whole vocabulary is already on the device — so typing costs no
+     * round trip and works with no signal.
+     *
+     * Editing the query does NOT clear a chosen disease. The operator may type to look at a
+     * neighbouring entry and change their mind back; the selection is dropped only when it stops
+     * being offered at all (see [observeDeathCauses]).
+     */
+    private fun onEditDeathCauseQuery(value: String) {
+        if (_state.value.result.isCommitted) return
+        _state.update { it.copy(deathCauseQuery = value) }
+    }
+
+    /**
+     * Records the chosen disease WITH ITS KIND, taken verbatim from the catalog row. The phone
+     * never composes a kind: the same string can live in two vocabularies, so a key that arrives
+     * without the kind it came with cannot be read back.
+     */
+    private fun onSelectDeathCause(key: String) {
+        if (_state.value.result.isCommitted) return
+        _state.update { current ->
+            val option = current.deathCauseOptions.firstOrNull { it.key == key } ?: return@update current
+            current.copy(selectedDeathCause = option)
+        }
+        recomputeSubmitGate()
+    }
+
     private suspend fun enqueueDeath(
         current: BirthDeathUiState,
         key: String,
@@ -530,6 +654,13 @@ class BirthDeathViewModel @Inject constructor(
                 // lifecycle_status / exit_reason are left at the DTO's guardrail constants on
                 // purpose — the dead+died pairing is not an operator choice.
                 reason = current.reason.trim(),
+                // THE CAUSE, or nothing at all. A death the operator called normal sends neither
+                // field, which is what every death recorded before this feature existed also
+                // carries -- absence is the complete answer for "no disease was established",
+                // never a placeholder. The pair travels together because the server and the
+                // database both refuse one without the other.
+                deathCauseKey = current.submittedDeathCause?.key,
+                deathCauseKind = current.submittedDeathCause?.kind,
                 evidenceRefs = evidence,
                 // The animal's OWN optimistic-concurrency token from the search result — never a
                 // hand-typed record version, never defaulted to a value that would overwrite a
@@ -570,6 +701,13 @@ class BirthDeathViewModel @Inject constructor(
                 mode = current.mode,
                 destinationParks = current.destinationParks,
                 breedOptions = current.breedOptions,
+                // The VOCABULARY survives the reset, the SELECTION does not. Re-fetching the
+                // disease list between two deaths would leave the second animal's form without a
+                // dropdown on a phone that has since lost signal; carrying the previous animal's
+                // disease forward would file a diagnosis nobody made for it. The toggle returns to
+                // NORMAL with the rest of the defaults.
+                deathCauseOptions = current.deathCauseOptions,
+                deathCauseMessage = current.deathCauseMessage,
                 entryDate = todayBusinessDate(),
                 lastRecordedMessage = confirmation,
             )
@@ -667,7 +805,16 @@ class BirthDeathViewModel @Inject constructor(
         // The animal is chosen from a tag search, which carries the goat_id AND the row_version —
         // the operator never types either.
         state.selectedAnimal == null -> "Find and select the animal that died."
-        state.reason.trim().length < 3 -> "Describe what happened (at least 3 characters)."
+        // A disease death must NAME the disease. Letting it through with the toggle on and nothing
+        // chosen would record a death the operator said was caused by something, as one caused by
+        // nothing -- the exact fact this feature exists to stop losing.
+        state.deathCauseKind == DeathCauseKind.DISEASE && state.selectedDeathCause == null ->
+            "Choose the disease, or record this as a normal death."
+        // The written account is the ONLY record of why a normal death happened, so it is
+        // required there. Once a disease is named it has already answered that, and the note
+        // becomes optional colour -- but a note that IS written is still held to its length.
+        state.deathCauseKind == DeathCauseKind.NORMAL && state.reason.trim().length < 3 ->
+            "Describe what happened (at least 3 characters)."
         state.reason.trim().length > 500 -> "Keep the account under 500 characters."
         else -> null
     }
@@ -692,6 +839,9 @@ class BirthDeathViewModel @Inject constructor(
         const val NO_MATCH_MESSAGE = "No live animal matches that tag. Check the tag and try again."
         const val LOOKUP_FAILED_MESSAGE =
             "Couldn't search for animals. Check your connection and try again."
+        const val DEATH_CAUSES_UNAVAILABLE_MESSAGE =
+            "The disease list isn't on this phone yet. Connect once to load it, or record a normal " +
+                "death and describe what you saw."
         const val DESTINATIONS_FAILED_MESSAGE =
             "Couldn't load the list of parks and sheds. Check your connection and try again."
 

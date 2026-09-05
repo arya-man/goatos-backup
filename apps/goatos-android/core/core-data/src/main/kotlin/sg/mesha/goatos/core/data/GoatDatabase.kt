@@ -21,6 +21,8 @@ import sg.mesha.goatos.core.data.cache.ClockBlobCacheDao
 import sg.mesha.goatos.core.data.cache.ClockBlobCacheEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
+import sg.mesha.goatos.core.data.cache.DeathCauseCatalogDao
+import sg.mesha.goatos.core.data.cache.DeathCauseCatalogEntity
 import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
 import sg.mesha.goatos.core.data.cache.VaccinationAlertsCacheDao
 import sg.mesha.goatos.core.data.cache.VaccinationAlertsCacheEntity
@@ -343,6 +345,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         LeadershipTaskItemEntity::class,
         LeadershipTaskRemoteKeyEntity::class,
         LeadershipTaskDetailCacheEntity::class,
+        DeathCauseCatalogEntity::class,
     ],
     // v52 (see [MIGRATION_51_52]) adds the three diagnosis tables. `health_diagnosis_runs` is the
     // DETAIL cache — one animal's whole assessment, read in a shed with no signal, so a manager who
@@ -370,7 +373,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v58 (see [MIGRATION_57_58]) adds the feed & water removal (fasting) per-shed card cache —
     // `weighing_fasting_card` keyed (fastingTaskId, campaignShedId) plus its
     // `weighing_fasting_remote_key` cursor row (docs/decisions/feed-water-removal-precondition.md).
-    version = 58,
+    // v59 (see [MIGRATION_58_59]) adds `death_cause_catalog`, the single-row disease vocabulary the
+    // death form's "due to disease" dropdown searches. Cached because the moment an operator needs
+    // that list is the moment they are standing in a pen with no signal (cause of death, maintainer
+    // decision 2026-09-05).
+    version = 59,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -578,6 +585,8 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun leadershipTaskItemDao(): LeadershipTaskItemDao
     abstract fun leadershipTaskRemoteKeyDao(): LeadershipTaskRemoteKeyDao
     abstract fun leadershipTaskDetailCacheDao(): LeadershipTaskDetailCacheDao
+
+    abstract fun deathCauseCatalogDao(): DeathCauseCatalogDao
 
     abstract fun weighingFastingCardDao(): WeighingFastingCardDao
 }

@@ -350,8 +350,8 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
-    fun `migration 56 to 57 creates the per-shed fasting tables and preserves existing rows`() {
-        helper.createDatabase(DB_NAME, 56).apply {
+    fun `migration 57 to 58 creates the per-shed fasting tables and preserves existing rows`() {
+        helper.createDatabase(DB_NAME, 57).apply {
             // A pre-upgrade row proves the additive migration touches nothing existing.
             execSQL(
                 "INSERT INTO `clock_blob_cache` (`cacheKey`, `dtoJson`, `updatedAt`) " +
@@ -360,7 +360,7 @@ class GoatDatabaseMigrationTest {
             close()
         }
 
-        val db = helper.runMigrationsAndValidate(DB_NAME, 57, true, MIGRATION_56_57)
+        val db = helper.runMigrationsAndValidate(DB_NAME, 58, true, MIGRATION_57_58)
         // The new cache tables exist, empty, and are keyed PER SHED — the composite insert
         // below only works on the per-shed shape (maintainer correction #2, 2026-09-03).
         db.query("SELECT COUNT(*) FROM `weighing_fasting_card`").use { cursor ->
@@ -379,6 +379,46 @@ class GoatDatabaseMigrationTest {
         db.query("SELECT COUNT(*) FROM `weighing_fasting_remote_key`").use { cursor ->
             assertEquals(true, cursor.moveToFirst())
             assertEquals(0, cursor.getInt(0))
+        }
+        db.query("SELECT `dtoJson` FROM `clock_blob_cache` WHERE `cacheKey`='status'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{}", cursor.getString(0))
+        }
+        db.close()
+    }
+
+    @Test
+    fun `migration 58 to 59 creates the death cause catalog and preserves existing rows`() {
+        helper.createDatabase(DB_NAME, 58).apply {
+            // A pre-upgrade row proves the additive migration touches nothing existing. This is the
+            // property that matters most in the field: an installed phone can be carrying unsynced
+            // operator writes when it upgrades, and a migration that loses them loses real work.
+            execSQL(
+                "INSERT INTO `clock_blob_cache` (`cacheKey`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('status', '{}', 1)",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 59, true, MIGRATION_58_59)
+        db.query("SELECT COUNT(*) FROM `death_cause_catalog`").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        // ONE ROW BY KEY: a second write for the same scope must REPLACE, not accumulate. The
+        // catalog is tenant-wide and unfiltered, so a table that could hold two rows would be a
+        // table that could serve a stale vocabulary beside a fresh one.
+        db.execSQL(
+            "INSERT OR REPLACE INTO `death_cause_catalog` (`scopeKey`, `dtoJson`, `updatedAt`) " +
+                "VALUES ('death-causes', '{\"options\":[]}', 2)",
+        )
+        db.execSQL(
+            "INSERT OR REPLACE INTO `death_cause_catalog` (`scopeKey`, `dtoJson`, `updatedAt`) " +
+                "VALUES ('death-causes', '{\"options\":[{}]}', 3)",
+        )
+        db.query("SELECT COUNT(*) FROM `death_cause_catalog`").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
         }
         db.query("SELECT `dtoJson` FROM `clock_blob_cache` WHERE `cacheKey`='status'").use { cursor ->
             assertEquals(true, cursor.moveToFirst())
@@ -461,6 +501,8 @@ class GoatDatabaseMigrationTest {
         MIGRATION_54_55.migrate(db)
         MIGRATION_55_56.migrate(db)
         MIGRATION_56_57.migrate(db)
+        MIGRATION_57_58.migrate(db)
+        MIGRATION_58_59.migrate(db)
         return db
     }
 
@@ -479,7 +521,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 57
+        const val CURRENT_VERSION = 59
     }
 }
 

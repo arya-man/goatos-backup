@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.data.cache.DeathCauseCatalogEntity
 import sg.mesha.goatos.core.data.cache.HealthDiagnosisQueueItemEntity
 import sg.mesha.goatos.core.data.cache.HealthDiagnosisQueueKeyEntity
 import sg.mesha.goatos.core.data.cache.HealthDiagnosisRunEntity
@@ -24,6 +25,7 @@ import sg.mesha.goatos.core.data.cache.HealthRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.HealthWorkItemDetailEntity
 import sg.mesha.goatos.core.data.cache.HealthWorkItemEntity
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.dto.DeathCauseCatalogDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisQueueItemDto
 import sg.mesha.goatos.core.network.dto.HealthWorkItemDetailDto
@@ -58,7 +60,33 @@ data class HealthPageMetaSnapshot(
     val updatedAtMs: Long,
 )
 
-interface HealthRepository {
+/**
+ * The disease vocabulary a DEATH is recorded against.
+ *
+ * A PORT OF ITS OWN, deliberately narrower than [HealthRepository], because its consumer is the
+ * COUNTS death form. That screen has no business holding Health's paging, diagnosis queue or
+ * treatment-session surface just to fill one dropdown, and a dependency that wide is also what
+ * makes a test fake expensive enough that people stop writing one.
+ *
+ * The vocabulary is still HEALTH's, and that is the point of borrowing it rather than copying it:
+ * the death form offers exactly the diseases the diagnosis engine names cases from, so a death and
+ * a case can never be filed under two spellings of the same illness.
+ */
+interface DeathCauseVocabulary {
+    /**
+     * Emits the cached list IMMEDIATELY and again after [refreshDeathCauses], so a phone with no
+     * signal still offers every disease it has ever seen. Null means the device has never had the
+     * list, which the form renders as the disease choice being unavailable WITH ITS REASON --
+     * never as an empty dropdown, which reads as "this farm has no diseases" and would file a
+     * disease death as a normal one with nobody noticing.
+     */
+    fun observeDeathCauses(): Flow<DeathCauseCatalogDto?>
+
+    /** Warms [observeDeathCauses] from the server. Failure is non-fatal: the cache keeps serving. */
+    suspend fun refreshDeathCauses(): Result<Unit>
+}
+
+interface HealthRepository : DeathCauseVocabulary {
     fun workItems(filters: HealthFilters): Flow<PagingData<HealthWorkItemDto>>
     fun observePageMeta(filters: HealthFilters): Flow<HealthPageMetaSnapshot?>
     fun observeDetail(healthSessionId: String): Flow<HealthWorkItemDetailDto?>
@@ -270,6 +298,32 @@ class DefaultHealthRepository(
         )
         database.healthPageMetaDao().upsert(
             HealthPageMetaEntity(filters.scopeKey, json.encodeToString(page.copy(items = emptyList())), clock()),
+        )
+    }
+
+    override fun observeDeathCauses(): Flow<DeathCauseCatalogDto?> =
+        database.deathCauseCatalogDao().observe(DeathCauseCatalogEntity.SCOPE)
+            .map { entity ->
+                // A blob written by an older build can no longer decode. Returning null (the
+                // form's "unavailable" state) is the honest answer; the next refresh replaces it.
+                // exception:exempt an undecodable cached blob is data, not a fault -- the refresh
+                // path repairs it and reporting it would be noise on every schema change.
+                entity?.dtoJson?.let { raw -> runCatching { json.decodeFromString<DeathCauseCatalogDto>(raw) }.getOrNull() }
+            }
+            // Decoding a few dozen options is small, but it is still parsing on whatever thread
+            // the collector runs on, and that is the UI thread for a form.
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun refreshDeathCauses(): Result<Unit> = runCatching {
+        val catalog = api.listDeathCauses()
+        // ONE ROW, REPLACEd. The catalog is tenant-wide and unfiltered, so there is nothing to
+        // prune and no scope to evict -- see DeathCauseCatalogEntity.
+        database.deathCauseCatalogDao().upsert(
+            DeathCauseCatalogEntity(
+                scopeKey = DeathCauseCatalogEntity.SCOPE,
+                dtoJson = json.encodeToString(catalog),
+                updatedAt = clock(),
+            ),
         )
     }
 

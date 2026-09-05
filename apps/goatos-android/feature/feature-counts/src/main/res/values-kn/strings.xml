@@ -239,4 +239,12 @@
     <string name="counts_workflow_weight_kg">ತೂಕ (ಕೆಜಿ)</string>
     <string name="counts_workflow_weight_continue">ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಮುಂದುವರಿಯಿರಿ</string>
     <string name="counts_shifting_videos_label">ರೆಕಾರ್ಡ್ ಮಾಡಿದ ವೀಡಿಯೊಗಳು</string>
+    <string name="counts_group_cause_of_death">ಮರಣದ ಕಾರಣ</string>
+    <string name="counts_death_cause_normal">ಸಾಮಾನ್ಯ</string>
+    <string name="counts_death_cause_disease">ರೋಗದಿಂದ</string>
+    <string name="counts_field_death_cause_search">ರೋಗವನ್ನು ಹುಡುಕಿ</string>
+    <string name="counts_hint_death_cause_search">ಕೆಲವು ಅಕ್ಷರ ಟೈಪ್ ಮಾಡಿ, ನಂತರ ರೋಗವನ್ನು ಆಯ್ಕೆ ಮಾಡಿ.</string>
+    <string name="counts_death_cause_no_match">ಅದಕ್ಕೆ ಯಾವ ರೋಗವೂ ಹೋಲುವುದಿಲ್ಲ. ಸಿಗದಿದ್ದರೆ ಸಾಮಾನ್ಯ ಮರಣ ದಾಖಲಿಸಿ ಮತ್ತು ನೀವು ನೋಡಿದನ್ನು ಬರೆಯಿರಿ.</string>
+    <string name="counts_death_cause_required">ರೋಗವನ್ನು ಆಯ್ಕೆ ಮಾಡಿ, ಅಥವಾ ಇದನ್ನು ಸಾಮಾನ್ಯ ಮರಣವಾಗಿ ದಾಖಲಿಸಿ.</string>
+    <string name="counts_hint_reason_disease">ಐಚ್ಛಿಕ. 500 ಅಕ್ಷರಗಳವರೆಗೆ.</string>
 </resources>

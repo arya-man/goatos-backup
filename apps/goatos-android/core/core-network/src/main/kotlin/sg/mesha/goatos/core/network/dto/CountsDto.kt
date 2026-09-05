@@ -598,6 +598,23 @@ data class CountsDeathEventRequestDto(
     @SerialName("lifecycle_status") val lifecycleStatus: String = DEATH_LIFECYCLE_STATUS,
     @SerialName("exit_reason") val exitReason: String = DEATH_EXIT_REASON,
     @SerialName("reason") val reason: String,
+    /**
+     * The disease the operator named as the cause, or null for a NORMAL death.
+     *
+     * Absent is a COMPLETE answer, not missing data: most deaths have no disease established,
+     * and every death recorded before this field existed is one of them. The server refuses a
+     * key the diagnosis register does not name rather than storing it as typed — one death
+     * filed under "MASTITIS" and another under "Mastitus" would be two diseases on the board
+     * and one in the barn.
+     */
+    @SerialName("death_cause_key") val deathCauseKey: String? = null,
+    /**
+     * Which vocabulary [deathCauseKey] belongs to, echoed verbatim from the catalog. The phone
+     * never composes it: the same string can live in both vocabularies, so a key without its
+     * kind cannot be read back. Sent only together with the key, matching the server check and
+     * the database constraint.
+     */
+    @SerialName("death_cause_kind") val deathCauseKind: String? = null,
     @SerialName("occurred_at") val occurredAt: String? = null,
     @SerialName("evidence_refs") val evidenceRefs: List<CountsEvidenceRefDto> = emptyList(),
     @SerialName("row_version") val rowVersion: Int,

@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -49,6 +50,13 @@ import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
 import sg.mesha.goatos.feature.counts.BirthDeathEvent
 import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathMode
+import kotlinx.coroutines.test.TestScope
+import sg.mesha.goatos.core.data.DeathCauseVocabulary
+import sg.mesha.goatos.core.network.dto.DeathCauseCatalogDto
+import sg.mesha.goatos.core.network.dto.DeathCauseOptionDto
+import sg.mesha.goatos.feature.counts.BirthDeathUiState
+import sg.mesha.goatos.feature.counts.DeathCauseKind
+import sg.mesha.goatos.feature.counts.DeathCauseOptionUi
 import sg.mesha.goatos.rfid.FakeScanSource
 
 /**
@@ -68,6 +76,7 @@ class BirthDeathViewModelValidationTest {
 
     private lateinit var syncRepository: RecordingCountsSyncRepository
     private lateinit var countsRepository: FakeBirthDeathCountsRepository
+    private lateinit var deathCauses: FakeDeathCauseVocabulary
     private lateinit var scanSource: FakeScanSource
     private lateinit var analytics: AnalyticsPort
     private lateinit var crashReporter: CrashReporter
@@ -78,6 +87,7 @@ class BirthDeathViewModelValidationTest {
         Dispatchers.setMain(dispatcher)
         syncRepository = RecordingCountsSyncRepository()
         countsRepository = FakeBirthDeathCountsRepository()
+        deathCauses = FakeDeathCauseVocabulary()
         scanSource = FakeScanSource()
         analytics = NoopAnalyticsPort()
         crashReporter = NoopTestCrashReporter()
@@ -90,6 +100,7 @@ class BirthDeathViewModelValidationTest {
     private fun newViewModel() = BirthDeathViewModel(
         syncRepository,
         countsRepository,
+        deathCauses,
         scanSource,
         analytics,
         crashReporter,
@@ -496,7 +507,238 @@ class BirthDeathViewModelValidationTest {
         const val BREED_KEY = "beetal"
         const val MOTHER_RFID = "982000000000001"
     }
+    // --- Death: cause of death -------------------------------------------------------------
+    //
+    // Every one of these is a way the field gets this wrong, not a way the code gets it wrong:
+    // the operator taps "due to disease" and walks away without choosing; they choose and then
+    // change their mind; the phone has never seen the list; the list changes under a choice
+    // already made. Each has a different right answer and none of them may be a silent one.
+
+    @Test
+    fun `a normal death carries no cause and still needs its written account`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+        selectTheDeadAnimal(vm)
+
+        // The account is the ONLY record of why a normal death happened, so submit is held.
+        assertFalse(vm.state.value.canSubmit)
+
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.REASON, "Found down in the morning."))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.canSubmit)
+
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+        val request = syncRepository.lastDeath!!
+        // ABSENT, not blank and not a placeholder: absence is what "no disease was established"
+        // means, and it is what every death recorded before this feature existed also carries.
+        assertNull(request.deathCauseKey)
+        assertNull(request.deathCauseKind)
+    }
+
+    @Test
+    fun `a disease death cannot be submitted until the disease is chosen`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+        selectTheDeadAnimal(vm)
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.REASON, "Off feed for two days."))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.canSubmit)
+
+        // The toggle alone is a CLAIM with nothing behind it. Letting it through would record a
+        // death the operator said was caused by something as one caused by nothing.
+        vm.onEvent(BirthDeathEvent.SelectDeathCauseKind(DeathCauseKind.DISEASE))
+        advanceUntilIdle()
+        assertFalse(vm.state.value.canSubmit)
+        assertEquals(
+            "Choose the disease, or record this as a normal death.",
+            vm.state.value.validationMessage,
+        )
+
+        vm.onEvent(BirthDeathEvent.SelectDeathCause("MASTITIS"))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.canSubmit)
+    }
+
+    @Test
+    fun `a disease death carries the key AND the kind the catalog supplied`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+        selectTheDeadAnimal(vm)
+        vm.onEvent(BirthDeathEvent.SelectDeathCauseKind(DeathCauseKind.DISEASE))
+        vm.onEvent(BirthDeathEvent.SelectDeathCause("BLOAT"))
+        advanceUntilIdle()
+
+        // The note is OPTIONAL once a disease is named -- the coded cause already answers why --
+        // so submit is open with the account left blank.
+        assertTrue(vm.state.value.canSubmit)
+
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+        val request = syncRepository.lastDeath!!
+        assertEquals("BLOAT", request.deathCauseKey)
+        // The KIND travels with the key, taken verbatim from the catalog. The same string can live
+        // in two vocabularies, so a key that arrives without it cannot be read back.
+        assertEquals("register_rule", request.deathCauseKind)
+        assertEquals("", request.reason)
+    }
+
+    @Test
+    fun `switching back to a normal death drops the disease from the write`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+        selectTheDeadAnimal(vm)
+        vm.onEvent(BirthDeathEvent.SelectDeathCauseKind(DeathCauseKind.DISEASE))
+        vm.onEvent(BirthDeathEvent.SelectDeathCause("MASTITIS"))
+        advanceUntilIdle()
+        assertEquals("MASTITIS", vm.state.value.selectedDeathCause?.key)
+
+        vm.onEvent(BirthDeathEvent.SelectDeathCauseKind(DeathCauseKind.NORMAL))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.REASON, "Found down in the morning."))
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+        val request = syncRepository.lastDeath!!
+        // An abandoned diagnosis must not ride along invisibly on a death the operator has just
+        // said was not caused by one.
+        assertNull(request.deathCauseKey)
+        assertNull(request.deathCauseKind)
+    }
+
+    @Test
+    fun `the disease search filters on what the operator reads, not the rule id`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.SelectDeathCauseKind(DeathCauseKind.DISEASE))
+        vm.onEvent(BirthDeathEvent.EditDeathCauseQuery("foot"))
+        advanceUntilIdle()
+        assertEquals(listOf("FOOT_ROT"), vm.state.value.matchingDeathCauses.map { it.key })
+
+        // Case-insensitive: an operator typing with one thumb does not capitalise.
+        vm.onEvent(BirthDeathEvent.EditDeathCauseQuery("MAST"))
+        advanceUntilIdle()
+        assertEquals(listOf("MASTITIS"), vm.state.value.matchingDeathCauses.map { it.key })
+
+        // A blank query lists the whole vocabulary rather than nothing.
+        vm.onEvent(BirthDeathEvent.EditDeathCauseQuery(""))
+        advanceUntilIdle()
+        assertEquals(3, vm.state.value.matchingDeathCauses.size)
+    }
+
+    @Test
+    fun `a phone that has never seen the disease list says so instead of offering an empty one`() =
+        runTest(dispatcher) {
+            deathCauses.catalog.value = null
+            deathCauses.refreshError = IllegalStateException("offline")
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            // An empty dropdown would read as "this farm has no diseases" and would file a disease
+            // death as normal with nobody noticing. The screen renders this message beside a dimmed
+            // DISEASE choice.
+            assertTrue(vm.state.value.deathCauseOptions.isEmpty())
+            assertEquals(
+                "The disease list isn't on this phone yet. Connect once to load it, or record a " +
+                    "normal death and describe what you saw.",
+                vm.state.value.deathCauseMessage,
+            )
+        }
+
+    @Test
+    fun `a cached list keeps serving when the refresh fails`() = runTest(dispatcher) {
+        deathCauses.refreshError = IllegalStateException("offline")
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        // The moment an operator needs this list is the moment they are standing in a pen with no
+        // signal. A failed refresh must never blank what the device already holds.
+        assertEquals(3, vm.state.value.deathCauseOptions.size)
+        assertNull(vm.state.value.deathCauseMessage)
+    }
+
+    @Test
+    fun `a disease that stops being offered is dropped rather than submitted`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+        selectTheDeadAnimal(vm)
+        vm.onEvent(BirthDeathEvent.SelectDeathCauseKind(DeathCauseKind.DISEASE))
+        vm.onEvent(BirthDeathEvent.SelectDeathCause("MASTITIS"))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.canSubmit)
+
+        // The registers were edited and this rule is gone. Keeping the selection would send a key
+        // the server now rejects -- and it would reject it only AFTER the operator had left the
+        // form believing the death was recorded.
+        deathCauses.catalog.value = DeathCauseCatalogDto(
+            options = listOf(DeathCauseOptionDto(key = "BLOAT", kind = "register_rule", label = "Bloat")),
+        )
+        advanceUntilIdle()
+
+        assertNull(vm.state.value.selectedDeathCause)
+        assertFalse(vm.state.value.canSubmit)
+    }
+
+    @Test
+    fun `recording another death keeps the disease list and drops the disease`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+        selectTheDeadAnimal(vm)
+        vm.onEvent(BirthDeathEvent.SelectDeathCauseKind(DeathCauseKind.DISEASE))
+        vm.onEvent(BirthDeathEvent.SelectDeathCause("MASTITIS"))
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.RecordAnother)
+        advanceUntilIdle()
+
+        // The VOCABULARY survives -- re-fetching between two deaths would leave the second animal
+        // without a dropdown on a phone that has since lost signal.
+        assertEquals(3, vm.state.value.deathCauseOptions.size)
+        // The SELECTION does not: carrying it forward would file a diagnosis nobody made for the
+        // next animal.
+        assertNull(vm.state.value.selectedDeathCause)
+        assertEquals(DeathCauseKind.NORMAL, vm.state.value.deathCauseKind)
+    }
+
+    /**
+     * THE GATE ITSELF, exercised directly rather than through the event handler.
+     *
+     * This exists because the obvious test does not bite. Going through
+     * SelectDeathCauseKind(NORMAL) passes whether or not the gate is there, since that handler
+     * ALSO clears the selection -- so a mutation removing the toggle check from
+     * `submittedDeathCause` survived the whole suite. Two things can put the state into the
+     * dangerous shape without touching that handler: a state restored across process death, and
+     * any future code that sets the kind without routing through the handler. The gate is what
+     * makes those safe, so it needs an assertion that only the gate can satisfy.
+     */
+    @Test
+    fun `a disease under a normal toggle is never what the write carries`() {
+        val disease = DeathCauseOptionUi(key = "MASTITIS", kind = "register_rule", label = "Mastitis")
+
+        val abandoned = BirthDeathUiState(
+            mode = BirthDeathMode.DEATH,
+            deathCauseKind = DeathCauseKind.NORMAL,
+            selectedDeathCause = disease,
+        )
+        assertNull(abandoned.submittedDeathCause)
+
+        val claimed = abandoned.copy(deathCauseKind = DeathCauseKind.DISEASE)
+        assertEquals(disease, claimed.submittedDeathCause)
+    }
+
+    /** Search for and select the one animal the fake lookup returns. */
+    private fun TestScope.selectTheDeadAnimal(vm: BirthDeathViewModel) {
+        vm.onEvent(BirthDeathEvent.SelectMode(BirthDeathMode.DEATH))
+        vm.onEvent(BirthDeathEvent.EditAnimalQuery("TAG-77"))
+        vm.onEvent(BirthDeathEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.SelectAnimal("44444444-4444-4444-4444-444444444444"))
+        advanceUntilIdle()
+    }
 }
+
 
 // --- Fakes -----------------------------------------------------------------------------------
 
@@ -637,6 +879,31 @@ private class FakeBirthDeathCountsRepository(
             ),
         ),
     )
+}
+
+/**
+ * The disease vocabulary, as small as the port allows. [catalog] is a MutableStateFlow so a test
+ * can make the list arrive late, arrive empty, or change under a selection the operator has
+ * already made -- the three ways this dropdown can be wrong in the field.
+ */
+private class FakeDeathCauseVocabulary : DeathCauseVocabulary {
+    val catalog = MutableStateFlow<DeathCauseCatalogDto?>(
+        DeathCauseCatalogDto(
+            options = listOf(
+                DeathCauseOptionDto(key = "MASTITIS", kind = "register_rule", label = "Mastitis"),
+                DeathCauseOptionDto(key = "BLOAT", kind = "register_rule", label = "Bloat"),
+                DeathCauseOptionDto(key = "FOOT_ROT", kind = "register_rule", label = "Foot rot"),
+            ),
+        ),
+    )
+
+    /** When set, [refreshDeathCauses] fails -- the offline phone. */
+    var refreshError: Throwable? = null
+
+    override fun observeDeathCauses(): Flow<DeathCauseCatalogDto?> = catalog
+
+    override suspend fun refreshDeathCauses(): Result<Unit> =
+        refreshError?.let { Result.failure(it) } ?: Result.success(Unit)
 }
 
 private class NoopAnalyticsPort : AnalyticsPort {

@@ -58,6 +58,7 @@ import sg.mesha.goatos.core.data.DefaultCaptureDraftRepository
 import sg.mesha.goatos.core.data.DefaultPenReconciliationRepository
 import sg.mesha.goatos.core.data.DefaultShiftingPendingRepository
 import sg.mesha.goatos.core.data.DefaultWorkflowsRepository
+import sg.mesha.goatos.core.data.DeathCauseVocabulary
 import sg.mesha.goatos.core.data.DefaultHealthRepository
 import sg.mesha.goatos.core.data.HealthRepository
 import sg.mesha.goatos.core.data.PenReconciliationRepository
@@ -503,6 +504,17 @@ object AppModule {
         api: AppApi,
         database: GoatDatabase,
     ): HealthRepository = DefaultHealthRepository(api, database)
+
+    /**
+     * The counts death form's view of the disease list. Bound to the SAME HealthRepository
+     * instance, so the vocabulary the death form offers and the one the diagnosis screens use are
+     * one cached list rather than two that can disagree.
+     */
+    @Provides
+    @Singleton
+    fun provideDeathCauseVocabulary(
+        healthRepository: HealthRepository,
+    ): DeathCauseVocabulary = healthRepository
 
     @Provides
     @Singleton

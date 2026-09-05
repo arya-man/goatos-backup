@@ -137,6 +137,7 @@ import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
+import sg.mesha.goatos.core.network.dto.DeathCauseCatalogDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationListResponseDto
@@ -1877,6 +1878,15 @@ interface AppApi {
     suspend fun getHealthObservation(diagnosisRunId: String): HealthDiagnosisRunDto
 
     /**
+     * GET /app/health/death-causes — every disease a death may be recorded as.
+     *
+     * ONE READ, NO PAGING, cached: the whole vocabulary is a few dozen diseases and it is
+     * static for the life of the server process, so the death form searches it locally rather
+     * than round-tripping per keystroke.
+     */
+    suspend fun listDeathCauses(): DeathCauseCatalogDto
+
+    /**
      * POST /app/health/observations/{id}/confirm — the Director's decision, and the
      * only path that opens a treatment course. An empty list declines the whole
      * proposal, which is a legitimate override.
@@ -2679,6 +2689,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getHealthObservation(diagnosisRunId: String): HealthDiagnosisRunDto =
         HealthDiagnosisRunDto(diagnosisRunId = diagnosisRunId)
+
+    override suspend fun listDeathCauses(): DeathCauseCatalogDto = DeathCauseCatalogDto()
 
     override suspend fun confirmHealthDiagnosis(
         diagnosisRunId: String,

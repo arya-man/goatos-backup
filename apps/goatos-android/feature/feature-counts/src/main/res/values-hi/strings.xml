@@ -239,4 +239,12 @@
     <string name="counts_workflow_weight_kg">वजन (किग्रा)</string>
     <string name="counts_workflow_weight_continue">वीडियो रिकॉर्ड करने के लिए आगे बढ़ें</string>
     <string name="counts_shifting_videos_label">रिकॉर्ड किए गए वीडियो</string>
+    <string name="counts_group_cause_of_death">मौत का कारण</string>
+    <string name="counts_death_cause_normal">सामान्य</string>
+    <string name="counts_death_cause_disease">बीमारी से</string>
+    <string name="counts_field_death_cause_search">बीमारी खोजें</string>
+    <string name="counts_hint_death_cause_search">कुछ अक्षर लिखें, फिर बीमारी पर टैप करें।</string>
+    <string name="counts_death_cause_no_match">इससे कोई बीमारी मेल नहीं खाती। नहीं मिले तो सामान्य मौत दर्ज करें और जो देखा वह लिखें।</string>
+    <string name="counts_death_cause_required">बीमारी चुनें, या इसे सामान्य मौत दर्ज करें।</string>
+    <string name="counts_hint_reason_disease">वैकल्पिक। 500 अक्षर तक।</string>
 </resources>
