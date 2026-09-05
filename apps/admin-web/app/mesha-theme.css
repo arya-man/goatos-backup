@@ -15,11 +15,11 @@
      - The system has no info/purple/teal. Those are kept as SEMANTIC status
        hues (they encode state, not brand) and desaturated toward the ground so
        green stays the only thing that reads as accent. */
-  @font-face{font-family:"Instrument Sans";src:url("/fonts/instrument-sans-normal-400-500-600-latin.woff2") format("woff2");font-weight:400 600;font-style:normal;font-display:swap}
+  @font-face{font-family:"Instrument Sans";src:url("/fonts/instrument-sans-normal-400-500-600-latin.woff2") format("woff2");font-weight:400 700;font-style:normal;font-display:swap}
   @font-face{font-family:"Instrument Sans";src:url("/fonts/instrument-sans-italic-400-latin.woff2") format("woff2");font-weight:400;font-style:italic;font-display:swap}
   @font-face{font-family:"Instrument Serif";src:url("/fonts/instrument-serif-normal-400-latin.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
   @font-face{font-family:"Instrument Serif";src:url("/fonts/instrument-serif-italic-400-latin.woff2") format("woff2");font-weight:400;font-style:italic;font-display:swap}
-  @font-face{font-family:"Spline Sans Mono";src:url("/fonts/spline-sans-mono-normal-400-500-latin.woff2") format("woff2");font-weight:400 500;font-style:normal;font-display:swap}
+  @font-face{font-family:"Spline Sans Mono";src:url("/fonts/spline-sans-mono-normal-400-500-latin.woff2") format("woff2");font-weight:400 700;font-style:normal;font-display:swap}
   :root{
     --logo:#7ac943; --brand-l:#a9d15e;
     /* System radii: 2px on panels, pill on buttons/tags. Nothing in between. */
@@ -34,14 +34,14 @@
     --brand:#7ac943; --brand-d:#69ba37; --brand-soft:rgba(122,201,67,.1);
     --sidebar:#070706; --sidebar-2:#11110e; --sidebar-ink:rgba(236,232,221,.55); --sidebar-ink2:#ece8dd;
     --value:#dab862; --value-soft:rgba(218,184,98,.1);
-    --ok:#7ac943; --okx:rgba(122,201,67,.1); --warn:#dab862; --warnx:rgba(218,184,98,.1); --danger:#e2726d; --dangerx:rgba(226,114,109,.12);
+    --ok:#7ac943; --okx:rgba(122,201,67,.1); --warn:#c9a24a; --warnx:rgba(201,162,74,.12); --danger:#e2726d; --dangerx:rgba(226,114,109,.12);
     --info:#7f9fc4; --infox:rgba(127,159,196,.12); --purple:#9d8fc9; --purplex:rgba(157,143,201,.12); --teal:#5fae9d; --tealx:rgba(95,174,157,.12);
     /* Weights gain marks. ONE hue in three ordered steps, because 180/200/250 is an
        ordered scale, not three identities. Re-stepped from MESHA green against the
        system panel (#0b0b09): monotone lightness, adjacent gaps >= 0.06. On the dark
        ground the STRICTEST mark is the brightest, so the kids worth finding read first. */
     --gain-hi:#c9e8a4; --gain-mid:#7ac943; --gain-lo:#4b7d29; --gain-under:#e2726d;
-    --amber:#dab862; --danger-tag-ink:#f4c4c1; --danger-badge-ink:#070706; --shadow:0 1px 2px rgba(0,0,0,.4),0 24px 80px rgba(0,0,0,.28); --ring:rgba(122,201,67,.32);
+    --amber:#c9a24a; --danger-tag-ink:#f4c4c1; --danger-badge-ink:#070706; --shadow:0 1px 2px rgba(0,0,0,.4),0 24px 80px rgba(0,0,0,.28); --ring:rgba(122,201,67,.32);
     /* Ink that sits ON a brand/status fill, and the popover shadow. Without
        these, any `color: var(--on-brand)` silently inherits and a filled green
        button renders its label in body text -- which is exactly what happened. */
@@ -49,26 +49,30 @@
     --pop:inset 0 1px 1px rgba(255,255,255,.1),0 24px 80px rgba(0,0,0,.5);
     --scrim:rgba(7,7,6,.72);
     --scroll-thumb:rgba(236,232,221,.18); --scroll-thumb-hover:rgba(236,232,221,.3);
+    /* Letterbox behind verification video/photo proof. Pinned black in BOTH themes:
+       an ivory matte around proof media misreads the image. Not a theme colour. */
+    --media-matte:#000;
   }
   :root.light{
     /* Ivory paper. The system has no light surface; this is the admin-only
        derivation, built from the same two hues so the toggle keeps working. */
-    --bg:#ece8dd; --panel:#f5f2ea; --panel-2:#e3dfd2; --ink:#141410; --muted:#57544b; --faint:#837f73;
+    --bg:#ece8dd; --panel:#f5f2ea; --panel-2:#e3dfd2; --ink:#141410; --muted:#57544b; --faint:#6b6759;
     --line:rgba(20,20,16,.14); --line2:rgba(20,20,16,.07);
-    --brand:#4c8a1f; --brand-d:#3d6f19; --brand-soft:rgba(76,138,31,.12);
+    --brand:#3d6f19; --brand-d:#2f5613; --brand-soft:rgba(76,138,31,.12);
     --sidebar:#e3dfd2; --sidebar-2:#d7d2c2; --sidebar-ink:#57544b; --sidebar-ink2:#141410;
-    --value:#8a6d1e; --value-soft:rgba(138,109,30,.12);
-    --ok:#4c8a1f; --okx:rgba(76,138,31,.12); --warn:#8a6d1e; --warnx:rgba(138,109,30,.12); --danger:#b03a35; --dangerx:rgba(176,58,53,.12);
+    --value:#6f5715; --value-soft:rgba(111,87,21,.12);
+    --ok:#3d6f19; --okx:rgba(61,111,25,.12); --warn:#7a5510; --warnx:rgba(122,85,16,.12); --danger:#b03a35; --dangerx:rgba(176,58,53,.12);
     --info:#3c5f85; --infox:rgba(60,95,133,.12); --purple:#5f4f96; --purplex:rgba(95,79,150,.12); --teal:#2c7264; --tealx:rgba(44,114,100,.12);
     /* Same ramp re-stepped for the ivory panel (#f5f2ea). It INVERTS: on a light
        ground the darkest step carries most, so the strictest mark is again the
        one that reads first. */
-    --gain-hi:#22450d; --gain-mid:#4c8a1f; --gain-lo:#8bc45c; --gain-under:#b03a35;
-    --amber:#8a6d1e; --danger-tag-ink:#7a1e1a; --danger-badge-ink:#f5f2ea; --shadow:0 1px 2px rgba(20,20,16,.05),0 12px 32px rgba(20,20,16,.08); --ring:rgba(76,138,31,.26);
+    --gain-hi:#22450d; --gain-mid:#3d6f19; --gain-lo:#4a7527; --gain-under:#b03a35;
+    --amber:#7a5510; --danger-tag-ink:#7a1e1a; --danger-badge-ink:#f5f2ea; --shadow:0 1px 2px rgba(20,20,16,.05),0 12px 32px rgba(20,20,16,.08); --ring:rgba(76,138,31,.26);
     --on-brand:#f5f2ea; --on-status:#f5f2ea;
     --pop:0 16px 44px -12px rgba(20,20,16,.28);
     --scrim:rgba(20,20,16,.5);
     --scroll-thumb:rgba(20,20,16,.2); --scroll-thumb-hover:rgba(20,20,16,.34);
+    --media-matte:#000;
   }
   :root{color-scheme:dark}
   :root.light{color-scheme:light}
@@ -205,7 +209,7 @@
   .top-date-day.on .top-date-marker{background:var(--on-brand);box-shadow:0 0 0 1px color-mix(in srgb,var(--brand) 35%,transparent)}
   .top-date-marker-help{position:relative;display:inline-flex;align-items:center;gap:5px;margin-right:8px;color:var(--muted);cursor:help;outline:none}
   .top-date-marker-help .ic{width:14px;height:14px}.top-date-marker.sample{position:static;transform:none;display:inline-block;flex:0 0 auto}
-  .top-date-marker-tip{position:absolute;right:0;bottom:calc(100% + 8px);z-index:5;display:none;width:max-content;max-width:220px;padding:6px 8px;border:1px solid var(--line);border-radius:2px;background:var(--panel-strong);color:var(--ink);box-shadow:var(--pop);font-size:11px;font-weight:700;line-height:1.25;text-align:left}
+  .top-date-marker-tip{position:absolute;right:0;bottom:calc(100% + 8px);z-index:5;display:none;width:max-content;max-width:220px;padding:6px 8px;border:1px solid var(--line);border-radius:2px;background:var(--panel-2);color:var(--ink);box-shadow:var(--pop);font-size:11px;font-weight:700;line-height:1.25;text-align:left}
   .top-date-marker-help:hover .top-date-marker-tip,.top-date-marker-help:focus-visible .top-date-marker-tip{display:block}
   .pscope.date-scope.stale{border-color:color-mix(in srgb,var(--warn) 48%,var(--line));background:color-mix(in srgb,var(--warn) 9%,var(--bg))}
   /* Page-body variant of the same calendar (Actions board capture-date filter). The top-bar copy
@@ -353,7 +357,7 @@
   @media(max-width:560px){.taskboard{grid-template-columns:1fr}}
   .tcol{background:var(--bg);border:1px solid var(--line2);border-radius:2px;padding:8px;min-width:0;min-height:360px}
   .tcolh{display:flex;align-items:center;gap:7px;font-weight:700;font-size:12.5px;padding:4px 6px 9px}
-  .tcolh .n{margin-left:auto;font-size:11px;background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:1px 8px;color:var(--muted)}
+  .tcolh .n{margin-left:auto;font-size:11px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 8px;color:var(--muted)}
   .tcards{display:flex;flex-direction:column;gap:8px}
   .tcards .task{box-shadow:none}
   .calempty{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;margin-top:14px;padding:15px 16px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
@@ -387,7 +391,7 @@
   .ceo-ai-bubble{width:58px;height:58px;border-radius:50%;border:1px solid color-mix(in srgb,var(--brand) 62%,var(--line));background:linear-gradient(145deg,var(--brand),var(--brand-d));color:var(--on-brand);display:grid;place-items:center;box-shadow:var(--pop),0 0 0 5px var(--brand-soft);cursor:pointer;position:relative}
   .ceo-ai-bubble:hover{filter:brightness(1.04)}
   .ceo-ai-bubble .ic{width:25px;height:25px;stroke-width:2}
-  .ceo-ai-panel{width:100%;height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;background:color-mix(in srgb,var(--panel) 96%,black);border:1px solid color-mix(in srgb,var(--brand) 30%,var(--line));border-radius:2px;box-shadow:0 18px 56px var(--scrim);overflow:hidden}
+  .ceo-ai-panel{width:100%;height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;background:var(--panel-2);border:1px solid color-mix(in srgb,var(--brand) 30%,var(--line));border-radius:2px;box-shadow:0 18px 56px var(--scrim);overflow:hidden}
   .ceo-ai-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 13px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--panel-2) 78%,transparent)}
   .ceo-ai-title{display:flex;align-items:center;gap:9px;min-width:0}
   .ceo-ai-title b{display:block;font-size:14px;line-height:1.2}
@@ -413,7 +417,7 @@
   .iconbtn{position:relative;width:38px;height:38px;border-radius:2px;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center;color:var(--muted);cursor:pointer;flex:none}
   .iconbtn:hover{color:var(--brand);border-color:var(--brand)}
   .dot{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:var(--r-pill);background:var(--danger);color:var(--on-brand);font-size:10px;font-weight:700;display:grid;place-items:center;border:2px solid var(--panel)}
-  .me{display:flex;align-items:center;gap:9px;padding:4px 6px 4px 4px;border-radius:2px;border:1px solid var(--line);background:var(--panel);cursor:pointer}
+  .me{display:flex;align-items:center;gap:9px;padding:4px 6px 4px 4px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--panel);cursor:pointer}
   .userpick{position:relative;flex:none}
   .userpick .me{color:var(--ink);font:inherit;min-width:0}
   .userpick .me:hover{border-color:var(--brand);color:var(--brand)}
@@ -445,7 +449,7 @@
   .cfgpage.on{display:flex;flex-direction:column;gap:14px}
   .cfgmodal .cmh{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line2);position:sticky;top:0;background:var(--panel);z-index:1}
   .cfgmodal .cmb{padding:16px 18px;display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:18px;align-items:start}
-  .cfgmodal .cfgmatrix-head{position:static;border:1px solid var(--line2);border-radius:2px;margin-top:10px}
+  .cfgmodal .cfgmatrix-head{border-radius:var(--r) var(--r) 0 0;position:static;border:1px solid var(--line2);border-radius:2px;margin-top:10px}
   .cfgmodal .cfgsection-head{position:static;border-top:1px solid var(--line2);border-bottom:1px solid var(--line2)}
   .cfgmodal .cfgimpact-head{border-bottom:1px solid var(--line2)}
   .cfgmodal .cfgmatrix-table{overflow-x:auto;border:1px solid var(--line2);border-top:0;border-radius:2px;margin-bottom:8px}
@@ -532,14 +536,14 @@
   .nav.on{background:var(--brand);color:var(--on-brand);box-shadow:0 0 24px var(--brand-soft)}
   .nav.on .ic{color:var(--on-brand)}
   .nav .ic{width:17px;height:17px}
-  .nav .ct{margin-left:auto;font-size:11px;font-weight:700;background:var(--danger);color:var(--danger-badge-ink);padding:1px 7px;border-radius:2px}
+  .nav .ct{margin-left:auto;font-size:11px;font-weight:700;background:var(--danger);color:var(--danger-badge-ink);padding:1px 7px;border-radius:var(--r-pill)}
   /* Vertical group headers (Preventive Care / Procurement / Admin / Data Ops). */
   .ggrp{display:flex;align-items:center;gap:11px;padding:9px 12px;margin-top:6px;border-radius:2px;cursor:pointer;color:var(--sidebar-ink);font-size:14px;font-weight:700;letter-spacing:0}
   .ggrp:hover{background:var(--sidebar-2);color:var(--sidebar-ink2)}
   .ggrp .ic{width:16px;height:16px;opacity:.85}
   .ggrp .chev{margin-left:auto;width:14px;height:14px;opacity:.6;transition:transform .2s}
   .ggrp.open .chev{transform:rotate(90deg)}
-  .ggrp .gct{margin-left:auto;font-size:10px;font-weight:700;background:var(--danger);color:var(--danger-badge-ink);padding:1px 6px;border-radius:2px}
+  .ggrp .gct{margin-left:auto;font-size:10px;font-weight:700;background:var(--danger);color:var(--danger-badge-ink);padding:1px 6px;border-radius:var(--r-pill)}
   .ggrp.open .gct{margin-left:0}
   .subnav{display:none;flex-direction:column;gap:1px;margin:1px 0 4px}
   .subnav.open{display:flex}
@@ -645,10 +649,10 @@
      tracking instead of the spec's 12px/400 sentence case (SPEC section 4). */
   .screen .vr-fld{display:flex;align-items:center;gap:9px}
   .screen .vr-fld>label{font-size:12px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:normal;margin-bottom:0;display:inline-block}
-  .vr-selbtn{appearance:none;border:1px solid var(--line);background:var(--panel);border-radius:2px;padding:7px 30px 7px 12px;font-size:12.5px;font-weight:550;color:var(--ink);cursor:pointer;min-width:176px;font-family:inherit}
+  .vr-selbtn{appearance:none;border:1px solid var(--line);background:var(--panel);border-radius:var(--r-pill);padding:7px 30px 7px 12px;font-size:12.5px;font-weight:550;color:var(--ink);cursor:pointer;min-width:176px;font-family:inherit}
   .vr-selbtn:hover,.vr-selbtn:focus{border-color:var(--brand)}
   .vr-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
-  .vr-lg{display:flex;align-items:center;gap:8px;min-height:40px;border:1px solid var(--line);border-radius:2px;padding:7px 14px;font-size:12.5px;font-weight:550;color:var(--muted);cursor:pointer;background:transparent}
+  .vr-lg{display:flex;align-items:center;gap:8px;min-height:40px;border:1px solid var(--line);border-radius:var(--r-pill);padding:7px 14px;font-size:12.5px;font-weight:550;color:var(--muted);cursor:pointer;background:transparent}
   .vr-lg:hover{border-color:var(--brand);color:var(--ink)}
   .vr-lg.on{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
   .vr-lg i{width:8px;height:8px;border-radius:50%;display:block;flex:none}
@@ -725,7 +729,7 @@
   .vr-trendfoot b.good{color:var(--ok)}
   .vr-otable td.num{font-variant-numeric:tabular-nums;font-weight:650}
   .vr-owatch{display:flex;flex-wrap:wrap;gap:6px}
-  .vr-owatch span{background:var(--bg);border:1px solid var(--line);border-radius:2px;padding:2px 9px;font-size:11px;color:var(--muted);white-space:nowrap}
+  .vr-owatch span{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-pill);padding:2px 9px;font-size:11px;color:var(--muted);white-space:nowrap}
   .vr-owatch span b{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
   .vr-owatch span.bad{border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger)}
   .vr-owatch span.bad b{color:var(--danger)}
@@ -817,7 +821,7 @@
   .vr-fsbtn:hover{background:var(--scrim)}
   .vr-fsbtn .ic{width:15px;height:15px}
   .vr-proofstrip{display:flex;gap:9px;flex-wrap:wrap}
-  .vr-pthumb{border:1px solid var(--line);background:var(--panel-2);border-radius:2px;padding:9px 16px;font-size:13px;font-weight:650;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px}
+  .vr-pthumb{border:1px solid var(--line);background:var(--panel-2);border-radius:var(--r-pill);padding:9px 16px;font-size:13px;font-weight:650;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px}
   .vr-pthumb .ic{width:14px;height:14px}
   .vr-pthumb.on{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
 
@@ -919,7 +923,7 @@
   .pcard.off{opacity:.5}
   .phead{display:flex;align-items:center;gap:12px;padding:13px 14px;cursor:pointer}.phead:hover{background:var(--panel-2)}
   .tog{width:40px;height:23px;border-radius:999px;background:var(--line);position:relative;cursor:pointer;flex:none;transition:background .15s;border:0;padding:0}
-  .tog.on{background:var(--ok)}.tog::after{content:"";position:absolute;top:2.5px;left:2.5px;width:18px;height:18px;border-radius:50%;background:var(--panel);transition:left .15s}.tog.on::after{left:19.5px}.tog:disabled{opacity:.5;cursor:not-allowed}
+  .tog.on{background:var(--ok)}.tog.on::after{background:var(--on-brand)}.tog::after{content:"";position:absolute;top:2.5px;left:2.5px;width:18px;height:18px;border-radius:50%;background:var(--ink);transition:left .15s}.tog.on::after{left:19.5px}.tog:disabled{opacity:.5;cursor:not-allowed}
   .pv{flex:1;min-width:0}.pv .nm{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}.pv .sent{color:var(--muted);font-size:13px;margin-top:3px}
   .dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}.dot.l{background:var(--warn)}.dot.k{background:var(--info)}
   .sptag{font-size:10.5px;padding:2px 8px;border-radius:2px;border:1px solid var(--line);color:var(--muted);background:var(--panel-2)}
@@ -1720,7 +1724,7 @@
   .fitem .tm{color:var(--faint);font-size:11.5px;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
   .lane{margin-bottom:18px}
   .lane .lh{display:flex;align-items:center;gap:9px;margin:6px 2px 10px;font-weight:700;font-size:13px}
-  .lane .lh .n{font-size:11px;font-weight:700;color:var(--muted);background:var(--bg);border:1px solid var(--line);padding:1px 8px;border-radius:2px}
+  .lane .lh .n{font-size:11px;font-weight:700;color:var(--muted);background:var(--bg);border:1px solid var(--line);padding:1px 8px;border-radius:var(--r-pill)}
   .tasks{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
   .task{background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:13px 14px;cursor:pointer;box-shadow:var(--shadow);transition:.12s;position:relative}
   .task:hover{border-color:var(--brand);transform:translateY(-1px)}
@@ -1875,7 +1879,7 @@
     gap:12px;
     min-height:42px;
     padding:10px 16px;
-    background:var(--panel2);
+    background:var(--panel-2);
     border-bottom:1px solid var(--line2);
   }
   .pexec .physical-shed-group-head > *{min-width:0}
@@ -1973,7 +1977,7 @@
   .toast.on{opacity:1;transform:translateX(-50%)}
   /* ---------- orchestration tree ---------- */
   .ostages{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:16px}
-  .ostage{font-size:11.5px;font-weight:700;color:var(--muted);background:var(--bg);border:1px solid var(--line);padding:6px 12px;border-radius:2px}
+  .ostage{font-size:11.5px;font-weight:700;color:var(--muted);background:var(--bg);border:1px solid var(--line);padding:6px 12px;border-radius:var(--r-pill)}
   .ostage.on{color:var(--brand-d);background:var(--brand-soft);border-color:var(--brand)}
   .ostage.cur{color:var(--on-brand);background:var(--brand);border-color:var(--brand)}
   .oarr{color:var(--faint)}
@@ -1995,8 +1999,8 @@
   @keyframes opulse{0%,100%{box-shadow:0 0 0 4px var(--brand-soft)}50%{box-shadow:0 0 0 8px transparent}}
   .onode .obody{flex:1;min-width:0}.onode .obody b{font-size:13.5px}
   .onode .ometa{color:var(--muted);font-size:12px;margin-top:2px;white-space:normal}
-  .onode .here{position:absolute;right:11px;top:10px;font-size:10px;font-weight:800;letter-spacing:.4px;color:var(--on-brand);background:var(--brand);padding:3px 9px;border-radius:2px}
-  .onode .nxt{position:absolute;right:11px;top:11px;font-size:10px;font-weight:800;color:var(--info);background:var(--infox);border:1px solid var(--info);padding:2px 8px;border-radius:2px}
+  .onode .here{position:absolute;right:11px;top:10px;font-size:10px;font-weight:800;letter-spacing:.4px;color:var(--on-brand);background:var(--brand);padding:3px 9px;border-radius:var(--r-pill)}
+  .onode .nxt{position:absolute;right:11px;top:11px;font-size:10px;font-weight:800;color:var(--info);background:var(--infox);border:1px solid var(--info);padding:2px 8px;border-radius:var(--r-pill)}
   /* ---------- CRUD row actions ---------- */
   .rowact{display:inline-flex;gap:6px}
   .ia{width:40px;height:40px;border-radius:2px;border:1px solid var(--line);display:grid;place-items:center;cursor:pointer;color:var(--muted);background:var(--panel);flex:none}
@@ -2346,7 +2350,7 @@
   /* ===== Sign-in (split-screen) ===== */
   .login-shell{min-height:100vh;display:grid;grid-template-columns:1.05fr .95fr;background:var(--bg);color:var(--ink)}
   .login-brand{position:relative;display:flex;flex-direction:column;justify-content:space-between;gap:34px;padding:48px 54px;background:var(--sidebar);border-right:1px solid var(--line);overflow:hidden}
-  .login-brand::before{content:"";position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--brand) 7%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--brand) 7%,transparent) 1px,transparent 1px);background-size:36px 36px;-webkit-mask-image:radial-gradient(130% 95% at 12% 18%,var(--bg) 38%,transparent 100%);mask-image:radial-gradient(130% 95% at 12% 18%,var(--bg) 38%,transparent 100%);pointer-events:none}
+  .login-brand::before{content:"";position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--brand) 7%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--brand) 7%,transparent) 1px,transparent 1px);background-size:36px 36px;-webkit-mask-image:radial-gradient(130% 95% at 12% 18%,#000 38%,transparent 100%);mask-image:radial-gradient(130% 95% at 12% 18%,#000 38%,transparent 100%);pointer-events:none}
   .login-brand>*{position:relative;z-index:1}
   .login-brand .brand .logo{width:38px;height:38px;font-size:18px}
   .login-brand .brand b{font-size:22px}
@@ -3219,7 +3223,7 @@ select:disabled { opacity: .45; }
 .mcarea{display:flex;align-items:flex-end;justify-content:center;height:138px;width:100%;border-bottom:1px solid var(--line)}
 .mcstack{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;width:100%;height:100%;box-sizing:border-box;padding-top:17px}
 .mcv{font-size:11px;font-weight:800;color:var(--ink);white-space:nowrap;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px var(--bg)}
-.mcbar{display:block;flex:0 0 auto;width:min(62%,30px);background:var(--brand);border-radius:2px}
+.mcbar{display:block;flex:0 0 auto;width:min(62%,30px);background:var(--brand);border-radius:var(--r) var(--r) 0 0}
 .mclab{display:flex;flex-direction:column;align-items:center;gap:1px;font-size:11px;color:var(--muted);margin-top:5px;white-space:nowrap;line-height:1.05}
 .mcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;white-space:nowrap;line-height:1.2;font-variant-numeric:tabular-nums}
 @media(max-width:1080px){
@@ -3253,7 +3257,7 @@ select:disabled { opacity: .45; }
    its percentage height and the label rides on top of it. */
 .gcb{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;flex:0 0 auto;min-width:16px}
 .gcval{font-size:10px;font-weight:700;color:var(--ink);white-space:nowrap;line-height:1.1;margin-bottom:3px;font-variant-numeric:tabular-nums;letter-spacing:-.2px}
-.gcbar{display:block;flex:0 0 auto;width:16px;border-radius:2px;background:var(--brand)}
+.gcbar{display:block;flex:0 0 auto;width:16px;border-radius:var(--r) var(--r) 0 0;background:var(--brand)}
 .gcbar.none{background:transparent}
 .gcbar.info,.gleg .sw.info{background:var(--info)}
 .gcbar.ok,.gleg .sw.ok{background:var(--ok)}
@@ -3357,7 +3361,7 @@ select:disabled { opacity: .45; }
 .sales-leadname:hover .sales-leadnametext b{text-decoration:underline}
 .sales-leadrow select{width:100%;min-width:0}
 /* One lead: the always-visible row, plus the panel it expands onto in place. */
-.sales-leaditem{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--panel)}
+.sales-leaditem{border:1px solid var(--line);border-radius:var(--r);padding:7px 9px;background:var(--panel)}
 .sales-leaditem.on{border-color:var(--brand-d);background:var(--bg)}
 .sales-leaddetail{margin-top:9px;padding-top:9px;border-top:1px solid var(--line2)}
 /* The number leads the panel: a call list that cannot be dialled is the defect this fixes. */
@@ -4522,19 +4526,19 @@ select:disabled { opacity: .45; }
    system spends colour once. */
 
 /* Labels: every uppercase label is mono with the system's wide tracking. */
-:root .kpi .lab,:root .kpi .lbl,:root .mono,:root .eyebrow,:root .side .gct,:root .card > h3,:root .cardh .t{font-family:var(--fm)}
-:root .kpi .lab,:root .kpi .lbl{font-size:10.5px;font-weight:500;letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--muted)}
+:where(:root) .kpi .lab,:where(:root) .kpi .lbl,:where(:root) .mono,:where(:root) .eyebrow,:where(:root) .side .gct,:where(:root) .card > h3,:where(:root) .cardh .t{font-family:var(--fm)}
+:where(:root) .kpi .lab,:where(:root) .kpi .lbl{font-size:10.5px;font-weight:500;letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--muted)}
 
 /* Figures: the numbers are the point of an operator dashboard, so they take the
    serif -- at dashboard size, not the marketing ramp's poster scale. */
-:root .kpi .val{font-family:var(--f-serif);font-size:34px;font-weight:400;letter-spacing:0;line-height:1.04;margin-top:9px;font-variant-numeric:tabular-nums}
-:root .kpi .val small{font-family:var(--f);font-size:12px;letter-spacing:0}
-:root .kpi .dl{font-family:var(--f);font-weight:400;color:var(--faint)}
+:where(:root) .kpi .val{font-family:var(--f-serif);font-size:34px;font-weight:400;letter-spacing:0;line-height:1.04;margin-top:9px;font-variant-numeric:tabular-nums}
+:where(:root) .kpi .val small{font-family:var(--f);font-size:12px;letter-spacing:0}
+:where(:root) .kpi .dl{font-family:var(--f);font-weight:400;color:var(--muted)}
 
 /* Cards: dense fill + ONE hairline. The system uses no drop shadow for everyday
    elevation, so the shadow is dropped rather than re-tuned. */
-:root .card,:root .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:none}
-:root .kpi{padding:17px 18px}
+:where(:root) .card,:where(:root) .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:none}
+:where(:root) .kpi{padding:17px 18px}
 /* The coloured card-top bar was the loudest thing the old dashboard did: a 3px
    accent rail across the top of every tile, in a different hue per tile. The
    hues identified the tile rather than encoding any state, and the system spends
@@ -4542,61 +4546,73 @@ select:disabled { opacity: .45; }
    genuinely carries state, the state still reads on the figure itself
    (.kpi.ok .val, .kpi.danger .val etc. keep their hue), and the left stripe is
    kept for the tiles that use it, at hairline width. */
-:root .kpi .acc{height:1px;background:var(--line)}
-:root .kpi.ok .acc,:root .kpi.k-ok .acc{background:var(--ok)}
-:root .kpi.danger .acc,:root .kpi.k-dng .acc{background:var(--danger)}
-:root .kpi .stripe{width:1px;background:var(--line)}
-:root .kpi.ok .stripe{background:var(--ok)}
-:root .kpi.danger .stripe{background:var(--danger)}
+:where(:root) .kpi .acc{height:1px;background:var(--line)}
+:where(:root) .kpi.ok .acc,:where(:root) .kpi.k-ok .acc{background:var(--ok)}
+:where(:root) .kpi.danger .acc,:where(:root) .kpi.k-dng .acc{background:var(--danger)}
+:where(:root) .kpi .stripe{width:1px;background:var(--line)}
+:where(:root) .kpi.ok .stripe{background:var(--ok)}
+:where(:root) .kpi.danger .stripe{background:var(--danger)}
 
 /* Buttons: transparent pill outline at rest, fills solid with its accent on
    hover, ink flips to near-black. No lighten-only hover, no hover-scale. */
-:root .btn{font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;padding:9px 16px;border-radius:var(--r-pill);background:transparent;border:1px solid var(--line);color:var(--ink);transition:background .3s,color .3s,border-color .3s}
-:root .btn:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
-:root .btn.p,:root .btn.primary{background:transparent;border-color:color-mix(in srgb,var(--brand) 40%,transparent);color:var(--brand)}
-:root .btn.p:hover,:root .btn.primary:hover{background:var(--brand);border-color:var(--brand);color:var(--on-brand)}
-:root .btn.b{background:transparent;border-color:color-mix(in srgb,var(--value) 40%,transparent);color:var(--value)}
-:root .btn.b:hover{background:var(--value);border-color:var(--value);color:var(--on-brand)}
-:root .btn.dng{background:transparent;border-color:color-mix(in srgb,var(--danger) 40%,transparent);color:var(--danger)}
-:root .btn.dng:hover{background:var(--danger);border-color:var(--danger);color:var(--on-brand)}
-:root .btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+:where(:root) .btn{font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;padding:9px 16px;border-radius:var(--r-pill);background:transparent;border:1px solid var(--line);color:var(--ink);transition:background .3s,color .3s,border-color .3s}
+:where(:root) .btn:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+:where(:root) .btn.p,:where(:root) .btn.primary{background:transparent;border-color:color-mix(in srgb,var(--brand) 40%,transparent);color:var(--brand)}
+:where(:root) .btn.p:hover,:where(:root) .btn.primary:hover{background:var(--brand);border-color:var(--brand);color:var(--on-brand)}
+:where(:root) .btn.b{background:transparent;border-color:color-mix(in srgb,var(--value) 40%,transparent);color:var(--value)}
+:where(:root) .btn.b:hover{background:var(--value);border-color:var(--value);color:var(--on-brand)}
+:where(:root) .btn.dng{background:transparent;border-color:color-mix(in srgb,var(--danger) 40%,transparent);color:var(--danger)}
+:where(:root) .btn.dng:hover{background:var(--danger);border-color:var(--danger);color:var(--on-brand)}
+:where(:root) .btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 
 /* Status tags: pill, hairline in the status hue. */
-:root .tag{font-family:var(--fm);font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;padding:3px 10px;border-radius:var(--r-pill);border:1px solid currentColor;background:transparent}
+:where(:root) .tag{font-family:var(--fm);font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;padding:3px 10px;border-radius:var(--r-pill);border:1px solid currentColor;background:transparent}
 
 /* Headings read as the brand, at dashboard scale. */
-:root h1,:root h2,:root h3,:root .pagetitle,:root .cardh b{font-family:var(--f-serif);font-weight:400;letter-spacing:0}
+:where(:root) h1,:where(:root) h2,:where(:root) h3,:where(:root) .pagetitle,:where(:root) .cardh b{font-family:var(--f-serif);font-weight:400;letter-spacing:0}
 
 /* Tabular figures wherever digits line up in a column. */
-:root td,:root .num,:root .val,:root .stat{font-variant-numeric:tabular-nums}
+:where(:root) td,:where(:root) .num,:where(:root) .val,:where(:root) .stat{font-variant-numeric:tabular-nums}
 
 @media (prefers-reduced-motion:reduce){
-  :root .btn{transition:none}
+  :where(:root) .btn{transition:none}
 }
 
 /* ===== PRINT =====
    There were no print rules at all: printing gave either a near-black full-bleed
    page or, with backgrounds suppressed, ivory ink on white paper. Print is a
-   light surface, and a printed page has no theme class to follow, so the
-   ivory-paper values are restated here as literals. */
+   light surface. The page DOES keep its html.light class at print time, so the
+   selector list below covers both roots deliberately; every token the :root block
+   defines is restated, because any one left out keeps its dark value on paper. */
 @media print{
   @page{margin:14mm}
   :root,:root.light{
     color-scheme:light;
     --bg:#fff; --panel:#fff; --panel-2:#f4f2ec; --ink:#141410; --muted:#45433c; --faint:#6b6759;
     --line:#c9c5b8; --line2:#e2ded2;
-    --brand:#2f5613; --brand-d:#24420e; --brand-soft:transparent;
+    --brand:#2f5613; --brand-d:#24420e; --brand-l:#2f5613; --brand-soft:transparent;
     --value:#6f5715; --ok:#2f5613; --warn:#7a4910; --danger:#962f2a;
     --okx:transparent; --warnx:transparent; --dangerx:transparent; --infox:transparent;
+    --purplex:transparent; --tealx:transparent;
+    /* These were omitted in an earlier revision and kept their DARK values on white
+       paper: --info printed at 2.74:1, --purple 2.91, --teal 2.62, and --gain-hi at
+       1.35 -- the weights mark whose entire job is being readable. */
+    --info:#2b4d70; --purple:#4b3d7d; --teal:#1d5c50;
+    --gain-hi:#1c3a0b; --gain-mid:#2f5613; --gain-lo:#5d8f33; --gain-under:#962f2a;
+    /* Ink ON a filled swatch. Left dark, this printed near-black on dark green for
+       the "YOU ARE HERE" badge, the selected calendar day and the count bubble. */
+    --on-brand:#fff; --on-status:#fff; --danger-badge-ink:#fff; --danger-tag-ink:#7a1e1a;
+    --sidebar:#fff; --sidebar-2:#f4f2ec; --sidebar-ink:#45433c; --sidebar-ink2:#141410;
+    --media-matte:#000; --value-soft:transparent; --amber:#7a4910; --ring:transparent;
     --shadow:none; --pop:none; --scrim:transparent;
   }
   body{background:#fff;color:#141410}
   /* Chrome the reader cannot act on from paper. */
-  :root .top,:root .side,:root .navscrim,:root .routebar,:root .ceo-ai-bubble,:root .veil,:root .toast,:root .btn,:root .hamb,:root .search{display:none!important}
-  :root .card,:root .kpi{border:1px solid var(--line);box-shadow:none;break-inside:avoid}
-  :root a{text-decoration:underline}
+  :where(:root) .top,:where(:root) .side,:where(:root) .navscrim,:where(:root) .routebar,:where(:root) .ceo-ai-bubble,:where(:root) .veil,:where(:root) .toast,:where(:root) .btn,:where(:root) .hamb,:where(:root) .search{display:none!important}
+  :where(:root) .card,:where(:root) .kpi{border:1px solid var(--line);box-shadow:none;break-inside:avoid}
+  :where(:root) a{text-decoration:underline}
   /* Status is encoded in colour on screen; on paper the fill may be dropped, so
      the hairline has to carry it. */
-  :root .tag,:root .chip{border:1px solid currentColor;print-color-adjust:exact}
-  :root table{break-inside:auto}:root tr{break-inside:avoid}:root thead{display:table-header-group}
+  :where(:root) .tag,:where(:root) .chip{border:1px solid currentColor;print-color-adjust:exact}
+  :where(:root) table{break-inside:auto}:where(:root) tr{break-inside:avoid}:where(:root) thead{display:table-header-group}
 }
