@@ -749,7 +749,43 @@ func markDeathCauseCase(ctx context.Context, tx pgx.Tx, tenantID, goatID string,
 	if cause.IsZero() {
 		return nil
 	}
-	const sql = `
+	// Marking a case is best-effort by design: a cause naming a disease this animal has no
+	// dead-closed case for matches NOTHING and is not an error. That is the normal shape for
+	// a death recorded on the Counts form, where the operator names what they saw and the
+	// animal was never opened a case for it — the cause is still recorded below.
+	var caseID *string
+	if err := tx.QueryRow(ctx, markDeathCauseCaseSQL, tenantID, goatID, cause.Key, cause.Kind).Scan(&caseID); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		caseID = nil
+	}
+
+	// THE CAUSE ITSELF, recorded in the SAME transaction that closed the animal's cases, so
+	// the mortality board can never show a death whose cases are closed but whose cause has
+	// not landed. ON CONFLICT keeps the consumer idempotent: a redelivered exit event must
+	// re-record the same cause, not fail the whole close.
+	_, err := tx.Exec(ctx, `
+INSERT INTO health_death_causes (tenant_id, goat_id, cause_key, cause_kind, health_case_id)
+VALUES ($1::uuid, $2::uuid, $3, $4, NULLIF($5, '')::uuid)
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET cause_key = EXCLUDED.cause_key,
+    cause_kind = EXCLUDED.cause_kind,
+    health_case_id = EXCLUDED.health_case_id`,
+		tenantID, goatID, cause.Key, cause.Kind, stringOrEmpty(caseID))
+	return err
+}
+
+func stringOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+// markDeathCauseCaseSQL is hoisted to package level so a query-plan test and the scale
+// guard can both reach it, which they cannot do for SQL declared inside a function.
+const markDeathCauseCaseSQL = `
 UPDATE health_cases SET is_death_cause = true, row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = $1::uuid AND health_case_id = (
   SELECT c.health_case_id
@@ -764,14 +800,8 @@ WHERE tenant_id = $1::uuid AND health_case_id = (
     )
   ORDER BY c.start_date DESC, c.health_case_id
   LIMIT 1
-)`
-	// A cause naming a disease this animal has no dead-closed case for updates NOTHING and
-	// is not an error: the death still records the cause on the animal itself. That is the
-	// normal shape for a death raised from the Counts form, where the operator names a
-	// disease the animal was never opened a case for.
-	_, err := tx.Exec(ctx, sql, tenantID, goatID, cause.Key, cause.Kind)
-	return err
-}
+)
+RETURNING health_case_id::text`
 
 func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, eventType string, cause domain.DeathCause) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)

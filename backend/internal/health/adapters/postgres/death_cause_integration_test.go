@@ -177,13 +177,9 @@ FROM health_cases c WHERE c.tenant_id=$1::uuid AND c.goat_id=$2::uuid LIMIT 1`,
 		domain.DeathCause{Key: "MASTITIS", Kind: domain.DeathCauseKindRegisterRule}); err != nil {
 		t.Fatalf("close for approved death: %v", err)
 	}
-	// The identity module's own exit, carrying the cause it recorded.
-	if _, err := pool.Exec(ctx, `
-UPDATE goats SET lifecycle_status='dead', exit_reason='died', exited_at=now(),
-                 death_cause_key='MASTITIS', death_cause_kind='register_rule'
-WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, healthTenant, healthGoat); err != nil {
-		t.Fatalf("exit the animal: %v", err)
-	}
+	// The identity module's own exit. It records that the animal left and how; the CAUSE was
+	// already written by CloseForApprovedDeath above, which is Health's own table.
+	exitAsDied(t, ctx, pool, healthGoat)
 
 	from, to := analyticsWindow(t)
 	got, err := repo.GetHealthAnalytics(ctx, domain.HealthAnalyticsQuery{TenantID: healthTenant, FromDate: from, ToDate: to})

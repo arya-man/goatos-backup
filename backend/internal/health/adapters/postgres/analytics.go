@@ -113,7 +113,10 @@ deaths AS (
          -- available before causes existed, and it still serves every death recorded
          -- before this shipped. A recorded cause never needs the inference, so the two can
          -- never disagree about one animal.
-         count(*) FILTER (WHERE g.death_cause_key IS NOT NULL OR EXISTS (
+         count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM health_death_causes dc
+           WHERE dc.tenant_id = g.tenant_id AND dc.goat_id = g.goat_id
+         ) OR EXISTS (
            SELECT 1 FROM health_cases hc
            WHERE hc.tenant_id = g.tenant_id
              AND hc.goat_id = g.goat_id
@@ -176,10 +179,9 @@ scoped AS (
          (hc.status = 'closed_dead' AND (
             hc.is_death_cause
             OR NOT EXISTS (
-              SELECT 1 FROM goats dg
-              WHERE dg.tenant_id = hc.tenant_id
-                AND dg.goat_id = hc.goat_id
-                AND dg.death_cause_key IS NOT NULL
+              SELECT 1 FROM health_death_causes dc
+              WHERE dc.tenant_id = hc.tenant_id
+                AND dc.goat_id = hc.goat_id
             )
          )) AS died_of_this
   FROM health_cases hc, bounds b
@@ -418,8 +420,6 @@ dead AS (
          g.shed_id,
          g.park_id,
          COALESCE(g.age_band, '') AS age_band,
-         g.death_cause_key,
-         g.death_cause_kind,
          (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date
   FROM goats g, bounds b
   WHERE g.tenant_id = $1::uuid
@@ -447,8 +447,8 @@ SELECT d.goat_id::text,
        -- The RECORDED cause, and the name of the case that carries it. Both empty for a
        -- normal death and for every death recorded before causes existed, where the row
        -- falls back to the inferred label above.
-       COALESCE(d.death_cause_key, ''),
-       COALESCE(d.death_cause_kind, ''),
+       COALESCE(dc.cause_key, ''),
+       COALESCE(dc.cause_kind, ''),
        COALESCE(cause_case.disease_name, '')
 FROM dead d
 LEFT JOIN locations pk
@@ -470,6 +470,8 @@ LEFT JOIN LATERAL (
     AND c.goat_id = d.goat_id
     AND c.status IN ('closed_dead','held_death_review')
 ) hc ON true
+LEFT JOIN health_death_causes dc
+       ON dc.tenant_id = $1::uuid AND dc.goat_id = d.goat_id
 LEFT JOIN LATERAL (
   -- The one case marked as the cause. A partial unique index guarantees at most one per
   -- animal, so this cannot fan the row out.

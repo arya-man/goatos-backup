@@ -290,14 +290,15 @@ SET lifecycle_status = $3,
     exit_reason = $4,
     exited_at = $5::timestamptz,
     updated_at = $5::timestamptz,
-    death_cause_key = NULLIF($6, ''),
-    death_cause_kind = NULLIF($7, ''),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
-		cmd.TenantID, cmd.GoatID, cmd.LifecycleStatus, cmd.ExitReason, cmd.OccurredAt,
-		cmd.DeathCauseKey, cmd.DeathCauseKind); err != nil {
+		cmd.TenantID, cmd.GoatID, cmd.LifecycleStatus, cmd.ExitReason, cmd.OccurredAt); err != nil {
 		return nil, err
 	}
+	// The CAUSE of death is deliberately not written here. Identity records that the animal
+	// left the herd and how; WHAT it died of is a clinical judgement Health owns and stores,
+	// and it travels on the event below so Health's own consumer can record it in the same
+	// transaction that closes the animal's cases.
 
 	payload := map[string]any{
 		"goat_id":            cmd.GoatID,
