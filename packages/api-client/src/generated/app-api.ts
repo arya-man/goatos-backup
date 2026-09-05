@@ -8392,6 +8392,11 @@ export interface components {
             due_business_date: string;
             /** @enum {string} */
             status: "open" | "pending_verification" | "completed" | "rework";
+            /**
+             * @description Present when the card is terminal: "closed" for work that was ENDED, "completed" for work that finished. Clients read this BEFORE status for the chip — closing leaves each pen's status at 'open' and moves only its work_state, so a status-only chip calls deliberately ended work "Open".
+             * @enum {string}
+             */
+            work_state?: "closed" | "completed";
             pen_count: number;
             /** @description Backend-composed pen displays, rendered verbatim. */
             pen_labels: string[];

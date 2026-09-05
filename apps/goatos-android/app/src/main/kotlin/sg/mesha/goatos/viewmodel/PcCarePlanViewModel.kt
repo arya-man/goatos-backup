@@ -148,7 +148,8 @@ class PcCarePlanViewModel @Inject constructor(
                                 PcCareRoundPenUi(
                                     taskId = pen.taskId,
                                     penLabel = pen.operationalLocationDisplay.ifBlank { pen.shedLabel },
-                                    statusLabel = pcCareStatusLabel(pen.status),
+                                    statusLabel = pcCareCardStatusLabel(pen.workState, pen.status),
+                                    reopenable = pen.workState == "closed",
                                 )
                             },
                         )
@@ -162,8 +163,13 @@ class PcCarePlanViewModel @Inject constructor(
         when (event) {
             PcCarePlanEvent.Refresh -> refresh()
             is PcCarePlanEvent.SelectMonitorDate -> selectMonitorDate(event.date)
-            is PcCarePlanEvent.AskCloseTask -> _state.update { it.copy(closingTaskId = event.taskId, closeReason = "") }
-            is PcCarePlanEvent.DismissCloseTask -> _state.update { it.copy(closingTaskId = "", closeReason = "") }
+            is PcCarePlanEvent.AskCloseCard -> _state.update {
+                it.copy(closingTaskId = event.cardKey, closingRoundId = event.roundId, closingSingleTaskId = event.singleTaskId, closeReason = "")
+            }
+            is PcCarePlanEvent.CloseCard -> closeCard(event.roundId, event.singleTaskId, event.reason)
+            is PcCarePlanEvent.DismissCloseTask -> _state.update {
+                it.copy(closingTaskId = "", closingRoundId = "", closingSingleTaskId = "", closeReason = "")
+            }
             is PcCarePlanEvent.CloseReasonChanged -> _state.update { it.copy(closeReason = event.reason) }
             is PcCarePlanEvent.CloseTask -> closeTask(event.taskId, event.reason)
             is PcCarePlanEvent.ReopenTask -> reopenTask(event.taskId)
@@ -297,6 +303,42 @@ class PcCarePlanViewModel @Inject constructor(
     // END and START AGAIN are PC Care's only two verbs, on par with weighing (maintainer
     // decision 2026-09-05, retiring cancel). Ending is not erasing: the pen-day stays taken
     // and the reason stays readable, which is why a reason is asked for and not optional.
+    /**
+     * Ends a card's work. A ROUND ends as a whole — every pen and the evening's removal card —
+     * because the planner planned them as one piece of work; a round of ONE ends its single
+     * task. Both refuse a blank reason before any write.
+     */
+    private fun closeCard(roundId: String, singleTaskId: String, reason: String) {
+        if (reason.isBlank()) {
+            _state.update { it.copy(message = "Say why this work is being ended") }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                if (roundId.isNotBlank()) {
+                    repository.closeRound(roundId, reason.trim())
+                } else {
+                    repository.closeTask(singleTaskId, reason.trim())
+                }
+                _state.update {
+                    it.copy(message = "Work ended", closingTaskId = "", closingRoundId = "", closingSingleTaskId = "", closeReason = "")
+                }
+                refresh()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                crashReporter.recordException(error, "pc care planner close failed")
+                analytics.track(
+                    AnalyticsEvents.PC_CARE_FAILURE,
+                    mapOf(AnalyticsEvents.Params.REASON to (error.message ?: "close_failed").take(MAX_REASON_CHARS)),
+                )
+                // The SERVER's own sentence is surfaced verbatim where one exists — the close
+                // gate's "waiting for a video review" names the way out.
+                _state.update { it.copy(message = error.userFacingMessage("Couldn't end this work. Try again.")) }
+            }
+        }
+    }
+
     private fun closeTask(taskId: String, reason: String) {
         if (reason.isBlank()) {
             _state.update { it.copy(message = "Say why this work is being ended") }
@@ -728,7 +770,9 @@ internal fun PcCareRoundCardDto.toRoundCardUi(): PcCareRoundCardUi = PcCareRound
     cardKey = cardKey,
     roundId = roundId,
     singleTaskId = singleTaskId,
-    statusLabel = pcCareStatusLabel(status),
+    // The chip reads WORK STATE first: closing leaves every pen's status at 'open' and moves
+    // only its work_state, so a status-only chip called ended work "Open".
+    statusLabel = pcCareCardStatusLabel(workState, status),
     dateLabel = dueBusinessDate,
     pensLabel = penLabels.joinToString(" · "),
     penCountLabel = if (penCount == 1) "1 pen" else "$penCount pens",
@@ -737,4 +781,18 @@ internal fun PcCareRoundCardDto.toRoundCardUi(): PcCareRoundCardUi = PcCareRound
         .joinToString(" · "),
     animalCountLabel = if (animalCount > 0) "$animalCount animals" else "",
     expandable = roundId.isNotBlank() && penCount > 1,
+    // Work still owed can be ENDED; work already ended or finished cannot.
+    closable = workState.isBlank(),
+    // A round of ONE reopens from its card; a multi-pen round reopens pen by pen inside it.
+    reopenable = workState == "closed" && roundId.isBlank() && singleTaskId.isNotBlank(),
 )
+
+/**
+ * The card's chip. WORK STATE wins when the card is terminal, because "Ended" and "Done" are
+ * what a reader needs; the verification status is only meaningful while the work is live.
+ */
+internal fun pcCareCardStatusLabel(workState: String, status: String): String = when (workState) {
+    "closed" -> "Ended"
+    "completed" -> "Done"
+    else -> pcCareStatusLabel(status)
+}

@@ -264,6 +264,12 @@ interface PcCareRepository {
     suspend fun reopenTask(taskId: String)
 
     /**
+     * End a whole ROUND's work with a reason: every pen and the evening's removal card. The
+     * planner planned them as one piece of work, so they end as one.
+     */
+    suspend fun closeRound(roundId: String, reason: String)
+
+    /**
      * The PC Director's approve/reject on a submitted vaccine-stock task (maintainer decision
      * 2026-09-02). A live online call — the director is looking at the videos when deciding —
      * whose echoed task is written through to the Room caches so every list re-renders the new
@@ -645,6 +651,13 @@ class DefaultPcCareRepository(
     override suspend fun reopenTask(taskId: String) {
         api.reopenPcCareTask(taskId)
         detailDao.delete(taskId)
+    }
+
+    override suspend fun closeRound(roundId: String, reason: String) {
+        api.closePcCareRound(roundId, PcCareCloseRequestDto(reason = reason))
+        // Drop the round's cached pens: the next read re-fetches them closed, so the phone
+        // never renders a locally-invented ending.
+        detailDao.delete(roundPensCacheKey(roundId))
     }
 
     override suspend fun recordStockVerdict( // offline-first-guard:ignore: live director judgement on submitted proof videos; the echoed task is written through to Room below

@@ -147,6 +147,16 @@ fun PcCareMonitorScreen(
                             }
                         },
                         onOpenPen = { taskId -> onOpenTaskId(taskId) },
+                        // Ending asks WHY first; the dialog's confirm ends the whole round, or
+                        // the single task of a round of one.
+                        onClose = {
+                            onEvent(PcCarePlanEvent.AskCloseCard(card.cardKey, card.roundId, card.singleTaskId))
+                        },
+                        onReopen = { onEvent(PcCarePlanEvent.ReopenTask(card.singleTaskId)) },
+                        onReopenPen = { taskId -> onEvent(PcCarePlanEvent.ReopenTask(taskId)) },
+                        // Ending and reopening are PLANNER authority (the backend refuses them
+                        // for anyone else), so both follow planEnabled.
+                        actionsEnabled = planEnabled,
                     )
                 }
             }
@@ -164,7 +174,11 @@ fun PcCareMonitorScreen(
             PcCareEndWorkDialog(
                 reason = state.closeReason,
                 onReasonChange = { onEvent(PcCarePlanEvent.CloseReasonChanged(it)) },
-                onConfirm = { onEvent(PcCarePlanEvent.CloseTask(state.closingTaskId, state.closeReason)) },
+                onConfirm = {
+                    onEvent(
+                        PcCarePlanEvent.CloseCard(state.closingRoundId, state.closingSingleTaskId, state.closeReason),
+                    )
+                },
                 onDismiss = { onEvent(PcCarePlanEvent.DismissCloseTask) },
             )
         }
@@ -664,6 +678,10 @@ private fun PcCareRoundCard(
     pens: List<PcCareRoundPenUi>,
     onTap: () -> Unit,
     onOpenPen: (String) -> Unit,
+    onClose: () -> Unit,
+    onReopen: () -> Unit,
+    onReopenPen: (String) -> Unit,
+    actionsEnabled: Boolean,
 ) {
     Column(
         modifier = Modifier
@@ -694,6 +712,28 @@ private fun PcCareRoundCard(
             Spacer(Modifier.height(8.dp))
             PcCareTaskPill(label = card.animalCountLabel, fg = MeshaColors.BrandD, bg = MeshaColors.Surf3)
         }
+        if (actionsEnabled && (card.closable || card.reopenable)) {
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.weight(1f))
+                if (card.closable) {
+                    Text(
+                        text = "End this work",
+                        color = MeshaColors.Danger,
+                        style = MeshaType.caption,
+                        modifier = pcCareInlineActionModifier(onClose),
+                    )
+                }
+                if (card.reopenable) {
+                    Text(
+                        text = "Start it again",
+                        color = MeshaColors.BrandD,
+                        style = MeshaType.caption,
+                        modifier = pcCareInlineActionModifier(onReopen),
+                    )
+                }
+            }
+        }
         if (open) {
             Spacer(Modifier.height(12.dp))
             if (loadingPens && pens.isEmpty()) {
@@ -711,7 +751,18 @@ private fun PcCareRoundCard(
                 ) {
                     Text(text = pen.penLabel, style = MeshaType.cardSubtitle, color = MeshaColors.Ink)
                     Spacer(Modifier.weight(1f))
-                    Text(text = pen.statusLabel, style = MeshaType.caption, color = MeshaColors.Muted)
+                    // A multi-pen round reopens PEN BY PEN, mirroring weighing: it closes at
+                    // both grains and reopens at the bucket.
+                    if (actionsEnabled && pen.reopenable) {
+                        Text(
+                            text = "Start it again",
+                            style = MeshaType.caption,
+                            color = MeshaColors.BrandD,
+                            modifier = pcCareInlineActionModifier { onReopenPen(pen.taskId) },
+                        )
+                    } else {
+                        Text(text = pen.statusLabel, style = MeshaType.caption, color = MeshaColors.Muted)
+                    }
                 }
                 Spacer(Modifier.height(6.dp))
             }

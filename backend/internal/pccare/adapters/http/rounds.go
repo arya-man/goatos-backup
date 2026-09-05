@@ -69,6 +69,9 @@ type roundCardDTO struct {
 	PlannedBusinessDate string   `json:"planned_business_date"`
 	DueBusinessDate     string   `json:"due_business_date"`
 	Status              string   `json:"status"`
+	// WorkState is "closed" on an ENDED round, "completed" when its work finished, absent
+	// while it is live. The chip reads this first; status alone cannot tell the two apart.
+	WorkState           string   `json:"work_state,omitempty"`
 	PenCount            int32    `json:"pen_count"`
 	PenLabels           []string `json:"pen_labels"`
 	AssigneeNames       []string `json:"assignee_names"`
@@ -109,7 +112,7 @@ func (h *Handler) GetRoundCards(w http.ResponseWriter, r *http.Request) {
 			Category: c.Category, CategoryLabel: domain.CategoryLabel(c.Category),
 			ParkID: c.ParkID, ParkName: c.ParkName,
 			PlannedBusinessDate: c.PlannedBusinessDate, DueBusinessDate: c.DueBusinessDate,
-			Status: c.Status, PenCount: c.PenCount,
+			Status: c.Status, WorkState: c.WorkState, PenCount: c.PenCount,
 			PenLabels: c.PenLabels, AssigneeNames: c.AssigneeNames, AnimalCount: c.AnimalCount,
 			RemovalTaskID: c.RemovalTaskID, RemovalStatus: c.RemovalStatus,
 		})

@@ -1006,11 +1006,11 @@ func (r *Repository) ListRoundCards(ctx context.Context, q ports.ListRoundCardsQ
 	for rows.Next() {
 		var c ports.RoundCard
 		var roundID, singleTaskID, removalTaskID, removalStatus *string
-		var penStatuses []string
+		var penStatuses, penWorkStates []string
 		if err := rows.Scan(
 			&c.CardKey, &roundID, &singleTaskID, &c.Category, &c.ParkID, &c.ParkName,
 			&c.PlannedBusinessDate, &c.DueBusinessDate, &c.PenCount, &c.PenLabels,
-			&penStatuses, &c.AssigneeNames, &c.AnimalCount, &removalTaskID, &removalStatus,
+			&penStatuses, &penWorkStates, &c.AssigneeNames, &c.AnimalCount, &removalTaskID, &removalStatus,
 		); err != nil {
 			return ports.RoundCardPage{}, fmt.Errorf("pccare: scan round card: %w", err)
 		}
@@ -1030,6 +1030,7 @@ func (r *Repository) ListRoundCards(ctx context.Context, q ports.ListRoundCardsQ
 		// count ranges over. A client deriving its own is how two surfaces come to disagree
 		// about whether a round is finished.
 		c.Status = domain.RoundStatusRollup(penStatuses)
+		c.WorkState = domain.RoundWorkStateRollup(penWorkStates)
 		cards = append(cards, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -1060,6 +1061,7 @@ WITH scoped AS (
     t.planned_business_date,
     t.due_business_date,
     t.status,
+    t.work_state,
     coalesce(t.round_id::text, t.task_id::text) AS card_key,
     CASE
       WHEN shed.name IS NULL THEN ''
@@ -1121,6 +1123,7 @@ SELECT
   count(*)::int AS pen_count,
   array_remove(array_agg(s.pen_label ORDER BY s.pen_label), '') AS pen_labels,
   array_agg(s.status) AS pen_statuses,
+  array_agg(s.work_state) AS pen_work_states,
   coalesce(min(crew.names), ARRAY[]::text[]) AS assignee_names,
   coalesce(min(animals.animal_count), 0)::int AS animal_count,
   min(removal.task_id::text) AS removal_task_id,

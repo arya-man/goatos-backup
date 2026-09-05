@@ -19644,6 +19644,14 @@ components:
         planned_business_date: { type: string, format: date }
         due_business_date: { type: string, format: date }
         status: { type: string, enum: [open, pending_verification, completed, rework] }
+        work_state:
+          type: string
+          enum: [closed, completed]
+          description: >-
+            Present when the card is terminal: "closed" for work that was ENDED, "completed"
+            for work that finished. Clients read this BEFORE status for the chip — closing
+            leaves each pen's status at 'open' and moves only its work_state, so a status-only
+            chip calls deliberately ended work "Open".
         pen_count: { type: integer }
         pen_labels:
           type: array

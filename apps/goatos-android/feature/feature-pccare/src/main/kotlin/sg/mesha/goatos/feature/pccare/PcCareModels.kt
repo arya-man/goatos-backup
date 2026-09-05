@@ -322,6 +322,14 @@ data class PcCareRoundCardUi(
     val animalCountLabel: String,
     /** Whether this card's pens can be opened (a round of one opens straight through). */
     val expandable: Boolean,
+    /** Whether this card offers END THIS WORK — work still owed, not already ended or done. */
+    val closable: Boolean = false,
+    /**
+     * Whether this card offers START IT AGAIN. Only a round of ONE offers it here: a multi-pen
+     * round reopens PEN BY PEN from inside the card, mirroring weighing, which closes at both
+     * grains and reopens at the bucket.
+     */
+    val reopenable: Boolean = false,
 )
 
 /** One pen inside an opened round card. */
@@ -329,6 +337,8 @@ data class PcCareRoundPenUi(
     val taskId: String,
     val penLabel: String,
     val statusLabel: String,
+    /** An ENDED pen offers START IT AGAIN on its own row. */
+    val reopenable: Boolean = false,
 )
 
 data class PcCarePlanUiState(
@@ -346,6 +356,9 @@ data class PcCarePlanUiState(
     // it. Blank id means no prompt. The reason is required — a close with none leaves the
     // question unanswerable, and the server refuses it anyway.
     val closingTaskId: String = "",
+    /** Which card the open reason dialog belongs to: a round, or a round of one's task. */
+    val closingRoundId: String = "",
+    val closingSingleTaskId: String = "",
     val closeReason: String = "",
     /** The planner's ROUND-grained list: one card per round, one per round-less legacy task. */
     val roundCards: List<PcCareRoundCardUi> = emptyList(),
@@ -396,8 +409,12 @@ data class PcCarePlanUiState(
 sealed interface PcCarePlanEvent {
     data object Refresh : PcCarePlanEvent
     data class SelectMonitorDate(val date: LocalDate) : PcCarePlanEvent
-    /** Ask for a reason before closing; the sheet's confirm sends [CloseTask]. */
-    data class AskCloseTask(val taskId: String) : PcCarePlanEvent
+    /**
+     * Ask for a reason before ending work; the dialog's confirm sends [CloseCard]. A round ends
+     * as a WHOLE (every pen and its removal card); a round of one ends its single task.
+     */
+    data class AskCloseCard(val cardKey: String, val roundId: String, val singleTaskId: String) : PcCarePlanEvent
+    data class CloseCard(val roundId: String, val singleTaskId: String, val reason: String) : PcCarePlanEvent
     data object DismissCloseTask : PcCarePlanEvent
     data class CloseReasonChanged(val reason: String) : PcCarePlanEvent
     data class CloseTask(val taskId: String, val reason: String) : PcCarePlanEvent

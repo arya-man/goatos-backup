@@ -143,3 +143,35 @@ func RoundStatusRollup(penStatuses []string) string {
 		return StatusPendingVerification
 	}
 }
+
+// RoundWorkStateRollup reduces a round's pen WORK STATES to the one its card shows. This is a
+// different question from RoundStatusRollup: status answers "where is the evidence", work state
+// answers "is this work still owed". A card that reads its status alone cannot tell ENDED work
+// from open work — closing a round leaves each pen's status untouched at 'open' and moves only
+// its work_state, so the chip said "Open" on a round somebody had deliberately ended.
+//
+// Returns "" when the round is still live, so the caller falls back to the status roll-up.
+func RoundWorkStateRollup(penWorkStates []string) string {
+	if len(penWorkStates) == 0 {
+		return ""
+	}
+	closed, completed := 0, 0
+	for _, state := range penWorkStates {
+		switch state {
+		case WorkStateClosed:
+			closed++
+		case WorkStateCompleted:
+			completed++
+		}
+	}
+	switch {
+	case closed == len(penWorkStates):
+		return WorkStateClosed
+	// Mixed terminal pens read as COMPLETED: some of the work was done and accepted, and
+	// "ended" would erase that. A round is only ENDED when nothing in it was finished.
+	case closed+completed == len(penWorkStates):
+		return WorkStateCompleted
+	default:
+		return ""
+	}
+}

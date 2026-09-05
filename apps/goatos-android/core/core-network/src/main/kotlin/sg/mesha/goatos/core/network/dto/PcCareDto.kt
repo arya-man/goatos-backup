@@ -224,6 +224,12 @@ data class PcCareRoundCardDto(
     @SerialName("planned_business_date") val plannedBusinessDate: String = "",
     @SerialName("due_business_date") val dueBusinessDate: String = "",
     @SerialName("status") val status: String = "",
+    /**
+     * "closed" on an ENDED card, "completed" when its work finished, blank while it is live.
+     * The chip reads this FIRST: closing leaves every pen's status at 'open' and moves only its
+     * work_state, so a status-only chip called ended work "Open".
+     */
+    @SerialName("work_state") val workState: String = "",
     @SerialName("pen_count") val penCount: Int = 0,
     @SerialName("pen_labels") val penLabels: List<String> = emptyList(),
     @SerialName("assignee_names") val assigneeNames: List<String> = emptyList(),
@@ -292,6 +298,12 @@ data class PcCareRoundDto(
     @SerialName("park_name") val parkName: String = "",
     @SerialName("planned_business_date") val plannedBusinessDate: String = "",
     @SerialName("status") val status: String = "",
+    /**
+     * "closed" on an ENDED card, "completed" when its work finished, blank while it is live.
+     * The chip reads this FIRST: closing leaves every pen's status at 'open' and moves only its
+     * work_state, so a status-only chip called ended work "Open".
+     */
+    @SerialName("work_state") val workState: String = "",
     @SerialName("pen_count") val penCount: Int = 0,
     @SerialName("pens") val pens: List<PcCareTaskDto> = emptyList(),
     @SerialName("removal_task_id") val removalTaskId: String = "",

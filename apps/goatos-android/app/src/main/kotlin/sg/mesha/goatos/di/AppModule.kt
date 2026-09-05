@@ -1185,6 +1185,7 @@ private class DeferredPcCareRepository(
     ) = delegate.createRound(idempotencyKey, request)
     override suspend fun closeTask(taskId: String, reason: String) = delegate.closeTask(taskId, reason)
     override suspend fun reopenTask(taskId: String) = delegate.reopenTask(taskId)
+    override suspend fun closeRound(roundId: String, reason: String) = delegate.closeRound(roundId, reason)
     override suspend fun recordStockVerdict(taskId: String, verdict: String, reason: String) =
         delegate.recordStockVerdict(taskId, verdict, reason)
 }

@@ -226,6 +226,11 @@ type RoundCard struct {
 	DueBusinessDate     string
 	// Status is the backend-owned roll-up over the card's pens (domain.RoundStatusRollup).
 	Status string
+	// WorkState is the roll-up over the pens' work states (domain.RoundWorkStateRollup):
+	// "closed" when the round was ended, "completed" when its work finished, empty while it is
+	// still live. Status alone cannot tell ENDED work from open work, because closing leaves a
+	// pen's status at 'open' and moves only its work_state.
+	WorkState string
 	// PenCount is how many pens this card covers (1 for a legacy task).
 	PenCount int32
 	// PenLabels are the pens' operational displays in order, for the card's subtitle. The

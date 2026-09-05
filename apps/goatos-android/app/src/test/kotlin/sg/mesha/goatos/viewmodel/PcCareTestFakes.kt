@@ -280,6 +280,17 @@ internal class FakePcCareRepository : PcCareRepository {
         reopened += taskId
     }
 
+    /** Every round-level close: round id + reason. */
+    val closedRounds = mutableListOf<Pair<String, String>>()
+
+    override suspend fun closeRound(roundId: String, reason: String) {
+        failNextLifecycleWith?.let {
+            failNextLifecycleWith = null
+            throw it
+        }
+        closedRounds += roundId to reason
+    }
+
     // PC Director's stock verdict (maintainer decision 2026-09-02).
     val stockVerdicts = mutableListOf<Triple<String, String, String>>()
     var stockVerdictResult: sg.mesha.goatos.core.common.AppResult<PcCareTaskDto>? = null
