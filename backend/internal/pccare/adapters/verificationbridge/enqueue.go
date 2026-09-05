@@ -81,6 +81,12 @@ func (e *Enqueuer) EnqueuePCCareVerification(ctx context.Context, in pccareapp.V
 	if locDisplay == "" {
 		locDisplay = strings.TrimSpace(in.VaccineLabel)
 	}
+	// A round-grain removal item is ONE PEN's evidence: its subject names that pen, and the
+	// display comes from the pen label composed at create time rather than from a shed the
+	// round-grain card does not have.
+	if strings.TrimSpace(in.RemovalPenID) != "" {
+		locDisplay = strings.TrimSpace(in.RemovalPenLabel)
+	}
 	baseLabel := pccaredomain.CategoryLabel(in.Category)
 	var label *string
 	switch {
@@ -102,17 +108,13 @@ func (e *Enqueuer) EnqueuePCCareVerification(ctx context.Context, in pccareapp.V
 	}
 
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
-		TenantID:     in.TenantID,
-		Vertical:     pccaredomain.VerificationVerticalPreventiveCare,
-		Module:       pccaredomain.VerificationModulePCCare,
-		Category:     category,
-		SubjectLabel: label,
-		ContextRows:  contextRows(in),
-		Source: verificationdomain.SourceRef{
-			Module:  pccaredomain.VerificationModulePCCare,
-			RefType: pccaredomain.VerificationRefTypeTask,
-			RefID:   in.TaskID,
-		},
+		TenantID:       in.TenantID,
+		Vertical:       pccaredomain.VerificationVerticalPreventiveCare,
+		Module:         pccaredomain.VerificationModulePCCare,
+		Category:       category,
+		SubjectLabel:   label,
+		ContextRows:    contextRows(in),
+		Source:         sourceRefFor(in),
 		MediaRefs:      mediaRefs,
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
@@ -124,11 +126,32 @@ func (e *Enqueuer) EnqueuePCCareVerification(ctx context.Context, in pccareapp.V
 	return err
 }
 
+// sourceRefFor decides WHAT the verifier's verdict will land on. A round-grain removal item
+// is filed against the PEN's evidence row, never the card: four pens on one card become four
+// items, and each verdict must reach its own pen.
+func sourceRefFor(in pccareapp.VerificationEnqueueRequest) verificationdomain.SourceRef {
+	if penID := strings.TrimSpace(in.RemovalPenID); penID != "" {
+		return verificationdomain.SourceRef{
+			Module:  pccaredomain.VerificationModulePCCare,
+			RefType: pccaredomain.VerificationRefTypeRemovalPen,
+			RefID:   penID,
+		}
+	}
+	return verificationdomain.SourceRef{
+		Module:  pccaredomain.VerificationModulePCCare,
+		RefType: pccaredomain.VerificationRefTypeTask,
+		RefID:   in.TaskID,
+	}
+}
+
 // contextRows is the verifier's "what was expected" block: the work done, how many animals it
 // covered, and which day it was planned for. Farm language, rendered verbatim.
 func contextRows(in pccareapp.VerificationEnqueueRequest) []verificationdomain.ContextRow {
 	rows := make([]verificationdomain.ContextRow, 0, 3)
 	rows = append(rows, verificationdomain.ContextRow{Label: "Work", Value: pccaredomain.CategoryLabel(in.Category)})
+	if pen := strings.TrimSpace(in.RemovalPenLabel); pen != "" {
+		rows = append(rows, verificationdomain.ContextRow{Label: "Pen", Value: pen})
+	}
 	if strings.TrimSpace(in.VaccineLabel) != "" {
 		rows = append(rows, verificationdomain.ContextRow{Label: "Vaccine", Value: strings.TrimSpace(in.VaccineLabel)})
 	}

@@ -262,6 +262,11 @@ const (
 	VerificationCategoryInventoryVaccine = "inventory_vaccine"
 	VerificationCategoryFeedWaterRemoval = "pc_feed_water_removal"
 	VerificationRefTypeTask              = "pc_care_task"
+	// VerificationRefTypeRemovalPen is the source ref type for a ROUND-grain feed & water
+	// removal (maintainer decision 2026-09-05). The ref is ONE PEN's evidence row
+	// (pc_care_removal_pen_proofs.removal_pen_id), never the card: the card is one evening's
+	// job but the videos are shot pen by pen, and the review grain follows the evidence.
+	VerificationRefTypeRemovalPen = "pc_care_removal_pen"
 )
 
 // VerificationCategoryFor maps a work category to its verification category.

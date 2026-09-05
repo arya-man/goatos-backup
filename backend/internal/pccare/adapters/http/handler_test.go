@@ -23,14 +23,20 @@ const (
 )
 
 type fakePCCareHTTPService struct {
-	lastActor        domain.Actor
-	lastTaskProof    app.RegisterTaskProofInput
-	lastStockVerdict app.StockVerdictInput
-	stockVerdictErr  error
-	stockVerdictTask ports.TaskRow
-	plannerCatalog   ports.PlannerCatalog
-	lastCreate       app.CreateTaskInput
-	createErr        error
+	removalPens         []ports.RemovalPenProofRow
+	removalPensErr      error
+	lastRemovalPenProof app.RegisterRemovalPenProofInput
+	removalPenProofErr  error
+	lastCreateRound     app.CreateRoundInput
+	getRoundErr         error
+	lastActor           domain.Actor
+	lastTaskProof       app.RegisterTaskProofInput
+	lastStockVerdict    app.StockVerdictInput
+	stockVerdictErr     error
+	stockVerdictTask    ports.TaskRow
+	plannerCatalog      ports.PlannerCatalog
+	lastCreate          app.CreateTaskInput
+	createErr           error
 }
 
 func TestOpenAPIIncludesInventoryVaccineTaskProofContract(t *testing.T) {
@@ -145,12 +151,48 @@ func (f *fakePCCareHTTPService) PlannerCatalog(_ context.Context, actor domain.A
 func (f *fakePCCareHTTPService) PlannerParkSheds(context.Context, domain.Actor, string, string, string, string, int) (ports.PlannerParkSheds, error) {
 	return ports.PlannerParkSheds{}, nil
 }
+
+const httpRound = "22222222-2222-4222-8222-222222222222"
+
 func (f *fakePCCareHTTPService) CreateTask(_ context.Context, _ domain.Actor, in app.CreateTaskInput) (ports.TaskRow, error) {
 	f.lastCreate = in
 	if f.createErr != nil {
 		return ports.TaskRow{}, f.createErr
 	}
 	return ports.TaskRow{TaskID: httpTask, Category: in.Category}, nil
+}
+
+func (f *fakePCCareHTTPService) CreateRound(_ context.Context, _ domain.Actor, in app.CreateRoundInput) (ports.RoundRow, error) {
+	f.lastCreateRound = in
+	if f.createErr != nil {
+		return ports.RoundRow{}, f.createErr
+	}
+	pens := make([]ports.TaskRow, 0, len(in.Pens))
+	for range in.Pens {
+		pens = append(pens, ports.TaskRow{TaskID: httpTask, Category: in.Category})
+	}
+	return ports.RoundRow{
+		RoundID: httpRound, Category: in.Category, Pens: pens, PenCount: int32(len(pens)),
+	}, nil
+}
+
+func (f *fakePCCareHTTPService) RemovalPenProofs(_ context.Context, _ domain.Actor, removalTaskID string) ([]ports.RemovalPenProofRow, error) {
+	if f.removalPensErr != nil {
+		return nil, f.removalPensErr
+	}
+	return f.removalPens, nil
+}
+
+func (f *fakePCCareHTTPService) RegisterRemovalPenProof(_ context.Context, _ domain.Actor, in app.RegisterRemovalPenProofInput) error {
+	f.lastRemovalPenProof = in
+	return f.removalPenProofErr
+}
+
+func (f *fakePCCareHTTPService) GetRound(_ context.Context, _ domain.Actor, roundID string) (ports.RoundRow, error) {
+	if f.getRoundErr != nil {
+		return ports.RoundRow{}, f.getRoundErr
+	}
+	return ports.RoundRow{RoundID: roundID, Category: f.lastCreateRound.Category}, nil
 }
 func (f *fakePCCareHTTPService) CancelTask(context.Context, domain.Actor, string, string) error {
 	return nil

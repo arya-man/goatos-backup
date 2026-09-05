@@ -230,6 +230,11 @@ type SubmitTaskResult struct {
 	MediaRefs []LabeledRef
 	// AnimalCount is the number of scanned animals covered by the submit.
 	AnimalCount int32
+	// RemovalPens is set ONLY on a round-grain feed & water removal submit: one entry per pen,
+	// each carrying that pen's own two videos. It is what makes the verifier queue receive one
+	// item PER PEN — a single clip stretched over four pens proves nothing, and the review
+	// grain follows the evidence.
+	RemovalPens []RemovalPenRef
 }
 
 // ApplyVerifiedTaskParams flips an approved task pending_verification -> completed (status AND

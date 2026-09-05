@@ -27,6 +27,14 @@ type Service interface {
 	PlannerCatalog(ctx context.Context, actor domain.Actor) (ports.PlannerCatalog, error)
 	PlannerParkSheds(ctx context.Context, actor domain.Actor, parkID, category, plannedBusinessDate, cursor string, limit int) (ports.PlannerParkSheds, error)
 	CreateTask(ctx context.Context, actor domain.Actor, in app.CreateTaskInput) (ports.TaskRow, error)
+	// CreateRound plans a round covering one or more pens (maintainer decision 2026-09-05).
+	CreateRound(ctx context.Context, actor domain.Actor, in app.CreateRoundInput) (ports.RoundRow, error)
+	// GetRound reads one round with its pen buckets.
+	GetRound(ctx context.Context, actor domain.Actor, roundID string) (ports.RoundRow, error)
+	// RemovalPenProofs reads a round-grain removal card's per-pen evidence rows.
+	RemovalPenProofs(ctx context.Context, actor domain.Actor, removalTaskID string) ([]ports.RemovalPenProofRow, error)
+	// RegisterRemovalPenProof stores one pen's feed or water video on a removal card.
+	RegisterRemovalPenProof(ctx context.Context, actor domain.Actor, in app.RegisterRemovalPenProofInput) error
 	CancelTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error
 	ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int, currentOrCarry bool) (ports.TaskPage, error)
 	Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error)
@@ -56,6 +64,8 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/pc-care/planner/catalog", h.GetPlannerCatalog)
 	mux.HandleFunc("GET /app/pc-care/planner/parks/{park_id}/sheds", h.GetPlannerParkSheds)
+	mux.HandleFunc("POST /app/pc-care/rounds", h.PostCreateRound)
+	mux.HandleFunc("GET /app/pc-care/rounds/{round_id}", h.GetRound)
 	mux.HandleFunc("POST /app/pc-care/tasks", h.PostCreateTask)
 	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/cancel", h.PostCancelTask)
 	mux.HandleFunc("GET /app/pc-care/tasks", h.GetTasks)
@@ -70,6 +80,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/animals", h.PostScanAnimal)
 	mux.HandleFunc("PUT /app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", h.PutSlotProof)
 	mux.HandleFunc("PUT /app/pc-care/tasks/{task_id}/proofs/{slot}", h.PutTaskProof)
+	// A ROUND-grain feed & water removal is proved PEN BY PEN (maintainer decision
+	// 2026-09-05): the card is one evening's job, the evidence is two videos per pen, and the
+	// verifier gets one item per pen.
+	mux.HandleFunc("GET /app/pc-care/tasks/{task_id}/removal-pens", h.GetRemovalPens)
+	mux.HandleFunc("PUT /app/pc-care/tasks/{task_id}/removal-pens/proofs/{slot}", h.PutRemovalPenProof)
 	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/submit", h.PostSubmitTask)
 	// The PC Director's approve/reject on a submitted vaccine-stock task (maintainer decision
 	// 2026-09-02). Gated on pc_care.stock_approve in permissions/routes.go — the operators who

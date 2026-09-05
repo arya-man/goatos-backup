@@ -681,6 +681,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// proof. The verification enqueue seam is wired below, once verificationService exists.
 	pcCareRepo := pccarepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	pcCareService := pccareapp.NewService(pcCareRepo).
+		WithRoundStore(pcCareRepo).
 		WithProofValidator(pccareproof.NewValidator(proofRepo))
 	pcCareHandler := pccarehttp.NewHandler(pcCareService, log)
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)

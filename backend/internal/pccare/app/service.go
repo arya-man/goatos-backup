@@ -41,11 +41,20 @@ type VerificationEnqueueRequest struct {
 	OperatorID          string
 	CapturedAt          time.Time
 	IdempotencyKey      string
+	// RemovalPenID / RemovalPenLabel are set ONLY for a round-grain feed & water removal item,
+	// which is one PEN's evidence rather than a whole task's. When set, the bridge files the
+	// item against the pen instead of the task, so the verifier's verdict lands on the pen.
+	RemovalPenID    string
+	RemovalPenLabel string
 }
 
 // Service is the PC Care application service.
 type Service struct {
-	store    ports.TaskStore
+	store ports.TaskStore
+	// rounds is the round half of the write surface (maintainer decision 2026-09-05). It is
+	// a SEPARATE seam rather than a widened TaskStore so a unit test that exercises task
+	// behaviour is not forced to stub round writes it never makes.
+	rounds   ports.RoundStore
 	proofs   ports.ProofValidator
 	enqueuer VerificationEnqueuer
 	now      func() time.Time
@@ -54,6 +63,14 @@ type Service struct {
 // NewService constructs the service over the task store.
 func NewService(store ports.TaskStore) *Service {
 	return &Service{store: store, now: time.Now}
+}
+
+// WithRoundStore wires the round write/read seam. Production wires the same Postgres
+// repository that implements TaskStore; a service without it refuses round writes with
+// ErrStoreUnavailable rather than pretending to plan one.
+func (s *Service) WithRoundStore(r ports.RoundStore) *Service {
+	s.rounds = r
+	return s
 }
 
 // WithProofValidator wires proof-honesty validation (optional in pure unit tests, wired in

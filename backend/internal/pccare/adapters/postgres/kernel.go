@@ -72,7 +72,20 @@ WHERE t.tenant_id = $1::uuid AND t.task_id = claim.task_id`,
 			held, truncated, err := r.sweepDewormingRemovalGate(ctx, tenantID, today, chunkSize, maxChunks)
 			result.HeldForRemoval = held
 			result.Truncated = truncated
-			return result, err
+			if err != nil {
+				return result, err
+			}
+			// The SAME gate for a ROUND-planned deworming, whose removal card gates the round
+			// rather than the single task (maintainer decision 2026-09-05). It is a second pass
+			// rather than an OR in the join above for two reasons: Postgres refuses FOR UPDATE
+			// over a UNION, and an OR across two different columns would give up both partial
+			// unique indexes and seq-scan the table. The two passes are provably DISJOINT — a
+			// round-planned deworming has no removal carrying gates_task_id = its task id, and a
+			// legacy single-pen deworming has round_id IS NULL — so no row can be pushed twice.
+			roundHeld, roundTruncated, roundErr := r.sweepDewormingRoundRemovalGate(ctx, tenantID, today, chunkSize, maxChunks)
+			result.HeldForRemoval += roundHeld
+			result.Truncated = result.Truncated || roundTruncated
+			return result, roundErr
 		}
 	}
 	result.Truncated = true
@@ -132,6 +145,66 @@ WHERE t.tenant_id = $1::uuid AND t.task_id = claim.task_id`,
 		cancel()
 		if execErr != nil {
 			return held, false, fmt.Errorf("pccare: sweep deworming removal gate: %w", execErr)
+		}
+		moved := int(tag.RowsAffected())
+		held += moved
+		if moved < chunkSize {
+			return held, false, nil
+		}
+	}
+	return held, true, nil
+}
+
+// sweepDewormingRoundRemovalGate is the midnight gate for a ROUND-planned deworming: its feed &
+// water removal is ONE card gating the whole round, so every pen of that round is held when the
+// card was never submitted. Identical rule to sweepDewormingRemovalGate above, identical clock
+// (submitted_at IS NOT NULL EVER — a later verifier rework never re-blocks work that really
+// happened); only the link differs.
+//
+// projection-review: membership=pc_care_tasks deworming rows in ('scheduled','delayed') with
+// due_business_date <= today, round_id IS NOT NULL, whose round's removal card is live and not
+// submitted before the deworming day began; group_key=d.task_id (the UPDATE grain);
+// join_cardinality=removal 0..1 per ROUND — pc_care_tasks_gates_round_uq (tenant_id,
+// gates_round_id) WHERE gates_round_id IS NOT NULL makes the removal side unique per round, and
+// a task belongs to at most one round, so the join cannot multiply claim rows; consumer match
+// columns (tenant_id, gates_round_id) equal that index's columns; no aggregate, so no
+// numerator/denominator key set. pagination=chunked FOR UPDATE SKIP LOCKED; scope=tenant_id.
+func (r *Repository) sweepDewormingRoundRemovalGate(ctx context.Context, tenantID, today string, chunkSize, maxChunks int) (held int, truncated bool, err error) {
+	for chunk := 0; chunk < maxChunks; chunk++ {
+		ctxChunk, cancel := r.timeout(ctx)
+		// scale-guard:ignore: bounded chunked claim over pc_care_tasks_sweep_due_idx narrowed by the pc_care_tasks_gates_round_uq join, FOR UPDATE SKIP LOCKED, at most chunkSize rows per pass and maxChunks passes.
+		tag, execErr := r.pool.Exec(ctxChunk, `
+UPDATE pc_care_tasks t
+SET work_state = 'delayed',
+    delayed_since_business_date = COALESCE(t.delayed_since_business_date, t.due_business_date),
+    due_business_date = $2::date + 1,
+    rolled_forward_count = t.rolled_forward_count + 1,
+    updated_at = now(),
+    row_version = t.row_version + 1
+FROM (
+  SELECT d.task_id
+  FROM pc_care_tasks d
+  JOIN pc_care_tasks removal
+    ON removal.tenant_id = d.tenant_id AND removal.gates_round_id = d.round_id
+  WHERE d.tenant_id = $1::uuid
+    AND d.category = 'deworming'
+    AND d.round_id IS NOT NULL
+    AND d.work_state IN ('scheduled', 'delayed')
+    AND d.due_business_date <= $2::date
+    AND (
+      removal.submitted_at IS NULL
+      OR (removal.submitted_at AT TIME ZONE 'Asia/Kolkata') >= d.due_business_date::timestamp
+    )
+    AND removal.work_state <> 'canceled'
+  ORDER BY d.due_business_date, d.task_id
+  LIMIT $3
+  FOR UPDATE OF d, removal SKIP LOCKED
+) claim
+WHERE t.tenant_id = $1::uuid AND t.task_id = claim.task_id`,
+			tenantID, today, chunkSize)
+		cancel()
+		if execErr != nil {
+			return held, false, fmt.Errorf("pccare: sweep deworming round removal gate: %w", execErr)
 		}
 		moved := int(tag.RowsAffected())
 		held += moved

@@ -686,6 +686,13 @@ var protectedRoutes = []Route{
 	// service refuses any category outside hoof/hair trimming for that permission.
 	{OperationID: "appPCCarePlannerCatalog", Method: "GET", Pattern: "/app/pc-care/planner/catalog", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appPCCarePlannerParkSheds", Method: "GET", Pattern: "/app/pc-care/planner/parks/{park_id}/sheds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	// A ROUND create is the same act of planning as a task create — several pens instead of
+	// one — so it carries the SAME authority. Splitting it onto its own permission would let a
+	// principal plan four pens they could not plan singly.
+	{OperationID: "appListPCCareRemovalPens", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/removal-pens", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPutPCCareRemovalPenProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/removal-pens/proofs/{slot}", Permissions: []string{PCCareExecute}},
+	{OperationID: "appCreatePCCareRound", Method: "POST", Pattern: "/app/pc-care/rounds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	{OperationID: "appGetPCCareRound", Method: "GET", Pattern: "/app/pc-care/rounds/{round_id}", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appCreatePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
 	{OperationID: "appCancelPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/cancel", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
 	{OperationID: "appListPCCareTasks", Method: "GET", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},

@@ -72,6 +72,13 @@ type WeighingVerdictStore interface {
 type PCCareVerdictStore interface {
 	ApplyVerifiedTask(ctx context.Context, p pccareports.ApplyVerifiedTaskParams) (bool, error)
 	BounceTaskForRework(ctx context.Context, p pccareports.BounceTaskParams) (bool, error)
+	// The ROUND-grain feed & water removal's PER-PEN verdicts (maintainer decision
+	// 2026-09-05). They sit on the SAME interface rather than a second parameter because the
+	// same repository satisfies both, and a wiring that forgot the pen half would silently
+	// leave every pen verdict unapplied — the item would be decided and the pen would sit in
+	// pending_verification forever.
+	ApplyVerifiedRemovalPen(ctx context.Context, p pccareports.ApplyRemovalPenVerdictParams) (bool, error)
+	BounceRemovalPenForRework(ctx context.Context, p pccareports.ApplyRemovalPenVerdictParams) (bool, error)
 }
 
 // HealthVerdictStore is satisfied by *healthpg.Repository — the treatment-session verdict half
@@ -117,7 +124,7 @@ func RegisterVerificationAppliers(
 	// PC Care (maintainer decision 2026-08-21): the pc_care module's applier, filtered to
 	// pc_care/pc_care_task. Registered HERE, in the one shared list, so the API bus, the outbox
 	// relay, and the Pub/Sub consumer cannot drift apart.
-	pccareapp.NewPCCareVerificationHandler(pcCare, log).Register(bus)
+	pccareapp.NewPCCareVerificationHandler(pcCare, log).WithRemovalStore(pcCare).Register(bus)
 	// Health (2026-08-29): the treatment-session applier, filtered to
 	// health/health_treatment_session. Post-task evidence review only — approve stamps
 	// verified_by/verified_at, reject flips the session to 'rework'; nothing rolls back a

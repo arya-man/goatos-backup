@@ -48,16 +48,19 @@ func (r *Repository) SubmitTask(ctx context.Context, p ports.SubmitTaskParams) (
 
 	var (
 		category, parkID, shedID, partitionLabel, vaccineLabel, status, workState, plannedDate string
-		rowVersion                                                                             int32
+		// gatesRoundID is non-empty ONLY on a round-grain feed & water removal card. It is what
+		// tells this submit to read the per-pen evidence table instead of the task-proof slots.
+		gatesRoundID string
+		rowVersion   int32
 	)
 	err = tx.QueryRow(ctx, `
 SELECT category, park_id::text, coalesce(shed_id::text, ''), coalesce(partition_label, ''),
        coalesce(vaccine_label, ''), status, work_state,
-       planned_business_date::text, row_version
+       planned_business_date::text, coalesce(gates_round_id::text, ''), row_version
 FROM pc_care_tasks
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid
 FOR UPDATE`, p.TenantID, p.TaskID).Scan(
-		&category, &parkID, &shedID, &partitionLabel, &vaccineLabel, &status, &workState, &plannedDate, &rowVersion)
+		&category, &parkID, &shedID, &partitionLabel, &vaccineLabel, &status, &workState, &plannedDate, &gatesRoundID, &rowVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.SubmitTaskResult{}, ports.ErrNotFound
 	}
@@ -127,7 +130,19 @@ FOR UPDATE`, p.TenantID, p.TaskID).Scan(
 
 	var animalCount int
 	var mediaRefs []ports.LabeledRef
-	if domain.CaptureModeForCategory(category) == domain.CaptureModeTaskProof {
+	var removalPens []ports.RemovalPenRef
+	switch {
+	case gatesRoundID != "":
+		// A ROUND-grain feed & water removal (maintainer decision 2026-09-05): the evidence is
+		// one feed video + one water video PER PEN, and EVERY pen must carry both. A card
+		// submitted with one pen unfilmed would tell the midnight gate that pen's animals were
+		// fasted when they were not.
+		var err error
+		removalPens, mediaRefs, err = removalPenSubmitRefs(ctx, tx, p.TenantID, p.TaskID)
+		if err != nil {
+			return ports.SubmitTaskResult{}, err
+		}
+	case domain.CaptureModeForCategory(category) == domain.CaptureModeTaskProof:
 		var err error
 		if category == domain.CategoryInventoryVaccine {
 			var requirementCount int
@@ -148,7 +163,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND required_doses > 0`,
 		if err != nil {
 			return ports.SubmitTaskResult{}, err
 		}
-	} else {
+	default:
 		// Readiness: every scanned animal must carry every slot the category demands. ONE bounded
 		// count per submit (a write, not a list), category-aware.
 		var missingCount int
@@ -195,7 +210,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 		return ports.SubmitTaskResult{}, fmt.Errorf("pccare: stamp animal submits: %w", err)
 	}
 
-	if domain.CaptureModeForCategory(category) != domain.CaptureModeTaskProof {
+	if gatesRoundID == "" && domain.CaptureModeForCategory(category) != domain.CaptureModeTaskProof {
 		var err error
 		mediaRefs, err = r.composeSubmitMediaRefs(ctx, tx, p.TenantID, p.TaskID, category)
 		if err != nil {
@@ -252,6 +267,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 		PlannedBusinessDate: plannedDate,
 		MediaRefs:           mediaRefs,
 		AnimalCount:         int32(animalCount),
+		RemovalPens:         removalPens,
 		OperatorID:          p.SubmittedBy,
 		RowVersion:          rowVersion,
 		OccurredAt:          p.Now,
@@ -285,10 +301,13 @@ type pendingVerificationOutbox struct {
 	PlannedBusinessDate string
 	MediaRefs           []ports.LabeledRef
 	AnimalCount         int32
-	OperatorID          string
-	RowVersion          int32
-	OccurredAt          time.Time
-	TraceID             string
+	// RemovalPens is set only on a round-grain removal submit; the consumer fans it out into
+	// ONE verifier item per pen.
+	RemovalPens []ports.RemovalPenRef
+	OperatorID  string
+	RowVersion  int32
+	OccurredAt  time.Time
+	TraceID     string
 }
 
 func insertPendingVerificationOutbox(ctx context.Context, tx pgx.Tx, o pendingVerificationOutbox) error {
@@ -300,6 +319,20 @@ func insertPendingVerificationOutbox(ctx context.Context, tx pgx.Tx, o pendingVe
 			continue
 		}
 		media = append(media, map[string]string{"proof_ref": ref.ProofRef, "label": ref.Label})
+	}
+	// One entry per pen on a round-grain removal, so the consumer can mint ONE verifier item
+	// per pen. Absent on every other submit, which keeps those payloads byte-identical to
+	// what they were before rounds existed.
+	removalPens := make([]map[string]any, 0, len(o.RemovalPens))
+	for _, pen := range o.RemovalPens {
+		removalPens = append(removalPens, map[string]any{
+			"removal_pen_id":  pen.RemovalPenID,
+			"gated_task_id":   pen.GatedTaskID,
+			"pen_label":       pen.PenLabel,
+			"feed_proof_ref":  pen.FeedProofRef,
+			"water_proof_ref": pen.WaterProofRef,
+			"row_version":     pen.RowVersion,
+		})
 	}
 	payload := map[string]any{
 		"task_id":               o.TaskID,
@@ -314,6 +347,9 @@ func insertPendingVerificationOutbox(ctx context.Context, tx pgx.Tx, o pendingVe
 		"animal_count":          o.AnimalCount,
 		"operator_id":           o.OperatorID,
 		"row_version":           o.RowVersion,
+	}
+	if len(removalPens) > 0 {
+		payload["removal_pens"] = removalPens
 	}
 	envelope := pcCareEventEnvelope{
 		EventID:        eventID,

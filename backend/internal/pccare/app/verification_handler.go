@@ -55,6 +55,17 @@ type pcCarePendingVerificationPayload struct {
 	AnimalCount int32  `json:"animal_count"`
 	OperatorID  string `json:"operator_id"`
 	RowVersion  int32  `json:"row_version"`
+	// RemovalPens is present ONLY on a round-grain feed & water removal submit. One entry per
+	// pen, each with that pen's own two videos, because a single clip stretched over four pens
+	// proves nothing and the verifier cannot tell which pen was actually emptied.
+	RemovalPens []struct {
+		RemovalPenID  string `json:"removal_pen_id"`
+		GatedTaskID   string `json:"gated_task_id"`
+		PenLabel      string `json:"pen_label"`
+		FeedProofRef  string `json:"feed_proof_ref"`
+		WaterProofRef string `json:"water_proof_ref"`
+		RowVersion    int32  `json:"row_version"`
+	} `json:"removal_pens"`
 }
 
 // VerdictStore is the narrow slice of the task store this consumer drives — kept small so the
@@ -110,6 +121,42 @@ func (h *PCCarePendingVerificationHandler) HandleEvent(ctx context.Context, e ev
 	if !e.OccurredAt.IsZero() {
 		capturedAt = e.OccurredAt.UTC()
 	}
+	// A ROUND-grain removal fans out into ONE item PER PEN: the review grain follows the
+	// evidence, and the evidence is shot pen by pen. Each item's idempotency key is that pen's
+	// own row version, so a re-shot pen mints a fresh item while a retry collapses onto one and
+	// the pens that were already approved are never re-queued.
+	if len(p.RemovalPens) > 0 {
+		for _, pen := range p.RemovalPens {
+			penID := strings.TrimSpace(pen.RemovalPenID)
+			if penID == "" {
+				continue
+			}
+			penRefs := make([]ports.LabeledRef, 0, 2)
+			if ref := strings.TrimSpace(pen.FeedProofRef); ref != "" {
+				penRefs = append(penRefs, ports.LabeledRef{ProofRef: ref, Label: "Feed removal video"})
+			}
+			if ref := strings.TrimSpace(pen.WaterProofRef); ref != "" {
+				penRefs = append(penRefs, ports.LabeledRef{ProofRef: ref, Label: "Water removal video"})
+			}
+			if err := h.enqueuer.EnqueuePCCareVerification(ctx, VerificationEnqueueRequest{
+				TenantID:            e.TenantID,
+				TaskID:              strings.TrimSpace(p.TaskID),
+				Category:            strings.TrimSpace(p.Category),
+				ParkID:              strings.TrimSpace(p.ParkID),
+				PlannedBusinessDate: strings.TrimSpace(p.PlannedBusinessDate),
+				MediaRefs:           penRefs,
+				OperatorID:          strings.TrimSpace(p.OperatorID),
+				CapturedAt:          capturedAt,
+				// The item is the PEN's, so its source ref and its subject are the pen's too.
+				RemovalPenID:    penID,
+				RemovalPenLabel: strings.TrimSpace(pen.PenLabel),
+				IdempotencyKey:  "pc-care-removal-pen:" + penID + ":" + strconv.Itoa(int(pen.RowVersion)),
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	return h.enqueuer.EnqueuePCCareVerification(ctx, VerificationEnqueueRequest{
 		TenantID:            e.TenantID,
 		TaskID:              strings.TrimSpace(p.TaskID),
@@ -131,12 +178,27 @@ func (h *PCCarePendingVerificationHandler) HandleEvent(ctx context.Context, e ev
 // PCCareVerificationHandler applies a verifier's verdict to the task it verified.
 type PCCareVerificationHandler struct {
 	store VerdictStore
-	log   *slog.Logger
+	// removals applies a round-grain removal's PER-PEN verdicts. Nil in a task-only test; a
+	// pen verdict then routes nowhere rather than being misapplied to a task.
+	removals RemovalVerdictStore
+	log      *slog.Logger
+}
+
+// RemovalVerdictStore is the narrow slice of the round store this consumer drives.
+type RemovalVerdictStore interface {
+	ApplyVerifiedRemovalPen(ctx context.Context, p ports.ApplyRemovalPenVerdictParams) (bool, error)
+	BounceRemovalPenForRework(ctx context.Context, p ports.ApplyRemovalPenVerdictParams) (bool, error)
 }
 
 // NewPCCareVerificationHandler constructs the consumer over the verdict store.
 func NewPCCareVerificationHandler(store VerdictStore, log *slog.Logger) *PCCareVerificationHandler {
 	return &PCCareVerificationHandler{store: store, log: log}
+}
+
+// WithRemovalStore wires the per-pen removal verdict writes.
+func (h *PCCareVerificationHandler) WithRemovalStore(r RemovalVerdictStore) *PCCareVerificationHandler {
+	h.removals = r
+	return h
 }
 
 var _ eventbus.Handler = (*PCCareVerificationHandler)(nil)
@@ -158,13 +220,38 @@ func (h *PCCareVerificationHandler) HandleEvent(ctx context.Context, e eventbus.
 			return err
 		}
 	}
-	if p.Source.Module != domain.VerificationModulePCCare || p.Source.RefType != domain.VerificationRefTypeTask {
+	if p.Source.Module != domain.VerificationModulePCCare {
 		return nil
 	}
-	taskID := strings.TrimSpace(p.Source.RefID)
-	if taskID == "" || strings.TrimSpace(e.TenantID) == "" {
+	refID := strings.TrimSpace(p.Source.RefID)
+	if refID == "" || strings.TrimSpace(e.TenantID) == "" {
 		return nil
 	}
+	// A round-grain removal's verdict lands on ONE PEN's evidence row, and the parent card is
+	// rolled up from the pens inside that same write. Routed on ref_type so a task verdict and
+	// a pen verdict can never be applied to each other's row.
+	if p.Source.RefType == domain.VerificationRefTypeRemovalPen {
+		if h.removals == nil {
+			return nil
+		}
+		params := ports.ApplyRemovalPenVerdictParams{
+			TenantID:     e.TenantID,
+			RemovalPenID: refID,
+			VerifiedBy:   strings.TrimSpace(p.VerifiedBy),
+			Reason:       strings.TrimSpace(p.Reason),
+			TraceID:      e.ID,
+		}
+		if e.Type == eventVerificationVerdictApproved {
+			_, err := h.removals.ApplyVerifiedRemovalPen(ctx, params)
+			return err
+		}
+		_, err := h.removals.BounceRemovalPenForRework(ctx, params)
+		return err
+	}
+	if p.Source.RefType != domain.VerificationRefTypeTask {
+		return nil
+	}
+	taskID := refID
 
 	switch e.Type {
 	case eventVerificationVerdictApproved:
