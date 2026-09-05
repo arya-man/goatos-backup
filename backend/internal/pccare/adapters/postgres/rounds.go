@@ -1121,7 +1121,7 @@ SELECT
   min(s.planned_business_date)::text AS planned_business_date,
   min(s.due_business_date)::text AS due_business_date,
   count(*)::int AS pen_count,
-  array_remove(array_agg(s.pen_label ORDER BY s.pen_label), '') AS pen_labels,
+  array_remove(array_agg(s.operational_location_display ORDER BY s.operational_location_display), '') AS pen_labels,
   array_agg(s.status) AS pen_statuses,
   array_agg(s.work_state) AS pen_work_states,
   coalesce(min(crew.names), ARRAY[]::text[]) AS assignee_names,

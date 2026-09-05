@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
@@ -83,6 +84,54 @@ func TestRoundCardsOneToManyAssigneesDoNotInflateThePenCount(t *testing.T) {
 	}
 	if len(card.AssigneeNames) != 2 {
 		t.Fatalf("assignee names = %v, want both operators once each", card.AssigneeNames)
+	}
+}
+
+func TestRoundCardsMultipleDimensionsPaginationParkScopeStatusMatrixUsesOperationalLocationDisplay(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+
+	round, err := repo.CreateRound(ctx, ports.CreateRoundParams{
+		TenantID: pcTenant, Category: domain.CategoryDeworming, ParkID: pcPark,
+		Pens: []domain.RoundPen{
+			{ShedID: pcShedA, PartitionLabel: "Part 1"},
+			{ShedID: pcShedA, PartitionLabel: "Part 2"},
+		},
+		PlannedBusinessDate: pcBusinessDay(2026, 9, 17),
+		AssigneeUserIDs:     []string{pcOperator1, pcOperator2},
+		IdempotencyKey:      "round-cards-operational-location-display",
+		CreatedBy:           pcVerifier, ActorID: pcVerifier,
+	})
+	if err != nil {
+		t.Fatalf("CreateRound: %v", err)
+	}
+
+	page := listActiveCards(t, ctx, repo, 1, "")
+	if len(page.Cards) != 1 || page.Cards[0].RoundID != round.RoundID {
+		t.Fatalf("first page cards = %+v, want only round %s", page.Cards, round.RoundID)
+	}
+	card := page.Cards[0]
+	if card.PenCount != 2 {
+		t.Fatalf("pen_count = %d, want 2", card.PenCount)
+	}
+	if !slices.Contains(card.PenLabels, "Castro - Part 1") || !slices.Contains(card.PenLabels, "Castro - Part 2") {
+		t.Fatalf("pen labels = %v, want operational location display labels", card.PenLabels)
+	}
+	if card.Status != domain.StatusOpen {
+		t.Fatalf("status = %q, want open", card.Status)
+	}
+
+	clamped, err := repo.ListRoundCards(ctx, ports.ListRoundCardsQuery{
+		TenantID: pcTenant, AuthorizedParkIDs: []string{pcOtherPark},
+		Category: domain.CategoryDeworming, Filter: ports.RoundCardsFilterActive, Limit: 25,
+	})
+	if err != nil {
+		t.Fatalf("ListRoundCards (other park): %v", err)
+	}
+	for _, c := range clamped.Cards {
+		if c.RoundID == round.RoundID {
+			t.Fatal("round leaked across the park clamp")
+		}
 	}
 }
 
