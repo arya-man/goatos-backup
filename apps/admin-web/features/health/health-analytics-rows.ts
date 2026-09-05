@@ -65,6 +65,11 @@ export function toDeathRows(
   rows: readonly HealthAnalyticsDeath[],
   labels: DeathLabels,
   ageBands: AgeBandLabels,
+  /**
+   * The shared `lib/format.fmtDate`, passed IN rather than imported so this module stays a
+   * pure mapper with no app-alias dependency — which is what keeps it directly testable.
+   */
+  formatDate: (iso: string) => string,
 ): DeathRow[] {
   return rows.map((row) => {
     const attributed = row.attribution === "attributed";
@@ -75,7 +80,10 @@ export function toDeathRows(
       animalLabel: row.tag || labels.noTag,
       displayId: row.display_id,
       pen: row.operational_location_display,
-      date: row.business_date,
+      // DD-MM-YYYY through the shared helper. The wire value stays ISO; shipping it
+      // straight into the cell would put the API's own format in front of the farm.
+      date: formatDate(row.business_date),
+      sortDate: row.business_date,
       ageBandLabel: ageBandLabel(ageBands, row.age_band),
       // "No case on record" and "the case had closed" are different facts about the animal,
       // and both are unattributed. Collapsing them would hide the detection gap.

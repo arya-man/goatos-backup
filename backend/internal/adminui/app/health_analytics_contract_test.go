@@ -87,7 +87,7 @@ func TestHealthAnalyticsCarriesCopyForTheUnattributedDeath(t *testing.T) {
 	for _, key := range []string{
 		"label.attributed", "label.unattributed", "label.never",
 		"series.attributed", "series.unattributed",
-		"kpi.unattributed.label", "stat.never.label",
+		"kpi.unattributed.label", "stat.never.label", "stat.never.sub", "stat.attributed.sub",
 	} {
 		if strings.TrimSpace(page.Copy[key]) == "" {
 			t.Errorf("copy %q is missing; the renderer would have to invent it", key)

@@ -13,7 +13,7 @@ import {
   type HealthAnalyticsResponse,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { todayIso } from "@/lib/format";
+import { fmtDate, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import {
@@ -76,6 +76,16 @@ const DEFAULT_MONTHS = 6;
 const FLOOR_DATE = "2026-08-01";
 /** Wire format of a window bound; the shared calendar speaks exactly this. */
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Type size on the bar charts, relative to the shared chart's base — the same multiplier and
+ * the same reason as Herd Analytics.
+ *
+ * These cards run the FULL WIDTH of the page, so the 1100-unit viewBox scales up barely at all
+ * and the base 9-unit type lands at roughly 9 real pixels: legible on a card three to a row,
+ * too small on one that fills the page. Confirmed on the rendered screen before it was set.
+ */
+const BAR_TEXT_SCALE = 1.7;
 
 /**
  * A series colour follows the SERIES, never its rank on one chart: a death under treatment is
@@ -257,6 +267,7 @@ export async function HealthAnalyticsPage({
       noTag: ha(pageContract, "label.no_tag"),
     },
     ageBands,
+    fmtDate,
   );
   const medicineRows: MedicineRow[] = toMedicineRows(data.medicines);
   const engineRuleRows: EngineRuleRow[] = toEngineRuleRows(data.engine.rules);
@@ -390,6 +401,7 @@ export async function HealthAnalyticsPage({
               <SvgBars
                 data={diseaseBars}
                 maxBars={diseaseBars.length}
+                textScale={BAR_TEXT_SCALE}
                 valueNoun={casesNoun}
                 chartLabel={ha(pageContract, "chart.diseases.title")}
                 emptyLabel={emptyChart}
@@ -434,8 +446,8 @@ export async function HealthAnalyticsPage({
             <Kpi
               accent="var(--teal)"
               label={ha(pageContract, "label.attributed")}
+              sub={ha(pageContract, "stat.attributed.sub")}
               value={nf(totals.deaths_attributed)}
-              sub={ha(pageContract, "kpi.deaths.sub")}
             />
             <Kpi
               accent="var(--amber)"
@@ -458,6 +470,7 @@ export async function HealthAnalyticsPage({
               <SvgBars
                 data={fatalityBars}
                 maxBars={fatalityBars.length}
+                textScale={BAR_TEXT_SCALE}
                 valueNoun="%"
                 chartLabel={ha(pageContract, "chart.fatality.title")}
                 emptyLabel={emptyChart}
@@ -486,7 +499,7 @@ export async function HealthAnalyticsPage({
               accent="var(--brand)"
               label={ha(pageContract, "stat.sessions.label")}
               value={nf(data.adherence.sessions_due)}
-              sub={ha(pageContract, "chart.adherence.hint")}
+              sub={ha(pageContract, "stat.sessions.sub")}
             />
             <Kpi
               accent="var(--info)"
@@ -503,6 +516,7 @@ export async function HealthAnalyticsPage({
               <SvgBars
                 data={adherenceBars}
                 maxBars={adherenceBars.length}
+                textScale={BAR_TEXT_SCALE}
                 // The four buckets PARTITION sessions_due, so a share is a real share here.
                 showShare
                 valueNoun={ha(pageContract, "stat.sessions.label")}
@@ -527,12 +541,15 @@ export async function HealthAnalyticsPage({
 
       {tab === "engine" ? (
         <>
+          <p className="muted small" style={{ margin: "0 0 -4px" }}>
+            {ha(pageContract, "section.engine.note")}
+          </p>
           <section className="grid g3 kpi-row" style={{ gap: 14 }} aria-label={ha(pageContract, "section.engine.title")}>
             <Kpi
               accent="var(--info)"
-              label={ha(pageContract, "section.engine.title")}
+              label={ha(pageContract, "stat.observations.label")}
               value={nf(data.engine.observations)}
-              sub={ha(pageContract, "section.engine.note")}
+              sub={ha(pageContract, "stat.observations.sub")}
             />
             <Kpi
               accent="var(--brand)"

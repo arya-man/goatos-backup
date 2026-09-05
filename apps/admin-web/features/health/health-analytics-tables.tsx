@@ -81,7 +81,9 @@ export type DeathRow = {
   animalLabel: string;
   displayId: string;
   pen: string;
+  /** Already DD-MM-YYYY. The ISO value rides on `sortDate` so the column still orders by date. */
   date: string;
+  sortDate: string;
   ageBandLabel: string;
   attributionLabel: string;
   attributed: boolean;
@@ -114,7 +116,8 @@ export function DeathsTable({
       sortValue: (row) => row.animalLabel,
     },
     pen: { cell: (row) => row.pen || <span className="muted">{noDataLabel}</span>, sortValue: (row) => row.pen },
-    date: { cell: (row) => row.date, sortValue: (row) => row.date },
+    // Sorted on the ISO value, never the rendered DD-MM-YYYY, which orders by day-of-month.
+    date: { cell: (row) => row.date, sortValue: (row) => row.sortDate },
     age_band: { cell: (row) => row.ageBandLabel, sortValue: (row) => row.ageBandLabel },
     attribution: {
       // An UNATTRIBUTED death shows the chip and NOTHING else. Goat OS records no cause of

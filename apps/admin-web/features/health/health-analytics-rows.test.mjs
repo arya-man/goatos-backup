@@ -3,6 +3,13 @@ import test from "node:test";
 
 import { ageBandLabel, toDeathRows, toDiseaseRows } from "./health-analytics-rows.ts";
 
+// The real lib/format.fmtDate, reimplemented here for the test only because the module under
+// test takes the formatter as an argument. Kept byte-identical in OUTPUT shape (DD-MM-YYYY).
+const fmtDate = (iso) => {
+  const [y, m, d] = iso.split("-");
+  return `${d}-${m}-${y}`;
+};
+
 const AGE_BANDS = { adult: "Adult", kid: "Kid", both: "Both", unknown: "Not recorded" };
 const DEATH_LABELS = { never: "No case on record", unattributed: "Not attributed", noTag: "No tag recorded" };
 
@@ -24,7 +31,7 @@ function deathRow(overrides) {
 }
 
 test("an attributed death carries its disease and its days under treatment", () => {
-  const [row] = toDeathRows([deathRow()], DEATH_LABELS, AGE_BANDS);
+  const [row] = toDeathRows([deathRow()], DEATH_LABELS, AGE_BANDS, fmtDate);
   assert.equal(row.attributed, true);
   assert.equal(row.diseaseLabel, "Fever");
   assert.equal(row.daysUnderTreatment, 3);
@@ -40,6 +47,7 @@ test("an unattributed death is never given a disease, even if the wire sends one
     [deathRow({ attribution: "unattributed", disease_label: "Fever", days_under_treatment: 9 })],
     DEATH_LABELS,
     AGE_BANDS,
+    fmtDate,
   );
   assert.equal(row.attributed, false);
   assert.equal(row.diseaseLabel, "");
@@ -53,11 +61,13 @@ test("never-diagnosed and closed-case deaths carry different labels", () => {
     [deathRow({ attribution: "unattributed", disease_label: "", never_diagnosed: true, days_under_treatment: null })],
     DEATH_LABELS,
     AGE_BANDS,
+    fmtDate,
   );
   const [closed] = toDeathRows(
     [deathRow({ attribution: "unattributed", disease_label: "", never_diagnosed: false, days_under_treatment: null })],
     DEATH_LABELS,
     AGE_BANDS,
+    fmtDate,
   );
   assert.equal(never.attributionLabel, "No case on record");
   assert.equal(closed.attributionLabel, "Not attributed");
@@ -67,8 +77,17 @@ test("never-diagnosed and closed-case deaths carry different labels", () => {
 // An animal with no identifier is a DATA GAP and says so. An empty cell would read as a loading
 // failure, and the farm reads an animal by its RFID.
 test("an animal with no tag renders the backend's own gap copy", () => {
-  const [row] = toDeathRows([deathRow({ tag: "" })], DEATH_LABELS, AGE_BANDS);
+  const [row] = toDeathRows([deathRow({ tag: "" })], DEATH_LABELS, AGE_BANDS, fmtDate);
   assert.equal(row.animalLabel, "No tag recorded");
+});
+
+// The farm reads DD-MM-YYYY. Rendering the wire's ISO date would put the API's own format in
+// front of the operator (admin-web Date Display Rule), while sorting must still use the ISO
+// value or the column orders by day-of-month.
+test("a death row renders DD-MM-YYYY and keeps the ISO value for sorting", () => {
+  const [row] = toDeathRows([deathRow({ business_date: "2026-09-03" })], DEATH_LABELS, AGE_BANDS, fmtDate);
+  assert.equal(row.date, "03-09-2026");
+  assert.equal(row.sortDate, "2026-09-03");
 });
 
 test("age band falls back to the contract's not-recorded copy for an unknown value", () => {
