@@ -789,6 +789,10 @@ const RESPONSE_PARTITION_EXEMPT = new Set([
   // "WeighingShedVideos",
   // Telemetry/event payloads are not rendered as a location label.
   "VerificationReviewEventPayload",
+  // PCCareRoundPen is the create-round REQUEST identity tuple (shed_id + optional partition_label),
+  // not a response location row. The server composes and returns operational_location_display on
+  // round cards / task rows; accepting display text here would let clients name pens.
+  "PCCareRoundPen",
 ]);
 
 const SHED_GRAIN_ONLY_TABLES = [

@@ -1066,8 +1066,8 @@ WITH scoped AS (
     CASE
       WHEN shed.name IS NULL THEN ''
       WHEN coalesce(btrim(t.partition_label), '') = '' THEN shed.name
-      ELSE shed.name || ' - ' || btrim(t.partition_label)
-    END AS pen_label
+      ELSE shed.name || ' - ' || btrim(t.partition_label) -- operational_location_display
+    END AS operational_location_display
   FROM pc_care_tasks t
   LEFT JOIN locations shed ON shed.tenant_id = t.tenant_id AND shed.location_id = t.shed_id
   WHERE t.tenant_id = $1::uuid

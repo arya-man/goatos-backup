@@ -61,23 +61,23 @@ type roundCardDTO struct {
 	RoundID string `json:"round_id,omitempty"`
 	// SingleTaskID is set only on a round-less card, so the phone opens that pen's task
 	// directly instead of drilling into a round of one.
-	SingleTaskID        string   `json:"single_task_id,omitempty"`
-	Category            string   `json:"category"`
-	CategoryLabel       string   `json:"category_label"`
-	ParkID              string   `json:"park_id"`
-	ParkName            string   `json:"park_name"`
-	PlannedBusinessDate string   `json:"planned_business_date"`
-	DueBusinessDate     string   `json:"due_business_date"`
-	Status              string   `json:"status"`
+	SingleTaskID        string `json:"single_task_id,omitempty"`
+	Category            string `json:"category"`
+	CategoryLabel       string `json:"category_label"`
+	ParkID              string `json:"park_id"`
+	ParkName            string `json:"park_name"`
+	PlannedBusinessDate string `json:"planned_business_date"`
+	DueBusinessDate     string `json:"due_business_date"`
+	Status              string `json:"status"`
 	// WorkState is "closed" on an ENDED round, "completed" when its work finished, absent
 	// while it is live. The chip reads this first; status alone cannot tell the two apart.
-	WorkState           string   `json:"work_state,omitempty"`
-	PenCount            int32    `json:"pen_count"`
-	PenLabels           []string `json:"pen_labels"`
-	AssigneeNames       []string `json:"assignee_names"`
-	AnimalCount         int32    `json:"animal_count"`
-	RemovalTaskID       string   `json:"removal_task_id,omitempty"`
-	RemovalStatus       string   `json:"removal_status,omitempty"`
+	WorkState     string   `json:"work_state,omitempty"`
+	PenCount      int32    `json:"pen_count"`
+	PenLabels     []string `json:"pen_labels"`
+	AssigneeNames []string `json:"assignee_names"`
+	AnimalCount   int32    `json:"animal_count"`
+	RemovalTaskID string   `json:"removal_task_id,omitempty"`
+	RemovalStatus string   `json:"removal_status,omitempty"`
 }
 
 type roundCardPageDTO struct {

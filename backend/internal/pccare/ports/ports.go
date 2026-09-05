@@ -108,13 +108,13 @@ type TaskRow struct {
 	WorkState           string
 	Status              string
 	// CloseReason is the closer's words on a CLOSED task, rendered verbatim; empty otherwise.
-	CloseReason string
-	ReworkReason        string
-	RowVersion          int32
-	SubmittedBy         string
-	SubmittedAt         *time.Time
-	AssigneeUserIDs     []string
-	AssigneeNames       []string
+	CloseReason     string
+	ReworkReason    string
+	RowVersion      int32
+	SubmittedBy     string
+	SubmittedAt     *time.Time
+	AssigneeUserIDs []string
+	AssigneeNames   []string
 	// AnimalCount is this task's scanned-animal count (a per-task COUNT bounded by one task).
 	AnimalCount int32
 	// InventoryRequirements snapshots vaccine stock requirements for inventory_vaccine tasks.
