@@ -373,7 +373,39 @@ func TestSalesLedgerPostgresPaths(t *testing.T) {
 }
 
 // TestSalesDealPaymentPostgresPaths exercises the buyer-receipts ledger against a real Postgres.
-//
+func TestSalesPipelineCreateIdempotencyIncludesPhoneNumber(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	buyer := domain.BuyerLeadWrite{
+		BuyerName:   "Sajid",
+		PhoneNumber: "9000000001",
+	}.Normalize()
+	if _, err := repo.CreateBuyerLead(ctx, salesTestTenant, buyer, "", "buyer-phone-key"); err != nil {
+		t.Fatalf("create buyer lead: %v", err)
+	}
+	buyer.PhoneNumber = "9000000002"
+	if _, err := repo.CreateBuyerLead(ctx, salesTestTenant, buyer, "", "buyer-phone-key"); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("buyer phone conflict: want ErrIdempotencyConflict, got %v", err)
+	}
+
+	fpo := domain.FPOLeadWrite{
+		FPOName:     "Raitha Mitra FPCL",
+		PhoneNumber: "9000000003",
+	}.Normalize()
+	if _, err := repo.CreateFPOLead(ctx, salesTestTenant, fpo, "", "fpo-phone-key"); err != nil {
+		t.Fatalf("create fpo lead: %v", err)
+	}
+	fpo.PhoneNumber = "9000000004"
+	if _, err := repo.CreateFPOLead(ctx, salesTestTenant, fpo, "", "fpo-phone-key"); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("fpo phone conflict: want ErrIdempotencyConflict, got %v", err)
+	}
+}
+
 // Integration rather than unit for the same reason as the feed-purchase instalment test: the
 // running-total update under the row lock, the advance seeding, and the idempotency reservation
 // all live in SQL and in the transaction boundary.

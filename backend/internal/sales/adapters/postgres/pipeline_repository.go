@@ -210,7 +210,7 @@ func (r *Repository) CreateBuyerLead(ctx context.Context, tenantID string, write
 
 	fingerprint := requestFingerprint("buyer_lead",
 		write.RecordedDate, write.Farm, write.BuyerName, write.BuyerPlace,
-		write.AnimalType, write.Breed, write.CallStatus)
+		write.AnimalType, write.Breed, write.PhoneNumber, write.CallStatus)
 	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeBuyerLeadCreate, idempotencyKey, fingerprint)
 	if err != nil {
 		return domain.BuyerLead{}, err
@@ -550,7 +550,7 @@ func (r *Repository) CreateFPOLead(ctx context.Context, tenantID string, write d
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	fingerprint := requestFingerprint("fpo_lead",
-		write.FPOName, write.Crops, write.District, write.Taluk, write.State, write.CallStatus)
+		write.FPOName, write.Crops, write.District, write.Taluk, write.State, write.PhoneNumber, write.CallStatus)
 	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeFPOLeadCreate, idempotencyKey, fingerprint)
 	if err != nil {
 		return domain.FPOLead{}, err
