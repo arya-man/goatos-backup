@@ -325,7 +325,12 @@ data class SalesLeadRemoteKeyEntity(
 
 @Dao
 interface SalesLeadItemDao {
-    @Query("SELECT * FROM sales_lead_items WHERE queryKey = :queryKey ORDER BY sortIndex ASC")
+    // mobile-guard:ignore: this IS the bounded window the rule asks for -- it returns a Room
+    // PagingSource, so Room appends its own LIMIT/OFFSET per page (SALES_LEADS_PAGE_SIZE, ~20) and
+    // the UI never observes the whole table. The guard matches "ORDER BY with no literal LIMIT" and
+    // cannot see the return type; the sibling paged DAOs above escape it only because their query
+    // string happens to be split across lines, which is a blind spot rather than an exemption.
+    @Query("SELECT * FROM sales_lead_items WHERE queryKey = :queryKey ORDER BY sortIndex ASC") // mobile-guard:ignore: returns a Room PagingSource, so Room appends its own LIMIT/OFFSET per ~20-row page and the UI never observes the whole table
     fun pagingSource(queryKey: String): PagingSource<Int, SalesLeadItemEntity>
 
     /** Every cached copy of one lead's row, across scopes -- the reconcile target after an edit. */
