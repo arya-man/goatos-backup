@@ -67,6 +67,7 @@ import sg.mesha.goatos.core.network.dto.PcCareCapturesDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCloseRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundCardPageDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundPenDto
 import sg.mesha.goatos.core.network.dto.PcCareRemovalPenListDto
@@ -905,6 +906,21 @@ interface AppApiService {
     suspend fun createPcCareRound(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: PcCareCreateRoundRequestDto,
+    ): PcCareRoundDto
+
+    @GET("app/pc-care/rounds")
+    suspend fun getPcCareRoundCards(
+        @Query("date") date: String?,
+        @Query("category") category: String?,
+        @Query("park_id") parkId: String?,
+        @Query("filter") filter: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): PcCareRoundCardPageDto
+
+    @GET("app/pc-care/rounds/{round_id}")
+    suspend fun getPcCareRound(
+        @Path("round_id") roundId: String,
     ): PcCareRoundDto
 
     @GET("app/pc-care/tasks/{task_id}/removal-pens")
@@ -2108,6 +2124,17 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: PcCareCreateRoundRequestDto,
     ): PcCareRoundDto = service.createPcCareRound(idempotencyKey, request)
+
+    override suspend fun getPcCareRoundCards(
+        date: String?,
+        category: String?,
+        parkId: String?,
+        filter: String?,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareRoundCardPageDto = service.getPcCareRoundCards(date, category, parkId, filter, cursor, limit)
+
+    override suspend fun getPcCareRound(roundId: String): PcCareRoundDto = service.getPcCareRound(roundId)
 
     override suspend fun getPcCareRemovalPens(taskId: String): PcCareRemovalPenListDto =
         service.getPcCareRemovalPens(taskId)

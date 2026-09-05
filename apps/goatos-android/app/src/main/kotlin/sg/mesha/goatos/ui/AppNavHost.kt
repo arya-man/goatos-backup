@@ -4607,6 +4607,12 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
                         Routes.pcTaskRoute(card.taskId, card.category, title, monitor = true, approve = canApproveStock),
                     ) { launchSingleTop = true }
                 },
+                // A pen opened from inside a ROUND card lands on the same read-only task face.
+                onOpenTaskId = { taskId ->
+                    navController.navigate(
+                        Routes.pcTaskRoute(taskId, category, title, monitor = true, approve = canApproveStock),
+                    ) { launchSingleTop = true }
+                },
                 onEvent = { event ->
                     when (event) {
                         sg.mesha.goatos.feature.pccare.PcCarePlanEvent.Refresh -> {

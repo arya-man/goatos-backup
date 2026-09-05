@@ -328,11 +328,7 @@ func (r *Repository) CloseTask(ctx context.Context, p ports.CloseTaskParams) err
 
 	// The gate is read under the row lock, so a verdict landing mid-close cannot slip past it.
 	var status, workState, shedID, parkID string
-	err = tx.QueryRow(ctx, `
-SELECT status, work_state, coalesce(shed_id::text, ''), park_id::text
-FROM pc_care_tasks
-WHERE tenant_id = $1::uuid AND task_id = $2::uuid
-FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &workState, &shedID, &parkID)
+	err = tx.QueryRow(ctx, lockTaskForCloseSQL, p.TenantID, p.TaskID).Scan(&status, &workState, &shedID, &parkID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound
 	}
@@ -351,11 +347,7 @@ FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &workState, &shedID, &parkID)
 		return nil
 	}
 
-	if _, err := tx.Exec(ctx, `
-UPDATE pc_care_tasks
-SET work_state = 'closed', terminal_at = now(), closed_by = $3::uuid, close_reason = $4,
-    updated_at = now(), row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+	if _, err := tx.Exec(ctx, closeTaskSQL,
 		p.TenantID, p.TaskID, p.ClosedBy, reason); err != nil {
 		return fmt.Errorf("pccare: close task: %w", err)
 	}
@@ -367,14 +359,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
 	// still belongs to the verifier. This is the LEGACY 1:1 pair only; a ROUND's removal card
 	// gates the round's other pens too, so it is closed by CloseRound rather than by any one
 	// pen's close.
-	if _, err := tx.Exec(ctx, `
-UPDATE pc_care_tasks
-SET work_state = 'closed', terminal_at = now(), closed_by = $3::uuid, close_reason = $4,
-    updated_at = now(), row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND gates_task_id = $2::uuid
-  AND work_state IN ('scheduled', 'delayed')
-  AND status IN ('open', 'rework')
-  AND submitted_at IS NULL`, p.TenantID, p.TaskID, p.ClosedBy, reason); err != nil {
+	if _, err := tx.Exec(ctx, closeLinkedRemovalSQL, p.TenantID, p.TaskID, p.ClosedBy, reason); err != nil {
 		return fmt.Errorf("pccare: close linked removal task: %w", err)
 	}
 
@@ -414,12 +399,7 @@ func (r *Repository) ReopenTask(ctx context.Context, p ports.ReopenTaskParams) e
 	}()
 
 	var shedID, parkID string
-	err = tx.QueryRow(ctx, `
-UPDATE pc_care_tasks
-SET work_state = 'scheduled', terminal_at = NULL, closed_by = NULL, close_reason = NULL,
-    updated_at = now(), row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND work_state = 'closed'
-RETURNING coalesce(shed_id::text, ''), park_id::text`, p.TenantID, p.TaskID).Scan(&shedID, &parkID)
+	err = tx.QueryRow(ctx, reopenTaskSQL, p.TenantID, p.TaskID).Scan(&shedID, &parkID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrNotClosed
 	}
@@ -437,6 +417,34 @@ RETURNING coalesce(shed_id::text, ''), park_id::text`, p.TenantID, p.TaskID).Sca
 	committed = true
 	return nil
 }
+
+const lockTaskForCloseSQL = `
+SELECT status, work_state, coalesce(shed_id::text, ''), park_id::text
+FROM pc_care_tasks
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid
+FOR UPDATE`
+
+const closeTaskSQL = `
+UPDATE pc_care_tasks
+SET work_state = 'closed', terminal_at = now(), closed_by = $3::uuid, close_reason = $4,
+    updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid`
+
+const closeLinkedRemovalSQL = `
+UPDATE pc_care_tasks
+SET work_state = 'closed', terminal_at = now(), closed_by = $3::uuid, close_reason = $4,
+    updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND gates_task_id = $2::uuid
+  AND work_state IN ('scheduled', 'delayed')
+  AND status IN ('open', 'rework')
+  AND submitted_at IS NULL`
+
+const reopenTaskSQL = `
+UPDATE pc_care_tasks
+SET work_state = 'scheduled', terminal_at = NULL, closed_by = NULL, close_reason = NULL,
+    updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND work_state = 'closed'
+RETURNING coalesce(shed_id::text, ''), park_id::text`
 
 // recordTaskLifecycleAudit writes the close/reopen audit row. A per-vaccine stock task has
 // no shed, so its audit scope is the park.

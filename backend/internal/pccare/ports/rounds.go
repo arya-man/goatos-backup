@@ -125,6 +125,32 @@ type ApplyRemovalPenVerdictParams struct {
 	TraceID      string
 }
 
+// ListRoundCardsQuery is the planner list's filter. It mirrors ListTasksQuery's clamp and
+// day semantics so the two lists cannot disagree about which work exists.
+type ListRoundCardsQuery struct {
+	TenantID          string
+	AuthorizedParkIDs []string
+	TenantWide        bool
+	ParkID            string
+	Category          string
+	// DueBusinessDate pins the list to ONE day. It is OPTIONAL: the planner's list mirrors
+	// weighing's, which has no date strip at all — a planner reads the live work, not a day.
+	DueBusinessDate string
+	CurrentOrCarry  bool
+	// Filter is "active" (work still owed: scheduled or delayed) or "completed" (finished or
+	// ended). Only consulted when DueBusinessDate is empty; a day-pinned read shows that day
+	// whole, exactly as it did before.
+	Filter string
+	Cursor string
+	Limit  int
+}
+
+// Round card list filters. These are CONTRACT tokens, never user-facing copy.
+const (
+	RoundCardsFilterActive    = "active"
+	RoundCardsFilterCompleted = "completed"
+)
+
 // CloseRoundParams ends a whole round.
 type CloseRoundParams struct {
 	TenantID string
@@ -153,6 +179,11 @@ type RoundStore interface {
 	// this UPDATE touch".
 	CloseRound(ctx context.Context, p CloseRoundParams) error
 
+	// ListRoundCards serves the PLANNER's list at ROUND grain: one card per round, and one
+	// card per round-less legacy task. The operator worklist is deliberately untouched — an
+	// operator works a pen, so their list stays pen-grained.
+	ListRoundCards(ctx context.Context, q ListRoundCardsQuery) (RoundCardPage, error)
+
 	// GetRound reads one round with its pen buckets, clamped to the authorized parks.
 	GetRound(ctx context.Context, tenantID, roundID string, authorizedParkIDs []string, tenantWide bool) (RoundRow, error)
 
@@ -171,4 +202,47 @@ type RoundStore interface {
 	// BounceRemovalPenForRework flips ONE pen's evidence row to rework with the verifier's
 	// reason and puts the parent card back in rework so the crew can re-shoot that pen.
 	BounceRemovalPenForRework(ctx context.Context, p ApplyRemovalPenVerdictParams) (bool, error)
+}
+
+// RoundCard is ONE row of the planner's round-grained list (maintainer decision 2026-09-05):
+// one card per ROUND, not one per pen. A task planned before rounds existed has no round and
+// appears as a round of ONE — the list has a single grain either way, so the screen never has
+// to merge two shapes.
+type RoundCard struct {
+	// RoundID is empty for a legacy round-less task; CardKey is what the client keys on.
+	RoundID string
+	// CardKey is the stable identity of this card: the round id, or the task id when the task
+	// belongs to no round. It is also the list's keyset cursor component.
+	CardKey string
+	// SingleTaskID is set ONLY on a round-less card, so the client can open the pen's task
+	// directly instead of drilling into a round of one.
+	SingleTaskID string
+	Category     string
+	ParkID       string
+	ParkName     string
+	// PlannedBusinessDate is the round's own date; pens that rolled forward keep their own due
+	// dates, which is why the card also carries the earliest of them.
+	PlannedBusinessDate string
+	DueBusinessDate     string
+	// Status is the backend-owned roll-up over the card's pens (domain.RoundStatusRollup).
+	Status string
+	// PenCount is how many pens this card covers (1 for a legacy task).
+	PenCount int32
+	// PenLabels are the pens' operational displays in order, for the card's subtitle. The
+	// client renders them verbatim and never composes a pen name of its own.
+	PenLabels []string
+	// AssigneeNames are the crew working this round.
+	AssigneeNames []string
+	// AnimalCount is the total scanned so far across the card's pens.
+	AnimalCount int32
+	// RemovalTaskID / RemovalStatus name the round's feed & water removal card when one gates
+	// it, so the planner can see the evening job from the round.
+	RemovalTaskID string
+	RemovalStatus string
+}
+
+// RoundCardPage is one bounded keyset page of the round-grained list.
+type RoundCardPage struct {
+	Cards      []RoundCard
+	NextCursor string
 }

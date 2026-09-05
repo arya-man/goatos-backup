@@ -1162,6 +1162,10 @@ private class DeferredPcCareRepository(
         proofOutboxItemId: String,
         gatedTaskId: String,
     ) = delegate.registerTaskProof(taskId, slotFieldKey, proofOutboxItemId, gatedTaskId)
+    override fun observeRoundCards(category: String, date: String) = delegate.observeRoundCards(category, date)
+    override suspend fun refreshRoundCards(category: String, date: String) = delegate.refreshRoundCards(category, date)
+    override fun observeRoundPens(roundId: String) = delegate.observeRoundPens(roundId)
+    override suspend fun refreshRoundPens(roundId: String) = delegate.refreshRoundPens(roundId)
     override fun observeRemovalPens(taskId: String) = delegate.observeRemovalPens(taskId)
     override suspend fun refreshRemovalPens(taskId: String) = delegate.refreshRemovalPens(taskId)
     override suspend fun proofDownloadUrl(proofId: String) = delegate.proofDownloadUrl(proofId)

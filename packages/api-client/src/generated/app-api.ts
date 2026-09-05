@@ -2407,7 +2407,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * The planner's PC Care list at ROUND grain.
+         * @description One card per ROUND — not one per pen — because the planner ticked those pens as ONE piece of work (maintainer decision 2026-09-05). A task planned before rounds existed has no round and appears as a round of ONE, so the list has a single grain and the screen never merges two shapes.
+         *     There is NO date axis, mirroring the weighing task list: `filter=active` is work still owed and `filter=completed` is work finished or ended. `date` remains available for a caller that wants one day pinned, and then `filter` is ignored.
+         *     `status` is the backend-owned roll-up over the card's pens. Clients render it verbatim and must never re-derive a round's status from its pen list.
+         */
+        get: operations["appListPCCareRoundCards"];
         put?: never;
         /**
          * Plan one PC Care ROUND covering one or more pens.
@@ -8367,6 +8373,38 @@ export interface components {
         PCCareCloseRequest: {
             /** @description The closer's own words, shown verbatim to whoever later asks why this pen's work never happened. Required — a close with no reason leaves that unanswerable. */
             reason: string;
+        };
+        /** @description ONE row of the planner's round-grained list. `card_key` is the client's stable list key: the round id, or the task id for a round-less legacy task. `single_task_id` is set only on a round-less card, so the client opens that pen's work directly instead of drilling into a round of one. */
+        PCCareRoundCard: {
+            card_key: string;
+            /** Format: uuid */
+            round_id?: string;
+            /** Format: uuid */
+            single_task_id?: string;
+            category: components["schemas"]["PCCareCategory"];
+            category_label: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** Format: date */
+            planned_business_date: string;
+            /** Format: date */
+            due_business_date: string;
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            pen_count: number;
+            /** @description Backend-composed pen displays, rendered verbatim. */
+            pen_labels: string[];
+            assignee_names: string[];
+            animal_count: number;
+            /** Format: uuid */
+            removal_task_id?: string;
+            /** @enum {string} */
+            removal_status?: "open" | "pending_verification" | "completed" | "rework";
+        };
+        PCCareRoundCardPage: {
+            items: components["schemas"]["PCCareRoundCard"][];
+            next_cursor?: string;
         };
         /** @description One pen named by a round create. Identity ONLY — the display label is composed server-side from the pen catalog, so a client cannot name a pen the farm does not use. */
         PCCareRoundPen: {
@@ -20071,6 +20109,41 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListPCCareRoundCards: {
+        parameters: {
+            query?: {
+                /** @description active (default) or completed. Ignored when `date` is given. */
+                filter?: "active" | "completed";
+                /** @description Pins the list to ONE due business date (Asia/Kolkata). */
+                date?: string;
+                category?: components["schemas"]["PCCareCategory"];
+                park_id?: string;
+                limit?: number;
+                cursor?: string;
+                /** @description With `date`, also returns open carry-over work due before it. */
+                current_or_carry?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded keyset page of round cards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareRoundCardPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

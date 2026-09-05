@@ -6440,6 +6440,62 @@ paths:
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "500": { $ref: "#/components/responses/ServerError" }
   /app/pc-care/rounds:
+    get:
+      tags: [PC Care]
+      operationId: appListPCCareRoundCards
+      summary: The planner's PC Care list at ROUND grain.
+      description: >-
+        One card per ROUND — not one per pen — because the planner ticked those pens as ONE
+        piece of work (maintainer decision 2026-09-05). A task planned before rounds existed
+        has no round and appears as a round of ONE, so the list has a single grain and the
+        screen never merges two shapes.
+
+        There is NO date axis, mirroring the weighing task list: `filter=active` is work still
+        owed and `filter=completed` is work finished or ended. `date` remains available for a
+        caller that wants one day pinned, and then `filter` is ignored.
+
+        `status` is the backend-owned roll-up over the card's pens. Clients render it verbatim
+        and must never re-derive a round's status from its pen list.
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          description: active (default) or completed. Ignored when `date` is given.
+          schema: { type: string, enum: [active, completed] }
+        - name: date
+          in: query
+          required: false
+          description: Pins the list to ONE due business date (Asia/Kolkata).
+          schema: { type: string, format: date }
+        - name: category
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/PCCareCategory" }
+        - name: park_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+        - name: current_or_carry
+          in: query
+          required: false
+          description: With `date`, also returns open carry-over work due before it.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: One bounded keyset page of round cards.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareRoundCardPage" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
     post:
       tags: [PC Care]
       operationId: appCreatePCCareRound
@@ -19565,6 +19621,44 @@ components:
             The closer's own words, shown verbatim to whoever later asks why this pen's work
             never happened. Required — a close with no reason leaves that unanswerable.
       required: [reason]
+    PCCareRoundCard:
+      type: object
+      description: >-
+        ONE row of the planner's round-grained list. `card_key` is the client's stable list
+        key: the round id, or the task id for a round-less legacy task. `single_task_id` is
+        set only on a round-less card, so the client opens that pen's work directly instead of
+        drilling into a round of one.
+      properties:
+        card_key: { type: string }
+        round_id: { type: string, format: uuid }
+        single_task_id: { type: string, format: uuid }
+        category: { $ref: "#/components/schemas/PCCareCategory" }
+        category_label: { type: string }
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        planned_business_date: { type: string, format: date }
+        due_business_date: { type: string, format: date }
+        status: { type: string, enum: [open, pending_verification, completed, rework] }
+        pen_count: { type: integer }
+        pen_labels:
+          type: array
+          description: Backend-composed pen displays, rendered verbatim.
+          items: { type: string }
+        assignee_names:
+          type: array
+          items: { type: string }
+        animal_count: { type: integer }
+        removal_task_id: { type: string, format: uuid }
+        removal_status: { type: string, enum: [open, pending_verification, completed, rework] }
+      required: [card_key, category, category_label, park_id, park_name, planned_business_date, due_business_date, status, pen_count, pen_labels, assignee_names, animal_count]
+    PCCareRoundCardPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PCCareRoundCard" }
+        next_cursor: { type: string }
+      required: [items]
     PCCareRoundPen:
       type: object
       description: One pen named by a round create. Identity ONLY — the display label is composed server-side from the pen catalog, so a client cannot name a pen the farm does not use.

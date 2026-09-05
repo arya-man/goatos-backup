@@ -126,6 +126,7 @@ func (h *PCCarePendingVerificationHandler) HandleEvent(ctx context.Context, e ev
 	// own row version, so a re-shot pen mints a fresh item while a retry collapses onto one and
 	// the pens that were already approved are never re-queued.
 	if len(p.RemovalPens) > 0 {
+		// scale-guard:ignore: one verifier item PER PEN is the decided review grain (the review follows the evidence, and the evidence is one feed + one water video per pen); bounded by domain.MaxPensPerRound, and CreateItem is per-item by contract with no batch form.
 		for _, pen := range p.RemovalPens {
 			penID := strings.TrimSpace(pen.RemovalPenID)
 			if penID == "" {
@@ -138,6 +139,7 @@ func (h *PCCarePendingVerificationHandler) HandleEvent(ctx context.Context, e ev
 			if ref := strings.TrimSpace(pen.WaterProofRef); ref != "" {
 				penRefs = append(penRefs, ports.LabeledRef{ProofRef: ref, Label: "Water removal video"})
 			}
+			// scale-guard:ignore: one verifier item PER PEN is the decided review grain (review follows the evidence: one feed + one water video per pen); bounded by domain.MaxPensPerRound and CreateItem has no batch form.
 			if err := h.enqueuer.EnqueuePCCareVerification(ctx, VerificationEnqueueRequest{
 				TenantID:            e.TenantID,
 				TaskID:              strings.TrimSpace(p.TaskID),

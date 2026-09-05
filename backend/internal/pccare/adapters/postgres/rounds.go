@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"sort"
@@ -363,6 +364,128 @@ func resolveRoundPens(ctx context.Context, tx pgx.Tx, tenantID, parkID string, p
 	return plans, nil
 }
 
+// A re-shoot REPLACES the pen's clip for that slot rather than adding a second one: the
+// verifier judges the video the operator stands behind, and the pair CHECK admits one of each.
+const removalPenFeedProofSQL = `
+UPDATE pc_care_removal_pen_proofs
+SET feed_proof_ref = $4,
+    status = 'open',
+    rework_reason = NULL,
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid AND gated_task_id = $3::uuid
+RETURNING removal_pen_id::text`
+
+const removalPenWaterProofSQL = `
+UPDATE pc_care_removal_pen_proofs
+SET water_proof_ref = $4,
+    status = 'open',
+    rework_reason = NULL,
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid AND gated_task_id = $3::uuid
+RETURNING removal_pen_id::text`
+
+const removalPenSubmitRefsSQL = `
+SELECT removal_pen_id::text, gated_task_id::text, pen_label,
+       coalesce(feed_proof_ref, ''), coalesce(water_proof_ref, ''), row_version
+FROM pc_care_removal_pen_proofs
+WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid
+ORDER BY pen_label, removal_pen_id
+FOR UPDATE`
+
+const removalPensPendingSQL = `
+UPDATE pc_care_removal_pen_proofs
+SET status = 'pending_verification', updated_at = now()
+WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid`
+
+const removalPenVerdictSQL = `
+UPDATE pc_care_removal_pen_proofs
+SET status = $3,
+    rework_reason = nullif($4::text, ''),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND removal_pen_id = $2::uuid AND status = 'pending_verification'
+RETURNING removal_task_id::text`
+
+const getRoundHeaderSQL = `
+SELECT r.round_id::text, r.category, r.park_id::text, park.name,
+       r.planned_business_date::text, r.created_at,
+       coalesce(removal.task_id::text, ''), coalesce(removal.status, '')
+FROM pc_care_rounds r
+JOIN locations park ON park.tenant_id = r.tenant_id AND park.location_id = r.park_id
+LEFT JOIN pc_care_tasks removal
+  ON removal.tenant_id = r.tenant_id AND removal.gates_round_id = r.round_id
+WHERE r.tenant_id = $1::uuid AND r.round_id = $2::uuid
+  AND ($3::bool OR r.park_id = ANY($4::uuid[]))`
+
+const getRoundPensSQL = `
+SELECT`
+
+const listRemovalPenProofsSQL = `
+SELECT removal_pen_id::text, gated_task_id::text, pen_label,
+       coalesce(feed_proof_ref, ''), coalesce(water_proof_ref, ''),
+       status, coalesce(rework_reason, ''), row_version
+FROM pc_care_removal_pen_proofs
+WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid
+ORDER BY pen_label, removal_pen_id`
+
+const removalCardRollupSQL = `
+WITH rollup AS (
+  SELECT count(*) FILTER (WHERE status = 'completed') AS completed,
+         count(*) FILTER (WHERE status = 'rework')    AS rework,
+         count(*)                                     AS total
+  FROM pc_care_removal_pen_proofs
+  WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid
+)
+UPDATE pc_care_tasks t
+SET status = CASE
+      WHEN rollup.rework > 0             THEN 'rework'
+      WHEN rollup.completed = rollup.total THEN 'completed'
+      ELSE 'pending_verification'
+    END,
+    work_state = CASE
+      WHEN rollup.rework = 0 AND rollup.completed = rollup.total THEN 'completed'
+      ELSE t.work_state
+    END,
+    terminal_at = CASE
+      WHEN rollup.rework = 0 AND rollup.completed = rollup.total THEN now()
+      ELSE t.terminal_at
+    END,
+    verified_by = CASE
+      WHEN rollup.rework = 0 AND rollup.completed = rollup.total THEN nullif($3::text, '')::uuid
+      ELSE t.verified_by
+    END,
+    verified_at = CASE
+      WHEN rollup.rework = 0 AND rollup.completed = rollup.total THEN now()
+      ELSE t.verified_at
+    END,
+    rework_reason = CASE WHEN rollup.rework > 0 THEN nullif($4::text, '') ELSE NULL END,
+    updated_at = now(),
+    row_version = t.row_version + 1
+FROM rollup
+WHERE t.tenant_id = $1::uuid AND t.task_id = $2::uuid`
+
+const lockRoundForCloseSQL = `
+SELECT park_id::text FROM pc_care_rounds
+WHERE tenant_id = $1::uuid AND round_id = $2::uuid
+FOR UPDATE`
+
+const roundCloseGateSQL = `
+SELECT count(*)::int
+FROM pc_care_tasks t
+WHERE t.tenant_id = $1::uuid
+  AND (t.round_id = $2::uuid OR t.gates_round_id = $2::uuid)
+  AND t.status = 'pending_verification'`
+
+const closeRoundCascadeSQL = `
+UPDATE pc_care_tasks
+SET work_state = 'closed', terminal_at = now(), closed_by = $3::uuid, close_reason = $4,
+    updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND (round_id = $2::uuid OR gates_round_id = $2::uuid)
+  AND work_state IN ('scheduled', 'delayed')`
+
 const roundInsertSQL = `
 INSERT INTO pc_care_rounds (tenant_id, category, park_id, planned_business_date, idempotency_key, created_by)
 VALUES ($1::uuid, $2, $3::uuid, $4::date, $5, $6::uuid)
@@ -446,16 +569,7 @@ func (r *Repository) GetRound(ctx context.Context, tenantID, roundID string, aut
 
 	var round ports.RoundRow
 	// scale-guard:ignore: single-round read by primary key with one 1:0..1 removal lookup on pc_care_tasks_gates_round_uq.
-	err := r.pool.QueryRow(ctx, `
-SELECT r.round_id::text, r.category, r.park_id::text, park.name,
-       r.planned_business_date::text, r.created_at,
-       coalesce(removal.task_id::text, ''), coalesce(removal.status, '')
-FROM pc_care_rounds r
-JOIN locations park ON park.tenant_id = r.tenant_id AND park.location_id = r.park_id
-LEFT JOIN pc_care_tasks removal
-  ON removal.tenant_id = r.tenant_id AND removal.gates_round_id = r.round_id
-WHERE r.tenant_id = $1::uuid AND r.round_id = $2::uuid
-  AND ($3::bool OR r.park_id = ANY($4::uuid[]))`,
+	err := r.pool.QueryRow(ctx, getRoundHeaderSQL,
 		tenantID, roundID, tenantWide, authorizedParkIDs,
 	).Scan(&round.RoundID, &round.Category, &round.ParkID, &round.ParkName,
 		&round.PlannedBusinessDate, &round.CreatedAt, &round.RemovalTaskID, &round.RemovalStatus)
@@ -467,8 +581,7 @@ WHERE r.tenant_id = $1::uuid AND r.round_id = $2::uuid
 	}
 
 	// scale-guard:ignore: one round's pen buckets, covered by pc_care_tasks_round_idx (tenant_id, round_id, task_id) and bounded by domain.MaxPensPerRound.
-	rows, err := r.pool.Query(ctx, `
-SELECT`+taskSelectColumns+taskFromJoins+`
+	rows, err := r.pool.Query(ctx, getRoundPensSQL+taskSelectColumns+taskFromJoins+`
 WHERE t.tenant_id = $1::uuid AND t.round_id = $2::uuid
 ORDER BY shed.name, t.partition_label NULLS FIRST, t.task_id`,
 		tenantID, roundID)
@@ -502,13 +615,7 @@ func (r *Repository) ListRemovalPenProofs(ctx context.Context, tenantID, removal
 	defer cancel()
 
 	// scale-guard:ignore: one removal card's evidence rows, covered by pc_care_removal_pen_proofs_task_idx and bounded by domain.MaxPensPerRound.
-	rows, err := r.pool.Query(ctx, `
-SELECT removal_pen_id::text, gated_task_id::text, pen_label,
-       coalesce(feed_proof_ref, ''), coalesce(water_proof_ref, ''),
-       status, coalesce(rework_reason, ''), row_version
-FROM pc_care_removal_pen_proofs
-WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid
-ORDER BY pen_label, removal_pen_id`, tenantID, removalTaskID)
+	rows, err := r.pool.Query(ctx, listRemovalPenProofsSQL, tenantID, removalTaskID)
 	if err != nil {
 		return nil, fmt.Errorf("pccare: list removal pen proofs: %w", err)
 	}
@@ -579,23 +686,17 @@ func (r *Repository) RegisterRemovalPenProof(ctx context.Context, p ports.Regist
 		return nil
 	}
 
-	column := "feed_proof_ref"
+	// One named const per slot rather than a column spliced into the string: a query the guard
+	// and a plan test can both reach, and a shape where no caller-derived text touches SQL.
+	updateSQL := removalPenFeedProofSQL
 	if slot == domain.SlotWaterVideo {
-		column = "water_proof_ref"
+		updateSQL = removalPenWaterProofSQL
 	}
 	// A re-shoot REPLACES the pen's clip for that slot rather than adding a second one: the
 	// verifier judges the video the operator stands behind, and the pair CHECK on the table
 	// admits only one of each.
 	var removalPenID string
-	err = tx.QueryRow(ctx, `
-UPDATE pc_care_removal_pen_proofs
-SET `+column+` = $4,
-    status = 'open',
-    rework_reason = NULL,
-    updated_at = now(),
-    row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid AND gated_task_id = $3::uuid
-RETURNING removal_pen_id::text`,
+	err = tx.QueryRow(ctx, updateSQL,
 		p.TenantID, p.RemovalTaskID, p.GatedTaskID, strings.TrimSpace(p.ProofRef)).Scan(&removalPenID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No evidence row means this pen is not part of the gated round. Refusing beats
@@ -645,13 +746,7 @@ RETURNING removal_pen_id::text`,
 // submit transaction. EVERY pen must carry BOTH videos: a card submitted with one pen
 // unfilmed would tell the midnight gate that pen's animals were fasted when they were not.
 func removalPenSubmitRefs(ctx context.Context, tx pgx.Tx, tenantID, removalTaskID string) ([]ports.RemovalPenRef, []ports.LabeledRef, error) {
-	rows, err := tx.Query(ctx, `
-SELECT removal_pen_id::text, gated_task_id::text, pen_label,
-       coalesce(feed_proof_ref, ''), coalesce(water_proof_ref, ''), row_version
-FROM pc_care_removal_pen_proofs
-WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid
-ORDER BY pen_label, removal_pen_id
-FOR UPDATE`, tenantID, removalTaskID)
+	rows, err := tx.Query(ctx, removalPenSubmitRefsSQL, tenantID, removalTaskID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("pccare: read removal pen proofs for submit: %w", err)
 	}
@@ -682,10 +777,7 @@ FOR UPDATE`, tenantID, removalTaskID)
 		// A round-grain removal card always has pens; none means the round was planned wrong.
 		return nil, nil, domain.ErrRemovalProofIncomplete
 	}
-	if _, err := tx.Exec(ctx, `
-UPDATE pc_care_removal_pen_proofs
-SET status = 'pending_verification', updated_at = now()
-WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid`, tenantID, removalTaskID); err != nil {
+	if _, err := tx.Exec(ctx, removalPensPendingSQL, tenantID, removalTaskID); err != nil {
 		return nil, nil, fmt.Errorf("pccare: flip removal pens pending: %w", err)
 	}
 	return pens, media, nil
@@ -723,14 +815,7 @@ func (r *Repository) applyRemovalPenVerdict(ctx context.Context, p ports.ApplyRe
 	// Only a pen still awaiting a verdict moves. A replayed or late verdict finds no row and
 	// is reported as "nothing happened" rather than overwriting a decision already recorded.
 	var removalTaskID string
-	err = tx.QueryRow(ctx, `
-UPDATE pc_care_removal_pen_proofs
-SET status = $3,
-    rework_reason = nullif($4::text, ''),
-    updated_at = now(),
-    row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND removal_pen_id = $2::uuid AND status = 'pending_verification'
-RETURNING removal_task_id::text`,
+	err = tx.QueryRow(ctx, removalPenVerdictSQL,
 		p.TenantID, p.RemovalPenID, target, strings.TrimSpace(p.Reason)).Scan(&removalTaskID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if commitErr := tx.Commit(ctx); commitErr != nil {
@@ -747,41 +832,7 @@ RETURNING removal_task_id::text`,
 	// card can never disagree with the rows it is a summary of. A card that is still holding
 	// an undecided pen stays pending; work_state follows only a COMPLETED card, because a
 	// bounced pen is work the crew still owes.
-	if _, err := tx.Exec(ctx, `
-WITH rollup AS (
-  SELECT count(*) FILTER (WHERE status = 'completed') AS completed,
-         count(*) FILTER (WHERE status = 'rework')    AS rework,
-         count(*)                                     AS total
-  FROM pc_care_removal_pen_proofs
-  WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid
-)
-UPDATE pc_care_tasks t
-SET status = CASE
-      WHEN rollup.rework > 0             THEN 'rework'
-      WHEN rollup.completed = rollup.total THEN 'completed'
-      ELSE 'pending_verification'
-    END,
-    work_state = CASE
-      WHEN rollup.rework = 0 AND rollup.completed = rollup.total THEN 'completed'
-      ELSE t.work_state
-    END,
-    terminal_at = CASE
-      WHEN rollup.rework = 0 AND rollup.completed = rollup.total THEN now()
-      ELSE t.terminal_at
-    END,
-    verified_by = CASE
-      WHEN rollup.rework = 0 AND rollup.completed = rollup.total THEN nullif($3::text, '')::uuid
-      ELSE t.verified_by
-    END,
-    verified_at = CASE
-      WHEN rollup.rework = 0 AND rollup.completed = rollup.total THEN now()
-      ELSE t.verified_at
-    END,
-    rework_reason = CASE WHEN rollup.rework > 0 THEN nullif($4::text, '') ELSE NULL END,
-    updated_at = now(),
-    row_version = t.row_version + 1
-FROM rollup
-WHERE t.tenant_id = $1::uuid AND t.task_id = $2::uuid`,
+	if _, err := tx.Exec(ctx, removalCardRollupSQL,
 		p.TenantID, removalTaskID, strings.TrimSpace(p.VerifiedBy), strings.TrimSpace(p.Reason)); err != nil {
 		return false, fmt.Errorf("pccare: roll up removal card: %w", err)
 	}
@@ -843,10 +894,7 @@ func (r *Repository) CloseRound(ctx context.Context, p ports.CloseRoundParams) e
 	}()
 
 	var parkID string
-	err = tx.QueryRow(ctx, `
-SELECT park_id::text FROM pc_care_rounds
-WHERE tenant_id = $1::uuid AND round_id = $2::uuid
-FOR UPDATE`, p.TenantID, p.RoundID).Scan(&parkID)
+	err = tx.QueryRow(ctx, lockRoundForCloseSQL, p.TenantID, p.RoundID).Scan(&parkID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound
 	}
@@ -857,12 +905,7 @@ FOR UPDATE`, p.TenantID, p.RoundID).Scan(&parkID)
 	// One read over the round's pens AND its removal card. Both are pc_care_tasks rows, and
 	// either holding an undecided verdict blocks the close.
 	var pending int
-	if err := tx.QueryRow(ctx, `
-SELECT count(*)::int
-FROM pc_care_tasks t
-WHERE t.tenant_id = $1::uuid
-  AND (t.round_id = $2::uuid OR t.gates_round_id = $2::uuid)
-  AND t.status = 'pending_verification'`, p.TenantID, p.RoundID).Scan(&pending); err != nil {
+	if err := tx.QueryRow(ctx, roundCloseGateSQL, p.TenantID, p.RoundID).Scan(&pending); err != nil {
 		return fmt.Errorf("pccare: read round close gate: %w", err)
 	}
 	if pending > 0 {
@@ -870,13 +913,7 @@ WHERE t.tenant_id = $1::uuid
 	}
 
 	// ONE set-based cascade over the pens and the removal card together.
-	if _, err := tx.Exec(ctx, `
-UPDATE pc_care_tasks
-SET work_state = 'closed', terminal_at = now(), closed_by = $3::uuid, close_reason = $4,
-    updated_at = now(), row_version = row_version + 1
-WHERE tenant_id = $1::uuid
-  AND (round_id = $2::uuid OR gates_round_id = $2::uuid)
-  AND work_state IN ('scheduled', 'delayed')`,
+	if _, err := tx.Exec(ctx, closeRoundCascadeSQL,
 		p.TenantID, p.RoundID, p.ClosedBy, reason); err != nil {
 		return fmt.Errorf("pccare: close round pens: %w", err)
 	}
@@ -901,4 +938,213 @@ WHERE tenant_id = $1::uuid
 	}
 	committed = true
 	return nil
+}
+
+// ListRoundCards is the PLANNER's list at ROUND grain (maintainer decision 2026-09-05): one
+// card per round instead of one per pen. Before this the create grouped the pens and the read
+// did not, so a CEO who planned four pens still saw four unrelated cards — the exact complaint
+// the round was built to answer.
+//
+// The group key is coalesce(round_id, task_id), which is what makes ONE grain serve both
+// shapes: a round collapses to one row, and a task planned before rounds existed is a round of
+// ONE. No merging of two lists, and no client-side grouping of a paginated page (the capped
+// read-time rollup this repo bans).
+//
+// GRAIN PROOF. Producer unique columns: pc_care_tasks(task_id). Consumer match/group columns:
+// coalesce(round_id, task_id) [card_key] + round_id. Joined multiplicity: locations 1:1 by PK;
+// crew and animals are aggregated to the CARD before joining, so both are 1:0..1 and neither
+// can multiply a card's pen rows; the removal lookup is 1:0..1 on the partial unique index
+// pc_care_tasks_gates_round_uq. Ratio check: pen_count and the status roll-up range over the
+// IDENTICAL key set — the card's own tasks — so numerator and denominator cannot drift.
+// WHERE / GROUP BY / compared key set together: the WHERE narrows to one tenant + park clamp +
+// (one due date OR one work-state bucket); the GROUP BY is (card_key, round_id); the page's
+// compared key set is (min(due_business_date), card_key), the same tuple ORDER BY and the
+// cursor use.
+//
+// projection-review: membership=pc_care_tasks rows for ONE due business date within the
+// caller's authorized parks (optionally one park / one category), excluding canceled and
+// excluding the round-grain removal card, which is the EVENING's job and is reached from its
+// round rather than listed beside the work it gates; group_key=coalesce(round_id, task_id);
+// join_cardinality=locations 1:1 by PK; assignees pre-aggregated to one row per task BEFORE
+// the group-by, so a two-operator pen cannot double its round's pen count; the removal lookup
+// is 1:0..1 on pc_care_tasks_gates_round_uq. numerator/denominator: pen_count and the status
+// roll-up range over the SAME key set (the card's tasks). pagination=bounded keyset over
+// (due_business_date, card_key); scope=tenant_id + park clamp.
+func (r *Repository) ListRoundCards(ctx context.Context, q ports.ListRoundCardsQuery) (ports.RoundCardPage, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	afterDate, afterKey, err := decodeRoundCardCursor(q.Cursor)
+	if err != nil {
+		return ports.RoundCardPage{}, ports.ErrInvalidArgument
+	}
+
+	// scale-guard:ignore: one bounded keyset page of one park-day's cards, covered by pc_care_tasks_serving_idx (tenant_id, park_id, due_business_date, work_state); bounded by the park's pen catalog x categories, never by herd size.
+	rows, err := r.pool.Query(ctx, roundCardsPageSQL,
+		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
+		q.ParkID, q.Category, q.CurrentOrCarry, afterDate, afterKey, limit+1, q.Filter)
+	if err != nil {
+		return ports.RoundCardPage{}, fmt.Errorf("pccare: list round cards: %w", err)
+	}
+	defer rows.Close()
+
+	cards := make([]ports.RoundCard, 0, limit+1)
+	for rows.Next() {
+		var c ports.RoundCard
+		var roundID, singleTaskID, removalTaskID, removalStatus *string
+		var penStatuses []string
+		if err := rows.Scan(
+			&c.CardKey, &roundID, &singleTaskID, &c.Category, &c.ParkID, &c.ParkName,
+			&c.PlannedBusinessDate, &c.DueBusinessDate, &c.PenCount, &c.PenLabels,
+			&penStatuses, &c.AssigneeNames, &c.AnimalCount, &removalTaskID, &removalStatus,
+		); err != nil {
+			return ports.RoundCardPage{}, fmt.Errorf("pccare: scan round card: %w", err)
+		}
+		if roundID != nil {
+			c.RoundID = *roundID
+		}
+		if singleTaskID != nil {
+			c.SingleTaskID = *singleTaskID
+		}
+		if removalTaskID != nil {
+			c.RemovalTaskID = *removalTaskID
+		}
+		if removalStatus != nil {
+			c.RemovalStatus = *removalStatus
+		}
+		// The card's ONE status is composed here, backend-side, from the SAME pen set the
+		// count ranges over. A client deriving its own is how two surfaces come to disagree
+		// about whether a round is finished.
+		c.Status = domain.RoundStatusRollup(penStatuses)
+		cards = append(cards, c)
+	}
+	if err := rows.Err(); err != nil {
+		return ports.RoundCardPage{}, fmt.Errorf("pccare: iterate round cards: %w", err)
+	}
+
+	page := ports.RoundCardPage{Cards: cards}
+	if len(cards) > limit {
+		page.Cards = cards[:limit]
+		last := page.Cards[len(page.Cards)-1]
+		page.NextCursor = encodeRoundCardCursor(last.DueBusinessDate, last.CardKey)
+	}
+	return page, nil
+}
+
+// projection-review: membership=pc_care_tasks rows in the caller's authorized parks, narrowed to one due business date OR one work-state bucket, excluding canceled and excluding the round-grain removal card; group_key=coalesce(round_id, task_id) plus round_id; join_cardinality=locations 1:1 by PK, crew and animals aggregated to the CARD before joining so both are 1:0..1, removal 1:0..1 on pc_care_tasks_gates_round_uq; pagination=bounded keyset over (min(due_business_date), card_key), the same tuple ORDER BY and the cursor use; scope=tenant_id + park clamp.
+//
+// roundCardsPageSQL groups one park-day's pen tasks into round cards. The assignee side is
+// pre-aggregated per TASK before the group-by: joining it raw would multiply a two-operator
+// pen and inflate its round's pen_count.
+const roundCardsPageSQL = `
+WITH scoped AS (
+  SELECT
+    t.task_id,
+    t.round_id,
+    t.category,
+    t.park_id,
+    t.planned_business_date,
+    t.due_business_date,
+    t.status,
+    coalesce(t.round_id::text, t.task_id::text) AS card_key,
+    CASE
+      WHEN shed.name IS NULL THEN ''
+      WHEN coalesce(btrim(t.partition_label), '') = '' THEN shed.name
+      ELSE shed.name || ' - ' || btrim(t.partition_label)
+    END AS pen_label
+  FROM pc_care_tasks t
+  LEFT JOIN locations shed ON shed.tenant_id = t.tenant_id AND shed.location_id = t.shed_id
+  WHERE t.tenant_id = $1::uuid
+    AND t.work_state <> 'canceled'
+    -- The round-grain removal is the EVENING's job and is reached from the round it gates;
+    -- listing it beside the work would put two cards on screen for one plan.
+    AND t.gates_round_id IS NULL
+    -- A day-pinned read keeps the old behaviour; a DATELESS read is the planner's live list,
+    -- narrowed by work state the way weighing's Active/Completed tabs are. Weighing has no
+    -- date strip and neither does this.
+    AND (
+      (nullif($2::text, '') IS NOT NULL AND (
+        (NOT $7::bool AND t.due_business_date = $2::date)
+        OR ($7::bool AND (
+             t.due_business_date = $2::date
+             OR (t.due_business_date < $2::date AND t.work_state IN ('scheduled', 'delayed'))
+        ))
+      ))
+      OR (nullif($2::text, '') IS NULL AND (
+        ($11::text = 'completed' AND t.work_state IN ('completed', 'closed'))
+        OR ($11::text <> 'completed' AND t.work_state IN ('scheduled', 'delayed'))
+      ))
+    )
+    AND ($3::bool OR t.park_id = ANY($4::uuid[]))
+    AND (nullif($5::text, '') IS NULL OR t.park_id = $5::uuid)
+    AND (nullif($6::text, '') IS NULL OR t.category = $6::text)
+),
+-- Both of these aggregate to the CARD, not to the task, and are joined 1:0..1. Aggregating
+-- per task and joining that would multiply a two-operator pen and inflate its round's
+-- pen_count; aggregating per card keeps the count ranging over pens alone.
+crew AS (
+  SELECT s.card_key, array_remove(array_agg(DISTINCT coalesce(m.display_name, '')), '') AS names
+  FROM scoped s
+  JOIN pc_care_task_assignees a ON a.tenant_id = $1::uuid AND a.task_id = s.task_id
+  LEFT JOIN workforce_members m ON m.tenant_id = a.tenant_id AND m.user_id = a.operator_user_id
+  GROUP BY s.card_key
+),
+animals AS (
+  SELECT s.card_key, count(*)::int AS animal_count
+  FROM scoped s
+  JOIN pc_care_task_animals ta ON ta.tenant_id = $1::uuid AND ta.task_id = s.task_id
+  GROUP BY s.card_key
+)
+SELECT
+  s.card_key,
+  s.round_id::text,
+  CASE WHEN s.round_id IS NULL THEN min(s.task_id::text) ELSE NULL END AS single_task_id,
+  min(s.category) AS category,
+  min(s.park_id::text) AS park_id,
+  min(park.name) AS park_name,
+  min(s.planned_business_date)::text AS planned_business_date,
+  min(s.due_business_date)::text AS due_business_date,
+  count(*)::int AS pen_count,
+  array_remove(array_agg(s.pen_label ORDER BY s.pen_label), '') AS pen_labels,
+  array_agg(s.status) AS pen_statuses,
+  coalesce(min(crew.names), ARRAY[]::text[]) AS assignee_names,
+  coalesce(min(animals.animal_count), 0)::int AS animal_count,
+  min(removal.task_id::text) AS removal_task_id,
+  min(removal.status) AS removal_status
+FROM scoped s
+JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = s.park_id
+LEFT JOIN crew ON crew.card_key = s.card_key
+LEFT JOIN animals ON animals.card_key = s.card_key
+LEFT JOIN pc_care_tasks removal
+  ON removal.tenant_id = $1::uuid AND removal.gates_round_id = s.round_id
+GROUP BY s.card_key, s.round_id
+HAVING ($8::text = '' OR (min(s.due_business_date)::text, s.card_key) > ($8::text, $9::text))
+ORDER BY min(s.due_business_date), s.card_key
+LIMIT $10`
+
+func encodeRoundCardCursor(dueDate, cardKey string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(dueDate + "|" + cardKey))
+}
+
+func decodeRoundCardCursor(cursor string) (dueDate, cardKey string, err error) {
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return "", "", nil
+	}
+	raw, decodeErr := base64.RawURLEncoding.DecodeString(cursor)
+	if decodeErr != nil {
+		return "", "", decodeErr
+	}
+	parts := strings.SplitN(string(raw), "|", 2)
+	if len(parts) != 2 {
+		return "", "", errors.New("pccare: malformed round card cursor")
+	}
+	return parts[0], parts[1], nil
 }

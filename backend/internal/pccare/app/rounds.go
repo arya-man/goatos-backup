@@ -204,6 +204,47 @@ func (s *Service) CloseRound(ctx context.Context, actor domain.Actor, roundID, r
 	})
 }
 
+// ListRoundCards is the PLANNER's list at ROUND grain: one card per round, and one card per
+// round-less legacy task. Same authority and same park clamp as the pen-grained list it sits
+// beside; the operator worklist is deliberately unchanged, because an operator works a pen.
+func (s *Service) ListRoundCards(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, filter, cursor string, limit int, currentOrCarry bool) (ports.RoundCardPage, error) {
+	if !actorHoldsAny(actor, monitorReadCapabilities) {
+		return ports.RoundCardPage{}, ports.ErrForbidden
+	}
+	// The date is OPTIONAL: without one the planner reads the live list, weighing's shape.
+	dueBusinessDate = strings.TrimSpace(dueBusinessDate)
+	if dueBusinessDate != "" && !isBusinessDate(dueBusinessDate) {
+		return ports.RoundCardPage{}, ports.ErrInvalidArgument
+	}
+	if category = strings.TrimSpace(category); category != "" && !domain.IsValidCategory(category) {
+		return ports.RoundCardPage{}, domain.ErrInvalidCategory
+	}
+	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, monitorReadCapabilities...)
+	if parkID = strings.TrimSpace(parkID); parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			return ports.RoundCardPage{}, ports.ErrInvalidArgument
+		}
+		if err := checkParkScopeForAnyCapability(ctx, actor.TenantID, parkID, monitorReadCapabilities...); err != nil {
+			return ports.RoundCardPage{}, err
+		}
+	}
+	if s.rounds == nil {
+		return ports.RoundCardPage{}, ports.ErrStoreUnavailable
+	}
+	return s.rounds.ListRoundCards(ctx, ports.ListRoundCardsQuery{
+		TenantID:          actor.TenantID,
+		AuthorizedParkIDs: authorizedParkSlice(parks),
+		TenantWide:        tenantWide,
+		ParkID:            parkID,
+		Category:          category,
+		DueBusinessDate:   dueBusinessDate,
+		CurrentOrCarry:    currentOrCarry,
+		Filter:            strings.TrimSpace(filter),
+		Cursor:            strings.TrimSpace(cursor),
+		Limit:             limit,
+	})
+}
+
 // RegisterRemovalPenProofInput attaches ONE pen's feed or water video to a round-grain feed
 // & water removal card. The pen is named by the WORK TASK it gates, so a client cannot aim
 // a pen's evidence at a pen outside the gated round.

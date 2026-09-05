@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
 import sg.mesha.goatos.core.network.dto.PcCareRemovalPenDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundCardDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
@@ -169,6 +170,20 @@ internal class FakePcCareRepository : PcCareRepository {
     ): AppResult<String> {
         taskProofRegistrations += listOf(taskId, slotFieldKey, proofOutboxItemId)
         return AppResult.Ok("task-proof-outbox-${taskProofRegistrations.size}")
+    }
+
+    var roundCards: List<PcCareRoundCardDto> = emptyList()
+    private val roundCardsFlow = MutableStateFlow<List<PcCareRoundCardDto>>(emptyList())
+    override fun observeRoundCards(category: String, date: String): Flow<List<PcCareRoundCardDto>> = roundCardsFlow
+    override suspend fun refreshRoundCards(category: String, date: String) {
+        roundCardsFlow.value = roundCards
+    }
+
+    var roundDetail: PcCareRoundDto = PcCareRoundDto()
+    private val roundPensFlow = MutableStateFlow<List<PcCareTaskDto>>(emptyList())
+    override fun observeRoundPens(roundId: String): Flow<List<PcCareTaskDto>> = roundPensFlow
+    override suspend fun refreshRoundPens(roundId: String) {
+        roundPensFlow.value = roundDetail.pens
     }
 
     var removalPens: List<PcCareRemovalPenDto> = emptyList()

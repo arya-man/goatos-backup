@@ -207,6 +207,38 @@ data class PcCarePlannerShedsDto(
 )
 
 /**
+ * ONE row of the planner's list at ROUND grain (maintainer decision 2026-09-05): one card per
+ * round, and one card per round-less legacy task. [status] and every label are BACKEND-OWNED
+ * and rendered verbatim — the phone never re-derives a card's status from its pens.
+ */
+@Serializable
+data class PcCareRoundCardDto(
+    @SerialName("card_key") val cardKey: String = "",
+    @SerialName("round_id") val roundId: String = "",
+    /** Set only on a round-less card: the phone opens that pen's task instead of drilling. */
+    @SerialName("single_task_id") val singleTaskId: String = "",
+    @SerialName("category") val category: String = "",
+    @SerialName("category_label") val categoryLabel: String = "",
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("park_name") val parkName: String = "",
+    @SerialName("planned_business_date") val plannedBusinessDate: String = "",
+    @SerialName("due_business_date") val dueBusinessDate: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("pen_count") val penCount: Int = 0,
+    @SerialName("pen_labels") val penLabels: List<String> = emptyList(),
+    @SerialName("assignee_names") val assigneeNames: List<String> = emptyList(),
+    @SerialName("animal_count") val animalCount: Int = 0,
+    @SerialName("removal_task_id") val removalTaskId: String = "",
+    @SerialName("removal_status") val removalStatus: String = "",
+)
+
+@Serializable
+data class PcCareRoundCardPageDto(
+    @SerialName("items") val items: List<PcCareRoundCardDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String = "",
+)
+
+/**
  * The reason a task or round is being CLOSED — the closer's own words, shown verbatim to
  * whoever later asks why this pen's work never happened. Required by the server.
  */

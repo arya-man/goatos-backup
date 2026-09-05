@@ -9,6 +9,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +29,10 @@ import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundPenDto
 import sg.mesha.goatos.core.network.userFacingMessage
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundCardDto
+import sg.mesha.goatos.feature.pccare.PcCareRoundCardUi
+import sg.mesha.goatos.feature.pccare.PcCareRoundsTab
+import sg.mesha.goatos.feature.pccare.PcCareRoundPenUi
 import sg.mesha.goatos.feature.pccare.PcCarePlanEvent
 import sg.mesha.goatos.feature.pccare.PcCarePlanOption
 import sg.mesha.goatos.feature.pccare.PcCarePlanPenUi
@@ -71,6 +76,12 @@ class PcCarePlanViewModel @Inject constructor(
 
     private val monitorSelection = MutableStateFlow(MonitorSelection(date = todayIso()))
 
+    /** Which of the planner list's two tabs is showing. No date rides this: weighing has none. */
+    private val roundsFilter = MutableStateFlow(PcCareRoundsTab.ACTIVE)
+
+    /** Collects the OPEN card's pens; cancelled when another card opens or this one closes. */
+    private var openRoundJob: Job? = null
+
     /** One key per wizard session, reused across retries of the SAME planned task. */
     private var createIdempotencyKey: String = UUID.randomUUID().toString()
     private var lastTrackedStep: PcCarePlanStep? = null
@@ -92,6 +103,59 @@ class PcCarePlanViewModel @Inject constructor(
     init {
         analytics.track(AnalyticsEvents.PC_CARE_WORKLIST_VIEWED, mapOf(AnalyticsEvents.Params.KIND to "planner"))
         loadCatalog()
+        // The planner's list is ROUND-grained (maintainer decision 2026-09-05): one card per
+        // round, because the planner ticked those pens as ONE piece of work. Room renders it and
+        // the refresh runs behind, so re-entering the screen never shows a blank wall.
+        viewModelScope.launch {
+            combine(monitorSelection, roundsFilter) { sel, tab -> sel.category to tab }
+                .filter { (category, _) -> category.isNotBlank() }
+                .flatMapLatest { (category, tab) -> repository.observeRoundCards(category, tab.wireFilter()) }
+                .collect { cards ->
+                    _state.update { it.copy(roundCards = cards.map { dto -> dto.toRoundCardUi() }) }
+                }
+        }
+        viewModelScope.launch {
+            combine(monitorSelection, roundsFilter) { sel, tab -> sel.category to tab }
+                .filter { (category, _) -> category.isNotBlank() }
+                .collect { (category, tab) -> repository.refreshRoundCards(category, tab.wireFilter()) }
+        }
+    }
+
+    /**
+     * Opens a round card to show its pens, or closes the open one. The pens are fetched on
+     * DEMAND rather than ridden on every card, so a day's list stays one bounded read.
+     */
+    private fun toggleRoundCard(cardKey: String, roundId: String) {
+        if (_state.value.openRoundCardKey == cardKey) {
+            openRoundJob?.cancel()
+            _state.update { it.copy(openRoundCardKey = "", openRoundPens = emptyList()) }
+            return
+        }
+        _state.update { it.copy(openRoundCardKey = cardKey, openRoundPens = emptyList(), openRoundLoading = true) }
+        openRoundJob?.cancel()
+        openRoundJob = viewModelScope.launch {
+            launch { repository.refreshRoundPens(roundId) }
+            // Room renders the pens; the refresh above fills it in behind, so re-opening a card
+            // shows what is cached at once instead of a blank wait.
+            repository.observeRoundPens(roundId).collect { pens ->
+                _state.update { current ->
+                    if (current.openRoundCardKey != cardKey) {
+                        current
+                    } else {
+                        current.copy(
+                            openRoundLoading = false,
+                            openRoundPens = pens.map { pen ->
+                                PcCareRoundPenUi(
+                                    taskId = pen.taskId,
+                                    penLabel = pen.operationalLocationDisplay.ifBlank { pen.shedLabel },
+                                    statusLabel = pcCareStatusLabel(pen.status),
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun onEvent(event: PcCarePlanEvent) {
@@ -103,6 +167,11 @@ class PcCarePlanViewModel @Inject constructor(
             is PcCarePlanEvent.CloseReasonChanged -> _state.update { it.copy(closeReason = event.reason) }
             is PcCarePlanEvent.CloseTask -> closeTask(event.taskId, event.reason)
             is PcCarePlanEvent.ReopenTask -> reopenTask(event.taskId)
+            is PcCarePlanEvent.ToggleRoundCard -> toggleRoundCard(event.cardKey, event.roundId)
+            is PcCarePlanEvent.SelectRoundsTab -> {
+                _state.update { it.copy(roundsTab = event.tab, openRoundCardKey = "", openRoundPens = emptyList()) }
+                roundsFilter.value = event.tab
+            }
             PcCarePlanEvent.CloseCreate -> trackWizardInteraction("close_create")
             is PcCarePlanEvent.SelectDate -> selectCreateDate(event.date)
             is PcCarePlanEvent.SelectPark -> selectPark(event.parkId)
@@ -640,3 +709,32 @@ class PcCarePlanViewModel @Inject constructor(
         const val EMPTY_MESSAGE = "No care tasks planned for this day"
     }
 }
+
+/** The tab's CONTRACT token. Never shown to anyone; the label lives on the screen. */
+internal fun PcCareRoundsTab.wireFilter(): String =
+    if (this == PcCareRoundsTab.COMPLETED) "completed" else "active"
+
+/** Backend status token -> the planner's chip copy. Farm words, never a raw token. */
+internal fun pcCareStatusLabel(status: String): String = when (status) {
+    "open" -> "Open"
+    "pending_verification" -> "In review"
+    "completed" -> "Done"
+    "rework" -> "Send back"
+    else -> status
+}
+
+/** Maps a backend round card onto the planner's card. Every label is backend-owned. */
+internal fun PcCareRoundCardDto.toRoundCardUi(): PcCareRoundCardUi = PcCareRoundCardUi(
+    cardKey = cardKey,
+    roundId = roundId,
+    singleTaskId = singleTaskId,
+    statusLabel = pcCareStatusLabel(status),
+    dateLabel = dueBusinessDate,
+    pensLabel = penLabels.joinToString(" · "),
+    penCountLabel = if (penCount == 1) "1 pen" else "$penCount pens",
+    parkAndCrewLabel = listOf(parkName, assigneeNames.joinToString(", "))
+        .filter { it.isNotBlank() }
+        .joinToString(" · "),
+    animalCountLabel = if (animalCount > 0) "$animalCount animals" else "",
+    expandable = roundId.isNotBlank() && penCount > 1,
+)

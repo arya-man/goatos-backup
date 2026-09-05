@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.PcCareAnimalRowDto
 import sg.mesha.goatos.core.network.dto.PcCareCloseRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareRemovalPenDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundCardDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
@@ -72,6 +73,19 @@ private fun rosterCacheKey(taskId: String): String = "roster:$taskId"
  * shared blob cache.
  */
 private fun removalPensCacheKey(taskId: String): String = "removal-pens:$taskId"
+
+/** The planner's ROUND-grained list for one (category, day). Its own namespace. */
+private fun roundCardsCacheKey(category: String, filter: String): String = "round-cards:$category:$filter"
+
+/** One round's pen buckets. Its own namespace beside the card list's. */
+private fun roundPensCacheKey(roundId: String): String = "round-pens:$roundId"
+
+/**
+ * One screen-page of round cards. The list is ROUND-grained, so a park-day holds far fewer
+ * rows than the pen-grained list it replaced; a day with more rounds than this shows the
+ * first page and is a known follow-up, never a silent client-side rollup.
+ */
+private const val PC_CARE_ROUND_CARDS_LIMIT = 20
 
 /** Bump whenever the cached task-row JSON changes shape incompatibly (see PACKING_CACHE_SHAPE's
  *  kdoc in FeedRepository.kt for why a stale-shape row must be orphaned, never leniently decoded). */
@@ -180,6 +194,24 @@ interface PcCareRepository {
         /** Names the PEN on a round-grain feed & water removal; blank for an ordinary slot. */
         gatedTaskId: String = "",
     ): AppResult<String>
+
+    /**
+     * The PLANNER's list at ROUND grain, from ROOM: one card per round, one per round-less
+     * legacy task. The screen renders this and the refresh runs behind it.
+     */
+    fun observeRoundCards(category: String, filter: String): Flow<List<PcCareRoundCardDto>>
+
+    /** Refreshes the planner's round cards into Room. Non-blocking: a failure leaves the cache. */
+    suspend fun refreshRoundCards(category: String, filter: String)
+
+    /**
+     * One round's pens — the drill behind a round card — from ROOM, so re-opening a card shows
+     * its pens instantly while the refresh runs behind.
+     */
+    fun observeRoundPens(roundId: String): Flow<List<PcCareTaskDto>>
+
+    /** Refreshes one round's pens into Room. Non-blocking: a failure leaves the cache. */
+    suspend fun refreshRoundPens(roundId: String)
 
     /**
      * The pen-by-pen slot list of a round-grain feed & water removal card, from ROOM — the
@@ -430,6 +462,74 @@ class DefaultPcCareRepository(
             slotFieldKey = slotFieldKey,
             proofOutboxItemId = proofOutboxItemId,
         )
+    }
+
+    override fun observeRoundCards(category: String, filter: String): Flow<List<PcCareRoundCardDto>> =
+        detailDao.observe(roundCardsCacheKey(category, filter))
+            .map { entity ->
+                readCachedJson<List<PcCareRoundCardDto>>(
+                    json = json,
+                    cacheKey = roundCardsCacheKey(category, filter),
+                    dtoJson = entity?.dtoJson,
+                    updatedAt = entity?.updatedAt,
+                    now = clock(),
+                    quarantine = { detailDao.delete(it) },
+                ).data.orEmpty()
+            }
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun refreshRoundCards(category: String, filter: String) {
+        // exception:exempt expected refresh failure (offline/timeout/5xx); the cached cards keep
+        // serving and the next open/refresh repairs it — the non-blocking refresh contract.
+        runCatching {
+            // No DATE: the planner's list is the live work, weighing's shape. The tab decides
+            // whether that means work still owed or work already finished.
+            val page = api.getPcCareRoundCards(null, category, null, filter, null, PC_CARE_ROUND_CARDS_LIMIT)
+            detailDao.upsert(
+                PcCareTaskDetailCacheEntity(
+                    cacheKey = roundCardsCacheKey(category, filter),
+                    dtoJson = json.encodeToString(page.items),
+                    updatedAt = clock(),
+                ),
+            )
+            detailDao.enforceCacheBounds()
+        }.onFailure {
+            if (it is CancellationException) throw it
+            android.util.Log.w(LOG_TAG, "pc_care_round_cards_refresh_failed filter=$filter", it)
+        }
+    }
+
+    override fun observeRoundPens(roundId: String): Flow<List<PcCareTaskDto>> =
+        detailDao.observe(roundPensCacheKey(roundId))
+            .map { entity ->
+                readCachedJson<List<PcCareTaskDto>>(
+                    json = json,
+                    cacheKey = roundPensCacheKey(roundId),
+                    dtoJson = entity?.dtoJson,
+                    updatedAt = entity?.updatedAt,
+                    now = clock(),
+                    quarantine = { detailDao.delete(it) },
+                ).data.orEmpty()
+            }
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun refreshRoundPens(roundId: String) {
+        // exception:exempt expected refresh failure (offline/timeout/5xx); the cached pens keep
+        // serving and the next open repairs it — the non-blocking refresh contract.
+        runCatching {
+            val pens = api.getPcCareRound(roundId).pens
+            detailDao.upsert(
+                PcCareTaskDetailCacheEntity(
+                    cacheKey = roundPensCacheKey(roundId),
+                    dtoJson = json.encodeToString(pens),
+                    updatedAt = clock(),
+                ),
+            )
+            detailDao.enforceCacheBounds()
+        }.onFailure {
+            if (it is CancellationException) throw it
+            android.util.Log.w(LOG_TAG, "pc_care_round_pens_refresh_failed round=$roundId", it)
+        }
     }
 
     override fun observeRemovalPens(taskId: String): Flow<List<PcCareRemovalPenDto>> =

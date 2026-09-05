@@ -692,6 +692,7 @@ var protectedRoutes = []Route{
 	{OperationID: "appListPCCareRemovalPens", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/removal-pens", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appPutPCCareRemovalPenProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/removal-pens/proofs/{slot}", Permissions: []string{PCCareExecute}},
 	{OperationID: "appCreatePCCareRound", Method: "POST", Pattern: "/app/pc-care/rounds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	{OperationID: "appListPCCareRoundCards", Method: "GET", Pattern: "/app/pc-care/rounds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appGetPCCareRound", Method: "GET", Pattern: "/app/pc-care/rounds/{round_id}", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appCreatePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
 	// CLOSE and REOPEN carry exactly the authority the retired cancel carried: the planner

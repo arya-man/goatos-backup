@@ -22,6 +22,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +57,8 @@ fun PcCareMonitorScreen(
     planEnabled: Boolean,
     onPlanTask: () -> Unit = {},
     onOpenTask: (PcCareTaskCardUi) -> Unit = {},
+    /** Opens ONE pen's work by task id — used by the round card's pen rows. */
+    onOpenTaskId: (String) -> Unit = {},
     onEvent: (PcCarePlanEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -85,55 +88,66 @@ fun PcCareMonitorScreen(
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
-            PcCareDateBar(
-                selectedDateIso = state.monitorDate,
-                onSelectDate = { onEvent(PcCarePlanEvent.SelectMonitorDate(it)) },
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
+            // NO date strip. The planner's list mirrors weighing's: two tabs over the live
+            // work, because a planner reads what is outstanding rather than paging a calendar.
+            // Each card carries its own date, so nothing is lost by dropping the axis.
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                PcCareRoundsTabPill(
+                    label = "Active",
+                    selected = state.roundsTab == PcCareRoundsTab.ACTIVE,
+                    onClick = { onEvent(PcCarePlanEvent.SelectRoundsTab(PcCareRoundsTab.ACTIVE)) },
+                )
+                PcCareRoundsTabPill(
+                    label = "Completed",
+                    selected = state.roundsTab == PcCareRoundsTab.COMPLETED,
+                    onClick = { onEvent(PcCarePlanEvent.SelectRoundsTab(PcCareRoundsTab.COMPLETED)) },
+                )
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(top = 4.dp, bottom = 88.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (rows.itemCount == 0 && state.emptyMessage != null) {
+                // The empty state keys on the ROUND cards, the only list this screen has now.
+                // It used to key on the retired paged rows, which are always zero — so it
+                // rendered ABOVE real cards. It also no longer mentions a day: there is no date
+                // axis on this screen, so "for this day" described a filter that does not exist.
+                if (state.roundCards.isEmpty()) {
                     item(key = "empty") {
                         EmptyState(
-                            title = state.emptyMessage,
+                            title = if (state.roundsTab == PcCareRoundsTab.COMPLETED) {
+                                "Nothing finished yet"
+                            } else {
+                                "No care work outstanding"
+                            },
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                             icon = MeshaIcons.Check,
                             tone = EmptyTone.Neutral,
                         )
                     }
                 }
-                items(count = rows.itemCount, key = rows.itemKey { it.listKey }) { index ->
-                    rows[index]?.let { card ->
-                        PcCareMonitorTaskCard(
-                            // Close and reopen are PLANNER authority (pc_care.plan; the backend
-                            // refuses them for anyone else), so both affordances follow
-                            // planEnabled — the PC Director's stock-approval monitor face must
-                            // not offer them.
-                            card = card.copy(
-                                closable = card.closable && planEnabled,
-                                reopenable = card.reopenable && planEnabled,
-                            ),
-                            onOpen = { onOpenTask(card) },
-                            // Closing ASKS FOR A REASON first: whoever later reads this row is
-                            // owed an answer to "why did this pen's work never happen", and the
-                            // server refuses a reasonless close anyway.
-                            onClose = { onEvent(PcCarePlanEvent.AskCloseTask(card.taskId)) },
-                            onReopen = { onEvent(PcCarePlanEvent.ReopenTask(card.taskId)) },
-                        )
-                    }
-                }
-                if (rows.loadState.append is LoadState.Loading) {
-                    item(key = "loading_footer") {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            CircularProgressIndicator(color = MeshaColors.BrandD)
-                        }
-                    }
+                // The planner's list is ROUND-grained (maintainer decision 2026-09-05): one card
+                // per round, because these pens were ticked as ONE piece of work. A round-less
+                // legacy task is a round of one and renders the same way.
+                items(count = state.roundCards.size, key = { i -> state.roundCards[i].cardKey }) { index ->
+                    val card = state.roundCards[index]
+                    PcCareRoundCard(
+                        card = card,
+                        open = state.openRoundCardKey == card.cardKey,
+                        loadingPens = state.openRoundLoading && state.openRoundCardKey == card.cardKey,
+                        pens = if (state.openRoundCardKey == card.cardKey) state.openRoundPens else emptyList(),
+                        onTap = {
+                            if (card.expandable) {
+                                onEvent(PcCarePlanEvent.ToggleRoundCard(card.cardKey, card.roundId))
+                            } else if (card.singleTaskId.isNotBlank()) {
+                                onOpenTaskId(card.singleTaskId)
+                            }
+                        },
+                        onOpenPen = { taskId -> onOpenTaskId(taskId) },
+                    )
                 }
             }
         }
@@ -635,4 +649,90 @@ private fun pcCareWizardDayOptions(todayIso: String): List<Pair<String, String>>
         }
         day.toString() to label
     }
+}
+
+/**
+ * ONE round on the planner's list: the pens it covers, named, on a single card — because the
+ * planner ticked them as one piece of work. Tapping opens the pens; tapping a pen opens that
+ * pen's own work. A round of ONE (a legacy task with no round) opens straight through.
+ */
+@Composable
+private fun PcCareRoundCard(
+    card: PcCareRoundCardUi,
+    open: Boolean,
+    loadingPens: Boolean,
+    pens: List<PcCareRoundPenUi>,
+    onTap: () -> Unit,
+    onOpenPen: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf2)
+            .clickable(onClick = onTap)
+            .padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PcCareTaskPill(label = card.statusLabel, fg = MeshaColors.BrandD, bg = MeshaColors.Surf3)
+            Spacer(Modifier.weight(1f))
+            PcCareTaskPill(label = card.dateLabel, fg = MeshaColors.Muted, bg = MeshaColors.Surf3)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(text = card.penCountLabel, style = MeshaType.cardTitle, color = MeshaColors.Ink)
+        if (card.pensLabel.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            // Backend-composed pen names, rendered verbatim.
+            Text(text = card.pensLabel, style = MeshaType.cardSubtitle, color = MeshaColors.BrandD)
+        }
+        if (card.parkAndCrewLabel.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(text = card.parkAndCrewLabel, style = MeshaType.cardSubtitle, color = MeshaColors.Muted)
+        }
+        if (card.animalCountLabel.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            PcCareTaskPill(label = card.animalCountLabel, fg = MeshaColors.BrandD, bg = MeshaColors.Surf3)
+        }
+        if (open) {
+            Spacer(Modifier.height(12.dp))
+            if (loadingPens && pens.isEmpty()) {
+                Text(text = "Loading pens…", style = MeshaType.caption, color = MeshaColors.Muted)
+            }
+            pens.forEach { pen ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MeshaColors.Surf3)
+                        .clickable { onOpenPen(pen.taskId) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = pen.penLabel, style = MeshaType.cardSubtitle, color = MeshaColors.Ink)
+                    Spacer(Modifier.weight(1f))
+                    Text(text = pen.statusLabel, style = MeshaType.caption, color = MeshaColors.Muted)
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+        }
+    }
+}
+
+/** The planner list's Active/Completed pill, weighing's WeighingFilterPill shape. */
+@Composable
+private fun PcCareRoundsTabPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        text = label,
+        style = MeshaType.caption,
+        color = if (selected) MeshaColors.PageBg else MeshaColors.Ink,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) MeshaColors.BrandD else MeshaColors.Surf2)
+            .clickable(onClick = onClick)
+            // A tab is tapped with a thumb in a shed: it gets a real touch target, not just
+            // the height of its own text.
+            .minimumInteractiveComponentSize()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
 }

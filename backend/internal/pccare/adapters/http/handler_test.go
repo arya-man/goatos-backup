@@ -207,6 +207,9 @@ func (f *fakePCCareHTTPService) ReopenTask(_ context.Context, _ domain.Actor, ta
 	f.lastReopenTaskID = taskID
 	return f.lifecycleErr
 }
+func (f *fakePCCareHTTPService) ListRoundCards(_ context.Context, _ domain.Actor, _, _, _, _, _ string, _ int, _ bool) (ports.RoundCardPage, error) {
+	return ports.RoundCardPage{}, nil
+}
 func (f *fakePCCareHTTPService) CloseRound(_ context.Context, _ domain.Actor, roundID, reason, _ string) error {
 	f.lastCloseRoundID, f.lastCloseReason = roundID, reason
 	return f.lifecycleErr

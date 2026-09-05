@@ -299,6 +299,38 @@ val PC_CARE_WIZARD_STEPS: List<PcCarePlanStep> = listOf(
 )
 
 @Immutable
+/**
+ * ONE card of the planner's ROUND-grained list. The planner ticked several pens once, so they
+ * belong on one card; the pens themselves are named on it and each opens its own work.
+ */
+/** The planner list's two tabs, weighing's Active/Completed shape. */
+enum class PcCareRoundsTab { ACTIVE, COMPLETED }
+
+data class PcCareRoundCardUi(
+    val cardKey: String,
+    val roundId: String,
+    /** Set only on a round-less legacy task: tapping opens that pen's work directly. */
+    val singleTaskId: String,
+    /** Backend-owned status chip copy, rendered verbatim. */
+    val statusLabel: String,
+    val dateLabel: String,
+    /** "Castro 1 · Castro 2 · Castro 3" — backend-composed pen names, joined for the subtitle. */
+    val pensLabel: String,
+    /** "3 pens" / "1 pen". */
+    val penCountLabel: String,
+    val parkAndCrewLabel: String,
+    val animalCountLabel: String,
+    /** Whether this card's pens can be opened (a round of one opens straight through). */
+    val expandable: Boolean,
+)
+
+/** One pen inside an opened round card. */
+data class PcCareRoundPenUi(
+    val taskId: String,
+    val penLabel: String,
+    val statusLabel: String,
+)
+
 data class PcCarePlanUiState(
     val title: String = "Care tasks",
     val step: PcCarePlanStep = PcCarePlanStep.LIST,
@@ -315,6 +347,17 @@ data class PcCarePlanUiState(
     // question unanswerable, and the server refuses it anyway.
     val closingTaskId: String = "",
     val closeReason: String = "",
+    /** The planner's ROUND-grained list: one card per round, one per round-less legacy task. */
+    val roundCards: List<PcCareRoundCardUi> = emptyList(),
+    /** The card whose pens are open, and those pens. Blank means every card is collapsed. */
+    val openRoundCardKey: String = "",
+    val openRoundPens: List<PcCareRoundPenUi> = emptyList(),
+    val openRoundLoading: Boolean = false,
+    /**
+     * ACTIVE (work still owed) or COMPLETED. The planner's list mirrors weighing's: two tabs
+     * over the live work, and NO date strip — a planner reads what is outstanding, not a day.
+     */
+    val roundsTab: PcCareRoundsTab = PcCareRoundsTab.ACTIVE,
     // Create wizard.
     val parks: List<PcCarePlanOption> = emptyList(),
     val operators: List<PcCarePlanOption> = emptyList(),
@@ -359,6 +402,11 @@ sealed interface PcCarePlanEvent {
     data class CloseReasonChanged(val reason: String) : PcCarePlanEvent
     data class CloseTask(val taskId: String, val reason: String) : PcCarePlanEvent
     data class ReopenTask(val taskId: String) : PcCarePlanEvent
+
+    data class SelectRoundsTab(val tab: PcCareRoundsTab) : PcCarePlanEvent
+
+    /** Open a round card to see its pens, or close the one that is open. */
+    data class ToggleRoundCard(val cardKey: String, val roundId: String) : PcCarePlanEvent
     data object CloseCreate : PcCarePlanEvent
     data class SelectDate(val date: LocalDate) : PcCarePlanEvent
     data class SelectPark(val parkId: String) : PcCarePlanEvent

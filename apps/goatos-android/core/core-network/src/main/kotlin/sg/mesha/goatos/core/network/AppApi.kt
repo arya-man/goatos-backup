@@ -50,6 +50,7 @@ import sg.mesha.goatos.core.network.dto.PcCareCapturesDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCloseRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundCardPageDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundPenDto
 import sg.mesha.goatos.core.network.dto.PcCareRemovalPenListDto
@@ -1383,6 +1384,23 @@ interface AppApi {
         idempotencyKey: String,
         request: PcCareCreateRoundRequestDto,
     ): PcCareRoundDto
+
+    /**
+     * GET /app/pc-care/rounds — the PLANNER's list at ROUND grain: one card per round, and one
+     * per round-less legacy task. The operator worklist stays pen-grained; an operator works a
+     * pen, a planner plans a round.
+     */
+    suspend fun getPcCareRoundCards(
+        date: String?,
+        category: String?,
+        parkId: String?,
+        filter: String?,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareRoundCardPageDto
+
+    /** GET /app/pc-care/rounds/{round_id} — one round with its pen buckets. */
+    suspend fun getPcCareRound(roundId: String): PcCareRoundDto
 
     /** GET /app/pc-care/tasks/{task_id}/removal-pens — a removal card's pen-by-pen slot list. */
     suspend fun getPcCareRemovalPens(taskId: String): PcCareRemovalPenListDto
@@ -2807,6 +2825,17 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         status = "open",
         penCount = request.pens.size,
     )
+
+    override suspend fun getPcCareRoundCards(
+        date: String?,
+        category: String?,
+        parkId: String?,
+        filter: String?,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareRoundCardPageDto = PcCareRoundCardPageDto()
+
+    override suspend fun getPcCareRound(roundId: String): PcCareRoundDto = PcCareRoundDto()
 
     override suspend fun getPcCareRemovalPens(taskId: String): PcCareRemovalPenListDto =
         PcCareRemovalPenListDto()

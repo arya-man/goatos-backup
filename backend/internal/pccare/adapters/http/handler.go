@@ -29,6 +29,8 @@ type Service interface {
 	CreateTask(ctx context.Context, actor domain.Actor, in app.CreateTaskInput) (ports.TaskRow, error)
 	// CreateRound plans a round covering one or more pens (maintainer decision 2026-09-05).
 	CreateRound(ctx context.Context, actor domain.Actor, in app.CreateRoundInput) (ports.RoundRow, error)
+	// ListRoundCards serves the planner's list at ROUND grain.
+	ListRoundCards(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, filter, cursor string, limit int, currentOrCarry bool) (ports.RoundCardPage, error)
 	// GetRound reads one round with its pen buckets.
 	GetRound(ctx context.Context, actor domain.Actor, roundID string) (ports.RoundRow, error)
 	// RemovalPenProofs reads a round-grain removal card's per-pen evidence rows.
@@ -68,6 +70,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/pc-care/planner/catalog", h.GetPlannerCatalog)
 	mux.HandleFunc("GET /app/pc-care/planner/parks/{park_id}/sheds", h.GetPlannerParkSheds)
 	mux.HandleFunc("POST /app/pc-care/rounds", h.PostCreateRound)
+	mux.HandleFunc("GET /app/pc-care/rounds", h.GetRoundCards)
 	mux.HandleFunc("GET /app/pc-care/rounds/{round_id}", h.GetRound)
 	mux.HandleFunc("POST /app/pc-care/tasks", h.PostCreateTask)
 	// PC Care has TWO verbs, on par with weighing: CLOSE a task, or REOPEN it if it is

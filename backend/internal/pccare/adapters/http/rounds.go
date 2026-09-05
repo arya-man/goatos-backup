@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/pccare/app"
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
@@ -49,6 +50,71 @@ type roundDTO struct {
 	// phone opens that card from the round. Empty when the round needs no removal.
 	RemovalTaskID string `json:"removal_task_id,omitempty"`
 	RemovalStatus string `json:"removal_status,omitempty"`
+}
+
+// roundCardDTO is ONE row of the planner's round-grained list. Every label is backend-owned
+// and rendered verbatim; the client never re-derives a card's status or composes a pen name.
+type roundCardDTO struct {
+	// CardKey is the client's stable list key: the round id, or the task id for a legacy
+	// round-less task.
+	CardKey string `json:"card_key"`
+	RoundID string `json:"round_id,omitempty"`
+	// SingleTaskID is set only on a round-less card, so the phone opens that pen's task
+	// directly instead of drilling into a round of one.
+	SingleTaskID        string   `json:"single_task_id,omitempty"`
+	Category            string   `json:"category"`
+	CategoryLabel       string   `json:"category_label"`
+	ParkID              string   `json:"park_id"`
+	ParkName            string   `json:"park_name"`
+	PlannedBusinessDate string   `json:"planned_business_date"`
+	DueBusinessDate     string   `json:"due_business_date"`
+	Status              string   `json:"status"`
+	PenCount            int32    `json:"pen_count"`
+	PenLabels           []string `json:"pen_labels"`
+	AssigneeNames       []string `json:"assignee_names"`
+	AnimalCount         int32    `json:"animal_count"`
+	RemovalTaskID       string   `json:"removal_task_id,omitempty"`
+	RemovalStatus       string   `json:"removal_status,omitempty"`
+}
+
+type roundCardPageDTO struct {
+	Items      []roundCardDTO `json:"items"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+}
+
+// GetRoundCards serves the planner's list at ROUND grain.
+func (h *Handler) GetRoundCards(w http.ResponseWriter, r *http.Request) {
+	a, ok := h.requireAuthed(w, r)
+	if !ok {
+		return
+	}
+	page, err := h.service.ListRoundCards(
+		r.Context(), a,
+		strings.TrimSpace(r.URL.Query().Get("park_id")),
+		strings.TrimSpace(r.URL.Query().Get("category")),
+		strings.TrimSpace(r.URL.Query().Get("date")),
+		strings.TrimSpace(r.URL.Query().Get("filter")),
+		strings.TrimSpace(r.URL.Query().Get("cursor")),
+		intQuery(r, "limit", 25),
+		r.URL.Query().Get("current_or_carry") == "true",
+	)
+	if err != nil {
+		h.writeServiceError(w, r, "pc care round cards", err)
+		return
+	}
+	resp := roundCardPageDTO{Items: make([]roundCardDTO, 0, len(page.Cards)), NextCursor: page.NextCursor}
+	for _, c := range page.Cards {
+		resp.Items = append(resp.Items, roundCardDTO{
+			CardKey: c.CardKey, RoundID: c.RoundID, SingleTaskID: c.SingleTaskID,
+			Category: c.Category, CategoryLabel: domain.CategoryLabel(c.Category),
+			ParkID: c.ParkID, ParkName: c.ParkName,
+			PlannedBusinessDate: c.PlannedBusinessDate, DueBusinessDate: c.DueBusinessDate,
+			Status: c.Status, PenCount: c.PenCount,
+			PenLabels: c.PenLabels, AssigneeNames: c.AssigneeNames, AnimalCount: c.AnimalCount,
+			RemovalTaskID: c.RemovalTaskID, RemovalStatus: c.RemovalStatus,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) PostCreateRound(w http.ResponseWriter, r *http.Request) {

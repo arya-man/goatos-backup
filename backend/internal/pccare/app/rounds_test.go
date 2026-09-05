@@ -19,9 +19,10 @@ const fastingShed2 = "9c000000-0000-4000-8000-000000001003"
 
 // fakeRoundStore captures the CreateRoundParams the service hands the store.
 type fakeRoundStore struct {
-	createCalls int
-	lastCreate  ports.CreateRoundParams
-	closed      []ports.CloseRoundParams
+	createCalls    int
+	lastCreate     ports.CreateRoundParams
+	closed         []ports.CloseRoundParams
+	lastCardsQuery ports.ListRoundCardsQuery
 }
 
 func (f *fakeRoundStore) CreateRound(_ context.Context, p ports.CreateRoundParams) (ports.RoundRow, error) {
@@ -33,6 +34,11 @@ func (f *fakeRoundStore) CreateRound(_ context.Context, p ports.CreateRoundParam
 
 func (f *fakeRoundStore) GetRound(_ context.Context, _, roundID string, _ []string, _ bool) (ports.RoundRow, error) {
 	return ports.RoundRow{RoundID: roundID}, nil
+}
+
+func (f *fakeRoundStore) ListRoundCards(_ context.Context, q ports.ListRoundCardsQuery) (ports.RoundCardPage, error) {
+	f.lastCardsQuery = q
+	return ports.RoundCardPage{}, nil
 }
 
 func (f *fakeRoundStore) CloseRound(_ context.Context, p ports.CloseRoundParams) error {
@@ -267,4 +273,25 @@ func itoa(i int) string {
 		i /= 10
 	}
 	return digits
+}
+
+// The planner's list mirrors weighing's: NO date axis. A dateless read is valid and carries
+// the tab's filter instead; pinning a day stays possible for a caller that wants one.
+func TestListRoundCardsAcceptsNoDateAndCarriesTheTab(t *testing.T) {
+	svc, rounds := roundSvc(pinnedIST(10, 9, 0))
+
+	if _, err := svc.ListRoundCards(plannerCtx(), plannerActor(), "", domain.CategoryDeworming, "", ports.RoundCardsFilterActive, "", 25, false); err != nil {
+		t.Fatalf("dateless list err = %v, want nil", err)
+	}
+	if rounds.lastCardsQuery.DueBusinessDate != "" {
+		t.Fatalf("date reaching the store = %q, want empty", rounds.lastCardsQuery.DueBusinessDate)
+	}
+	if rounds.lastCardsQuery.Filter != ports.RoundCardsFilterActive {
+		t.Fatalf("filter reaching the store = %q, want active", rounds.lastCardsQuery.Filter)
+	}
+
+	// A malformed date is still refused — dropping the axis must not drop the validation.
+	if _, err := svc.ListRoundCards(plannerCtx(), plannerActor(), "", domain.CategoryDeworming, "not-a-date", "", "", 25, false); !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("malformed date err = %v, want ErrInvalidArgument", err)
+	}
 }
