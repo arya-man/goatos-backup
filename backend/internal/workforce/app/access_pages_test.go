@@ -52,10 +52,29 @@ func TestPageTicksAreValidatedAgainstTheModulesOwnScreens(t *testing.T) {
 	if _, err := validatedPages(health0(t), []string{permissions.LevelView}, []string{"health-config"}, nil); !errors.Is(err, ErrInvalidAccessRequest) {
 		t.Fatal("Health Config was tickable at `view`, which does not open it")
 	}
+	// ...while the screen that capability DOES open stays tickable. Health Analytics
+	// declares health.read, which `view` on the Health module produces, so the same
+	// capability that cannot reach Health Config reaches this one.
+	if pages, err := validatedPages(health0(t), []string{permissions.LevelView}, []string{"health-analytics"}, nil); err != nil || len(pages) != 1 {
+		t.Fatalf("Health Analytics was not tickable at `view`, which its own permission opens: %v %v", pages, err)
+	}
+
 	// ...and a module whose capabilities open NONE of its screens stores an empty list
 	// rather than refusing. This is the round-trip the persona sweep caught: the editor's
 	// own payload for such a person was rejected by its own save.
-	if pages, err := validatedPages(health0(t), []string{permissions.LevelView}, nil, nil); err != nil || len(pages) != 0 {
+	//
+	// The fixture is COUNTS at `view`, and it is a better example than the Health module
+	// this case used to name. Counts at `view` is CountsAlertsRead alone -- the Health
+	// Director is the declared owner of an OFF feature, so he is notified and the module
+	// stays dark -- while every Counts screen needs counts.read, counts.approve_access or
+	// sop.read. Ownership without access, which is exactly the shape this case is about.
+	// (Health stopped being an example the day Health Analytics landed on health.read: at
+	// `view` the module now opens that one screen, which the case above asserts.)
+	counts, ok := permissions.LookupModuleCapability("counts")
+	if !ok {
+		t.Fatal("the Counts module is missing from the catalog")
+	}
+	if pages, err := validatedPages(counts, []string{permissions.LevelView}, nil, nil); err != nil || len(pages) != 0 {
 		t.Fatalf("a module whose capabilities open no screen refused an empty list: %v %v", pages, err)
 	}
 

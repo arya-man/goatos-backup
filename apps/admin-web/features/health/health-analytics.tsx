@@ -45,7 +45,7 @@ import { HealthAnalyticsTelemetry } from "./health-analytics-telemetry";
  *   EXECUTION — whether the prescribed course is actually carried out, at SESSION grain,
  *   with late kept apart from never-done.
  *
- *   MORTALITY — and here is the hole. Goat OS records no CODED cause of death: the death
+ *   MORTALITY — and here is the hole. No CODED cause of death is recorded anywhere: the death
  *   workflow captures a written account and two videos, and `exit_reason` is the manner of
  *   exit, never a diagnosis. So a death carries a disease ONLY where a case was open at the
  *   time, every other death is reported as not attributed, and the banner says so. A reader

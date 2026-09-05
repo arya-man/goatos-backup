@@ -709,7 +709,7 @@ func pages() []domain.PageContract {
 		// must reconcile with each other (deaths on the mortality tab against deaths in
 		// the KPI strip) cannot be served by four independently-windowed reads.
 		// ---------------------------------------------------------------------------
-		page("health-analytics", "/health/analytics", "/health/analytics", "Health Analytics", "What the herd is being treated for, whether the prescribed courses are actually carried out, and what it is dying of. Deaths carry a disease only where a case was open at the time — Goat OS records no cause of death.", "module-surface",
+		page("health-analytics", "/health/analytics", "/health/analytics", "Health Analytics", "What the herd is being treated for, whether the prescribed courses are actually carried out, and what it is dying of. Deaths carry a disease only where a case was open at the time — no cause of death is recorded anywhere.", "module-surface",
 			[]domain.TableContract{
 				table("health-disease-board", "Disease board", "/health/analytics", []string{"disease", "age_band", "new_cases", "open_cases", "recovered", "died", "case_fatality"}, "disease_key"),
 				// The evidence trail beside the mortality counts, bounded to the latest 50.
@@ -4251,7 +4251,7 @@ func pageSpecificCopy(id string) map[string]string {
 		return map[string]string{
 			"crumb": "Health",
 			"banner.basis": "Deaths are attributed to a disease only when the animal had an open case when it died. " +
-				"Goat OS records no cause of death, so every other death is counted as not attributed and is never given one.",
+				"No cause of death is recorded anywhere, so every other death is counted as not attributed and is never given one.",
 
 			// The window filter is the SHARED calendar every other filtered screen uses,
 			// so the label set is the same "filter.date.*" shape. Park scope lives in the

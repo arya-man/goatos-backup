@@ -120,8 +120,8 @@ export function DeathsTable({
     date: { cell: (row) => row.date, sortValue: (row) => row.sortDate },
     age_band: { cell: (row) => row.ageBandLabel, sortValue: (row) => row.ageBandLabel },
     attribution: {
-      // An UNATTRIBUTED death shows the chip and NOTHING else. Goat OS records no cause of
-      // death, so a disease name must never appear on a row that had no case open.
+      // An UNATTRIBUTED death shows the chip and NOTHING else. No cause of death is recorded
+      // anywhere, so a disease name must never appear on a row that had no case open.
       cell: (row) =>
         row.attributed ? (
           <div>

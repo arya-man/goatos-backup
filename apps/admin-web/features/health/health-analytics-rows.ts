@@ -10,7 +10,7 @@ import type { DeathRow, DiseaseRow, EngineRuleRow, MedicineRow } from "./health-
  * Wire rows -> table rows for Health Analytics.
  *
  * Pure and React-free ON PURPOSE. The one rule on this page that must never be got wrong is
- * that an UNATTRIBUTED death carries no disease — Goat OS records no cause of death, so
+ * that an UNATTRIBUTED death carries no disease — no cause of death is recorded anywhere, so
  * rendering one for an animal that had no case open would be the page inventing a clinical
  * fact. Keeping the mapping here makes that rule directly testable instead of only reachable
  * through a rendered component.

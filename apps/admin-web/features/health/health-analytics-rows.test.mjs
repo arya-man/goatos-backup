@@ -38,7 +38,7 @@ test("an attributed death carries its disease and its days under treatment", () 
   assert.equal(row.ageBandLabel, "Kid");
 });
 
-// THE RULE THIS PAGE TURNS ON. Goat OS records no cause of death, so a death with no case open
+// THE RULE THIS PAGE TURNS ON. No cause of death is recorded anywhere, so a death with no case open
 // has no disease -- and the mapping DROPS one even if the wire carries it. The page must not be
 // the place a clinical fact is invented, and a backend regression must not be able to make it
 // one.
