@@ -65,3 +65,12 @@ type DiagnosisRepository interface {
 	GetDiagnosisRun(context.Context, string, string) (domain.DiagnosisRun, error)
 	ListDiagnosisRuns(context.Context, domain.DiagnosisQueueFilter) (domain.DiagnosisQueuePage, error)
 }
+
+// AnalyticsReader is the Health Analytics leadership read.
+//
+// It is a NARROW port of its own rather than three more methods on Repository:
+// the analytics read is read-only, opens no case, completes no session and
+// writes nothing, so a write-path fake has no business having to satisfy it.
+type AnalyticsReader interface {
+	GetHealthAnalytics(context.Context, domain.HealthAnalyticsQuery) (domain.HealthAnalytics, error)
+}

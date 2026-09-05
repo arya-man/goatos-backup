@@ -600,6 +600,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		return nil, err
 	}
 	healthDiagnosisHandler := healthhttp.NewDiagnosisHandler(healthDiagnosisService, log)
+	// Health Analytics: the leadership read behind /health/analytics. Same
+	// repository for the same reason the authoring surface shares it -- the
+	// clinical tables belong to the Health module, and a second package reading
+	// them would be the cross-module coupling this repo bans. Read-only: this
+	// service opens no case and completes no session.
+	healthAnalyticsService := healthapp.NewAnalyticsService(healthRepo)
+	healthAnalyticsHandler := healthhttp.NewAnalyticsHandler(healthAnalyticsService, log)
 	countsApprovalRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
 		WithIdentityTxWriter(identityRepo).
 		WithDeathEvidenceTxGate(tasksWorkflowRepo)
@@ -1200,6 +1207,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
 	herdsignalshttp.Register(protectedMux, herdSignalsHandler)
 	healthhttp.RegisterDiagnosis(protectedMux, healthDiagnosisHandler)
+	healthhttp.RegisterAnalytics(protectedMux, healthAnalyticsHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)

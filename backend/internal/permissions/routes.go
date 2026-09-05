@@ -585,6 +585,17 @@ var protectedRoutes = []Route{
 	// HealthDiagnose -- the same authority tier that opens a configured course, and the first
 	// route that permission gates (it was granted since 2026-07-30 with no surface behind it).
 	{OperationID: "closeAppHealthCase", Method: "POST", Pattern: "/app/health/cases/{health_case_id}/close", Permissions: []string{HealthDiagnose}},
+	// Health Analytics (/health/analytics), the leadership read.
+	//
+	// HealthRead, not a dedicated permission and not HealthConfigRead. A dedicated one is what
+	// this repo reaches for when a screen carries facts its neighbours' holders should not see
+	// (vendor prices, sales revenue) -- the opposite applies here: every HealthRead holder can
+	// already open the per-animal case and its treatment steps, and this page is an AGGREGATE of
+	// exactly those rows. A narrower gate would withhold the summary from people who can read
+	// every row it is made of. HealthConfigRead would be wrong in the other direction: that gates
+	// the authored RULEBOOK, and reading what the herd is sick with is not authority over the
+	// standing dosages.
+	{OperationID: "getHealthAnalytics", Method: "GET", Pattern: "/health/analytics", Permissions: []string{HealthRead}},
 	// Authored treatment protocols (/health-config/*), the surface behind the Health Config screen.
 	//
 	// The read/write split is the whole point: a principal may be allowed to INSPECT the standing

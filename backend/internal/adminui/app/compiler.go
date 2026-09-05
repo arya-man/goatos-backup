@@ -1912,6 +1912,11 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.CountsRead}
 	case "counts-sops", "milk-sops", "feed-sops", "weighing-sops":
 		return []string{permissions.SOPRead}
+	case "health-analytics":
+		// health.read, which is what this screen's own data route requires. It must
+		// match the page catalog entry exactly or the leaf renders and then 403s --
+		// the dead-leaf class an exhaustive persona sweep found nine of.
+		return []string{permissions.HealthRead}
 	case "feed-config":
 		return []string{permissions.FeedConfigRead}
 	case "feed-analytics":

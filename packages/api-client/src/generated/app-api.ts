@@ -5106,6 +5106,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the herd is being treated for, whether the courses are carried out, and what it is dying of.
+         * @description The Health leadership read; ONE call serves the whole screen so the tabs cannot disagree with each other. Case figures are at CASE grain and keyed on the diagnosis REGISTER RULE where one exists, never on `disease_key`, which names the treatment card and is many-to-one across diseases. Buckets are `Asia/Kolkata` calendar months, never UTC and never a rolling day window, and a month with no activity is returned as an explicit zero rather than omitted. `totals` are whole-window rollups over exactly the requested days and must be read from the response, never re-derived from `months` or from the bounded `deaths` list.
+         *
+         *     MORTALITY ATTRIBUTION. Goat OS records no CODED cause of death: the death workflow captures a written account and two videos, and `exit_reason` is the manner of exit, never a diagnosis. A death is therefore attributed to a disease only where a health case was OPEN when the animal died; every other death is `unattributed` and carries no disease. The two buckets are disjoint and sum to the death total. `deaths_never_diagnosed` is a SUBSET of the unattributed bucket — an animal with no case on record at all, as against one whose case had already closed — and must never be added to the other two.
+         */
+        get: operations["getHealthAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health-config/protocols": {
         parameters: {
             query?: never;
@@ -5974,6 +5996,216 @@ export interface components {
             offset: number;
             /** @description Whether another page exists. Deliberately NOT a total count: counting the filtered set on every page is compute-on-read, and the grid needs "is there more", not a total. */
             has_more: boolean;
+        };
+        HealthAnalyticsTotals: {
+            /**
+             * Format: int64
+             * @description Cases open RIGHT NOW, a census rather than a window figure. open_adults + open_kids always equals this exactly.
+             */
+            open_cases: number;
+            /** Format: int64 */
+            open_adults: number;
+            /** Format: int64 */
+            open_kids: number;
+            /**
+             * Format: int64
+             * @description Courses started inside the window.
+             */
+            new_cases: number;
+            /** Format: int64 */
+            closed_cases: number;
+            /**
+             * Format: int64
+             * @description Of closed_cases, the ones that closed as recovered.
+             */
+            recovered: number;
+            /**
+             * Format: int64
+             * @description Animals that exited as died inside the window.
+             */
+            deaths: number;
+            /**
+             * Format: int64
+             * @description Deaths where a health case was OPEN at the time. Disjoint from deaths_unattributed.
+             */
+            deaths_attributed: number;
+            /**
+             * Format: int64
+             * @description Deaths with no case open at the time. deaths_attributed + deaths_unattributed always equals deaths.
+             */
+            deaths_unattributed: number;
+            /**
+             * Format: int64
+             * @description A SUBSET of deaths_unattributed — animals with no case on record at all. Never add it to the other two.
+             */
+            deaths_never_diagnosed: number;
+        };
+        HealthAnalyticsMonth: {
+            /** @description IST calendar month key, "2026-08". */
+            month: string;
+            /** @description Farm-readable month, "Aug 2026". */
+            label: string;
+            /** Format: int64 */
+            new_cases: number;
+            /**
+             * Format: int64
+             * @description Always equals deaths_attributed + deaths_unattributed.
+             */
+            deaths: number;
+            /** Format: int64 */
+            deaths_attributed: number;
+            /** Format: int64 */
+            deaths_unattributed: number;
+        };
+        HealthAnalyticsDisease: {
+            /** @description The diagnosis register rule ("MASTITIS") where the case came from the engine, else the treatment card's disease key. */
+            key: string;
+            /** @enum {string} */
+            key_kind: "register_rule" | "disease_key";
+            /** @description Farm-readable disease name recorded on the case. */
+            label: string;
+            /** @enum {string} */
+            age_bands: "" | "adult" | "kid" | "both";
+            /** Format: int64 */
+            new_cases: number;
+            /**
+             * Format: int64
+             * @description Of the cases started in this window, the ones still running.
+             */
+            open_cases: number;
+            /** Format: int64 */
+            recovered: number;
+            /** Format: int64 */
+            died: number;
+            /**
+             * Format: double
+             * @description died over new_cases for THIS disease, one decimal place. Only ever read per disease; a herd-wide figure across diseases means nothing.
+             */
+            case_fatality_pct: number;
+        };
+        HealthAnalyticsAdherence: {
+            /**
+             * Format: int64
+             * @description Sessions whose business date falls inside the window and is not in the future. Sessions stopped by a clinical closure, by the animal's death, or held by the death review are excluded entirely.
+             */
+            sessions_due: number;
+            /** Format: int64 */
+            on_time: number;
+            /** Format: int64 */
+            late: number;
+            /** Format: int64 */
+            rework: number;
+            /**
+             * Format: int64
+             * @description on_time + late + rework + not_done always equals sessions_due; the four are disjoint.
+             */
+            not_done: number;
+            /**
+             * Format: int64
+             * @description A SUBSET of on_time + late — done, video not yet reviewed. Execution and verification are separate axes; never add this to the four buckets.
+             */
+            awaiting_verification: number;
+            /** Format: double */
+            on_time_pct: number;
+        };
+        HealthAnalyticsMedicine: {
+            name: string;
+            route: string;
+            /**
+             * Format: int64
+             * @description Doses the operator actually recorded, never what the protocol prescribed.
+             */
+            doses: number;
+            /**
+             * Format: int64
+             * @description Distinct animals dosed — a different number from doses whenever a course runs more than a day.
+             */
+            animals: number;
+        };
+        HealthAnalyticsEngineRule: {
+            key: string;
+            /**
+             * Format: int64
+             * @description RUNS naming this rule, counted once per run. There is no per-problem decline stored anywhere, so this is proposed-vs-opened rather than an override rate.
+             */
+            proposed: number;
+            /**
+             * Format: int64
+             * @description Cases actually opened from those runs carrying this rule.
+             */
+            opened: number;
+            /** Format: double */
+            not_taken_up_pct: number;
+        };
+        HealthAnalyticsEngine: {
+            /** Format: int64 */
+            observations: number;
+            /** Format: int64 */
+            confirmed: number;
+            /** Format: int64 */
+            declined: number;
+            /** Format: int64 */
+            pending: number;
+            /**
+             * Format: int64
+             * @description Replaced by a later observation of the same animal, and EXCLUDED from confirmed_pct — a second look is not a director disagreeing with the engine.
+             */
+            superseded: number;
+            /**
+             * Format: int64
+             * @description Runs the engine itself refused. A separate axis that overlaps the statuses; never added to them.
+             */
+            invalid: number;
+            /** Format: double */
+            confirmed_pct: number;
+            /**
+             * Format: int64
+             * @description Observed to confirmed, whole hours. Null when nothing was confirmed; a zero would read as instant.
+             */
+            median_hours_to_confirm: number | null;
+            rules: components["schemas"]["HealthAnalyticsEngineRule"][];
+        };
+        HealthAnalyticsDeath: {
+            /** Format: uuid */
+            goat_id: string;
+            display_id: string;
+            /** @description The animal's RFID/eartag. Empty where the animal carries none. */
+            tag: string;
+            /** @description Composed pen name. Empty where the pen cannot be resolved — never a raw id. */
+            operational_location_display: string;
+            park_label: string;
+            /** Format: date */
+            business_date: string;
+            age_band: string;
+            /** @enum {string} */
+            attribution: "attributed" | "unattributed";
+            /** @description The disease the animal was under treatment for. ALWAYS empty for an unattributed death: Goat OS records no cause of death, so one must never be rendered for an animal that had no case open. */
+            disease_label: string;
+            /** @description The animal had no case on record at all, as against one whose case had closed. */
+            never_diagnosed: boolean;
+            /**
+             * Format: int64
+             * @description Earliest open case start to the death date. Null for an unattributed death.
+             */
+            days_under_treatment: number | null;
+        };
+        HealthAnalyticsResponse: {
+            /** Format: date */
+            window_from: string;
+            /** Format: date */
+            window_to: string;
+            totals: components["schemas"]["HealthAnalyticsTotals"];
+            months: components["schemas"]["HealthAnalyticsMonth"][];
+            /** @description Busiest 25 diagnosis rules in the window, most cases first. */
+            diseases: components["schemas"]["HealthAnalyticsDisease"][];
+            adherence: components["schemas"]["HealthAnalyticsAdherence"];
+            /** @description Top 15 medicines by doses given. */
+            medicines: components["schemas"]["HealthAnalyticsMedicine"][];
+            engine: components["schemas"]["HealthAnalyticsEngine"];
+            /** @description The latest 50 deaths in the window, most recent first. A BOUNDED evidence list beside the counts; `totals` covers the whole window and does not move with it. */
+            deaths: components["schemas"]["HealthAnalyticsDeath"][];
+            /** Format: date-time */
+            generated_at: string;
         };
         HealthConfigStep: {
             /** @description Absent on steps a client is submitting; present on stored steps. */
@@ -25057,6 +25289,34 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getHealthAnalytics: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole Health Analytics page in one response. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthAnalyticsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

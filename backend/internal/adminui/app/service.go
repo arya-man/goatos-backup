@@ -183,6 +183,7 @@ func navigation() domain.NavigationContract {
 					navLeaf("milk-preparation", "Milk Preparation", "/counts/milk-preparation", nil),
 					navLeaf("milk-sops", "Milk SOP", "/milk/sops", nil),
 					navLeafDomain("herd-signals", "Live Monitor", "/herd-signals", "herd_signals.live", nil),
+					navLeaf("health-analytics", "Health Analytics", "/health/analytics", nil),
 					navLeaf("health-config", "Health Config", "/health/config", nil),
 					navLeafDomain("audit-log", "Audit Log", "/operations/audit", "admin.audit", nil),
 					navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
@@ -229,6 +230,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/feed/sops", Label: "Feed SOP", Match: "exact"},
 		{Pattern: "/feed/config", Label: "Feed Config — Ration Rules", Match: "exact"},
 		{Pattern: "/feed/analytics", Label: "Feed Analytics", Match: "exact"},
+		{Pattern: "/health/analytics", Label: "Health Analytics", Match: "exact"},
 		{Pattern: "/health/config", Label: "Health Config — Treatment Protocols", Match: "exact"},
 		{Pattern: "/operations/audit", Label: "Audit Log", Match: "exact"},
 		{Pattern: "/operations/dlq", Label: "DLQ Center", Match: "exact"},
@@ -692,6 +694,31 @@ func pages() []domain.PageContract {
 		// counting the filtered catalog on each request is compute-on-read and a headline computed
 		// from the visible page would be a false statement about the rulebook.
 		// ---------------------------------------------------------------------------
+		// ---------------------------------------------------------------------------
+		// HEALTH -> HEALTH ANALYTICS. The Health vertical's leadership read: what the
+		// herd is sick with, whether the prescribed course is being carried out, and
+		// what it is dying of.
+		//
+		// It is a MODULE SURFACE, not an authority screen: it authors nothing, and it
+		// needs no entry in the Config allowlist. Every figure and every visible string
+		// is backend-owned — the four tables below declare their columns, and the page
+		// re-derives no count of its own.
+		//
+		// The tables all read the SAME endpoint, because the whole page is one
+		// aggregate response. That is deliberate: four screens' worth of figures that
+		// must reconcile with each other (deaths on the mortality tab against deaths in
+		// the KPI strip) cannot be served by four independently-windowed reads.
+		// ---------------------------------------------------------------------------
+		page("health-analytics", "/health/analytics", "/health/analytics", "Health Analytics", "What the herd is being treated for, whether the prescribed courses are actually carried out, and what it is dying of. Deaths carry a disease only where a case was open at the time — Goat OS records no cause of death.", "module-surface",
+			[]domain.TableContract{
+				table("health-disease-board", "Disease board", "/health/analytics", []string{"disease", "age_band", "new_cases", "open_cases", "recovered", "died", "case_fatality"}, "disease_key"),
+				// The evidence trail beside the mortality counts, bounded to the latest 50.
+				// `attribution` is a chip, not a disease name: an unattributed death has no
+				// disease and must never be rendered as though it had one.
+				table("health-deaths", "Deaths", "/health/analytics", []string{"animal", "pen", "date", "age_band", "attribution", "days_treated"}, "goat_id"),
+				table("health-medicines", "Medicines given", "/health/analytics", []string{"medicine", "route", "doses", "animals"}, "medicine"),
+				table("health-engine-rules", "Rules the engine proposed", "/health/analytics", []string{"rule", "proposed", "opened", "not_taken_up"}, "rule"),
+			}),
 		page("health-config", "/health/config", "/health/config", "Health Config — Treatment Protocols", "Health-owned authority screen for the authored disease treatment courses: medicines, dosages, routes, and how many days each course runs.", "module-surface",
 			[]domain.TableContract{
 				tableP("protocol-catalog", "Treatment protocols", "/health-config/protocols", []string{"display_name", "age_band", "duration_days", "step_count", "medication_count", "critical_action_count", "published_version", "draft_state"}, "protocol_version_id", []int{10, 25, 50}),
@@ -4201,6 +4228,141 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.title":       "Herd analytics is unavailable",
 			"error.body":        "The herd read failed. The Counts screens themselves are unaffected; try again shortly.",
 		}
+	// -------------------------------------------------------------------------------
+	// HEALTH -> HEALTH ANALYTICS. Three questions, and the copy has to be honest that
+	// the third one has a hole in it.
+	//
+	//   SICKNESS — what the herd is being treated for. Counted on the diagnosis RULE and
+	//   at CASE grain: one animal treated twice for the same illness is two cases.
+	//
+	//   EXECUTION — whether the prescribed course is actually being carried out, at
+	//   SESSION grain, with late kept apart from never-done.
+	//
+	//   MORTALITY — and here is the hole. Nothing in Goat OS records a CODED cause of
+	//   death: the death workflow captures a written account and two videos, and
+	//   `exit_reason` is the MANNER of exit (died/sold/culled), never a diagnosis. So a
+	//   death is attributed ONLY when a case was open when the animal died, and every
+	//   other death is reported as unattributed and never given a disease. The banner
+	//   says this in the operator's own language, because a reader who does not know it
+	//   would read the unattributed column as missing data rather than as the detection
+	//   gap it actually measures.
+	// -------------------------------------------------------------------------------
+	case "health-analytics":
+		return map[string]string{
+			"crumb": "Health",
+			"banner.basis": "Deaths are attributed to a disease only when the animal had an open case when it died. " +
+				"Goat OS records no cause of death, so every other death is counted as not attributed and is never given one.",
+
+			// The window filter is the SHARED calendar every other filtered screen uses,
+			// so the label set is the same "filter.date.*" shape. Park scope lives in the
+			// top bar (Scope Chrome Rule) and the hint says so rather than leaving a
+			// reader hunting for a control that is not on the page.
+			"filter.date":                  "Window",
+			"filter.date.today":            "Today",
+			"filter.date.single":           "Single day",
+			"filter.date.range":            "Date range",
+			"filter.date.aria":             "Choose the dates of health work to show",
+			"filter.date.previous_month":   "Previous month",
+			"filter.date.next_month":       "Next month",
+			"filter.date.range_start_hint": "Pick the first day of the range.",
+			"filter.date.range_end_hint":   "Now pick the last day of the range.",
+			"filter.date.range_separator":  "to",
+			"filter.scope_readonly":        "Park scope is set in the top bar.",
+
+			"tab.overview":   "Overview",
+			"tab.diseases":   "Diseases",
+			"tab.mortality":  "Mortality",
+			"tab.treatment":  "Treatment",
+			"tab.engine":     "Diagnosis engine",
+			"tab.group.aria": "Health analytics sections",
+
+			"kpi.open.label":         "Open cases now",
+			"kpi.open.sub":           "Being treated today, not a window figure",
+			"kpi.new.label":          "New cases",
+			"kpi.new.sub":            "Courses started in the window",
+			"kpi.recovery.label":     "Recovery rate",
+			"kpi.recovery.sub":       "Of the cases closed in the window",
+			"kpi.deaths.label":       "Deaths",
+			"kpi.deaths.sub":         "Animals recorded dead in the window",
+			"kpi.unattributed.label": "Not attributed",
+			"kpi.unattributed.sub":   "Deaths with no case open at the time",
+
+			"chart.deaths.title": "Deaths by month",
+			"chart.deaths.hint": "One column per India calendar month. Every death falls in exactly one of the two, " +
+				"so the pair always adds to that month's total. A window that starts or ends mid-month leaves that month covering only the days inside it.",
+			"chart.diseases.title": "Cases by disease",
+			"chart.diseases.hint": "Courses started in the window, counted on the diagnosis rule. One animal treated twice " +
+				"for the same illness counts twice, because counting animals would hide a relapse.",
+			"chart.trend.title":     "New cases by month",
+			"chart.trend.hint":      "The busiest diseases, one chart each. Thirty-four rules on one axis is unreadable.",
+			"chart.fatality.title":  "Deaths among treated animals",
+			"chart.fatality.hint":   "Of the animals diagnosed with this disease in the window, the share that died. Only ever read per disease.",
+			"chart.adherence.title": "Treatment sessions",
+			"chart.adherence.hint": "One bar per outcome, over every session due in the window up to today. " +
+				"Done late is kept apart from never done: they are different failures.",
+			"chart.empty":       "Nothing recorded in this scope yet.",
+			"chart.legend_aria": "Chart series legend",
+
+			"series.attributed":   "Under treatment",
+			"series.unattributed": "Not attributed",
+			"series.on_time":      "Done on the day",
+			"series.late":         "Done late",
+			"series.rework":       "Sent back",
+			"series.not_done":     "Not done",
+
+			"section.kpi.aria":       "Health headline figures",
+			"section.diseases.title": "Disease board",
+			"section.diseases.note": "One row per diagnosis rule, over the cases started in this window. " +
+				"Open counts only the cases from this window that are still running.",
+			"section.deaths.title":    "Deaths",
+			"section.deaths.note":     "The most recent deaths in the window. The counts above cover the whole window and do not change with this list.",
+			"section.medicines.title": "Medicines given",
+			"section.medicines.note":  "Doses the operator actually recorded, never what the protocol prescribed.",
+			"section.engine.title":    "Observation outcomes",
+			"section.engine.note": "What the director did with the engine's proposal. Re-observations are left out of the rate — " +
+				"a second look is not a disagreement.",
+			"section.engine_rules.title": "Rules the engine proposed",
+			"section.engine_rules.note": "Proposed against opened. There is no per-rule decline recorded anywhere, so this shows " +
+				"what was proposed and what was actually taken up.",
+
+			"stat.confirmed.label":  "Confirmed",
+			"stat.declined.label":   "Declined",
+			"stat.pending.label":    "Not yet decided",
+			"stat.superseded.label": "Superseded",
+			"stat.median.label":     "Median time to confirm",
+			"stat.median.unit":      "h",
+			"stat.awaiting.label":   "Awaiting the verifier",
+			"stat.awaiting.sub":     "Already done, video not yet reviewed",
+			"stat.sessions.label":   "Sessions due",
+			"stat.never.label":      "Never had a case",
+			"stat.never.sub":        "Of the deaths not attributed, animals with no case on record at all",
+
+			"label.attributed":     "Under treatment",
+			"label.unattributed":   "Not attributed",
+			"label.never":          "No case on record",
+			"label.no_disease":     "Not recorded",
+			"label.no_pen":         "Pen not recorded",
+			"label.no_tag":         "No tag recorded",
+			"label.age.adult":      "Adult",
+			"label.age.kid":        "Kid",
+			"label.age.both":       "Both",
+			"label.age.unknown":    "Not recorded",
+			"label.days":           "days",
+			"label.cases_noun":     "cases",
+			"label.of_which":       "of which",
+			"label.capped_list":    "Latest 50",
+			"label.capped_board":   "Busiest 25 rules",
+			"label.rule_kind.card": "Treatment card",
+
+			"state.unavailable": "Health analytics unavailable",
+			"empty.title":       "Nothing recorded yet",
+			"empty.body":        "No cases, treatments or deaths in this scope and window. Figures appear as soon as the field work is recorded.",
+			"empty.deaths":      "No deaths recorded in this window.",
+			"empty.medicines":   "No medicine was recorded as given in this window.",
+			"empty.engine":      "No observations were recorded in this window.",
+			"error.title":       "Health analytics is unavailable",
+			"error.body":        "The health read failed. Treatment work on the phone is unaffected; try again shortly.",
+		}
 	case "counts-breakdown":
 		return map[string]string{
 			"crumb":                     "Counts",
@@ -6829,6 +6991,10 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 	case "counts-breakdown":
 		return withGenericOptionGroups(countsBreakdownOptionGroups())
 	case "herd-analytics":
+		return withGenericOptionGroups(nil)
+	// No option vocabulary of its own: the only control on the page is the shared
+	// window calendar, and park scope belongs to the top bar.
+	case "health-analytics":
 		return withGenericOptionGroups(nil)
 	case "milk-preparation":
 		return withGenericOptionGroups(nil)
