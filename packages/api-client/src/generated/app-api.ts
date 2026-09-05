@@ -2400,6 +2400,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/pc-care/rounds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan one PC Care ROUND covering one or more pens.
+         * @description Creates ONE round holding one task per named pen (maintainer decision 2026-09-05). The pen bucket is the ordinary PC Care task — its own scanned animals, its own submit, its own verification item — so a round changes how work is PLANNED, not how a pen is worked. The whole round lands or none of it does: if any pen already carries a live task for that category and date the create answers 409 task_already_planned and plans nothing, because a silently shortened round is work nobody knows is missing. Authority is identical to the single-pen create. `feed_removal_required` (deworming only) also plans ONE round-grain feed & water removal card for the evening before, carrying one feed video + one water video slot PER PEN.
+         */
+        post: operations["appCreatePCCareRound"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/rounds/{round_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One PC Care round with its pen buckets. */
+        get: operations["appGetPCCareRound"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/removal-pens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The pen-by-pen slot list of a round-grain feed & water removal card.
+         * @description A round's removal card is ONE evening's job proved PEN BY PEN: one feed video and one water video per pen. This is the operator's list of which pens still owe a video, and the reader's evidence trail. Each pen carries its own review status, and the verifier reviews one item per pen.
+         */
+        get: operations["appListPCCareRemovalPens"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/removal-pens/proofs/{slot}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record ONE pen's feed or water removal video.
+         * @description The pen is named by the WORK TASK it gates (gated_task_id), so a client cannot aim one round's evidence at a pen outside that round — a pen with no evidence row answers 422. A re-shoot REPLACES that pen's clip for the slot rather than adding a second one. The proof must be a live-camera VIDEO; a removal proved by a still photograph is not proof that anything was carried out.
+         */
+        put: operations["appPutPCCareRemovalPenProof"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/pc-care/tasks": {
         parameters: {
             query?: never;
@@ -8240,6 +8317,81 @@ export interface components {
                 existing_task_id?: string;
             }[];
             next_cursor?: string;
+        };
+        /** @description One pen named by a round create. Identity ONLY — the display label is composed server-side from the pen catalog, so a client cannot name a pen the farm does not use. */
+        PCCareRoundPen: {
+            /** Format: uuid */
+            shed_id: string;
+            /** @description The pen ("2", "Part 3"); omit or empty for an undivided shed. */
+            partition_label?: string;
+        };
+        PCCareCreateRoundRequest: {
+            category: components["schemas"]["PCCareCategory"];
+            /** Format: uuid */
+            park_id: string;
+            /** @description The pens this round covers. The same pen named twice is refused rather than de-duplicated (422) — silently dropping one would leave the planner believing they planned something they did not. */
+            pens: components["schemas"]["PCCareRoundPen"][];
+            /** Format: date */
+            planned_business_date: string;
+            /** @description The operators authorized to work EVERY pen of this round. */
+            assignee_user_ids: string[];
+            /** @description Deworming only (maintainer decision 2026-09-03, at round grain 2026-09-05): tablets given in feed need feed & water removed the evening before. When true the same write also creates ONE round-grain feed_water_removal card for the evening before, assigned to removal_operator_user_ids, carrying one feed video and one water video slot PER PEN. The deworming date must still have a removal evening ahead of it (creating at/after 20:00 IST for tomorrow -> 422 fasting_window_closed). On any other category -> 422 feed_removal_not_applicable. Injection deworming simply omits it. */
+            feed_removal_required?: boolean;
+            /** @description Who removes feed & water the evening before. Required (minItems 1) when feed_removal_required is true -> otherwise 422 removal_operators_required. */
+            removal_operator_user_ids?: string[];
+        };
+        /** @description One planned round. `status` is BACKEND-OWNED: clients render it verbatim and must never re-derive a round's status from its pen list — two surfaces deriving it independently is how they come to disagree about whether a round is finished. An unworked pen outranks submitted ones, so a card never reads "in review" while a pen is still full. */
+        PCCareRound: {
+            /** Format: uuid */
+            round_id: string;
+            category: components["schemas"]["PCCareCategory"];
+            category_label: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** Format: date */
+            planned_business_date: string;
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            pen_count: number;
+            /** @description The round's pen buckets, each an ordinary PC Care task. Empty on list reads. */
+            pens: components["schemas"]["PCCareTask"][];
+            /**
+             * Format: uuid
+             * @description The round's feed & water removal card, when one gates it. Absent when the round needs no removal.
+             */
+            removal_task_id?: string;
+            /** @enum {string} */
+            removal_status?: "open" | "pending_verification" | "completed" | "rework";
+        };
+        /** @description One pen's slot pair on a round-grain removal card. `pen_label` is backend-composed farm copy, rendered verbatim. */
+        PCCareRemovalPen: {
+            /** Format: uuid */
+            removal_pen_id: string;
+            /**
+             * Format: uuid
+             * @description The pen's own work task inside the gated round — the identity a proof write addresses the pen by.
+             */
+            gated_task_id: string;
+            pen_label: string;
+            feed_proof_ref?: string;
+            water_proof_ref?: string;
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            /** @description The verifier's rejection for THIS pen, rendered verbatim. */
+            rework_reason?: string;
+            row_version: number;
+        };
+        PCCareRemovalPenList: {
+            pens: components["schemas"]["PCCareRemovalPen"][];
+        };
+        PCCareRemovalPenProofRequest: {
+            /**
+             * Format: uuid
+             * @description Which pen this video is of, named by the work task it gates.
+             */
+            gated_task_id: string;
+            proof_ref: string;
         };
         PCCareCreateTaskRequest: {
             category: components["schemas"]["PCCareCategory"];
@@ -19869,6 +20021,153 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appCreatePCCareRound: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareCreateRoundRequest"];
+            };
+        };
+        responses: {
+            /** @description The planned round with its pen buckets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareRound"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description A live task already covers one of the named pens for this category and date (task_already_planned), or the idempotency key was reused with a different request — including a different pen list. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown or non-plannable category, an empty/oversize/duplicated pen list, no assignees, a pen outside the shed's partition catalog, or the feed & water removal fields on a category other than deworming. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetPCCareRound: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                round_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The round. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareRound"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListPCCareRemovalPens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The removal card's task id. */
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card's pens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareRemovalPenList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appPutPCCareRemovalPenProof: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The removal card's task id. */
+                task_id: string;
+                slot: "feed_video" | "water_video";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareRemovalPenProofRequest"];
+            };
+        };
+        responses: {
+            /** @description The pen's video is recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The pen is not part of the gated round, the slot is not feed_video/water_video, or the proof is not a completed live-camera video. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };

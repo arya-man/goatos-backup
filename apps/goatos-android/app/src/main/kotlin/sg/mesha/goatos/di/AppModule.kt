@@ -1172,6 +1172,10 @@ private class DeferredPcCareRepository(
         idempotencyKey: String,
         request: sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto,
     ) = delegate.createTask(idempotencyKey, request)
+    override suspend fun createRound(
+        idempotencyKey: String,
+        request: sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto,
+    ) = delegate.createRound(idempotencyKey, request)
     override suspend fun cancelTask(taskId: String) = delegate.cancelTask(taskId)
     override suspend fun recordStockVerdict(taskId: String, verdict: String, reason: String) =
         delegate.recordStockVerdict(taskId, verdict, reason)

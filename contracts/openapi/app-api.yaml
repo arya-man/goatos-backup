@@ -6439,6 +6439,134 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/rounds:
+    post:
+      tags: [PC Care]
+      operationId: appCreatePCCareRound
+      summary: Plan one PC Care ROUND covering one or more pens.
+      description: >-
+        Creates ONE round holding one task per named pen (maintainer decision 2026-09-05).
+        The pen bucket is the ordinary PC Care task — its own scanned animals, its own
+        submit, its own verification item — so a round changes how work is PLANNED, not how
+        a pen is worked. The whole round lands or none of it does: if any pen already
+        carries a live task for that category and date the create answers 409
+        task_already_planned and plans nothing, because a silently shortened round is work
+        nobody knows is missing. Authority is identical to the single-pen create.
+        `feed_removal_required` (deworming only) also plans ONE round-grain feed & water
+        removal card for the evening before, carrying one feed video + one water video slot
+        PER PEN.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PCCareCreateRoundRequest" } } }
+      responses:
+        "200":
+          description: The planned round with its pen buckets.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareRound" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: >-
+            A live task already covers one of the named pens for this category and date
+            (task_already_planned), or the idempotency key was reused with a different
+            request — including a different pen list.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "422":
+          description: >-
+            Unknown or non-plannable category, an empty/oversize/duplicated pen list, no
+            assignees, a pen outside the shed's partition catalog, or the feed & water
+            removal fields on a category other than deworming.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/rounds/{round_id}:
+    get:
+      tags: [PC Care]
+      operationId: appGetPCCareRound
+      summary: One PC Care round with its pen buckets.
+      parameters:
+        - in: path
+          name: round_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The round.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareRound" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/removal-pens:
+    get:
+      tags: [PC Care]
+      operationId: appListPCCareRemovalPens
+      summary: The pen-by-pen slot list of a round-grain feed & water removal card.
+      description: >-
+        A round's removal card is ONE evening's job proved PEN BY PEN: one feed video and
+        one water video per pen. This is the operator's list of which pens still owe a
+        video, and the reader's evidence trail. Each pen carries its own review status, and
+        the verifier reviews one item per pen.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          description: The removal card's task id.
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The card's pens.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareRemovalPenList" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/removal-pens/proofs/{slot}:
+    put:
+      tags: [PC Care]
+      operationId: appPutPCCareRemovalPenProof
+      summary: Record ONE pen's feed or water removal video.
+      description: >-
+        The pen is named by the WORK TASK it gates (gated_task_id), so a client cannot aim
+        one round's evidence at a pen outside that round — a pen with no evidence row
+        answers 422. A re-shoot REPLACES that pen's clip for the slot rather than adding a
+        second one. The proof must be a live-camera VIDEO; a removal proved by a still
+        photograph is not proof that anything was carried out.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          description: The removal card's task id.
+          schema: { type: string, format: uuid }
+        - in: path
+          name: slot
+          required: true
+          schema: { type: string, enum: [feed_video, water_video] }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PCCareRemovalPenProofRequest" } } }
+      responses:
+        "200":
+          description: The pen's video is recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                required: [status]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "422":
+          description: >-
+            The pen is not part of the gated round, the slot is not feed_video/water_video,
+            or the proof is not a completed live-camera video.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "500": { $ref: "#/components/responses/ServerError" }
   /app/pc-care/tasks:
     get:
       tags: [PC Care]
@@ -19324,6 +19452,114 @@ components:
             required: [shed_id, shed_label, operational_location_display]
         next_cursor: { type: string }
       required: [sheds]
+    PCCareRoundPen:
+      type: object
+      description: One pen named by a round create. Identity ONLY — the display label is composed server-side from the pen catalog, so a client cannot name a pen the farm does not use.
+      properties:
+        shed_id: { type: string, format: uuid }
+        partition_label:
+          type: string
+          description: The pen ("2", "Part 3"); omit or empty for an undivided shed.
+      required: [shed_id]
+    PCCareCreateRoundRequest:
+      type: object
+      properties:
+        category: { $ref: "#/components/schemas/PCCareCategory" }
+        park_id: { type: string, format: uuid }
+        pens:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: >-
+            The pens this round covers. The same pen named twice is refused rather than
+            de-duplicated (422) — silently dropping one would leave the planner believing
+            they planned something they did not.
+          items: { $ref: "#/components/schemas/PCCareRoundPen" }
+        planned_business_date: { type: string, format: date }
+        assignee_user_ids:
+          type: array
+          minItems: 1
+          description: The operators authorized to work EVERY pen of this round.
+          items: { type: string, format: uuid }
+        feed_removal_required:
+          type: boolean
+          description: >-
+            Deworming only (maintainer decision 2026-09-03, at round grain 2026-09-05):
+            tablets given in feed need feed & water removed the evening before. When true
+            the same write also creates ONE round-grain feed_water_removal card for the
+            evening before, assigned to removal_operator_user_ids, carrying one feed video
+            and one water video slot PER PEN. The deworming date must still have a removal
+            evening ahead of it (creating at/after 20:00 IST for tomorrow -> 422
+            fasting_window_closed). On any other category -> 422
+            feed_removal_not_applicable. Injection deworming simply omits it.
+        removal_operator_user_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: >-
+            Who removes feed & water the evening before. Required (minItems 1) when
+            feed_removal_required is true -> otherwise 422 removal_operators_required.
+      required: [category, park_id, pens, planned_business_date, assignee_user_ids]
+    PCCareRound:
+      type: object
+      description: >-
+        One planned round. `status` is BACKEND-OWNED: clients render it verbatim and must
+        never re-derive a round's status from its pen list — two surfaces deriving it
+        independently is how they come to disagree about whether a round is finished. An
+        unworked pen outranks submitted ones, so a card never reads "in review" while a pen
+        is still full.
+      properties:
+        round_id: { type: string, format: uuid }
+        category: { $ref: "#/components/schemas/PCCareCategory" }
+        category_label: { type: string }
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        planned_business_date: { type: string, format: date }
+        status: { type: string, enum: [open, pending_verification, completed, rework] }
+        pen_count: { type: integer }
+        pens:
+          type: array
+          description: The round's pen buckets, each an ordinary PC Care task. Empty on list reads.
+          items: { $ref: "#/components/schemas/PCCareTask" }
+        removal_task_id:
+          type: string
+          format: uuid
+          description: The round's feed & water removal card, when one gates it. Absent when the round needs no removal.
+        removal_status: { type: string, enum: [open, pending_verification, completed, rework] }
+      required: [round_id, category, category_label, park_id, park_name, planned_business_date, status, pen_count, pens]
+    PCCareRemovalPen:
+      type: object
+      description: One pen's slot pair on a round-grain removal card. `pen_label` is backend-composed farm copy, rendered verbatim.
+      properties:
+        removal_pen_id: { type: string, format: uuid }
+        gated_task_id:
+          type: string
+          format: uuid
+          description: The pen's own work task inside the gated round — the identity a proof write addresses the pen by.
+        pen_label: { type: string }
+        feed_proof_ref: { type: string }
+        water_proof_ref: { type: string }
+        status: { type: string, enum: [open, pending_verification, completed, rework] }
+        rework_reason:
+          type: string
+          description: The verifier's rejection for THIS pen, rendered verbatim.
+        row_version: { type: integer }
+      required: [removal_pen_id, gated_task_id, pen_label, status, row_version]
+    PCCareRemovalPenList:
+      type: object
+      properties:
+        pens:
+          type: array
+          items: { $ref: "#/components/schemas/PCCareRemovalPen" }
+      required: [pens]
+    PCCareRemovalPenProofRequest:
+      type: object
+      properties:
+        gated_task_id:
+          type: string
+          format: uuid
+          description: Which pen this video is of, named by the work task it gates.
+        proof_ref: { type: string }
+      required: [gated_task_id, proof_ref]
     PCCareCreateTaskRequest:
       type: object
       properties:

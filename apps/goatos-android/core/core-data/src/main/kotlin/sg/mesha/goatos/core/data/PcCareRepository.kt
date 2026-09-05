@@ -32,8 +32,10 @@ import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.PcCareAnimalRowDto
+import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
 import sg.mesha.goatos.core.network.dto.PcCareStockVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
@@ -192,6 +194,12 @@ interface PcCareRepository {
     ): PcCarePlannerShedsDto
 
     suspend fun createTask(idempotencyKey: String, request: PcCareCreateTaskRequestDto): PcCareTaskDto
+
+    /**
+     * Plan a ROUND covering one or more pens in ONE write (maintainer decision 2026-09-05).
+     * Replaces the create-per-pen loop; the whole round lands or none of it does.
+     */
+    suspend fun createRound(idempotencyKey: String, request: PcCareCreateRoundRequestDto): PcCareRoundDto
 
     suspend fun cancelTask(taskId: String)
 
@@ -456,6 +464,13 @@ class DefaultPcCareRepository(
         idempotencyKey: String,
         request: PcCareCreateTaskRequestDto,
     ): PcCareTaskDto = api.createPcCareTask(idempotencyKey, request).also { upsertDetail(it) }
+
+    override suspend fun createRound( // offline-first-guard:ignore: awaited CEO wizard WRITE, not a read screen; each created pen task is upserted into the Room detail cache below
+        idempotencyKey: String,
+        request: PcCareCreateRoundRequestDto,
+    ): PcCareRoundDto = api.createPcCareRound(idempotencyKey, request).also { round ->
+        round.pens.forEach { upsertDetail(it) }
+    }
 
     override suspend fun cancelTask(taskId: String) {
         api.cancelPcCareTask(taskId)

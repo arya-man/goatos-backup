@@ -65,6 +65,11 @@ import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementResponseDto
 import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
 import sg.mesha.goatos.core.network.dto.PcCareCapturesDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundPenDto
+import sg.mesha.goatos.core.network.dto.PcCareRemovalPenListDto
+import sg.mesha.goatos.core.network.dto.PcCareRemovalPenProofRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
 import sg.mesha.goatos.core.network.dto.PcCareScanRequestDto
@@ -894,6 +899,25 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: PcCareCreateTaskRequestDto,
     ): PcCareTaskDto
+
+    @POST("app/pc-care/rounds")
+    suspend fun createPcCareRound(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareCreateRoundRequestDto,
+    ): PcCareRoundDto
+
+    @GET("app/pc-care/tasks/{task_id}/removal-pens")
+    suspend fun getPcCareRemovalPens(
+        @Path("task_id") taskId: String,
+    ): PcCareRemovalPenListDto
+
+    @PUT("app/pc-care/tasks/{task_id}/removal-pens/proofs/{slot}")
+    suspend fun putPcCareRemovalPenProof(
+        @Path("task_id") taskId: String,
+        @Path("slot") slot: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareRemovalPenProofRequestDto,
+    )
 
     @POST("app/pc-care/tasks/{task_id}/cancel")
     suspend fun cancelPcCareTask(
@@ -2066,6 +2090,21 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: PcCareCreateTaskRequestDto,
     ): PcCareTaskDto = service.createPcCareTask(idempotencyKey, request)
+
+    override suspend fun createPcCareRound(
+        idempotencyKey: String,
+        request: PcCareCreateRoundRequestDto,
+    ): PcCareRoundDto = service.createPcCareRound(idempotencyKey, request)
+
+    override suspend fun getPcCareRemovalPens(taskId: String): PcCareRemovalPenListDto =
+        service.getPcCareRemovalPens(taskId)
+
+    override suspend fun putPcCareRemovalPenProof(
+        taskId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareRemovalPenProofRequestDto,
+    ) = service.putPcCareRemovalPenProof(taskId, slot, idempotencyKey, request)
 
     override suspend fun cancelPcCareTask(taskId: String) = service.cancelPcCareTask(taskId)
 

@@ -24,7 +24,8 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.PcCareRepository
 import sg.mesha.goatos.core.data.PcCareWorklistQuery
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
-import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundPenDto
 import sg.mesha.goatos.core.network.userFacingMessage
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.feature.pccare.PcCarePlanEvent
@@ -503,34 +504,39 @@ class PcCarePlanViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val selectedPens = current.pens.filter { it.selectionKey() in current.selectedPenKeys }
-                var firstCreatedTaskId = ""
-                selectedPens.forEachIndexed { index, pen ->
-                    val created = repository.createTask(
-                        // REUSED on retry per pen: a network blip + second tap replays the SAME
-                        // planned tasks, while each selected pen gets its own backend idempotency row.
-                        idempotencyKey = "$createIdempotencyKey:${pen.selectionKey().replace(Regex("[^A-Za-z0-9._-]"), "_")}",
-                        request = PcCareCreateTaskRequestDto(
-                            category = current.selectedCategoryKey,
-                            parkId = current.selectedParkId,
-                            shedId = pen.shedId,
-                            partitionLabel = pen.partitionLabel,
-                            plannedBusinessDate = current.selectedDate,
-                            assigneeUserIds = current.selectedOperatorIds.toList(),
-                            // Sent ONLY when the toggle was offered and turned on; null keeps every
-                            // other category's payload byte-identical to before this feature.
-                            feedRemovalRequired = if (current.feedRemovalRequired) true else null,
-                            removalOperatorUserIds = current.selectedRemovalOperatorIds
-                                .takeIf { current.feedRemovalRequired }
-                                ?.toList(),
-                        ),
-                    )
-                    if (index == 0) firstCreatedTaskId = created.taskId.ifBlank { "created" }
-                }
+                // ONE write for every ticked pen (maintainer decision 2026-09-05). This used to
+                // loop and fire one create per pen, which is why a four-pen plan came out as four
+                // unrelated cards — and, with the removal toggle on, four more. The server now
+                // plans a ROUND holding one task per pen, and either the whole round lands or none
+                // of it does: a partially planned round is work nobody knows is missing.
+                val round = repository.createRound(
+                    // REUSED on retry: a network blip plus a second tap replays the SAME round
+                    // rather than planning it twice. The pen SET rides the server's request
+                    // fingerprint, so replaying this key with a different pen list is refused
+                    // instead of silently planning a different round.
+                    idempotencyKey = createIdempotencyKey,
+                    request = PcCareCreateRoundRequestDto(
+                        category = current.selectedCategoryKey,
+                        parkId = current.selectedParkId,
+                        pens = selectedPens.map {
+                            PcCareRoundPenDto(shedId = it.shedId, partitionLabel = it.partitionLabel)
+                        },
+                        plannedBusinessDate = current.selectedDate,
+                        assigneeUserIds = current.selectedOperatorIds.toList(),
+                        // Sent ONLY when the toggle was offered and turned on; null keeps every
+                        // other category's payload byte-identical to before this feature.
+                        feedRemovalRequired = if (current.feedRemovalRequired) true else null,
+                        removalOperatorUserIds = current.selectedRemovalOperatorIds
+                            .takeIf { current.feedRemovalRequired }
+                            ?.toList(),
+                    ),
+                )
+                val firstCreatedTaskId = round.pens.firstOrNull()?.taskId.orEmpty()
                 analytics.track(
                     AnalyticsEvents.PC_CARE_PLAN_TASK_CREATED,
                     mapOf(
                         AnalyticsEvents.Params.KIND to current.selectedCategoryKey,
-                        AnalyticsEvents.Params.COUNT to selectedPens.size.toString(),
+                        AnalyticsEvents.Params.COUNT to round.penCount.coerceAtLeast(selectedPens.size).toString(),
                         AnalyticsEvents.Params.OUTCOME to if (current.feedRemovalRequired) "with_feed_removal" else "without_feed_removal",
                     ),
                 )

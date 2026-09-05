@@ -16,9 +16,11 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
+import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskProofDto
@@ -204,6 +206,31 @@ internal class FakePcCareRepository : PcCareRepository {
         }
         createRequests += idempotencyKey to request
         return pcCareTaskDtoFixture()
+    }
+
+    /** Every ROUND create the wizard made: key + request. One entry per CREATE, not per pen. */
+    val createRoundRequests = mutableListOf<Pair<String, PcCareCreateRoundRequestDto>>()
+
+    override suspend fun createRound(
+        idempotencyKey: String,
+        request: PcCareCreateRoundRequestDto,
+    ): PcCareRoundDto {
+        failNextCreateWith?.let {
+            failNextCreateWith = null
+            throw it
+        }
+        createRoundRequests += idempotencyKey to request
+        return PcCareRoundDto(
+            roundId = "round-1",
+            category = request.category,
+            categoryLabel = request.category,
+            parkId = request.parkId,
+            parkName = request.parkId,
+            plannedBusinessDate = request.plannedBusinessDate,
+            status = "open",
+            penCount = request.pens.size,
+            pens = request.pens.map { pcCareTaskDtoFixture() },
+        )
     }
 
     override suspend fun cancelTask(taskId: String) = Unit

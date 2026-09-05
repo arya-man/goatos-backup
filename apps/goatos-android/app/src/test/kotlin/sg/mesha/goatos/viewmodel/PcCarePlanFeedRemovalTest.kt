@@ -131,15 +131,15 @@ class PcCarePlanFeedRemovalTest {
         vm.onEvent(PcCarePlanEvent.Create)
         advanceUntilIdle()
 
-        val (_, request) = repository.createRequests.single()
+        val (_, request) = repository.createRoundRequests.single()
         assertEquals(true, request.feedRemovalRequired)
         assertEquals(listOf("op-2"), request.removalOperatorUserIds)
         assertEquals("deworming", request.category)
-        assertEquals("shed-1", request.shedId)
+        assertEquals("shed-1", request.pens.single().shedId)
     }
 
     @Test
-    fun `deworming create fans out one task per selected pen including feed removal`() = runTest(dispatcher) {
+    fun `every selected pen rides ONE round create, not one create per pen`() = runTest(dispatcher) {
         val repository = repositoryWithTwoPens()
         val vm = viewModel(repository)
         vm.bindWizard("deworming", "Deworming")
@@ -157,13 +157,16 @@ class PcCarePlanFeedRemovalTest {
         vm.onEvent(PcCarePlanEvent.Create)
         advanceUntilIdle()
 
-        val requests = repository.createRequests.map { it.second }
-        assertEquals(2, requests.size)
-        assertEquals(listOf("shed-1", "shed-2"), requests.map { it.shedId })
-        assertEquals(listOf("Part 1", ""), requests.map { it.partitionLabel })
-        assertTrue(requests.all { it.feedRemovalRequired == true })
-        assertTrue(requests.all { it.removalOperatorUserIds == listOf("op-2") })
-        assertEquals(2, repository.createRequests.map { it.first }.distinct().size)
+        // The whole point of the round: ONE write. Before this the wizard looped and fired a
+        // create per pen, so a two-pen plan came out as two unrelated cards — and, with the
+        // removal toggle on, two more removal cards for what is one evening's job.
+        assertEquals("one write for the whole round", 1, repository.createRoundRequests.size)
+        assertEquals("the per-pen loop must be gone", 0, repository.createRequests.size)
+        val request = repository.createRoundRequests.single().second
+        assertEquals(listOf("shed-1", "shed-2"), request.pens.map { it.shedId })
+        assertEquals(listOf("Part 1", ""), request.pens.map { it.partitionLabel })
+        assertEquals(true, request.feedRemovalRequired)
+        assertEquals(listOf("op-2"), request.removalOperatorUserIds)
     }
 
     @Test
@@ -190,7 +193,7 @@ class PcCarePlanFeedRemovalTest {
         vm.onEvent(PcCarePlanEvent.Create)
         advanceUntilIdle()
 
-        val (_, request) = repository.createRequests.single()
+        val (_, request) = repository.createRoundRequests.single()
         assertNull("injection deworming's payload must stay byte-compatible", request.feedRemovalRequired)
         assertNull(request.removalOperatorUserIds)
     }
@@ -206,7 +209,7 @@ class PcCarePlanFeedRemovalTest {
         vm.onEvent(PcCarePlanEvent.Create)
         advanceUntilIdle()
 
-        assertEquals("the refusal happens before any write", 0, repository.createRequests.size)
+        assertEquals("the refusal happens before any write", 0, repository.createRoundRequests.size)
         assertTrue(vm.state.value.message.orEmpty().isNotBlank())
     }
 

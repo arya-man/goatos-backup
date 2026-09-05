@@ -206,6 +206,83 @@ data class PcCarePlannerShedsDto(
     @SerialName("next_cursor") val nextCursor: String = "",
 )
 
+/**
+ * ONE pen named by a round create. Identity only: the pen's display label is composed
+ * server-side from the pen catalog, so the phone never names a pen the farm does not use.
+ */
+@Serializable
+data class PcCareRoundPenDto(
+    @SerialName("shed_id") val shedId: String,
+    @SerialName("partition_label") val partitionLabel: String = "",
+)
+
+/**
+ * The ROUND create (maintainer decision 2026-09-05). The planner ticks several pens and ONE
+ * request carries all of them, replacing the create-per-pen loop that produced one unrelated
+ * card per pen. The whole round lands or none of it does.
+ */
+@Serializable
+data class PcCareCreateRoundRequestDto(
+    @SerialName("category") val category: String,
+    @SerialName("park_id") val parkId: String,
+    @SerialName("pens") val pens: List<PcCareRoundPenDto>,
+    @SerialName("planned_business_date") val plannedBusinessDate: String,
+    @SerialName("assignee_user_ids") val assigneeUserIds: List<String>,
+    /**
+     * Deworming only: tablets given in feed need feed & water removed the evening before. True
+     * makes the SAME write also create ONE round-grain removal card carrying a feed video and a
+     * water video slot PER PEN. Null is dropped by explicitNulls=false.
+     */
+    @SerialName("feed_removal_required") val feedRemovalRequired: Boolean? = null,
+    @SerialName("removal_operator_user_ids") val removalOperatorUserIds: List<String>? = null,
+)
+
+/**
+ * One planned round. [status] is BACKEND-OWNED — rendered verbatim, never re-derived from
+ * [pens], because two surfaces deriving it independently is how they come to disagree about
+ * whether a round is finished.
+ */
+@Serializable
+data class PcCareRoundDto(
+    @SerialName("round_id") val roundId: String = "",
+    @SerialName("category") val category: String = "",
+    @SerialName("category_label") val categoryLabel: String = "",
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("park_name") val parkName: String = "",
+    @SerialName("planned_business_date") val plannedBusinessDate: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("pen_count") val penCount: Int = 0,
+    @SerialName("pens") val pens: List<PcCareTaskDto> = emptyList(),
+    @SerialName("removal_task_id") val removalTaskId: String = "",
+    @SerialName("removal_status") val removalStatus: String = "",
+)
+
+/**
+ * One pen's slot pair on a round-grain removal card. [penLabel] is backend-composed farm copy.
+ */
+@Serializable
+data class PcCareRemovalPenDto(
+    @SerialName("removal_pen_id") val removalPenId: String = "",
+    @SerialName("gated_task_id") val gatedTaskId: String = "",
+    @SerialName("pen_label") val penLabel: String = "",
+    @SerialName("feed_proof_ref") val feedProofRef: String = "",
+    @SerialName("water_proof_ref") val waterProofRef: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("rework_reason") val reworkReason: String = "",
+    @SerialName("row_version") val rowVersion: Int = 0,
+)
+
+@Serializable
+data class PcCareRemovalPenListDto(
+    @SerialName("pens") val pens: List<PcCareRemovalPenDto> = emptyList(),
+)
+
+@Serializable
+data class PcCareRemovalPenProofRequestDto(
+    @SerialName("gated_task_id") val gatedTaskId: String,
+    @SerialName("proof_ref") val proofRef: String,
+)
+
 @Serializable
 data class PcCareCreateTaskRequestDto(
     @SerialName("category") val category: String,

@@ -48,6 +48,11 @@ import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementResponseDto
 import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
 import sg.mesha.goatos.core.network.dto.PcCareCapturesDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundPenDto
+import sg.mesha.goatos.core.network.dto.PcCareRemovalPenListDto
+import sg.mesha.goatos.core.network.dto.PcCareRemovalPenProofRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
 import sg.mesha.goatos.core.network.dto.PcCareScanRequestDto
@@ -1367,6 +1372,27 @@ interface AppApi {
         idempotencyKey: String,
         request: PcCareCreateTaskRequestDto,
     ): PcCareTaskDto
+
+    /**
+     * POST /app/pc-care/rounds — plan a ROUND covering one or more pens in ONE write
+     * (maintainer decision 2026-09-05). Replaces the create-per-pen loop: the planner ticks
+     * the pens once, and either the whole round lands or none of it does.
+     */
+    suspend fun createPcCareRound(
+        idempotencyKey: String,
+        request: PcCareCreateRoundRequestDto,
+    ): PcCareRoundDto
+
+    /** GET /app/pc-care/tasks/{task_id}/removal-pens — a removal card's pen-by-pen slot list. */
+    suspend fun getPcCareRemovalPens(taskId: String): PcCareRemovalPenListDto
+
+    /** PUT /app/pc-care/tasks/{task_id}/removal-pens/proofs/{slot} — one pen's feed or water video. */
+    suspend fun putPcCareRemovalPenProof(
+        taskId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareRemovalPenProofRequestDto,
+    )
 
     suspend fun cancelPcCareTask(taskId: String)
 
@@ -2755,6 +2781,30 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         rowVersion = 1,
         assigneeUserIds = request.assigneeUserIds,
     )
+
+    override suspend fun createPcCareRound(
+        idempotencyKey: String,
+        request: PcCareCreateRoundRequestDto,
+    ): PcCareRoundDto = PcCareRoundDto(
+        roundId = "pc-care-round-1",
+        category = request.category,
+        categoryLabel = request.category,
+        parkId = request.parkId,
+        parkName = request.parkId,
+        plannedBusinessDate = request.plannedBusinessDate,
+        status = "open",
+        penCount = request.pens.size,
+    )
+
+    override suspend fun getPcCareRemovalPens(taskId: String): PcCareRemovalPenListDto =
+        PcCareRemovalPenListDto()
+
+    override suspend fun putPcCareRemovalPenProof(
+        taskId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareRemovalPenProofRequestDto,
+    ) = Unit
 
     override suspend fun cancelPcCareTask(taskId: String) = Unit
 
