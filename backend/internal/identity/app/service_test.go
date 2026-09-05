@@ -2034,6 +2034,25 @@ func TestPrepareCriticalDeathExitDefaultsToIndiaBusinessDate(t *testing.T) {
 	}
 }
 
+// TestPrepareCriticalDeathExitCarriesDeathCause pins the approval-path handoff. Counts stores the
+// operator's death request, then the approver re-runs PrepareCriticalDeathExit from that stored body.
+// If the command drops the cause pair here, identity emits goat.exited without it and Health never
+// records the cause.
+func TestPrepareCriticalDeathExitCarriesDeathCause(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	body := []byte(`{"lifecycle_status":"dead","exit_reason":"died","death_cause_key":"MASTITIS","death_cause_kind":"register_rule","reason":"","row_version":1,"evidence_refs":[{"evidence_type":"media","evidence_id":"proof-cause"}]}`)
+	cmd, err := svc.PrepareCriticalDeathExit(context.Background(), ExitGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "death-cause-prepare-1",
+		TraceID: testTrace, GoatID: goatA, RawBody: body,
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if cmd.DeathCauseKey != "MASTITIS" || cmd.DeathCauseKind != "register_rule" {
+		t.Fatalf("death cause = %q/%q, want MASTITIS/register_rule", cmd.DeathCauseKey, cmd.DeathCauseKind)
+	}
+}
+
 func (f *fakeRepo) PreviewCorrectCensusSlice(context.Context, ports.CorrectCensusSliceCommand) (*ports.CensusSlicePreview, error) {
 	return &ports.CensusSlicePreview{}, nil
 }

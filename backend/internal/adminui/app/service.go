@@ -4301,7 +4301,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.empty":       "Nothing recorded in this scope yet.",
 			"chart.legend_aria": "Chart series legend",
 
-			"series.attributed":   "Under treatment",
+			"series.attributed":   "Attributed",
 			"series.unattributed": "Not attributed",
 			"series.on_time":      "Done on the day",
 			"series.late":         "Done late",
@@ -4335,11 +4335,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"stat.awaiting.sub":       "Already done, video not yet reviewed",
 			"stat.sessions.label":     "Sessions due",
 			"stat.sessions.sub":       "Treatment visits owed in the window, up to today",
-			"stat.attributed.sub":     "Died with a case open at the time",
+			"stat.attributed.sub":     "Recorded cause or open-case link",
 			"stat.never.label":        "Never had a case",
 			"stat.never.sub":          "Of the deaths not attributed, animals with no case on record at all",
 
-			"label.attributed":   "Under treatment",
+			"label.attributed":   "Attributed",
 			"label.unattributed": "Not attributed",
 			"label.never":        "No case on record",
 			"label.no_disease":   "Not recorded",
