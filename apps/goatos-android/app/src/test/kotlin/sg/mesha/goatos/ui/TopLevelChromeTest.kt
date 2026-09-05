@@ -2,6 +2,7 @@ package sg.mesha.goatos.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -662,22 +663,59 @@ class TopLevelChromeTest {
     }
 
     @Test
-    fun `vendors L0 roots are exact and their drills never inherit root chrome`() {
-        // Module vendors (maintainer decision 2026-09-03): two backend-composed L0 hrefs. The
-        // detail routes carry a literal segment so the second L0 (`/vendors/feed-purchases`) can
-        // never be matched as a vendor id, and no drill is a prefix reuse of a root.
-        val roots = listOf(Routes.VENDORS, Routes.VENDORS_FEED_PURCHASES, Routes.VENDORS_SALES)
+    fun `procurement L0 roots are exact and their drills never inherit root chrome`() {
+        // Module vendors (maintainer decisions 2026-09-03, 2026-09-05): TWO backend-composed L0
+        // hrefs since the sales ledger moved to its own module. The detail routes carry a literal
+        // segment so the second L0 (`/vendors/feed-purchases`) can never be matched as a vendor id,
+        // and no drill is a prefix reuse of a root.
+        val roots = listOf(Routes.VENDORS, Routes.VENDORS_FEED_PURCHASES)
         assertTrue(isTopLevelRoute(Routes.VENDORS, roots))
         assertTrue(isTopLevelRoute(Routes.VENDORS_FEED_PURCHASES, roots))
-        assertTrue(isTopLevelRoute(Routes.VENDORS_SALES, roots))
-        assertFalse(isTopLevelRoute(Routes.SALE_NEW, roots))
-        assertFalse(isTopLevelRoute(Routes.SALE_DETAIL, roots))
-        assertFalse(isTopLevelRoute(Routes.SALE_TAG_ANIMALS, roots))
-        assertFalse(isTopLevelRoute(Routes.saleDetailRoute("d-1"), roots))
         assertFalse(isTopLevelRoute(Routes.VENDOR_NEW, roots))
         assertFalse(isTopLevelRoute(Routes.VENDOR_DETAIL, roots))
         assertFalse(isTopLevelRoute(Routes.FEED_PURCHASE_NEW, roots))
         assertFalse(isTopLevelRoute(Routes.FEED_PURCHASE_DETAIL, roots))
         assertFalse(isTopLevelRoute(Routes.vendorDetailRoute("v-1"), roots))
+        // The sales ledger is no longer one of this module's roots, and its old prefix is gone.
+        assertFalse(isTopLevelRoute(Routes.SALES, roots))
+        assertFalse(isTopLevelRoute(Routes.SALES_VENDORS, roots))
+    }
+
+    @Test
+    fun `sales L0 roots are exact and their drills never inherit root chrome`() {
+        // Module sales (maintainer decision 2026-09-05): TWO backend-composed L0 hrefs — the ledger
+        // and the selling half of the vendor register. Every route below must match the backend nav
+        // href character for character, or the shell refuses to host the tap.
+        val roots = listOf(Routes.SALES, Routes.SALES_VENDORS)
+        assertEquals("/sales", Routes.SALES)
+        assertEquals("/sales/vendors", Routes.SALES_VENDORS)
+        assertTrue(isTopLevelRoute(Routes.SALES, roots))
+        assertTrue(isTopLevelRoute(Routes.SALES_VENDORS, roots))
+        // The ledger's own drills, all under the moved prefix and none a prefix reuse of a root.
+        assertFalse(isTopLevelRoute(Routes.SALE_NEW, roots))
+        assertFalse(isTopLevelRoute(Routes.SALE_DETAIL, roots))
+        assertFalse(isTopLevelRoute(Routes.SALE_TAG_ANIMALS, roots))
+        assertFalse(isTopLevelRoute(Routes.saleDetailRoute("d-1"), roots))
+        assertFalse(isTopLevelRoute(Routes.SALES_PIPELINE, roots))
+        assertFalse(isTopLevelRoute(Routes.salesLeadBoardRoute("BUYER_LEADS"), roots))
+        assertFalse(isTopLevelRoute(Routes.salesEvidenceRoute("MARKET_QUOTE"), roots))
+        // The selling register's drills, which must never be read as the `/sales/vendors` root.
+        assertFalse(isTopLevelRoute(Routes.SALES_VENDOR_NEW, roots))
+        assertFalse(isTopLevelRoute(Routes.SALES_VENDOR_DETAIL, roots))
+        assertFalse(isTopLevelRoute(Routes.salesVendorDetailRoute("v-1"), roots))
+    }
+
+    @Test
+    fun `the two register halves are distinct routes and neither is the other's drill`() {
+        // The buying and selling halves share every screen, so nothing but the ROUTE tells them
+        // apart. If these ever collided, one tab would host the other and the side would be a lie.
+        assertNotEquals(Routes.VENDORS, Routes.SALES_VENDORS)
+        assertNotEquals(Routes.VENDOR_NEW, Routes.SALES_VENDOR_NEW)
+        assertNotEquals(Routes.VENDOR_DETAIL, Routes.SALES_VENDOR_DETAIL)
+        assertNotEquals(Routes.vendorDetailRoute("v-1"), Routes.salesVendorDetailRoute("v-1"))
+        // Each half's detail carries the literal `/vendor/` segment, so `/sales/vendors` itself can
+        // never be matched as a vendor id.
+        assertTrue(Routes.SALES_VENDOR_DETAIL.startsWith("${Routes.SALES_VENDORS}/vendor/"))
+        assertTrue(Routes.VENDOR_DETAIL.startsWith("${Routes.VENDORS}/vendor/"))
     }
 }

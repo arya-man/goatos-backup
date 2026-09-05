@@ -7419,6 +7419,18 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: side
+          in: query
+          required: false
+          description: >-
+            Which half of the register to read. `procurement` is what the farm buys -- livestock
+            agents and stockists, transport, feed, manure, labour, insurance and site trades.
+            `sales` is who it sells to -- agents, butchers, farmers, slaughter houses and companies.
+            A record type declares its own side, so the two halves are complementary: every vendor
+            is on exactly one, and a record type nobody catalogued counts as procurement rather than
+            disappearing from both. Omit to read the WHOLE register, which is what the vendor
+            picklist does. An unrecognised value is refused, never widened to both.
+          schema: { type: string, enum: [procurement, sales] }
         - name: offset
           in: query
           required: false
@@ -7639,6 +7651,17 @@ paths:
         Record types, breeds, states, cities, statuses and feed kinds. Entries with
         `is_active: false` are retired: still rendered on a vendor that carries one, never offered
         for a new row.
+      parameters:
+        - name: side
+          in: query
+          required: false
+          description: >-
+            Narrows the RECORD TYPES to one half of the register and leaves every other vocabulary
+            whole -- a butcher and a feed stockist sit in the same states and are reached in the
+            same towns, so duplicating those lists per side would be two things to keep in step for
+            no gain. Omit for the whole vocabulary, which is what a caller resolving the labels on
+            an existing vendor row needs.
+          schema: { type: string, enum: [procurement, sales] }
       responses:
         "200":
           description: The vocabularies, grouped by kind.

@@ -350,10 +350,15 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
-		Key:      "sales",
-		Label:    "Sales",
-		Blurb:    "Animals sold and the sales ledger.",
-		Surfaces: []string{SurfaceWeb},
+		Key:   "sales",
+		Label: "Sales",
+		Blurb: "Animals sold and the sales ledger.",
+		// Mobile too (maintainer decision 2026-09-05): Sales became its own phone module, carrying
+		// the sales ledger that used to be a tab inside Procurement plus the selling half of the
+		// vendor register. Without SurfaceMobile the tick screen would never offer it and
+		// narrowOfferToTicks would strip the module from every phone that has any stored row --
+		// which is the same trap migration 000251 was written to close for Vendors.
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {SalesRead},
 			LevelDo:   {SalesRead, SalesWrite},

@@ -150,6 +150,12 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("sales-board", "Sales", "/sales", nil),
 					navLeaf("sales-loads", "Purchase and Born", "/sales/loads", nil),
+					// The SELLING side of the one vendor register (maintainer decision 2026-09-05).
+					// Same table and same endpoint as Procurement > Vendors, narrowed to the record
+					// types the farm SELLS to. It is a Sales leaf because the person recording a sale
+					// is the one who meets a new butcher, and sending them to the buying desk's page
+					// to add him is what this leaf ends.
+					navLeaf("sales-vendors", "Vendors", "/sales/vendors", nil),
 					navLeaf("sales-config", "Sales Config", "/sales/config", nil),
 				},
 			},
@@ -399,8 +405,13 @@ func pages() []domain.PageContract {
 		// they supply, whether we are buying, and where they are. Banking is NOT a column -- it is
 		// drawer detail behind VendorFinanceRead, because a table that renders account numbers puts
 		// them on screen in every shoulder-surfing context the register is used in.
+		//
+		// The data source names side=procurement EXPLICITLY rather than relying on the endpoint's
+		// unfiltered default. The default is "the whole register" -- correct for the vendor picklist,
+		// wrong for this page -- so leaving it off would put the five buyer categories back on the
+		// buying desk's screen the moment anyone read the contract literally.
 		page("vendors", "/procurement/vendors", "/procurement/vendors", "Vendors", "The procurement register: livestock agents and stockists, transport, feed, manure, labour, insurance and site trades.", "module-surface",
-			[]domain.TableContract{tableP("vendors", "Vendors", "/procurement/vendors", []string{"business_name", "record_type", "phone_number", "location_display", "status"}, "vendor_id", []int{25, 50, 100})}),
+			[]domain.TableContract{tableP("vendors", "Vendors", "/procurement/vendors?side=procurement", []string{"business_name", "record_type", "phone_number", "location_display", "status"}, "vendor_id", []int{25, 50, 100})}),
 		// The SALES module: animal and manure sales, demand pipelines and evidence panels. The deals
 		// ledger is server-paged; the buyer board rides on GET /sales/overview and is paged in the
 		// renderer, so its contract declares the page size and no row click -- there is no buyer
@@ -418,6 +429,19 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				withoutRowClick(loadwiseTable()),
 			}),
+		// SALES > VENDORS (maintainer decision 2026-09-05): the vendor register's SELLING half.
+		//
+		// The SAME table contract and the SAME data source as /procurement/vendors, because it is
+		// literally the same register -- one table, split by the side its record type declares. The
+		// two pages are complementary: this one lists the five buyer categories (Agent, Butcher,
+		// Company, Farmer, Slaughter House), Procurement lists everything else, and a record type
+		// nobody catalogued stays on the procurement side rather than disappearing from both.
+		//
+		// The `side` on the data source is what performs the split, and it is part of the CONTRACT
+		// rather than something the renderer appends: the page is defined as one half of the
+		// register, and a renderer free to choose its own half could show a buying desk a butcher.
+		page("sales-vendors", "/sales/vendors", "/sales/vendors", "Vendors", "The sales register: the agents, butchers, farmers, slaughter houses and companies the farm sells to.", "module-surface",
+			[]domain.TableContract{tableP("sales-vendors", "Vendors", "/procurement/vendors?side=sales", []string{"business_name", "record_type", "phone_number", "location_display", "status"}, "vendor_id", []int{25, 50, 100})}),
 		// SALES CONFIG (maintainer decision 2026-09-01): every sales WRITE, in one place.
 		// Recording a sale, tagging its animals, the pipeline and evidence entry the retired Sales
 		// DB sheet used to carry, and a load's landed cost all live here; /sales and /sales/loads
@@ -2878,10 +2902,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.rejecting":               "Rejecting...",
 			"action.cancel":                  "Cancel",
 		}
-	case "vendors":
+	case "vendors", "sales-vendors":
 		// Backend-owned copy for the register. The client renders these verbatim; per the golden
 		// rule it must not hardcode a label, an empty state or a disabled reason of its own.
-		return map[string]string{
+		//
+		// BOTH SIDES OF THE REGISTER SHARE THIS MAP, and that sharing is the point (maintainer
+		// decision 2026-09-05). Procurement > Vendors and Sales > Vendors are the same table, the
+		// same drawer and the same form; only WHICH record types they carry differs. Two copies of
+		// ~90 keys would drift, and the drift would show as one register wording a field differently
+		// from the other. The handful of sentences that genuinely differ are overridden below,
+		// AFTER the shared map is built, so a key added here reaches both pages automatically.
+		copyMap := map[string]string{
 			"crumb":                     "Procurement",
 			"section.vendors.title":     "Vendors",
 			"section.vendors.aria":      "Procurement vendor register",
@@ -2982,6 +3013,18 @@ func pageSpecificCopy(id string) map[string]string {
 			"required.hint.create": "Business name, record type, contact person, phone number, state, city and status are required.",
 			"disabled.write":       "Your current role can view vendors but not change them.",
 		}
+		if id == "sales-vendors" {
+			// The five differences, and each is a sentence that would be WRONG on the other page:
+			// the trail says which module you are in, the aria/empty text names which half of the
+			// register you are looking at, and the search hint drops "city" for nothing -- it is
+			// kept identical because the search column is the same generated column either way.
+			copyMap["crumb"] = "Sales"
+			copyMap["section.vendors.aria"] = "Sales vendor register"
+			copyMap["empty.vendors"] = "No buyers match these filters."
+			copyMap["empty.vendors.unset"] = "No buyers yet. Add the first one to start the sales register."
+			copyMap["error.load"] = "Could not load the sales vendor register. Refresh to try again."
+		}
+		return copyMap
 	case "sales-loads":
 		// Load by load -- the per-load reconciliation page under Sales (maintainer decision
 		// 2026-08-31). Farm language only, like every other page's copy.

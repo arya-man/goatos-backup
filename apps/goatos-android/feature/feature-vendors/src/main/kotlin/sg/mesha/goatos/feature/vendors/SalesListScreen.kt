@@ -38,7 +38,7 @@ import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 
-/** The Procurement module's third tab (`/vendors/sales`): the sales ledger. */
+/** The Sales module's ledger tab (`/sales`), moved there off Procurement on 2026-09-05. */
 @Composable
 fun SalesListScreen(
     state: SalesListUiState,

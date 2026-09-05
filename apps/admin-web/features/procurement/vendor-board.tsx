@@ -52,6 +52,28 @@ function hrefWithQuery(pathname: string, sp: RouteSearchParams, patch: Record<st
 
 const FILTER_KEYS: VendorFilterKey[] = ["record_type", "status", "state", "city", "breed"];
 
+/**
+ * Which half of the register this page shows, read from the page's OWN backend contract.
+ *
+ * The side is declared once, in the table's `data_source` (`/procurement/vendors?side=sales`), and
+ * is read back out here rather than passed in as a prop. That is deliberate: a prop would be a
+ * second statement of the same fact, and the two could disagree -- a page whose contract says sales
+ * while its reads say procurement would show the buying desk's suppliers under the Sales heading
+ * with nothing on screen admitting it.
+ *
+ * A contract with no side reads the WHOLE register, which is the behaviour every caller had before
+ * the split, so an older backend still renders this page correctly instead of showing nothing.
+ */
+function sideFromContract(pageContract: AdminUiPageContract): string | undefined {
+  for (const table of pageContract.tables) {
+    const query = table.data_source.split("?")[1];
+    if (!query) continue;
+    const side = new URLSearchParams(query).get("side");
+    if (side) return side;
+  }
+  return undefined;
+}
+
 export async function VendorBoardPage({
   searchParams,
   pageContract,
@@ -59,7 +81,11 @@ export async function VendorBoardPage({
   searchParams: RouteSearchParams;
   pageContract: AdminUiPageContract;
 }) {
-  const pathname = "/procurement/vendors";
+  // The page's own route, from its contract. Both registers render through this one component, so
+  // a hardcoded path would send every link, filter and drawer on Sales > Vendors back to
+  // Procurement > Vendors.
+  const pathname = pageContract.href;
+  const side = sideFromContract(pageContract);
   const sp = searchParams;
 
   const search = one(sp, "search") ?? "";
@@ -75,8 +101,8 @@ export async function VendorBoardPage({
   // Both reads in parallel: the catalog is needed to render the filter selects and the edit form,
   // and it does not depend on the page of vendors.
   const [result, catalogResult] = await Promise.all([
-    listProcurementVendors({ search: search || undefined, limit, offset, ...activeFilters }),
-    listProcurementVendorCatalog(),
+    listProcurementVendors({ search: search || undefined, limit, offset, side, ...activeFilters }),
+    listProcurementVendorCatalog({ side }),
   ]);
 
   const authError = firstAuthRequiredError(result, catalogResult);
@@ -138,6 +164,7 @@ export async function VendorBoardPage({
 
       <VendorFilterBar
         pageContract={pageContract}
+        pathname={pathname}
         catalog={catalog}
         search={search}
         filters={activeFilters}

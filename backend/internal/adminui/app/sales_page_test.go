@@ -123,15 +123,18 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	if salesGroup.Icon != "banknote" {
 		t.Fatalf("sales group icon = %q, want banknote", salesGroup.Icon)
 	}
-	// Three leaves now: the board, Purchase and Born beside it (maintainer decision 2026-08-31),
-	// and Sales Config last (maintainer decision 2026-09-01) -- the one place a sales fact is
-	// entered or changed, which is why the two read leaves come first.
-	if len(salesGroup.Leaves) != 3 ||
+	// Four leaves now: the board, Purchase and Born beside it (maintainer decision 2026-08-31),
+	// Vendors -- the selling half of the vendor register (maintainer decision 2026-09-05) -- and
+	// Sales Config last (maintainer decision 2026-09-01), the one place a sales fact is entered or
+	// changed, which is why the read leaves come first.
+	if len(salesGroup.Leaves) != 4 ||
 		salesGroup.Leaves[0].Href != "/sales" ||
 		salesGroup.Leaves[1].Href != "/sales/loads" ||
 		salesGroup.Leaves[1].Label != "Purchase and Born" ||
-		salesGroup.Leaves[2].Href != "/sales/config" ||
-		salesGroup.Leaves[2].Label != "Sales Config" {
+		salesGroup.Leaves[2].Href != "/sales/vendors" ||
+		salesGroup.Leaves[2].Label != "Vendors" ||
+		salesGroup.Leaves[3].Href != "/sales/config" ||
+		salesGroup.Leaves[3].Label != "Sales Config" {
 		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
 	}
 

@@ -17,7 +17,15 @@ import {
   type ProcurementVendorWrite,
 } from "@/lib/api/server";
 
-const VENDORS_PATH = "/procurement/vendors";
+/**
+ * BOTH pages that render the register, because a write reaches the same table either way.
+ *
+ * Revalidating only the page the form was submitted from would leave the other side showing a
+ * stale list -- and the two are not disjoint in practice: re-categorising a vendor from a supply
+ * type to a buyer type MOVES it between them, so exactly the write that changes what one page
+ * lists is the write that changes what the other lists too.
+ */
+const VENDOR_LIST_PATHS = ["/procurement/vendors", "/sales/vendors"];
 
 /**
  * Reads the shared vendor fields off the form.
@@ -79,7 +87,7 @@ export async function createVendorAction(formData: FormData): Promise<void> {
     // banner params, so the operator lands back on the list they came from.
     actionRedirect(formData, "error", "action.vendor_save_failed");
   }
-  revalidatePath(VENDORS_PATH);
+  for (const path of VENDOR_LIST_PATHS) revalidatePath(path);
   actionRedirect(formData, "success", "action.vendor_created");
 }
 
@@ -94,7 +102,7 @@ export async function updateVendorAction(formData: FormData): Promise<void> {
   if (!result.ok) {
     actionRedirect(formData, "error", "action.vendor_save_failed");
   }
-  revalidatePath(VENDORS_PATH);
+  for (const path of VENDOR_LIST_PATHS) revalidatePath(path);
   actionRedirect(formData, "success", "action.vendor_updated");
 }
 
@@ -113,7 +121,7 @@ export async function changeVendorStatusAction(formData: FormData): Promise<void
   if (!result.ok) {
     actionRedirect(formData, "error", "action.vendor_status_failed");
   }
-  revalidatePath(VENDORS_PATH);
+  for (const path of VENDOR_LIST_PATHS) revalidatePath(path);
   actionRedirect(formData, "success", "action.vendor_status_changed");
 }
 

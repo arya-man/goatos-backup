@@ -120,6 +120,31 @@ func buildVendorFilter(tenantID string, f domain.VendorFilter) (string, []any) {
 	if f.Breed != "" {
 		add("v.breed = $%d", f.Breed)
 	}
+	// SIDE. The register's two halves are defined by the record type's declared side, and they are
+	// COMPLEMENTARY BY CONSTRUCTION: sales is the record types marked 'sales', procurement is
+	// everything else. Every vendor is therefore on exactly one side and none is on neither.
+	//
+	// NOT EXISTS, never `record_type NOT IN (SELECT ...)`: a single NULL value in that subquery
+	// makes NOT IN return NULL for every row and the procurement register would come back empty.
+	//
+	// The subquery probes procurement_vendor_catalog on (tenant_id, kind, value), which IS its
+	// primary key, so this is a unique index lookup rather than a scan.
+	if f.Side != "" {
+		args = append(args, domain.VendorSideSales)
+		predicate := fmt.Sprintf(`EXISTS (
+			SELECT 1 FROM public.procurement_vendor_catalog c
+			 WHERE c.tenant_id = v.tenant_id
+			   AND c.kind = 'record_type'
+			   AND c.value = v.record_type
+			   AND c.register_side = $%d)`, len(args))
+		if f.Side != domain.VendorSideSales {
+			// An UNCATALOGUED record type falls here, on the procurement side, which is exactly
+			// where it is listed today. Failing toward the status quo is deliberate: the
+			// alternative is a vendor that appears on neither page and can never be found again.
+			predicate = "NOT " + predicate
+		}
+		clauses = append(clauses, predicate)
+	}
 	return strings.Join(clauses, " AND "), args
 }
 
@@ -349,12 +374,15 @@ func (r *Repository) ListVendorCatalog(ctx context.Context, tenantID string, act
 	//
 	// Every other kind still comes from the authored catalog, because those ARE closed vocabularies
 	// the business governs.
+	//
+	// The derived city branch carries the storage default for register_side. A city has no side --
+	// both registers filter by the same towns -- and only kind='record_type' is ever read for it.
 	query := `
-		SELECT kind, value, label, sort_order, is_active
+		SELECT kind, value, label, sort_order, is_active, register_side
 		FROM public.procurement_vendor_catalog
 		WHERE tenant_id = $1 AND kind <> 'city' AND ($2::boolean IS NOT TRUE OR is_active)
 		UNION ALL
-		SELECT 'city', city, city, 0, true
+		SELECT 'city', city, city, 0, true, 'procurement'
 		FROM (
 			SELECT DISTINCT btrim(city) AS city
 			FROM public.procurement_vendors
@@ -370,7 +398,7 @@ func (r *Repository) ListVendorCatalog(ctx context.Context, tenantID string, act
 	entries := make([]domain.VendorCatalogEntry, 0, 128)
 	for rows.Next() {
 		var e domain.VendorCatalogEntry
-		if err := rows.Scan(&e.Kind, &e.Value, &e.Label, &e.SortOrder, &e.IsActive); err != nil {
+		if err := rows.Scan(&e.Kind, &e.Value, &e.Label, &e.SortOrder, &e.IsActive, &e.RegisterSide); err != nil {
 			return nil, fmt.Errorf("list vendor catalog scan: %w", err)
 		}
 		entries = append(entries, e)

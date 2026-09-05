@@ -55,3 +55,50 @@ func TestVendorCapacityIsOptionalInEveryPart(t *testing.T) {
 		t.Fatalf("empty display = %q", got)
 	}
 }
+
+// TestVendorSideIsRefusedRatherThanWidened pins the fail-closed half of the 2026-09-05 register
+// split: an EMPTY side means "the whole register" and is legal, while an UNRECOGNISED side is
+// refused outright.
+//
+// The asymmetry is the rule. Empty has to stay legal because the vendor picklist -- which names the
+// buyer of a sale -- reads the whole register and always did. But a page that ASKED for one half
+// and silently received both would put the five buyer categories back on the buying desk's screen
+// with nothing on the page admitting it, which is the exact mix the split exists to end.
+//
+// Mutation-tested when written: returning `("", true)` from the default branch turns the
+// unrecognised subtests green-to-red.
+func TestVendorSideIsRefusedRatherThanWidened(t *testing.T) {
+	for raw, want := range map[string]string{
+		"":            "",
+		"procurement": VendorSideProcurement,
+		"sales":       VendorSideSales,
+		"  Sales  ":   VendorSideSales,
+		"PROCUREMENT": VendorSideProcurement,
+	} {
+		got, ok := NormalizeVendorSide(raw)
+		if !ok || got != want {
+			t.Fatalf("NormalizeVendorSide(%q) = (%q, %v), want (%q, true)", raw, got, ok, want)
+		}
+	}
+
+	// Every one of these is a plausible near-miss a client could send. None may resolve to a side,
+	// and none may resolve to "both".
+	for _, raw := range []string{"buying", "selling", "buy", "sell", "vendors", "both", "all", "procurment"} {
+		if got, ok := NormalizeVendorSide(raw); ok {
+			t.Fatalf("NormalizeVendorSide(%q) accepted, resolving to %q; an unknown side must be refused", raw, got)
+		}
+	}
+}
+
+// TestVendorFilterNormalizeDropsAnUnknownSide pins the second line of defence. The API layer
+// refuses an unknown side before a filter is ever built; this covers a caller that constructs a
+// domain.VendorFilter directly, where dropping to "the whole register" matches how Status already
+// behaves and is the only option that cannot silently mislabel a page.
+func TestVendorFilterNormalizeDropsAnUnknownSide(t *testing.T) {
+	if got := (VendorFilter{Side: "selling"}).Normalize().Side; got != "" {
+		t.Fatalf("unknown side normalized to %q, want empty", got)
+	}
+	if got := (VendorFilter{Side: " SALES "}).Normalize().Side; got != VendorSideSales {
+		t.Fatalf("side normalized to %q, want %q", got, VendorSideSales)
+	}
+}

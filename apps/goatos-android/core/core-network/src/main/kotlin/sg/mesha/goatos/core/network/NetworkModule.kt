@@ -996,6 +996,7 @@ interface AppApiService {
     // Vendors (maintainer decision 2026-09-03): the same procurement routes the web uses.
     @GET("procurement/vendors")
     suspend fun getProcurementVendors(
+        @Query("side") side: String?,
         @Query("search") search: String?,
         @Query("status") status: String?,
         @Query("limit") limit: Int?,
@@ -1006,7 +1007,7 @@ interface AppApiService {
     suspend fun getProcurementVendor(@Path("vendor_id") vendorId: String): VendorDto
 
     @GET("procurement/vendor-catalog")
-    suspend fun getProcurementVendorCatalog(): VendorCatalogDto
+    suspend fun getProcurementVendorCatalog(@Query("side") side: String?): VendorCatalogDto
 
     @POST("procurement/vendors")
     suspend fun createProcurementVendor(@Body request: VendorWriteDto): VendorDto
@@ -2185,15 +2186,16 @@ class RetrofitAppApi(
     ): ToxinTaskDetailDto = service.submitToxinReading(taskId, idempotencyKey, request)
 
     override suspend fun getProcurementVendors(
+        side: String?,
         search: String?,
         status: String?,
         limit: Int?,
         offset: Int?,
-    ): VendorPageDto = service.getProcurementVendors(search, status, limit, offset)
+    ): VendorPageDto = service.getProcurementVendors(side, search, status, limit, offset)
 
     override suspend fun getProcurementVendor(vendorId: String): VendorDto = service.getProcurementVendor(vendorId)
 
-    override suspend fun getProcurementVendorCatalog(): VendorCatalogDto = service.getProcurementVendorCatalog()
+    override suspend fun getProcurementVendorCatalog(side: String?): VendorCatalogDto = service.getProcurementVendorCatalog(side)
 
     override suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto =
         service.createProcurementVendor(request)

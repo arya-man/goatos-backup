@@ -166,7 +166,10 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Sales on this desk too (maintainer instruction 2026-09-04): the Procurement phone
 		// module's Sales tab records a sale and tags its animals; the web pages follow the same
 		// permissions.
-		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
+		// Sales is on BOTH surfaces from 2026-09-05: it became its own phone module (the ledger
+		// moved out of the Procurement module and took the selling half of the vendor register
+		// with it). Migration 000257 copies the same mobile row onto everyone already backfilled.
+		bothSurfaces("sales", LevelView, LevelDo),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
 	),
 	// Web-only except Vendors. Procurement Director keeps Sales Config, Vendors, Feed Purchases,
@@ -174,7 +177,10 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// Vendors is on BOTH surfaces (maintainer decision 2026-09-03): the Procurement phone module.
 	RoleProcurementDirector: rows(
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
-		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
+		// Sales is on BOTH surfaces from 2026-09-05: it became its own phone module (the ledger
+		// moved out of the Procurement module and took the selling half of the vendor register
+		// with it). Migration 000257 copies the same mobile row onto everyone already backfilled.
+		bothSurfaces("sales", LevelView, LevelDo),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
 		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
@@ -233,7 +239,10 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("herd_register", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		one(assign("procurement", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
-		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
+		// Sales is on BOTH surfaces from 2026-09-05: it became its own phone module (the ledger
+		// moved out of the Procurement module and took the selling half of the vendor register
+		// with it). Migration 000257 copies the same mobile row onto everyone already backfilled.
+		bothSurfaces("sales", LevelView, LevelDo),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
 		one(assign("verification", SurfaceWeb, LevelConfigure)),
 		one(assign("config", SurfaceWeb, LevelView, LevelDo, LevelConfigure)),

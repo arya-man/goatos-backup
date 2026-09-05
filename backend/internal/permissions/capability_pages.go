@@ -89,6 +89,12 @@ var modulePages = []ModulePage{
 	// with the sales module and reached on SalesRead -- the WRITES on it carry their own keys
 	// (SalesWrite, and LoadCostWrite for a load's cost), so a read-only holder sees the page with
 	// its controls disabled rather than a missing leaf.
+	// Sales > Vendors: the selling half of the vendor register (maintainer decision 2026-09-05).
+	// It TICKS with the sales module -- it is a Sales leaf and the sales desk is who uses it -- but
+	// it is REACHED on VendorRead, the register's own permission, because it renders vendor rows.
+	// Module ownership and authority are separate questions here, exactly as AGENTS.md states for
+	// Feed SOP (grouped under Feed, opened on sop.read).
+	{Key: "sales-vendors", Module: "sales", Label: "Vendors", Href: "/sales/vendors", Permissions: []string{VendorRead}},
 	{Key: "sales-config", Module: "sales", Label: "Sales Config", Href: "/sales/config", Permissions: []string{SalesRead}},
 	{Key: "procurement-feed-purchases", Module: "feed_purchases", Label: "Feed Purchases", Href: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
 
@@ -144,6 +150,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/admin/goats/sale":           "sale_allocation",
 	"/sales":                      "sales",
 	"/sales/loads":                "sales",
+	"/sales/vendors":              "sales",
 	"/procurement/feed-purchases": "feed_purchases",
 	"/counts":                     "counts",
 	"/counts/herd":                "herd_register",

@@ -1,5 +1,12 @@
 # Sales is its own module, and every sale names a vendor
 
+> **Extended 2026-09-05.** Sales also became its own module ON THE PHONE, and gained a **Vendors**
+> leaf on both surfaces carrying the SELLING half of the one vendor register. The lock recorded
+> below — Sales stores an opaque `buyer_vendor_id` and reads no procurement table — is unchanged by
+> it: Sales > Vendors is the procurement register's own page and endpoint, rendered under a Sales
+> route and gated on `procurement.vendor.read`, exactly as the record-sale drawer already reaches
+> `/procurement/vendor-options`. See `docs/decisions/vendor-register-two-sides.md`.
+
 **Maintainer decision, 2026-08-27.** Two changes, decided together.
 
 > "Now make sales a standalone module... keep a separate modular sales, in that the sales page will

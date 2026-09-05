@@ -21301,6 +21301,8 @@ export interface operations {
                 state?: string;
                 city?: string;
                 breed?: string;
+                /** @description Which half of the register to read. `procurement` is what the farm buys -- livestock agents and stockists, transport, feed, manure, labour, insurance and site trades. `sales` is who it sells to -- agents, butchers, farmers, slaughter houses and companies. A record type declares its own side, so the two halves are complementary: every vendor is on exactly one, and a record type nobody catalogued counts as procurement rather than disappearing from both. Omit to read the WHOLE register, which is what the vendor picklist does. An unrecognised value is refused, never widened to both. */
+                side?: "procurement" | "sales";
                 /** @description Rows to skip. Bounded on purpose -- the register is an authored contact book that grows with supplier count, never with herd size, so a capped offset stays cheap while giving the operator a Back control and a page number, which a forward-only cursor cannot. A request past the cap is REJECTED rather than clamped, so a page number never shows the wrong rows. */
                 offset?: number;
                 limit?: number;
@@ -21475,7 +21477,10 @@ export interface operations {
     };
     listProcurementVendorCatalog: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Narrows the RECORD TYPES to one half of the register and leaves every other vocabulary whole -- a butcher and a feed stockist sit in the same states and are reached in the same towns, so duplicating those lists per side would be two things to keep in step for no gain. Omit for the whole vocabulary, which is what a caller resolving the labels on an existing vendor row needs. */
+                side?: "procurement" | "sales";
+            };
             header?: never;
             path?: never;
             cookie?: never;

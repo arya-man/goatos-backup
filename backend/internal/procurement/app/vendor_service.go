@@ -59,6 +59,9 @@ func (s *VendorService) ListVendors(ctx context.Context, tenantID string, q Vend
 		// which is a lie the operator cannot detect from the screen.
 		return ports.VendorPage{}, ErrVendorOffsetOutOfRange
 	}
+	if _, ok := domain.NormalizeVendorSide(q.Filter.Side); !ok {
+		return ports.VendorPage{}, ErrVendorSideUnknown
+	}
 	return s.repo.ListVendors(ctx, tenantID, q.Filter, q.Limit, q.Offset, q.IncludeFinance)
 }
 
@@ -144,8 +147,34 @@ func (s *VendorService) UpdateVendorStatus(ctx context.Context, tenantID, vendor
 // activeOnly is false here on purpose: the screen needs retired entries too, because an existing
 // vendor may still carry one and the edit form must be able to render (and re-save) the value it
 // already has. The client marks inactive entries so they are shown but not offered for new rows.
-func (s *VendorService) ListVendorCatalog(ctx context.Context, tenantID string) ([]domain.VendorCatalogEntry, error) {
-	return s.repo.ListVendorCatalog(ctx, tenantID, false)
+func (s *VendorService) ListVendorCatalog(ctx context.Context, tenantID string, side string) ([]domain.VendorCatalogEntry, error) {
+	normalizedSide, ok := domain.NormalizeVendorSide(side)
+	if !ok {
+		return nil, ErrVendorSideUnknown
+	}
+	entries, err := s.repo.ListVendorCatalog(ctx, tenantID, false)
+	if err != nil {
+		return nil, err
+	}
+	if normalizedSide == "" {
+		return entries, nil
+	}
+	// Narrow ONLY the record types. Every other vocabulary -- breed, state, city, status, feed,
+	// capacity unit, supply frequency -- is shared by both registers: a butcher and a feed stockist
+	// sit in the same states and are reached in the same towns, and duplicating those lists per side
+	// would be two things to keep in step for no gain.
+	//
+	// The narrowing happens HERE rather than in SQL so the whole vocabulary is read once and the two
+	// sides cannot drift into two different queries. It also keeps the side out of the repository's
+	// catalog read, which the picklist and the importer share.
+	narrowed := make([]domain.VendorCatalogEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.Kind == domain.CatalogKindRecordType && e.RegisterSide != normalizedSide {
+			continue
+		}
+		narrowed = append(narrowed, e)
+	}
+	return narrowed, nil
 }
 
 // ListVendorOptions returns the ACTIVE register as a bounded picklist for a counterparty dropdown.

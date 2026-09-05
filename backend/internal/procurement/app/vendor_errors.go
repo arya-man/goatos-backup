@@ -13,6 +13,12 @@ var (
 	ErrVendorOffsetOutOfRange = errors.New("procurement: vendor page out of range")
 	// ErrVendorRowVersionRequired reports an update that carried no optimistic-concurrency fence.
 	ErrVendorRowVersionRequired = errors.New("procurement: vendor row version required")
+	// ErrVendorSideUnknown reports a register side that is neither procurement nor sales.
+	//
+	// REFUSED rather than widened to "both", because a page that asked for one half of the register
+	// and silently received all of it would put buyers on the buying desk's screen -- exactly the
+	// mix the split exists to end -- and nothing on the screen would say so.
+	ErrVendorSideUnknown = errors.New("procurement: vendor register side unknown")
 )
 
 // VendorHTTPError maps a vendor-path error onto the transport error shape.
@@ -52,6 +58,9 @@ func VendorHTTPError(err error) *Error {
 
 	case errors.Is(err, ErrVendorOffsetOutOfRange):
 		return BadRequest("page_out_of_range", "That page is beyond the vendor list. Use the filters to narrow it down.")
+
+	case errors.Is(err, ErrVendorSideUnknown):
+		return BadRequest("vendor_side_unknown", "That vendor list is not one we keep. Open Vendors from Procurement or from Sales.")
 
 	default:
 		// Field-level validation carries its own operator-readable reason.

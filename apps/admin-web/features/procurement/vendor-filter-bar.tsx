@@ -40,11 +40,18 @@ const FILTER_PARAMS = ["search", ...FILTERS.map((f) => f.key)];
  */
 export function VendorFilterBar({
   pageContract,
+  pathname,
   catalog,
   search,
   filters,
 }: {
   pageContract: AdminUiPageContract;
+  /**
+   * The route this bar applies its filters on. Passed in rather than hardcoded because the same bar
+   * serves both halves of the register -- Procurement > Vendors and Sales > Vendors -- and applying
+   * a filter must keep the person on the page they are looking at.
+   */
+  pathname: string;
   catalog: ProcurementVendorCatalog | null;
   /** What the server last rendered -- the APPLIED state the draft is compared against. */
   search: string;
@@ -87,7 +94,7 @@ export function VendorFilterBar({
   function apply(next: Record<string, string>): void {
     const qs = draftSearchString(next);
     startTransition(() => {
-      router.replace(qs ? `/procurement/vendors?${qs}` : "/procurement/vendors", { scroll: false });
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     });
   }
 

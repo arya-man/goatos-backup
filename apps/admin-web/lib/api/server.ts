@@ -1592,6 +1592,14 @@ export async function listProcurementVendors(params: {
   state?: string;
   city?: string;
   breed?: string;
+  /**
+   * Which half of the register: "procurement" (what the farm buys) or "sales" (who it sells to).
+   *
+   * Omitting it reads the WHOLE register, which is what every caller meant before the two sides
+   * existed. A page that shows one side must pass one -- the value comes from that page's own
+   * backend contract (its table `data_source`), never from a choice made here.
+   */
+  side?: string;
   limit?: number;
   offset?: number;
 } = {}): Promise<ApiResult<ProcurementVendorPage>> {
@@ -1630,13 +1638,26 @@ export async function listProcurementVendorOptions(): Promise<ApiResult<Procurem
   );
 }
 
-/** The business-managed dropdown vocabularies behind the register's filters and form. */
-export async function listProcurementVendorCatalog(): Promise<ApiResult<ProcurementVendorCatalog>> {
+/**
+ * The business-managed dropdown vocabularies behind the register's filters and form.
+ *
+ * `side` narrows the RECORD TYPES to one half of the register and leaves every other vocabulary
+ * whole -- a butcher and a feed stockist sit in the same states and towns. Passing it is what makes
+ * the Sales page's Add-vendor form offer the five buyer categories instead of all forty, and it is
+ * narrowed on the SERVER: the whole list never reaches the browser to be filtered there, so the
+ * form cannot offer a category the page does not own.
+ */
+export async function listProcurementVendorCatalog(
+  params: { side?: string } = {},
+): Promise<ApiResult<ProcurementVendorCatalog>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<ProcurementVendorCatalog>("/procurement/vendor-catalog", { cache: "no-store" }),
+    client.request<ProcurementVendorCatalog>("/procurement/vendor-catalog", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
   );
 }
 

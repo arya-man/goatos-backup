@@ -10,7 +10,14 @@ web capability key), with three bottom-bar tabs:
 |---|---|---|---|
 | Vendors | `/vendors` | the vendor register, searched and narrowed by status | add a vendor (three-step wizard) |
 | Feed Purchases | `/vendors/feed-purchases` | the feed purchase ledger, narrowed by delivery state | record a purchase (two-step wizard) |
-| Sales | `/vendors/sales` | the sales ledger, narrowed by farm | record a sale (three-step wizard); tag animals to a sale (pick → review → confirm) |
+| ~~Sales~~ | ~~`/vendors/sales`~~ | ~~the sales ledger, narrowed by farm~~ | ~~record a sale; tag animals to a sale~~ |
+
+> **SUPERSEDED 2026-09-05 — the Sales tab MOVED.** Sales is its own phone module now
+> (`/sales`, plus a `/sales/vendors` tab carrying the selling half of the vendor register), so
+> Procurement has TWO tabs: Vendors and Feed Purchases. The Sales section below still describes what
+> that tab DOES, which is unchanged — only which module hosts it. See
+> `docs/decisions/vendor-register-two-sides.md`. The Procurement module's Vendors tab is now the
+> BUYING half of the register only.
 
 Marking a purchase reached, instalments, edits, payments on a sale, deal status changes, leads,
 market quotes, and a vendor's payment instruments stay on the web.

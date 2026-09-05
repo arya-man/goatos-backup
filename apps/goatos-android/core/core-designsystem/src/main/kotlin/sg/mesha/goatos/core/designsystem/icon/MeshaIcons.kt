@@ -438,11 +438,13 @@ object MeshaIcons {
         "pc_care" -> PcCare
         "pc_deworming" -> Deworming
         "pc_anti_protozoan" -> AntiProtozoan
-        // Vendors module (maintainer decision 2026-09-03): the register wears the storefront and
-        // its Feed Purchases tab the package, so the two tabs on one bar never share a mark.
-        "vendors" -> Store
+        // Procurement module (maintainer decisions 2026-09-03, 2026-09-05): the register wears the
+        // storefront and its Feed Purchases tab the package, so the two tabs on one bar never share
+        // a mark. `sales_vendors` is the SELLING half of that same register and wears the same
+        // storefront — it sits on the Sales bar beside the price tag, so nothing is repeated there.
+        "vendors", "sales_vendors" -> Store
         "feed_purchases" -> Package
-        // The Sales tab (maintainer instruction 2026-09-04) wears the price tag.
+        // The Sales module and its ledger tab (maintainer decision 2026-09-05) wear the price tag.
         "sales" -> Sale
         "pc_ticks" -> Tick
         "pc_hoof_trimming" -> HoofTrimming

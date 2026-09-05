@@ -10,8 +10,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -23,6 +26,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEventsVendors
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.VendorRegisterSide
 import sg.mesha.goatos.core.data.VendorsRepository
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -53,6 +57,12 @@ import javax.inject.Inject
  *
  * The client id is minted ONCE per form and kept in SavedStateHandle, so a double tap, a lost
  * response or a process death all replay the SAME vendor rather than recording a second one.
+ *
+ * ONE wizard adds to BOTH halves of the register (maintainer decision 2026-09-05). The half is
+ * named by [bind] from the route this destination was reached on, and it reaches the form only
+ * through the CATALOG: the record-type dropdown offers whatever that side's vocabulary says, which
+ * is why the selling page shows five categories and the buying page its supply ones. Nothing here
+ * filters the server's list, and nothing here decides a side of its own.
  */
 @HiltViewModel
 class VendorCreateViewModel @Inject constructor(
@@ -84,12 +94,26 @@ class VendorCreateViewModel @Inject constructor(
     private val clientId: String
         get() = savedStateHandle.get<String>(KEY_CLIENT_ID) ?: UUID.randomUUID().toString().also { savedStateHandle[KEY_CLIENT_ID] = it }
 
+    /** Null until [bind]; the form shows no record types rather than the wrong side's. */
+    private val side = MutableStateFlow<VendorRegisterSide?>(null)
+
     init {
         analytics.track(AnalyticsEventsVendors.VENDORS_ADD_OPENED)
-        viewModelScope.launch { repository.refreshCatalog() }
     }
 
-    val state: StateFlow<VendorCreateUiState> = combine(local, repository.observeCatalog()) { l, catalog ->
+    /** Names which half of the register this wizard is adding to. */
+    fun bind(registerSide: VendorRegisterSide) {
+        if (side.value == registerSide) return
+        side.value = registerSide
+        viewModelScope.launch { repository.refreshCatalog(registerSide) }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    // No distinctUntilChanged: `side` is a StateFlow, which already conflates a repeated value.
+    private val catalog = side
+        .flatMapLatest { s -> if (s == null) flowOf(null) else repository.observeCatalog(s) }
+
+    val state: StateFlow<VendorCreateUiState> = combine(local, catalog) { l, catalog ->
         val c = catalog ?: VendorCatalogDto()
         VendorCreateUiState(
             step = l.step,

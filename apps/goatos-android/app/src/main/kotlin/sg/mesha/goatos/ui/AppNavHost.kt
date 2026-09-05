@@ -207,6 +207,7 @@ import sg.mesha.goatos.viewmodel.AdultHealthViewModel
 import sg.mesha.goatos.viewmodel.ApprovalViewModel
 import sg.mesha.goatos.viewmodel.VaccinationAlertsViewModel
 import sg.mesha.goatos.viewmodel.WeighingAlertsViewModel
+import sg.mesha.goatos.core.data.VendorRegisterSide
 import sg.mesha.goatos.core.data.WORKFLOW_MODULE_COLOSTRUM
 import sg.mesha.goatos.viewmodel.BirthWorkflowListViewModel
 import sg.mesha.goatos.viewmodel.ColostrumWorkflowListViewModel
@@ -601,12 +602,17 @@ object Routes {
 
     fun toxinTaskRoute(taskId: String): String = "/toxin/tasks/${Uri.encode(taskId)}"
 
-    // Vendors module (backend module `vendors`, maintainer decision 2026-09-03). TWO L0 roots
-    // whose hrefs match the backend-composed nav items VERBATIM (bootstrap_copy.go:
-    // {key:"vendors", href:"/vendors"} and {key:"feed_purchases", href:"/vendors/feed-purchases"});
-    // the add wizards and the detail screens are distinct hosted drills with Up/Back and NO root
-    // chrome, never a prefix reuse of an L0 route. The detail routes carry a literal segment
-    // (`/vendor/`, `/purchase/`) so `/vendors/feed-purchases` can never be read as a vendor id.
+    // Procurement module (backend module `vendors`, maintainer decisions 2026-09-03 and
+    // 2026-09-05). TWO L0 roots whose hrefs match the backend-composed nav items VERBATIM
+    // (bootstrap_copy.go: {key:"vendors", href:"/vendors"} and
+    // {key:"feed_purchases", href:"/vendors/feed-purchases"}); the add wizards and the detail
+    // screens are distinct hosted drills with Up/Back and NO root chrome, never a prefix reuse of
+    // an L0 route. The detail routes carry a literal segment (`/vendor/`, `/purchase/`) so
+    // `/vendors/feed-purchases` can never be read as a vendor id.
+    //
+    // This `/vendors` root is the BUYING half of the one vendor register; the selling half lives
+    // at `/sales/vendors` below. Same screens, opposite sides — the ROUTE decides which side its
+    // state holder asks the register for.
     const val VENDORS = "/vendors"
     const val VENDOR_NEW = "/vendors/new"
     const val VENDOR_ID_ARG = "vendor_id"
@@ -619,17 +625,31 @@ object Routes {
     fun vendorDetailRoute(vendorId: String): String = "/vendors/vendor/${Uri.encode(vendorId)}"
     fun feedPurchaseDetailRoute(purchaseId: String): String = "/vendors/feed-purchases/purchase/${Uri.encode(purchaseId)}"
 
-    // Sales tab (maintainer instruction 2026-09-04): the THIRD L0 of the Procurement module
-    // ({key:"sales", href:"/vendors/sales"}), its record wizard, the sale drill and the
-    // tag-animals drill under it. The literal `/sale/` segment keeps the L0 from ever reading
-    // as a deal id.
-    const val VENDORS_SALES = "/vendors/sales"
-    const val SALE_NEW = "/vendors/sales/new"
+    // Sales module (backend module `sales`, maintainer decision 2026-09-05). TWO L0 roots whose
+    // hrefs match the backend-composed nav items VERBATIM (bootstrap_copy.go:
+    // {key:"sales", href:"/sales"} and {key:"sales_vendors", href:"/sales/vendors"}).
+    //
+    // The ledger MOVED here off `/vendors/sales` -- it is not duplicated -- because buying and
+    // selling are different desks. The record wizard, the sale drill and the tag-animals drill
+    // keep their shape under the new prefix; the literal `/sale/` segment keeps the L0 from ever
+    // reading as a deal id, and `/sales/vendors` from ever reading as one either.
+    const val SALES = "/sales"
+    const val SALE_NEW = "/sales/new"
     const val SALE_ID_ARG = "deal_id"
-    const val SALE_DETAIL = "/vendors/sales/sale/{$SALE_ID_ARG}"
-    const val SALE_TAG_ANIMALS = "/vendors/sales/sale/{$SALE_ID_ARG}/tag"
-    fun saleDetailRoute(dealId: String): String = "/vendors/sales/sale/${Uri.encode(dealId)}"
-    fun saleTagAnimalsRoute(dealId: String): String = "/vendors/sales/sale/${Uri.encode(dealId)}/tag"
+    const val SALE_DETAIL = "/sales/sale/{$SALE_ID_ARG}"
+    const val SALE_TAG_ANIMALS = "/sales/sale/{$SALE_ID_ARG}/tag"
+    fun saleDetailRoute(dealId: String): String = "/sales/sale/${Uri.encode(dealId)}"
+    fun saleTagAnimalsRoute(dealId: String): String = "/sales/sale/${Uri.encode(dealId)}/tag"
+
+    // The SELLING half of the one vendor register (maintainer decision 2026-09-05): the agents,
+    // butchers, farmers, slaughter houses and companies the farm sells to. It reuses the register
+    // screens the Procurement tab uses; only the SIDE the route asks for differs, so a person who
+    // has just met a new butcher adds him here instead of on the buying desk's page.
+    const val SALES_VENDORS = "/sales/vendors"
+    const val SALES_VENDOR_NEW = "/sales/vendors/new"
+    const val SALES_VENDOR_DETAIL = "/sales/vendors/vendor/{$VENDOR_ID_ARG}"
+
+    fun salesVendorDetailRoute(vendorId: String): String = "/sales/vendors/vendor/${Uri.encode(vendorId)}"
 
     // Pipeline and evidence (maintainer instruction 2026-09-04): the five panels the web's
     // /sales/config opens as drawers. On the phone they are L1/L2 drills under the Sales tab --
@@ -637,11 +657,11 @@ object Routes {
     // and one the three evidence forms, with the panel as the argument; the alternative is five
     // near-identical destinations that drift apart.
     const val SALES_PANEL_ARG = "panel"
-    const val SALES_PIPELINE = "/vendors/sales/pipeline"
-    const val SALES_LEAD_BOARD = "/vendors/sales/pipeline/leads/{$SALES_PANEL_ARG}"
-    const val SALES_EVIDENCE = "/vendors/sales/pipeline/evidence/{$SALES_PANEL_ARG}"
-    fun salesLeadBoardRoute(panel: String): String = "/vendors/sales/pipeline/leads/${Uri.encode(panel)}"
-    fun salesEvidenceRoute(panel: String): String = "/vendors/sales/pipeline/evidence/${Uri.encode(panel)}"
+    const val SALES_PIPELINE = "/sales/pipeline"
+    const val SALES_LEAD_BOARD = "/sales/pipeline/leads/{$SALES_PANEL_ARG}"
+    const val SALES_EVIDENCE = "/sales/pipeline/evidence/{$SALES_PANEL_ARG}"
+    fun salesLeadBoardRoute(panel: String): String = "/sales/pipeline/leads/${Uri.encode(panel)}"
+    fun salesEvidenceRoute(panel: String): String = "/sales/pipeline/evidence/${Uri.encode(panel)}"
 
     // Leadership Tasks (backend module `leadership_tasks`, maintainer request 2026-09-04). The
     // list is an L0 root whose href matches the backend-composed nav item VERBATIM
@@ -3427,73 +3447,17 @@ fun AppNavHost(
         // TWO L0 lists (the vendor register and the feed purchase ledger) plus their hosted add
         // wizards and detail drills. Module visibility is backend-composed (offered on
         // procurement.vendor.read), so nothing here gates on a role string.
-        composable(Routes.VENDORS) {
-            val vm: VendorsListViewModel = hiltViewModel()
-            LaunchedEffect(vm) { vm.bind(VENDORS_TAB_TITLE) }
-            val state by vm.state.collectAsStateWithLifecycle()
-            val rows = vm.rows.collectAsLazyPagingItems()
-            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
-            val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
-            VendorsListScreen(
-                state = state,
-                rows = rows,
-                onEvent = { event ->
-                    when (event) {
-                        VendorsListEvent.Refresh -> {
-                            vm.onEvent(event)
-                            rows.refresh()
-                        }
-                        is VendorsListEvent.SelectStatus -> {
-                            vm.onEvent(event)
-                            rows.refresh()
-                        }
-                        is VendorsListEvent.OpenVendor -> {
-                            vm.onEvent(event)
-                            navController.navigate(Routes.vendorDetailRoute(event.vendorId)) { launchSingleTop = true }
-                        }
-                        VendorsListEvent.AddVendor -> {
-                            vm.onEvent(event)
-                            navController.navigate(Routes.VENDOR_NEW) { launchSingleTop = true }
-                        }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-        composable(Routes.VENDOR_NEW) {
-            val vm: VendorCreateViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            // The microphone is bound only while this destination is on screen, the camera shape.
-            CaptureAccessGate {
-                BindAudioCaptureSource(rememberDelegatingAudioCaptureSource())
-                VendorCreateScreen(
-                    state = state,
-                    onEvent = { event ->
-                        when (event) {
-                            VendorCreateEvent.Back -> navController.popBackStack()
-                            else -> vm.onEvent(event)
-                        }
-                    },
-                )
-            }
-        }
-        composable(
-            route = Routes.VENDOR_DETAIL,
-            arguments = listOf(navArgument(Routes.VENDOR_ID_ARG) { type = NavType.StringType }),
-        ) {
-            val vm: VendorDetailViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            VendorDetailScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        VendorDetailEvent.Back -> navController.popBackStack()
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
+        // The BUYING half of the one vendor register. Its selling half is registered from the same
+        // function in the Sales section below — same screens, same state holders, opposite side.
+        vendorRegisterComposables(
+            side = VendorRegisterSide.PROCUREMENT,
+            listRoute = Routes.VENDORS,
+            newRoute = Routes.VENDOR_NEW,
+            detailRoute = Routes.VENDOR_DETAIL,
+            title = VENDORS_TAB_TITLE,
+            navController = navController,
+            detailRouteOf = Routes::vendorDetailRoute,
+        )
         composable(Routes.VENDORS_FEED_PURCHASES) {
             val vm: FeedPurchasesListViewModel = hiltViewModel()
             LaunchedEffect(vm) { vm.bind(FEED_PURCHASES_TAB_TITLE) }
@@ -3556,8 +3520,11 @@ fun AppNavHost(
                 },
             )
         }
-        // --- Sales (Procurement module, maintainer instruction 2026-09-04) -------------------
-        composable(Routes.VENDORS_SALES) {
+        // --- Sales (module sales, maintainer decision 2026-09-05) ---------------------------
+        // TWO L0 roots: the sales ledger (MOVED here off `/vendors/sales`, not duplicated) and the
+        // SELLING half of the vendor register. Module visibility is backend-composed; nothing here
+        // gates on a role string.
+        composable(Routes.SALES) {
             val vm: SalesListViewModel = hiltViewModel()
             LaunchedEffect(vm) { vm.bind(SALES_TAB_TITLE) }
             val state by vm.state.collectAsStateWithLifecycle()
@@ -3594,6 +3561,18 @@ fun AppNavHost(
                 },
             )
         }
+        // The SELLING half of the one vendor register — the agents, butchers, farmers, slaughter
+        // houses and companies the farm sells to. Same screens as Procurement > Vendors; only the
+        // side differs, so a new butcher is added here instead of on the buying desk's page.
+        vendorRegisterComposables(
+            side = VendorRegisterSide.SALES,
+            listRoute = Routes.SALES_VENDORS,
+            newRoute = Routes.SALES_VENDOR_NEW,
+            detailRoute = Routes.SALES_VENDOR_DETAIL,
+            title = SALES_VENDORS_TAB_TITLE,
+            navController = navController,
+            detailRouteOf = Routes::salesVendorDetailRoute,
+        )
         composable(Routes.SALES_PIPELINE) {
             val vm: SalesPipelineHubViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
@@ -4575,7 +4554,107 @@ private const val TOXIN_TAB_TITLE = "Tests"
 /** The backend's `nav.vendors` / `nav.feed_purchases` labels, mirrored so each L0 header matches its nav item. */
 private const val VENDORS_TAB_TITLE = "Vendors"
 private const val FEED_PURCHASES_TAB_TITLE = "Feed Purchases"
+
+/**
+ * The Sales module's two L0 labels, mirrored from the backend's `nav.sales` / `nav.vendors`. The
+ * selling register wears the SAME word as the buying one — they are two halves of one register, and
+ * each is titled by the bar it sits in.
+ */
 private const val SALES_TAB_TITLE = "Sales"
+private const val SALES_VENDORS_TAB_TITLE = "Vendors"
+
+/**
+ * ONE register half: the list, its add wizard and its detail drill.
+ *
+ * Both halves of the vendor register are registered from here (maintainer decision 2026-09-05), so
+ * the Sales tab cannot drift from the Procurement one — same screens, same state holders, and the
+ * only difference is the [side] each is bound to and the routes its drills live on. Vendor state
+ * holders are scoped per NavBackStackEntry, so the two tabs never share state.
+ */
+private fun NavGraphBuilder.vendorRegisterComposables(
+    side: VendorRegisterSide,
+    listRoute: String,
+    newRoute: String,
+    detailRoute: String,
+    title: String,
+    navController: NavHostController,
+    detailRouteOf: (String) -> String,
+) {
+    composable(listRoute) {
+        val vm: VendorsListViewModel = hiltViewModel()
+        // The ROUTE decides the register half. The screen knows nothing about which one it is
+        // showing until this runs, and reads nothing before it does.
+        LaunchedEffect(vm) { vm.bind(side, title) }
+        val state by vm.state.collectAsStateWithLifecycle()
+        val rows = vm.rows.collectAsLazyPagingItems()
+        val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+        val appendError = (rows.loadState.append as? LoadState.Error)?.error
+        LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
+        VendorsListScreen(
+            state = state,
+            rows = rows,
+            onEvent = { event ->
+                when (event) {
+                    VendorsListEvent.Refresh -> {
+                        vm.onEvent(event)
+                        rows.refresh()
+                    }
+                    is VendorsListEvent.SelectStatus -> {
+                        vm.onEvent(event)
+                        rows.refresh()
+                    }
+                    is VendorsListEvent.OpenVendor -> {
+                        vm.onEvent(event)
+                        navController.navigate(detailRouteOf(event.vendorId)) { launchSingleTop = true }
+                    }
+                    VendorsListEvent.AddVendor -> {
+                        vm.onEvent(event)
+                        navController.navigate(newRoute) { launchSingleTop = true }
+                    }
+                    else -> vm.onEvent(event)
+                }
+            },
+        )
+    }
+    composable(newRoute) {
+        val vm: VendorCreateViewModel = hiltViewModel()
+        // The side reaches the form only through the catalog: the record-type dropdown offers this
+        // register's own categories because the server was asked for this register's vocabulary.
+        LaunchedEffect(vm) { vm.bind(side) }
+        val state by vm.state.collectAsStateWithLifecycle()
+        // The microphone is bound only while this destination is on screen, the camera shape.
+        CaptureAccessGate {
+            BindAudioCaptureSource(rememberDelegatingAudioCaptureSource())
+            VendorCreateScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        VendorCreateEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+    }
+    composable(
+        route = detailRoute,
+        arguments = listOf(navArgument(Routes.VENDOR_ID_ARG) { type = NavType.StringType }),
+    ) {
+        // A vendor row is read by its own id, so the detail needs no side: the row carries its
+        // record type, and one vendor is on exactly one side of the register anyway.
+        val vm: VendorDetailViewModel = hiltViewModel()
+        val state by vm.state.collectAsStateWithLifecycle()
+        VendorDetailScreen(
+            state = state,
+            onEvent = { event ->
+                when (event) {
+                    VendorDetailEvent.Back -> navController.popBackStack()
+                    else -> vm.onEvent(event)
+                }
+            },
+        )
+    }
+}
 
 /** The backend's `nav.leadership_tasks` label, mirrored so the L0 header matches the nav item
  *  until the page's own backend title lands. */

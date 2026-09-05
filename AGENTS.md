@@ -1703,6 +1703,46 @@ names in ONE batched query per entity kind, and a fact whose name cannot be
 resolved is DROPPED from the line rather than rendered as an id. Clients render
 both verbatim; do not reintroduce client-side composition of that copy.
 
+Confirmed VENDOR REGISTER TWO SIDES + SALES PHONE MODULE rule (maintainer decision 2026-09-05,
+narrowing the SCREEN half — and only that half — of the 2026-08-27 "every buyer is a vendor"
+decision in migration `000217`): the one vendor register is now read as TWO COMPLEMENTARY HALVES.
+Each `record_type` declares its own side on `procurement_vendor_catalog.register_side` (migration
+`000256`), and two pages read the same table through opposite halves: **Procurement > Vendors** the
+supply desk's 35 types, **Sales > Vendors** the five buyer types (`Agent`, `Butcher`, `Company`,
+`Farmer`, `Slaughter House`). Same table, same endpoint, same drawer, same form, same copy map —
+ONE component renders both, and only which record types each carries differs.
+
+The side is CATALOG DATA, never a list in Go: business-managed vocabularies come from Postgres, so
+the farm can add a sixth sales category without a deploy. It is NOT a column on the vendor row —
+a vendor's side is implied entirely by its record type, and storing it twice would let the two
+disagree. The halves are COMPLEMENTARY BY CONSTRUCTION (sales = types marked `sales`, procurement =
+everything else, expressed `NOT EXISTS` and never `NOT IN`, whose NULLs would empty the procurement
+register): every vendor is on exactly one side and NONE is on neither, so an UNCATALOGUED record
+type — a real state, because `domain.Validate` deliberately does not check `record_type` against the
+catalog — falls to PROCUREMENT rather than vanishing from both pages. An ABSENT side reads the whole
+register (what the vendor picklist needs); an UNKNOWN side is REFUSED `vendor_side_unknown`, never
+widened. Both page contracts name their side EXPLICITLY in the table `data_source`, and the renderer
+reads it back out of its own contract rather than taking it as a prop, so there is one statement of
+the fact. Only RECORD TYPES narrow — breed, state, city, status, feed, capacity unit and supply
+frequency stay whole on both sides — and the narrowing happens SERVER-SIDE, so the Add-vendor form
+cannot offer a category its page does not own.
+
+On the PHONE, Sales is its OWN module (key `sales`, label "Sales"): the Sales ledger MOVED off
+`/vendors/sales` to `/sales` and took a `/sales/vendors` tab with it, leaving Procurement (key
+`vendors`) with TWO tabs, Vendors and Feed Purchases. The tab MOVED and is not duplicated — a tab in
+both modules is two doors onto one ledger. The MODULE is offered on `sales.read` while its VENDORS
+TAB is gated on `procurement.vendor.read`: the same three principals hold both today, but the
+register keeps its own authority so a sales reader never reaches it through a second door. The web
+leaf follows the same split — it TICKS with the `sales` module and is REACHED on `VendorRead`.
+`sales` gained `SurfaceMobile`, so migration `000257` copies every existing web `sales` tick onto a
+mobile row (the `000251` shape, with its own ledger table): a tick NARROWS an offer and never widens
+one, so without it the module would be narrowed away on every existing phone. Canonical prose:
+`docs/decisions/vendor-register-two-sides.md`. Pinned by
+`TestTheTwoRegisterSidesPartitionTheWholeRegister`, `TestVendorSideIsRefusedRatherThanWidened`,
+`TestSalesVendorsIsGatedOnTheRegistersOwnPermission`,
+`TestSalesIsItsOwnPhoneModuleCarryingItsOwnVendorsTab` and
+`TestSalesModuleAndItsVendorsTabAnswerToDifferentPermissions` (each mutation-tested when written).
+
 Confirmed RANDOMIZED VERIFICATION SAMPLING rule (maintainer decision 2026-08-26): the CEO sets, per
 verification category, the PERCENTAGE of that category's proof videos the verifier actually has to
 watch. Her day is complete when she has cleared HER SHARE -- at 40% on feed packing, reviewing those

@@ -1878,6 +1878,17 @@ func permissionsForNav(id string) []string {
 		// they work; the register carries negotiated prices, contact numbers and banking
 		// instruments. Gating the leaf on ProcurementRead would put it in every operator's sidebar.
 		return []string{permissions.VendorRead}
+	case "sales-vendors":
+		// The REGISTER's own permission, exactly as Procurement > Vendors uses -- not SalesRead.
+		// This leaf shows vendor rows: contact numbers, negotiated prices, and a drawer that reaches
+		// payment instruments behind VendorFinanceRead. Gating it on SalesRead would hand the
+		// register to a sales reader who was deliberately never given it, through a second door.
+		//
+		// The consequence is deliberate and worth stating: a person holding SalesRead without
+		// VendorRead sees the Sales group WITHOUT this leaf, and the data route behind it
+		// (GET /procurement/vendors) refuses them too. The leaf and the endpoint agree, which is
+		// what stops a dead leaf that renders and then 403s.
+		return []string{permissions.VendorRead}
 	case "sales-board", "sales-loads", "sales-config":
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.

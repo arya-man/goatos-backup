@@ -474,3 +474,137 @@ func TestVendorCatalogOffersBuyerRecordTypes(t *testing.T) {
 		}
 	}
 }
+
+// TestTheTwoRegisterSidesPartitionTheWholeRegister pins the load-bearing property of the
+// 2026-09-05 split: Procurement > Vendors and Sales > Vendors are COMPLEMENTARY. Every vendor
+// appears on exactly one of them -- never both, and, crucially, never NEITHER.
+//
+// It is an integration test because the whole rule lives in SQL. The side predicate is an
+// EXISTS/NOT EXISTS pair against procurement_vendor_catalog, and the two failure modes it guards
+// against are both invisible to a compiler and to any fake repository:
+//
+//   - `record_type NOT IN (SELECT value ...)` instead of NOT EXISTS. A single NULL in that subquery
+//     makes NOT IN evaluate to NULL for every row, and the procurement register comes back EMPTY.
+//   - an INNER-style predicate that requires a catalog row to exist at all. domain.Validate
+//     deliberately does not check record_type against the catalog (the vocabulary is business-
+//     managed and grows without a deploy), so an uncatalogued type is a real state -- and under
+//     such a predicate that vendor would vanish from both pages and be unfindable.
+//
+// The third vendor below carries a record type that is in NO catalog row, which is what makes the
+// "neither" case a real assertion rather than a hypothetical.
+func TestTheTwoRegisterSidesPartitionTheWholeRegister(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	newVendor := func(recordType, name, phone string) {
+		t.Helper()
+		if _, err := repo.CreateVendor(ctx, testTenant, domain.VendorWrite{
+			RecordType: recordType, BusinessName: name, ContactPersonName: "Contact",
+			PhoneNumber: phone, Status: "Active", State: "KA", City: "Ballari",
+		}.Normalize(), ""); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	newVendor("Sheep Agent", "Anantapur Sheep Supply", "9000000001") // catalogued, procurement side
+	newVendor("Butcher", "Ballari Meat House", "9000000002")         // catalogued, sales side (000217 + 000256)
+	newVendor("Kite Maker", "Nobody Catalogued This", "9000000003")  // in NO catalog row at all
+
+	list := func(side string) map[string]bool {
+		t.Helper()
+		page, err := repo.ListVendors(ctx, testTenant, domain.VendorFilter{Side: side}, 100, 0, false)
+		if err != nil {
+			t.Fatalf("ListVendors(side=%q): %v", side, err)
+		}
+		// The page and the whole-filter total must range over the identical predicate set; they are
+		// built from one function precisely so they cannot diverge, and this asserts it.
+		if page.Total != len(page.Vendors) {
+			t.Fatalf("side=%q total = %d but page holds %d rows; the count and the list disagree", side, page.Total, len(page.Vendors))
+		}
+		got := map[string]bool{}
+		for _, v := range page.Vendors {
+			got[v.BusinessName] = true
+		}
+		return got
+	}
+
+	whole := list("")
+	procurement := list(domain.VendorSideProcurement)
+	sales := list(domain.VendorSideSales)
+
+	if !sales["Ballari Meat House"] || len(sales) != 1 {
+		t.Errorf("sales side = %v, want exactly the butcher", sales)
+	}
+	if !procurement["Anantapur Sheep Supply"] {
+		t.Error("the sheep agent is missing from the procurement side")
+	}
+	// The uncatalogued type falls to PROCUREMENT -- the status quo before the split, and the only
+	// answer that keeps it reachable at all.
+	if !procurement["Nobody Catalogued This"] {
+		t.Error("an uncatalogued record type vanished from the procurement side; it must fail toward the status quo, not off both pages")
+	}
+	if procurement["Ballari Meat House"] {
+		t.Error("the butcher is listed on the buying desk's register")
+	}
+
+	// The partition property, stated directly: neither side is empty by accident, the two are
+	// disjoint, and together they are the whole register.
+	if len(whole) != len(procurement)+len(sales) {
+		t.Fatalf("whole register = %d rows, sides = %d + %d; the two sides must partition it exactly", len(whole), len(procurement), len(sales))
+	}
+	for name := range whole {
+		if procurement[name] == sales[name] {
+			t.Errorf("vendor %q is on both sides or on neither", name)
+		}
+	}
+}
+
+// TestCatalogNarrowsOnlyTheRecordTypes pins that a side narrows the RECORD TYPES and leaves every
+// other vocabulary whole. A butcher and a feed stockist sit in the same states and are reached in
+// the same towns, so narrowing states or cities per side would hide real values from one register's
+// filters for no gain -- and the register's own city facet is derived from the vendors that exist,
+// which has no side at all.
+func TestCatalogNarrowsOnlyTheRecordTypes(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	entries, err := repo.ListVendorCatalog(ctx, testTenant, true)
+	if err != nil {
+		t.Fatalf("ListVendorCatalog: %v", err)
+	}
+
+	sides := map[string]string{}
+	otherKindSides := map[string]int{}
+	for _, e := range entries {
+		if e.Kind == domain.CatalogKindRecordType {
+			sides[e.Value] = e.RegisterSide
+			continue
+		}
+		otherKindSides[e.RegisterSide]++
+	}
+
+	for _, value := range []string{"Agent", "Butcher", "Company", "Farmer", "Slaughter House"} {
+		if sides[value] != domain.VendorSideSales {
+			t.Errorf("record_type %q register_side = %q, want %q", value, sides[value], domain.VendorSideSales)
+		}
+	}
+	// A representative supply-side type, and the migration's default: anything not named above stays
+	// on the buying desk, so a record type added later by import lands where a sheet of suppliers
+	// means it to land.
+	for _, value := range []string{"Sheep Agent", "Transport Agent", "Vet Doctor", "Welder"} {
+		if got, ok := sides[value]; ok && got != domain.VendorSideProcurement {
+			t.Errorf("record_type %q register_side = %q, want %q", value, got, domain.VendorSideProcurement)
+		}
+	}
+	// Every non-record_type entry carries the inert storage default. Readers ignore the field for
+	// those kinds; this asserts nothing has started writing a side onto a vocabulary that has none.
+	if n := otherKindSides[domain.VendorSideSales]; n != 0 {
+		t.Errorf("%d non-record_type catalog entries carry the sales side; only record types have a side", n)
+	}
+}

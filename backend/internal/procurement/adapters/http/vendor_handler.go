@@ -25,7 +25,7 @@ type VendorService interface {
 	CreateVendor(ctx context.Context, tenantID string, write domain.VendorWrite, actorID string, includeFinance bool) (domain.Vendor, error)
 	UpdateVendor(ctx context.Context, tenantID, vendorID string, write domain.VendorWrite, rowVersion int64, actorID string, includeFinance bool) (domain.Vendor, error)
 	UpdateVendorStatus(ctx context.Context, tenantID, vendorID, status string, rowVersion int64, actorID string) (domain.Vendor, error)
-	ListVendorCatalog(ctx context.Context, tenantID string) ([]domain.VendorCatalogEntry, error)
+	ListVendorCatalog(ctx context.Context, tenantID string, side string) ([]domain.VendorCatalogEntry, error)
 	ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error)
 }
 
@@ -108,6 +108,10 @@ func (h *VendorHandler) ListVendors(w http.ResponseWriter, r *http.Request) {
 			State:      q.Get("state"),
 			City:       q.Get("city"),
 			Breed:      q.Get("breed"),
+			// SIDE names which half of the register the caller is looking at: Procurement > Vendors
+			// or Sales > Vendors. Absent means the whole register, which is what every reader meant
+			// before the split. An unknown value is REFUSED by the service, never widened.
+			Side: q.Get("side"),
 		},
 		Limit:          limit,
 		Offset:         offset,
@@ -209,7 +213,7 @@ func (h *VendorHandler) UpdateVendorStatus(w http.ResponseWriter, r *http.Reques
 
 // ListVendorCatalog serves GET /procurement/vendor-catalog.
 func (h *VendorHandler) ListVendorCatalog(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.service.ListVendorCatalog(r.Context(), tenantID(r))
+	entries, err := h.service.ListVendorCatalog(r.Context(), tenantID(r), r.URL.Query().Get("side"))
 	if err != nil {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
@@ -295,7 +299,9 @@ func (h *VendorHandler) writeErr(w http.ResponseWriter, r *http.Request, appErr 
 // catalog read failure degrades to the raw values rather than failing the vendor read: the
 // register must stay readable when its vocabulary table is momentarily unreachable.
 func (h *VendorHandler) catalogLabels(r *http.Request) catalogLabels {
-	entries, err := h.service.ListVendorCatalog(r.Context(), tenantID(r))
+	// The WHOLE vocabulary, deliberately unnarrowed by side: this resolves the labels ON a vendor
+	// row, and a row must render its own capacity unit correctly whichever register it is listed in.
+	entries, err := h.service.ListVendorCatalog(r.Context(), tenantID(r), "")
 	if err != nil {
 		h.log.Warn("vendor catalog labels unavailable", "err", err)
 		return nil

@@ -1486,8 +1486,14 @@ interface AppApi {
      * GET /procurement/vendors — one bounded page of the register, newest first, optionally
      * narrowed by a search term (backend trigram search) and a status. Offset-paged on the server
      * (a few hundred rows, bounded), consumed here ~20 at a time.
+     *
+     * [side] names which half of the register to read — "procurement" (the buying desk) or "sales"
+     * (who the farm sells to). Absent reads the WHOLE register, which is what every caller meant
+     * before the two sides were split apart; an unknown value is refused by the server rather than
+     * quietly widened to both.
      */
     suspend fun getProcurementVendors(
+        side: String? = null,
         search: String? = null,
         status: String? = null,
         limit: Int? = null,
@@ -1497,8 +1503,14 @@ interface AppApi {
     /** GET /procurement/vendors/{vendor_id} — one register row. */
     suspend fun getProcurementVendor(vendorId: String): VendorDto
 
-    /** GET /procurement/vendor-catalog — the business-managed vocabularies the add form renders. */
-    suspend fun getProcurementVendorCatalog(): VendorCatalogDto
+    /**
+     * GET /procurement/vendor-catalog — the business-managed vocabularies the add form renders.
+     *
+     * [side] narrows the RECORD TYPES to that register's own categories, so the Add-vendor form
+     * offers the five selling categories on the Sales page and the supply ones on Procurement.
+     * The narrowing is the server's; nothing here filters the list it hands back.
+     */
+    suspend fun getProcurementVendorCatalog(side: String? = null): VendorCatalogDto
 
     /**
      * POST /procurement/vendors — records a vendor. No idempotency header on this route: the
@@ -2912,6 +2924,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): ToxinTaskDetailDto = getToxinTask(taskId).copy(status = "pending_review", statusChip = "Sent for review")
 
     override suspend fun getProcurementVendors(
+        side: String?,
         search: String?,
         status: String?,
         limit: Int?,
@@ -2920,8 +2933,15 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getProcurementVendor(vendorId: String): VendorDto = fakeVendor().copy(vendorId = vendorId)
 
-    override suspend fun getProcurementVendorCatalog(): VendorCatalogDto = VendorCatalogDto(
-        recordTypes = listOf(VendorCatalogEntryDto("Feed Agent", "Feed Agent"), VendorCatalogEntryDto("Sheep Agent", "Sheep Agent")),
+    override suspend fun getProcurementVendorCatalog(side: String?): VendorCatalogDto = VendorCatalogDto(
+        // The two sides really do get different record types from the server, so the stand-in
+        // answers differently too — a preview that offered supply categories on the selling page
+        // would show the very mix the split removed.
+        recordTypes = if (side == "sales") {
+            listOf(VendorCatalogEntryDto("Butcher", "Butcher"), VendorCatalogEntryDto("Agent", "Agent"))
+        } else {
+            listOf(VendorCatalogEntryDto("Feed Agent", "Feed Agent"), VendorCatalogEntryDto("Sheep Agent", "Sheep Agent"))
+        },
         states = listOf(VendorCatalogEntryDto("KA", "Karnataka"), VendorCatalogEntryDto("TN", "Tamil Nadu")),
         statuses = listOf(VendorCatalogEntryDto("active", "Active"), VendorCatalogEntryDto("negotiating", "Negotiating")),
         capacityUnits = listOf(VendorCatalogEntryDto("kg", "kg"), VendorCatalogEntryDto("animals", "animals")),

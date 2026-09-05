@@ -311,7 +311,12 @@ func TestUnknownRowsGrantNothing(t *testing.T) {
 		{"unknown module", ModuleAssignment{Module: "not_a_module", Surface: SurfaceWeb, Capabilities: []string{LevelConfigure}}},
 		{"unknown surface", ModuleAssignment{Module: "weighing", Surface: "watch", Capabilities: []string{LevelConfigure}}},
 		{"unoffered level", ModuleAssignment{Module: "sales", Surface: SurfaceWeb, Capabilities: []string{LevelConfigure}}},
-		{"module absent from surface", ModuleAssignment{Module: "sales", Surface: SurfaceMobile, Capabilities: []string{LevelDo}}},
+		// sale_allocation, because it is still WEB-ONLY. This case used to name "sales", which
+		// gained SurfaceMobile on 2026-09-05 when Sales became a phone module -- at which point the
+		// fixture stopped testing the rule and started testing a real grant. The level named here
+		// MUST be one the module genuinely offers, so the surface is the only reason it grants
+		// nothing; sale_allocation offers exactly LevelDo.
+		{"module absent from surface", ModuleAssignment{Module: "sale_allocation", Surface: SurfaceMobile, Capabilities: []string{LevelDo}}},
 		{"explicit none", ModuleAssignment{Module: "weighing", Surface: SurfaceWeb, Capabilities: []string{LevelNone}}},
 		{"empty capabilities", ModuleAssignment{Module: "weighing", Surface: SurfaceWeb, Capabilities: nil}},
 	}

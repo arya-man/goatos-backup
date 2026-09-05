@@ -397,10 +397,13 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "toxin", labelKey: "nav.toxin", href: "/toxin", shared_key: "", priority: 1, requiredPermission: permissions.ToxinRead}, //nav-composition:ignore: registry entry
 		},
 	},
-	// Procurement (module_key vendors, maintainer decisions 2026-09-03 and 2026-09-04): the
-	// procurement desk's phone module -- the vendor register, the feed purchase ledger and the
-	// sales ledger, view and add. Three tabs, one per ledger, each gated on the SAME read
-	// permission its backing routes require. Offered on VendorRead the per-person way
+	// Procurement (module_key vendors, maintainer decisions 2026-09-03, 2026-09-04 and 2026-09-05):
+	// the procurement desk's phone module -- the vendor register and the feed purchase ledger, view
+	// and add. TWO tabs since 2026-09-05, when the sales ledger moved to its own "sales" module
+	// below; each is gated on the SAME read permission its backing routes require.
+	//
+	// Its Vendors tab is now the BUYING half of the register only. It keeps that tab (the buying
+	// desk still adds suppliers) while Sales keeps the selling half -- one table, two sides. Offered on VendorRead the per-person way
 	// (ceo_internal, procurement_director, procurement_manager hold it); no job outside
 	// procurement carries it, so nothing widens. The module KEY stays `vendors` (it is the
 	// person_module_access tick and the web capability key); only the shown word changed.
@@ -413,7 +416,33 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		contributions: []moduleNavContribution{
 			{key: "vendors", labelKey: "nav.vendors", href: "/vendors", shared_key: "", priority: 1, requiredPermission: permissions.VendorRead},                                    //nav-composition:ignore: registry entry
 			{key: "feed_purchases", labelKey: "nav.feed_purchases", href: "/vendors/feed-purchases", shared_key: "", priority: 2, requiredPermission: permissions.FeedPurchaseRead}, //nav-composition:ignore: registry entry
-			{key: "sales", labelKey: "nav.sales", href: "/vendors/sales", shared_key: "", priority: 3, requiredPermission: permissions.SalesRead},                                   //nav-composition:ignore: registry entry
+		},
+	},
+	// Sales (maintainer decision 2026-09-05): selling gets its own phone module, the same way it
+	// got its own web vertical on 2026-08-27. The Sales tab MOVED here out of Procurement above --
+	// it is not duplicated -- because buying and selling are different desks and a procurement
+	// module carrying the sales ledger said otherwise.
+	//
+	// TWO tabs, and the second is the point of the split. Sales carries its own half of the ONE
+	// vendor register: the agents, butchers, farmers, slaughter houses and companies the farm sells
+	// to. Before this, a person who had just met a new butcher had to open the buying desk's Vendors
+	// tab to add him, and pick his category out of 40 that were mostly building trades.
+	//
+	// Offered on SalesRead, which today is held by exactly the principals who hold VendorRead
+	// (ceo_internal, procurement_director, procurement_manager) -- the maintainer's instruction was
+	// "same access as procurement has now". It is keyed on the SALES permission rather than the
+	// vendor one because this is the Sales module: if the two sets ever diverge, a sales reader
+	// should get the sales module, and the Vendors tab inside it still refuses them on its own
+	// permission rather than the whole module vanishing.
+	"sales": {
+		key:         "sales",
+		labelKey:    "module.sales",
+		landingHref: "/sales", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    11,
+		contributions: []moduleNavContribution{
+			{key: "sales", labelKey: "nav.sales", href: "/sales", shared_key: "", priority: 1, requiredPermission: permissions.SalesRead},                    //nav-composition:ignore: registry entry
+			{key: "sales_vendors", labelKey: "nav.vendors", href: "/sales/vendors", shared_key: "", priority: 2, requiredPermission: permissions.VendorRead}, //nav-composition:ignore: registry entry
 		},
 	},
 	// "leadership_tasks" is the director -> CXO ask desk (maintainer decision 2026-09-04): a
@@ -957,6 +986,13 @@ func permissionOfferedModuleKeys(grants []domain.GrantSummary) []string {
 	keys := make([]string, 0, 1)
 	if grantsHavePermission(grants, permissions.VendorRead) {
 		keys = append(keys, "vendors")
+	}
+	// Sales (maintainer decision 2026-09-05) is offered on SalesRead the same per-person way. The
+	// two sets are identical today -- ceo_internal, procurement_director, procurement_manager hold
+	// both -- so this changes WHO sees nothing; it changes WHAT they see, which is a Sales module
+	// beside Procurement instead of a Sales tab inside it.
+	if grantsHavePermission(grants, permissions.SalesRead) {
+		keys = append(keys, "sales")
 	}
 	// Leadership Tasks (maintainer decision 2026-09-04): every director role and ceo_internal
 	// carry leadership_tasks.read on the JOB ("all the directors"); a park head or operator
@@ -1662,6 +1698,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.toxin":            "Toxin",
 		"nav.toxin":               "Tests",
 		"module.vendors":          "Procurement",
+		"module.sales":            "Sales",
 		"nav.vendors":             "Vendors",
 		"nav.feed_purchases":      "Feed Purchases",
 		"nav.sales":               "Sales",
@@ -1721,6 +1758,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.toxin":            "टॉक्सिन",
 		"nav.toxin":               "जाँच",
 		"module.vendors":          "खरीद",
+		"module.sales":            "बिक्री",
 		"nav.vendors":             "विक्रेता",
 		"nav.feed_purchases":      "चारा खरीद",
 		"nav.sales":               "बिक्री",
@@ -1780,6 +1818,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.toxin":            "ಟಾಕ್ಸಿನ್",
 		"nav.toxin":               "ಪರೀಕ್ಷೆಗಳು",
 		"module.vendors":          "ಖರೀದಿ",
+		"module.sales":            "ಮಾರಾಟ",
 		"nav.vendors":             "ಮಾರಾಟಗಾರರು",
 		"nav.feed_purchases":      "ಮೇವು ಖರೀದಿ",
 		"nav.sales":               "ಮಾರಾಟ",
@@ -1839,6 +1878,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.toxin":            "టాక్సిన్",
 		"nav.toxin":               "పరీక్షలు",
 		"module.vendors":          "కొనుగోళ్లు",
+		"module.sales":            "అమ్మకాలు",
 		"nav.vendors":             "విక్రేతలు",
 		"nav.feed_purchases":      "దాణా కొనుగోళ్లు",
 		"nav.sales":               "అమ్మకాలు",

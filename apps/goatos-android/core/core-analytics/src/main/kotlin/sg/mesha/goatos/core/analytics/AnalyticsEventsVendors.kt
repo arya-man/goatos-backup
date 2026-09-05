@@ -33,7 +33,11 @@ object AnalyticsEventsVendors {
     /** A feed purchase write was durably queued on the outbox. */
     const val VENDORS_PURCHASE_QUEUED = "vendors_purchase_queued"
 
-    /** The sales ledger (L0) was opened or resumed (Sales tab, 2026-09-04). */
+    /**
+     * The sales ledger (L0) was opened or resumed. The wire name keeps its original spelling after
+     * the ledger moved into its own Sales module (2026-09-05): renaming a shipped event name breaks
+     * every dashboard already reading it, and the event means the same thing it always did.
+     */
     const val VENDORS_SALES_VIEWED = "vendors_sales_viewed"
 
     /** A sale row was opened. */

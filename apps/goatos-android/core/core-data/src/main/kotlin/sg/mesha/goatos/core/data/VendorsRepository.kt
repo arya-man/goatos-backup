@@ -36,11 +36,48 @@ import sg.mesha.goatos.core.network.dto.VendorDto
  *  (docs/decisions/mobile-data-fetch-anti-patterns.md). */
 const val VENDORS_PAGE_SIZE = 20
 
-/** How many distinct list scopes keep their cached rows. */
-private const val VENDORS_CACHED_QUERIES = 6
+/**
+ * Which half of the ONE vendor register a read is asking for (maintainer decision 2026-09-05,
+ * migration 000256). A record type declares its side on the catalog row, and the two pages read
+ * the same table through opposite halves of that declaration:
+ *
+ *   [PROCUREMENT] -> Procurement > Vendors, the buying desk's suppliers
+ *   [SALES]       -> Sales > Vendors, the agents/butchers/farmers the farm sells to
+ *
+ * The side is decided by the ROUTE the register was opened from, never by a backend payload: one
+ * screen serves both, and which one it is showing is a fact about where the person tapped.
+ */
+enum class VendorRegisterSide(val wireValue: String) {
+    PROCUREMENT("procurement"),
+    SALES("sales"),
+}
+
+/**
+ * How many distinct list scopes keep their cached rows. Raised from 6 when the register split into
+ * two sides (2026-09-05): the side is part of the scope key, so the same handful of filters now
+ * describes twice as many scopes, and the old bound evicted the tab a person had just left. Still
+ * a hard cap -- this is the bounded-memory rule, not a cache that grows with use.
+ */
+private const val VENDORS_CACHED_QUERIES = 10
 
 /** Bump whenever the cached row JSON changes shape incompatibly (see PACKING_CACHE_SHAPE's kdoc). */
 private const val VENDORS_CACHE_SHAPE = "vendors-v1"
+
+/**
+ * One register scope's Room key. The SIDE is the first segment, ahead of search and status:
+ * without it the Procurement tab and the Sales tab collide on ONE `vendor_items.queryKey` and each
+ * renders the other's rows, because the two pages read the same table through opposite halves of
+ * it. Kept `internal` and pure so the separation is directly assertable.
+ */
+internal fun vendorScopeKey(side: VendorRegisterSide, search: String, status: String): String =
+    cacheKey(VENDORS_CACHE_SHAPE, "vendors", side.wireValue, search.trim().lowercase(), status, VENDORS_PAGE_SIZE.toString())
+
+/**
+ * One register side's catalog blob key. Per side for the same reason, one layer over: the two sides
+ * are served DIFFERENT record-type lists, so a single key would hand the Add-vendor form on one
+ * page the other page's categories — the exact mix the split was made to remove.
+ */
+internal fun vendorCatalogCacheKey(side: VendorRegisterSide): String = "catalog:" + side.wireValue
 
 /** Blob-cache key prefix of one feed purchase's detail row (written by the ledger page and by a landed create). */
 private const val PURCHASE_KEY_PREFIX = "purchase:"
@@ -58,14 +95,23 @@ data class FeedPurchaseTotals(val total: Int = 0, val quantityKg: Double = 0.0, 
  * [persistServerFeedPurchase].
  */
 interface VendorsRepository {
-    /** The paged register for one (search, status) scope, a Room PagingSource filled by a RemoteMediator. */
-    fun vendors(search: String, status: String): Flow<PagingData<VendorDto>>
+    /**
+     * The paged register for one (side, search, status) scope, a Room PagingSource filled by a
+     * RemoteMediator. The SIDE is part of the scope, not a display filter: the two register pages
+     * would otherwise share one cached window and each would show the other's rows.
+     */
+    fun vendors(side: VendorRegisterSide, search: String, status: String): Flow<PagingData<VendorDto>>
 
-    /** Whole-filter vendor count from the LAST refresh of the scope on screen. */
-    val vendorTotal: StateFlow<Int>
+    /**
+     * Whole-filter vendor count from the LAST refresh of that side's scope on screen.
+     *
+     * Held PER SIDE for the scope-key reason: one shared counter would let the tab a person just
+     * left overwrite the count above the tab they are looking at.
+     */
+    fun vendorTotal(side: VendorRegisterSide): StateFlow<Int>
 
     /** Drops one scope's freshness marker so the next pager refetches instead of TTL-skipping. */
-    suspend fun invalidateVendors(search: String, status: String)
+    suspend fun invalidateVendors(side: VendorRegisterSide, search: String, status: String)
 
     /** Room-first vendor detail; null while nothing is cached yet. */
     fun observeVendor(vendorId: String): Flow<VendorDto?>
@@ -73,10 +119,16 @@ interface VendorsRepository {
     /** Network -> Room detail refresh. Non-blocking: a failure leaves the cache serving. */
     suspend fun refreshVendor(vendorId: String)
 
-    /** Room-first catalog (record types, states, statuses, units, frequencies). */
-    fun observeCatalog(): Flow<VendorCatalogDto?>
+    /**
+     * Room-first catalog (record types, states, statuses, units, frequencies) for ONE side.
+     *
+     * Cached per side, because the two sides get DIFFERENT record-type lists from the backend: one
+     * cache key would serve the buying desk's forty supply categories to the Add-vendor form on
+     * the Sales page, which is the exact complaint the split exists to answer.
+     */
+    fun observeCatalog(side: VendorRegisterSide): Flow<VendorCatalogDto?>
 
-    suspend fun refreshCatalog()
+    suspend fun refreshCatalog(side: VendorRegisterSide)
 
     /** Reconciles a successful VENDOR_CREATE's returned row into Room. Called by the sync engine. */
     suspend fun persistServerVendor(vendor: VendorDto)
@@ -112,19 +164,22 @@ class DefaultVendorsRepository(
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : VendorsRepository {
 
-    private val _vendorTotal = MutableStateFlow(0)
-    override val vendorTotal: StateFlow<Int> = _vendorTotal
+    // Two entries, one per side, created once — a fixed map, never a cache that grows with use.
+    private val vendorTotals: Map<VendorRegisterSide, MutableStateFlow<Int>> =
+        VendorRegisterSide.entries.associateWith { MutableStateFlow(0) }
+
+    override fun vendorTotal(side: VendorRegisterSide): StateFlow<Int> = vendorTotals.getValue(side)
 
     private val _feedPurchaseTotals = MutableStateFlow(FeedPurchaseTotals())
     override val feedPurchaseTotals: StateFlow<FeedPurchaseTotals> = _feedPurchaseTotals
 
     @OptIn(ExperimentalPagingApi::class)
-    override fun vendors(search: String, status: String): Flow<PagingData<VendorDto>> {
-        val key = vendorScopeKey(search, status)
+    override fun vendors(side: VendorRegisterSide, search: String, status: String): Flow<PagingData<VendorDto>> {
+        val key = vendorScopeKey(side, search, status)
         return Pager(
             config = pagingConfig(),
-            remoteMediator = VendorRemoteMediator(search, status, key, api, database, json, clock) { total ->
-                _vendorTotal.value = total
+            remoteMediator = VendorRemoteMediator(side, search, status, key, api, database, json, clock) { total ->
+                vendorTotals.getValue(side).value = total
             },
             pagingSourceFactory = { database.vendorItemDao().pagingSource(key) },
         ).flow
@@ -132,8 +187,8 @@ class DefaultVendorsRepository(
             .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun invalidateVendors(search: String, status: String) {
-        database.vendorRemoteKeyDao().delete(vendorScopeKey(search, status))
+    override suspend fun invalidateVendors(side: VendorRegisterSide, search: String, status: String) {
+        database.vendorRemoteKeyDao().delete(vendorScopeKey(side, search, status))
     }
 
     override fun observeVendor(vendorId: String): Flow<VendorDto?> =
@@ -159,14 +214,14 @@ class DefaultVendorsRepository(
             }
     }
 
-    override fun observeCatalog(): Flow<VendorCatalogDto?> = observeBlob(CATALOG_KEY)
+    override fun observeCatalog(side: VendorRegisterSide): Flow<VendorCatalogDto?> = observeBlob(vendorCatalogCacheKey(side))
 
-    override suspend fun refreshCatalog() {
+    override suspend fun refreshCatalog(side: VendorRegisterSide) {
         // exception:exempt expected refresh failure; the cached vocabulary keeps the form usable.
-        runCatching { putBlob(CATALOG_KEY, json.encodeToString(api.getProcurementVendorCatalog())) }
+        runCatching { putBlob(vendorCatalogCacheKey(side), json.encodeToString(api.getProcurementVendorCatalog(side.wireValue))) }
             .onFailure {
                 if (it is CancellationException) throw it
-                android.util.Log.w(LOG_TAG, "vendor_catalog_refresh_failed", it)
+                android.util.Log.w(LOG_TAG, "vendor_catalog_refresh_failed side=${side.wireValue}", it)
             }
     }
 
@@ -270,16 +325,12 @@ class DefaultVendorsRepository(
         maxSize = VENDORS_PAGE_SIZE * 3,
     )
 
-    private fun vendorScopeKey(search: String, status: String): String =
-        cacheKey(VENDORS_CACHE_SHAPE, "vendors", search.trim().lowercase(), status, VENDORS_PAGE_SIZE.toString())
-
     private fun purchaseScopeKey(farm: String, delivery: String): String =
         cacheKey(VENDORS_CACHE_SHAPE, "feed-purchases", farm, delivery, VENDORS_PAGE_SIZE.toString())
 
     private companion object {
         const val LOG_TAG = "GoatOsVendors"
         const val VENDOR_KEY_PREFIX = "vendor:"
-        const val CATALOG_KEY = "catalog"
         const val OPTIONS_KEY = "options"
     }
 }
@@ -293,6 +344,7 @@ class DefaultVendorsRepository(
  */
 @OptIn(ExperimentalPagingApi::class)
 private class VendorRemoteMediator(
+    private val side: VendorRegisterSide,
     private val search: String,
     private val status: String,
     private val queryKey: String,
@@ -317,6 +369,7 @@ private class VendorRemoteMediator(
         }
         return try {
             val response = api.getProcurementVendors(
+                side = side.wireValue,
                 search = search.trim().ifBlank { null },
                 status = status.ifBlank { null },
                 limit = VENDORS_PAGE_SIZE,

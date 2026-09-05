@@ -103,6 +103,39 @@ var VendorCatalogKinds = []string{
 	CatalogKindSupplyFrequency,
 }
 
+// The two sides of the vendor register (maintainer decision 2026-09-05). A record_type belongs to
+// exactly one of them, and each side is a page: Procurement > Vendors and Sales > Vendors.
+//
+// The side lives on the CATALOG row, not on the vendor: a vendor's side is implied entirely by its
+// record type, and storing it twice would let the two disagree. See migration 000256.
+const (
+	VendorSideProcurement = "procurement"
+	VendorSideSales       = "sales"
+)
+
+// VendorSides is the closed set, mirroring the CHECK on procurement_vendor_catalog.register_side.
+var VendorSides = []string{VendorSideProcurement, VendorSideSales}
+
+// NormalizeVendorSide maps a requested side onto its storage form, reporting whether it is one.
+//
+// An EMPTY side is valid and means "both": a caller that names no side reads the whole register,
+// which is what every reader did before the split and what the vendor picklist still does. A
+// caller that names an UNKNOWN side is refused rather than silently widened to both -- quietly
+// serving the whole register to a page that asked for one half would put buyers on the buying
+// desk's screen, which is the defect the split exists to fix.
+func NormalizeVendorSide(raw string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return "", true
+	case VendorSideProcurement:
+		return VendorSideProcurement, true
+	case VendorSideSales:
+		return VendorSideSales, true
+	default:
+		return "", false
+	}
+}
+
 // VendorCatalogEntry is one selectable option in a register dropdown.
 type VendorCatalogEntry struct {
 	Kind      string
@@ -110,6 +143,10 @@ type VendorCatalogEntry struct {
 	Label     string
 	SortOrder int
 	IsActive  bool
+	// RegisterSide is which register offers this entry. It is meaningful only for
+	// CatalogKindRecordType; every other kind carries the inert storage default and readers ignore
+	// it. A record_type entry is offered by the page whose side it names, and by no other.
+	RegisterSide string
 }
 
 // Field length caps. These bound what a write may store so a pasted document cannot become a
@@ -465,6 +502,9 @@ type VendorFilter struct {
 	State      string
 	City       string
 	Breed      string
+	// Side narrows the register to one of its two halves by the record type's declared side. Empty
+	// reads both, which is what the whole register meant before the split. See NormalizeVendorSide.
+	Side string
 }
 
 // MaxVendorSearchLength bounds the search term. A trigram index degrades on very long inputs and no
@@ -487,6 +527,14 @@ func (f VendorFilter) Normalize() VendorFilter {
 		out.Status = status
 	} else {
 		out.Status = ""
+	}
+	// An unrecognised side normalizes to empty here, matching how Status behaves. The API layer
+	// REJECTS an unknown side before it reaches this point (see NormalizeVendorSide); this is the
+	// second line of defence for a caller that builds a filter directly.
+	if side, ok := NormalizeVendorSide(f.Side); ok {
+		out.Side = side
+	} else {
+		out.Side = ""
 	}
 	return out
 }
