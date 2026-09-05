@@ -157,8 +157,8 @@ function MultiSelectFilter({
             overflowY: "auto",
             background: "var(--panel)",
             border: "1px solid var(--line)",
-            borderRadius: 10,
-            boxShadow: "0 12px 28px rgba(0,0,0,.35)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--pop)",
             padding: 6,
           }}
         >
@@ -184,7 +184,7 @@ function MultiSelectFilter({
                       alignItems: "center",
                       gap: 8,
                       padding: "5px 8px",
-                      borderRadius: 8,
+                      borderRadius: "var(--r)",
                       fontSize: 12.5,
                       cursor: "pointer",
                       whiteSpace: "nowrap",

@@ -269,18 +269,18 @@ function hiddenInputs(params: RouteSearchParams, exclude: string[]) {
 function accentForTone(toneValue: Tone) {
   switch (toneValue) {
     case "ok":
-      return "#6fd043";
+      return "var(--ok)";
     case "warn":
-      return "#f7c948";
+      return "var(--warn)";
     case "dng":
-      return "#ff6b6b";
+      return "var(--danger)";
     case "pur":
-      return "#a77cff";
+      return "var(--purple)";
     case "teal":
-      return "#35d2c6";
+      return "var(--teal)";
     case "info":
-      return "#5da8ff";
+      return "var(--info)";
     default:
-      return "#7a8b78";
+      return "var(--faint)";
   }
 }

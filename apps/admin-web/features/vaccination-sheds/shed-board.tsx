@@ -102,7 +102,7 @@ export function VaccinationShedBoardSkeleton({
       </div>
       <div className="chipset" style={{ padding: "12px 14px 8px" }}>
         {[96, 86, 116, 72, 110, 132].map((w, i) => (
-          <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: 999 }} />
+          <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: "var(--r-pill)" }} />
         ))}
       </div>
       <div className="bd" style={{ padding: 0, overflowX: "auto" }}>

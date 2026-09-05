@@ -96,7 +96,7 @@ function VaccinationSopModal({
         >
           <span
             className="fic"
-            style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}
+            style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: "var(--r)" }}
           >
             <BookOpen className="ic" />
           </span>
@@ -118,7 +118,7 @@ function VaccinationSopModal({
               height: 32,
               display: "grid",
               placeItems: "center",
-              borderRadius: 8,
+              borderRadius: "var(--r-pill)",
               background: "transparent",
               border: "none",
               flex: "none",

@@ -82,7 +82,7 @@ export function ActionCenterFiltersButton({
 	            type="button"
 	            aria-label={copy(pageContract, "filter.close_label")}
 	            onClick={() => setOpen(false)}
-	            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 210, border: 0 }}
+	            style={{ position: "fixed", inset: 0, background: "var(--scrim)", zIndex: 210, border: 0 }}
 	          />
           <div
             ref={modalRef}

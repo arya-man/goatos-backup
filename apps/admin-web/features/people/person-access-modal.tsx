@@ -410,7 +410,7 @@ export function PersonAccessModal({
           </button>
           <button
             type="button"
-            className="btn b"
+            className="btn p"
             onClick={submit}
             disabled={pending || !mayEdit}
             title={mayEdit ? undefined : cannotEditReason}

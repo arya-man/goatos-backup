@@ -56,7 +56,7 @@ export function ChartHover({ children }: { children: React.ReactNode }) {
             background: "var(--panel)",
             color: "var(--ink)",
             border: "1px solid var(--line)",
-            borderRadius: 8,
+            borderRadius: "var(--r)",
             padding: "7px 11px",
             fontSize: "11.5px",
             boxShadow: "var(--shadow)",

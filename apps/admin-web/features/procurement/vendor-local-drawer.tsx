@@ -454,7 +454,7 @@ export function VendorLocalDrawer({
                 <input type="hidden" name="return_to" value={listHref} />
                 <input type="hidden" name="vendor_id" value={vendor.vendor_id} />
                 <input type="hidden" name="row_version" value={vendor.row_version} />
-                <select name="status" defaultValue={vendor.status} aria-label={field("status")} style={{ padding: "7px 9px", borderRadius: 9 }}>
+                <select name="status" defaultValue={vendor.status} aria-label={field("status")} style={{ padding: "7px 9px", borderRadius: "var(--r)" }}>
                   {optionsFor(catalog.statuses, vendor.status).map((e) => (
                     <option key={e.value} value={e.value}>
                       {e.label}

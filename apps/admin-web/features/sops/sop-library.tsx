@@ -206,7 +206,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath }
             {list.length === 0 ? <div className="note">{copy(pageContract, "empty.no_match")}</div> : null}
           </div>
           {list.length > 0 && totalPages > 1 ? (
-            <div className="pager2" style={{ marginTop: 14, border: "1px solid var(--line2)", borderRadius: 10 }}>
+            <div className="pager2" style={{ marginTop: 14, border: "1px solid var(--line2)", borderRadius: "var(--r)" }}>
               <span className="muted small">
                 {start}-{end} {copy(pageContract, "label.of")} {list.length} SOPs · {copy(pageContract, "label.page")} {page} {copy(pageContract, "label.of")} {totalPages}
               </span>
@@ -282,7 +282,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit }: { view: SopCard
       <div className="cfgback on" onClick={onClose} />
       <div className="cfgmodal on" style={{ width: "min(720px,96vw)" }} role="dialog" aria-modal="true" aria-label={`${copy(pageContract, "modal.detail.aria")} ${view.name}`}>
         <div className="cmh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
+          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: "var(--r)" }}>
             <BookText className="ic" />
           </span>
           <div>

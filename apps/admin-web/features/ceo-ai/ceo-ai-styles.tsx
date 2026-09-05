@@ -103,7 +103,7 @@ export function MeshaLogo(props: { width?: number; height?: number; className?: 
         flex: "none",
         display: "grid",
         placeItems: "center",
-        borderRadius: "50%",
+        borderRadius: "var(--r-pill)",
         border: "1.5px solid var(--brand)",
         background: "var(--brand-soft)",
         color: "var(--brand)",
@@ -123,10 +123,10 @@ export function CeoAiStyles(): ReactElement {
     <style>{`
 .mzai-root{position:fixed;bottom:24px;right:24px;z-index:80;font-family:var(--f);transition:all .3s cubic-bezier(.34,.1,.64,.9);
   overscroll-behavior:contain}
-.mzai-bubble{width:56px;height:56px;border-radius:50%;border:2px solid var(--brand);
-  background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;
-  cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s cubic-bezier(.34,.1,.64,.9),box-shadow .2s ease}
-.mzai-bubble:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(0,0,0,.2)}
+.mzai-bubble{width:56px;height:56px;border-radius:var(--r-pill);border:1px solid var(--brand);
+  background:transparent;color:var(--brand);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:transform .2s cubic-bezier(.34,.1,.64,.9),background .15s ease,color .15s ease}
+.mzai-bubble:hover{background:var(--brand);color:var(--on-brand);transform:translateY(-4px)}
 .mzai-bubble:active{transform:translateY(-2px)}
 .mzai-goat-icon{width:28px;height:28px}
 @media (prefers-reduced-motion: reduce) {
@@ -138,12 +138,12 @@ export function CeoAiStyles(): ReactElement {
   .mzai-root.mzai-closed{display:none}
 }
 .mzai-panel{display:flex;flex-direction:column;height:100%;background:var(--panel);
-  border:1px solid var(--line);border-radius:20px;overflow:hidden;
-  box-shadow:0 20px 60px rgba(0,0,0,.2),0 0 1px rgba(0,0,0,.1);
+  border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
+  box-shadow:var(--pop);
   animation:mzai-panel-open .3s cubic-bezier(.34,.1,.64,.9);overscroll-behavior:contain}
 @keyframes mzai-panel-open{from{opacity:0;transform:scale(.8) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
 .mzai-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);
-  background:linear-gradient(135deg,var(--panel) 0%,var(--panel-2) 100%)}
+  background:var(--panel-2)}
 /* Neutral wrapper: MeshaLogo renders its own brand disc (matching the sidebar
    brand logo), so the mark container must not add a second disc/ring. */
 .mzai-mark{display:flex;align-items:center;justify-content:center;flex:none}
@@ -152,39 +152,39 @@ export function CeoAiStyles(): ReactElement {
 .mzai-htext b{font-size:14px;font-weight:600;color:var(--ink);line-height:1.2}
 .mzai-htext small{font-size:11.5px;color:var(--muted);margin-top:2px}
 .mzai-hbtns{display:flex;align-items:center;gap:6px}
-.mzai-icon{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);
-  background:var(--bg);color:var(--ink);display:flex;align-items:center;justify-content:center;
-  cursor:pointer;transition:all .15s ease}
-.mzai-icon:hover{background:var(--sidebar-2);border-color:var(--brand-l)}
+.mzai-icon{width:36px;height:36px;border-radius:var(--r-pill);border:1px solid var(--line);
+  background:transparent;color:var(--ink);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease}
+.mzai-icon:hover{background:var(--brand);border-color:var(--brand);color:var(--on-brand)}
 .mzai-icon:active{transform:scale(.95)}
 .mzai-icon .ic{width:18px;height:18px}
-.mzai-icon[aria-pressed="true"]{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-d)}
+.mzai-icon[aria-pressed="true"]{background:var(--brand-soft);border-color:var(--brand);color:var(--brand)}
 .mzai-body{display:flex;flex:1;min-height:0}
 .mzai-side{width:200px;flex:none;border-right:1px solid var(--line);background:var(--panel-2);
   display:flex;flex-direction:column;min-height:0}
 .mzai-side.mzai-hide{display:none}
 .mzai-side-head{display:flex;align-items:center;justify-content:space-between;padding:12px 12px 10px}
-.mzai-side-head span{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.mzai-newbtn{display:flex;align-items:center;gap:5px;border:1px solid var(--brand-l);background:linear-gradient(135deg,#7CCB45 0%,#69BA37 100%);
-  color:#fff;border-radius:8px;padding:6px 9px;font:inherit;font-size:11px;font-weight:600;cursor:pointer;
-  transition:all .15s ease;box-shadow:0 2px 6px rgba(0,0,0,.08)}
-.mzai-newbtn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.12)}
+.mzai-side-head span{font-family:var(--fm);font-size:10px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+.mzai-newbtn{display:flex;align-items:center;gap:5px;border:1px solid var(--brand);background:transparent;
+  color:var(--brand);border-radius:var(--r-pill);padding:6px 9px;font:inherit;font-size:11px;font-weight:600;cursor:pointer;
+  transition:background .15s ease,color .15s ease}
+.mzai-newbtn:hover{background:var(--brand);color:var(--on-brand);transform:translateY(-1px)}
 .mzai-newbtn .ic{width:13px;height:13px}
 .mzai-threads{flex:1;overflow-y:auto;padding:6px 8px 10px;overscroll-behavior:contain}
-.mzai-thread{display:flex;align-items:center;gap:6px;border-radius:10px;padding:8px 8px;cursor:pointer;
-  transition:all .12s ease}
-.mzai-thread:hover{background:var(--sidebar-2)}
-.mzai-thread.mzai-on{background:linear-gradient(135deg,rgba(124,203,69,.12),rgba(105,186,55,.08));
+.mzai-thread{display:flex;align-items:center;gap:6px;border-radius:var(--r);padding:8px 8px;cursor:pointer;
+  transition:background .12s ease}
+.mzai-thread:hover{background:var(--panel)}
+.mzai-thread.mzai-on{background:var(--brand-soft);
   border-left:3px solid var(--brand)}
 .mzai-thread .mzai-tt{flex:1;min-width:0;font-size:12px;color:var(--ink);overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .mzai-thread input{flex:1;min-width:0;font:inherit;font-size:12px;border:1px solid var(--brand);
-  border-radius:8px;padding:4px 8px;background:var(--panel);color:var(--ink);outline:0}
-.mzai-thread-act{opacity:0;width:24px;height:24px;border:0;background:transparent;color:var(--muted);
-  display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:6px;flex:none;
-  transition:all .12s ease}
+  border-radius:var(--r);padding:4px 8px;background:var(--panel);color:var(--ink);outline:0}
+.mzai-thread-act{opacity:0;width:24px;height:24px;border:1px solid transparent;background:transparent;color:var(--muted);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:var(--r-pill);flex:none;
+  transition:background .12s ease,color .12s ease,border-color .12s ease}
 .mzai-thread:hover .mzai-thread-act{opacity:1}
-.mzai-thread-act:hover{background:var(--danger);color:#fff}
+.mzai-thread-act:hover{background:var(--danger);border-color:var(--danger);color:var(--on-status)}
 .mzai-thread-act .ic{width:13px;height:13px}
 .mzai-side-empty{padding:12px;font-size:12px;color:var(--muted);line-height:1.6}
 .mzai-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
@@ -193,95 +193,93 @@ export function CeoAiStyles(): ReactElement {
 .mzai-msg{display:flex;flex-direction:column;gap:6px;max-width:80%}
 .mzai-msg.user{align-self:flex-end;align-items:flex-end;max-width:85%}
 .mzai-msg.assistant{align-self:flex-start;align-items:flex-start}
-.mzai-avatar{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+.mzai-avatar{width:32px;height:32px;border-radius:var(--r-pill);flex-shrink:0;display:flex;align-items:center;justify-content:center;
   font-size:16px;font-weight:600;overflow:hidden}
 /* MeshaLogo renders its own brand disc (matching the sidebar brand logo),
    so the assistant avatar container stays a neutral, disc-free wrapper. */
 .mzai-msg.assistant .mzai-avatar{background:transparent;border:0}
-.mzai-bub{padding:12px 14px;border-radius:16px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
-.mzai-msg.user .mzai-bub{background:var(--brand);color:#fff;border-bottom-right-radius:4px;
-  box-shadow:0 2px 8px rgba(0,0,0,.1)}
-.mzai-msg.assistant .mzai-bub{background:var(--panel-2);color:var(--ink);border:1px solid var(--line);
-  border-bottom-left-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
-.mzai-msg.error .mzai-bub{background:var(--danger);color:#fff;border:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.mzai-bub{padding:12px 14px;border-radius:var(--r);font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.mzai-msg.user .mzai-bub{background:var(--brand);color:var(--on-brand);border:1px solid var(--brand)}
+.mzai-msg.assistant .mzai-bub{background:var(--panel-2);color:var(--ink);border:1px solid var(--line)}
+.mzai-msg.error .mzai-bub{background:var(--dangerx);color:var(--danger);border:1px solid var(--danger)}
 .mzai-caret{display:inline-block;width:6px;height:14px;margin-left:2px;background:var(--brand);
-  vertical-align:text-bottom;animation:mzai-type-caret .6s steps(1) infinite;border-radius:1px}
+  vertical-align:text-bottom;animation:mzai-type-caret .6s steps(1) infinite;border-radius:var(--r)}
 @keyframes mzai-type-caret{0%,49%{opacity:1}50%,100%{opacity:0}}
 .mzai-chart{margin:8px 0 2px;padding:10px 12px;background:var(--panel-2);border:1px solid var(--line);
-  border-radius:14px;max-width:100%;overflow:hidden}
-.mzai-chart-title{font-size:11px;font-weight:600;color:var(--muted);margin:0 0 6px;
-  letter-spacing:.01em}
+  border-radius:var(--r);max-width:100%;overflow:hidden}
+.mzai-chart-title{font-family:var(--fm);font-size:10px;font-weight:500;text-transform:uppercase;color:var(--muted);margin:0 0 6px;
+  letter-spacing:.16em}
 .mzai-chart-svg{display:block;width:100%;height:auto}
 .mzai-cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
 .mzai-cite{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;
-  border:1px solid var(--line);border-radius:20px;padding:4px 11px;color:var(--muted);background:var(--panel);
-  transition:all .15s ease}
+  border:1px solid var(--line);border-radius:var(--r-pill);padding:4px 11px;color:var(--muted);background:var(--panel);
+  transition:border-color .15s ease,color .15s ease}
 .mzai-cite b{color:var(--ink);font-weight:600}
-.mzai-cite.tier-cube{border-color:var(--brand-l);background:linear-gradient(135deg,rgba(124,203,69,.08),rgba(105,186,55,.04));
-  color:var(--brand-d);box-shadow:0 0 12px rgba(124,203,69,.12)}
-.mzai-cite.tier-cube b{color:var(--brand-d)}
+.mzai-cite.tier-cube{border-color:var(--brand);background:var(--brand-soft);
+  color:var(--brand)}
+.mzai-cite.tier-cube b{color:var(--brand)}
 .mzai-foot{display:flex;align-items:center;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:4px}
 .mzai-mode{display:inline-flex;align-items:center;gap:4px}
 .mzai-mode .ic{width:12px;height:12px}
 .mzai-mode.degraded{color:var(--danger)}
 .mzai-fb{display:flex;align-items:center;gap:3px;margin-left:auto}
-.mzai-fb button{width:28px;height:28px;border:1px solid var(--line);background:var(--bg);border-radius:8px;
+.mzai-fb button{width:28px;height:28px;border:1px solid var(--line);background:transparent;border-radius:var(--r-pill);
   color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;
-  transition:all .12s ease}
-.mzai-fb button:hover{background:var(--sidebar-2);color:var(--ink);border-color:var(--line2)}
-.mzai-fb button.on-up{background:linear-gradient(135deg,rgba(124,203,69,.12),rgba(105,186,55,.08));
-  border-color:var(--brand-l);color:var(--brand-d)}
-.mzai-fb button.on-down{background:linear-gradient(135deg,rgba(239,68,68,.12),rgba(220,38,38,.08));
+  transition:background .12s ease,color .12s ease,border-color .12s ease}
+.mzai-fb button:hover{background:var(--brand);color:var(--on-brand);border-color:var(--brand)}
+.mzai-fb button.on-up{background:var(--brand-soft);
+  border-color:var(--brand);color:var(--brand)}
+.mzai-fb button.on-down{background:var(--dangerx);
   border-color:var(--danger);color:var(--danger)}
 .mzai-fb button .ic{width:13px;height:13px}
 .mzai-reason{display:flex;gap:6px;margin-top:6px}
-.mzai-reason input{flex:1;font:inherit;font-size:11.5px;border:1px solid var(--line);border-radius:8px;padding:6px 9px;
+.mzai-reason input{flex:1;font:inherit;font-size:11.5px;border:1px solid var(--line);border-radius:var(--r);padding:6px 9px;
   background:var(--panel);color:var(--ink);outline:0;transition:border-color .15s ease}
 .mzai-reason input:focus{border-color:var(--brand)}
-.mzai-reason button{border:none;background:var(--brand);color:#fff;border-radius:8px;padding:6px 14px;
-  font:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s ease}
-.mzai-reason button:hover{background:var(--brand-d)}
+.mzai-reason button{border:1px solid var(--brand);background:transparent;color:var(--brand);border-radius:var(--r-pill);padding:6px 14px;
+  font:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:background .15s ease,color .15s ease}
+.mzai-reason button:hover{background:var(--brand);color:var(--on-brand)}
 .mzai-suggestbar{display:flex;justify-content:flex-start;padding:0 16px 8px}
 .mzai-suggestbar button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);
-  background:var(--panel-2);color:var(--ink);border-radius:10px;padding:7px 10px;font:inherit;
-  font-size:12px;font-weight:600;cursor:pointer;transition:all .15s ease}
-.mzai-suggestbar button:hover,.mzai-suggestbar button[aria-expanded="true"]{border-color:var(--brand-l);
-  background:linear-gradient(135deg,rgba(124,203,69,.08),rgba(105,186,55,.04));color:var(--brand-d)}
+  background:transparent;color:var(--ink);border-radius:var(--r-pill);padding:7px 10px;font:inherit;
+  font-size:12px;font-weight:600;cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease}
+.mzai-suggestbar button:hover,.mzai-suggestbar button[aria-expanded="true"]{border-color:var(--brand);
+  background:var(--brand);color:var(--on-brand)}
 .mzai-suggestbar .ic{width:14px;height:14px}
 .mzai-starters{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 12px;max-height:164px;
   overflow-y:auto;overscroll-behavior:contain}
 .mzai-starters button{display:flex;align-items:center;gap:6px;border:1px solid var(--line);
-  background:var(--panel-2);color:var(--ink);border-radius:20px;padding:8px 14px;font:inherit;
-  font-size:12px;cursor:pointer;text-align:left;transition:all .15s ease}
+  background:transparent;color:var(--ink);border-radius:var(--r-pill);padding:8px 14px;font:inherit;
+  font-size:12px;cursor:pointer;text-align:left;transition:background .15s ease,color .15s ease,border-color .15s ease}
 .mzai-starters button:before{content:"✨";font-size:13px}
-.mzai-starters button:hover{border-color:var(--brand-l);background:linear-gradient(135deg,rgba(124,203,69,.08),rgba(105,186,55,.04))}
+.mzai-starters button:hover{border-color:var(--brand);background:var(--brand);color:var(--on-brand)}
 .mzai-starters button:disabled{opacity:.5;cursor:not-allowed}
 .mzai-form{display:flex;gap:10px;align-items:flex-end;padding:12px 14px;border-top:1px solid var(--line);
   background:var(--panel-2)}
-.mzai-form textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:12px;padding:10px 13px;
+.mzai-form textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:var(--r);padding:10px 13px;
   font:inherit;font-size:13px;background:var(--panel);color:var(--ink);outline:0;max-height:120px;
   transition:border-color .15s ease}
-.mzai-form textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(124,203,69,.1)}
+.mzai-form textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--ring)}
 .mzai-form textarea::placeholder{color:var(--muted)}
-.mzai-send{width:40px;height:40px;flex:none;border-radius:12px;border:none;background:var(--brand);
-  color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;
-  transition:all .15s cubic-bezier(.34,.1,.64,.9);box-shadow:0 2px 6px rgba(0,0,0,.1)}
-.mzai-send:hover:not(:disabled){background:var(--brand-d);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.15)}
+.mzai-send{width:40px;height:40px;flex:none;border-radius:var(--r-pill);border:1px solid var(--brand);background:transparent;
+  color:var(--brand);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:background .15s cubic-bezier(.34,.1,.64,.9),color .15s ease,transform .15s ease}
+.mzai-send:hover:not(:disabled){background:var(--brand);color:var(--on-brand);transform:translateY(-2px)}
 .mzai-send:active:not(:disabled){transform:translateY(0)}
 .mzai-send:disabled{opacity:.5;cursor:not-allowed}
-.mzai-send.stop{background:var(--brand);border:none;cursor:pointer}
-.mzai-send.stop:hover{background:var(--brand-d);transform:translateY(-2px)}
+.mzai-send.stop{background:transparent;border:1px solid var(--brand);cursor:pointer}
+.mzai-send.stop:hover{background:var(--brand);color:var(--on-brand);transform:translateY(-2px)}
 .mzai-send .ic{width:18px;height:18px}
 .mzai-send .mzai-goat-walking{width:18px;height:18px}
-.mzai-banner{margin:0 16px 12px;padding:10px 12px;border-radius:12px;font-size:12px;line-height:1.5;
+.mzai-banner{margin:0 16px 12px;padding:10px 12px;border-radius:var(--r);font-size:12px;line-height:1.5;
   display:flex;align-items:center;gap:8px;animation:mzai-slide-up .3s ease}
-.mzai-banner.err{background:linear-gradient(135deg,rgba(239,68,68,.1),rgba(220,38,38,.06));
-  border:1px solid rgba(239,68,68,.3);color:var(--danger)}
-.mzai-banner.warn{background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(217,119,6,.06));
-  border:1px solid rgba(245,158,11,.3);color:var(--ink)}
+.mzai-banner.err{background:var(--dangerx);
+  border:1px solid var(--danger);color:var(--danger)}
+.mzai-banner.warn{background:var(--warnx);
+  border:1px solid var(--warn);color:var(--ink)}
 @keyframes mzai-slide-up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 .mzai-skel{display:flex;gap:5px;padding:12px 14px}
-.mzai-skel span{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:mzai-bounce .8s infinite}
+.mzai-skel span{width:6px;height:6px;border-radius:var(--r-pill);background:var(--muted);animation:mzai-bounce .8s infinite}
 .mzai-skel span:nth-child(1){animation-delay:0s}
 .mzai-skel span:nth-child(2){animation-delay:.12s}
 .mzai-skel span:nth-child(3){animation-delay:.24s}

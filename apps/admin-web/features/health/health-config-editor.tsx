@@ -473,7 +473,7 @@ export function DraftEditor({
                 key={step.key}
                 style={{
                   border: "1px solid var(--line)",
-                  borderRadius: 10,
+                  borderRadius: "var(--r)",
                   padding: "10px 12px",
                   display: "flex",
                   flexDirection: "column",

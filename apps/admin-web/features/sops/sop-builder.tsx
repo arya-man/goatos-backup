@@ -270,7 +270,7 @@ export function SopBuilder({
                   <div
                     aria-label={copy(pc, "modal.builder.domain_aria")}
                     title={copy(pc, "modal.builder.domain_title")}
-                    style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--line)", background: "var(--bg)", borderRadius: 8, padding: "8px 10px" }}
+                    style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--line)", background: "var(--bg)", borderRadius: "var(--r)", padding: "8px 10px" }}
                   >
                     <span className="tag t-pur">{copy(pc, "modal.builder.domain_label")}</span>
                     <span className="muted small">{copy(pc, "modal.builder.domain_locked")}</span>
@@ -502,7 +502,7 @@ export function SopBuilder({
           <div className="cfgback on" onClick={() => setPreviewOpen(false)} />
           <div className="cfgmodal on" style={{ width: "min(620px,96vw)" }} role="dialog" aria-modal="true" aria-label={copy(pc, "builder.preview.title")}>
             <div className="cmh">
-              <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
+              <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: "var(--r)" }}>
                 <Eye className="ic" />
               </span>
               <div>

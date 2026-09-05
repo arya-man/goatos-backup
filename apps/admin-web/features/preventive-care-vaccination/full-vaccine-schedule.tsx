@@ -370,13 +370,13 @@ export function VaccinationFullScheduleSkeleton({
         </div>
         <div className="sp" style={{ flex: 1 }} />
         {[70, 70, 120].map((w, i) => (
-          <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: 999 }} />
+          <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: "var(--r-pill)" }} />
         ))}
       </div>
       <div className="bd" style={{ display: "grid", gap: 12 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {Array.from({ length: 12 }, (_, i) => (
-            <div key={i} className="skel" style={{ width: 62, height: 28, borderRadius: 999 }} />
+            <div key={i} className="skel" style={{ width: 62, height: 28, borderRadius: "var(--r-pill)" }} />
           ))}
         </div>
         <div style={{ overflowX: "auto" }}>

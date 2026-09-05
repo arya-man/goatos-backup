@@ -392,7 +392,7 @@ export function SeriesLegend({ entries }: { entries: { label: string; colorVar: 
         <span key={entry.label} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
           <span
             aria-hidden
-            style={{ width: 9, height: 9, borderRadius: 3, background: entry.colorVar, display: "inline-block" }}
+            style={{ width: 9, height: 9, borderRadius: "var(--r)", background: entry.colorVar, display: "inline-block" }}
           />
           {entry.label}
         </span>
@@ -485,7 +485,7 @@ export function SeriesPie({
         {live.map((s) => (
           <div key={s.label} style={{ display: "contents" }} data-tip={`${s.label}\n${fmt(s.value)} ${valueNoun}`}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 15, minWidth: 0 }}>
-              <span aria-hidden style={{ width: 11, height: 11, borderRadius: 3, background: s.colorVar, display: "inline-block", flex: "0 0 auto" }} />
+              <span aria-hidden style={{ width: 11, height: 11, borderRadius: "var(--r)", background: s.colorVar, display: "inline-block", flex: "0 0 auto" }} />
               {s.label}
             </span>
             <span className="muted" style={{ fontSize: 14, whiteSpace: "nowrap", textAlign: "right" }}>{`${fmt(s.value)} ${valueNoun} · ${((s.value / total) * 100).toFixed(1)}%`}</span>

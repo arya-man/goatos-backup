@@ -324,7 +324,7 @@ export async function VaccinationExecutionBoard({
           chips would all read 0. It returns the instant any row exists or a filter is active. */}
       {!noWork && (
         <>
-      <div className="tbar" style={{ marginBottom: 10, border: "1px solid var(--line2)", borderRadius: 10 }}>
+      <div className="tbar" style={{ marginBottom: 10, border: "1px solid var(--line2)", borderRadius: "var(--r)" }}>
         <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.shed_events.search")} />
         <VaccinationFilterButton
           pageContract={pageContract}

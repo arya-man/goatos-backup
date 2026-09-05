@@ -124,7 +124,7 @@ export function VaccinationFilterButton({
       <div
         onClick={() => setOpen(false)}
         aria-hidden="true"
-        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 260 }}
+        style={{ position: "fixed", inset: 0, background: "var(--scrim)", zIndex: 260 }}
       />
       <div
         ref={modalRef}

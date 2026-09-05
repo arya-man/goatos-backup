@@ -30,7 +30,7 @@ function statusTone(task: PCCareTask): Tone {
 
 function metric(label: string, value: number, icon: ReactNode) {
   return (
-    <div className="card" style={{ padding: 12, borderRadius: 8, minWidth: 0 }}>
+    <div className="card" style={{ padding: 12, borderRadius: "var(--r)", minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {icon}
         <span className="small muted">{label}</span>

@@ -155,7 +155,7 @@ function TimelineCard({ events, pageContract }: { events: ProcurementTimelineEve
           events.map((event, idx) => (
             <div key={`${event.ref_id ?? event.event_type}-${idx}`} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                <span className="sw" style={{ width: 11, height: 11, borderRadius: 999, background: "var(--info)" }} />
+                <span className="sw" style={{ width: 11, height: 11, borderRadius: "var(--r-pill)", background: "var(--info)" }} />
                 {idx < events.length - 1 ? <span style={{ width: 2, flex: 1, minHeight: 24, background: "var(--line)", marginTop: 2 }} /> : null}
               </div>
               <div style={{ paddingBottom: 14, minWidth: 0, flex: 1 }}>
@@ -620,7 +620,7 @@ export async function ProcurementLoadDetailPage({
         <span className="muted small">{copy(pageContract, "label.purchase")} {fmtDate(load.purchase_date ?? undefined)}</span>
         <span className="muted small">{copy(pageContract, "label.planned_dispatch")} {fmtDate(load.planned_dispatch_at ?? undefined)}</span>
         <div className="sp" style={{ flex: 1 }} />
-        <span className="sw" style={{ background: TONE_SWATCH[contractTone(pageContract, "source_load_status", load.status)], width: 10, height: 10, borderRadius: 999 }} />
+        <span className="sw" style={{ background: TONE_SWATCH[contractTone(pageContract, "source_load_status", load.status)], width: 10, height: 10, borderRadius: "var(--r-pill)" }} />
       </div>
 
       {actionStatus ? (

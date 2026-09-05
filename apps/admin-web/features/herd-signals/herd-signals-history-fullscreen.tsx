@@ -57,15 +57,15 @@ const BUCKET_LABEL: Record<number, string> = { 60: "1-minute", 300: "5-minute", 
 // The six farm-activity overlays. GET /herd-signals/tags/{id}/activity is the data source (see
 // readTimeline's sibling fetch below); each toggle here filters the correlation table AND the
 // chart markers by event.kind, using the same colour for a kind's chip, its markers, and its
-// legend text everywhere so the three never drift out of sync. Colours match the mock's
-// EVENT_TYPES table exactly (mock/herd-signals-mock.html).
+// legend text everywhere so the three never drift out of sync. Colours are design-system status
+// tokens so they re-map with the theme.
 const KIND_META: Record<HerdSignalActivityResponse["events"][number]["kind"], { label: string; color: string }> = {
-  vaccination: { label: "Vaccination", color: "#A78BF5" },
-  feed_given: { label: "Feed given", color: "#34C2A6" },
-  weighing: { label: "Weighing", color: "#5B9BE8" },
-  treatment: { label: "Treatment", color: "#F0635F" },
-  hoof_trimming: { label: "Hoof trimming", color: "#E0A53A" },
-  shed_move: { label: "Pen move", color: "#94A89A" },
+  vaccination: { label: "Vaccination", color: "var(--purple)" },
+  feed_given: { label: "Feed given", color: "var(--teal)" },
+  weighing: { label: "Weighing", color: "var(--info)" },
+  treatment: { label: "Treatment", color: "var(--danger)" },
+  hoof_trimming: { label: "Hoof trimming", color: "var(--warn)" },
+  shed_move: { label: "Pen move", color: "var(--faint)" },
 };
 const OVERLAY_KINDS = Object.keys(KIND_META) as (keyof typeof KIND_META)[];
 
@@ -365,7 +365,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                   </span>
                 ),
               )}
-              <span style={{ gridColumn: "1 / -1", fontSize: 12, color: "var(--c-mut)" }}>
+              <span style={{ gridColumn: "1 / -1", fontSize: 12, color: "var(--muted)" }}>
                 {OVERLAY_KINDS.some((kind) => overlaysOn[kind] ?? true)
                   ? `Showing: ${OVERLAY_KINDS.filter((kind) => overlaysOn[kind] ?? true)
                       .map((kind) => KIND_META[kind].label)

@@ -276,7 +276,7 @@ function ToxinDrawer({
                     // Written as a `//` comment, NOT `{/* */}`: this sits in a JSX EXPRESSION
                     // position (the `? (` branch), where a braced comment parses as an object
                     // literal and breaks the file. Braced comments are for JSX CHILDREN only.
-                    <div style={{ position: "relative", height: 320, overflow: "hidden", borderRadius: 10 }}>
+                    <div style={{ position: "relative", height: 320, overflow: "hidden", borderRadius: "var(--r)" }}>
                       <a href={loaded.proofUrls[task.strip_photo_ref] ?? undefined} target="_blank" rel="noreferrer" className="vr-image-link">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
