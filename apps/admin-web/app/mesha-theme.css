@@ -3395,7 +3395,7 @@ select:disabled { opacity: .45; }
 .herd-signals-page .segs a:hover{color:var(--ink)}
 .herd-signals-page .segs a.on{background:var(--brand-soft);color:var(--brand-d)}
 .herd-signals-page .segs a .cnt{font-size:10.5px;font-weight:800;background:var(--panel-2);color:var(--muted);border-radius:999px;padding:1px 6px}
-.herd-signals-page .segs a.on .cnt{background:color-mix(in srgb,var(--brand) 34%,var(--panel));color:var(--ink)}
+.herd-signals-page .segs a.on .cnt{background:color-mix(in srgb,var(--brand) 24%,transparent);color:var(--brand-d)}
 
 .herd-signals-page .fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
 .herd-signals-page .fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
