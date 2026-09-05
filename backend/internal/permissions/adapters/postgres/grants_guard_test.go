@@ -22,7 +22,7 @@ func TestActiveTenantGrantsDoesNotCacheAuthorizationState(t *testing.T) {
 }
 
 func TestActiveTenantGrantLookupIndexMatchesAuthQueryShape(t *testing.T) {
-	b, err := os.ReadFile("../../../../migrations/postgres/000255_user_scope_grants_active_lookup.sql")
+	b, err := os.ReadFile("../../../../migrations/postgres/000261_user_scope_grants_active_lookup.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

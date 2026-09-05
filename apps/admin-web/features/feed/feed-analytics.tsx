@@ -338,7 +338,7 @@ export async function FeedAnalyticsPage({
   const wantShedFeed = tab === "overview";
   const shedFeedTo = istDayPlus(todayIso(), -1);
   const shedFeedWindow = { date_from: istDayPlus(shedFeedTo, -6), date_to: shedFeedTo };
-  const [locations, directed, execution, executionDay, experiment, stock, shedFeed] = await Promise.all([
+  const [locations, directed, execution, experiment, stock, shedFeed] = await Promise.all([
     wantExperiment ? getCensusLocations() : Promise.resolve({ parks: [] as { id: string; name: string }[], sheds: [] }),
     wantDirected
       ? getFeedAnalyticsDirected(chartParams)
@@ -362,18 +362,6 @@ export async function FeedAnalyticsPage({
           completion_status: completionStatusFilter,
         })
       : Promise.resolve<ApiResult<FeedAnalyticsExecutionResponse> | null>(null),
-    tab === "execution"
-      ? getFeedAnalyticsExecution({
-          park_id: parkId,
-          date_from: istDayPlus(variancePackingDay, 1),
-          date_to: istDayPlus(variancePackingDay, 1),
-          sections: "packing_variance",
-          variance_limit: String(varianceLimit),
-          variance_offset: String(varianceOffset),
-          variance_park_label: favPark,
-          variance_feed_item_key: favItem,
-        })
-      : Promise.resolve<ApiResult<FeedAnalyticsExecutionResponse> | null>(null),
     wantExperiment
       ? getFeedAnalyticsExperiment({ ...params, park_id: experimentParkId, wastage_day: readWastageDay(searchParams) })
       : Promise.resolve<ApiResult<FeedAnalyticsExperimentResponse> | null>(null),
@@ -384,8 +372,21 @@ export async function FeedAnalyticsPage({
       ? getFeedAnalyticsShedFeed({ park_id: parkId, ...shedFeedWindow })
       : Promise.resolve<ApiResult<FeedAnalyticsShedFeedResponse> | null>(null),
   ]);
-  // The day-pinned execution read for the mismatch table's calendar runs in the
-  // Promise.all above. Only its
+  const executionDay =
+    tab === "execution"
+      ? await getFeedAnalyticsExecution({
+          park_id: parkId,
+          date_from: istDayPlus(variancePackingDay, 1),
+          date_to: istDayPlus(variancePackingDay, 1),
+          sections: "packing_variance",
+          variance_limit: String(varianceLimit),
+          variance_offset: String(varianceOffset),
+          variance_park_label: favPark,
+          variance_feed_item_key: favItem,
+        })
+      : null;
+  // The day-pinned execution read for the mismatch table's calendar runs after the
+  // main batch so it does not overlap the rolling-window execution read. Only its
   // packing_variance is used; the tab's charts keep the page's rolling window.
   // fav_day is a PACKING day (maintainer decision 2026-08-24, the axis Feed Packing already
   // browses by): a packer works day P on the sheet the animals eat on P+1, so a reader asking for

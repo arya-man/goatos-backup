@@ -37,12 +37,13 @@ export function SegmentedLinks({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [isPending, setIsPending] = useState(false);
+  const navKey = `${pathname}?${searchParams.toString()}`;
   // Optimistic selection. Cleared implicitly on the next render with a new `current`, so a
   // navigation that fails or is superseded falls back to the server's answer rather than leaving
   // a segment highlighted for something that never happened.
-  const [optimistic, setOptimistic] = useState<string | null>(null);
-  const selected = isPending && optimistic !== null ? optimistic : current;
+  const [optimistic, setOptimistic] = useState<{ value: string; navKey: string } | null>(null);
+  const isPending = optimistic !== null && optimistic.navKey === navKey;
+  const selected = isPending ? optimistic.value : current;
   // The scroll position at the moment of the click, restored once the navigation settles.
   //
   // Next router scroll suppression did not hold on these long pages: the navigation is genuinely
@@ -73,18 +74,8 @@ export function SegmentedLinks({
   }, [isPending]);
 
   useEffect(() => {
-    if (fallbackTimer.current !== null) {
-      window.clearTimeout(fallbackTimer.current);
-      fallbackTimer.current = null;
-    }
-    setIsPending(false);
-    setOptimistic(null);
-  }, [current, pathname, searchParams]);
-
-  useEffect(() => {
     if (!isPending) return undefined;
     const timer = window.setTimeout(() => {
-      setIsPending(false);
       setOptimistic(null);
     }, 8000);
     return () => window.clearTimeout(timer);
@@ -110,8 +101,7 @@ export function SegmentedLinks({
               return;
             }
             event.preventDefault();
-            setOptimistic(option.value);
-            setIsPending(true);
+            setOptimistic({ value: option.value, navKey });
             restoreTo.current = window.scrollY;
             if (fallbackTimer.current !== null) {
               window.clearTimeout(fallbackTimer.current);

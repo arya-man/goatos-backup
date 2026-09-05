@@ -5,7 +5,6 @@ const baseUrl = process.env.ADMIN_WEB_URL || "http://127.0.0.1:3000";
 const output = process.env.ADMIN_WEB_SIDEBAR_METRICS || "";
 const rounds = Number.parseInt(process.env.ADMIN_WEB_SIDEBAR_ROUNDS || "3", 10);
 const timeout = Number.parseInt(process.env.ADMIN_WEB_SIDEBAR_TIMEOUT_MS || "45000", 10);
-const settleMs = Number.parseInt(process.env.ADMIN_WEB_SIDEBAR_SETTLE_MS || "0", 10);
 const bearerToken = process.env.GOATOS_BEARER_TOKEN || "";
 const onlyTabs = process.env.ADMIN_WEB_SIDEBAR_ONLY_TABS === "1";
 
@@ -375,7 +374,6 @@ try {
     }
     for (const flow of tabClickFlows) {
       await clickSidebarRoute(page, scoped(flow.route));
-      if (settleMs > 0) await page.waitForTimeout(settleMs);
       for (const tab of flow.tabs) {
         const started = performance.now();
         let row;

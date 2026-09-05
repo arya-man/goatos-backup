@@ -25,8 +25,9 @@ test("all feed item chart series use the shared non-repeating colour helper", ()
 
 test("execution variance table defaults to today's packing day read", () => {
   assert.match(source, /const variancePackingDay = favDay \|\| todayIso\(\);/);
-  assert.match(source, /const \[locations, directed, execution, executionDay, experiment, stock, shedFeed\] = await Promise\.all\(\[/);
-  assert.match(source, /tab === "execution"\s*\?\s*getFeedAnalyticsExecution\(\{/s);
+  assert.match(source, /const \[locations, directed, execution, experiment, stock, shedFeed\] = await Promise\.all\(\[/);
+  assert.match(source, /const executionDay =\s*tab === "execution"\s*\?\s*await getFeedAnalyticsExecution\(\{/s);
+  assert.match(source, /tab === "execution"\s*\?\s*await getFeedAnalyticsExecution\(\{/s);
   assert.match(source, /date_from: istDayPlus\(variancePackingDay, 1\),/);
   assert.match(source, /date_to: istDayPlus\(variancePackingDay, 1\),/);
   assert.match(source, /day: variancePackingDay,/);
