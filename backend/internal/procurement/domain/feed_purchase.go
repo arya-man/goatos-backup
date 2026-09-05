@@ -64,7 +64,7 @@ func FeedDeliveryLabel(status string) string {
 	case FeedDeliveryPurchased:
 		return "In transit"
 	case FeedDeliveryReached:
-		return "Reached"
+		return "Delivered"
 	default:
 		return status
 	}
