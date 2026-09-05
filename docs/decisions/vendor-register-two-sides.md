@@ -116,7 +116,7 @@ questions, exactly as Feed SOP is grouped under Feed and opened on `sop.read`.
 **`sales` gained `SurfaceMobile`, so it needed a tick backfill.** A person's phone modules are their
 ticks, and a tick NARROWS an offer — it never widens one. Everyone already backfilled carries a web
 `sales` tick and no mobile one, so the new module would be narrowed away on every existing phone
-until an admin re-ticked thirty people. Migration `000257` copies each person's web `sales`
+until an admin re-ticked thirty people. Migration `000269` copies each person's web `sales`
 capabilities onto a mobile row, once, with a ledger table so Down removes exactly those rows. This is
 the identical shape and reasoning as `000251` did for Vendors.
 
