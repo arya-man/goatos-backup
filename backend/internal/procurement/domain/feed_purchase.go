@@ -58,11 +58,11 @@ const (
 var FeedDeliveryStatuses = []string{FeedDeliveryPurchased, FeedDeliveryReached}
 
 // FeedDeliveryLabel is the ONE farm label per delivery state, rendered verbatim by the web page
-// contract and the phone alike, so no surface phrases "on the road" its own way.
+// contract and the phone alike, so no surface phrases "in transit" its own way.
 func FeedDeliveryLabel(status string) string {
 	switch status {
 	case FeedDeliveryPurchased:
-		return "On the road"
+		return "In transit"
 	case FeedDeliveryReached:
 		return "Reached"
 	default:

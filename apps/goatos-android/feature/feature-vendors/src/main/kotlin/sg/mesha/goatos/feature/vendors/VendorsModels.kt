@@ -179,7 +179,7 @@ data class FeedPurchaseCardUi(
     val quantityLine: String,
     /** "Bought 01-09-2026 · QA Vendor" */
     val metaLine: String,
-    /** Backend-owned delivery word ("On the road" / "Reached"), VERBATIM. */
+    /** Backend-owned delivery word ("In transit" / "Delivered"), VERBATIM. */
     val deliveryLabel: String,
     val deliveryTone: VendorsTone,
     /** Backend-owned payment word, VERBATIM. */

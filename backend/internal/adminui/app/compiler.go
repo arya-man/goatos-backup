@@ -1208,7 +1208,7 @@ func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput
 	// field on the edit form.
 	return upsertControl(controls, domain.Control{
 		ID:             "record_feed_purchase_delivery",
-		Label:          controlCopy(copy, "action.mark_reached.label", "Mark reached"),
+		Label:          controlCopy(copy, "action.mark_reached.label", "Mark delivered"),
 		Kind:           "row_action",
 		Enabled:        allowed,
 		DisabledReason: reason,

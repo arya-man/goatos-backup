@@ -86,7 +86,7 @@ class FeedPurchasesListViewModel @Inject constructor(
         FeedPurchasesListUiState(
             title = current.title,
             isRefreshing = refreshing,
-            // Chip labels are BACKEND words ("On the road", "Reached"); only "All" is the screen's.
+            // Chip labels are BACKEND words ("In transit", "Delivered"); only "All" is the screen's.
             filters = listOf(VendorsFilterUi("", FILTER_ALL, current.delivery.isBlank())) +
                 options?.deliveryStatuses.orEmpty().map { VendorsFilterUi(it.key, it.label, it.key == current.delivery) },
             totalsLine = if (totals.total > 0) dotJoin("${totals.total} ${if (totals.total == 1) COUNT_ONE else COUNT_MANY}", kilograms(totals.quantityKg), rupees(totals.spendRupees)) else "",
@@ -158,8 +158,8 @@ internal fun FeedPurchaseDto.toCardUi(): FeedPurchaseCardUi = FeedPurchaseCardUi
 /** The delivery word comes from the options vocabulary when the list has it; the row's own
  *  reached date is the honest fallback label until the options load. */
 private fun FeedPurchaseDto.deliveryLabel(): String = when (deliveryStatus) {
-    "reached" -> if (!reachedOn.isNullOrBlank()) "Reached ${farmDate(reachedOn)}" else "Reached"
-    "purchased" -> "On the road"
+    "reached" -> if (!reachedOn.isNullOrBlank()) "Delivered ${farmDate(reachedOn)}" else "Delivered"
+    "purchased" -> "In transit"
     else -> deliveryStatus
 }
 
@@ -492,7 +492,7 @@ class FeedPurchaseDetailViewModel @Inject constructor(
     }
 
     private companion object {
-        const val ON_THE_ROAD_NOTE = "This load is still on the road. It is not counted as stock until it is marked reached."
+        const val ON_THE_ROAD_NOTE = "This load is still in transit. It is not counted as stock until it is marked delivered."
         const val COST_UNKNOWN = "Landed cost not recorded yet"
         const val FULLY_PAID = "Fully paid"
         const val REQUIRED = "Required"
@@ -502,7 +502,7 @@ class FeedPurchaseDetailViewModel @Inject constructor(
         const val MESSAGE_SAVING = "Saving change…"
         const val MESSAGE_PAYMENT_ADDED = "Payment added. The balance updates when it reaches the ledger."
         const val MESSAGE_EDIT_SAVED = "Purchase saved."
-        const val MESSAGE_REACHED = "Load marked reached. It counts as stock once it reaches the ledger."
+        const val MESSAGE_REACHED = "Load marked delivered. It counts as stock once it reaches the ledger."
         const val MESSAGE_STATUS_SAVED = "Payment status saved."
         const val MESSAGE_QUEUED_OFFLINE = "Saved on this phone. It reaches the ledger when the phone is online."
         const val MESSAGE_FAILED = "Could not save that change. Try again."
@@ -727,7 +727,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         const val AMOUNT = "Enter an amount"
         const val NOT_FUTURE = "Cannot be in the future"
         const val NOT_BEFORE_BOUGHT = "Cannot be before the day it was bought"
-        const val NEEDS_REACHED_DATE = "Enter the reached date first"
+        const val NEEDS_REACHED_DATE = "Enter the delivered date first"
         const val MESSAGE_SAVING = "Saving purchase…"
         const val MESSAGE_SAVED = "Purchase saved to the ledger."
         const val MESSAGE_QUEUED = "Saved on this phone. It will reach the ledger when the phone is online."

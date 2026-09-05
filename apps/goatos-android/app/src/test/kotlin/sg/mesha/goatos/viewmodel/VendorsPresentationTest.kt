@@ -81,12 +81,12 @@ class VendorsPresentationTest {
         assertEquals("CBE · Load 328", card.loadLine)
         assertEquals("7,85,714.5 kg · ₹23,000", card.quantityLine)
         assertEquals("Bought 01-09-2026 · QA Vendor", card.metaLine)
-        assertEquals("On the road", card.deliveryLabel)
+        assertEquals("In transit", card.deliveryLabel)
         assertEquals(VendorsTone.WARN, card.deliveryTone)
         assertEquals(VendorsTone.WARN, card.paymentTone)
 
         val reached = FeedPurchaseDto(feedPurchaseId = "p-2", deliveryStatus = "reached", reachedOn = "2026-09-03", paymentStatus = "Paid").toCardUi()
-        assertEquals("Reached 03-09-2026", reached.deliveryLabel)
+        assertEquals("Delivered 03-09-2026", reached.deliveryLabel)
         assertEquals(VendorsTone.OK, reached.deliveryTone)
         assertEquals(VendorsTone.OK, reached.paymentTone)
     }

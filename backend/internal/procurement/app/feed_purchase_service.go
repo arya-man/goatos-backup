@@ -35,7 +35,7 @@ func NewFeedPurchaseServiceWithClock(repo ports.FeedPurchaseRepository, now func
 // FeedPurchaseListQuery is one page request against the ledger.
 type FeedPurchaseListQuery struct {
 	Farm string
-	// Delivery narrows to one delivery state ("purchased" = still on the road, "reached");
+	// Delivery narrows to one delivery state ("purchased" = still in transit, "reached" = delivered);
 	// blank or "all" lists every load.
 	Delivery string
 	Limit    int

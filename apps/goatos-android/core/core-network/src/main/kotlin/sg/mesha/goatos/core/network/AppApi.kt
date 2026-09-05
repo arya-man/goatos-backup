@@ -2989,7 +2989,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         farms = listOf("CBE", "CPT"),
         feedItems = listOf(FeedItemOptionDto("concentrate", "Concentrate")),
         paymentStatuses = listOf("Paid", "Pending"),
-        deliveryStatuses = listOf(DeliveryStatusOptionDto("purchased", "On the road"), DeliveryStatusOptionDto("reached", "Reached")),
+        deliveryStatuses = listOf(DeliveryStatusOptionDto("purchased", "In transit"), DeliveryStatusOptionDto("reached", "Delivered")),
         vendors = listOf("QA Vendor"),
     )
 

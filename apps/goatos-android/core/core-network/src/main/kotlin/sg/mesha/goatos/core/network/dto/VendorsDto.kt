@@ -199,7 +199,7 @@ data class FeedPurchaseOptionsDto(
     /** The ACTIVE feed catalog — exactly the set the write accepts. */
     @SerialName("feed_items") val feedItems: List<FeedItemOptionDto> = emptyList(),
     @SerialName("payment_statuses") val paymentStatuses: List<String> = emptyList(),
-    /** The closed delivery vocabulary with BACKEND labels ("On the road", "Reached"), in order. */
+    /** The closed delivery vocabulary with BACKEND labels ("In transit", "Delivered"), in order. */
     @SerialName("delivery_statuses") val deliveryStatuses: List<DeliveryStatusOptionDto> = emptyList(),
     /** Suppliers already bought from, most recent first; a suggestion list, not a closed set. */
     @SerialName("vendors") val vendors: List<String> = emptyList(),

@@ -3337,16 +3337,16 @@ func pageSpecificCopy(id string) map[string]string {
 			// the feed is already in use.
 			"section.delivery.title":        "Delivery",
 			"field.delivery_status":         "Delivery",
-			"field.reached_on":              "Reached on",
+			"field.reached_on":              "Delivered on",
 			"field.reached_weight_kg":       "Weight received (kg)",
 			"field.stock_kg":                "Counted as stock (kg)",
-			"hint.record_reached":           "Leave the reached date blank if the load is still on the road. Fill it in only for a load that has already come in.",
+			"hint.record_reached":           "Leave the delivered date blank if the load is still in transit. Fill it in only for a load that has already come in.",
 			"hint.reached_weight":           "Leave blank if the load has not been weighed on arrival yet — the buying weight counts until you enter it.",
-			"hint.mark_reached":             "Marking the load reached counts it as stock from that day and raises its toxin test. The received weight can be entered now or later.",
-			"delivery.in_transit_note":      "This load is still on the road. It is not counted as stock and its toxin test has not started.",
-			"action.mark_reached.label":     "Mark reached",
+			"hint.mark_reached":             "Marking the load delivered counts it as stock from that day and raises its toxin test. The received weight can be entered now or later.",
+			"delivery.in_transit_note":      "This load is still in transit. It is not counted as stock and its toxin test has not started.",
+			"action.mark_reached.label":     "Mark delivered",
 			"action.update_delivery.label":  "Update arrival",
-			"action.delivery_recorded":      "Load marked reached. It now counts as stock and its toxin test has been raised.",
+			"action.delivery_recorded":      "Load marked delivered. It now counts as stock and its toxin test has been raised.",
 			"action.delivery_updated":       "Arrival details updated.",
 			"action.delivery_record_failed": "Could not update the arrival. Check the fields and try again.",
 
@@ -3355,12 +3355,12 @@ func pageSpecificCopy(id string) map[string]string {
 			// ledger has already happened, so each picker is capped at today; the arrival day is
 			// also floored at the purchase date.
 			"date.purchase_date.placeholder": "Pick the day it was bought",
-			"date.reached_on.placeholder":    "Pick the day it reached",
+			"date.reached_on.placeholder":    "Pick the day it was delivered",
 			"date.paid_on.placeholder":       "Pick the day it was paid",
 			"date.prev_month":                "Previous month",
 			"date.next_month":                "Next month",
 			"date.invalid_purchase_date":     "Pick the day the feed was bought. It cannot be later than {date}.",
-			"date.invalid_reached_on":        "Pick the day the load reached. It cannot be before it was bought or later than {date}.",
+			"date.invalid_reached_on":        "Pick the day the load was delivered. It cannot be before it was bought or later than {date}.",
 			"date.invalid_paid_on":           "Pick the day the money was handed over. It cannot be later than {date}.",
 
 			// Payment section of the detail drawer: instalment history, running totals, and the
@@ -6777,8 +6777,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				// ledger because it is feed the farm is counting on and does not have yet.
 				ID: "feed_purchase_delivery_statuses",
 				Options: []domain.Option{
-					option("purchased", "On the road", "", "warn"),
-					option("reached", "Reached", "", "ok"),
+					option("purchased", "In transit", "", "warn"),
+					option("reached", "Delivered", "", "ok"),
 				},
 			},
 		})
