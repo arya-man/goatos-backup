@@ -74,6 +74,18 @@ export function SegmentedLinks({
   }, [isPending]);
 
   useEffect(() => {
+    if (fallbackTimer.current !== null) {
+      window.clearTimeout(fallbackTimer.current);
+      fallbackTimer.current = null;
+    }
+    const timer = window.setTimeout(() => {
+      setIsPending(false);
+      setOptimistic(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [current, pathname, searchParams]);
+
+  useEffect(() => {
     if (!isPending) return undefined;
     const timer = window.setTimeout(() => {
       setOptimistic(null);
