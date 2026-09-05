@@ -119,6 +119,10 @@ func vaccinationCacheTimeBucket(t time.Time) string {
 	return t.Truncate(5 * time.Minute).UTC().Format(time.RFC3339)
 }
 
+func vaccinationCacheExactTime(t time.Time) string {
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
 func (r *Repository) getVaccinationReadCache(key string) (any, bool) {
 	now := time.Now()
 	r.liveTrackerMu.Lock()
@@ -199,8 +203,8 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	}
 	closedAfter := asOf.Add(-defaultClosedHistoryAge)
 	cacheKey := fmt.Sprintf("execution|%s|%s|%s|%s|%d|%s|%s|%t|%d|%d|%s|%s|%s|%s",
-		q.TenantID, parkID, shedID, vaccinationCacheTimeBucket(dueBefore), q.Limit, workState,
-		vaccinationCacheTimeBucket(asOf), q.OpenOnly, cursorRank, cursorDueMicros, cursorRowKey,
+		q.TenantID, parkID, shedID, vaccinationCacheExactTime(dueBefore), q.Limit, workState,
+		vaccinationCacheExactTime(asOf), q.OpenOnly, cursorRank, cursorDueMicros, cursorRowKey,
 		q.OperatorScopeActorID, partitionLabel, severity)
 	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
 		if page, ok := cached.(domain.ExecutionProjectionPage); ok {
@@ -374,7 +378,7 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 		cursorStage = q.Cursor.Stage
 	}
 	cacheKey := fmt.Sprintf("operations|%s|%s|%s|%s|%s|%s|%d|%s|%s|%s|%s|%s",
-		q.TenantID, vaccinationCacheTimeBucket(asOf), vaccinationCacheTimeBucket(dueBefore), parkID, shedID,
+		q.TenantID, vaccinationCacheExactTime(asOf), vaccinationCacheExactTime(dueBefore), parkID, shedID,
 		cursorParkID, fetchLimit, cursorParkName, cursorShedID, cursorShedName, cursorPartitionLabel, cursorStage)
 	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
 		if rows, ok := cached.([]domain.OperationsRow); ok {
