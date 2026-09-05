@@ -358,3 +358,83 @@ WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND NOT is_death_cause`, healthTen
 		t.Fatal("a second cause of death was accepted for one animal")
 	}
 }
+
+// TestWorkItemDetailCarriesTheCasesRegisterRule proves the rule id survives every hop from the
+// case row to the detail read.
+//
+// This is the "scaffolded is not wired" check, and it is the only kind that catches the defect it
+// exists for: a struct field can be declared, serialized and documented while the SELECT never
+// projects it, and every field-presence assertion still passes because the field IS there --
+// holding the empty string. The Health screen would then offer to record a death against no
+// disease at all, silently, on exactly the animals it was built for.
+//
+// The EMPTY case is asserted beside it because empty is a real, common state and not a failure: a
+// pre-engine case carries only its treatment card, so the screen must fall back to the ordinary
+// disease search rather than pre-selecting. It must never substitute the card key -- the death
+// write refuses one, and it could not say which illness was meant if it did.
+func TestWorkItemDetailCarriesTheCasesRegisterRule(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+
+	repo := NewRepository(pool, 30*time.Second)
+
+	// An ENGINE-opened case: the diagnosis register named the rule.
+	diagnoseFever(t, ctx, pool, healthGoat, "obs-detail-rule")
+	var sessionID string
+	if err := pool.QueryRow(ctx, `
+SELECT hs.health_session_id::text
+FROM health_treatment_sessions hs
+JOIN health_cases hc ON hc.tenant_id = hs.tenant_id AND hc.health_case_id = hs.health_case_id
+WHERE hs.tenant_id = $1::uuid AND hs.goat_id = $2::uuid
+ORDER BY hs.day_no, hs.session
+LIMIT 1`, healthTenant, healthGoat).Scan(&sessionID); err != nil {
+		t.Fatalf("find the treatment session: %v", err)
+	}
+
+	var wantRule string
+	if err := pool.QueryRow(ctx, `
+SELECT coalesce(btrim(register_rule_id), '') FROM health_cases
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
+ORDER BY start_date DESC LIMIT 1`, healthTenant, healthGoat).Scan(&wantRule); err != nil {
+		t.Fatalf("read the case's rule: %v", err)
+	}
+	if wantRule == "" {
+		t.Fatalf("fixture is wrong: an engine-opened case must carry a register rule")
+	}
+
+	detail, err := repo.GetWorkItem(ctx, healthTenant, sessionID)
+	if err != nil {
+		t.Fatalf("get work item: %v", err)
+	}
+	// The ROUND-TRIPPED VALUE, not merely the presence of the field.
+	if detail.RegisterRuleID != wantRule {
+		t.Fatalf("detail register rule=%q, want the case's own %q", detail.RegisterRuleID, wantRule)
+	}
+
+	// A PRE-ENGINE case carries no rule. Empty is the answer, and the screen reads it as
+	// "search the list" rather than as missing data.
+	if _, err := pool.Exec(ctx, `
+UPDATE health_cases SET register_rule_id = NULL
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, healthTenant, healthGoat); err != nil {
+		t.Fatalf("clear the rule: %v", err)
+	}
+	preEngine, err := repo.GetWorkItem(ctx, healthTenant, sessionID)
+	if err != nil {
+		t.Fatalf("get work item after clearing the rule: %v", err)
+	}
+	if preEngine.RegisterRuleID != "" {
+		t.Fatalf("pre-engine register rule=%q, want empty", preEngine.RegisterRuleID)
+	}
+	// And it must NOT quietly fall back to the treatment card, which is many-to-one across
+	// diseases and which the death write refuses outright.
+	if preEngine.DiseaseKey == "" {
+		t.Fatalf("fixture is wrong: the case must still carry its treatment card")
+	}
+	if preEngine.RegisterRuleID == preEngine.DiseaseKey {
+		t.Fatalf("the detail substituted the treatment card %q for a missing rule", preEngine.DiseaseKey)
+	}
+}

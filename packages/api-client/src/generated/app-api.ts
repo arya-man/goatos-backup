@@ -15384,6 +15384,8 @@ export interface components {
             can_complete: boolean;
             /** @description Whether THIS caller may clinically close the case (mirrors health.diagnose). Display gating only; the route permission remains the enforcement. */
             can_close_case: boolean;
+            /** @description The diagnosis rule this case was opened under, so a treatment screen can record a death against the disease already on the page instead of making the operator search a list for it. EMPTY for a pre-engine case, which carries only its treatment card: a card is many-to-one across diseases and cannot say which illness was named, so on empty the client offers the ordinary disease search and must never substitute disease_key, which the death write refuses. */
+            register_rule_id?: string;
         };
         CompleteHealthWorkItemRequest: {
             proof_ref?: string;

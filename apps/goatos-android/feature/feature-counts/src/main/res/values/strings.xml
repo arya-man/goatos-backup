@@ -268,6 +268,5 @@
     <string name="counts_field_death_cause_search">Search the disease</string>
     <string name="counts_hint_death_cause_search">Type a few letters, then tap the disease.</string>
     <string name="counts_death_cause_no_match">No disease matches that. If you cannot find it, record a normal death and describe what you saw.</string>
-    <string name="counts_death_cause_required">Choose the disease, or record this as a normal death.</string>
     <string name="counts_hint_reason_disease">Optional. Up to 500 characters.</string>
 </resources>

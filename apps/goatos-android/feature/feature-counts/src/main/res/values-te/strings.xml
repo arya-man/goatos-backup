@@ -245,6 +245,5 @@
     <string name="counts_field_death_cause_search">వ్యాధిని వెతకండి</string>
     <string name="counts_hint_death_cause_search">కొన్ని అక్షరాలు టైప్ చేసి, తర్వాత వ్యాధిని నొక్కండి.</string>
     <string name="counts_death_cause_no_match">దీనికి ఏ వ్యాధి సరిపోలడం లేదు. దొరకకపోతే సాధారణ మరణం నమోదు చేసి, మీరు చూసినది రాయండి.</string>
-    <string name="counts_death_cause_required">వ్యాధిని ఎంచుకోండి, లేదా దీన్ని సాధారణ మరణంగా నమోదు చేయండి.</string>
     <string name="counts_hint_reason_disease">ఐచ్ఛికం. 500 అక్షరాల వరకు.</string>
 </resources>

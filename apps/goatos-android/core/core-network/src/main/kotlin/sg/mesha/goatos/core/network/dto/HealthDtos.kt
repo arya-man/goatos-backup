@@ -123,6 +123,17 @@ data class HealthWorkItemDetailDto(
      * fails safe (actions hidden) rather than rendering a 403-doomed button. */
     @SerialName("can_complete") val canComplete: Boolean = false,
     @SerialName("can_close_case") val canCloseCase: Boolean = false,
+    /**
+     * The DIAGNOSIS RULE this case was opened under, so the treatment screen can record a death
+     * against the exact disease already on the page instead of making the operator search a list
+     * for it.
+     *
+     * EMPTY for a pre-engine case, which is a real state and not missing data: those carry only
+     * their treatment card, and a card is many-to-one across diseases, so it cannot say which
+     * illness was named. On empty the screen offers the ordinary disease search; it must never
+     * fall back to [diseaseKey], which the death write refuses outright.
+     */
+    @SerialName("register_rule_id") val registerRuleId: String = "",
 )
 
 @Serializable

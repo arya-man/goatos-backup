@@ -722,7 +722,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.deathFields(
  * read the same but for their id is being asked a question they cannot answer.
  */
 @Composable
-private fun DeathCauseRow(
+internal fun DeathCauseRow(
     option: DeathCauseOptionUi,
     selected: Boolean,
     onClick: () -> Unit,
@@ -741,8 +741,7 @@ private fun DeathCauseRow(
         Text(
             text = option.label,
             color = MeshaColors.Ink,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.cardTitle,
             modifier = Modifier.weight(1f),
         )
         if (selected) {

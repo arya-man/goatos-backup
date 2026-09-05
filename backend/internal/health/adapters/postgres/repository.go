@@ -390,7 +390,8 @@ func (r *Repository) GetWorkItem(ctx context.Context, tenantID, sessionID string
 	// canonical composer per the operational-location convention.
 	err := r.pool.QueryRow(ctx, `SELECT hs.health_session_id::text,hc.health_case_id::text,hs.goat_id::text,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hc.disease_key,hc.disease_name,hc.age_band,hs.day_no,coalesce(hc.duration_days,0),hs.business_date::text,hs.session,hs.due_at,
 CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END,coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),
-COALESCE(part.partition_label, '')
+COALESCE(part.partition_label, ''),
+coalesce(btrim(hc.register_rule_id), '')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id JOIN goats g ON g.goat_id=hs.goat_id
 LEFT JOIN locations pl ON pl.tenant_id=hc.tenant_id AND pl.location_id=hc.park_id LEFT JOIN locations sl ON sl.tenant_id=hc.tenant_id AND sl.location_id=hc.shed_id
 -- projection-review: membership=active shed_partitions rows for the case's shed; group_key=(sp.tenant_id, sp.shed_id); join_cardinality=pre-aggregated to ONE row per shed by GROUP BY tenant_id, shed_id with HAVING count(*) = 1, so joining it onto a health case cannot fan the case row out; pagination=none added -- this join sits under the existing work-item read and adds no rows, so page boundaries are unchanged; scope=tenant plus the case's own shed_id.
@@ -402,7 +403,7 @@ LEFT JOIN (
   GROUP BY sp.tenant_id, sp.shed_id
   HAVING count(*) = 1
 ) part ON part.tenant_id = hc.tenant_id AND part.shed_id = hc.shed_id
-WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessionID).Scan(&d.SessionID, &d.CaseID, &d.GoatID, &d.GoatDisplayID, &d.DiseaseKey, &d.DiseaseName, &d.AgeBand, &d.DayNo, &d.DurationDays, &d.BusinessDate, &d.Session, &d.DueAt, &d.Status, &park, &d.ParkLabel, &shed, &d.ShedLabel, &d.PartitionLabel)
+WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessionID).Scan(&d.SessionID, &d.CaseID, &d.GoatID, &d.GoatDisplayID, &d.DiseaseKey, &d.DiseaseName, &d.AgeBand, &d.DayNo, &d.DurationDays, &d.BusinessDate, &d.Session, &d.DueAt, &d.Status, &park, &d.ParkLabel, &shed, &d.ShedLabel, &d.PartitionLabel, &d.RegisterRuleID)
 	if err == nil {
 		d.OperationalLocationDisplay = oploc.OperationalLocation{
 			ShedName:       d.ShedLabel,

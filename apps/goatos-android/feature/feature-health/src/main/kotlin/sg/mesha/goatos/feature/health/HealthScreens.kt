@@ -588,6 +588,15 @@ data class HealthDetailUiState(
     val canRecordVideo: Boolean = false,
     /** Backend-derived caller capability (health.diagnose); false hides the outcome action. */
     val canCloseCase: Boolean = false,
+    /**
+     * The DIAGNOSIS RULE this case was opened under, handed to the death form so a mid-course
+     * death is recorded against the disease already on this screen.
+     *
+     * Blank for a pre-engine case, which is a real state: the death form then opens with its
+     * ordinary disease search. It must never be filled from the disease NAME or the treatment
+     * card — the write refuses both, and neither can say which illness was meant.
+     */
+    val registerRuleId: String = "",
     val videoCaptured: Boolean = false,
     val isCapturingVideo: Boolean = false,
     val videoMessage: String? = null,
@@ -603,6 +612,8 @@ fun HealthDetailScreen(
     onRecordVideo: () -> Unit,
     onReRecordVideo: () -> Unit,
     onCloseCase: (String, String) -> Unit,
+    /** Open the death form for this animal, with this case's disease as the cause. */
+    onMarkDead: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     RefreshOnResume(onRefresh)
@@ -637,6 +648,26 @@ fun HealthDetailScreen(
                                     .padding(top = 8.dp)
                                     .clip(RoundedCornerShape(8.dp))
                                     .clickable(enabled = !state.closing) { showOutcomeDialog = true }
+                                    .minimumInteractiveComponentSize()
+                                    .padding(vertical = 6.dp),
+                            )
+                            // An animal can die MID-COURSE, and this is where the person treating
+                            // it is standing when that happens. It is DANGER-TINTED and separated
+                            // from the outcome action above because the two are not alternatives:
+                            // recovered/referred/canceled close this case, while a death ends the
+                            // animal and, once approved, closes every other case it has open.
+                            //
+                            // It OPENS THE DEATH FORM rather than recording anything here. A
+                            // second way to record a death would mean a second approval path, and
+                            // nobody self-authorizes a death.
+                            Text(
+                                "The animal died",
+                                color = MeshaColors.Danger,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(enabled = !state.closing) { onMarkDead() }
                                     .minimumInteractiveComponentSize()
                                     .padding(vertical = 6.dp),
                             )

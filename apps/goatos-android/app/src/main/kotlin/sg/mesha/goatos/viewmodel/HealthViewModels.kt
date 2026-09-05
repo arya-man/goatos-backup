@@ -360,6 +360,11 @@ class HealthDetailViewModel @Inject constructor(
                 videoState.captured && !videoState.capturing,
             canRecordVideo = detail.canComplete && detail.status in OPEN_STATUSES && !saving,
             canCloseCase = detail.canCloseCase && detail.status !in CLOSED_SESSION_STATUSES && !closingCase,
+            // Carried through verbatim, blank included: a blank rule is a PRE-ENGINE case and the
+            // death form opens with its ordinary disease search. It is never substituted from the
+            // disease name or the treatment card -- the write refuses both, and neither can say
+            // which illness was meant.
+            registerRuleId = detail.registerRuleId,
             videoCaptured = videoState.captured,
             isCapturingVideo = videoState.capturing,
             videoMessage = videoState.message,
