@@ -28,7 +28,7 @@ type Repository interface {
 	CloseCase(context.Context, domain.CloseCaseInput) (domain.CloseCaseResult, error)
 	HoldForDeathReview(context.Context, string, string) error
 	ResumeAfterDeathRejected(context.Context, string, string) error
-	CloseForApprovedDeath(context.Context, string, string) error
+	CloseForApprovedDeath(context.Context, string, string, domain.DeathCause) error
 }
 type ProtocolImporter interface {
 	ReplacePublishedProtocols(context.Context, string, string, string, string, []domain.SourceProtocol) error

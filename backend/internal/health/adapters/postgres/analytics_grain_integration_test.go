@@ -54,7 +54,7 @@ WHERE c.tenant_id = $1::uuid AND c.goat_id = $2::uuid
 LIMIT 1`, healthTenant, analyticsDeadGoat); err != nil {
 		t.Fatalf("seed the second concurrent case: %v", err)
 	}
-	if err := repo.CloseForApprovedDeath(ctx, healthTenant, analyticsDeadGoat); err != nil {
+	if err := repo.CloseForApprovedDeath(ctx, healthTenant, analyticsDeadGoat, domain.DeathCause{}); err != nil {
 		t.Fatalf("close for approved death: %v", err)
 	}
 	exitAsDied(t, ctx, pool, analyticsDeadGoat)

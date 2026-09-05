@@ -2,11 +2,15 @@ package app
 
 import (
 	"context"
+	"github.com/vgoats/goatos/backend/internal/health/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"testing"
 )
 
-type deathRecorder struct{ held, resumed, closed int }
+type deathRecorder struct {
+	held, resumed, closed int
+	cause                 domain.DeathCause
+}
 
 func (d *deathRecorder) HoldForDeathReview(context.Context, string, string) error {
 	d.held++
@@ -16,8 +20,9 @@ func (d *deathRecorder) ResumeAfterDeathRejected(context.Context, string, string
 	d.resumed++
 	return nil
 }
-func (d *deathRecorder) CloseForApprovedDeath(context.Context, string, string) error {
+func (d *deathRecorder) CloseForApprovedDeath(_ context.Context, _, _ string, cause domain.DeathCause) error {
 	d.closed++
+	d.cause = cause
 	return nil
 }
 func TestDeathLifecycleConsumesReportRejectAndApprovedDeath(t *testing.T) {

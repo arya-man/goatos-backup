@@ -220,10 +220,15 @@ type ExitGoatCommand struct {
 	LifecycleStatus      string
 	ExitReason           string
 	Reason               string
-	OccurredAt           time.Time
-	EvidenceRefs         []domain.EvidenceRef
-	RowVersion           int
-	GuardrailApproved    bool
+	// DeathCauseKey/Kind are the coded cause of death, empty for a normal death. Both or
+	// neither, and only ever on exit_reason "died" — enforced in the app layer and again
+	// by the goats CHECK constraints.
+	DeathCauseKey     string
+	DeathCauseKind    string
+	OccurredAt        time.Time
+	EvidenceRefs      []domain.EvidenceRef
+	RowVersion        int
+	GuardrailApproved bool
 }
 
 type StageGoatCommand struct {

@@ -290,18 +290,26 @@ SET lifecycle_status = $3,
     exit_reason = $4,
     exited_at = $5::timestamptz,
     updated_at = $5::timestamptz,
+    death_cause_key = NULLIF($6, ''),
+    death_cause_kind = NULLIF($7, ''),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
-		cmd.TenantID, cmd.GoatID, cmd.LifecycleStatus, cmd.ExitReason, cmd.OccurredAt); err != nil {
+		cmd.TenantID, cmd.GoatID, cmd.LifecycleStatus, cmd.ExitReason, cmd.OccurredAt,
+		cmd.DeathCauseKey, cmd.DeathCauseKind); err != nil {
 		return nil, err
 	}
 
 	payload := map[string]any{
-		"goat_id":             cmd.GoatID,
-		"previous_lifecycle":  state.LifecycleStatus,
-		"lifecycle_status":    cmd.LifecycleStatus,
-		"exit_reason":         cmd.ExitReason,
-		"reason":              cmd.Reason,
+		"goat_id":            cmd.GoatID,
+		"previous_lifecycle": state.LifecycleStatus,
+		"lifecycle_status":   cmd.LifecycleStatus,
+		"exit_reason":        cmd.ExitReason,
+		"reason":             cmd.Reason,
+		// The coded cause rides the event so Health's consumer can mark WHICH of the
+		// animal's open cases was named as the cause. Without it that consumer sees only a
+		// goat id and can do no better than closing every case identically.
+		"death_cause_key":     cmd.DeathCauseKey,
+		"death_cause_kind":    cmd.DeathCauseKind,
 		"row_version_from":    cmd.RowVersion,
 		"current_location_id": stringValue(state.CurrentLocation),
 		"current_park_id":     stringValue(state.ParkID),

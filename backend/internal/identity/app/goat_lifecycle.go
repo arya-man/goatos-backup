@@ -196,6 +196,8 @@ func (s *Service) exitGoat(ctx context.Context, input ExitGoatInput, commandName
 		LifecycleStatus:      strings.TrimSpace(body.LifecycleStatus),
 		ExitReason:           strings.TrimSpace(body.ExitReason),
 		Reason:               strings.TrimSpace(body.Reason),
+		DeathCauseKey:        body.DeathCauseKey,
+		DeathCauseKind:       body.DeathCauseKind,
 		OccurredAt:           occurredAt,
 		EvidenceRefs:         body.EvidenceRefs,
 		RowVersion:           body.RowVersion,
@@ -633,16 +635,52 @@ func validateExitGoatCommon(body *domain.ExitGoatRequest) error {
 	if !allowedExitReasons[body.ExitReason] {
 		return BadRequest("invalid_exit_reason", "exit_reason must be sold, died, culled, transferred, or lost")
 	}
+	if err := validateExitDeathCause(body); err != nil {
+		return err
+	}
 	if body.ExitReason != expectedReason {
 		return BadRequest("invalid_exit_reason", "exit_reason must match lifecycle_status")
 	}
-	if len(body.Reason) < 3 || len(body.Reason) > 500 {
-		return BadRequest("invalid_reason", "reason must be between 3 and 500 characters")
+	// The written account is REQUIRED on a normal death and OPTIONAL once a disease is
+	// named (maintainer decision 2026-09-05): the coded cause is then the recorded fact,
+	// and the note is extra detail rather than the only thing standing between the farm
+	// and an unexplained death. A note that IS supplied is still length-checked, so
+	// "disease death" can never become a way to smuggle in an unbounded field.
+	if body.DeathCauseKey == "" || body.Reason != "" {
+		if len(body.Reason) < 3 || len(body.Reason) > 500 {
+			return BadRequest("invalid_reason", "reason must be between 3 and 500 characters")
+		}
 	}
 	if body.RowVersion < 1 {
 		return BadRequest("invalid_row_version", "row_version must be positive")
 	}
 	return validateEvidenceRefs(body.EvidenceRefs, true)
+}
+
+// validateExitDeathCause enforces the STRUCTURE of a coded cause of death. The clinical
+// VOCABULARY is checked by the death route that raises the request, against the diagnosis
+// register -- identity owns the animal's lifecycle, not the disease list.
+func validateExitDeathCause(body *domain.ExitGoatRequest) error {
+	body.DeathCauseKey = strings.TrimSpace(body.DeathCauseKey)
+	body.DeathCauseKind = strings.TrimSpace(body.DeathCauseKind)
+	if body.DeathCauseKey == "" && body.DeathCauseKind == "" {
+		return nil
+	}
+	// Both or neither, matching the database constraint. A kind alone names nothing; a key
+	// alone cannot be read, because the same string can live in either vocabulary.
+	if body.DeathCauseKey == "" || body.DeathCauseKind == "" {
+		return BadRequest("invalid_death_cause", "death_cause_key and death_cause_kind must be given together")
+	}
+	if body.DeathCauseKind != "register_rule" && body.DeathCauseKind != "disease_key" {
+		return BadRequest("invalid_death_cause", "death_cause_kind must be register_rule or disease_key")
+	}
+	// A cause of death belongs ONLY to a death. A CULL is deliberately refused with the
+	// rest: a cull is a decision and a death is an outcome, and the product counts them
+	// apart everywhere else.
+	if body.ExitReason != "died" {
+		return BadRequest("invalid_death_cause", "a cause of death may only be recorded on a death")
+	}
+	return nil
 }
 
 func validateStageGoat(body *domain.StageGoatRequest) error {

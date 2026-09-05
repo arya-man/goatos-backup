@@ -138,7 +138,7 @@ WHERE tenant_id=$1::uuid AND health_case_id=$2::uuid AND day_no=1`,
 	// 2. A second animal is diagnosed and then DIES under treatment. The case is
 	//    closed through the same consumer the approved-death event calls.
 	diagnoseFever(t, ctx, pool, analyticsDeadGoat, "obs-died")
-	if err := repo.CloseForApprovedDeath(ctx, healthTenant, analyticsDeadGoat); err != nil {
+	if err := repo.CloseForApprovedDeath(ctx, healthTenant, analyticsDeadGoat, domain.DeathCause{}); err != nil {
 		t.Fatalf("close for approved death: %v", err)
 	}
 	exitAsDied(t, ctx, pool, analyticsDeadGoat)

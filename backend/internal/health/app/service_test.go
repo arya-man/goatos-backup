@@ -33,7 +33,9 @@ func (*fakeRepo) CloseCase(context.Context, domain.CloseCaseInput) (domain.Close
 }
 func (*fakeRepo) HoldForDeathReview(context.Context, string, string) error       { return nil }
 func (*fakeRepo) ResumeAfterDeathRejected(context.Context, string, string) error { return nil }
-func (*fakeRepo) CloseForApprovedDeath(context.Context, string, string) error    { return nil }
+func (*fakeRepo) CloseForApprovedDeath(context.Context, string, string, domain.DeathCause) error {
+	return nil
+}
 func TestListWorkItemsCapsPageAtTwenty(t *testing.T) {
 	repo := &fakeRepo{}
 	_, err := NewService(repo).ListWorkItems(context.Background(), domain.ListFilter{TenantID: testTenant, AgeBand: domain.AgeBandAdult, Date: "2026-07-30", Limit: 200})

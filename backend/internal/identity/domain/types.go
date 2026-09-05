@@ -282,12 +282,22 @@ type MoveGoatRequest struct {
 }
 
 type ExitGoatRequest struct {
-	LifecycleStatus string        `json:"lifecycle_status"`
-	ExitReason      string        `json:"exit_reason"`
-	Reason          string        `json:"reason"`
-	OccurredAt      *time.Time    `json:"occurred_at,omitempty"`
-	EvidenceRefs    []EvidenceRef `json:"evidence_refs"`
-	RowVersion      int           `json:"row_version"`
+	LifecycleStatus string `json:"lifecycle_status"`
+	ExitReason      string `json:"exit_reason"`
+	Reason          string `json:"reason"`
+	// DeathCauseKey and DeathCauseKind record WHY the animal died, and are accepted only
+	// on a death (maintainer decision 2026-09-05). Absent means a NORMAL death -- a
+	// complete answer, not missing data -- which carries only the written account.
+	//
+	// The pair is validated against the diagnosis register by the death route that raises
+	// the request, not here: identity owns the animal's lifecycle, and the clinical
+	// vocabulary belongs to Health. What identity enforces is the STRUCTURE -- both or
+	// neither, and never on a sale, cull or transfer.
+	DeathCauseKey  string        `json:"death_cause_key,omitempty"`
+	DeathCauseKind string        `json:"death_cause_kind,omitempty"`
+	OccurredAt     *time.Time    `json:"occurred_at,omitempty"`
+	EvidenceRefs   []EvidenceRef `json:"evidence_refs"`
+	RowVersion     int           `json:"row_version"`
 }
 
 type StageGoatRequest struct {

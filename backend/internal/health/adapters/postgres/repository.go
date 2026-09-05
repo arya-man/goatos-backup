@@ -716,15 +716,64 @@ RETURNING health_case_id::text,goat_id::text`, tenantID, sessionID).Scan(&caseID
 }
 
 func (r *Repository) HoldForDeathReview(ctx context.Context, tenantID, goatID string) error {
-	return r.applyDeathState(ctx, tenantID, goatID, "health.case.death_held")
+	return r.applyDeathState(ctx, tenantID, goatID, "health.case.death_held", domain.DeathCause{})
 }
 func (r *Repository) ResumeAfterDeathRejected(ctx context.Context, tenantID, goatID string) error {
-	return r.applyDeathState(ctx, tenantID, goatID, "health.case.death_resumed")
+	return r.applyDeathState(ctx, tenantID, goatID, "health.case.death_resumed", domain.DeathCause{})
 }
-func (r *Repository) CloseForApprovedDeath(ctx context.Context, tenantID, goatID string) error {
-	return r.applyDeathState(ctx, tenantID, goatID, "health.case.closed_dead")
+
+// CloseForApprovedDeath closes EVERY open case the animal had — that has always been the
+// behaviour, and it is what makes "close it under one disease and the others go with it"
+// true — and additionally marks the ONE case the operator named as the cause.
+//
+// A death with no coded cause (a normal death, or any death recorded before causes
+// existed) closes exactly as it always did and flags nothing.
+func (r *Repository) CloseForApprovedDeath(ctx context.Context, tenantID, goatID string, cause domain.DeathCause) error {
+	return r.applyDeathState(ctx, tenantID, goatID, "health.case.closed_dead", cause)
 }
-func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, eventType string) error {
+
+// markDeathCauseCase flags the single case the named disease refers to.
+//
+// The vocabularies pick different columns, and the difference matters: a register rule is
+// the diagnosis the engine named, while a treatment card belongs only to a PRE-ENGINE case
+// — so the card branch also requires `register_rule_id IS NULL`, or a card key could claim
+// an engine-opened case whose real rule was something else entirely.
+//
+// WHY `ORDER BY ... LIMIT 1` IS SAFE HERE, given this repo bans it for resolving
+// membership: every candidate row carries the SAME disease, because the disease IS the
+// predicate. The pick decides which case ROW wears the flag when an animal relapsed and
+// was treated twice for one illness; it cannot change the cause that gets reported. The
+// latest-started case is chosen because that is the episode the animal was in when it
+// died. The partial unique index is the backstop that keeps it to one.
+func markDeathCauseCase(ctx context.Context, tx pgx.Tx, tenantID, goatID string, cause domain.DeathCause) error {
+	if cause.IsZero() {
+		return nil
+	}
+	const sql = `
+UPDATE health_cases SET is_death_cause = true, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND health_case_id = (
+  SELECT c.health_case_id
+  FROM health_cases c
+  WHERE c.tenant_id = $1::uuid
+    AND c.goat_id = $2::uuid
+    AND c.status = 'closed_dead'
+    AND (
+      ($4 = 'register_rule' AND btrim(coalesce(c.register_rule_id, '')) = $3)
+      OR
+      ($4 = 'disease_key' AND coalesce(btrim(c.register_rule_id), '') = '' AND c.disease_key = $3)
+    )
+  ORDER BY c.start_date DESC, c.health_case_id
+  LIMIT 1
+)`
+	// A cause naming a disease this animal has no dead-closed case for updates NOTHING and
+	// is not an error: the death still records the cause on the animal itself. That is the
+	// normal shape for a death raised from the Counts form, where the operator names a
+	// disease the animal was never opened a case for.
+	_, err := tx.Exec(ctx, sql, tenantID, goatID, cause.Key, cause.Kind)
+	return err
+}
+
+func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, eventType string, cause domain.DeathCause) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -768,6 +817,9 @@ func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, even
 	}
 	caseRows.Close()
 	if _, err := tx.Exec(ctx, sessionSQL, tenantID, goatID); err != nil {
+		return err
+	}
+	if err := markDeathCauseCase(ctx, tx, tenantID, goatID, cause); err != nil {
 		return err
 	}
 	var outboxBatch pgx.Batch
