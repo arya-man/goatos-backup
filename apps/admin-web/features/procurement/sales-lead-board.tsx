@@ -114,6 +114,7 @@ export function SalesLeadBoard({
   }
 
   const staged = draft.search.trim() !== search || draft.status !== status;
+  const effectiveStatus = draft.status;
   const pageCount = Math.max(1, Math.ceil(total / limit));
   const pageNumber = Math.min(pageCount, Math.floor(offset / limit) + 1);
   const hasAnyFilter = Boolean(search) || Boolean(status);
@@ -122,8 +123,8 @@ export function SalesLeadBoard({
   /**
    * Writes the board's own parameters onto the CURRENT url and re-renders this route's server tree.
    *
-   * Built from window.location rather than useSearchParams because the drawer was opened by a local
-   * overlay link, which changes history WITHOUT telling Next's router — so `panel` lives only in the
+   * Built from window.location because the drawer was opened by a local overlay link, which changes
+   * history WITHOUT telling Next's router — so `panel` lives only in the
    * address bar, and rebuilding the query from the router's view of it would close the drawer.
    */
   function go(next: { search: string; status: string }, nextOffset: number): void {
@@ -180,7 +181,7 @@ export function SalesLeadBoard({
         />
         <select
           className="input"
-          value={draft.status}
+          value={effectiveStatus}
           onChange={(event) => setDraft({ ...draft, status: event.target.value })}
           aria-label={copy(pageContract, "filter.lead_status")}
         >
