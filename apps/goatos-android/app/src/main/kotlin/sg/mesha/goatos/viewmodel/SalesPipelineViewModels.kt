@@ -466,7 +466,7 @@ private fun SalesBuyerLeadDto.toLeadCard(): SalesLeadCardUi = SalesLeadCardUi(
     title = buyerName,
     subtitle = dotJoin(buyerPlace.orEmpty(), animalType.orEmpty(), breed.orEmpty()),
     metaLine = dotJoin(farm.orEmpty(), recordedDate?.let(::farmDate).orEmpty()),
-    statusLabel = callStatus.orEmpty(),
+    statusLabel = leadStatusLabel(callStatus),
     statusTone = leadStatusTone(callStatus.orEmpty()),
     phoneNumber = phoneNumber.orEmpty(),
     details = listOf(
@@ -475,7 +475,7 @@ private fun SalesBuyerLeadDto.toLeadCard(): SalesLeadCardUi = SalesLeadCardUi(
         VendorsDetailRowUi("Breed", breed.orEmpty()),
         VendorsDetailRowUi("Farm", farm.orEmpty()),
         VendorsDetailRowUi("Recorded on", farmDate(recordedDate)),
-        VendorsDetailRowUi("Call status", callStatus.orEmpty()),
+        VendorsDetailRowUi("Call status", leadStatusLabel(callStatus)),
     ).filter { it.value.isNotBlank() },
     editValues = mapOf(
         SalesBuyerLeadField.RECORDED_DATE.name to recordedDate.orEmpty(),
@@ -496,7 +496,7 @@ private fun SalesFpoLeadDto.toLeadCard(): SalesLeadCardUi = SalesLeadCardUi(
     title = fpoName,
     subtitle = dotJoin(crops.orEmpty(), district.orEmpty()),
     metaLine = dotJoin(taluk.orEmpty(), state.orEmpty()),
-    statusLabel = callStatus.orEmpty(),
+    statusLabel = leadStatusLabel(callStatus),
     statusTone = leadStatusTone(callStatus.orEmpty()),
     phoneNumber = phoneNumber.orEmpty(),
     details = listOf(
@@ -504,7 +504,7 @@ private fun SalesFpoLeadDto.toLeadCard(): SalesLeadCardUi = SalesLeadCardUi(
         VendorsDetailRowUi("District", district.orEmpty()),
         VendorsDetailRowUi("Taluk", taluk.orEmpty()),
         VendorsDetailRowUi("State", state.orEmpty()),
-        VendorsDetailRowUi("Call status", callStatus.orEmpty()),
+        VendorsDetailRowUi("Call status", leadStatusLabel(callStatus)),
     ).filter { it.value.isNotBlank() },
     editValues = mapOf(
         SalesFpoLeadField.FPO_NAME.name to fpoName,
@@ -763,6 +763,8 @@ private fun breedOptions(options: SalesOptionsDto?, productType: String): List<V
 }
 
 /** Lead call-status tones. The vocabulary is the backend's; only the colour is decided here. */
+internal fun leadStatusLabel(status: String?): String = status?.takeIf { it.isNotBlank() } ?: "Not yet called"
+
 private fun leadStatusTone(status: String): VendorsTone = when {
     status.isBlank() -> VendorsTone.NEUTRAL
     status.contains("not", ignoreCase = true) -> VendorsTone.DANGER
