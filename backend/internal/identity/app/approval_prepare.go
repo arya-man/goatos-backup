@@ -159,6 +159,8 @@ func (s *Service) prepareExitGoat(input ExitGoatInput, commandName, route string
 		LifecycleStatus:      strings.TrimSpace(body.LifecycleStatus),
 		ExitReason:           strings.TrimSpace(body.ExitReason),
 		Reason:               strings.TrimSpace(body.Reason),
+		DeathCauseKey:        body.DeathCauseKey,
+		DeathCauseKind:       body.DeathCauseKind,
 		OccurredAt:           occurredAt,
 		EvidenceRefs:         body.EvidenceRefs,
 		RowVersion:           body.RowVersion,

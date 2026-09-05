@@ -18,6 +18,12 @@ export type AdminWebPageContract = AppApiComponents["schemas"]["AdminWebPageCont
 export type GoatPassportResponse = AppApiComponents["schemas"]["GoatPassportResponse"];
 export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse"];
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
+export type HealthAnalyticsResponse = AppApiComponents["schemas"]["HealthAnalyticsResponse"];
+export type HealthAnalyticsMonth = AppApiComponents["schemas"]["HealthAnalyticsMonth"];
+export type HealthAnalyticsDisease = AppApiComponents["schemas"]["HealthAnalyticsDisease"];
+export type HealthAnalyticsMedicine = AppApiComponents["schemas"]["HealthAnalyticsMedicine"];
+export type HealthAnalyticsEngineRule = AppApiComponents["schemas"]["HealthAnalyticsEngineRule"];
+export type HealthAnalyticsDeath = AppApiComponents["schemas"]["HealthAnalyticsDeath"];
 export type HerdAnalyticsResponse = AppApiComponents["schemas"]["HerdAnalyticsResponse"];
 export type HerdAnalyticsSeriesPoint = AppApiComponents["schemas"]["HerdAnalyticsSeriesPoint"];
 export type HerdAnalyticsMonth = AppApiComponents["schemas"]["HerdAnalyticsMonth"];
@@ -776,6 +782,32 @@ export async function getHerdAnalytics(params: {
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<HerdAnalyticsResponse>("/counts/herd-analytics", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * Health Analytics. ONE call serves the whole screen — the KPI strip, the month series, the
+ * disease board, the adherence split, the medicine table, the engine counters and the bounded
+ * death list all come back together, so the tabs cannot disagree with each other.
+ *
+ * `totals` is a WHOLE-WINDOW aggregate computed by the backend. It must be read from the
+ * response and never re-derived by summing `months` or by counting the `deaths` list, which is
+ * capped at the latest 50 rows.
+ */
+export async function getHealthAnalytics(params: {
+  park_id?: string;
+  /** Inclusive IST business-day bounds, "2026-08-01". Both or neither. */
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<HealthAnalyticsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthAnalyticsResponse>("/health/analytics", {
       cache: "no-store",
       query: compactQuery(params),
     }),

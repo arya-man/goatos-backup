@@ -13283,6 +13283,110 @@ paths:
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "409": { $ref: "#/components/responses/WriteConflict" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/death-causes:
+    get:
+      tags:
+        - Health
+      operationId: listHealthDeathCauses
+      summary: The searchable disease list the death form's "due to disease" dropdown reads.
+      description: >-
+        Every disease a death may be attributed to, from the DIAGNOSIS REGISTER — the same
+        vocabulary `health_cases.register_rule_id` stores and the Health Analytics disease
+        board counts, so a cause of death can be read straight against the incidence board.
+
+
+        ONE READ, NO PAGING, and static for the life of the server process: the register is
+        embedded, validated at start-up, and cannot change under a running process, so a
+        client may cache the list as long as it likes. It is roughly 33 diseases — an
+        operator searches it with a thumb while standing over a dead animal, and a paged
+        dropdown that round-trips per keystroke is the wrong shape for that moment.
+
+
+        FIELD ACTIONS ARE EXCLUDED. The register also carries advisory actions (tick
+        treatment, hoof trimming, antihistamine, separate feeding); those are things to DO,
+        not conditions an animal dies of, and never appear here.
+
+
+        `animal_classes` says which registers carry each disease. A client may narrow the
+        list to the animal in front of the operator, but it is never a reason to REJECT a
+        selection: an animal can change class between its diagnosis and its death.
+      responses:
+        "200":
+          description: The whole searchable cause-of-death vocabulary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDeathCauseCatalog"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health/analytics:
+    get:
+      tags:
+        - Health
+      operationId: getHealthAnalytics
+      summary: What the herd is being treated for, whether the courses are carried out, and what it is dying of.
+      description: >-
+        The Health leadership read; ONE call serves the whole screen so the tabs
+        cannot disagree with each other. Case figures are at CASE grain and keyed
+        on the diagnosis REGISTER RULE where one exists, never on `disease_key`,
+        which names the treatment card and is many-to-one across diseases. Buckets
+        are `Asia/Kolkata` calendar months, never UTC and never a rolling day
+        window, and a month with no activity is returned as an explicit zero
+        rather than omitted. `totals` are whole-window rollups over exactly the
+        requested days and must be read from the response, never re-derived from
+        `months` or from the bounded `deaths` list.
+
+
+        MORTALITY ATTRIBUTION. A death is attributed when it carries a recorded
+        cause from the death form. Deaths recorded before that field existed keep
+        the legacy inference: they are attributed only where a health case was
+        OPEN when the animal died. Every other death is `unattributed` and
+        carries no disease. The two buckets are disjoint and sum to the death
+        total.
+        `deaths_never_diagnosed` is a SUBSET of the unattributed bucket — an
+        animal with no case on record at all, as against one whose case had
+        already closed — and must never be added to the other two.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            description: Filter by park location ID (top-bar scope). Omitted means every park.
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            description: >-
+              Inclusive first IST business day of the window. Must be given together
+              with `to`.
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            description: >-
+              Inclusive last IST business day. Omitting BOTH bounds selects the default
+              window — the first of the month five back through today, which opens on a
+              month boundary so the first chart column is a whole month. Anything else
+              invalid is rejected with 400, never rewritten: only one bound, a malformed
+              date, a reversed range, or a span wider than 1150 days.
+      responses:
+        "200":
+          description: The whole Health Analytics page in one response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthAnalyticsResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /health-config/protocols:
     get:
       tags: [Health Config]
@@ -15103,6 +15207,323 @@ components:
           description: >-
             Whether another page exists. Deliberately NOT a total count: counting the filtered set on
             every page is compute-on-read, and the grid needs "is there more", not a total.
+    HealthDeathCauseOption:
+      type: object
+      additionalProperties: false
+      required: [key, kind, label, animal_classes]
+      properties:
+        key:
+          type: string
+          description: The diagnosis register rule id, submitted verbatim as `death_cause_key`.
+        kind:
+          type: string
+          enum: [register_rule]
+        label:
+          type: string
+          description: What the operator reads. Never the rule id, which is a machine key.
+        animal_classes:
+          type: array
+          description: The registers that carry this disease (adult, kid_milk, kid_weaning, kid_fattening).
+          items: { type: string }
+    HealthDeathCauseCatalog:
+      type: object
+      additionalProperties: false
+      required: [options, register_versions]
+      properties:
+        options:
+          type: array
+          description: Every selectable disease, sorted by the label the operator reads.
+          items:
+            $ref: "#/components/schemas/HealthDeathCauseOption"
+        register_versions:
+          type: array
+          description: The rule tables that produced this list, so a selection stays interpretable after the registers are edited.
+          items: { type: string }
+    HealthAnalyticsTotals:
+      type: object
+      additionalProperties: false
+      required:
+        - open_cases
+        - open_adults
+        - open_kids
+        - new_cases
+        - closed_cases
+        - recovered
+        - deaths
+        - deaths_attributed
+        - deaths_unattributed
+        - deaths_never_diagnosed
+      properties:
+        open_cases:
+          type: integer
+          format: int64
+          description: >-
+            Cases open RIGHT NOW, a census rather than a window figure. open_adults +
+            open_kids always equals this exactly.
+        open_adults: { type: integer, format: int64 }
+        open_kids: { type: integer, format: int64 }
+        new_cases:
+          type: integer
+          format: int64
+          description: Courses started inside the window.
+        closed_cases: { type: integer, format: int64 }
+        recovered:
+          type: integer
+          format: int64
+          description: Of closed_cases, the ones that closed as recovered.
+        deaths:
+          type: integer
+          format: int64
+          description: Animals that exited as died inside the window.
+        deaths_attributed:
+          type: integer
+          format: int64
+          description: >-
+            Deaths with either a recorded cause from the death form or the legacy
+            open-case inference. Disjoint from deaths_unattributed.
+        deaths_unattributed:
+          type: integer
+          format: int64
+          description: >-
+            Deaths with neither a recorded cause nor the legacy open-case inference.
+            deaths_attributed + deaths_unattributed always equals deaths.
+        deaths_never_diagnosed:
+          type: integer
+          format: int64
+          description: >-
+            A SUBSET of deaths_unattributed — animals with no case on record at all.
+            Never add it to the other two.
+    HealthAnalyticsMonth:
+      type: object
+      additionalProperties: false
+      required: [month, label, new_cases, deaths, deaths_attributed, deaths_unattributed]
+      properties:
+        month:
+          type: string
+          description: IST calendar month key, "2026-08".
+        label:
+          type: string
+          description: Farm-readable month, "Aug 2026".
+        new_cases: { type: integer, format: int64 }
+        deaths:
+          type: integer
+          format: int64
+          description: Always equals deaths_attributed + deaths_unattributed.
+        deaths_attributed: { type: integer, format: int64 }
+        deaths_unattributed: { type: integer, format: int64 }
+    HealthAnalyticsDisease:
+      type: object
+      additionalProperties: false
+      required: [key, key_kind, label, age_bands, new_cases, open_cases, recovered, died, case_fatality_pct]
+      properties:
+        key:
+          type: string
+          description: >-
+            The diagnosis register rule ("MASTITIS") where the case came from the engine,
+            else the treatment card's disease key.
+        key_kind:
+          type: string
+          enum: [register_rule, disease_key]
+        label:
+          type: string
+          description: Farm-readable disease name recorded on the case.
+        age_bands:
+          type: string
+          enum: ["", adult, kid, both]
+        new_cases: { type: integer, format: int64 }
+        open_cases:
+          type: integer
+          format: int64
+          description: Of the cases started in this window, the ones still running.
+        recovered: { type: integer, format: int64 }
+        died: { type: integer, format: int64 }
+        case_fatality_pct:
+          type: number
+          format: double
+          description: >-
+            died over new_cases for THIS disease, one decimal place. Only ever read per
+            disease; a herd-wide figure across diseases means nothing.
+    HealthAnalyticsAdherence:
+      type: object
+      additionalProperties: false
+      required: [sessions_due, on_time, late, rework, not_done, awaiting_verification, on_time_pct]
+      properties:
+        sessions_due:
+          type: integer
+          format: int64
+          description: >-
+            Sessions whose business date falls inside the window and is not in the future.
+            Sessions stopped by a clinical closure, by the animal's death, or held by the
+            death review are excluded entirely.
+        on_time: { type: integer, format: int64 }
+        late: { type: integer, format: int64 }
+        rework: { type: integer, format: int64 }
+        not_done:
+          type: integer
+          format: int64
+          description: >-
+            on_time + late + rework + not_done always equals sessions_due; the four are
+            disjoint.
+        awaiting_verification:
+          type: integer
+          format: int64
+          description: >-
+            A SUBSET of on_time + late — done, video not yet reviewed. Execution and
+            verification are separate axes; never add this to the four buckets.
+        on_time_pct: { type: number, format: double }
+    HealthAnalyticsMedicine:
+      type: object
+      additionalProperties: false
+      required: [name, route, doses, animals]
+      properties:
+        name: { type: string }
+        route: { type: string }
+        doses:
+          type: integer
+          format: int64
+          description: Doses the operator actually recorded, never what the protocol prescribed.
+        animals:
+          type: integer
+          format: int64
+          description: Distinct animals dosed — a different number from doses whenever a course runs more than a day.
+    HealthAnalyticsEngineRule:
+      type: object
+      additionalProperties: false
+      required: [key, proposed, opened, not_taken_up_pct]
+      properties:
+        key: { type: string }
+        proposed:
+          type: integer
+          format: int64
+          description: >-
+            RUNS naming this rule, counted once per run. There is no per-problem decline
+            stored anywhere, so this is proposed-vs-opened rather than an override rate.
+        opened:
+          type: integer
+          format: int64
+          description: Cases actually opened from those runs carrying this rule.
+        not_taken_up_pct: { type: number, format: double }
+    HealthAnalyticsEngine:
+      type: object
+      additionalProperties: false
+      required: [observations, confirmed, declined, pending, superseded, invalid, confirmed_pct, median_hours_to_confirm, rules]
+      properties:
+        observations: { type: integer, format: int64 }
+        confirmed: { type: integer, format: int64 }
+        declined: { type: integer, format: int64 }
+        pending: { type: integer, format: int64 }
+        superseded:
+          type: integer
+          format: int64
+          description: >-
+            Replaced by a later observation of the same animal, and EXCLUDED from
+            confirmed_pct — a second look is not a director disagreeing with the engine.
+        invalid:
+          type: integer
+          format: int64
+          description: Runs the engine itself refused. A separate axis that overlaps the statuses; never added to them.
+        confirmed_pct: { type: number, format: double }
+        median_hours_to_confirm:
+          type: integer
+          format: int64
+          nullable: true
+          description: Observed to confirmed, whole hours. Null when nothing was confirmed; a zero would read as instant.
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthAnalyticsEngineRule"
+    HealthAnalyticsDeath:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - display_id
+        - tag
+        - operational_location_display
+        - park_label
+        - business_date
+        - age_band
+        - attribution
+        - disease_label
+        - never_diagnosed
+        - cause_recorded
+        - days_under_treatment
+      properties:
+        goat_id: { type: string, format: uuid }
+        display_id: { type: string }
+        tag:
+          type: string
+          description: The animal's RFID/eartag. Empty where the animal carries none.
+        operational_location_display:
+          type: string
+          description: Composed pen name. Empty where the pen cannot be resolved — never a raw id.
+        park_label: { type: string }
+        business_date: { type: string, format: date }
+        age_band: { type: string }
+        attribution:
+          type: string
+          enum: [attributed, unattributed]
+        disease_label:
+          type: string
+          description: >-
+            The recorded cause where one exists, otherwise the disease inferred from an
+            open case on older deaths. ALWAYS empty for an unattributed death: one must
+            never be rendered when neither recorded cause nor legacy inference exists.
+        never_diagnosed:
+          type: boolean
+          description: The animal had no case on record at all, as against one whose case had closed.
+        cause_recorded:
+          type: boolean
+          description: >-
+            TRUE when the operator NAMED this disease on the death form. FALSE when it was
+            merely INFERRED because a case happened to be open at the time — the only thing
+            available for deaths recorded before causes existed. Both read as attributed and
+            they are not the same claim: the first is causation as the farm recorded it, the
+            second is co-incidence. A screen must not present a guess and a recorded fact
+            alike.
+        days_under_treatment:
+          type: integer
+          format: int64
+          nullable: true
+          description: >-
+            For a recorded cause, the matched cause case start to the death date. For a
+            legacy inferred death, the earliest open case start to the death date. Null
+            when no case matched the cause or the death is unattributed.
+    HealthAnalyticsResponse:
+      type: object
+      additionalProperties: false
+      required: [window_from, window_to, totals, months, diseases, adherence, medicines, engine, deaths, generated_at]
+      properties:
+        window_from: { type: string, format: date }
+        window_to: { type: string, format: date }
+        totals:
+          $ref: "#/components/schemas/HealthAnalyticsTotals"
+        months:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthAnalyticsMonth"
+        diseases:
+          type: array
+          description: Busiest 25 diagnosis rules in the window, most cases first.
+          items:
+            $ref: "#/components/schemas/HealthAnalyticsDisease"
+        adherence:
+          $ref: "#/components/schemas/HealthAnalyticsAdherence"
+        medicines:
+          type: array
+          description: Top 15 medicines by doses given.
+          items:
+            $ref: "#/components/schemas/HealthAnalyticsMedicine"
+        engine:
+          $ref: "#/components/schemas/HealthAnalyticsEngine"
+        deaths:
+          type: array
+          description: >-
+            The latest 50 deaths in the window, most recent first. A BOUNDED evidence list
+            beside the counts; `totals` covers the whole window and does not move with it.
+          items:
+            $ref: "#/components/schemas/HealthAnalyticsDeath"
+        generated_at: { type: string, format: date-time }
     HealthConfigStep:
       type: object
       additionalProperties: false
@@ -36177,6 +36598,15 @@ components:
               description: >-
                 Whether THIS caller may clinically close the case (mirrors health.diagnose).
                 Display gating only; the route permission remains the enforcement.
+            register_rule_id:
+              type: string
+              description: >-
+                The diagnosis rule this case was opened under, so a treatment screen can record a
+                death against the disease already on the page instead of making the operator search
+                a list for it. EMPTY for a pre-engine case, which carries only its treatment card:
+                a card is many-to-one across diseases and cannot say which illness was named, so on
+                empty the client offers the ordinary disease search and must never substitute
+                disease_key, which the death write refuses.
     CompleteHealthWorkItemRequest:
       type: object
       additionalProperties: false
@@ -36435,7 +36865,6 @@ components:
         - goat_id
         - lifecycle_status
         - exit_reason
-        - reason
         - evidence_refs
         - row_version
       properties:
@@ -36450,10 +36879,31 @@ components:
           type: string
           const: died
         reason:
-          description: The operator's account of the death.
+          description: >-
+            The operator's account of the death. REQUIRED on a normal death and OPTIONAL
+            once a disease is named, where the coded cause is the recorded fact and the
+            note is extra detail. A note that IS supplied is length-checked either way.
           type: string
           minLength: 3
           maxLength: 500
+        death_cause_key:
+          description: >-
+            The disease the animal died of, chosen from `GET /app/health/death-causes`.
+            ABSENT means a NORMAL death — a complete answer, not missing data. A key the
+            diagnosis register does not name is REJECTED rather than stored as typed: the
+            value of a coded cause is that it groups, and one death filed under `MASTITIS`
+            beside another under a near-miss is two diseases on the board and one in the
+            barn. Must be given together with `death_cause_kind`, and only on a death — a
+            cull is refused with sales and transfers, because a cull is a decision and a
+            death is an outcome.
+          type: string
+        death_cause_kind:
+          description: >-
+            Which vocabulary `death_cause_key` belongs to. Only `register_rule` may be
+            submitted; `disease_key` exists in stored data for a pre-engine case and is
+            resolved by the server from the animal's own case, never accepted from a client.
+          type: string
+          enum: [register_rule, disease_key]
         occurred_at:
           description: When the death occurred. Defaults to the time the event is recorded.
           type: string

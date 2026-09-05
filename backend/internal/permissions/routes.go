@@ -585,6 +585,27 @@ var protectedRoutes = []Route{
 	// HealthDiagnose -- the same authority tier that opens a configured course, and the first
 	// route that permission gates (it was granted since 2026-07-30 with no surface behind it).
 	{OperationID: "closeAppHealthCase", Method: "POST", Pattern: "/app/health/cases/{health_case_id}/close", Permissions: []string{HealthDiagnose}},
+	// The cause-of-death vocabulary the death form's "due to disease" dropdown searches.
+	//
+	// EITHER/OR across the two people who record a death: the field operator who raises a
+	// sick-animal report and then loses the animal (HealthReport), and the Counts capture
+	// operator filling in the death form (CountsWrite). Gating on one alone would leave the
+	// other with a dropdown that 403s at the moment they need it.
+	//
+	// It is a READ of a static clinical rule list with no animal, no tenant data and no
+	// patient in it, so it is the least sensitive surface in the module.
+	{OperationID: "listHealthDeathCauses", Method: "GET", Pattern: "/app/health/death-causes", AnyPermissions: []string{HealthReport, HealthRead, CountsWrite}},
+	// Health Analytics (/health/analytics), the leadership read.
+	//
+	// HealthRead, not a dedicated permission and not HealthConfigRead. A dedicated one is what
+	// this repo reaches for when a screen carries facts its neighbours' holders should not see
+	// (vendor prices, sales revenue) -- the opposite applies here: every HealthRead holder can
+	// already open the per-animal case and its treatment steps, and this page is an AGGREGATE of
+	// exactly those rows. A narrower gate would withhold the summary from people who can read
+	// every row it is made of. HealthConfigRead would be wrong in the other direction: that gates
+	// the authored RULEBOOK, and reading what the herd is sick with is not authority over the
+	// standing dosages.
+	{OperationID: "getHealthAnalytics", Method: "GET", Pattern: "/health/analytics", Permissions: []string{HealthRead}},
 	// Authored treatment protocols (/health-config/*), the surface behind the Health Config screen.
 	//
 	// The read/write split is the whole point: a principal may be allowed to INSPECT the standing

@@ -110,6 +110,11 @@ var modulePages = []ModulePage{
 	{Key: "feed-analytics", Module: "feed_direction", Label: "Feed Analytics", Href: "/feed/analytics", Permissions: []string{FeedAnalyticsStockRead}},
 	{Key: "feed-sops", Module: "feed_direction", Label: "Feed SOP", Href: "/feed/sops", Permissions: []string{SOPRead}},
 
+	// Health Analytics sits ABOVE Health Config, and on HealthRead rather than
+	// HealthConfigRead: the analytics page aggregates the case and session rows a
+	// HealthRead holder can already open one at a time, while Health Config is
+	// authority over the standing rulebook. Two different questions, two gates.
+	{Key: "health-analytics", Module: "aas_health", Label: "Health Analytics", Href: "/health/analytics", Permissions: []string{HealthRead}},
 	{Key: "health-config", Module: "aas_health", Label: "Health Config", Href: "/health/config", Permissions: []string{HealthConfigRead}},
 
 	{Key: "audit-log", Module: "operations", Label: "Audit Log", Href: "/operations/audit", Permissions: []string{OperatorsViewAudit}},

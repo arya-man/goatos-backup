@@ -295,13 +295,22 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		cmd.TenantID, cmd.GoatID, cmd.LifecycleStatus, cmd.ExitReason, cmd.OccurredAt); err != nil {
 		return nil, err
 	}
+	// The CAUSE of death is deliberately not written here. Identity records that the animal
+	// left the herd and how; WHAT it died of is a clinical judgement Health owns and stores,
+	// and it travels on the event below so Health's own consumer can record it in the same
+	// transaction that closes the animal's cases.
 
 	payload := map[string]any{
-		"goat_id":             cmd.GoatID,
-		"previous_lifecycle":  state.LifecycleStatus,
-		"lifecycle_status":    cmd.LifecycleStatus,
-		"exit_reason":         cmd.ExitReason,
-		"reason":              cmd.Reason,
+		"goat_id":            cmd.GoatID,
+		"previous_lifecycle": state.LifecycleStatus,
+		"lifecycle_status":   cmd.LifecycleStatus,
+		"exit_reason":        cmd.ExitReason,
+		"reason":             cmd.Reason,
+		// The coded cause rides the event so Health's consumer can mark WHICH of the
+		// animal's open cases was named as the cause. Without it that consumer sees only a
+		// goat id and can do no better than closing every case identically.
+		"death_cause_key":     cmd.DeathCauseKey,
+		"death_cause_kind":    cmd.DeathCauseKind,
 		"row_version_from":    cmd.RowVersion,
 		"current_location_id": stringValue(state.CurrentLocation),
 		"current_park_id":     stringValue(state.ParkID),

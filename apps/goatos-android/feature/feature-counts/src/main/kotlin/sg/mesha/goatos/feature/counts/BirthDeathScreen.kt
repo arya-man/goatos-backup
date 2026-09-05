@@ -4,6 +4,7 @@ package sg.mesha.goatos.feature.counts
 // counts_death_* analytics events and the CrashReporter non-fatal on every enqueue failure.
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -68,6 +69,34 @@ import sg.mesha.goatos.core.ui.operationalLocationLabel
 
 enum class BirthDeathMode { BIRTH, DEATH }
 
+/**
+ * WHY the animal died, as the operator answers it on the form.
+ *
+ *   NORMAL   the written account and nothing more — exactly as every death has been recorded
+ *            since this workflow was built. No disease is claimed, because none was established.
+ *   DISEASE  a disease chosen from the diagnosis register, plus the account, which stays
+ *            optional here because the coded cause already says what killed the animal.
+ *
+ * NORMAL is the default deliberately. A form that opened on DISEASE would invite an operator
+ * standing over a dead animal to pick the nearest-sounding entry, and a guessed diagnosis on the
+ * mortality board is worse than an honest blank.
+ */
+enum class DeathCauseKind { NORMAL, DISEASE }
+
+/**
+ * One disease in the "due to disease" dropdown, as the phone holds it.
+ *
+ * [label] is the only thing rendered; [key] and [kind] are echoed back to the server verbatim.
+ * The phone never composes a kind of its own — the same string can live in two vocabularies, so
+ * a key without the kind that came with it cannot be read back.
+ */
+@Immutable
+data class DeathCauseOptionUi(
+    val key: String,
+    val kind: String,
+    val label: String,
+)
+
 /** Whether the newborn's tag is a permanent RFID or a provisional temporary tag. */
 const val BIRTH_ID_KIND_PERMANENT = "permanent"
 const val BIRTH_ID_KIND_TEMPORARY = "temporary"
@@ -128,6 +157,20 @@ data class BirthDeathUiState(
     /** THE animal whose death is being recorded. Exactly one, or none. */
     val selectedAnimal: ShiftingAnimalUi? = null,
     val reason: String = "",
+    // Death — normal or due to disease. See [DeathCauseKind].
+    val deathCauseKind: DeathCauseKind = DeathCauseKind.NORMAL,
+    /** Every disease the register names, loaded once and searched on the device. */
+    val deathCauseOptions: List<DeathCauseOptionUi> = emptyList(),
+    /** What the operator has typed into the disease search. Filters [deathCauseOptions] only. */
+    val deathCauseQuery: String = "",
+    /** The disease named as the cause, or null while none is chosen. */
+    val selectedDeathCause: DeathCauseOptionUi? = null,
+    /**
+     * Set when the disease list could not be loaded. The DISEASE choice is then unavailable
+     * rather than empty: an empty dropdown reads as "this farm has no diseases", and the
+     * operator would record a normal death for an animal that died of something nameable.
+     */
+    val deathCauseMessage: String? = null,
     // Shared
     val canSubmit: Boolean = false,
     val validationMessage: String? = null,
@@ -145,6 +188,31 @@ data class BirthDeathUiState(
     /** The composite dropdown key for the current selection; shed alone is not unique. */
     val shedOptionKey: String
         get() = listOfNotNull(shedId.takeIf { it.isNotBlank() }, partitionLabel).joinToString("|")
+
+    /**
+     * The diseases matching what the operator has typed, matched on the LABEL only.
+     *
+     * The rule id is deliberately not searched: it is a machine key the operator never sees, so
+     * a match on it would surface a row whose visible text does not contain what they typed.
+     * A blank query lists everything, which is the whole vocabulary and small enough to scroll.
+     */
+    /**
+     * The cause the WRITE carries, or null for a normal death.
+     *
+     * THE TOGGLE IS THE GATE, not merely the thing that shows the list. A disease chosen and then
+     * abandoned by switching back to NORMAL must never ride along on the write, and putting that
+     * rule here rather than at the call site means every future caller inherits it -- the screen
+     * cannot forget, and a second submit path cannot disagree with the first.
+     */
+    val submittedDeathCause: DeathCauseOptionUi?
+        get() = selectedDeathCause.takeIf { deathCauseKind == DeathCauseKind.DISEASE }
+
+    val matchingDeathCauses: List<DeathCauseOptionUi>
+        get() {
+            val needle = deathCauseQuery.trim()
+            if (needle.isEmpty()) return deathCauseOptions
+            return deathCauseOptions.filter { it.label.contains(needle, ignoreCase = true) }
+        }
 }
 
 sealed interface BirthDeathEvent {
@@ -166,6 +234,11 @@ sealed interface BirthDeathEvent {
     data class EditAnimalQuery(val value: String) : BirthDeathEvent
     data object LookupAnimals : BirthDeathEvent
     data class SelectAnimal(val goatId: String) : BirthDeathEvent
+
+    // Cause of death — the normal/disease toggle and the searchable disease list.
+    data class SelectDeathCauseKind(val kind: DeathCauseKind) : BirthDeathEvent
+    data class EditDeathCauseQuery(val value: String) : BirthDeathEvent
+    data class SelectDeathCause(val key: String) : BirthDeathEvent
 
     data object Submit : BirthDeathEvent
 
@@ -548,15 +621,85 @@ private fun androidx.compose.foundation.lazy.LazyListScope.deathFields(
         item(key = "death-target") { DeathTargetCard(animal = animal) }
     }
 
-    // 3. Account of death.
+    // 3. WHY the animal died -- normal, or due to a disease the register names.
+    //
+    // The toggle sits ABOVE the account, because it changes what the account is for: on a normal
+    // death the written account is the ONLY record of why the animal died and is required, while
+    // on a disease death the coded cause already answers that and the note is optional colour.
+    item(key = "death-cause-kind") {
+        FormGroupCard(title = stringResource(R.string.counts_group_cause_of_death)) {
+            CountsSegmented(
+                options = listOf(
+                    DeathCauseKind.NORMAL.name to stringResource(R.string.counts_death_cause_normal),
+                    DeathCauseKind.DISEASE.name to stringResource(R.string.counts_death_cause_disease),
+                ),
+                selectedKey = state.deathCauseKind.name,
+                onSelect = { key ->
+                    onEvent(BirthDeathEvent.SelectDeathCauseKind(DeathCauseKind.valueOf(key)))
+                },
+                // A disease list that failed to load leaves the choice VISIBLE and dimmed with its
+                // reason underneath, never hidden: the operator is owed the knowledge that the
+                // product could have recorded a disease and could not reach the list right now.
+                disabledKeys = if (state.deathCauseOptions.isEmpty()) {
+                    setOf(DeathCauseKind.DISEASE.name)
+                } else {
+                    emptySet()
+                },
+            )
+            state.deathCauseMessage?.let { message ->
+                Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
+            }
+        }
+    }
+
+    // The searchable disease list, shown only once the operator has said this was a disease death.
+    // The whole vocabulary is already on the device, so typing filters locally with no round trip.
+    if (state.deathCauseKind == DeathCauseKind.DISEASE) {
+        item(key = "death-cause-search") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CountsTextField(
+                    value = state.deathCauseQuery,
+                    onValueChange = { onEvent(BirthDeathEvent.EditDeathCauseQuery(it)) },
+                    label = stringResource(R.string.counts_field_death_cause_search),
+                    required = true,
+                    supporting = stringResource(R.string.counts_hint_death_cause_search),
+                )
+                // A search that matches nothing says so. The operator's way out is the NORMAL
+                // choice plus a note -- the product refuses to store a disease it cannot name,
+                // because one death filed as "Mastitus" beside another as "MASTITIS" is two
+                // diseases on the board and one in the barn.
+                if (state.matchingDeathCauses.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.counts_death_cause_no_match),
+                        color = MeshaColors.Warn,
+                        style = MeshaType.cardSubtitle,
+                    )
+                }
+            }
+        }
+        items(state.matchingDeathCauses, key = { "death-cause-${it.key}" }) { option ->
+            DeathCauseRow(
+                option = option,
+                selected = state.selectedDeathCause?.key == option.key,
+                onClick = { onEvent(BirthDeathEvent.SelectDeathCause(option.key)) },
+            )
+        }
+    }
+
+    // 4. Account of death. Required for a normal death (it is the only record of why), optional
+    // once a disease has been named.
     item(key = "death-account") {
         FormGroupCard(title = stringResource(R.string.counts_group_account_of_death)) {
             CountsTextField(
                 value = state.reason,
                 onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.REASON, it)) },
                 label = stringResource(R.string.counts_field_reason),
-                required = true,
-                supporting = stringResource(R.string.counts_hint_reason),
+                required = state.deathCauseKind == DeathCauseKind.NORMAL,
+                supporting = if (state.deathCauseKind == DeathCauseKind.NORMAL) {
+                    stringResource(R.string.counts_hint_reason)
+                } else {
+                    stringResource(R.string.counts_hint_reason_disease)
+                },
             )
         }
     }
@@ -566,6 +709,47 @@ private fun androidx.compose.foundation.lazy.LazyListScope.deathFields(
                 text = stringResource(R.string.counts_death_guardrail_note),
                 color = MeshaColors.Faint,
                 style = MeshaType.caption,
+            )
+        }
+    }
+}
+
+/**
+ * One disease in the death form's searchable list.
+ *
+ * The LABEL is the whole row. The rule id behind it is a machine key ("FOOT_ROT") and never
+ * reaches a screen -- the copy firewall bans it, and an operator choosing between two rows that
+ * read the same but for their id is being asked a question they cannot answer.
+ */
+@Composable
+internal fun DeathCauseRow(
+    option: DeathCauseOptionUi,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) MeshaColors.Brand.copy(alpha = 0.10f) else MeshaColors.Surf)
+            .border(1.dp, if (selected) MeshaColors.Brand else MeshaColors.Hair, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = option.label,
+            color = MeshaColors.Ink,
+            style = MeshaType.cardTitle,
+            modifier = Modifier.weight(1f),
+        )
+        if (selected) {
+            Icon(
+                imageVector = MeshaIcons.Check,
+                contentDescription = null,
+                tint = MeshaColors.Brand,
+                modifier = Modifier.size(16.dp),
             )
         }
     }

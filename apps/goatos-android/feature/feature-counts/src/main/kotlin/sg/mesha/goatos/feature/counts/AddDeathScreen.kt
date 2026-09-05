@@ -41,17 +41,61 @@ data class AddDeathUiState(
     /** THE animal whose death is being recorded. Exactly one, or none. */
     val selectedAnimal: ShiftingAnimalUi? = null,
     val reason: String = "",
+    // Was this a normal death, or due to a disease? See [DeathCauseKind].
+    val deathCauseKind: DeathCauseKind = DeathCauseKind.NORMAL,
+    /** Every disease the register names, loaded once and searched on the device. */
+    val deathCauseOptions: List<DeathCauseOptionUi> = emptyList(),
+    /** What the operator has typed into the disease search. Filters [deathCauseOptions] only. */
+    val deathCauseQuery: String = "",
+    /** The disease named as the cause, or null while none is chosen. */
+    val selectedDeathCause: DeathCauseOptionUi? = null,
+    /**
+     * Set when the disease list could not be loaded. The DISEASE choice is then unavailable rather
+     * than empty: an empty dropdown reads as "this farm has no diseases", and the operator would
+     * record a normal death for an animal that died of something nameable.
+     */
+    val deathCauseMessage: String? = null,
     val canSubmit: Boolean = false,
     val validationMessage: String? = null,
     val result: CountsWriteResultUi = CountsWriteResultUi(),
     val lastRecordedMessage: String? = null,
-)
+) {
+    /**
+     * The diseases matching what the operator has typed, matched on the LABEL only.
+     *
+     * The rule id is deliberately not searched: it is a machine key the operator never sees, so a
+     * match on it would surface a row whose visible text does not contain what they typed. A blank
+     * query lists everything, which is the whole vocabulary and small enough to scroll.
+     */
+    val matchingDeathCauses: List<DeathCauseOptionUi>
+        get() {
+            val needle = deathCauseQuery.trim()
+            if (needle.isEmpty()) return deathCauseOptions
+            return deathCauseOptions.filter { it.label.contains(needle, ignoreCase = true) }
+        }
+
+    /**
+     * The cause the WRITE carries, or null for a normal death.
+     *
+     * THE TOGGLE IS THE GATE, not merely the thing that shows the list. A disease chosen and then
+     * abandoned by switching back to NORMAL must never ride along on the write, and putting that
+     * rule here rather than at the call site means every future caller inherits it -- the screen
+     * cannot forget, and a second submit path cannot disagree with the first.
+     */
+    val submittedDeathCause: DeathCauseOptionUi?
+        get() = selectedDeathCause.takeIf { deathCauseKind == DeathCauseKind.DISEASE }
+}
 
 sealed interface AddDeathEvent {
     data class EditAnimalQuery(val value: String) : AddDeathEvent
     data object LookupAnimals : AddDeathEvent
     data class SelectAnimal(val goatId: String) : AddDeathEvent
     data class EditReason(val value: String) : AddDeathEvent
+
+    // Cause of death — the normal/disease toggle and the searchable disease list.
+    data class SelectDeathCauseKind(val kind: DeathCauseKind) : AddDeathEvent
+    data class EditDeathCauseQuery(val value: String) : AddDeathEvent
+    data class SelectDeathCause(val key: String) : AddDeathEvent
     data object Submit : AddDeathEvent
     data object RecordAnother : AddDeathEvent
     data object Back : AddDeathEvent
@@ -121,15 +165,87 @@ fun AddDeathScreen(
                 item(key = "target") { AddDeathTargetCard(animal) }
             }
 
-            // 3. Account of death (3–500 chars, backend-enforced too).
+            // 3. WHY the animal died — normal, or due to a disease the register names.
+            //
+            // The toggle sits ABOVE the account because it changes what the account is FOR: on a
+            // normal death the written account is the only record of why the animal died and is
+            // required; once a disease is named the coded cause has answered that and the note
+            // becomes optional colour.
+            item(key = "cause-kind") {
+                AddFormGroupCard(title = stringResource(R.string.counts_group_cause_of_death)) {
+                    CountsSegmented(
+                        options = listOf(
+                            DeathCauseKind.NORMAL.name to stringResource(R.string.counts_death_cause_normal),
+                            DeathCauseKind.DISEASE.name to stringResource(R.string.counts_death_cause_disease),
+                        ),
+                        selectedKey = state.deathCauseKind.name,
+                        onSelect = { key ->
+                            onEvent(AddDeathEvent.SelectDeathCauseKind(DeathCauseKind.valueOf(key)))
+                        },
+                        // A list that failed to load leaves the choice VISIBLE and dimmed with its
+                        // reason underneath, never hidden: the operator is owed the knowledge that
+                        // the product could have recorded a disease and cannot reach the list.
+                        disabledKeys = if (state.deathCauseOptions.isEmpty()) {
+                            setOf(DeathCauseKind.DISEASE.name)
+                        } else {
+                            emptySet()
+                        },
+                    )
+                    state.deathCauseMessage?.let { message ->
+                        Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
+                    }
+                }
+            }
+
+            // The searchable disease list, shown only once the operator has said this was a
+            // disease death. The whole vocabulary is already on the device, so typing filters
+            // locally with no round trip — which is what makes it work in a pen with no signal.
+            if (state.deathCauseKind == DeathCauseKind.DISEASE) {
+                item(key = "cause-search") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CountsTextField(
+                            value = state.deathCauseQuery,
+                            onValueChange = { onEvent(AddDeathEvent.EditDeathCauseQuery(it)) },
+                            label = stringResource(R.string.counts_field_death_cause_search),
+                            required = true,
+                            supporting = stringResource(R.string.counts_hint_death_cause_search),
+                        )
+                        // A search that matches nothing says so. The way out is the NORMAL choice
+                        // plus a note — the product refuses to store a disease it cannot name,
+                        // because one death filed as "Mastitus" beside another as "MASTITIS" is
+                        // two diseases on the board and one in the barn.
+                        if (state.matchingDeathCauses.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.counts_death_cause_no_match),
+                                color = MeshaColors.Warn,
+                                style = MeshaType.cardSubtitle,
+                            )
+                        }
+                    }
+                }
+                items(state.matchingDeathCauses, key = { "cause-${it.key}" }) { option ->
+                    DeathCauseRow(
+                        option = option,
+                        selected = state.selectedDeathCause?.key == option.key,
+                        onClick = { onEvent(AddDeathEvent.SelectDeathCause(option.key)) },
+                    )
+                }
+            }
+
+            // 4. Account of death. Required for a normal death (it is the only record of why),
+            // optional once a disease has been named. Backend-enforced either way at 500 chars.
             item(key = "account") {
                 AddFormGroupCard(title = stringResource(R.string.counts_group_account_of_death)) {
                     CountsTextField(
                         value = state.reason,
                         onValueChange = { onEvent(AddDeathEvent.EditReason(it)) },
                         label = stringResource(R.string.counts_field_reason),
-                        required = true,
-                        supporting = stringResource(R.string.counts_hint_reason),
+                        required = state.deathCauseKind == DeathCauseKind.NORMAL,
+                        supporting = if (state.deathCauseKind == DeathCauseKind.NORMAL) {
+                            stringResource(R.string.counts_hint_reason)
+                        } else {
+                            stringResource(R.string.counts_hint_reason_disease)
+                        },
                     )
                 }
             }

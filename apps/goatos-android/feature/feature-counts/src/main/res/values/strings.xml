@@ -262,4 +262,11 @@
     <string name="counts_workflow_weight_kg">Weight (kg)</string>
     <string name="counts_workflow_weight_continue">Continue to record video</string>
     <string name="counts_shifting_videos_label">Videos recorded</string>
+    <string name="counts_group_cause_of_death">Cause of death</string>
+    <string name="counts_death_cause_normal">Normal</string>
+    <string name="counts_death_cause_disease">Due to disease</string>
+    <string name="counts_field_death_cause_search">Search the disease</string>
+    <string name="counts_hint_death_cause_search">Type a few letters, then tap the disease.</string>
+    <string name="counts_death_cause_no_match">No disease matches that. If you cannot find it, record a normal death and describe what you saw.</string>
+    <string name="counts_hint_reason_disease">Optional. Up to 500 characters.</string>
 </resources>

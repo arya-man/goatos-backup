@@ -86,7 +86,7 @@ func TestHealthCourseMedicineAndDeathLifecycle(t *testing.T) {
 	if err := repo.ResumeAfterDeathRejected(ctx, healthTenant, healthGoat); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	if err := repo.CloseForApprovedDeath(ctx, healthTenant, healthGoat); err != nil {
+	if err := repo.CloseForApprovedDeath(ctx, healthTenant, healthGoat, domain.DeathCause{}); err != nil {
 		t.Fatalf("close dead: %v", err)
 	}
 	defaultPage, err := repo.ListWorkItems(ctx, domain.ListFilter{TenantID: healthTenant, AgeBand: domain.AgeBandAdult, Date: tomorrow, Limit: 20})

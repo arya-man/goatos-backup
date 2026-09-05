@@ -1610,3 +1610,26 @@ val MIGRATION_57_58: Migration = object : Migration(57, 58) {
         )
     }
 }
+
+/**
+ * v58 -> v59: the death form's disease vocabulary cache — `death_cause_catalog`, one JSON-blob row
+ * (see [sg.mesha.goatos.core.data.cache.DeathCauseCatalogEntity] for why it is a blob and why there
+ * is only ever one row).
+ *
+ * CREATE, not ALTER: an @Entity added to the @Database with no migration to create its table works
+ * on a fresh install and CRASHES every upgrade on open. Purely additive — no existing table
+ * changes, so an installed APK carrying an unsynced write outbox upgrades in place with no data
+ * loss. The table name is spelled out as a literal so `make room-migration-guard` can statically
+ * match the new v59 @Entity against this CREATE (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_58_59: Migration = object : Migration(58, 59) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `death_cause_catalog` (" +
+                "`scopeKey` TEXT NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`scopeKey`))",
+        )
+    }
+}

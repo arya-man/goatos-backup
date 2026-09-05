@@ -28,7 +28,7 @@ type Repository interface {
 	CloseCase(context.Context, domain.CloseCaseInput) (domain.CloseCaseResult, error)
 	HoldForDeathReview(context.Context, string, string) error
 	ResumeAfterDeathRejected(context.Context, string, string) error
-	CloseForApprovedDeath(context.Context, string, string) error
+	CloseForApprovedDeath(context.Context, string, string, domain.DeathCause) error
 }
 type ProtocolImporter interface {
 	ReplacePublishedProtocols(context.Context, string, string, string, string, []domain.SourceProtocol) error
@@ -64,4 +64,13 @@ type DiagnosisRepository interface {
 	ConfirmDiagnosis(context.Context, domain.ConfirmDiagnosisInput) (domain.ConfirmDiagnosisResult, error)
 	GetDiagnosisRun(context.Context, string, string) (domain.DiagnosisRun, error)
 	ListDiagnosisRuns(context.Context, domain.DiagnosisQueueFilter) (domain.DiagnosisQueuePage, error)
+}
+
+// AnalyticsReader is the Health Analytics leadership read.
+//
+// It is a NARROW port of its own rather than three more methods on Repository:
+// the analytics read is read-only, opens no case, completes no session and
+// writes nothing, so a write-path fake has no business having to satisfy it.
+type AnalyticsReader interface {
+	GetHealthAnalytics(context.Context, domain.HealthAnalyticsQuery) (domain.HealthAnalytics, error)
 }

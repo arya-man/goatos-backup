@@ -239,4 +239,11 @@
     <string name="counts_workflow_weight_kg">బరువు (కిలోలు)</string>
     <string name="counts_workflow_weight_continue">వీడియో రికార్డ్ చేయడానికి కొనసాగండి</string>
     <string name="counts_shifting_videos_label">రికార్డ్ చేసిన వీడియోలు</string>
+    <string name="counts_group_cause_of_death">మరణ కారణం</string>
+    <string name="counts_death_cause_normal">సాధారణ</string>
+    <string name="counts_death_cause_disease">వ్యాధి వల్ల</string>
+    <string name="counts_field_death_cause_search">వ్యాధిని వెతకండి</string>
+    <string name="counts_hint_death_cause_search">కొన్ని అక్షరాలు టైప్ చేసి, తర్వాత వ్యాధిని నొక్కండి.</string>
+    <string name="counts_death_cause_no_match">దీనికి ఏ వ్యాధి సరిపోలడం లేదు. దొరకకపోతే సాధారణ మరణం నమోదు చేసి, మీరు చూసినది రాయండి.</string>
+    <string name="counts_hint_reason_disease">ఐచ్ఛికం. 500 అక్షరాల వరకు.</string>
 </resources>

@@ -165,7 +165,21 @@ type AppWriteHandler struct {
 	// design: nil means rows render without the name clauses rather than failing, so a
 	// construction path that does not wire it (tests, a DB-less assembly) still serves the queue.
 	approvalNameResolver ports.ApprovalNameResolver
-	log                  *slog.Logger
+	// deathCauses validates the coded cause of death against the diagnosis register. The
+	// vocabulary belongs to HEALTH, so counts holds a narrow port rather than the register
+	// itself — this module records that an animal died, not what diseases exist.
+	//
+	// OPTIONAL by construction, and the fallback is the SAFE direction: with no validator
+	// wired, a death carrying a cause is REFUSED rather than stored unchecked, because an
+	// unvalidated key defeats the whole point of a coded cause. A normal death is
+	// unaffected, so an assembly without Health still records deaths.
+	deathCauses DeathCauseValidator
+	log         *slog.Logger
+}
+
+// DeathCauseValidator refuses a cause of death the diagnosis register does not name.
+type DeathCauseValidator interface {
+	ValidateCause(ctx context.Context, key, kind string) error
 }
 
 func NewAppWriteHandler(shifting ShiftingEventRecorder, log *slog.Logger) *AppWriteHandler {
@@ -182,6 +196,12 @@ func NewAppWriteHandler(shifting ShiftingEventRecorder, log *slog.Logger) *AppWr
 func (h *AppWriteHandler) WithApprovalWorkflow(approvals ApprovalWorkflow, validator GoatLifecycleValidator) *AppWriteHandler {
 	h.approvals = approvals
 	h.validator = validator
+	return h
+}
+
+// WithDeathCauses supplies the diagnosis-register check for a coded cause of death.
+func (h *AppWriteHandler) WithDeathCauses(validator DeathCauseValidator) *AppWriteHandler {
+	h.deathCauses = validator
 	return h
 }
 
@@ -1279,6 +1299,19 @@ func (h *AppWriteHandler) RecordDeathEvent(w http.ResponseWriter, r *http.Reques
 	}
 	subjectGoatID := strings.TrimSpace(goatID)
 
+	// THE CODED CAUSE IS CHECKED HERE, BEFORE THE REQUEST IS PARKED FOR AN APPROVER.
+	//
+	// It has to happen at raise time rather than at approval: the operator is standing in
+	// front of the animal now, and a cause the register cannot name must come back to THEM,
+	// not surface hours later in an approver's queue for someone who was not there. The
+	// structural rules (both-or-neither, never on a sale or a cull) are enforced again by
+	// identity and once more by the goats CHECK constraints; this is the clinical
+	// vocabulary, which only Health can answer.
+	if err := h.validateDeathCause(r.Context(), fields); err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+
 	// GUARDRAIL AT SUBMIT TIME. PrepareCriticalDeathExit runs validateCriticalDeathExit, so a body
 	// that is not the exact lifecycle_status="dead" + exit_reason="died" pairing is rejected right
 	// here -- the operator finds out immediately, and a payload the guarded path would refuse can
@@ -1488,6 +1521,47 @@ func trimOptionalPtr(v *string) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+// validateDeathCause checks the submitted cause of death against the diagnosis register.
+//
+// An ABSENT cause is a NORMAL death and needs no validator, so a deployment without Health
+// wired still records deaths exactly as it did before causes existed. A cause that IS
+// present with no validator wired is REFUSED: storing a key nothing checked would defeat
+// the one property that makes a coded cause worth having, which is that it groups.
+func (h *AppWriteHandler) validateDeathCause(ctx context.Context, fields map[string]json.RawMessage) error {
+	key, err := optionalStringField(fields, "death_cause_key")
+	if err != nil {
+		return err
+	}
+	kind, err := optionalStringField(fields, "death_cause_kind")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(key) == "" && strings.TrimSpace(kind) == "" {
+		return nil
+	}
+	if h.deathCauses == nil {
+		return identityapp.BadRequest("death_cause_unavailable",
+			"a cause of death cannot be recorded here yet")
+	}
+	if err := h.deathCauses.ValidateCause(ctx, strings.TrimSpace(key), strings.TrimSpace(kind)); err != nil {
+		return identityapp.BadRequest("invalid_death_cause", err.Error())
+	}
+	return nil
+}
+
+// optionalStringField reads a string field that may be absent or JSON null.
+func optionalStringField(fields map[string]json.RawMessage, name string) (string, error) {
+	raw, present := fields[name]
+	if !present || string(raw) == "null" {
+		return "", nil
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", identityapp.BadRequest("invalid_"+name, name+" must be a string")
+	}
+	return value, nil
 }
 
 func (h *AppWriteHandler) writeAppError(w http.ResponseWriter, r *http.Request, err error) {

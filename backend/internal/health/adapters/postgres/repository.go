@@ -390,7 +390,8 @@ func (r *Repository) GetWorkItem(ctx context.Context, tenantID, sessionID string
 	// canonical composer per the operational-location convention.
 	err := r.pool.QueryRow(ctx, `SELECT hs.health_session_id::text,hc.health_case_id::text,hs.goat_id::text,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hc.disease_key,hc.disease_name,hc.age_band,hs.day_no,coalesce(hc.duration_days,0),hs.business_date::text,hs.session,hs.due_at,
 CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END,coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),
-COALESCE(part.partition_label, '')
+COALESCE(part.partition_label, ''),
+coalesce(btrim(hc.register_rule_id), '')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id JOIN goats g ON g.goat_id=hs.goat_id
 LEFT JOIN locations pl ON pl.tenant_id=hc.tenant_id AND pl.location_id=hc.park_id LEFT JOIN locations sl ON sl.tenant_id=hc.tenant_id AND sl.location_id=hc.shed_id
 -- projection-review: membership=active shed_partitions rows for the case's shed; group_key=(sp.tenant_id, sp.shed_id); join_cardinality=pre-aggregated to ONE row per shed by GROUP BY tenant_id, shed_id with HAVING count(*) = 1, so joining it onto a health case cannot fan the case row out; pagination=none added -- this join sits under the existing work-item read and adds no rows, so page boundaries are unchanged; scope=tenant plus the case's own shed_id.
@@ -402,7 +403,7 @@ LEFT JOIN (
   GROUP BY sp.tenant_id, sp.shed_id
   HAVING count(*) = 1
 ) part ON part.tenant_id = hc.tenant_id AND part.shed_id = hc.shed_id
-WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessionID).Scan(&d.SessionID, &d.CaseID, &d.GoatID, &d.GoatDisplayID, &d.DiseaseKey, &d.DiseaseName, &d.AgeBand, &d.DayNo, &d.DurationDays, &d.BusinessDate, &d.Session, &d.DueAt, &d.Status, &park, &d.ParkLabel, &shed, &d.ShedLabel, &d.PartitionLabel)
+WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessionID).Scan(&d.SessionID, &d.CaseID, &d.GoatID, &d.GoatDisplayID, &d.DiseaseKey, &d.DiseaseName, &d.AgeBand, &d.DayNo, &d.DurationDays, &d.BusinessDate, &d.Session, &d.DueAt, &d.Status, &park, &d.ParkLabel, &shed, &d.ShedLabel, &d.PartitionLabel, &d.RegisterRuleID)
 	if err == nil {
 		d.OperationalLocationDisplay = oploc.OperationalLocation{
 			ShedName:       d.ShedLabel,
@@ -716,15 +717,94 @@ RETURNING health_case_id::text,goat_id::text`, tenantID, sessionID).Scan(&caseID
 }
 
 func (r *Repository) HoldForDeathReview(ctx context.Context, tenantID, goatID string) error {
-	return r.applyDeathState(ctx, tenantID, goatID, "health.case.death_held")
+	return r.applyDeathState(ctx, tenantID, goatID, "health.case.death_held", domain.DeathCause{})
 }
 func (r *Repository) ResumeAfterDeathRejected(ctx context.Context, tenantID, goatID string) error {
-	return r.applyDeathState(ctx, tenantID, goatID, "health.case.death_resumed")
+	return r.applyDeathState(ctx, tenantID, goatID, "health.case.death_resumed", domain.DeathCause{})
 }
-func (r *Repository) CloseForApprovedDeath(ctx context.Context, tenantID, goatID string) error {
-	return r.applyDeathState(ctx, tenantID, goatID, "health.case.closed_dead")
+
+// CloseForApprovedDeath closes EVERY open case the animal had — that has always been the
+// behaviour, and it is what makes "close it under one disease and the others go with it"
+// true — and additionally marks the ONE case the operator named as the cause.
+//
+// A death with no coded cause (a normal death, or any death recorded before causes
+// existed) closes exactly as it always did and flags nothing.
+func (r *Repository) CloseForApprovedDeath(ctx context.Context, tenantID, goatID string, cause domain.DeathCause) error {
+	return r.applyDeathState(ctx, tenantID, goatID, "health.case.closed_dead", cause)
 }
-func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, eventType string) error {
+
+// markDeathCauseCase flags the single case the named disease refers to.
+//
+// The vocabularies pick different columns, and the difference matters: a register rule is
+// the diagnosis the engine named, while a treatment card belongs only to a PRE-ENGINE case
+// — so the card branch also requires `register_rule_id IS NULL`, or a card key could claim
+// an engine-opened case whose real rule was something else entirely.
+//
+// WHY `ORDER BY ... LIMIT 1` IS SAFE HERE, given this repo bans it for resolving
+// membership: every candidate row carries the SAME disease, because the disease IS the
+// predicate. The pick decides which case ROW wears the flag when an animal relapsed and
+// was treated twice for one illness; it cannot change the cause that gets reported. The
+// latest-started case is chosen because that is the episode the animal was in when it
+// died. The partial unique index is the backstop that keeps it to one.
+func markDeathCauseCase(ctx context.Context, tx pgx.Tx, tenantID, goatID string, cause domain.DeathCause) error {
+	if cause.IsZero() {
+		return nil
+	}
+	// Marking a case is best-effort by design: a cause naming a disease this animal has no
+	// dead-closed case for matches NOTHING and is not an error. That is the normal shape for
+	// a death recorded on the Counts form, where the operator names what they saw and the
+	// animal was never opened a case for it — the cause is still recorded below.
+	var caseID *string
+	if err := tx.QueryRow(ctx, markDeathCauseCaseSQL, tenantID, goatID, cause.Key, cause.Kind).Scan(&caseID); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		caseID = nil
+	}
+
+	// THE CAUSE ITSELF, recorded in the SAME transaction that closed the animal's cases, so
+	// the mortality board can never show a death whose cases are closed but whose cause has
+	// not landed. ON CONFLICT keeps the consumer idempotent: a redelivered exit event must
+	// re-record the same cause, not fail the whole close.
+	_, err := tx.Exec(ctx, `
+INSERT INTO health_death_causes (tenant_id, goat_id, cause_key, cause_kind, health_case_id)
+VALUES ($1::uuid, $2::uuid, $3, $4, NULLIF($5, '')::uuid)
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET cause_key = EXCLUDED.cause_key,
+    cause_kind = EXCLUDED.cause_kind,
+    health_case_id = EXCLUDED.health_case_id`,
+		tenantID, goatID, cause.Key, cause.Kind, stringOrEmpty(caseID))
+	return err
+}
+
+func stringOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+// markDeathCauseCaseSQL is hoisted to package level so a query-plan test and the scale
+// guard can both reach it, which they cannot do for SQL declared inside a function.
+const markDeathCauseCaseSQL = `
+UPDATE health_cases SET is_death_cause = true, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND health_case_id = (
+  SELECT c.health_case_id
+  FROM health_cases c
+  WHERE c.tenant_id = $1::uuid
+    AND c.goat_id = $2::uuid
+    AND c.status = 'closed_dead'
+    AND (
+      ($4 = 'register_rule' AND btrim(coalesce(c.register_rule_id, '')) = $3)
+      OR
+      ($4 = 'disease_key' AND coalesce(btrim(c.register_rule_id), '') = '' AND c.disease_key = $3)
+    )
+  ORDER BY c.start_date DESC, c.health_case_id
+  LIMIT 1
+)
+RETURNING health_case_id::text`
+
+func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, eventType string, cause domain.DeathCause) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -768,6 +848,9 @@ func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, even
 	}
 	caseRows.Close()
 	if _, err := tx.Exec(ctx, sessionSQL, tenantID, goatID); err != nil {
+		return err
+	}
+	if err := markDeathCauseCase(ctx, tx, tenantID, goatID, cause); err != nil {
 		return err
 	}
 	var outboxBatch pgx.Batch

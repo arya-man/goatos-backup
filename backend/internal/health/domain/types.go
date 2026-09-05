@@ -165,6 +165,21 @@ type WorkItemPage struct {
 type WorkItemDetail struct {
 	WorkItem
 	Steps []ProtocolStep `json:"steps"`
+	// RegisterRuleID is the DIAGNOSIS RULE this case was opened under, and it is carried here so
+	// an operator standing on a treatment screen can record the animal's death against the exact
+	// disease it was being treated for, rather than searching a list for what is already on the
+	// page in front of them.
+	//
+	// It is on the DETAIL and deliberately not on WorkItem: the list renders a disease NAME and
+	// has no use for a rule id, and widening the list payload for a field only the detail screen
+	// reads would put a machine key into every row of a paged read.
+	//
+	// EMPTY for a PRE-ENGINE case, which is a real state and not an error -- those cases carry
+	// only the treatment card they were opened against, and a card is many-to-one across diseases
+	// (PPR, POX and UNDIFFERENTIATED all route to 'supportive'), so it cannot say which illness
+	// was named. A client seeing an empty value offers the ordinary disease search instead of
+	// pre-selecting; it must never fall back to DiseaseKey, which the death write refuses.
+	RegisterRuleID string `json:"register_rule_id"`
 	// Caller capabilities, computed by the HTTP layer from the caller's own grants (never a role
 	// string): CanComplete mirrors health.execute, CanCloseCase mirrors health.diagnose. The
 	// route permissions still enforce the write; these exist so a client never renders an action

@@ -123,6 +123,17 @@ data class HealthWorkItemDetailDto(
      * fails safe (actions hidden) rather than rendering a 403-doomed button. */
     @SerialName("can_complete") val canComplete: Boolean = false,
     @SerialName("can_close_case") val canCloseCase: Boolean = false,
+    /**
+     * The DIAGNOSIS RULE this case was opened under, so the treatment screen can record a death
+     * against the exact disease already on the page instead of making the operator search a list
+     * for it.
+     *
+     * EMPTY for a pre-engine case, which is a real state and not missing data: those carry only
+     * their treatment card, and a card is many-to-one across diseases, so it cannot say which
+     * illness was named. On empty the screen offers the ordinary disease search; it must never
+     * fall back to [diseaseKey], which the death write refuses outright.
+     */
+    @SerialName("register_rule_id") val registerRuleId: String = "",
 )
 
 @Serializable
@@ -150,4 +161,48 @@ data class HealthCompleteResponseDto(
     @SerialName("completed_at") val completedAt: String = "",
     @SerialName("medication_count") val medicationCount: Int = 0,
     @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
+)
+
+// ---------------------------------------------------------------------------
+// READ — GET /app/health/death-causes  (the death form's "due to disease" list)
+// ---------------------------------------------------------------------------
+
+/**
+ * One selectable disease in the death form's searchable dropdown.
+ *
+ * [label] is the only thing an operator ever reads: it is the farm's own word for the disease
+ * ("Foot rot"), never the rule id, which is a machine key. [key] is what the write carries.
+ *
+ * Every field carries a default so a later contract addition cannot break the decode of an
+ * already-cached copy of this list.
+ */
+@Serializable
+data class DeathCauseOptionDto(
+    val key: String = "",
+    /**
+     * Which vocabulary [key] belongs to. Only `register_rule` is ever offered here — the
+     * treatment-card vocabulary is resolved server-side from the animal's own case and is
+     * rejected if a client submits one — so the phone echoes this back verbatim rather than
+     * composing a kind of its own.
+     */
+    val kind: String = "",
+    val label: String = "",
+    /**
+     * The register classes carrying this disease ("adult", "kid_milk", ...). Advisory only: an
+     * animal can change class between its diagnosis and its death, so this narrows a list, it
+     * never rejects a choice.
+     */
+    @SerialName("animal_classes") val animalClasses: List<String> = emptyList(),
+)
+
+/**
+ * The whole searchable vocabulary in one read. It is small (a few dozen diseases) and static for
+ * the life of the server process — the registers are embedded and validated at start-up — so the
+ * phone caches it and searches it locally rather than round-tripping per keystroke, which is the
+ * wrong shape for an operator typing with one thumb over a dead animal.
+ */
+@Serializable
+data class DeathCauseCatalogDto(
+    val options: List<DeathCauseOptionDto> = emptyList(),
+    @SerialName("register_versions") val registerVersions: List<String> = emptyList(),
 )

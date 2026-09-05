@@ -38,6 +38,11 @@ class HealthOutboxConvergenceTest {
         override fun observeDiagnosisQueueMeta(filters: sg.mesha.goatos.core.data.DiagnosisQueueFilters): Flow<sg.mesha.goatos.core.data.DiagnosisQueueMeta?> = flowOf(null)
         override fun observeDetail(healthSessionId: String): Flow<HealthWorkItemDetailDto?> = flowOf(null)
 
+        // Not exercised here: this test is about the treatment outbox, and the disease vocabulary
+        // is a read the death form makes.
+        override fun observeDeathCauses(): Flow<sg.mesha.goatos.core.network.dto.DeathCauseCatalogDto?> = flowOf(null)
+        override suspend fun refreshDeathCauses(): Result<Unit> = Result.success(Unit)
+
         override suspend fun refreshWorkItems(filters: HealthFilters): Result<Unit> {
             listRefreshes += filters
             listRefreshOutboxStatuses += store?.findById("health-case-row")?.status

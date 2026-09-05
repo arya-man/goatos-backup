@@ -462,7 +462,36 @@ object Routes {
 
     // L1 add forms behind each module's ＋ button (hosted destinations with Up/Back, no root chrome).
     const val COUNTS_BIRTH_ADD = "/counts/birth/add"
-    const val COUNTS_DEATH_ADD = "/counts/death/add"
+    const val COUNTS_DEATH_ADD_TAG_ARG = "animal"
+    const val COUNTS_DEATH_ADD_CAUSE_ARG = "cause"
+
+    /**
+     * The add-death form. Reached bare from the Death list's ＋, and PRE-FILLED from a Health
+     * treatment screen when the animal dies mid-course.
+     *
+     * Both arguments are OPTIONAL query parameters, and the bare route is unchanged — the ＋ path
+     * must keep working byte for byte, and an older deep link that carries neither still lands on
+     * the same empty form.
+     *
+     * The Health path pre-fills a SEARCH TERM and a DISEASE, never an animal id: recording a death
+     * is terminal, and the form's confirm-the-animal step exists precisely so an operator sees the
+     * tag, pen and status of what they are about to record before they commit. Handing it a
+     * resolved goat id would skip the one check that cannot be undone afterwards.
+     */
+    const val COUNTS_DEATH_ADD =
+        "/counts/death/add?$COUNTS_DEATH_ADD_TAG_ARG={$COUNTS_DEATH_ADD_TAG_ARG}&$COUNTS_DEATH_ADD_CAUSE_ARG={$COUNTS_DEATH_ADD_CAUSE_ARG}"
+
+    /** The bare form, exactly as the ＋ button has always opened it. */
+    const val COUNTS_DEATH_ADD_BLANK = "/counts/death/add"
+
+    /**
+     * The add-death form opened FROM a treatment screen. [causeKey] is the case's own diagnosis
+     * rule and may be blank for a pre-engine case, in which case the operator searches the list as
+     * usual — the screen never invents a disease it was not given.
+     */
+    fun deathAddRoute(animalTag: String, causeKey: String): String =
+        "/counts/death/add?$COUNTS_DEATH_ADD_TAG_ARG=" + Uri.encode(animalTag) +
+            "&$COUNTS_DEATH_ADD_CAUSE_ARG=" + Uri.encode(causeKey)
     const val COUNTS_SHIFTING_ADD = "/counts/shifting/add"
     const val COUNTS_SHIFTING_SUBMISSION_NOTICE = "counts_shifting_submission_notice"
     const val COUNTS_SHIFTING_SUBMISSION_OUTBOX_ID = "counts_shifting_submission_outbox_id"
@@ -1698,6 +1727,15 @@ fun AppNavHost(
                     onRecordVideo = { vm.recordVideo() },
                     onReRecordVideo = { vm.recordVideo(replacing = true) },
                     onCloseCase = vm::closeCase,
+                    // An animal can die MID-COURSE, and this is where the person treating it is
+                    // standing when that happens. It opens the ordinary death form with the tag
+                    // and the disease already filled in, rather than a second way to record a
+                    // death: one producer, one approval gate, and nobody self-authorizes a death.
+                    onMarkDead = {
+                        navController.navigate(
+                            Routes.deathAddRoute(state.goatDisplayId, state.registerRuleId),
+                        ) { launchSingleTop = true }
+                    },
                 )
             }
         }
@@ -2505,7 +2543,7 @@ fun AppNavHost(
                 onOpenCard = { workflowId ->
                     navController.navigate(Routes.deathWorkflowRoute(workflowId)) { launchSingleTop = true }
                 },
-                onAddNew = { navController.navigate(Routes.COUNTS_DEATH_ADD) { launchSingleTop = true } },
+                onAddNew = { navController.navigate(Routes.COUNTS_DEATH_ADD_BLANK) { launchSingleTop = true } },
                 onBack = { navController.popBackStack() },
             )
         }
@@ -2617,7 +2655,19 @@ fun AppNavHost(
             )
         }
 
-        composable(Routes.COUNTS_DEATH_ADD) {
+        composable(
+            route = Routes.COUNTS_DEATH_ADD,
+            arguments = listOf(
+                navArgument(Routes.COUNTS_DEATH_ADD_TAG_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(Routes.COUNTS_DEATH_ADD_CAUSE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
             val vm: AddDeathViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             AddDeathScreen(
