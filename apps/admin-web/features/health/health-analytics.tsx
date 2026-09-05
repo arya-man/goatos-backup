@@ -45,12 +45,11 @@ import { HealthAnalyticsTelemetry } from "./health-analytics-telemetry";
  *   EXECUTION — whether the prescribed course is actually carried out, at SESSION grain,
  *   with late kept apart from never-done.
  *
- *   MORTALITY — and here is the hole. No CODED cause of death is recorded anywhere: the death
- *   workflow captures a written account and two videos, and `exit_reason` is the manner of
- *   exit, never a diagnosis. So a death carries a disease ONLY where a case was open at the
- *   time, every other death is reported as not attributed, and the banner says so. A reader
- *   who does not know that would read the unattributed column as missing data rather than as
- *   the detection gap it actually measures.
+ *   MORTALITY — recorded causes where the death form captured one, with the older open-case
+ *   inference retained for deaths recorded before that field existed. Every other death is
+ *   reported as not attributed, and the banner says so. A reader who does not know that would
+ *   read the unattributed column as missing data rather than as the detection gap it actually
+ *   measures.
  *
  * The page derives NO business number of its own. Every figure below is a backend field; the
  * only arithmetic here is re-shaping backend rows into what a mark is drawn from. In

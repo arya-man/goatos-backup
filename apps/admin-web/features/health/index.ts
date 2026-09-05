@@ -4,8 +4,8 @@
 // Two module surfaces:
 //   Health Analytics — the leadership READ: what the herd is being treated for, whether the
 //                   prescribed courses are carried out, and what it is dying of. Note the
-//                   limit its own banner states: no cause of death is recorded anywhere, so a
-//                   death carries a disease only where a case was open at the time.
+//                   limit its own banner states: new deaths can carry a recorded cause, while
+//                   older deaths fall back to the open-case inference.
 //   Health Config — the authored treatment rulebook: per disease, per age band, the day-by-day
 //                   course of medicines, actions and critical handoffs.
 //

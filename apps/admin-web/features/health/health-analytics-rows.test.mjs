@@ -68,10 +68,10 @@ test("an attributed death carries its disease and its days under treatment", () 
   assert.equal(row.ageBandLabel, "Kid");
 });
 
-// THE RULE THIS PAGE TURNS ON. No cause of death is recorded anywhere, so a death with no case open
-// has no disease -- and the mapping DROPS one even if the wire carries it. The page must not be
-// the place a clinical fact is invented, and a backend regression must not be able to make it
-// one.
+// THE RULE THIS PAGE TURNS ON. A death with neither a recorded cause nor legacy open-case
+// inference has no disease -- and the mapping DROPS one even if the wire carries it. The page
+// must not be the place a clinical fact is invented, and a backend regression must not be able
+// to make it one.
 test("an unattributed death is never given a disease, even if the wire sends one", () => {
   const [row] = toDeathRows(
     [deathRow({ attribution: "unattributed", disease_label: "Fever", days_under_treatment: 9 })],

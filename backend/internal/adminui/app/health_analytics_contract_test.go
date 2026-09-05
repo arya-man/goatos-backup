@@ -58,21 +58,20 @@ func TestHealthAnalyticsPageIsAModuleSurface(t *testing.T) {
 
 // THE HONEST DISCLOSURE IS PART OF THE CONTRACT, not a nicety.
 //
-// Goat OS records no coded cause of death: a death carries a written account and
-// two videos, and `exit_reason` is the MANNER of exit, never a diagnosis. So the
-// page attributes a death to a disease ONLY where a case was open at the time,
-// and the banner has to say so -- a reader who does not know it would read the
+// Goat OS now records a coded cause of death when the death form captured one,
+// while older deaths still have only the legacy open-case inference. The banner
+// has to say both pieces: a reader who does not know that split would read the
 // unattributed column as missing data rather than as the detection gap it is.
 //
 // Pinned because it is the kind of sentence a later copy pass deletes for being
 // long, which would leave the chart making a claim the data cannot support.
-func TestHealthAnalyticsBannerDeclaresThatCauseOfDeathIsNotRecorded(t *testing.T) {
+func TestHealthAnalyticsBannerDeclaresRecordedAndLegacyAttributionBasis(t *testing.T) {
 	page := healthAnalyticsPage(t)
 	banner := page.Copy["banner.basis"]
 	if banner == "" {
 		t.Fatal("no banner.basis copy: the attribution limit must be stated on the page")
 	}
-	for _, phrase := range []string{"no cause of death", "open case"} {
+	for _, phrase := range []string{"death form", "older deaths", "open case", "not attributed"} {
 		if !strings.Contains(strings.ToLower(banner), phrase) {
 			t.Errorf("banner.basis does not say %q; it reads %q", phrase, banner)
 		}

@@ -709,7 +709,7 @@ func pages() []domain.PageContract {
 		// must reconcile with each other (deaths on the mortality tab against deaths in
 		// the KPI strip) cannot be served by four independently-windowed reads.
 		// ---------------------------------------------------------------------------
-		page("health-analytics", "/health/analytics", "/health/analytics", "Health Analytics", "What the herd is being treated for, whether the prescribed courses are actually carried out, and what it is dying of. Deaths carry a disease only where a case was open at the time — no cause of death is recorded anywhere.", "module-surface",
+		page("health-analytics", "/health/analytics", "/health/analytics", "Health Analytics", "What the herd is being treated for, whether the prescribed courses are actually carried out, and what it is dying of. New deaths carry the cause recorded on the death form; older deaths are attributed only where a case was open at the time.", "module-surface",
 			[]domain.TableContract{
 				table("health-disease-board", "Disease board", "/health/analytics", []string{"disease", "age_band", "new_cases", "open_cases", "recovered", "died", "case_fatality"}, "disease_key"),
 				// The evidence trail beside the mortality counts, bounded to the latest 50.
@@ -4238,20 +4238,18 @@ func pageSpecificCopy(id string) map[string]string {
 	//   EXECUTION — whether the prescribed course is actually being carried out, at
 	//   SESSION grain, with late kept apart from never-done.
 	//
-	//   MORTALITY — and here is the hole. Nothing in Goat OS records a CODED cause of
-	//   death: the death workflow captures a written account and two videos, and
-	//   `exit_reason` is the MANNER of exit (died/sold/culled), never a diagnosis. So a
-	//   death is attributed ONLY when a case was open when the animal died, and every
-	//   other death is reported as unattributed and never given a disease. The banner
-	//   says this in the operator's own language, because a reader who does not know it
-	//   would read the unattributed column as missing data rather than as the detection
-	//   gap it actually measures.
+	//   MORTALITY — recorded causes where the death form captured one, with the
+	//   old open-case inference retained for deaths recorded before that field
+	//   existed. A death with neither is reported as unattributed and never given
+	//   a disease. The banner says this in the operator's own language, because a
+	//   reader who does not know it would read the unattributed column as missing
+	//   data rather than as the detection gap it actually measures.
 	// -------------------------------------------------------------------------------
 	case "health-analytics":
 		return map[string]string{
 			"crumb": "Health",
-			"banner.basis": "Deaths are attributed to a disease only when the animal had an open case when it died. " +
-				"No cause of death is recorded anywhere, so every other death is counted as not attributed and is never given one.",
+			"banner.basis": "Deaths recorded now use the disease named on the death form. " +
+				"Older deaths are attributed only when the animal had an open case at the time; every other death is counted as not attributed and is never given a disease.",
 
 			// The window filter is the SHARED calendar every other filtered screen uses,
 			// so the label set is the same "filter.date.*" shape. Park scope lives in the

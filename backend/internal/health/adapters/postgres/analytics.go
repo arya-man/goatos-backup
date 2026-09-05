@@ -449,7 +449,8 @@ SELECT d.goat_id::text,
        -- falls back to the inferred label above.
        COALESCE(dc.cause_key, ''),
        COALESCE(dc.cause_kind, ''),
-       COALESCE(cause_case.disease_name, '')
+       COALESCE(cause_case.disease_name, ''),
+       cause_case.start_date
 FROM dead d
 LEFT JOIN locations pk
        ON pk.tenant_id = $1::uuid AND pk.location_id = d.park_id
@@ -475,7 +476,7 @@ LEFT JOIN health_death_causes dc
 LEFT JOIN LATERAL (
   -- The one case marked as the cause. A partial unique index guarantees at most one per
   -- animal, so this cannot fan the row out.
-  SELECT c.disease_name
+  SELECT c.disease_name, c.start_date
   FROM health_cases c
   WHERE c.tenant_id = $1::uuid AND c.goat_id = d.goat_id AND c.is_death_cause
 ) cause_case ON true
@@ -697,11 +698,12 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 		var caseStart *time.Time
 		var everHadCase bool
 		var causeKey, causeKind, causeCaseDiseaseName string
+		var causeCaseStart *time.Time
 		if err := deathRows.Scan(
 			&row.GoatID, &row.DisplayID, &shedID, &row.ParkLabel,
 			&businessDate, &row.AgeBand, &row.Tag,
 			&diseaseLabel, &caseStart, &everHadCase,
-			&causeKey, &causeKind, &causeCaseDiseaseName,
+			&causeKey, &causeKind, &causeCaseDiseaseName, &causeCaseStart,
 		); err != nil {
 			deathRows.Close()
 			return nil, fmt.Errorf("health analytics: deaths scan: %w", err)
@@ -722,8 +724,8 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 			} else {
 				row.DiseaseLabel = causeCaseDiseaseName
 			}
-			if caseStart != nil {
-				row.DaysUnderTreatment = daysBetween(businessDate, *caseStart)
+			if causeCaseStart != nil {
+				row.DaysUnderTreatment = daysBetween(businessDate, *causeCaseStart)
 			}
 		case diseaseLabel != "":
 			// INFERRED, and only for a death recorded before causes existed: a case was
