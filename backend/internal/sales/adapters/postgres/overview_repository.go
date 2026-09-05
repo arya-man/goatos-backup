@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
+	"golang.org/x/sync/errgroup"
 )
 
 // GetOverview serves the whole sales page in one read: closed-deal aggregates computed in Go over
@@ -31,29 +32,56 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	overview := domain.Overview{}
+	var (
+		overview         domain.Overview
+		closed           []domain.Deal
+		buyerPipeline    domain.BuyerPipeline
+		fpoPipeline      domain.FPOPipeline
+		tagRoster        domain.TagRoster
+		weightAudit      domain.WeightAuditSummary
+		marketBenchmarks []domain.MarketBenchmark
+	)
 
-	closed, err := r.closedDeals(ctx, tenantID, farm)
-	if err != nil {
+	group, gctx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		var err error
+		closed, err = r.closedDeals(gctx, tenantID, farm)
+		return err
+	})
+	group.Go(func() error {
+		var err error
+		buyerPipeline, err = r.buyerPipeline(gctx, tenantID, farm)
+		return err
+	})
+	group.Go(func() error {
+		var err error
+		fpoPipeline, err = r.fpoPipeline(gctx, tenantID)
+		return err
+	})
+	group.Go(func() error {
+		var err error
+		tagRoster, err = r.tagRoster(gctx, tenantID, farm)
+		return err
+	})
+	group.Go(func() error {
+		var err error
+		weightAudit, err = r.weightAudit(gctx, tenantID)
+		return err
+	})
+	group.Go(func() error {
+		var err error
+		marketBenchmarks, err = r.marketBenchmarks(gctx, tenantID)
+		return err
+	})
+	if err := group.Wait(); err != nil {
 		return domain.Overview{}, err
 	}
 	overview.Summary, overview.Monthly, overview.PriceBands, overview.Buyers = domain.BuildDealAggregates(closed)
-
-	if overview.BuyerPipeline, err = r.buyerPipeline(ctx, tenantID, farm); err != nil {
-		return domain.Overview{}, err
-	}
-	if overview.FPOPipeline, err = r.fpoPipeline(ctx, tenantID); err != nil {
-		return domain.Overview{}, err
-	}
-	if overview.TagRoster, err = r.tagRoster(ctx, tenantID, farm); err != nil {
-		return domain.Overview{}, err
-	}
-	if overview.WeightAudit, err = r.weightAudit(ctx, tenantID); err != nil {
-		return domain.Overview{}, err
-	}
-	if overview.MarketBenchmarks, err = r.marketBenchmarks(ctx, tenantID); err != nil {
-		return domain.Overview{}, err
-	}
+	overview.BuyerPipeline = buyerPipeline
+	overview.FPOPipeline = fpoPipeline
+	overview.TagRoster = tagRoster
+	overview.WeightAudit = weightAudit
+	overview.MarketBenchmarks = marketBenchmarks
 	return overview, nil
 }
 

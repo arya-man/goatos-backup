@@ -521,7 +521,7 @@ func (h *Handler) DriveAssignments(w http.ResponseWriter, r *http.Request) {
 
 const (
 	defaultExecutionLimit       = 200
-	defaultDrilldownLimit       = 500
+	defaultDrilldownLimit       = 100
 	maxExecutionLimit           = 500
 	defaultExecutionHorizonDays = 30
 )

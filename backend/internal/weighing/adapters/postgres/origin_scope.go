@@ -86,6 +86,10 @@ func (r *Repository) resolveOriginScope(ctx context.Context, tenantID string, pa
 	return resolveOriginScope(ctx, r.pool, tenantID, parkIDs, origin, periodStart, periodEnd, false)
 }
 
+func (r *Repository) resolveOriginBucketScope(ctx context.Context, tenantID string, parkIDs []string, origin string) (ReportScope, error) {
+	return resolveOriginBucketScope(ctx, r.pool, tenantID, parkIDs, origin)
+}
+
 func (r *Repository) resolveOriginScopeWithAllTime(ctx context.Context, tenantID string, parkIDs []string, origin string, periodStart, periodEnd time.Time) (ReportScope, error) {
 	return resolveOriginScope(ctx, r.pool, tenantID, parkIDs, origin, periodStart, periodEnd, true)
 }
@@ -102,6 +106,76 @@ func ResolveOriginScope(ctx context.Context, pool *pgxpool.Pool, tenantID string
 // is deliberately not windowed (today: sale readiness, which reports latest-EVER weights).
 func ResolveOriginScopeWithAllTime(ctx context.Context, pool *pgxpool.Pool, tenantID string, parkIDs []string, origin string, periodStart, periodEnd time.Time) (ReportScope, error) {
 	return resolveOriginScope(ctx, pool, tenantID, parkIDs, origin, periodStart, periodEnd, true)
+}
+
+func resolveOriginBucketScope(ctx context.Context, pool *pgxpool.Pool, tenantID string, parkIDs []string, origin string) (ReportScope, error) {
+	out := ReportScope{Tags: []string{}, AllTimeTags: []string{}, LocationIDs: []string{}, PartitionLabels: []string{}}
+	normalized, err := normalizeOriginFilter(origin)
+	if err != nil {
+		return ReportScope{}, err
+	}
+	if normalized == "" || len(parkIDs) == 0 {
+		return out, nil
+	}
+
+	const q = ` -- scale-guard:ignore: bounded by whole-shed weighing buckets for selected parks; no scanned-tag arm
+WITH scoped AS (
+  SELECT DISTINCT cs.location_id, COALESCE(cs.partition_label, '') AS partition_label
+  FROM weighing_campaign_sheds cs
+  JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
+  WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[]) AND cs.status <> 'canceled'
+    AND cs.weighing_category = 'per_shed_partition'
+),
+bought AS (
+  SELECT DISTINCT goat_id FROM procurement_load_goats WHERE tenant_id = $1::uuid
+),
+shed_targets AS (
+  SELECT s.location_id, s.partition_label,
+         COALESCE(
+           CASE WHEN EXISTS (SELECT 1 FROM goats gg WHERE gg.tenant_id = $1::uuid
+                              AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id)
+                THEN s.location_id END,
+           (SELECT phys.location_id FROM locations phys
+            JOIN locations l ON l.location_id = s.location_id AND l.tenant_id = $1::uuid
+            WHERE phys.tenant_id = l.tenant_id
+              AND phys.parent_location_id = l.parent_location_id
+              AND phys.location_type = 'shed'
+              AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
+            LIMIT 1)
+         ) AS resolved_id,
+         COALESCE(NULLIF(s.partition_label, ''),
+                  NULLIF((regexp_match((SELECT l.name FROM locations l WHERE l.location_id = s.location_id),
+                                       '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
+                  '') AS resolved_partition_label
+  FROM scoped s
+),
+origin_buckets AS (
+  SELECT src.location_id, src.partition_label
+  FROM shed_targets src
+  JOIN goats g ON g.shed_id = src.resolved_id AND g.tenant_id = $1::uuid
+   AND g.lifecycle_status = 'alive'
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  WHERE src.resolved_partition_label = ''
+     OR regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
+        = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
+  GROUP BY src.location_id, src.partition_label
+  HAVING count(*) > 0
+     AND CASE WHEN $3::text = ` + "'" + OriginPurchased + "'" + `
+              THEN count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id)) = count(*)
+              ELSE count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id)) = 0
+         END
+)
+SELECT
+  (SELECT COALESCE(array_agg(location_id::text ORDER BY location_id::text, partition_label), '{}') FROM origin_buckets),
+  (SELECT COALESCE(array_agg(partition_label ORDER BY location_id::text, partition_label), '{}') FROM origin_buckets)`
+
+	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, normalized).Scan(&out.LocationIDs, &out.PartitionLabels); err != nil {
+		return ReportScope{}, err
+	}
+	if err := assertBucketArraysAgree("origin bucket scope", out); err != nil {
+		return ReportScope{}, err
+	}
+	return out, nil
 }
 
 // resolveOriginScope resolves the filter for one window and park scope.

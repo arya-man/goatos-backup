@@ -130,7 +130,7 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		if readErr != nil {
 			return ports.CompletePackingResult{}, readErr
 		}
-		if err := tx.Commit(ctx); err != nil {
+		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: commit idempotent packing replay: %w", err)
 		}
 		committed = true
@@ -253,7 +253,7 @@ RETURNING row_version`,
 		return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: complete packing idempotency: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: commit packing completion: %w", err)
 	}
 	committed = true
@@ -417,7 +417,7 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
 FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No such row for this tenant: a stale/foreign verdict. Ignore.
-		if commitErr := tx.Commit(ctx); commitErr != nil {
+		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
 		committed = true
@@ -428,7 +428,7 @@ FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &workfl
 	}
 	// Already completed (re-delivered verdict) or no longer pending (stale delivery): no side effects.
 	if status != domain.PackingStatusPendingVerification {
-		if commitErr := tx.Commit(ctx); commitErr != nil {
+		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
 		committed = true
@@ -449,7 +449,7 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_ve
 	}
 	if tag.RowsAffected() == 0 {
 		// Lost the race to a concurrent transition; treat as stale.
-		if commitErr := tx.Commit(ctx); commitErr != nil {
+		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
 		committed = true
@@ -473,7 +473,7 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_ve
 		return false, err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return false, fmt.Errorf("feeddirection: commit apply verified packing: %w", err)
 	}
 	committed = true
@@ -487,7 +487,7 @@ func (r *Repository) BouncePackingForRework(ctx context.Context, p ports.BounceP
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	tag, err := r.pool.Exec(ctx, `
+	tag, err := r.execAndInvalidateReadCache(ctx, `
 UPDATE feed_packing_completions
 SET status = 'rework',
     rework_reason = nullif($3, ''),
@@ -629,7 +629,7 @@ RETURNING c.completion_id::text, c.shed_id::text, coalesce(c.partition_label, ''
 		return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: iterate reopened packing: %w", err)
 	}
 	if len(moved) == 0 {
-		if err := tx.Commit(ctx); err != nil {
+		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: commit empty reopen: %w", err)
 		}
 		committed = true
@@ -730,7 +730,7 @@ WHERE tenant_id = $1::uuid
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: commit reopen packing: %w", err)
 	}
 	committed = true
@@ -844,7 +844,7 @@ SET feed_item_label = EXCLUDED.feed_item_label,
 		return fmt.Errorf("feeddirection: write packed quantities audit: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return fmt.Errorf("feeddirection: commit packed quantities: %w", err)
 	}
 	committed = true

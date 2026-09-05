@@ -49,6 +49,14 @@ type PendingNavigationTiming = {
   firebaseTrace?: ReturnType<typeof startFirebasePerformanceTrace>;
   timedOut?: boolean;
 };
+type PendingQueryNavigationTiming = {
+  id: string;
+  from: string;
+  to: string;
+  source: string;
+  startedAt: number;
+  firebaseTrace?: ReturnType<typeof startFirebasePerformanceTrace>;
+};
 
 const iconByToken: Record<string, ElementType> = {
   // Sales is its own vertical in the backend nav contract (maintainer decision 2026-08-27); like
@@ -266,6 +274,7 @@ export function MeshaShell({
   const pendingAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingNavigationRef = useRef<PendingNavigationTiming | null>(null);
+  const pendingQueryNavigationRef = useRef<PendingQueryNavigationTiming | null>(null);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const g of groups) {
@@ -439,10 +448,10 @@ export function MeshaShell({
   }, [clearRoutePending]);
 
   useEffect(() => {
+    const route = searchKey ? `${pathname}?${searchKey}` : pathname;
     const pending = pendingNavigationRef.current;
     if (pending) {
       const committedAt = performance.now();
-      const route = searchKey ? `${pathname}?${searchKey}` : pathname;
       if (pending.timedOut && pending.to !== route) {
         pendingNavigationRef.current = null;
       } else {
@@ -474,6 +483,34 @@ export function MeshaShell({
         pendingNavigationRef.current = null;
       }
     }
+    const pendingQuery = pendingQueryNavigationRef.current;
+    if (pendingQuery && pendingQuery.to === route) {
+      const committedAt = performance.now();
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          reportAdminPerformanceEvent("admin_query_navigation_render", "admin_shell", route, {
+            navigation_id: pendingQuery.id,
+            from: pendingQuery.from,
+            to: pendingQuery.to,
+            source: pendingQuery.source,
+            commit_ms: Math.round(committedAt - pendingQuery.startedAt),
+            render_ms: Math.round(performance.now() - pendingQuery.startedAt),
+          });
+          pendingQuery.firebaseTrace?.stop({
+            result: "rendered",
+            commit_ms: Math.round(committedAt - pendingQuery.startedAt),
+            render_ms: Math.round(performance.now() - pendingQuery.startedAt),
+          });
+        });
+      });
+      pendingQueryNavigationRef.current = null;
+    } else if (pendingQuery && (pendingQuery.from === route || pendingQuery.to.split("?")[0] !== pathname)) {
+      pendingQuery.firebaseTrace?.stop({
+        result: "abandoned",
+        duration_ms: Math.round(performance.now() - pendingQuery.startedAt),
+      });
+      pendingQueryNavigationRef.current = null;
+    }
     const id = window.setTimeout(clearRoutePending, 0);
     return () => window.clearTimeout(id);
   }, [pathname, searchKey, clearRoutePending]);
@@ -497,22 +534,34 @@ export function MeshaShell({
       // reads as a stuck full-page navigation when the payload finishes before React reports a route
       // change. Reserve it for actual path changes.
       if (nextUrl.pathname === window.location.pathname) {
+        const source = anchor.closest(".side") ? "sidebar" : "link";
+        const from = `${window.location.pathname}${window.location.search}`;
+        const to = `${nextUrl.pathname}${nextUrl.search}`;
+        const superseded = pendingQueryNavigationRef.current;
+        if (superseded) {
+          superseded.firebaseTrace?.stop({
+            result: "superseded",
+            duration_ms: Math.round(performance.now() - superseded.startedAt),
+          });
+        }
         const trace = startFirebasePerformanceTrace("admin_query_navigation", {
-          source: anchor.closest(".side") ? "sidebar" : "link",
+          source,
           from_path: window.location.pathname,
           to_path: nextUrl.pathname,
         });
-        const startedAt = performance.now();
-        window.requestAnimationFrame(() => {
-          trace?.stop({
-            result: "query_only",
-            duration_ms: Math.round(performance.now() - startedAt),
-          });
-        });
-        reportAdminPerformanceEvent("admin_query_navigation", "admin_shell", `${nextUrl.pathname}${nextUrl.search}`, {
-          from: `${window.location.pathname}${window.location.search}`,
-          to: `${nextUrl.pathname}${nextUrl.search}`,
-          source: anchor.closest(".side") ? "sidebar" : "link",
+        pendingQueryNavigationRef.current = {
+          id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          from,
+          to,
+          source,
+          startedAt: performance.now(),
+          firebaseTrace: trace,
+        };
+        reportAdminPerformanceEvent("admin_query_navigation_start", "admin_shell", to, {
+          navigation_id: pendingQueryNavigationRef.current.id,
+          from,
+          to,
+          source,
         });
         return;
       }

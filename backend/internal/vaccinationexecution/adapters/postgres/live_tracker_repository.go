@@ -21,7 +21,7 @@ import (
 // move one section of the page onto a different day than the rest.
 const istZone = "Asia/Kolkata"
 
-const liveTrackerCacheTTL = 5 * time.Second
+const liveTrackerCacheTTL = 30 * time.Second
 
 type liveTrackerCacheEntry struct {
 	expiresAt time.Time
@@ -1604,6 +1604,11 @@ func liveTrackerOperatorRows(cells []liveTrackerCell, actors []liveTrackerActor,
 		}
 		entry.row.ScheduledAdmins += c.scheduled
 		entry.row.ClosedAdmins += c.closed
+		entry.row.ProofVideos += c.proofed
+		entry.row.ScanCaptures += c.scanned
+		if c.lastActivityAt != nil && (entry.row.LastActivityAt == nil || c.lastActivityAt.After(*entry.row.LastActivityAt)) {
+			entry.row.LastActivityAt = c.lastActivityAt
+		}
 		// "Now at" is the cell this operator most recently produced evidence in; with no evidence yet
 		// it stays on the first assigned cell so the row still names where the work is.
 		if entry.row.CurrentShedID == "" || (c.lastActivityAt != nil && (entry.bestSeen == nil || c.lastActivityAt.After(*entry.bestSeen))) {

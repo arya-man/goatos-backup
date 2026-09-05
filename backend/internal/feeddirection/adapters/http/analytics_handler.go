@@ -587,6 +587,30 @@ func executionSections(w http.ResponseWriter, r *http.Request, h *Handler) ([]do
 	return out, true
 }
 
+// stockSections reads the optional `sections` narrowing for the stock endpoint. Unknown names are
+// rejected rather than ignored, so a caller cannot think it asked for an expensive arm while the
+// response silently omits it.
+func stockSections(w http.ResponseWriter, r *http.Request, h *Handler) ([]domain.StockSection, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("sections"))
+	if raw == "" {
+		return nil, true
+	}
+	var out []domain.StockSection
+	for _, part := range strings.Split(raw, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			continue
+		}
+		section, ok := domain.ParseStockSection(name)
+		if !ok {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "unknown sections value: "+name, nil)
+			return nil, false
+		}
+		out = append(out, section)
+	}
+	return out, true
+}
+
 // executionVariancePage reads the mismatch list's page. A present but unparseable or out-of-range
 // value is a 400: silently falling back to page one would answer a different question than the one
 // the URL asks, under the heading of the page the reader thinks they are on.
@@ -656,6 +680,11 @@ func (h *Handler) GetStockAnalytics(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	sections, ok := stockSections(w, r, h)
+	if !ok {
+		return
+	}
+	in.StockSections = sections
 	result, err := h.service.StockAnalytics(r.Context(), in)
 	if err != nil {
 		h.writeServiceError(w, r, "feed analytics stock", err)

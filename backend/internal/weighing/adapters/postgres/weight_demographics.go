@@ -28,8 +28,34 @@ import (
 // than by_stage: a whole-shed weigh has no tags, so it reaches the stage rows via
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
-func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.WeightDemographics, error) {
-	out := domain.WeightDemographics{
+func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (out domain.WeightDemographics, err error) {
+	cacheKey := weighingAnalyticsCacheKey("weight_demographics", tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		return cached.(domain.WeightDemographics), nil
+	}
+	cacheEpoch := r.readCacheEpoch()
+
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	flight, ownsFlight, flightErr := r.beginReadFlight(ctx, cacheKey)
+	if flightErr != nil {
+		return domain.WeightDemographics{}, flightErr
+	}
+	if !ownsFlight {
+		if flight.value == nil {
+			return domain.WeightDemographics{}, nil
+		}
+		return flight.value.(domain.WeightDemographics), nil
+	}
+	defer func() {
+		if err == nil {
+			r.finishReadFlight(cacheKey, flight, out, nil)
+			return
+		}
+		r.finishReadFlight(cacheKey, flight, nil, err)
+	}()
+
+	out = domain.WeightDemographics{
 		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
 		ByBreed:               []domain.WeightDemographicBucket{},
 		BySex:                 []domain.WeightDemographicBucket{},
@@ -64,7 +90,13 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	// origin_scope.go so that every card on the page agrees on which pens were bought. This read
 	// therefore consumes the same opaque tag list and lump-bucket list the other reads do.
 	originFiltered := strings.TrimSpace(origin) != ""
-	originScope, originErr := r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+	resolveOrigin := r.resolveOriginScope
+	if weighingCategory == domain.CategoryPerShedPartition {
+		resolveOrigin = func(ctx context.Context, tenantID string, parkIDs []string, origin string, _ time.Time, _ time.Time) (ReportScope, error) {
+			return r.resolveOriginBucketScope(ctx, tenantID, parkIDs, origin)
+		}
+	}
+	originScope, originErr := resolveOrigin(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
 	if originErr != nil {
 		return domain.WeightDemographics{}, originErr
 	}
@@ -72,11 +104,11 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	// cannot express -- it answers "which animals match the selected origin", and this answers
 	// "which side is each animal on". Resolved through the SAME origin_scope.go the filter uses,
 	// so the breakdown and the filter can never disagree about which animals were bought.
-	farmBornScope, farmBornErr := r.resolveOriginScope(ctx, tenantID, parkIDs, "farm_born", periodStart, periodEnd)
+	farmBornScope, farmBornErr := resolveOrigin(ctx, tenantID, parkIDs, "farm_born", periodStart, periodEnd)
 	if farmBornErr != nil {
 		return domain.WeightDemographics{}, farmBornErr
 	}
-	purchasedScope, purchasedErr := r.resolveOriginScope(ctx, tenantID, parkIDs, "purchased", periodStart, periodEnd)
+	purchasedScope, purchasedErr := resolveOrigin(ctx, tenantID, parkIDs, "purchased", periodStart, periodEnd)
 	if purchasedErr != nil {
 		return domain.WeightDemographics{}, purchasedErr
 	}
@@ -99,6 +131,7 @@ latest AS (
     AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected'
     AND btrim(o.scanned_identifier) <> ''
+    AND ($16::text = '' OR $16::text = 'individual_animal')
     -- Origin filter, individual half. $6 is FALSE for the unfiltered page, which therefore runs
     -- this query exactly as it ran before the filter existed.
     AND (NOT $6::bool OR lower(btrim(o.scanned_identifier)) = ANY($7::text[]))
@@ -116,6 +149,7 @@ raw_obs AS (
   WHERE o.tenant_id = $1::uuid
     AND o.accepted_at >= ($3::timestamptz - interval '90 days') AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected' AND btrim(o.scanned_identifier) <> ''
+    AND ($16::text = '' OR $16::text = 'individual_animal')
     AND (NOT $6::bool OR lower(btrim(o.scanned_identifier)) = ANY($7::text[]))
 ),
 obs AS (
@@ -890,7 +924,6 @@ SELECT
 	out.UnresolvedAnimals = unresolvedCount
 	out.LumpSumAnimals = lumpTotal
 	out.LumpSumUnattributedAnimals = lumpUnattributed
-	var err error
 	if out.ByBreed, err = decodeWeightDemographicBuckets(breedJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
@@ -930,6 +963,7 @@ SELECT
 	if out.ShedComposition, err = decodeShedComposition(compositionJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
+	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
 }
 

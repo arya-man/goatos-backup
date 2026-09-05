@@ -70,7 +70,7 @@ func (r *Repository) PersistIssue(ctx context.Context, cmd ports.PersistIssueCom
 			if err := insertIssueRows(ctx, tx, cmd.TenantID, inserted.IssueID, cmd.ParkID, cmd.Cells, false, nil); err != nil {
 				return ports.IssueResult{}, err
 			}
-			if err := tx.Commit(ctx); err != nil {
+			if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 				return ports.IssueResult{}, err
 			}
 			return ports.IssueResult{Header: inserted, Outcome: ports.IssueOutcomeInserted}, nil
@@ -80,7 +80,7 @@ func (r *Repository) PersistIssue(ctx context.Context, cmd ports.PersistIssueCom
 	// Found (either pre-existing or lost the insert race).
 	if header.GenerationInputFingerprint == cmd.Fingerprint {
 		// Exact replay: no side effects, return the original.
-		if err := tx.Commit(ctx); err != nil {
+		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return ports.IssueResult{}, err
 		}
 		return ports.IssueResult{Header: header, Outcome: ports.IssueOutcomeReplayed}, nil
@@ -108,7 +108,7 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 	if err := insertIssueRows(ctx, tx, cmd.TenantID, header.IssueID, cmd.ParkID, cmd.Cells, false, nil); err != nil {
 		return ports.IssueResult{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return ports.IssueResult{}, err
 	}
 	header.GenerationInputFingerprint = cmd.Fingerprint
@@ -181,7 +181,7 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 			cmd.TenantID, header.IssueID, cmd.AmendedAt.UTC()); err != nil {
 			return ports.AmendResult{}, fmt.Errorf("feeddirection: record no-op amend: %w", err)
 		}
-		if err := tx.Commit(ctx); err != nil {
+		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return ports.AmendResult{}, err
 		}
 		return ports.AmendResult{Header: header, Outcome: ports.AmendOutcomeUnchanged}, nil
@@ -216,7 +216,7 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 		cmd.TenantID, header.IssueID, cmd.AmendedAt.UTC(), cmd.Fingerprint); err != nil {
 		return ports.AmendResult{}, fmt.Errorf("feeddirection: update issue for amend: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return ports.AmendResult{}, err
 	}
 	header.State = domain.IssueStateAmended
@@ -253,7 +253,7 @@ func (r *Repository) LockIssue(ctx context.Context, cmd ports.LockIssueCommand) 
 		return ports.LockResult{}, ports.ErrIssueNotFound
 	}
 	if header.State == domain.IssueStateLocked {
-		if err := tx.Commit(ctx); err != nil {
+		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return ports.LockResult{}, err
 		}
 		return ports.LockResult{Header: header, Outcome: ports.LockOutcomeAlreadyDone}, nil
@@ -264,7 +264,7 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 		cmd.TenantID, header.IssueID, cmd.LockedAt.UTC()); err != nil {
 		return ports.LockResult{}, fmt.Errorf("feeddirection: lock issue: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return ports.LockResult{}, err
 	}
 	header.State = domain.IssueStateLocked

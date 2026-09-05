@@ -56,6 +56,9 @@ type DirectedAnalyticsQuery struct {
 	// deadline -- the page then showed its "rollup read failed" card while every individual query
 	// was fast. Narrowing the fetch is the fix; widening the deadline would only move the failure.
 	Sections []ExecutionSection
+	// StockSections narrows the STOCK read to the arms the caller will actually render. Empty means
+	// every arm, preserving the existing stock endpoint contract.
+	StockSections []StockSection
 	// PackingVarianceLimit / PackingVarianceOffset page the mismatch list. Zero limit means
 	// DefaultPackingVariancePageSize.
 	PackingVarianceLimit  int
@@ -182,6 +185,51 @@ func (q DirectedAnalyticsQuery) Wants(section ExecutionSection) bool {
 // the client would render an empty table as though the farm had no data.
 func ParseExecutionSection(raw string) (ExecutionSection, bool) {
 	for _, s := range ExecutionSections {
+		if string(s) == raw {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// StockSection names one arm of the stock payload.
+type StockSection string
+
+const (
+	StockSectionItems           StockSection = "items"
+	StockSectionFarmItems       StockSection = "farm_items"
+	StockSectionForecast        StockSection = "forecast"
+	StockSectionExpenditure     StockSection = "expenditure"
+	StockSectionItemExpenditure StockSection = "item_expenditure"
+	StockSectionSpend           StockSection = "spend"
+)
+
+// StockSections lists every stock arm, in payload order.
+var StockSections = []StockSection{
+	StockSectionItems,
+	StockSectionFarmItems,
+	StockSectionForecast,
+	StockSectionExpenditure,
+	StockSectionItemExpenditure,
+	StockSectionSpend,
+}
+
+// WantsStock reports whether the stock query asked for an arm. An empty selection wants everything.
+func (q DirectedAnalyticsQuery) WantsStock(section StockSection) bool {
+	if len(q.StockSections) == 0 {
+		return true
+	}
+	for _, s := range q.StockSections {
+		if s == section {
+			return true
+		}
+	}
+	return false
+}
+
+// ParseStockSection maps a caller's string to a stock arm.
+func ParseStockSection(raw string) (StockSection, bool) {
+	for _, s := range StockSections {
 		if string(s) == raw {
 			return s, true
 		}

@@ -84,7 +84,7 @@ const PENDING_ALERTS_FEED = {
   vendors:
     "Vendors shipped procurement/sales execution screens before a module-scoped alert feed exists: there is no /vendors/alerts route or vendors alert producer over shared task/contact truth yet. Giving the bar an Alerts tab now would route operators to an empty screen. Unblocked when vendor onboarding, purchase, or sale exceptions produce a real feed.",
   leadership_tasks:
-    "Leadership Tasks shipped its task inbox/detail/compose surface before a module-scoped alerts feed exists: there is no /leadership-tasks/alerts route or leadership_tasks alert producer over shared task/contact truth yet. The module itself is already the task inbox; an Alerts tab would route to an empty duplicate until an actual alert stream is added.",
+    "Leadership Tasks shipped as private director-to-CXO correspondence, not a module-scoped operational alert feed: the module itself is the inbox and docs/ceo-ai/coverage-matrix.md excludes it from assistant/metric truth. Giving the bar an Alerts tab now would duplicate the same private queue rather than route to a distinct alert feed. Unblocked if task mentions/escalations get a separate alert feed over shared task/contact truth.",
 };
 
 // The verification module composes its bar per reviewed FEATURE at runtime

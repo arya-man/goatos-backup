@@ -101,7 +101,7 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 		if readErr != nil {
 			return ports.CompleteDistributionResult{}, readErr
 		}
-		if err := tx.Commit(ctx); err != nil {
+		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: commit idempotent distribution replay: %w", err)
 		}
 		committed = true
@@ -199,7 +199,7 @@ RETURNING row_version, feed_weight_proof_ref, distribution_proof_ref, water_proo
 		return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: complete distribution idempotency: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: commit distribution completion: %w", err)
 	}
 	committed = true
@@ -328,7 +328,7 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
 FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No such row for this tenant: a stale/foreign verdict. Ignore.
-		if commitErr := tx.Commit(ctx); commitErr != nil {
+		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
 		committed = true
@@ -339,7 +339,7 @@ FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &workfl
 	}
 	// Already completed (re-delivered verdict) or no longer pending (stale delivery): no side effects.
 	if status != domain.DistributionStatusPendingVerification {
-		if commitErr := tx.Commit(ctx); commitErr != nil {
+		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
 		committed = true
@@ -360,7 +360,7 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_ve
 	}
 	if tag.RowsAffected() == 0 {
 		// Lost the race to a concurrent transition; treat as stale.
-		if commitErr := tx.Commit(ctx); commitErr != nil {
+		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
 		committed = true
@@ -384,7 +384,7 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_ve
 		return false, err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return false, fmt.Errorf("feeddirection: commit apply verified distribution: %w", err)
 	}
 	committed = true
@@ -398,7 +398,7 @@ func (r *Repository) BounceDistributionForRework(ctx context.Context, p ports.Bo
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	tag, err := r.pool.Exec(ctx, `
+	tag, err := r.execAndInvalidateReadCache(ctx, `
 UPDATE feed_distribution_completions
 SET status = 'rework',
     rework_reason = nullif($3, ''),

@@ -151,7 +151,8 @@ FROM shed_feed f
 LEFT JOIN head_days   h USING (shed_id, partition_label)
 LEFT JOIN shed_growth g USING (shed_id, partition_label)
 ORDER BY f.shed_label, f.partition_label, f.shed_id`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags, nil, nil, weighingCategory)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory)
 	if err != nil {
 		return out, err
 	}

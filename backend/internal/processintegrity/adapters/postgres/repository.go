@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -18,24 +19,121 @@ import (
 )
 
 const (
-	defaultQueryTimeout     = 3 * time.Second
-	defaultClosedHistoryAge = 14 * 24 * time.Hour
-	defaultLimit            = 100
-	maxLimit                = 500
-	countQueryArgCount      = 16
-	rowsQueryArgCount       = 20
+	defaultQueryTimeout          = 3 * time.Second
+	defaultClosedHistoryAge      = 14 * 24 * time.Hour
+	processIntegrityReadCacheTTL = 60 * time.Second
+	defaultLimit                 = 100
+	maxLimit                     = 500
+	countQueryArgCount           = 16
+	rowsQueryArgCount            = 20
 )
 
 type Repository struct {
-	pool    *pgxpool.Pool
-	timeout time.Duration
+	pool       *pgxpool.Pool
+	timeout    time.Duration
+	cacheMu    sync.Mutex
+	readCache  map[string]processIntegrityReadCacheEntry
+	countCache map[string]processIntegrityCountCacheEntry
+}
+
+type processIntegrityReadCacheEntry struct {
+	expiresAt time.Time
+	value     domain.ListResult
+}
+
+type processIntegrityCountCacheEntry struct {
+	expiresAt time.Time
+	value     []domain.CountByWorkState
+}
+
+func processIntegrityReadCacheKey(prefix string, q domain.Query) string {
+	asOf := q.AsOf.UTC().Format(time.RFC3339Nano)
+	dueAfter := ""
+	if q.DueAfter != nil {
+		dueAfter = q.DueAfter.UTC().Format(time.RFC3339Nano)
+	}
+	rowID := ""
+	if q.RowID != nil {
+		rowID = *q.RowID
+	}
+	cursor := ""
+	if q.Cursor != nil {
+		cursor = fmt.Sprintf("%d:%s:%s", q.Cursor.SortPriority, q.Cursor.DueAt.UTC().Format(time.RFC3339Nano), q.Cursor.RowID)
+	}
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%t|%t|%t|%t|%d|%s",
+		prefix, q.TenantID, textValue(q.ParkID), textValue(q.ShedID), dueAfter,
+		q.DueBefore.UTC().Format(time.RFC3339Nano), textEnum(q.WorkState), textEnum(q.Severity),
+		textValue(q.OwnerID), textValue(q.ProtocolVersionID), q.OnlyBrokenOrAtRisk,
+		q.IncludeCompleted, q.ScopeLatestDrive, q.IncludeAdherenceSummary, q.Limit, asOf+"|"+rowID+"|"+cursor+"|"+textValue(q.Category))
+}
+
+func processIntegrityCountCacheKey(q domain.Query) string {
+	q.RowID = nil
+	q.Cursor = nil
+	q.Limit = 0
+	q.IncludeAdherenceSummary = false
+	return processIntegrityReadCacheKey("counts", q)
+}
+
+func (r *Repository) getReadCache(key string) (domain.ListResult, bool) {
+	now := time.Now()
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	entry, ok := r.readCache[key]
+	if !ok || now.After(entry.expiresAt) {
+		if ok {
+			delete(r.readCache, key)
+		}
+		return domain.ListResult{}, false
+	}
+	return entry.value, true
+}
+
+func (r *Repository) getCountCache(key string) ([]domain.CountByWorkState, bool) {
+	now := time.Now()
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	entry, ok := r.countCache[key]
+	if !ok || now.After(entry.expiresAt) {
+		if ok {
+			delete(r.countCache, key)
+		}
+		return nil, false
+	}
+	return append([]domain.CountByWorkState(nil), entry.value...), true
+}
+
+func (r *Repository) setReadCache(key string, value domain.ListResult) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if len(r.readCache) > 256 {
+		r.readCache = map[string]processIntegrityReadCacheEntry{}
+	}
+	r.readCache[key] = processIntegrityReadCacheEntry{expiresAt: time.Now().Add(processIntegrityReadCacheTTL), value: value}
+}
+
+func (r *Repository) setCountCache(key string, value []domain.CountByWorkState) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if len(r.countCache) > 256 {
+		r.countCache = map[string]processIntegrityCountCacheEntry{}
+	}
+	r.countCache[key] = processIntegrityCountCacheEntry{
+		expiresAt: time.Now().Add(processIntegrityReadCacheTTL),
+		value:     append([]domain.CountByWorkState(nil), value...),
+	}
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, timeout: queryTimeout}
+	return &Repository{
+		pool:       pool,
+		timeout:    queryTimeout,
+		readCache:  map[string]processIntegrityReadCacheEntry{},
+		countCache: map[string]processIntegrityCountCacheEntry{},
+	}
 }
 
 var _ ports.Repository = (*Repository)(nil)
@@ -53,73 +151,92 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 	defer cancel()
 	q = normalizeQuery(q)
 	args := queryArgs(q)
-	return r.listRowsCanonical(ctx, q, args)
+	cacheKey := processIntegrityReadCacheKey("list", q)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		return cached, nil
+	}
+	result, err := r.listRowsCanonical(ctx, q, args)
+	if err != nil {
+		return domain.ListResult{}, err
+	}
+	r.setReadCache(cacheKey, result)
+	if q.RowID == nil && !q.IncludeAdherenceSummary {
+		r.setCountCache(processIntegrityCountCacheKey(q), result.CountsByWorkState)
+	}
+	return result, nil
 }
 
 func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]domain.CountByWorkState, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	q = normalizeQuery(q)
+	cacheKey := processIntegrityCountCacheKey(q)
+	if cached, ok := r.getCountCache(cacheKey); ok {
+		return cached, nil
+	}
 	args := queryArgs(q)
 	counts, _, err := r.countByWorkStateCanonical(ctx, countQueryArgs(args))
 	if err != nil {
 		return nil, err
 	}
+	r.setCountCache(cacheKey, counts)
 	return counts, nil
 }
 
 func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args []any) (domain.ListResult, error) {
-	rows, err := r.pool.Query(ctx, processIntegrityCanonicalRowsSQL, append([]any{pgx.QueryExecModeExec}, args...)...)
-	if err != nil {
-		return domain.ListResult{}, fmt.Errorf("processintegrity: list canonical rows: %w", err)
-	}
-	defer rows.Close()
+	var (
+		out        []domain.Row
+		lastCursor *domain.Cursor
+		seenExtra  bool
+		rowErr     error
 
-	out := []domain.Row{}
-	var lastCursor *domain.Cursor
-	seenExtra := false
-	for rows.Next() {
-		row, cursor, err := scanRow(rows)
-		if err != nil {
-			return domain.ListResult{}, err
-		}
-		if len(out) < q.Limit {
-			out = append(out, row)
-			lastCursor = &cursor
-		} else {
-			seenExtra = true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return domain.ListResult{}, fmt.Errorf("processintegrity: iterate projection rows: %w", err)
-	}
+		counts     []domain.CountByWorkState
+		totalCount int64
+		summary    domain.AdherenceSummary
+		statsErr   error
+	)
 
-	counts := []domain.CountByWorkState{}
-	var totalCount int64
-	summary := domain.AdherenceSummary{}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		out, lastCursor, seenExtra, rowErr = r.fetchCanonicalRows(ctx, q, args)
+	}()
+
+	if q.RowID == nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if q.IncludeAdherenceSummary {
+				summaryRows := r.pool.QueryRow(ctx, processIntegrityCanonicalAdherenceSummarySQL, append([]any{pgx.QueryExecModeExec}, countQueryArgs(args)...)...)
+				if err := summaryRows.Scan(
+					&summary.ExpectedCount,
+					&summary.CompletedCount,
+					&summary.OpenGapCount,
+					&summary.DeferredCount,
+					&summary.ProcessIntactCount,
+				); err != nil {
+					statsErr = fmt.Errorf("processintegrity: canonical adherence summary: %w", err)
+					return
+				}
+				if summary.ExpectedCount > 0 {
+					summary.AdherencePercent = float64(summary.CompletedCount) / float64(summary.ExpectedCount) * 100
+				}
+				totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
+				return
+			}
+			counts, totalCount, statsErr = r.countByWorkStateCanonical(ctx, countQueryArgs(args))
+		}()
+	}
+	wg.Wait()
+	if rowErr != nil {
+		return domain.ListResult{}, rowErr
+	}
+	if statsErr != nil {
+		return domain.ListResult{}, statsErr
+	}
 	if q.RowID != nil {
 		totalCount = int64(len(out))
-	} else if q.IncludeAdherenceSummary {
-		summaryRows := r.pool.QueryRow(ctx, processIntegrityCanonicalAdherenceSummarySQL, append([]any{pgx.QueryExecModeExec}, countQueryArgs(args)...)...)
-		if err := summaryRows.Scan(
-			&summary.ExpectedCount,
-			&summary.CompletedCount,
-			&summary.OpenGapCount,
-			&summary.DeferredCount,
-			&summary.ProcessIntactCount,
-		); err != nil {
-			return domain.ListResult{}, fmt.Errorf("processintegrity: canonical adherence summary: %w", err)
-		}
-		if summary.ExpectedCount > 0 {
-			summary.AdherencePercent = float64(summary.CompletedCount) / float64(summary.ExpectedCount) * 100
-		}
-		totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
-	} else {
-		var err error
-		counts, totalCount, err = r.countByWorkStateCanonical(ctx, countQueryArgs(args))
-		if err != nil {
-			return domain.ListResult{}, err
-		}
 	}
 
 	var next *string
@@ -131,6 +248,34 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 		next = &encoded
 	}
 	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next, Projection: canonicalProjectionMetadata(q)}, nil
+}
+
+func (r *Repository) fetchCanonicalRows(ctx context.Context, q domain.Query, args []any) ([]domain.Row, *domain.Cursor, bool, error) {
+	rows, err := r.pool.Query(ctx, processIntegrityCanonicalRowsSQL, append([]any{pgx.QueryExecModeExec}, args...)...)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("processintegrity: list canonical rows: %w", err)
+	}
+	defer rows.Close()
+
+	out := []domain.Row{}
+	var lastCursor *domain.Cursor
+	seenExtra := false
+	for rows.Next() {
+		row, cursor, err := scanRow(rows)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if len(out) < q.Limit {
+			out = append(out, row)
+			lastCursor = &cursor
+		} else {
+			seenExtra = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, false, fmt.Errorf("processintegrity: iterate projection rows: %w", err)
+	}
+	return out, lastCursor, seenExtra, nil
 }
 
 // canonicalProjectionMetadata reports the live-canonical serving contract on the response envelope. A
@@ -507,7 +652,7 @@ func splitCSV(v string) []string {
 // projection-review: membership=obligation_instances rows for the tenant in the $4/$5 due window (one obligation per goat/rule/dose), collapsed in the grouped CTE to one grain per park/shed/batch/rule/protocol/business-date; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_id, protocol_version_id, protocol_name, dose_code, unbatched-business-date) with batched due/window display sourced from obligation_batches.planned_date and unbatched rows falling back to obligation due_at/window_start; join_cardinality=completions/asof_terminal deduplicated to 1:1 via DISTINCT ON / ARRAY_AGG-[1] before the join and the goat/sop/batch joins are keyed 1:1, so the COUNT/SUM in the grouped and aggregate wrappers cannot fan-out double-count; pagination=aggregate wrappers (counts/adherence) produce full-window totals independent of the LIST keyset/limit; scope=park/shed via located.park_uuid/shed_uuid + $2/$3, protocol via $9, owner via $8, category via $15, with the every-status buckets driven by the as_of-effective eff_status/work_state.
 // scale-guard:ignore: 5k-50k operational-kernel envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md). This base join is the canonical request-path read AND the off-request projector recompute source. It is tenant-scoped, bounded by the $4/$5 due window on the tenant+due_at index, keyset-paginated ($16-$19) at the LIST wrapper, and its aggregate wrappers pre-group in the DB — not an unbounded compute-on-read. The projection tables it also feeds are retained additively and removed in unit U7.
 const processIntegrityBaseSQL = `
-WITH completions AS (
+WITH completions AS MATERIALIZED (
   -- One effective completion per obligation, as_of-bounded. Migration 000082 keeps rejected/reversed
   -- history alongside one active row, so a direct join fans out (double-counting rework) and also leaks
   -- doses recorded AFTER as_of. Bound by event time (administered_at, falling back to created_at) <= as_of,
@@ -562,7 +707,7 @@ WITH completions AS (
     administered_at DESC NULLS LAST,
     created_at DESC
 ),
-asof_terminal AS (
+asof_terminal AS MATERIALIZED (
   -- Latest TERMINAL transition (missed/waived/deferred: statuses with no timestamp column on obligation_instances)
   -- AT OR BEFORE as_of, from the append-only event log. asof_terminal_type is the terminal status in effect
   -- at as_of (latest of missed/waived/deferred <= as_of, so sequences resolve to whichever was last

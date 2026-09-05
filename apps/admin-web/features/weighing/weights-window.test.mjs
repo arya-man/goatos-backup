@@ -83,6 +83,8 @@ test("analytics tab changes expose a visible pending state", () => {
   assert.match(segmentedLinksSource, /metricseg metricseg-pending/);
   assert.doesNotMatch(segmentedLinksSource, /metricseg-status/);
   assert.match(segmentedLinksSource, /metricseg:navigate/);
+  assert.doesNotMatch(segmentedLinksSource, /router\.prefetch/);
+  assert.doesNotMatch(segmentedLinksSource, /from "next\/link"/);
   assert.match(segmentedLinksSource, /aria-busy=\{isPending\}/);
   assert.match(analyticsSource, /<WeightsAnalyticsTabLoading[\s\S]*currentTab=\{tab\}[\s\S]*tabLabels=\{/);
   assert.match(analyticsSource, /className="wt-tab-live"/);
@@ -108,6 +110,12 @@ test("weights analytics sends the weighing mode through every tab read", () => {
   assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
   assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
   assert.match(analyticsSource, /weighingCategory=\{modeFilter !== "all" \? modeFilter : undefined\}/);
+});
+
+test("weights analytics tab links preserve the resolved weighing window", () => {
+  assert.match(analyticsSource, /\[WINDOW_FROM_PARAM\]: window\.from/);
+  assert.match(analyticsSource, /\[WINDOW_TO_PARAM\]: window\.to/);
+  assert.match(analyticsSource, /\[TAB_PARAM\]: name === "general" \? null : name/);
 });
 
 test("weights analytics fails selected tabs instead of rendering API failures as empty data", () => {

@@ -2544,7 +2544,7 @@ select:disabled { opacity: .45; }
 /* Command Board */
 .card.cbm { margin-bottom: 24px; }
 .cbm-loading { padding: 16px; color: var(--muted); }
-.cbm-unavailable { padding: 16px; color: var(--faint); }
+.cbm-unavailable { padding: 16px; color: var(--muted); }
 .cbm-kpi-row { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
 .cbm-kpi-row .kpi { flex: 1; min-width: 120px; }
 .cbm-kpi-row .kpi .dl { color: color-mix(in srgb,var(--muted) 58%,var(--ink)); }
@@ -2789,6 +2789,15 @@ select:disabled { opacity: .45; }
 .kpi-row{gap:16px}
 .kpi-row .kpi{padding:14px 16px}
 @media(max-width:1080px){.kpi-row{gap:12px}}
+.feed-analytics-kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.feed-analytics-kpis .kpi .val{overflow-wrap:normal;word-break:normal;line-height:1.08}
+@media(max-width:520px){
+  .feed-analytics-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .feed-analytics-kpis .kpi{padding:12px}
+  .feed-analytics-kpis .kpi .val{font-size:clamp(20px,8vw,24px)}
+  .feed-analytics-kpis .kpi .dl,.feed-analytics-kpis .kpi .muted.small{font-size:10.5px;line-height:1.25}
+}
+@media(max-width:380px){.feed-analytics-kpis{grid-template-columns:1fr}}
 .sales-loads-page .kpi-row{grid-template-columns:repeat(4,minmax(136px,1fr))}
 .sales-loads-page .kpi .val{overflow-wrap:normal;word-break:normal;white-space:nowrap;font-size:clamp(21px,4.8vw,26px)}
 .sales-loads-page .kpi .dl{line-height:1.35;color:color-mix(in srgb,var(--muted) 62%,var(--ink))}
@@ -3146,7 +3155,7 @@ select:disabled { opacity: .45; }
 .lt-page .lt-ftx{flex:1;min-width:0;font-size:12.5px}
 .lt-page .lt-ftx b{font-weight:680}
 .lt-page .lt-fmeta{color:var(--muted);font-size:11px;margin-top:1px;overflow-wrap:anywhere}
-.lt-page .lt-ftime{color:var(--faint);font-size:11px;white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
+.lt-page .lt-ftime{color:var(--muted);font-size:11px;white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
 
 /* A disabled stand-in must LOOK disabled. `cursor:not-allowed` alone left the three unbacked
    attention chips at full enabled appearance, with the reason reachable only by hover — invisible

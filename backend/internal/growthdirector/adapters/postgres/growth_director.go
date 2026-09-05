@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -49,6 +50,11 @@ obs AS (
     AND btrim(o.scanned_identifier) <> ''
     AND o.verification_status <> 'rework'
     AND ($9::text = '' OR cs.weighing_category = $9::text)
+    -- Growth Director keeps one shared parameter signature across its weighing-backed widgets.
+    -- Some widgets do not read whole-shed bucket scope directly, but pgx/Postgres still need the
+    -- empty arrays bound at $7/$8 to have a concrete type.
+    AND COALESCE(cardinality($7::text[]), 0) >= 0
+    AND COALESCE(cardinality($8::text[]), 0) >= 0
     -- Sex filter, applied ONCE for every widget that starts from this CTE. $5 is FALSE for the
     -- unfiltered page, which therefore runs exactly the query it ran before. The tag list is
     -- resolved by the weighing package's sex_scope.go, so the Weights page and these widgets
@@ -105,9 +111,40 @@ const breedSexJoin = `
 // by the caller: this method does no scoping of its own.
 func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.GrowthDirectorWeights, error) {
 	loc := biztime.DefaultLocation()
+	startDate := periodStart.In(loc).Format("2006-01-02")
+	endExclusiveDate := periodEnd.In(loc).Format("2006-01-02")
+	cacheKey := growthDirectorReadKey("weights", tenantID, strings.Join(append([]string{}, parkIDs...), ","), startDate, endExclusiveDate, sex, origin, weighingCategory)
+	if cached, ok := r.getCachedRead(cacheKey); ok {
+		if out, ok := cached.(domain.GrowthDirectorWeights); ok {
+			return out, nil
+		}
+	}
+	flight, owner := r.beginReadFlight(cacheKey)
+	if !owner {
+		select {
+		case <-ctx.Done():
+			return domain.GrowthDirectorWeights{}, ctx.Err()
+		case <-flight.done:
+			if flight.err != nil {
+				return domain.GrowthDirectorWeights{}, flight.err
+			}
+			if out, ok := flight.val.(domain.GrowthDirectorWeights); ok {
+				return out, nil
+			}
+			return domain.GrowthDirectorWeights{}, fmt.Errorf("growthdirector: cached weights had unexpected type")
+		}
+	}
+	var flightOut domain.GrowthDirectorWeights
+	var flightErr error
+	defer func() {
+		if flightErr == nil {
+			r.setCachedRead(cacheKey, flightOut)
+		}
+		r.finishReadFlight(cacheKey, flight, flightOut, flightErr)
+	}()
 	out := domain.GrowthDirectorWeights{
 		Period: domain.Period{
-			Start: periodStart.In(loc).Format("2006-01-02"),
+			Start: startDate,
 			// periodEnd arrives half-open; the label the screen shows is the
 			// inclusive last day.
 			End:        periodEnd.In(loc).AddDate(0, 0, -1).Format("2006-01-02"),
@@ -121,14 +158,13 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 		FeedProblems: domain.FeedProblems{Items: []domain.FeedProblemItem{}},
 	}
 	if len(parkIDs) == 0 {
+		flightOut = out
 		return out, nil
 	}
 
 	// The SQL window params are business DATES rendered in Asia/Kolkata, not
 	// timestamps: casting a timestamptz param to ::date inside SQL would apply
 	// the session time zone and shift the boundary a day.
-	startDate := periodStart.In(loc).Format("2006-01-02")
-	endExclusiveDate := periodEnd.In(loc).Format("2006-01-02")
 
 	// The SAME resolver the Weights page uses, called ONCE for all six widgets. Two
 	// implementations of "which kids are male" would drift, and one of the two would be the one
@@ -136,6 +172,7 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	// them and show six widgets about six slightly different populations.
 	scope, scopeErr := weighingpg.ResolveSexScope(ctx, r.pool, tenantID, parkIDs, sex, periodStart, periodEnd)
 	if scopeErr != nil {
+		flightErr = scopeErr
 		return out, scopeErr
 	}
 	// Origin (farm born / purchased) is resolved by the SAME weighing-owned resolver the Weights
@@ -145,6 +182,7 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	// change when the second one was added.
 	originScope, originErr := weighingpg.ResolveOriginScope(ctx, r.pool, tenantID, parkIDs, origin, periodStart, periodEnd)
 	if originErr != nil {
+		flightErr = originErr
 		return out, originErr
 	}
 	sexApplied := strings.TrimSpace(sex) != ""
@@ -154,28 +192,36 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 
 	parks, err := r.parks(ctx, tenantID, parkIDs)
 	if err != nil {
+		flightErr = err
 		return out, err
 	}
 	out.Parks = parks
 
 	if out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
+		flightErr = err
 		return out, err
 	}
 	if out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
+		flightErr = err
 		return out, err
 	}
 	if out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
+		flightErr = err
 		return out, err
 	}
 	if out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
+		flightErr = err
 		return out, err
 	}
 	if out.FeedProblems, err = r.feedProblems(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
+		flightErr = err
 		return out, err
 	}
 	if out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
+		flightErr = err
 		return out, err
 	}
+	flightOut = out
 	return out, nil
 }
 
@@ -263,8 +309,8 @@ lump_obs AS (
     -- not through a tag it does not have. $5 is FALSE for the unfiltered page, which therefore runs
     -- this arm unnarrowed.
     AND (NOT $5::bool OR EXISTS (
-      SELECT 1 FROM unnest($7::uuid[], $8::text[]) AS b(loc, part)
-      WHERE b.loc = cs.location_id AND b.part = COALESCE(cs.partition_label, '')
+      SELECT 1 FROM unnest($7::text[], $8::text[]) AS b(loc, part)
+      WHERE b.loc = cs.location_id::text AND b.part = COALESCE(cs.partition_label, '')
     ))
 ),
 -- ONE WEIGH PER PEN PER CAMPAIGN WEEK, newest wins -- the same round grain round_latest applies to
@@ -406,8 +452,8 @@ shed_obs AS (
     -- A whole-shed weigh has no tag, so under a filter it counts only when its shed's cohort is
     -- that sex — the same claim rule the Weights page applies, from the same resolver.
     AND (NOT $5::bool OR EXISTS (
-      SELECT 1 FROM unnest($7::uuid[], $8::text[]) AS b(loc, part)
-      WHERE b.loc = cs.location_id AND b.part = COALESCE(cs.partition_label, '')
+      SELECT 1 FROM unnest($7::text[], $8::text[]) AS b(loc, part)
+      WHERE b.loc = cs.location_id::text AND b.part = COALESCE(cs.partition_label, '')
     ))
 )
 SELECT

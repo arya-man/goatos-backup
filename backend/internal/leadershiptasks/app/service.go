@@ -195,15 +195,21 @@ func (s *Service) AttachmentDownloadURL(ctx context.Context, tenantID string, ac
 	if err != nil {
 		return "", err
 	}
+	if s.downloader == nil {
+		return "", ports.ErrInvalidAttachment
+	}
+	proofID = strings.TrimSpace(proofID)
+	found := false
 	for _, attachment := range task.Attachments {
-		if strings.TrimSpace(attachment.ProofID) == strings.TrimSpace(proofID) {
-			if s.downloader == nil {
-				return "", ports.ErrInvalidAttachment
-			}
-			return s.downloader.DownloadURL(ctx, tenantID, proofID) // scale-guard:ignore: proofID is validated against this one task's already-loaded attachment set; only the selected attachment receives a signed URL.
+		if strings.TrimSpace(attachment.ProofID) == proofID {
+			found = true
+			break
 		}
 	}
-	return "", ports.ErrTaskNotFound
+	if !found {
+		return "", ports.ErrTaskNotFound
+	}
+	return s.downloader.DownloadURL(ctx, tenantID, proofID) // scale-guard:ignore: proofID is validated against this one task's already-loaded attachment set; only the selected attachment receives a signed URL.
 }
 
 // UnseenCount answers the drawer badge.

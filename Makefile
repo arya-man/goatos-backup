@@ -1383,7 +1383,7 @@ api-latency-policy-test:
 	node --test tools/perf/api-latency-policy.test.mjs tools/perf/api-latency-evidence.test.mjs tools/perf/request-path-evidence.test.mjs
 
 api-latency-gate:
-	node tools/perf/api-latency-gate.mjs --manifest tools/perf/hot-paths.vaccination.json
+	for manifest in tools/perf/hot-paths.*.json; do node tools/perf/api-latency-gate.mjs --manifest "$$manifest"; done
 
 high-scale-kernel-e2e-all:
 	GOATOS_KERNEL_E2E_RUN_BROWSER=1 bash tools/dev/high-scale-kernel-e2e-all.sh

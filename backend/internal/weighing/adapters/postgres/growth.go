@@ -3,8 +3,12 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -16,6 +20,133 @@ import (
 // this screen for a one-week window. 400 days comfortably covers a goat's whole growth-tracked
 // life (kid to sale) while keeping the scan bounded.
 const growthLookbackDays = 400
+
+// Keep this as a short admin-navigation burst cache. Weighing writes invalidate the cache inside
+// the serving process, but Cloud Run instances do not share invalidation, so the TTL must stay low
+// enough for close/rework/correction writes to settle quickly while avoiding repeated heavy reads
+// during fast sidebar/tab switching.
+const weighingAnalyticsCacheTTL = 30 * time.Second
+
+func weighingAnalyticsCacheKey(prefix string, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) string {
+	parks := append([]string(nil), parkIDs...)
+	sort.Strings(parks)
+	return fmt.Sprintf("%s:%s:%s:%s:%s:%s:%s:%s",
+		prefix, tenantID, strings.Join(parks, ","), periodStart.UTC().Format(time.RFC3339),
+		periodEnd.UTC().Format(time.RFC3339), strings.TrimSpace(sex), strings.TrimSpace(origin), strings.TrimSpace(weighingCategory))
+}
+
+func (r *Repository) getReadCache(key string) (any, bool) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	entry, ok := r.readCache[key]
+	if !ok || time.Now().After(entry.expiresAt) {
+		if ok {
+			delete(r.readCache, key)
+		}
+		return nil, false
+	}
+	return entry.value, true
+}
+
+func (r *Repository) readCacheEpoch() uint64 {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	return r.cacheEpoch
+}
+
+func (r *Repository) setReadCacheIfEpoch(key string, value any, epoch uint64) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if r.cacheEpoch != epoch {
+		return
+	}
+	if len(r.readCache) > 256 {
+		r.readCache = make(map[string]readCacheEntry, 64)
+	}
+	r.readCache[key] = readCacheEntry{expiresAt: time.Now().Add(weighingAnalyticsCacheTTL), value: value}
+}
+
+func (r *Repository) getOrLoadReadCacheIfEpoch(ctx context.Context, key string, epoch uint64, load func(context.Context) (any, error)) (any, error) {
+	if cached, ok := r.getReadCache(key); ok {
+		return cached, nil
+	}
+
+	r.cacheMu.Lock()
+	if flight, ok := r.readFlight[key]; ok {
+		r.cacheMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-flight.done:
+			if flight.err != nil {
+				return nil, flight.err
+			}
+			return flight.value, nil
+		}
+	}
+	flight := &readFlight{done: make(chan struct{})}
+	r.readFlight[key] = flight
+	r.cacheMu.Unlock()
+
+	value, err := load(ctx)
+	if err == nil {
+		r.setReadCacheIfEpoch(key, value, epoch)
+	}
+
+	r.cacheMu.Lock()
+	flight.value = value
+	flight.err = err
+	close(flight.done)
+	if r.readFlight[key] == flight {
+		delete(r.readFlight, key)
+	}
+	r.cacheMu.Unlock()
+	return value, err
+}
+
+func (r *Repository) beginReadFlight(ctx context.Context, key string) (*readFlight, bool, error) {
+	r.cacheMu.Lock()
+	if flight, ok := r.readFlight[key]; ok {
+		r.cacheMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		case <-flight.done:
+			return flight, false, flight.err
+		}
+	}
+	flight := &readFlight{done: make(chan struct{})}
+	r.readFlight[key] = flight
+	r.cacheMu.Unlock()
+	return flight, true, nil
+}
+
+func (r *Repository) finishReadFlight(key string, flight *readFlight, value any, err error) {
+	r.cacheMu.Lock()
+	flight.value = value
+	flight.err = err
+	close(flight.done)
+	if r.readFlight[key] == flight {
+		delete(r.readFlight, key)
+	}
+	r.cacheMu.Unlock()
+}
+
+func (r *Repository) invalidateReadCache() {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	r.cacheEpoch++
+	r.readCache = make(map[string]readCacheEntry)
+	r.readFlight = make(map[string]*readFlight)
+}
+
+func (r *Repository) commitAndInvalidateReadCache(ctx context.Context, tx pgx.Tx) error {
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	r.invalidateReadCache()
+	return nil
+}
 
 // growthPairsCTE is the shared base: resolve each accepted, non-rejected individual observation
 // to an animal BY ITS RAW SCANNED TAG ALONE, then pair each observation with the PRECEDING one
@@ -116,9 +247,29 @@ qualifying AS (
 //
 // periodStart/periodEnd are Asia/Kolkata business-day boundaries expressed as UTC instants by
 // the caller (the service layer), half-open [periodStart, periodEnd).
-func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.GrowthADG, error) {
+func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (out domain.GrowthADG, err error) {
+	cacheKey := weighingAnalyticsCacheKey("growth_adg", tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		return cached.(domain.GrowthADG), nil
+	}
+	cacheEpoch := r.readCacheEpoch()
+
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
+	flight, ownsFlight, flightErr := r.beginReadFlight(ctx, cacheKey)
+	if flightErr != nil {
+		return domain.GrowthADG{}, flightErr
+	}
+	if !ownsFlight {
+		return flight.value.(domain.GrowthADG), nil
+	}
+	defer func() {
+		if err == nil {
+			r.finishReadFlight(cacheKey, flight, out, nil)
+			return
+		}
+		r.finishReadFlight(cacheKey, flight, nil, err)
+	}()
 
 	// Resolved ONCE for the whole read: every widget below must talk about the same kids, and
 	// resolving per helper would let a slow herd write land between two of them and show a
@@ -148,12 +299,32 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	lookbackStart := periodStart.Add(-growthLookbackDays * 24 * time.Hour)
 	prevLookbackStart := prevStart.Add(-growthLookbackDays * 24 * time.Hour)
 
-	headline, err := r.growthHeadlineStats(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.GrowthADG{}, err
-	}
-	prevHeadline, err := r.growthHeadlineStats(ctx, tenantID, parkIDs, prevLookbackStart, prevStart, prevEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
+	var (
+		headline     domain.GrowthADGHeadline
+		prevHeadline domain.GrowthADGHeadline
+		errs         = make(chan error, 2)
+		wg           sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		var err error
+		headline, err = r.growthHeadlineStats(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		if err != nil {
+			errs <- err
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		var err error
+		prevHeadline, err = r.growthHeadlineStats(ctx, tenantID, parkIDs, prevLookbackStart, prevStart, prevEnd, sexFiltered, scope, weighingCategory)
+		if err != nil {
+			errs <- err
+		}
+	}()
+	wg.Wait()
+	close(errs)
+	if err := <-errs; err != nil {
 		return domain.GrowthADG{}, err
 	}
 	// ZERO must never stand in for UNKNOWN: Status/PreviousStatus (set inside growthHeadlineStats)
@@ -169,49 +340,6 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		headline.DeltaGPerDay = &delta
 	}
 
-	rejected, err := r.growthRejectedCount(ctx, tenantID, parkIDs, periodStart, periodEnd, weighingCategory)
-	if err != nil {
-		return domain.GrowthADG{}, err
-	}
-	headline.RejectedObservationCount = rejected
-
-	eligibility, err := r.growthEligibility(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.GrowthADG{}, err
-	}
-
-	trend, err := r.growthTrend(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.GrowthADG{}, err
-	}
-	// The weekly cut of the HEADLINE statistic, beside the pair-median trend above. Both are
-	// served: `trend` for the surfaces already reading it, `weeklyGain` for any chart that sits
-	// next to the headline and must agree with it.
-	weeklyGain, err := r.growthWeeklyGain(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.GrowthADG{}, err
-	}
-
-	leaderboard, err := r.growthShedLeaderboard(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.GrowthADG{}, err
-	}
-
-	distribution, err := r.growthDistribution(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.GrowthADG{}, err
-	}
-
-	saleReadiness, err := r.growthSaleReadiness(ctx, tenantID, parkIDs, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.GrowthADG{}, err
-	}
-
-	lumpSum, err := r.growthLumpSumTrend(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.GrowthADG{}, err
-	}
-
 	// ParkID stays the single-park value only when exactly one park was requested (the
 	// pre-existing single-park contract); ParkIDs always carries the full authorized set the
 	// service layer resolved, whether that is one park or the caller's whole authorized scope.
@@ -219,14 +347,88 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	if len(parkIDs) == 1 {
 		singlePark = parkIDs[0]
 	}
-	parks, err := r.growthParkNames(ctx, tenantID, parkIDs)
-	if err != nil {
+
+	var (
+		rejected      int
+		eligibility   domain.GrowthEligibility
+		trend         []domain.GrowthTrendPoint
+		weeklyGain    []domain.GrowthWeeklyGainPoint
+		leaderboard   []domain.GrowthShedLeaderboardRow
+		distribution  []domain.GrowthDistributionBucket
+		saleReadiness domain.GrowthSaleReadiness
+		lumpSum       domain.GrowthLumpSum
+		parks         []domain.GrowthPark
+		losing        []domain.GrowthLosingAnimal
+	)
+	errs = make(chan error, 10)
+	wg = sync.WaitGroup{}
+	run := func(fn func() error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := fn(); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	// These arms are independent once sex/origin scope is resolved. Running them in parallel keeps
+	// the page truthful while avoiding a long chain of remote DB round trips on every cache miss.
+	run(func() error {
+		var err error
+		rejected, err = r.growthRejectedCount(ctx, tenantID, parkIDs, periodStart, periodEnd, weighingCategory)
+		return err
+	})
+	run(func() error {
+		var err error
+		eligibility, err = r.growthEligibility(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		return err
+	})
+	run(func() error {
+		var err error
+		trend, err = r.growthTrend(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		return err
+	})
+	run(func() error {
+		var err error
+		weeklyGain, err = r.growthWeeklyGain(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		return err
+	})
+	run(func() error {
+		var err error
+		leaderboard, err = r.growthShedLeaderboard(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		return err
+	})
+	run(func() error {
+		var err error
+		distribution, err = r.growthDistribution(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		return err
+	})
+	run(func() error {
+		var err error
+		saleReadiness, err = r.growthSaleReadiness(ctx, tenantID, parkIDs, sexFiltered, scope, weighingCategory)
+		return err
+	})
+	run(func() error {
+		var err error
+		lumpSum, err = r.growthLumpSumTrend(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		return err
+	})
+	run(func() error {
+		var err error
+		parks, err = r.growthParkNames(ctx, tenantID, parkIDs)
+		return err
+	})
+	run(func() error {
+		var err error
+		losing, err = r.growthLosingAnimals(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		return err
+	})
+	wg.Wait()
+	close(errs)
+	if err := <-errs; err != nil {
 		return domain.GrowthADG{}, err
 	}
-	losing, err := r.growthLosingAnimals(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.GrowthADG{}, err
-	}
+	headline.RejectedObservationCount = rejected
 	// Per-park cut of the SAME headline statistic, and only when there is more than one park to
 	// cut: with a single park in scope the headline above already IS that park's figure, so the
 	// query would cost a scan to restate a number the response carries twice.
@@ -239,7 +441,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	}
 	// The tile drills into this list, so the count it shows must be the length of THIS list.
 	headline.LosingAnimalCount = len(losing)
-	return domain.GrowthADG{
+	out = domain.GrowthADG{
 		ParkID:          singlePark,
 		ParkIDs:         parkIDs,
 		Parks:           parks,
@@ -255,7 +457,9 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		Distribution:    distribution,
 		SaleReadiness:   saleReadiness,
 		LumpSum:         lumpSum,
-	}, nil
+	}
+	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
+	return out, nil
 }
 
 func (r *Repository) growthHeadlineStats(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) (domain.GrowthADGHeadline, error) {

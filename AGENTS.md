@@ -4060,6 +4060,25 @@ one** — an adversarial audit found ~150 `exception-guard` FAILs and 51
 `telemetry-guard` FAILs sitting in this tree with a permanently green
 `ci-local` before this ratchet existed.
 
+## Goat OS Hot-Path Performance Guardrail
+
+When editing route-critical backend reads or admin-web/mobile pages that load
+Calendar, Vaccination live tracker, Weighing analytics, Feed analytics, Action
+Center, Protocol Adherence, or Control Tower, update the matching
+`tools/perf/hot-paths.*.json` manifest and run `make api-latency-policy-test`
+plus the relevant `node tools/perf/api-latency-gate.mjs --manifest ...` check
+against the local API before pushing. Do not leave a new or changed sidebar
+route without a p90/p95/p99 guard.
+
+The standing budget for these hot reads is p90 <= 300ms and p95/p99 <= 500ms.
+If a read cannot meet that on the local CEO/CXO path pointed at the OCI/STG-like
+database, fix the query or serving shape instead of loosening thresholds.
+Burst caches are allowed only for read-only analytics summaries and must be
+keyed by tenant, authorized parks, date window, pagination, status/filter shape,
+and endpoint-specific selectors. Do not cache mutation-sensitive reads such as
+calendar action lists or feed stock read-after-write paths unless the same
+change also proves correct invalidation.
+
 ## Mesha / Goat OS RFID Language
 
 When a maintainer asks for "RFID", "tag", or "tag IDs" for animals in Goat OS,

@@ -12,6 +12,7 @@ import (
 type fakeOwnership struct {
 	managers map[string]*domain.ShedOwner
 	backups  map[string]*domain.ShedOwner
+	calls    *int
 	err      error
 }
 
@@ -23,6 +24,9 @@ func (f fakeOwnership) ShedOwnership(_ context.Context, _, shedID, _ string, _ t
 }
 
 func (f fakeOwnership) ShedOwnerships(_ context.Context, _ string, sheds []domain.ShedOwnershipScope, _ time.Time) (map[string]domain.ShedOwnership, error) {
+	if f.calls != nil {
+		*f.calls++
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -148,6 +152,52 @@ func TestShedSummaryPassesThroughPlannerAndOwners(t *testing.T) {
 	}
 	if r1.Manager != nil || r1.Backup != nil {
 		t.Errorf("Godell should be a manager/backup seed gap (nil), got %+v/%+v", r1.Manager, r1.Backup)
+	}
+}
+
+func TestShedSummaryCachesDecoratedResponseForRouteSwitches(t *testing.T) {
+	proj := []domain.ShedSummaryProjection{
+		{ParkID: "p1", ParkName: "CBE", ShedID: "s1", ShedName: "Castro 1", Animals: 54, DueAnimals: 53, Sessions: 1, Capacity: domain.CapacityWithinCap, Status: domain.ShedStatusDue, TotalCount: 1},
+	}
+	repoCalls := 0
+	ownerCalls := 0
+	svc := NewService(fakeRepo{shedRows: proj, shedCalls: &repoCalls}, fakeOwnership{calls: &ownerCalls})
+	query := domain.ShedSummaryQuery{TenantID: "t1", Limit: 50, AsOf: time.Date(2026, 9, 4, 12, 1, 0, 0, time.UTC)}
+
+	first, err := svc.ShedSummary(context.Background(), query)
+	if err != nil {
+		t.Fatalf("first ShedSummary: %v", err)
+	}
+	second, err := svc.ShedSummary(context.Background(), query)
+	if err != nil {
+		t.Fatalf("second ShedSummary: %v", err)
+	}
+	if len(first.Rows) != 1 || len(second.Rows) != 1 {
+		t.Fatalf("cached rows first=%d second=%d", len(first.Rows), len(second.Rows))
+	}
+	if repoCalls != 1 || ownerCalls != 1 {
+		t.Fatalf("repo/owner calls = %d/%d, want 1/1", repoCalls, ownerCalls)
+	}
+}
+
+func TestShedSummaryCachePreservesExactAsOfSnapshots(t *testing.T) {
+	proj := []domain.ShedSummaryProjection{
+		{ParkID: "p1", ParkName: "CBE", ShedID: "s1", ShedName: "Castro 1", Animals: 54, DueAnimals: 53, Sessions: 1, Capacity: domain.CapacityWithinCap, Status: domain.ShedStatusDue, TotalCount: 1},
+	}
+	repoCalls := 0
+	ownerCalls := 0
+	svc := NewService(fakeRepo{shedRows: proj, shedCalls: &repoCalls}, fakeOwnership{calls: &ownerCalls})
+	firstAsOf := time.Date(2026, 9, 4, 12, 1, 0, 0, time.UTC)
+	secondAsOf := time.Date(2026, 9, 4, 12, 4, 0, 0, time.UTC)
+
+	if _, err := svc.ShedSummary(context.Background(), domain.ShedSummaryQuery{TenantID: "t1", Limit: 50, AsOf: firstAsOf}); err != nil {
+		t.Fatalf("first ShedSummary: %v", err)
+	}
+	if _, err := svc.ShedSummary(context.Background(), domain.ShedSummaryQuery{TenantID: "t1", Limit: 50, AsOf: secondAsOf}); err != nil {
+		t.Fatalf("second ShedSummary: %v", err)
+	}
+	if repoCalls != 2 || ownerCalls != 2 {
+		t.Fatalf("repo/owner calls = %d/%d, want exact as_of cache miss 2/2", repoCalls, ownerCalls)
 	}
 }
 

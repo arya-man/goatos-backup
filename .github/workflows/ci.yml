@@ -252,8 +252,19 @@ jobs:
           GOATOS_BEARER_TOKEN="$token" node tools/perf/api-latency-gate.mjs \
             --manifest tools/perf/hot-paths.vaccination.json \
             --output artifacts/api-latency/current-sha.json
+          GOATOS_BEARER_TOKEN="$token" \
+          GOATOS_PERF_DATASET_LABEL="ci_local_oci_analytics_fixture" \
+          GOATOS_PERF_DATASET_ANIMALS=0 \
+          GOATOS_PERF_DATASET_CANONICAL_ROWS=0 \
+          GOATOS_PERF_CERTIFICATION_BOUNDARY="local_oci_latency_only" \
+          node tools/perf/api-latency-gate.mjs \
+            --manifest tools/perf/hot-paths.analytics.json \
+            --output artifacts/api-latency/current-sha-analytics.json
           node tools/perf/api-latency-evidence.mjs \
             --report artifacts/api-latency/current-sha.json \
+            --expected-sha "$GITHUB_SHA"
+          node tools/perf/api-latency-evidence.mjs \
+            --report artifacts/api-latency/current-sha-analytics.json \
             --expected-sha "$GITHUB_SHA"
       - name: Stop API and print its log
         if: always()

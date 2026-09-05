@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,6 +25,10 @@ import (
 )
 
 const defaultQueryTimeout = 3 * time.Second
+
+// Keep this as a microburst cache only. Cloud Run instances do not share invalidation, and
+// verification counts are mutable while reviewers work.
+const verificationReadCacheTTL = 2 * time.Second
 
 // Status-event types emitted on the existing outbox bus (build-handover-20260713.md §1 P0 1a — "the
 // Max seam"). The notification producer session consumes these to fan out pushes; this module only
@@ -51,15 +56,23 @@ const (
 )
 
 type Repository struct {
-	pool    *pgxpool.Pool
-	timeout time.Duration
+	pool      *pgxpool.Pool
+	timeout   time.Duration
+	cacheMu   sync.Mutex
+	readCache map[string]verificationReadCacheEntry
+	cacheEpoch uint64
+}
+
+type verificationReadCacheEntry struct {
+	expiresAt time.Time
+	value     any
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, timeout: queryTimeout}
+	return &Repository{pool: pool, timeout: queryTimeout, readCache: map[string]verificationReadCacheEntry{}}
 }
 
 var _ ports.Repository = (*Repository)(nil)
@@ -80,6 +93,65 @@ func (r *Repository) WithVerdictLock(ctx context.Context, tenantID, itemID strin
 		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", key)
 	}()
 	return fn(ctx)
+}
+
+func (r *Repository) getCachedValue(key string) (any, bool) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	entry, ok := r.readCache[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(r.readCache, key)
+		return nil, false
+	}
+	return entry.value, true
+}
+
+func (r *Repository) setCachedValue(key string, value any) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	r.readCache[key] = verificationReadCacheEntry{expiresAt: time.Now().Add(verificationReadCacheTTL), value: value}
+}
+
+func (r *Repository) readCacheEpoch() uint64 {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	return r.cacheEpoch
+}
+
+func (r *Repository) setCachedValueIfEpoch(key string, value any, epoch uint64) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if r.cacheEpoch != epoch {
+		return
+	}
+	r.readCache[key] = verificationReadCacheEntry{expiresAt: time.Now().Add(verificationReadCacheTTL), value: value}
+}
+
+func (r *Repository) invalidateReadCache() {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	r.cacheEpoch++
+	clear(r.readCache)
+}
+
+func verificationQueueOptionsCacheKey(params ports.ListQueueParams) string {
+	return fmt.Sprintf("queue-options:%s:%s:%s:%s:%s:%s:%s:%t:%v:%s:%s:%t:%t:%s:%s:%t:%s:%t",
+		params.TenantID, params.Status, params.Category, strings.Join(params.Categories, ","), params.Vertical,
+		params.Module, params.NavigationModule, params.ScopeRestricted, params.ParkIDs, params.ParkID,
+		params.ShedID, params.SubmissionScopedOnly, params.OpenOnly, timeKey(params.CapturedFrom),
+		timeKey(params.CapturedBefore), params.AwaitingApplicationOnly, timeKey(params.MissedBefore),
+		params.SamplingApplied,
+	)
+}
+
+func timeKey(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
 }
 
 func verdictLockKey(tenantID, itemID string) int64 {
@@ -190,6 +262,7 @@ WHERE vi.tenant_id = $1::uuid AND vi.item_id = $2::uuid`, in.TenantID, itemID).S
 	if err := tx.Commit(ctx); err != nil {
 		return domain.CreateItemResult{}, err
 	}
+	r.invalidateReadCache()
 	return domain.CreateItemResult{Item: item, Created: created}, nil
 }
 
@@ -416,6 +489,13 @@ LIMIT $11`,
 func (r *Repository) ListQueueFilterOptions(ctx context.Context, params ports.ListQueueParams) (domain.QueueFilterOptions, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	cacheKey := verificationQueueOptionsCacheKey(params)
+	if cached, ok := r.getCachedValue(cacheKey); ok {
+		if options, ok := cached.(domain.QueueFilterOptions); ok {
+			return options, nil
+		}
+	}
+	cacheEpoch := r.readCacheEpoch()
 	options := domain.QueueFilterOptions{}
 	filterShedID, filterPartition := splitShedFilter(params.ShedID)
 
@@ -628,6 +708,7 @@ SELECT EXISTS (
 			return options, err
 		}
 	}
+	r.setCachedValueIfEpoch(cacheKey, options, cacheEpoch)
 	return options, nil
 }
 
@@ -697,6 +778,7 @@ WHERE tenant_id = $1::uuid
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Item{}, err
 	}
+	r.invalidateReadCache()
 	return item, nil
 }
 
@@ -745,6 +827,7 @@ FOR UPDATE`, in.TenantID, in.SubmissionID)
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
+		r.invalidateReadCache()
 		return items, nil
 	}
 
@@ -892,6 +975,7 @@ WHERE ob.tenant_id = $1::uuid
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
+		r.invalidateReadCache()
 		return items, nil
 	}
 	for _, item := range items {
@@ -950,6 +1034,7 @@ ORDER BY captured_at, item_id`, in.TenantID, in.SubmissionID)
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
+	r.invalidateReadCache()
 	return closedItems, nil
 }
 
@@ -1618,6 +1703,7 @@ WHERE vcr.tenant_id = $1::uuid
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
+		r.invalidateReadCache()
 		return items, nil
 	}
 	if !reservation.proceed && reservation.resultID != in.BatchID {
@@ -1713,6 +1799,7 @@ ORDER BY vi.captured_at, vi.item_id`, in.TenantID, in.BatchID, vaccinationProofC
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
+	r.invalidateReadCache()
 	return closedItems, nil
 }
 
@@ -2012,6 +2099,7 @@ WHERE tenant_id = $4::uuid
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Item{}, err
 	}
+	r.invalidateReadCache()
 	return item, nil
 }
 
@@ -2760,6 +2848,7 @@ RETURNING `+itemColumns, tenantID, sourceModule, sourceRefType, sourceRefIDs)
 	if err := tx.Commit(ctx); err != nil {
 		return 0, mapWriteErr(err)
 	}
+	r.invalidateReadCache()
 	return len(withdrawn), nil
 }
 
@@ -2809,7 +2898,11 @@ WHERE tenant_id = $1::uuid
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
-	return int(tag.RowsAffected()), nil
+	affected := int(tag.RowsAffected())
+	if affected > 0 {
+		r.invalidateReadCache()
+	}
+	return affected, nil
 }
 
 // MarkVerdictApplied is the producing module's RECEIPT that it wrote a verdict
@@ -2873,5 +2966,9 @@ WHERE tenant_id = $1::uuid
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
-	return int(tag.RowsAffected()), nil
+	affected := int(tag.RowsAffected())
+	if affected > 0 {
+		r.invalidateReadCache()
+	}
+	return affected, nil
 }

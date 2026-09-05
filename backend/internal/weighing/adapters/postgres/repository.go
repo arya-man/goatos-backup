@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,14 +22,34 @@ import (
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
+const defaultQueryTimeout = 3 * time.Second
+
 type Repository struct {
 	pool         *pgxpool.Pool
 	queryTimeout time.Duration
 	proofURLs    ProofURLResolver
+	cacheMu      sync.Mutex
+	readCache    map[string]readCacheEntry
+	readFlight   map[string]*readFlight
+	cacheEpoch   uint64
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
-	return &Repository{pool: pool, queryTimeout: queryTimeout}
+	if queryTimeout <= 0 {
+		queryTimeout = defaultQueryTimeout
+	}
+	return &Repository{pool: pool, queryTimeout: queryTimeout, readCache: map[string]readCacheEntry{}, readFlight: map[string]*readFlight{}}
+}
+
+type readCacheEntry struct {
+	expiresAt time.Time
+	value     any
+}
+
+type readFlight struct {
+	done  chan struct{}
+	value any
+	err   error
 }
 
 // WithProofURLResolver wires the CSV export's proof-video URL resolution. Without it,
@@ -197,7 +218,7 @@ RETURNING campaign_shed_id::text, $1::text, $3::text, $4, $5, expected_animal_co
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_created", c.CampaignID, cmd.IdempotencyKey, requestFingerprint, c); err != nil {
 		return domain.Campaign{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return domain.Campaign{}, err
 	}
 	c.Progress = progress(c.Sheds, 0, 0, 0, 0)
@@ -469,7 +490,7 @@ RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, sh
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_updated", campaignID, cmd.IdempotencyKey, fingerprint, c); err != nil {
 		return domain.Campaign{}, err
 	}
-	return c, tx.Commit(ctx)
+	return c, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, actorID, idempotencyKey string) (domain.Campaign, error) {
@@ -546,7 +567,7 @@ func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, 
 	}); err != nil {
 		return domain.Campaign{}, err
 	}
-	return c, tx.Commit(ctx)
+	return c, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 func (r *Repository) ListCampaigns(ctx context.Context, tenantID, parkID string, cursor string, limit int) (domain.CampaignPage, error) {
@@ -1692,7 +1713,7 @@ func (r *Repository) observationByIdemPool(ctx context.Context, tenantID, eventT
 	if !ok {
 		return domain.Observation{}, ports.ErrNotFound
 	}
-	return obs, tx.Commit(ctx)
+	return obs, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 // observationTagHasOpenRow reports whether ANY row -- regardless of which
@@ -1763,7 +1784,7 @@ func (r *Repository) recordAnimalObservationAttempt(ctx context.Context, cmd dom
 		if err != nil {
 			return domain.Observation{}, err
 		}
-		if err := tx.Commit(ctx); err != nil {
+		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return domain.Observation{}, mapObservationUniqueViolation(err)
 		}
 		return existing, nil
@@ -2128,7 +2149,7 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_te
 	// exactly when PostgreSQL's SSI conflict detection fires relative to the
 	// row-lock wait -- so this Commit error is mapped through the same
 	// translator as the write query's error, not returned raw.
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return domain.Observation{}, mapObservationUniqueViolation(err)
 	}
 	return obs, nil
@@ -2245,7 +2266,7 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 		if err != nil {
 			return domain.Observation{}, err
 		}
-		return existing, tx.Commit(ctx)
+		return existing, r.commitAndInvalidateReadCache(ctx, tx)
 	}
 	// Lock-ordering convention (see lockCampaignRowForNoKeyUpdate): campaign
 	// row before bucket row, always. Must happen before the query below,
@@ -2418,7 +2439,7 @@ WHERE tenant_id=$1::uuid
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.shed_observation_accepted", obs.ObservationID, cmd.IdempotencyKey, fingerprint, obs); err != nil {
 		return domain.Observation{}, err
 	}
-	return obs, tx.Commit(ctx)
+	return obs, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 // markScopeInProgressOnCapture moves a bucket from 'pending' to 'in_progress' the
@@ -2675,7 +2696,7 @@ func (r *Repository) SubmitIndividualScope(ctx context.Context, tenantID, campai
 		if resourceType != "weighing_campaign_shed" {
 			return ports.ErrIdempotencyConflict
 		}
-		return tx.Commit(ctx)
+		return r.commitAndInvalidateReadCache(ctx, tx)
 	}
 	result, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds cs
@@ -2776,7 +2797,7 @@ WHERE tenant_id=$1::uuid
 	}); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 // ReopenScope returns the shed-observation ids whose submissions this reopen
@@ -2810,7 +2831,7 @@ func (r *Repository) ReopenScope(ctx context.Context, tenantID, campaignID, camp
 		if err != nil {
 			return nil, err
 		}
-		return alreadyWithdrawn, tx.Commit(ctx)
+		return alreadyWithdrawn, r.commitAndInvalidateReadCache(ctx, tx)
 	}
 	result, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds cs
@@ -2954,7 +2975,7 @@ WHERE tenant_id=$1::uuid
 	}); err != nil {
 		return nil, err
 	}
-	return superseded, tx.Commit(ctx)
+	return superseded, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 // withdrawnShedObservationIDs re-reports the submissions a previous run of this
@@ -3013,7 +3034,7 @@ func (r *Repository) reopenStaleCompletedCampaign(ctx context.Context, tenantID,
 	if err := r.reopenCampaignIfShedStillOpen(ctx, tx, tenantID, campaignID); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 func (r *Repository) reopenCampaignIfShedStillOpen(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {
@@ -3872,7 +3893,7 @@ func (r *Repository) observationByIdem(ctx context.Context, tx pgx.Tx, tenantID,
 	if !ok {
 		return domain.Observation{}, ports.ErrNotFound
 	}
-	return obs, tx.Commit(ctx)
+	return obs, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 func (r *Repository) observationByIdemTx(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem, fingerprint string) (domain.Observation, bool, error) {

@@ -369,7 +369,12 @@ export async function WeighingWeightsAnalyticsPage({
             label: copy(pageContract, `tab.${name}`),
             // The default tab clears the parameter, so a shared link keeps meaning "the tab this
             // page opens on" rather than freezing on the one it was copied from.
-            href: hrefWith(params, { [TAB_PARAM]: name === "general" ? null : name, offset: null }),
+            href: hrefWith(params, {
+              [TAB_PARAM]: name === "general" ? null : name,
+              [WINDOW_FROM_PARAM]: window.from,
+              [WINDOW_TO_PARAM]: window.to,
+              offset: null,
+            }),
           }))}
         />
       </div>

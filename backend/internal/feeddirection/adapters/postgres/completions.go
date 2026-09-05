@@ -79,7 +79,7 @@ func (r *Repository) CompleteSession(ctx context.Context, p ports.CompleteSessio
 	}
 	if !reservation.proceed {
 		// Exact replay of the same request: return the original result, run NO side effects.
-		if err := tx.Commit(ctx); err != nil {
+		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return ports.CompleteSessionResult{}, fmt.Errorf("feeddirection: commit idempotent replay: %w", err)
 		}
 		committed = true
@@ -128,7 +128,7 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 		return ports.CompleteSessionResult{}, fmt.Errorf("feeddirection: complete idempotency: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return ports.CompleteSessionResult{}, fmt.Errorf("feeddirection: commit completion: %w", err)
 	}
 	committed = true

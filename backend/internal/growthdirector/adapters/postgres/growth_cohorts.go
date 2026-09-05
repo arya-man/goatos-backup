@@ -62,7 +62,8 @@ FROM (
 ) x
 WHERE sheds_in_cohort >= 2             -- a fair fight needs two sheds fielding the same kind of kid
 ORDER BY breed, sex, median_adg_g_day DESC`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags, nil, nil, weighingCategory)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory)
 	if err != nil {
 		return out, err
 	}
@@ -151,7 +152,8 @@ WHERE shed_id IS NOT NULL
 GROUP BY shed_id, shed_label, partition_label, park_name, breed, sex
 HAVING count(*) FILTER (WHERE NOT implausible) >= 3
 ORDER BY median_noise_adj_g_day ASC NULLS LAST, shed_id, partition_label, breed, sex`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags, nil, nil, weighingCategory)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +247,8 @@ FROM solid_weeks cur
 JOIN solid_weeks prev
   ON prev.shed_id = cur.shed_id AND prev.partition_label = cur.partition_label AND prev.breed = cur.breed AND prev.sex = cur.sex AND prev.solid_rn = 2
 WHERE cur.solid_rn = 1`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags, nil, nil, weighingCategory)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory)
 	if err != nil {
 		return nil, err
 	}

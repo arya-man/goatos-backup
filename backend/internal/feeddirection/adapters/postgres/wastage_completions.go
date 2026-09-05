@@ -111,7 +111,7 @@ func (r *Repository) CompleteWastage(ctx context.Context, p ports.CompleteWastag
 		if readErr != nil {
 			return ports.CompleteWastageResult{}, readErr
 		}
-		if err := tx.Commit(ctx); err != nil {
+		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: commit idempotent wastage replay: %w", err)
 		}
 		committed = true
@@ -202,7 +202,7 @@ RETURNING row_version`,
 		return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: complete wastage idempotency: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: commit wastage completion: %w", err)
 	}
 	committed = true
@@ -296,7 +296,7 @@ FROM feed_wastage_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
 FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &targetDate, &wastageKg)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if commitErr := tx.Commit(ctx); commitErr != nil {
+		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
 		committed = true
@@ -306,7 +306,7 @@ FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &target
 		return false, fmt.Errorf("feeddirection: lock wastage completion: %w", err)
 	}
 	if status != domain.WastageStatusPendingVerification {
-		if commitErr := tx.Commit(ctx); commitErr != nil {
+		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
 		committed = true
@@ -329,7 +329,7 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_ve
 		return false, fmt.Errorf("feeddirection: apply verified wastage: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		if commitErr := tx.Commit(ctx); commitErr != nil {
+		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
 		committed = true
@@ -352,7 +352,7 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_ve
 		return false, err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return false, fmt.Errorf("feeddirection: commit apply verified wastage: %w", err)
 	}
 	committed = true
@@ -365,7 +365,7 @@ func (r *Repository) BounceWastageForRework(ctx context.Context, p ports.BounceW
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	tag, err := r.pool.Exec(ctx, `
+	tag, err := r.execAndInvalidateReadCache(ctx, `
 UPDATE feed_wastage_completions
 SET status = 'rework',
     rework_reason = nullif($3, ''),
@@ -411,7 +411,7 @@ func (r *Repository) RecordWastageMeasurement(ctx context.Context, p ports.Recor
 			if err := json.Unmarshal(reservation.snapshot, &result); err != nil {
 				return ports.RecordWastageMeasurementResult{}, fmt.Errorf("feeddirection: decode wastage measurement idempotency snapshot: %w", err)
 			}
-			if err := tx.Commit(ctx); err != nil {
+			if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 				return ports.RecordWastageMeasurementResult{}, fmt.Errorf("feeddirection: commit idempotent measurement snapshot replay: %w", err)
 			}
 			committed = true
@@ -424,7 +424,7 @@ func (r *Repository) RecordWastageMeasurement(ctx context.Context, p ports.Recor
 		if readErr != nil {
 			return ports.RecordWastageMeasurementResult{}, readErr
 		}
-		if err := tx.Commit(ctx); err != nil {
+		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return ports.RecordWastageMeasurementResult{}, fmt.Errorf("feeddirection: commit idempotent measurement replay: %w", err)
 		}
 		committed = true
@@ -500,7 +500,7 @@ RETURNING wastage_recorded_at`,
 	if err := completeIdempotencyWithSnapshot(ctx, tx, p.TenantID, feedWastageMeasurementIdemScope, p.IdempotencyKey, feedWastageResourceType, p.CompletionID, result); err != nil {
 		return ports.RecordWastageMeasurementResult{}, fmt.Errorf("feeddirection: complete wastage measurement idempotency: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return ports.RecordWastageMeasurementResult{}, fmt.Errorf("feeddirection: commit wastage measurement: %w", err)
 	}
 	committed = true

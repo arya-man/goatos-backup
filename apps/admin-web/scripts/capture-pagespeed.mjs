@@ -44,6 +44,15 @@ if (!response.ok) {
 }
 
 const json = JSON.parse(body);
+const finalUrl = json?.lighthouseResult?.finalUrl ? new URL(json.lighthouseResult.finalUrl) : null;
+if (!finalUrl) {
+  console.error(`PageSpeed report did not include lighthouseResult.finalUrl; report=${out}`);
+  process.exit(1);
+}
+if (finalUrl.pathname !== parsedUrl.pathname || finalUrl.pathname === "/login") {
+  console.error(`PageSpeed audited ${finalUrl.href}, expected path ${parsedUrl.pathname}; report=${out}`);
+  process.exit(1);
+}
 const categories = json?.lighthouseResult?.categories ?? {};
 const scores = Object.fromEntries(
   Object.entries(categories).map(([key, value]) => [key, Math.round((value.score ?? 0) * 100)]),

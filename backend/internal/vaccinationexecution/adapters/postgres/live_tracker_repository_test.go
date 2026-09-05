@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -615,6 +616,20 @@ func TestLiveTrackerFilterOptionSeparatorIsARealControlCharacter(t *testing.T) {
 	protocol, dose, found := strings.Cut("Preventive Care Vaccination Matrix\x1fgoat_pox_adult_w1", "\x1f")
 	if !found || protocol == "" || dose != "goat_pox_adult_w1" {
 		t.Fatalf("composite label did not split: protocol=%q dose=%q found=%v", protocol, dose, found)
+	}
+}
+
+func TestLiveTrackerCacheTTLMatchesDashboardReadWindow(t *testing.T) {
+	b, err := os.ReadFile("live_tracker_repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if !strings.Contains(src, "const liveTrackerCacheTTL = 30 * time.Second") {
+		t.Fatal("live tracker cache must stay in the dashboard-read window so route switching does not redo the whole canonical read")
+	}
+	if !strings.Contains(src, "setLiveTrackerCache(cacheKey, response, time.Now())") {
+		t.Fatal("live tracker must store the canonical response after one successful read")
 	}
 }
 
