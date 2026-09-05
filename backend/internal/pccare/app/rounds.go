@@ -264,11 +264,16 @@ func (s *Service) RegisterRemovalPenProof(ctx context.Context, actor domain.Acto
 }
 
 // RemovalPenProofs reads a removal card's per-pen evidence rows — the operator's slot list
-// (which pens still owe a video) and the reader's evidence trail. Assignee-gated like the
-// capture itself.
+// (which pens still owe a video) and the reader's evidence trail.
+//
+// Read-gated exactly like the captures poll and the roster: ANY principal who can read the
+// task can read its pens. Gating this on ASSIGNEE membership was the first cut and it was
+// wrong twice over — it contradicted the route's own permission list (which admits plan,
+// monitor and oversee) and it hid a card's pens from the leadership who must be able to see
+// what the evening covered. The WRITE below stays assignee-only; reading is not capturing.
 func (s *Service) RemovalPenProofs(ctx context.Context, actor domain.Actor, removalTaskID string) ([]ports.RemovalPenProofRow, error) {
 	removalTaskID = strings.TrimSpace(removalTaskID)
-	if err := s.requireAssignee(ctx, actor, removalTaskID); err != nil {
+	if _, err := s.GetTask(ctx, actor, removalTaskID); err != nil {
 		return nil, err
 	}
 	if s.rounds == nil {
