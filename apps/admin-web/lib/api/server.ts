@@ -1163,10 +1163,9 @@ export type FeedAnalyticsParams = {
   /** Experiment read only: the day the per-pen wastage table describes; the backend defaults to today (IST). */
   wastage_day?: string;
   /**
-   * Execution read only: comma-separated arms to compute ("days", "packing_variance",
-   * "consumption"); omit for all. A second, differently-scoped read that needs one array should
-   * ask for that arm alone -- each arm is several queries, and three full reads at once exhausted
-   * the endpoint's deadline.
+   * Execution/stock reads only: comma-separated arms to compute; omit for all. A second,
+   * differently-scoped read that needs one array should ask for that arm alone -- each arm is
+   * several queries, and full reads at once exhausted endpoint deadlines.
    */
   sections?: string;
   /** Execution read only: the mismatch list's page (rows per page, rows to skip). */
@@ -2320,7 +2319,14 @@ export async function getVaccinationExecution(
       client.request<VaccinationExecutionResponse>("/vaccination/execution", {
         cache: "no-store",
         signal,
-        query: compactQuery({ park_id: params.parkId, work_state: params.workState, as_of: params.asOf, limit: params.limit, cursor: params.cursor }),
+        query: compactQuery({
+          park_id: params.parkId,
+          work_state: params.workState,
+          as_of: params.asOf,
+          limit: params.limit,
+          cursor: params.cursor,
+          include_card_summaries: false,
+        }),
       }),
     ),
   );

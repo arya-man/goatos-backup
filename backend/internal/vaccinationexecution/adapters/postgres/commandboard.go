@@ -122,6 +122,24 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	if q.DriveParkID != nil && strings.TrimSpace(*q.DriveParkID) != "" {
 		parkID = q.DriveParkID
 	}
+	boardParkID := ""
+	if parkID != nil {
+		boardParkID = strings.TrimSpace(*parkID)
+	}
+	catalogScopeID := ""
+	if catalogParkID != nil {
+		catalogScopeID = strings.TrimSpace(*catalogParkID)
+	}
+	driveBatchID := ""
+	if q.DriveBatchID != nil {
+		driveBatchID = strings.TrimSpace(*q.DriveBatchID)
+	}
+	cacheKey := strings.Join([]string{"command_board", strings.TrimSpace(q.TenantID), vaccinationCacheTimeBucket(asOf), catalogScopeID, boardParkID, driveBatchID}, "|")
+	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
+		if cachedResp, ok := cached.(domain.CommandBoardResponse); ok {
+			return cachedResp, nil
+		}
+	}
 
 	var (
 		mu          sync.Mutex
@@ -245,6 +263,7 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	sort.Strings(unavailable)
 	resp.UnavailableSections = unavailable
 
+	r.setVaccinationReadCache(cacheKey, resp)
 	return resp, nil
 }
 
@@ -700,7 +719,20 @@ func (r *Repository) CommandBoardDriveOptions(ctx context.Context, q domain.Comm
 	if q.Limit > domain.CommandBoardDriveOptionsMaxLimit {
 		q.Limit = domain.CommandBoardDriveOptionsMaxLimit
 	}
+	parkID := ""
+	if q.ParkID != nil {
+		parkID = strings.TrimSpace(*q.ParkID)
+	}
+	cacheKey := strings.Join([]string{"command_board_drive_options", strings.TrimSpace(q.TenantID), parkID, q.Cursor, fmt.Sprintf("%d", q.Limit)}, "|")
+	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
+		if page, ok := cached.(domain.CommandBoardDriveOptionsPage); ok {
+			return page, nil
+		}
+	}
 	page, _, err := r.commandBoardDriveOptionsPage(ctx, q)
+	if err == nil {
+		r.setVaccinationReadCache(cacheKey, page)
+	}
 	return page, err
 }
 
@@ -905,6 +937,20 @@ func (r *Repository) CommandBoardCohortMatrix(ctx context.Context, q domain.Comm
 	}
 
 	page := domain.CommandBoardCohortMatrixPage{Cells: []domain.CommandBoardCohortCell{}}
+	parkID := ""
+	if q.ParkID != nil {
+		parkID = strings.TrimSpace(*q.ParkID)
+	}
+	driveBatchID := ""
+	if q.DriveBatchID != nil {
+		driveBatchID = strings.TrimSpace(*q.DriveBatchID)
+	}
+	cacheKey := strings.Join([]string{"command_board_cohort_matrix", strings.TrimSpace(q.TenantID), vaccinationCacheTimeBucket(asOf), parkID, driveBatchID}, "|")
+	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
+		if cachedPage, ok := cached.(domain.CommandBoardCohortMatrixPage); ok {
+			return cachedPage, nil
+		}
+	}
 	var (
 		rows       []commandBoardCohortRow
 		headCounts = map[commandBoardHeadKey]int{}
@@ -933,5 +979,6 @@ func (r *Repository) CommandBoardCohortMatrix(ctx context.Context, q domain.Comm
 	}
 
 	page.Cells = commandBoardFoldCohortCells(rows, headCounts)
+	r.setVaccinationReadCache(cacheKey, page)
 	return page, nil
 }

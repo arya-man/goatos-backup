@@ -339,12 +339,34 @@ func (r *Repository) CommandBoardCohortDays(ctx context.Context, q domain.Comman
 // sees after first paint is byte-for-byte the grid the board used to ship eagerly. Only the moment
 // it is fetched changed.
 func (r *Repository) CommandBoardShedDoseMatrix(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardShedDoseMatrixPage, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
 	q = q.Normalized()
+	asOf := q.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+		q.AsOf = asOf
+	}
 	page := domain.CommandBoardShedDoseMatrixPage{Matrix: domain.ShedDoseMatrix{
 		Sheds:     []domain.ShedDoseMatrixShed{},
 		DoseRules: []string{},
 		Cells:     []domain.ShedDoseMatrixCell{},
 	}}
+	parkID := ""
+	if q.ParkID != nil {
+		parkID = strings.TrimSpace(*q.ParkID)
+	}
+	driveBatchID := ""
+	if q.DriveBatchID != nil {
+		driveBatchID = strings.TrimSpace(*q.DriveBatchID)
+	}
+	cacheKey := strings.Join([]string{"command_board_shed_dose_matrix", strings.TrimSpace(q.TenantID), vaccinationCacheTimeBucket(asOf), parkID, driveBatchID}, "|")
+	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
+		if cachedPage, ok := cached.(domain.CommandBoardShedDoseMatrixPage); ok {
+			return cachedPage, nil
+		}
+	}
 	// Takes a slot from the SAME shared budget the board's own sections use. This endpoint is fired
 	// in parallel with them on first paint, so counting it separately is how a single reader ends up
 	// holding the whole pool.
@@ -360,5 +382,6 @@ func (r *Repository) CommandBoardShedDoseMatrix(ctx context.Context, q domain.Co
 	if len(matrix.Cells) > 0 {
 		page.Matrix = matrix
 	}
+	r.setVaccinationReadCache(cacheKey, page)
 	return page, nil
 }

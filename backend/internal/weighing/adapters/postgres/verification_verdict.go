@@ -75,7 +75,7 @@ func (r *Repository) ApplyVerificationVerdict(ctx context.Context, verdict domai
 		if err != nil {
 			return domain.VerificationVerdictResult{}, err
 		}
-		return result, tx.Commit(ctx)
+		return result, r.commitAndInvalidateReadCache(ctx, tx)
 	}
 
 	scope, err := r.lockObservationScope(ctx, tx, verdict)
@@ -146,7 +146,7 @@ func (r *Repository) ApplyVerificationVerdict(ctx context.Context, verdict domai
 	if err := r.enqueueVerdictApplied(ctx, tx, verdict, scope, result); err != nil {
 		return domain.VerificationVerdictResult{}, err
 	}
-	return result, tx.Commit(ctx)
+	return result, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 func (r *Repository) verdictByIdempotency(

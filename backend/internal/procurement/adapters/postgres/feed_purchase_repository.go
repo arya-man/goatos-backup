@@ -541,7 +541,7 @@ RETURNING payment_id::text`,
 	newStatus := domain.DeriveFeedPaymentStatus(totalCost, released, currentStatus)
 	if _, err := tx.Exec(ctx, `
 UPDATE public.feed_purchases
-SET payment_released = $3, payment_status = $4
+SET payment_released = $3, payment_status = $4, updated_at = now()
 WHERE tenant_id = $1 AND feed_purchase_id = $2`,
 		tenantID, purchaseID, released, newStatus); err != nil {
 		return domain.FeedPurchase{}, fmt.Errorf("procurement: update feed purchase payment total: %w", err)
@@ -609,7 +609,7 @@ FOR UPDATE`, tenantID, purchaseID).Scan(&previous)
 	if previous != status {
 		if _, err := tx.Exec(ctx, `
 UPDATE public.feed_purchases
-SET payment_status = $3
+SET payment_status = $3, updated_at = now()
 WHERE tenant_id = $1 AND feed_purchase_id = $2`, tenantID, purchaseID, status); err != nil {
 			return domain.FeedPurchase{}, fmt.Errorf("procurement: update feed purchase status: %w", err)
 		}
@@ -682,7 +682,8 @@ UPDATE public.feed_purchases
 SET purchase_date = $3::date, quantity_kg = $4,
     feed_cost = $5, transport_cost = $6, loading_cost = $7, unloading_cost = $8,
     total_cost = $9, per_kg_cost = $10,
-    vendor = $11, payment_status = $12
+    vendor = $11, payment_status = $12,
+    updated_at = now()
 WHERE tenant_id = $1 AND feed_purchase_id = $2`,
 			tenantID, purchaseID, edit.PurchaseDate, edit.QuantityKg,
 			edit.FeedCost, edit.TransportCost, edit.LoadingCost, edit.UnloadingCost,
@@ -737,7 +738,8 @@ UPDATE public.feed_purchases
 SET delivery_status = $3, reached_on = $4::date, reached_weight_kg = $5,
     reached_by = COALESCE(reached_by, nullif($6, '')::uuid),
     depletes_from = $4::date,
-    per_kg_cost = $7
+    per_kg_cost = $7,
+    updated_at = now()
 WHERE tenant_id = $1 AND feed_purchase_id = $2
 RETURNING feed_item_key`
 

@@ -17,6 +17,8 @@
       "vaccination_execution",
       "vaccination_operations",
       "vaccination_shed_summary",
+      "vaccination_live_tracker",
+      "app_vaccination_execution",
       "vaccination_command_board",
       "vaccination_command_drives",
       "vaccination_command_closed_without_dose",
@@ -44,6 +46,8 @@
         "calendar_mobile_history_page_20",
         "vaccination_execution",
         "vaccination_operations",
+        "vaccination_live_tracker",
+        "app_vaccination_execution",
         "vaccination_command_drives",
         "vaccination_command_closed_without_dose",
         "vaccination_command_cohort_matrix",
@@ -72,6 +76,20 @@
       "assertion": {
         "type": "number_min",
         "path": "kpis.targets",
+        "min": 1
+      }
+    },
+    {
+      "name": "vaccination_live_tracker",
+      "method": "GET",
+      "path": "/vaccination/live-tracker?business_date={today}",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": {
+        "type": "number_min",
+        "path": "kpis.scheduled_administrations",
         "min": 1
       }
     },
@@ -316,7 +334,7 @@
     {
       "name": "vaccination_execution",
       "method": "GET",
-      "path": "/vaccination/execution?limit=50",
+      "path": "/vaccination/execution?limit=50&include_card_summaries=false",
       "p90_ms": 300,
       "p95_ms": 500,
       "p99_ms": 500,
@@ -349,6 +367,20 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
+      "assertion": {
+        "type": "array_min",
+        "path": "rows",
+        "min": 1
+      }
+    },
+    {
+      "name": "app_vaccination_execution",
+      "method": "GET",
+      "path": "/app/vaccination/execution?limit=20&include_filter_options=true&include_card_summaries=false",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 131072,
       "assertion": {
         "type": "array_min",
         "path": "rows",

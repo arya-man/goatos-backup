@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -217,9 +218,25 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	params.Limit = boundedLimit(params.Limit, maxQueueLimit)
 	requested := params.Limit
 	params.Limit++
-	items, err := s.repo.ListQueue(ctx, params)
-	if err != nil {
-		return QueueResult{}, mapRepoErr(err)
+	var items []domain.Item
+	var options domain.QueueFilterOptions
+	var itemsErr, optionsErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		items, itemsErr = s.repo.ListQueue(ctx, params)
+	}()
+	go func() {
+		defer wg.Done()
+		options, optionsErr = s.repo.ListQueueFilterOptions(ctx, params)
+	}()
+	wg.Wait()
+	if itemsErr != nil {
+		return QueueResult{}, mapRepoErr(itemsErr)
+	}
+	if optionsErr != nil {
+		return QueueResult{}, mapRepoErr(optionsErr)
 	}
 	var next *string
 	if len(items) > requested {
@@ -230,10 +247,6 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 			return QueueResult{}, fmt.Errorf("verification: invalid pagination cursor: %w", encErr)
 		}
 		next = &encoded
-	}
-	options, err := s.repo.ListQueueFilterOptions(ctx, params)
-	if err != nil {
-		return QueueResult{}, mapRepoErr(err)
 	}
 	if options.Parks == nil {
 		options.Parks = []domain.LocationFilterOption{}

@@ -7,19 +7,14 @@
 // server re-render. As ordinary anchor links, each of those answered the question and then
 // scrolled to the top, so the reader had to find the chart again to see what changed.
 //
-// `<Link scroll={false}>` did NOT fix it here: the navigation is genuinely client-side (a marker
-// set on `window` survives it), and the scroll still reset. The repo's own working pattern for
-// this is `router.push(href, { scroll: false })` from a client component — six other filters use
-// it — so this uses that.
-//
-// `useTransition` is not decoration either: it is the URL-Driven Filter Responsiveness rule. The
-// active option is rendered OPTIMISTICALLY from local state so the pressed segment highlights on
-// the click rather than after the server round trip, which is what stopped the old select controls
-// from visibly bouncing back to their previous value while a refresh was pending.
+// Plain anchors keep the target route honest: authenticated admin tabs must not Next-prefetch,
+// because prefetch can trigger expensive server/API reads before the user actually clicks.
+// The explicit pending state keeps the pressed segment highlighted immediately instead of
+// waiting for the server round trip.
 //
 // It renders NO copy of its own: labels arrive already resolved from the page contract.
-import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 
 export type SegmentedOption = {
   /** Stable identity for this option, compared against `current`. */
@@ -39,26 +34,26 @@ export function SegmentedLinks({
   /** Already resolved from the page contract by the caller; omitted when the group is unlabelled. */
   ariaLabel?: string;
 }) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isPending, setIsPending] = useState(false);
   // Optimistic selection. Cleared implicitly on the next render with a new `current`, so a
   // navigation that fails or is superseded falls back to the server's answer rather than leaving
   // a segment highlighted for something that never happened.
   const [optimistic, setOptimistic] = useState<string | null>(null);
   const selected = isPending && optimistic !== null ? optimistic : current;
-
   // The scroll position at the moment of the click, restored once the navigation settles.
   //
-  // `router.push(href, { scroll: false })` is the documented way to ask for this and it is passed
-  // below, but on this page it does not hold: the navigation is genuinely client-side (a marker set
-  // on `window` survives it) and the position still resets to 0 from ~2,600px. `<Link scroll={false}>`
-  // behaves the same. So the flag is kept — it is correct and may start working — and the position is
-  // ALSO restored here, which is what actually keeps the reader beside the chart they just toggled.
+  // Next router scroll suppression did not hold on these long pages: the navigation is genuinely
+  // client-side (a marker set on `window` survives it) and the position still resets to 0 from
+  // ~2,600px. The position is restored here, which is what keeps the reader beside the chart they
+  // just toggled.
   //
   // Restored only when a pending transition ENDS, so it never fights an ordinary scroll: `pending`
   // is the trigger, and the ref is cleared as soon as it is used.
   const restoreTo = useRef<number | null>(null);
   const wasPending = useRef(false);
+  const fallbackTimer = useRef<number | null>(null);
   useEffect(() => {
     if (isPending) {
       wasPending.current = true;
@@ -74,6 +69,24 @@ export function SegmentedLinks({
     // instead of landing at an arbitrary point.
     const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
     window.scrollTo({ top: Math.min(target, max), behavior: "instant" as ScrollBehavior });
+  }, [isPending]);
+
+  useEffect(() => {
+    if (fallbackTimer.current !== null) {
+      window.clearTimeout(fallbackTimer.current);
+      fallbackTimer.current = null;
+    }
+    setIsPending(false);
+    setOptimistic(null);
+  }, [current, pathname, searchParams]);
+
+  useEffect(() => {
+    if (!isPending) return undefined;
+    const timer = window.setTimeout(() => {
+      setIsPending(false);
+      setOptimistic(null);
+    }, 8000);
+    return () => window.clearTimeout(timer);
   }, [isPending]);
 
   return (
@@ -95,17 +108,25 @@ export function SegmentedLinks({
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
               return;
             }
-            event.preventDefault();
             setOptimistic(option.value);
+            setIsPending(true);
             restoreTo.current = window.scrollY;
+            if (fallbackTimer.current !== null) {
+              window.clearTimeout(fallbackTimer.current);
+              fallbackTimer.current = null;
+            }
             window.dispatchEvent(
               new CustomEvent("metricseg:navigate", {
                 detail: { value: option.value, href: option.href },
               }),
             );
-            startTransition(() => {
-              router.push(option.href, { scroll: false });
-            });
+            fallbackTimer.current = window.setTimeout(() => {
+              fallbackTimer.current = null;
+              const target = new URL(option.href, window.location.origin);
+              const currentUrl = new URL(window.location.href);
+              if (currentUrl.pathname === target.pathname && paramsEqual(currentUrl.searchParams, target.searchParams)) return;
+              window.location.assign(option.href);
+            }, 750);
           }}
         >
           {option.label}
@@ -113,4 +134,15 @@ export function SegmentedLinks({
       ))}
     </span>
   );
+}
+
+function paramsEqual(left: URLSearchParams, right: URLSearchParams): boolean {
+  return normalizedParams(left) === normalizedParams(right);
+}
+
+function normalizedParams(params: URLSearchParams): string {
+  return [...params.entries()]
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) => leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue))
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
 }

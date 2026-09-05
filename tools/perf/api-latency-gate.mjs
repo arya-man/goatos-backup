@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -42,11 +42,12 @@ const warmup = numberArg(args.warmup ?? process.env.GOATOS_PERF_WARMUP, 5, true)
 const concurrency = numberArg(args.concurrency ?? process.env.GOATOS_PERF_CONCURRENCY, 1);
 const timeoutMs = numberArg(args.timeoutMs ?? process.env.GOATOS_PERF_TIMEOUT_MS, 30000);
 const failOnThreshold = boolArg(args.failOnThreshold ?? process.env.GOATOS_PERF_FAIL_ON_THRESHOLD, true);
-const output = args.output ?? process.env.GOATOS_PERF_OUTPUT ?? "";
+const output = args.output ?? process.env.GOATOS_PERF_OUTPUT ?? process.env.GOATOS_PERF_OUT ?? "";
 const manifest = args.manifest ?? process.env.GOATOS_PERF_MANIFEST ?? "";
 const manifestDocument = loadManifest(manifest);
 const endpoints = normalizeApiLatencyEndpoints(manifestDocument.endpoints);
 const gitSha = currentGitSha();
+const worktree = currentWorktreeState();
 const expectedSha = String(args.expectedSha ?? process.env.GOATOS_PERF_EXPECTED_SHA ?? "").trim();
 const startedAt = new Date().toISOString();
 const dataset = {
@@ -70,7 +71,11 @@ for (const endpoint of endpoints) {
 
 const report = {
   schema_version: "1.0.0",
+  passed: results.every((result) => result.passed),
   git_sha: gitSha,
+  worktree_dirty: worktree.dirty,
+  worktree_diff_sha256: worktree.diffSha256,
+  worktree_status_short: worktree.statusShort,
   expected_sha: expectedSha || gitSha,
   manifest_sha256: manifest ? sha256File(manifest) : null,
   scope: manifestDocument.scope,
@@ -97,12 +102,19 @@ if (failOnThreshold && results.some((result) => !result.passed)) {
 
 async function runEndpoint(endpoint) {
   endpoint = { ...endpoint, path: expandPath(endpoint.path) };
+  const failures = [];
   for (let i = 0; i < warmup; i++) {
-    await requestOnce(endpoint);
+    try {
+      await requestOnce(endpoint);
+    } catch (err) {
+      failures.push(`warmup: ${err instanceof Error ? err.message : String(err)}`);
+      if (failOnThreshold) {
+        break;
+      }
+    }
   }
   const samples = [];
   const responseBytes = [];
-  const failures = [];
   let remaining = iterations;
   while (remaining > 0) {
     const batchSize = Math.min(concurrency, remaining);
@@ -131,6 +143,7 @@ async function runEndpoint(endpoint) {
     p95_ms: percentile(samples, 95),
     p99_ms: percentile(samples, 99),
     max_ms: percentile(samples, 100),
+    sample_ms: samples.map((sample) => Number(sample.toFixed(1))),
     p90_threshold_ms: endpoint.p90_ms,
     p95_threshold_ms: endpoint.p95_ms,
     p99_threshold_ms: endpoint.p99_ms,
@@ -281,6 +294,35 @@ function currentGitSha() {
   } catch {
     return "unknown";
   }
+}
+
+function currentWorktreeState() {
+  try {
+    const statusShort = execFileSync("git", ["status", "--short"], { encoding: "utf8" }).trim();
+    const diff = execFileSync("git", ["diff", "--binary", "HEAD"], { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
+    const untracked = untrackedSnapshot();
+    return {
+      dirty: statusShort.length > 0,
+      diffSha256: createHash("sha256").update(`${statusShort}\n${diff}\n${untracked}`).digest("hex"),
+      statusShort: statusShort.split("\n").filter(Boolean),
+    };
+  } catch {
+    return { dirty: null, diffSha256: "unknown", statusShort: [] };
+  }
+}
+
+function untrackedSnapshot() {
+  const paths = execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z"], { encoding: "buffer", maxBuffer: 16 * 1024 * 1024 })
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean)
+    .sort();
+  const parts = [];
+  for (const path of paths) {
+    if (!existsSync(path) || !lstatSync(path).isFile()) continue;
+    parts.push(`${path}\0${createHash("sha256").update(readFileSync(path)).digest("hex")}`);
+  }
+  return parts.join("\n");
 }
 
 function fail(message) {

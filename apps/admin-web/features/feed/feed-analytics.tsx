@@ -323,8 +323,13 @@ export async function FeedAnalyticsPage({
   const completionParkFilter = parkId || (one(searchParams, "fdc_park") ?? "");
   const completionShedFilter = one(searchParams, "fdc_shed") ?? "";
   const completionStatusFilter = readCompletionStatus(searchParams);
-  const locations = wantExperiment ? await getCensusLocations() : { parks: [] as { id: string; name: string }[], sheds: [] };
   const wantStock = tab === "overview" || tab === "items";
+  const stockSections =
+    tab === "overview"
+      ? "expenditure,spend"
+      : stockOnly
+        ? "items,farm_items,forecast"
+        : "items,farm_items,forecast,item_expenditure";
   // The overview's "Feed by shed" table reads its OWN last-7-days window
   // (ending yesterday, the page's stated basis), independent of the range
   // chips — the maintainer asked for a 7-day default while the charts default
@@ -333,7 +338,8 @@ export async function FeedAnalyticsPage({
   const wantShedFeed = tab === "overview";
   const shedFeedTo = istDayPlus(todayIso(), -1);
   const shedFeedWindow = { date_from: istDayPlus(shedFeedTo, -6), date_to: shedFeedTo };
-  const [directed, execution, experiment, stock, shedFeed] = await Promise.all([
+  const [locations, directed, execution, executionDay, experiment, stock, shedFeed] = await Promise.all([
+    wantExperiment ? getCensusLocations() : Promise.resolve({ parks: [] as { id: string; name: string }[], sheds: [] }),
     wantDirected
       ? getFeedAnalyticsDirected(chartParams)
       : Promise.resolve<ApiResult<FeedAnalyticsDirectedResponse> | null>(null),
@@ -343,6 +349,7 @@ export async function FeedAnalyticsPage({
           // Overview reads ONLY the adherence KPI off `days`, so it asks for that arm alone rather
           // than paying for the mismatch, consumption and completion queries it never renders.
           ...(tab === "overview" ? { sections: "days" } : {}),
+          ...(tab === "execution" ? { sections: "days,consumption,distribution_completions" } : {}),
           variance_limit: String(varianceLimit),
           variance_offset: String(varianceOffset),
           variance_park_label: favPark,
@@ -355,25 +362,8 @@ export async function FeedAnalyticsPage({
           completion_status: completionStatusFilter,
         })
       : Promise.resolve<ApiResult<FeedAnalyticsExecutionResponse> | null>(null),
-    wantExperiment
-      ? getFeedAnalyticsExperiment({ ...params, park_id: experimentParkId, wastage_day: readWastageDay(searchParams) })
-      : Promise.resolve<ApiResult<FeedAnalyticsExperimentResponse> | null>(null),
-    wantStock
-      ? getFeedAnalyticsStock(chartParams)
-      : Promise.resolve<ApiResult<FeedAnalyticsStockResponse> | null>(null),
-    wantShedFeed
-      ? getFeedAnalyticsShedFeed({ park_id: parkId, ...shedFeedWindow })
-      : Promise.resolve<ApiResult<FeedAnalyticsShedFeedResponse> | null>(null),
-  ]);
-  // Second, day-pinned execution read for the mismatch table's calendar. Only its
-  // packing_variance is used; the tab's charts keep the page's rolling window.
-  // fav_day is a PACKING day (maintainer decision 2026-08-24, the axis Feed Packing already
-  // browses by): a packer works day P on the sheet the animals eat on P+1, so a reader asking for
-  // "yesterday's packing" means the feed day after it. The endpoint still keys on the feed day --
-  // this is a relabel of the axis, not a second grain.
-  const executionDay =
     tab === "execution"
-      ? await getFeedAnalyticsExecution({
+      ? getFeedAnalyticsExecution({
           park_id: parkId,
           date_from: istDayPlus(variancePackingDay, 1),
           date_to: istDayPlus(variancePackingDay, 1),
@@ -383,16 +373,33 @@ export async function FeedAnalyticsPage({
           variance_park_label: favPark,
           variance_feed_item_key: favItem,
         })
-      : null;
-  const nonNull = [directed, execution, experiment, stock, shedFeed].filter((r) => r !== null);
+      : Promise.resolve<ApiResult<FeedAnalyticsExecutionResponse> | null>(null),
+    wantExperiment
+      ? getFeedAnalyticsExperiment({ ...params, park_id: experimentParkId, wastage_day: readWastageDay(searchParams) })
+      : Promise.resolve<ApiResult<FeedAnalyticsExperimentResponse> | null>(null),
+    wantStock
+      ? getFeedAnalyticsStock({ ...chartParams, sections: stockSections })
+      : Promise.resolve<ApiResult<FeedAnalyticsStockResponse> | null>(null),
+    wantShedFeed
+      ? getFeedAnalyticsShedFeed({ park_id: parkId, ...shedFeedWindow })
+      : Promise.resolve<ApiResult<FeedAnalyticsShedFeedResponse> | null>(null),
+  ]);
+  // The day-pinned execution read for the mismatch table's calendar runs in the
+  // Promise.all above. Only its
+  // packing_variance is used; the tab's charts keep the page's rolling window.
+  // fav_day is a PACKING day (maintainer decision 2026-08-24, the axis Feed Packing already
+  // browses by): a packer works day P on the sheet the animals eat on P+1, so a reader asking for
+  // "yesterday's packing" means the feed day after it. The endpoint still keys on the feed day --
+  // this is a relabel of the axis, not a second grain.
+  const nonNull = [directed, execution, experiment, stock, shedFeed, executionDay].filter((r) => r !== null);
   if (firstAuthRequiredError(...nonNull)) redirect(INTERNAL_LOGIN_PATH);
 
   // For the full feed analytics page, stock is supporting context and should not blank the
   // charts. For a stock-only page, it is the page, so failures must be visible.
-  const failed = [directed, execution, experiment, shedFeed, stockOnly ? stock : null].some(
+  const failed = [directed, execution, experiment, shedFeed, tab === "execution" ? executionDay : null, stockOnly ? stock : null].some(
     (r) => r !== null && !r.ok,
   );
-  const failedError = [directed, execution, experiment, shedFeed, stockOnly ? stock : null].find(
+  const failedError = [directed, execution, experiment, shedFeed, tab === "execution" ? executionDay : null, stockOnly ? stock : null].find(
     (r) => r !== null && !r.ok,
   )?.error;
 
@@ -647,7 +654,7 @@ function DirectedTabs({
         <RangeCoverageNote key={`${range}-${coveredDays}`} message={coverageNote} />
       ) : null}
       {tab === "overview" ? (
-        <section className="grid g4 kpi-row" aria-label={fa(pageContract, "chart.daily.title")}>
+        <section className="grid g4 kpi-row feed-analytics-kpis" aria-label={fa(pageContract, "chart.daily.title")}>
           <div className="kpi card">
             <div className="val">{latest ? `${nf(num(latest.directed_kg))} ${fa(pageContract, "unit.kg")}` : "—"}</div>
             <div className="dl">{fa(pageContract, "kpi.directed.label")}</div>
@@ -1002,7 +1009,7 @@ function ExecutionTab({
   ];
   return (
     <>
-      <section className="grid g4 kpi-row" aria-label={fa(pageContract, "chart.execution.title")}>
+      <section className="grid g4 kpi-row feed-analytics-kpis" aria-label={fa(pageContract, "chart.execution.title")}>
         <div className="kpi card">
           <div className="val">{pct(packingDone, packingAll)}</div>
           <div className="dl">{fa(pageContract, "kpi.packing.label")}</div>

@@ -23,3 +23,21 @@ assert.doesNotMatch(
   /window\.location\.assign\(nextUrl\.href\)/,
   "sidebar navigation must stay inside App Router; slow pages need loading boundaries instead of hard reloads",
 );
+
+assert.match(
+  source,
+  /pendingQueryNavigationRef\.current = \{/,
+  "same-route query navigations must keep a pending trace until the URL commits",
+);
+
+assert.match(
+  source,
+  /reportAdminPerformanceEvent\("admin_query_navigation_render"/,
+  "same-route query telemetry must report render completion, not only click start",
+);
+
+assert.doesNotMatch(
+  source,
+  /result: "query_only"/,
+  "Firebase query-navigation traces must not stop on the next animation frame before RSC content lands",
+);

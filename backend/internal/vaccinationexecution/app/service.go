@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -17,9 +18,11 @@ import (
 )
 
 type Service struct {
-	repo      ports.Repository
-	ownership ports.ShedOwnershipReader
-	bus       eventbus.Bus
+	repo             ports.Repository
+	ownership        ports.ShedOwnershipReader
+	bus              eventbus.Bus
+	shedSummaryCache map[string]shedSummaryCacheEntry
+	shedSummaryMu    sync.Mutex
 }
 
 type plannedDriveReassigner interface {
@@ -47,7 +50,7 @@ func NewService(repo ports.Repository, ownership ...ports.ShedOwnershipReader) *
 	if len(ownership) > 0 && ownership[0] != nil {
 		own = ownership[0]
 	}
-	return &Service{repo: repo, ownership: own}
+	return &Service{repo: repo, ownership: own, shedSummaryCache: map[string]shedSummaryCacheEntry{}}
 }
 
 func (s *Service) VaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionRow, error) {
@@ -122,7 +125,7 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		filterOptions = &domain.ExecutionFilters{Parks: parks}
 	}
 
-	includeCardSummaries := q.IncludeCardSummaries == nil || *q.IncludeCardSummaries
+	includeCardSummaries := q.IncludeCardSummaries != nil && *q.IncludeCardSummaries
 	var cardSummaries map[string]*domain.ShedCardSummary
 	if includeCardSummaries {
 		// Per-card summaries are page-independent full-filter aggregation. They are useful
@@ -306,6 +309,8 @@ func isFinalClosedFromRow(r domain.ExecutionRow) bool {
 }
 
 func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {
+	includeCardSummaries := false
+	q.IncludeCardSummaries = &includeCardSummaries
 	rows, err := s.VaccinationExecution(ctx, q)
 	if err != nil {
 		return domain.ShedDrilldown{}, false, err
@@ -1097,17 +1102,84 @@ func (s *Service) CoverageRollup(ctx context.Context, q domain.OperationsQuery) 
 // ---- Shed-wise vaccination (shed rollup + shed detail + animal roster) ----
 
 const defaultShedSummaryLimit = 50
+const shedSummaryResponseCacheTTL = 15 * time.Second
+
+type shedSummaryCacheEntry struct {
+	expiresAt time.Time
+	value     domain.ShedSummaryResponse
+}
+
+func shedSummaryCacheTimeBucket(t time.Time) string {
+	return t.Truncate(5 * time.Minute).UTC().Format(time.RFC3339)
+}
+
+func shedSummaryResponseCacheKey(q domain.ShedSummaryQuery, at time.Time) string {
+	status, capacity := "", ""
+	if q.Status != nil {
+		status = string(*q.Status)
+	}
+	if q.Capacity != nil {
+		capacity = string(*q.Capacity)
+	}
+	return strings.Join([]string{
+		q.TenantID,
+		optString(q.ParkID),
+		optString(q.ShedID),
+		optString(q.Search),
+		status,
+		capacity,
+		string(q.Sort),
+		fmt.Sprint(q.Limit),
+		fmt.Sprint(q.Offset),
+		shedSummaryCacheTimeBucket(at),
+	}, "|")
+}
+
+func optString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func (s *Service) getShedSummaryCache(key string) (domain.ShedSummaryResponse, bool) {
+	now := time.Now()
+	s.shedSummaryMu.Lock()
+	defer s.shedSummaryMu.Unlock()
+	entry, ok := s.shedSummaryCache[key]
+	if !ok || now.After(entry.expiresAt) {
+		if ok {
+			delete(s.shedSummaryCache, key)
+		}
+		return domain.ShedSummaryResponse{}, false
+	}
+	return entry.value, true
+}
+
+func (s *Service) setShedSummaryCache(key string, value domain.ShedSummaryResponse) {
+	s.shedSummaryMu.Lock()
+	defer s.shedSummaryMu.Unlock()
+	if len(s.shedSummaryCache) > 128 {
+		s.shedSummaryCache = map[string]shedSummaryCacheEntry{}
+	}
+	s.shedSummaryCache[key] = shedSummaryCacheEntry{expiresAt: time.Now().Add(shedSummaryResponseCacheTTL), value: value}
+}
 
 // ShedSummary returns the shed-wise rollup: one animal-level row per shed with the resolved Manager/
 // Backup attached from the workforce roster and a derived shed Status, plus offset-pagination metadata.
 func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (domain.ShedSummaryResponse, error) {
-	projections, err := s.repo.ShedSummary(ctx, q)
-	if err != nil {
-		return domain.ShedSummaryResponse{}, err
-	}
 	at := q.AsOf
 	if at.IsZero() {
 		at = time.Now().In(biztime.DefaultLocation())
+		q.AsOf = at
+	}
+	cacheKey := shedSummaryResponseCacheKey(q, at)
+	if cached, ok := s.getShedSummaryCache(cacheKey); ok {
+		return cached, nil
+	}
+	projections, err := s.repo.ShedSummary(ctx, q)
+	if err != nil {
+		return domain.ShedSummaryResponse{}, err
 	}
 	total := 0
 	rows := make([]domain.ShedSummaryRow, 0, len(projections))
@@ -1150,7 +1222,7 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 	if offset < 0 {
 		offset = 0
 	}
-	return domain.ShedSummaryResponse{
+	response := domain.ShedSummaryResponse{
 		Source: domain.SourceAPI,
 		Rows:   rows,
 		Page:   domain.PageInfo{Total: total, Limit: limit, Offset: offset},
@@ -1160,7 +1232,9 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 			}
 			return nil
 		}(),
-	}, nil
+	}
+	s.setShedSummaryCache(cacheKey, response)
+	return response, nil
 }
 
 func operationalLocationDisplay(shedName string, partitionLabel *string) string {

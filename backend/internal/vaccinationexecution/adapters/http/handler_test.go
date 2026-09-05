@@ -448,6 +448,74 @@ func TestAppVaccinationExecutionRequiresAndCarriesOperatorScope(t *testing.T) {
 	}
 }
 
+func TestAppVaccinationExecutionUsesPageOnlyDefaultUnlessExplicit(t *testing.T) {
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	const actorID = "30000000-0000-4000-8000-000000000077"
+	reader := &fakeReader{executionPage: domain.ExecutionResponse{Source: domain.SourceAPI}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution", nil)
+	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.last.IncludeCardSummaries != nil {
+		t.Fatalf("app route default IncludeCardSummaries = %#v, want service page-only default", reader.last.IncludeCardSummaries)
+	}
+	if reader.last.Limit != defaultExecutionLimit {
+		t.Fatalf("app route default limit = %d, want %d", reader.last.Limit, defaultExecutionLimit)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/app/vaccination/execution?include_card_summaries=true&limit=35", nil)
+	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("explicit status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.last.IncludeCardSummaries == nil || !*reader.last.IncludeCardSummaries {
+		t.Fatalf("explicit IncludeCardSummaries = %#v, want true", reader.last.IncludeCardSummaries)
+	}
+	if reader.last.Limit != 35 {
+		t.Fatalf("explicit app route limit = %d, want 35", reader.last.Limit)
+	}
+}
+
+func TestVaccinationOperationsAndScheduleUseBoundedDefaultPages(t *testing.T) {
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	reader := &fakeReader{
+		ops:      domain.OperationsResponse{Source: domain.SourceAPI},
+		schedule: domain.OperationsResponse{Source: domain.SourceAPI},
+	}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/operations", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), tenantID))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operations status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastOps.Limit != defaultDrilldownLimit {
+		t.Fatalf("operations default limit = %d want %d", reader.lastOps.Limit, defaultDrilldownLimit)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/vaccination/schedule", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), tenantID))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("schedule status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastSchedule.Limit != defaultDrilldownLimit {
+		t.Fatalf("schedule default limit = %d want %d", reader.lastSchedule.Limit, defaultDrilldownLimit)
+	}
+}
+
 // TestAppVaccinationExecutionLeadershipSkipsOperatorScope pins that a leadership principal
 // (CEO/CXO, PC Director, Park Head) reading the APP execution route is NOT
 // operator-assignment scoped: they get the park-scoped read-only oversight view of all

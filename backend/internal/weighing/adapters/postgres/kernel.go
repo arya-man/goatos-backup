@@ -743,14 +743,14 @@ func (r *Repository) claimChunkRows(
 		return nil, "", err
 	}
 	if len(claimed) == 0 {
-		return claimed, "", tx.Commit(ctx)
+		return claimed, "", r.commitAndInvalidateReadCache(ctx, tx)
 	}
 	if sideEffects != nil {
 		if err := sideEffects(ctx, tx, claimed); err != nil {
 			return nil, "", err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return nil, "", err
 	}
 	return claimed, "", nil

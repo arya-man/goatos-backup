@@ -21,6 +21,7 @@ type fakeRepo struct {
 	capacityCfg domain.CapacityConfig
 	carryLines  []domain.VaccineCarryLine
 	cardCalls   *int
+	shedCalls   *int
 	err         error
 }
 
@@ -64,6 +65,9 @@ func (r fakeRepo) LiveTracker(_ context.Context, _ domain.LiveTrackerQuery) (dom
 }
 
 func (r fakeRepo) ShedSummary(_ context.Context, _ domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
+	if r.shedCalls != nil {
+		*r.shedCalls++
+	}
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -797,6 +801,58 @@ func TestVaccinationExecutionPageCanSkipCardSummariesForLatencySensitiveClients(
 	}
 }
 
+func TestVaccinationExecutionPageSkipsCardSummariesByDefault(t *testing.T) {
+	t.Parallel()
+
+	cardCalls := 0
+	svc := NewService(fakeRepo{
+		rows:      []domain.ExecutionProjection{projection("shed-1", time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC), 1, nil)},
+		cardCalls: &cardCalls,
+	})
+	resp, err := svc.VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC),
+		Limit:     20,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecutionPage failed: %v", err)
+	}
+	if cardCalls != 0 {
+		t.Fatalf("card summary query should be opt-in; got %d calls", cardCalls)
+	}
+	if resp.CardSummaries != nil {
+		t.Fatalf("default card summaries should be omitted; got %+v", resp.CardSummaries)
+	}
+}
+
+func TestShedDrilldownDoesNotRunCardSummaryAggregate(t *testing.T) {
+	t.Parallel()
+
+	cardCalls := 0
+	includeCardSummaries := true
+	svc := NewService(fakeRepo{
+		rows:      []domain.ExecutionProjection{projection("shed-1", time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC), 1, nil)},
+		cardCalls: &cardCalls,
+	})
+	_, found, err := svc.ShedDrilldown(context.Background(), domain.ExecutionQuery{
+		TenantID:             "tenant",
+		AsOf:                 time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
+		DueBefore:            time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC),
+		Limit:                20,
+		IncludeCardSummaries: &includeCardSummaries,
+	})
+	if err != nil {
+		t.Fatalf("ShedDrilldown failed: %v", err)
+	}
+	if !found {
+		t.Fatal("ShedDrilldown found = false")
+	}
+	if cardCalls != 0 {
+		t.Fatalf("shed drilldown should not run card summary query; got %d calls", cardCalls)
+	}
+}
+
 func TestVaccinationExecutionCarrySummaryPageIndependentOneToManyExecutionDateParkScopeStatusBuckets(t *testing.T) {
 	// CRITICAL: Carry summary must be full-day aggregation, not sum of paginated rows.
 	// Fixture: one day (2026-07-24) with ET+TT vaccine, 3 goats total (200 doses each = 600 total).
@@ -1095,11 +1151,13 @@ func TestCardSummaryReflectsAllRowsNotPaginatedSubset(t *testing.T) {
 	svc := NewService(fakeRepoImpl)
 
 	// Request page 1 with limit=10 (will get rows 1-10 only)
+	includeCardSummaries := true
 	resp, err := svc.VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{
-		TenantID:  "tenant",
-		AsOf:      asOf,
-		DueBefore: asOf.Add(30 * 24 * time.Hour),
-		Limit:     limit,
+		TenantID:             "tenant",
+		AsOf:                 asOf,
+		DueBefore:            asOf.Add(30 * 24 * time.Hour),
+		Limit:                limit,
+		IncludeCardSummaries: &includeCardSummaries,
 	})
 	if err != nil {
 		t.Fatalf("VaccinationExecutionPage() error = %v", err)
@@ -1228,12 +1286,14 @@ func TestCardSummaryRespectsWorkStateFilter(t *testing.T) {
 
 	// Request page with work_state filter = overdue
 	overdue := domain.WorkStateOverdue
+	includeCardSummaries := true
 	resp, err := svc.VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{
-		TenantID:  "tenant",
-		AsOf:      asOf,
-		DueBefore: asOf.Add(30 * 24 * time.Hour),
-		Limit:     10,
-		WorkState: &overdue,
+		TenantID:             "tenant",
+		AsOf:                 asOf,
+		DueBefore:            asOf.Add(30 * 24 * time.Hour),
+		Limit:                10,
+		WorkState:            &overdue,
+		IncludeCardSummaries: &includeCardSummaries,
 	})
 	if err != nil {
 		t.Fatalf("VaccinationExecutionPage() error = %v", err)

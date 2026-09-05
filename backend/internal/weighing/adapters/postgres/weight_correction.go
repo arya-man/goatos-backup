@@ -95,7 +95,7 @@ func (r *Repository) CorrectObservationWeight(ctx context.Context, cmd domain.We
 		if err != nil {
 			return domain.WeightCorrectionResult{}, err
 		}
-		return result, tx.Commit(ctx)
+		return result, r.commitAndInvalidateReadCache(ctx, tx)
 	}
 
 	scope, err := r.lockCorrectionScope(ctx, tx, cmd)
@@ -173,7 +173,7 @@ func (r *Repository) CorrectObservationWeight(ctx context.Context, cmd domain.We
 	); err != nil {
 		return domain.WeightCorrectionResult{}, err
 	}
-	return result, tx.Commit(ctx)
+	return result, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 func (r *Repository) weightCorrectionByIdempotency(

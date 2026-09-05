@@ -9,6 +9,9 @@ const sha = "0123456789abcdef";
 function passingReport() {
   return {
     git_sha: sha,
+    worktree_dirty: false,
+    worktree_diff_sha256: "clean-worktree-hash",
+    worktree_status_short: [],
     expected_sha: sha,
     manifest_sha256: "manifest-hash",
     started_at: "2026-07-12T00:00:00Z",
@@ -59,6 +62,17 @@ test("rejects a policy-only or stale-SHA false green", () => {
   assert.ok(failures.some((failure) => failure.includes("control_tower is missing")));
 });
 
+test("requires worktree provenance", () => {
+  const report = passingReport();
+  delete report.worktree_dirty;
+  delete report.worktree_diff_sha256;
+  delete report.worktree_status_short;
+  const failures = validateApiLatencyEvidence(report, sha);
+  assert.ok(failures.some((failure) => failure.includes("worktree_dirty")));
+  assert.ok(failures.some((failure) => failure.includes("worktree_diff_sha256")));
+  assert.ok(failures.some((failure) => failure.includes("worktree_status_short")));
+});
+
 test("requires the mobile calendar hot paths that caught the seconds-class month click", () => {
   assert.ok(REQUIRED_HOT_PATHS.includes("calendar_mobile_month_filter_options"));
   const report = passingReport();
@@ -83,10 +97,57 @@ test("rejects undersized fixtures and overclaimed certification", () => {
   assert.ok(failures.some((failure) => failure.includes("overclaims")));
 });
 
+test("accepts local OCI analytics evidence without canonical scale certification", () => {
+  const report = passingReport();
+  report.dataset = {
+    label: "analytics_local_oci_feed_synced",
+    animal_equivalent_cardinality: 0,
+    canonical_rows: 0,
+    certification_boundary: "local_oci_latency_only",
+  };
+  report.scope.evidence_profile = "analytics_local_oci";
+  report.scope.included = [
+    "vaccination_live_tracker",
+    "calendar_today_7d",
+    "calendar_month_page_20",
+    "weighing_growth_adg",
+    "weighing_weight_demographics",
+    "weighing_shed_weights",
+    "feed_directed_analytics",
+    "feed_execution_overview_days",
+    "feed_execution_analytics",
+    "feed_execution_packing_variance",
+    "feed_experiment_analytics",
+    "feed_stock_analytics",
+    "feed_shed_feed_analytics",
+  ];
+  report.scope.required_hot_paths = report.scope.included;
+  report.scope.evidence_boundaries = { local_oci_ceo_route_switch_reads: report.scope.included };
+  report.results = report.scope.included.map((name) => ({ ...report.results[0], name }));
+  assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
+});
+
 test("rejects oversized or unmeasured response payloads", () => {
   const report = passingReport();
   report.results[0].response_bytes_max = 524_289;
   assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("response_bytes_max")));
   report.results[0].response_bytes_max = 0;
   assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("no measured response payload")));
+});
+
+test("rejects self-declared required hot paths that do not match the verifier profile", () => {
+  const report = passingReport();
+  report.scope.required_hot_paths = ["control_tower"];
+  const failures = validateApiLatencyEvidence(report, sha);
+  assert.ok(failures.some((failure) => failure.includes("required_hot_paths must match the verifier-owned profile")));
+});
+
+test("rejects empty array assertions unless the endpoint declares that empty is valid", () => {
+  const report = passingReport();
+  report.results[0].assertion = { type: "array_min", path: "rows", min: 0 };
+  const failures = validateApiLatencyEvidence(report, sha);
+  assert.ok(failures.some((failure) => failure.includes("array_min assertion must require at least one row")));
+
+  report.results[0].assertion.allow_empty = true;
+  assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
 });

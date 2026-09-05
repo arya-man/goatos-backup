@@ -104,7 +104,7 @@
     {
       "name": "vaccination_execution",
       "method": "GET",
-      "path": "/vaccination/execution?limit=50",
+      "path": "/vaccination/execution?limit=50&include_card_summaries=false",
       "p90_ms": 300,
       "p95_ms": 500,
       "p99_ms": 500,

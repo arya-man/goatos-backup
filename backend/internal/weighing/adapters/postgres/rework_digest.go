@@ -253,7 +253,7 @@ func (r *Repository) flushReworkDigestBucket(
 			if _, err := tx.Exec(ctx, reworkDigestStampSQL, params.TenantID, ids); err != nil {
 				return 0, err
 			}
-			return 0, tx.Commit(ctx)
+			return 0, r.commitAndInvalidateReadCache(ctx, tx)
 		}
 		return 0, fmt.Errorf("weighing rework digest sweep: resolve bucket scope: %w", err)
 	}
@@ -317,7 +317,7 @@ func (r *Repository) flushReworkDigestBucket(
 	if err := r.enqueue(ctx, tx, params.TenantID, eventTypeObservationReworkDigest, scope.campaignID, idem, "", payload); err != nil {
 		return 0, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 		return 0, err
 	}
 	return len(claims), nil

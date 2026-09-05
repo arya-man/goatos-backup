@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -52,18 +53,84 @@ const feedItemNaturalKeyConstraint = "feed_item_catalog_natural_key_uidx"
 const maxSessionTemplateItemRows = 500
 
 type Repository struct {
-	pool    *pgxpool.Pool
-	timeout time.Duration
+	pool       *pgxpool.Pool
+	timeout    time.Duration
+	cacheMu    sync.Mutex
+	readCache  map[string]readCacheEntry
+	readFlight map[string]*readFlight
+}
+
+type readCacheEntry struct {
+	expiresAt time.Time
+	value     any
+}
+
+type readFlight struct {
+	done chan struct{}
+	val  any
+	err  error
 }
 
 func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return &Repository{pool: pool, timeout: timeout}
+	return &Repository{pool: pool, timeout: timeout, readCache: map[string]readCacheEntry{}, readFlight: map[string]*readFlight{}}
 }
 
 var _ ports.Repository = (*Repository)(nil)
+
+func (r *Repository) getCachedRead(key string) (any, bool) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	entry, ok := r.readCache[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(r.readCache, key)
+		return nil, false
+	}
+	return entry.value, true
+}
+
+func (r *Repository) setCachedRead(key string, value any) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if len(r.readCache) > 128 {
+		r.readCache = map[string]readCacheEntry{}
+	}
+	r.readCache[key] = readCacheEntry{expiresAt: time.Now().Add(2 * time.Second), value: value}
+}
+
+func (r *Repository) beginReadFlight(key string) (*readFlight, bool) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if flight, ok := r.readFlight[key]; ok {
+		return flight, false
+	}
+	flight := &readFlight{done: make(chan struct{})}
+	r.readFlight[key] = flight
+	return flight, true
+}
+
+func (r *Repository) finishReadFlight(key string, flight *readFlight, val any, err error) {
+	r.cacheMu.Lock()
+	if current := r.readFlight[key]; current == flight {
+		delete(r.readFlight, key)
+	}
+	flight.val = val
+	flight.err = err
+	close(flight.done)
+	r.cacheMu.Unlock()
+}
+
+func (r *Repository) invalidateReadCache() {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	clear(r.readCache)
+	clear(r.readFlight)
+}
 
 // ---------------------------------------------------------------------------
 // Reads
@@ -243,6 +310,35 @@ ORDER BY ration_group_label`
 func (r *Repository) ListShedTags(ctx context.Context, q domain.ShedTagQuery) (domain.ShedTagPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	cacheKey := fmt.Sprintf("shed-tags|%s|%s|%d|%d", q.TenantID, q.AppliesTo, q.Page.Limit, q.Page.Offset)
+	if cached, ok := r.getCachedRead(cacheKey); ok {
+		if page, ok := cached.(domain.ShedTagPage); ok {
+			return page, nil
+		}
+	}
+	flight, owner := r.beginReadFlight(cacheKey)
+	if !owner {
+		select {
+		case <-ctx.Done():
+			return domain.ShedTagPage{}, ctx.Err()
+		case <-flight.done:
+			if flight.err != nil {
+				return domain.ShedTagPage{}, flight.err
+			}
+			if page, ok := flight.val.(domain.ShedTagPage); ok {
+				return page, nil
+			}
+			return domain.ShedTagPage{}, fmt.Errorf("feedconfig: cached shed tags had unexpected type")
+		}
+	}
+	var flightOut domain.ShedTagPage
+	var flightErr error
+	defer func() {
+		if flightErr == nil {
+			r.setCachedRead(cacheKey, flightOut)
+		}
+		r.finishReadFlight(cacheKey, flight, flightOut, flightErr)
+	}()
 
 	// scale-guard:ignore: bounded LIMIT/OFFSET over the authored shed-tag vocabulary (31 live rows); the service rejects offset > 5000.
 	const query = `
@@ -255,6 +351,7 @@ LIMIT $3 OFFSET $4`
 
 	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.AppliesTo), q.Page.Limit+1, q.Page.Offset)
 	if err != nil {
+		flightErr = fmt.Errorf("feedconfig: list shed tags: %w", err)
 		return domain.ShedTagPage{}, fmt.Errorf("feedconfig: list shed tags: %w", err)
 	}
 	defer rows.Close()
@@ -263,14 +360,17 @@ LIMIT $3 OFFSET $4`
 	for rows.Next() {
 		var item domain.ShedTag
 		if err := rows.Scan(&item.ShedTagID, &item.ShedTagLabel, &item.AppliesTo, &item.DisplayOrder, &item.Status); err != nil {
+			flightErr = fmt.Errorf("feedconfig: scan shed tag: %w", err)
 			return domain.ShedTagPage{}, fmt.Errorf("feedconfig: scan shed tag: %w", err)
 		}
 		out.Items = append(out.Items, item)
 	}
 	if err := rows.Err(); err != nil {
+		flightErr = fmt.Errorf("feedconfig: list shed tags: %w", err)
 		return domain.ShedTagPage{}, fmt.Errorf("feedconfig: list shed tags: %w", err)
 	}
 	out.Items, out.HasMore = trimPage(out.Items, q.Page.Limit)
+	flightOut = out
 	return out, nil
 }
 
@@ -830,6 +930,35 @@ RETURNING experiment_config_id::text, feed_item_key`,
 func (r *Repository) ListPens(ctx context.Context, q domain.PenQuery) (domain.PenPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	cacheKey := fmt.Sprintf("pens|%s|%s|%d|%d", q.TenantID, q.ParkID, q.Page.Limit, q.Page.Offset)
+	if cached, ok := r.getCachedRead(cacheKey); ok {
+		if page, ok := cached.(domain.PenPage); ok {
+			return page, nil
+		}
+	}
+	flight, owner := r.beginReadFlight(cacheKey)
+	if !owner {
+		select {
+		case <-ctx.Done():
+			return domain.PenPage{}, ctx.Err()
+		case <-flight.done:
+			if flight.err != nil {
+				return domain.PenPage{}, flight.err
+			}
+			if page, ok := flight.val.(domain.PenPage); ok {
+				return page, nil
+			}
+			return domain.PenPage{}, fmt.Errorf("feedconfig: cached pens had unexpected type")
+		}
+	}
+	var flightOut domain.PenPage
+	var flightErr error
+	defer func() {
+		if flightErr == nil {
+			r.setCachedRead(cacheKey, flightOut)
+		}
+		r.finishReadFlight(cacheKey, flight, flightOut, flightErr)
+	}()
 
 	// scale-guard:ignore: bounded LIMIT/OFFSET over ONE park's location catalog (two live parks hold ~20 sheds and ~40 pens each); the set is authored infrastructure and cannot grow with herd size. Served by the locations parent index and shed_partitions' own (tenant_id, shed_id) key.
 	const query = `
@@ -868,6 +997,7 @@ LIMIT $3 OFFSET $4`
 
 	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID), q.Page.Limit+1, q.Page.Offset)
 	if err != nil {
+		flightErr = fmt.Errorf("feedconfig: list pens: %w", err)
 		return domain.PenPage{}, fmt.Errorf("feedconfig: list pens: %w", err)
 	}
 	defer rows.Close()
@@ -879,6 +1009,7 @@ LIMIT $3 OFFSET $4`
 		// pen belongs to -- which is the whole basis of its park-then-pen choice.
 		var item domain.Pen
 		if err := rows.Scan(&item.ParkID, &item.ShedID, &item.ShedName, &item.PartitionLabel, &item.HasExperimentConfig); err != nil {
+			flightErr = fmt.Errorf("feedconfig: scan pen: %w", err)
 			return domain.PenPage{}, fmt.Errorf("feedconfig: scan pen: %w", err)
 		}
 		// Same composition as the experiment list, through oploc, so the enroller's option text and
@@ -895,9 +1026,11 @@ LIMIT $3 OFFSET $4`
 		out.Items = append(out.Items, item)
 	}
 	if err := rows.Err(); err != nil {
+		flightErr = fmt.Errorf("feedconfig: list pens: %w", err)
 		return domain.PenPage{}, fmt.Errorf("feedconfig: list pens: %w", err)
 	}
 	out.Items, out.HasMore = trimPage(out.Items, q.Page.Limit)
+	flightOut = out
 	return out, nil
 }
 
@@ -2033,6 +2166,7 @@ RETURNING feed_config_write_id::text`,
 	if err := tx.Commit(ctx); err != nil {
 		return domain.WriteResult{}, err
 	}
+	r.invalidateReadCache()
 	return domain.WriteResult{
 		WriteID:         writeID,
 		Kind:            kind,

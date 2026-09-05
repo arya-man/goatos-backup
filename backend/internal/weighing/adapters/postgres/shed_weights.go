@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -68,11 +69,32 @@ import (
 // weighing_observations_campaign_scanned_identifier_idx rather than seq-scanning
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
-func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg float64) (domain.ShedWeights, error) {
+func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg float64) (out domain.ShedWeights, err error) {
 	cacheKey := weighingAnalyticsCacheKey("shed_weights:"+selectedParkID+":"+fmt.Sprintf("%.3f", saleThresholdToleranceKg), tenantID, scopeParkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.ShedWeights), nil
 	}
+	cacheEpoch := r.readCacheEpoch()
+
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	flight, ownsFlight, flightErr := r.beginReadFlight(ctx, cacheKey)
+	if flightErr != nil {
+		return domain.ShedWeights{}, flightErr
+	}
+	if !ownsFlight {
+		if flight.value == nil {
+			return domain.ShedWeights{}, nil
+		}
+		return flight.value.(domain.ShedWeights), nil
+	}
+	defer func() {
+		if err == nil {
+			r.finishReadFlight(cacheKey, flight, out, nil)
+			return
+		}
+		r.finishReadFlight(cacheKey, flight, nil, err)
+	}()
 
 	weighingCategory = strings.TrimSpace(weighingCategory)
 	saleThresholdLowerKg := domain.SaleThresholdLowerKg
@@ -108,7 +130,7 @@ func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeP
 	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
 	sexFiltered := sexApplied || originApplied
 
-	out := domain.ShedWeights{
+	out = domain.ShedWeights{
 		Rows:              []domain.ShedWeightsRow{},
 		Parks:             []domain.GrowthPark{},
 		LumpWeighingDates: []string{},
@@ -495,36 +517,84 @@ LIMIT $7`
 	if err := rows.Err(); err != nil {
 		return domain.ShedWeights{}, err
 	}
-	// Park vocabulary for the filter, labelled the same way the rows are. It is read
-	// here rather than from ListParks because that helper is shared with the mobile
-	// planner and returns the full name; the two would then disagree on screen, with
-	// the dropdown saying "Coimbatore" and every row saying "CBE".
-	parkRows, err := r.pool.Query(ctx, `
+	var (
+		dates        domain.WeighingDates
+		byLoad       []domain.LoadGainBucket
+		unattributed int
+		followErr    error
+		followMu     sync.Mutex
+		followWG     sync.WaitGroup
+	)
+	setFollowErr := func(err error) {
+		if err == nil {
+			return
+		}
+		followMu.Lock()
+		if followErr == nil {
+			followErr = err
+		}
+		followMu.Unlock()
+	}
+
+	followWG.Add(3)
+	go func() {
+		defer followWG.Done()
+		// Park vocabulary for the filter, labelled the same way the rows are. It is read
+		// here rather than from ListParks because that helper is shared with the mobile
+		// planner and returns the full name; the two would then disagree on screen, with
+		// the dropdown saying "Coimbatore" and every row saying "CBE".
+		parkRows, err := r.pool.Query(ctx, `
 SELECT location_id::text, COALESCE(NULLIF(location_code, ''), name, '')
 FROM locations
 WHERE tenant_id = $1::uuid AND location_id = ANY($2::uuid[])
 ORDER BY display_order, name, location_id`, tenantID, scopeParkIDs)
-	if err != nil {
-		return domain.ShedWeights{}, err
-	}
-	defer parkRows.Close()
-	for parkRows.Next() {
-		var park domain.GrowthPark
-		if err := parkRows.Scan(&park.ParkID, &park.Name); err != nil {
-			return domain.ShedWeights{}, err
+		if err != nil {
+			setFollowErr(err)
+			return
 		}
-		out.Parks = append(out.Parks, park)
-	}
-	if err := parkRows.Err(); err != nil {
-		return domain.ShedWeights{}, err
-	}
+		defer parkRows.Close()
+		parks := []domain.GrowthPark{}
+		for parkRows.Next() {
+			var park domain.GrowthPark
+			if err := parkRows.Scan(&park.ParkID, &park.Name); err != nil {
+				setFollowErr(err)
+				return
+			}
+			parks = append(parks, park)
+		}
+		if err := parkRows.Err(); err != nil {
+			setFollowErr(err)
+			return
+		}
+		followMu.Lock()
+		out.Parks = parks
+		followMu.Unlock()
+	}()
 
-	// The two date facts come from ONE helper, shared with the narrow /weighing/weighing-dates read
-	// the Weights screens resolve their landing window from. Two copies of these queries would let
-	// the window a page opens on disagree with the dates the same page then reports.
-	dates, err := r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.ShedWeights{}, err
+	go func() {
+		defer followWG.Done()
+		// The two date facts come from ONE helper, shared with the narrow /weighing/weighing-dates read
+		// the Weights screens resolve their landing window from. Two copies of these queries would let
+		// the window a page opens on disagree with the dates the same page then reports.
+		var err error
+		dates, err = r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		setFollowErr(err)
+	}()
+
+	go func() {
+		defer followWG.Done()
+		// Growth per procurement load, over the same tenant/park/window scope. Its own
+		// read rather than another CTE here: it collapses to LOAD grain, not shed grain,
+		// and folding a different grain into this query is how a shed ends up counted
+		// once per load it touches.
+		var err error
+		byLoad, unattributed, err = r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		setFollowErr(err)
+	}()
+
+	followWG.Wait()
+	if followErr != nil {
+		return domain.ShedWeights{}, followErr
 	}
 	out.LumpWeighingDates = dates.LumpWeighingDates
 	out.LatestWeighingDate = dates.LatestWeighingDate
@@ -534,17 +604,8 @@ ORDER BY display_order, name, location_id`, tenantID, scopeParkIDs)
 		summary.AverageWeightKg = &avg
 	}
 	out.Summary = summary
-
-	// Growth per procurement load, over the same tenant/park/window scope. Its own
-	// read rather than another CTE here: it collapses to LOAD grain, not shed grain,
-	// and folding a different grain into this query is how a shed ends up counted
-	// once per load it touches.
-	byLoad, unattributed, err := r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-	if err != nil {
-		return domain.ShedWeights{}, err
-	}
 	out.ByLoad = byLoad
 	out.LoadUnattributedSheds = unattributed
-	r.setReadCache(cacheKey, out)
+	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
 }

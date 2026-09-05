@@ -23,7 +23,7 @@ import (
 )
 
 const defaultQueryTimeout = 3 * time.Second
-const calendarListCacheTTL = 30 * time.Second
+const calendarListCacheTTL = 60 * time.Second
 
 type calendarListCacheEntry struct {
 	expiresAt time.Time

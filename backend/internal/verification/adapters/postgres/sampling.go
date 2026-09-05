@@ -151,7 +151,11 @@ DO UPDATE SET sample_percent = EXCLUDED.sample_percent, set_by = EXCLUDED.set_by
 		"verification_sampling_policy", resultID); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	r.invalidateReadCache()
+	return nil
 }
 
 // ListSamplingDayStats is the Randomization panel's whole-day aggregate, per category, for ONE
@@ -277,7 +281,10 @@ FOR UPDATE SKIP LOCKED`, in.TenantID, in.Before, in.WaivableCategories, in.Limit
 		return 0, err
 	}
 	if len(claimed) == 0 {
-		return 0, tx.Commit(ctx)
+		if err := tx.Commit(ctx); err != nil {
+			return 0, err
+		}
+		return 0, nil
 	}
 
 	settled := 0
@@ -320,5 +327,6 @@ WHERE tenant_id = $2::uuid
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err
 	}
+	r.invalidateReadCache()
 	return settled, nil
 }

@@ -1,5 +1,6 @@
 {
   "scope": {
+    "evidence_profile": "analytics_local_oci",
     "included": [
       "vaccination_live_tracker",
       "calendar_today_7d",
@@ -8,7 +9,25 @@
       "weighing_weight_demographics",
       "weighing_shed_weights",
       "feed_directed_analytics",
+      "feed_execution_overview_days",
       "feed_execution_analytics",
+      "feed_execution_packing_variance",
+      "feed_experiment_analytics",
+      "feed_stock_analytics",
+      "feed_shed_feed_analytics"
+    ],
+    "required_hot_paths": [
+      "vaccination_live_tracker",
+      "calendar_today_7d",
+      "calendar_month_page_20",
+      "weighing_growth_adg",
+      "weighing_weight_demographics",
+      "weighing_shed_weights",
+      "feed_directed_analytics",
+      "feed_execution_overview_days",
+      "feed_execution_analytics",
+      "feed_execution_packing_variance",
+      "feed_experiment_analytics",
       "feed_stock_analytics",
       "feed_shed_feed_analytics"
     ],
@@ -21,7 +40,10 @@
         "weighing_weight_demographics",
         "weighing_shed_weights",
         "feed_directed_analytics",
+        "feed_execution_overview_days",
         "feed_execution_analytics",
+        "feed_execution_packing_variance",
+        "feed_experiment_analytics",
         "feed_stock_analytics",
         "feed_shed_feed_analytics"
       ]
@@ -104,14 +126,44 @@
       "assertion": { "type": "array_min", "path": "items", "min": 1 }
     },
     {
+      "name": "feed_execution_overview_days",
+      "method": "GET",
+      "path": "/feed-analytics/execution?date_from=2026-08-06&date_to=2026-09-04&sections=days",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "days", "min": 1 }
+    },
+    {
       "name": "feed_execution_analytics",
       "method": "GET",
-      "path": "/feed-analytics/execution?date_from=2026-08-06&date_to=2026-09-04&variance_limit=25&variance_offset=0&completion_limit=25&completion_offset=0",
+      "path": "/feed-analytics/execution?date_from=2026-08-06&date_to=2026-09-04&sections=days,consumption,distribution_completions&completion_limit=25&completion_offset=0",
       "p90_ms": 300,
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "consumption_trend", "min": 1 }
+    },
+    {
+      "name": "feed_execution_packing_variance",
+      "method": "GET",
+      "path": "/feed-analytics/execution?date_from=2026-09-05&date_to=2026-09-05&sections=packing_variance&variance_limit=25&variance_offset=0",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "packing_variance", "min": 0, "allow_empty": true }
+    },
+    {
+      "name": "feed_experiment_analytics",
+      "method": "GET",
+      "path": "/feed-analytics/experiment?date_from=2026-08-06&date_to=2026-09-04",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 0, "allow_empty": true }
     },
     {
       "name": "feed_stock_analytics",

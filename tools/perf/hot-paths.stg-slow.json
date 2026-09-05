@@ -1,0 +1,245 @@
+{
+  "scope": {
+    "included": [
+      "stg_control_tower_vaccination",
+      "stg_calendar_vaccination_events_7d",
+      "stg_calendar_vaccination_events_month_page",
+      "stg_vaccination_command_board",
+      "stg_vaccination_command_drives",
+      "stg_vaccination_command_cohort_matrix",
+      "stg_vaccination_command_shed_dose_matrix",
+      "stg_vaccination_live_tracker",
+      "stg_counts_breakdown",
+      "stg_admin_locations",
+      "stg_verification_queue",
+      "stg_vaccination_adherence",
+      "stg_weighing_dates",
+      "stg_weighing_leadership_growth",
+      "stg_weighing_weight_demographics",
+      "stg_verification_oversight_analytics",
+      "stg_feed_execution_overview_days",
+      "stg_feed_execution_analytics",
+      "stg_feed_execution_packing_variance",
+      "stg_feed_experiment_analytics",
+      "stg_weighing_shed_weights",
+      "stg_feed_directed_analytics",
+      "stg_feed_stock_analytics",
+      "stg_feed_shed_feed_analytics"
+    ],
+    "evidence_boundaries": {
+      "stg_observed_over_1s_p95": [
+        "stg_control_tower_vaccination",
+        "stg_calendar_vaccination_events_7d",
+        "stg_calendar_vaccination_events_month_page",
+        "stg_vaccination_command_board",
+        "stg_vaccination_command_drives",
+        "stg_vaccination_command_cohort_matrix",
+        "stg_vaccination_command_shed_dose_matrix",
+        "stg_vaccination_live_tracker",
+        "stg_counts_breakdown",
+        "stg_admin_locations",
+        "stg_verification_queue",
+        "stg_vaccination_adherence",
+        "stg_weighing_dates",
+        "stg_weighing_leadership_growth",
+        "stg_weighing_weight_demographics",
+        "stg_verification_oversight_analytics",
+        "stg_feed_execution_analytics",
+        "stg_feed_execution_overview_days",
+        "stg_feed_execution_packing_variance",
+        "stg_feed_experiment_analytics",
+        "stg_weighing_shed_weights",
+        "stg_feed_directed_analytics",
+        "stg_feed_stock_analytics",
+        "stg_feed_shed_feed_analytics"
+      ],
+      "earlier_analytics_gate_overlap": [
+        "stg_vaccination_live_tracker",
+        "stg_calendar_vaccination_events_7d",
+        "stg_calendar_vaccination_events_month_page",
+        "stg_weighing_leadership_growth",
+        "stg_weighing_weight_demographics",
+        "stg_weighing_shed_weights",
+        "stg_feed_directed_analytics",
+        "stg_feed_execution_analytics",
+        "stg_feed_stock_analytics",
+        "stg_feed_shed_feed_analytics"
+      ]
+    },
+    "excluded": {
+      "admin_web_bootstrap": "STG p95 was below the 1s inclusion cutoff in the sampled admin-web fetch telemetry and is owned by the bootstrap cache/ETag gate.",
+      "detail_drilldowns_with_dynamic_ids": "Event/detail/media row drilldowns require backend-issued ids from a prior page response; fixed URLs here cover route-level hot reads only.",
+      "projection_redesign": "This manifest measures current hot read contracts. It does not add projection tables or change business logic."
+    }
+  },
+  "endpoints": [
+    {
+      "name": "stg_control_tower_vaccination",
+      "method": "GET",
+      "path": "/control-tower/vaccination?category=vaccination",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "alerts", "min": 0 }
+    },
+    {
+      "name": "stg_calendar_vaccination_events_7d",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from=2026-09-04&date_to=2026-09-11&limit=50",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "stg_calendar_vaccination_events_month_page",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from=2026-09-01&date_to=2026-09-30&limit=20",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "stg_vaccination_command_board",
+      "method": "GET",
+      "path": "/vaccination/command",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "number_min", "path": "kpis.targets", "min": 0 }
+    },
+    {
+      "name": "stg_vaccination_command_drives",
+      "method": "GET",
+      "path": "/vaccination/command/drives?limit=20",
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "options", "min": 0 }
+    },
+    {
+      "name": "stg_vaccination_command_cohort_matrix",
+      "method": "GET",
+      "path": "/vaccination/command/cohort-matrix",
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "cells", "min": 0 }
+    },
+    {
+      "name": "stg_vaccination_command_shed_dose_matrix",
+      "method": "GET",
+      "path": "/vaccination/command/shed-dose-matrix",
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "matrix.cells", "min": 0 }
+    },
+    {
+      "name": "stg_vaccination_live_tracker",
+      "method": "GET",
+      "path": "/vaccination/live-tracker?business_date=2026-09-04",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "operators", "min": 0 }
+    },
+    {
+      "name": "stg_counts_breakdown",
+      "method": "GET",
+      "path": "/counts/breakdown?limit=50",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 0 }
+    },
+    {
+      "name": "stg_admin_locations",
+      "method": "GET",
+      "path": "/admin/locations?limit=200",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 0 }
+    },
+    {
+      "name": "stg_verification_queue",
+      "method": "GET",
+      "path": "/verification/queue?status=pending&limit=50",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 0 }
+    },
+    {
+      "name": "stg_vaccination_adherence",
+      "method": "GET",
+      "path": "/vaccination/adherence?category=vaccination&limit=50",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "rows", "min": 0 }
+    },
+    {
+      "name": "stg_weighing_dates",
+      "method": "GET",
+      "path": "/weighing/weighing-dates?from=2026-09-01&to=2026-09-04&weighing_category=per_shed_partition",
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "lump_weighing_dates", "min": 0 }
+    },
+    {
+      "name": "stg_weighing_leadership_growth",
+      "method": "GET",
+      "path": "/weighing/leadership/growth?from=2026-09-01&to=2026-09-04&weighing_category=per_shed_partition",
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "distribution", "min": 0 }
+    },
+    {
+      "name": "stg_weighing_weight_demographics",
+      "method": "GET",
+      "path": "/weighing/weight-demographics?from=2026-09-01&to=2026-09-04&weighing_category=per_shed_partition",
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "by_breed", "min": 0 }
+    },
+    {
+      "name": "stg_verification_oversight_analytics",
+      "method": "GET",
+      "path": "/verification/oversight-analytics?business_date_from=2026-09-01&business_date_to=2026-09-04",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "kpis.per_module_median_review_latency_hours", "min": 0 }
+    },
+    {
+      "name": "stg_feed_execution_overview_days",
+      "method": "GET",
+      "path": "/feed-analytics/execution?date_from=2026-08-06&date_to=2026-09-04&sections=days",
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "days", "min": 0 }
+    },
+    {
+      "name": "stg_feed_execution_analytics",
+      "method": "GET",
+      "path": "/feed-analytics/execution?date_from=2026-08-06&date_to=2026-09-04&sections=days,consumption,distribution_completions&completion_limit=25&completion_offset=0",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "consumption_trend", "min": 0 }
+    },
+    {
+      "name": "stg_feed_execution_packing_variance",
+      "method": "GET",
+      "path": "/feed-analytics/execution?date_from=2026-09-05&date_to=2026-09-05&sections=packing_variance&variance_limit=25&variance_offset=0",
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "packing_variance", "min": 0 }
+    },
+    {
+      "name": "stg_feed_experiment_analytics",
+      "method": "GET",
+      "path": "/feed-analytics/experiment?date_from=2026-08-06&date_to=2026-09-04",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 0 }
+    },
+    {
+      "name": "stg_weighing_shed_weights",
+      "method": "GET",
+      "path": "/weighing/shed-weights?from=2026-09-01&to=2026-09-04&weighing_category=per_shed_partition",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "rows", "min": 0 }
+    },
+    {
+      "name": "stg_feed_directed_analytics",
+      "method": "GET",
+      "path": "/feed-analytics/directed?date_from=2026-08-06&date_to=2026-09-04",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 0 }
+    },
+    {
+      "name": "stg_feed_stock_analytics",
+      "method": "GET",
+      "path": "/feed-analytics/stock?date_from=2026-08-06&date_to=2026-09-04",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 0 }
+    },
+    {
+      "name": "stg_feed_shed_feed_analytics",
+      "method": "GET",
+      "path": "/feed-analytics/shed-feed?date_from=2026-08-06&date_to=2026-09-04",
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "rows", "min": 0 }
+    }
+  ]
+}

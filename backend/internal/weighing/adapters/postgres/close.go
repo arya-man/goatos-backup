@@ -186,7 +186,7 @@ func (r *Repository) closeScope(ctx context.Context, cmd domain.CloseCommand, ab
 		if err != nil {
 			return domain.CloseResult{}, err
 		}
-		return result, tx.Commit(ctx)
+		return result, r.commitAndInvalidateReadCache(ctx, tx)
 	}
 
 	// Lock the bucket first so the not-accepted snapshot and the status flip
@@ -267,7 +267,7 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.Clos
 	if err := r.enqueueScopeClosed(ctx, tx, cmd, result, eventType); err != nil {
 		return domain.CloseResult{}, err
 	}
-	return result, tx.Commit(ctx)
+	return result, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 // CloseCampaign closes a whole weighing campaign plus every bucket still open
@@ -292,7 +292,7 @@ func (r *Repository) CloseCampaign(ctx context.Context, cmd domain.CloseCommand)
 		if err != nil {
 			return domain.CloseResult{}, err
 		}
-		return result, tx.Commit(ctx)
+		return result, r.commitAndInvalidateReadCache(ctx, tx)
 	}
 
 	var status string
@@ -442,7 +442,7 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.ClosedBy, cmd.Reason, no
 	if err := r.enqueueCampaignClosed(ctx, tx, cmd, result, operators); err != nil {
 		return domain.CloseResult{}, err
 	}
-	return result, tx.Commit(ctx)
+	return result, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
 // closeByIdempotency is the exact-replay read. A stored record with a different

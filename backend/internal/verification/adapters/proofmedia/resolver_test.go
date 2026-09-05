@@ -53,6 +53,69 @@ func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
 	}
 }
 
+func TestResolveMediaDownloadsProofsConcurrentlyAndCachesResults(t *testing.T) {
+	downloader := &countingArtifactDownloader{delay: 25 * time.Millisecond}
+	resolver := NewResolver(downloader)
+	proofIDs := []string{
+		"10000000-0000-4000-8000-000000000001",
+		"10000000-0000-4000-8000-000000000002",
+		"10000000-0000-4000-8000-000000000003",
+		"10000000-0000-4000-8000-000000000004",
+	}
+
+	start := time.Now()
+	media, err := resolver.ResolveMedia(context.Background(), "00000000-0000-4000-8000-000000000001", proofIDs)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("ResolveMedia() error = %v", err)
+	}
+	if len(media) != len(proofIDs) {
+		t.Fatalf("media len=%d, want %d", len(media), len(proofIDs))
+	}
+	if downloader.maxInFlight < 2 {
+		t.Fatalf("maxInFlight=%d, want concurrent downloads", downloader.maxInFlight)
+	}
+	if elapsed >= downloader.delay*time.Duration(len(proofIDs)) {
+		t.Fatalf("ResolveMedia took %s, expected less than serial duration %s", elapsed, downloader.delay*time.Duration(len(proofIDs)))
+	}
+	firstCalls := downloader.calls
+
+	media, err = resolver.ResolveMedia(context.Background(), "00000000-0000-4000-8000-000000000001", proofIDs)
+	if err != nil {
+		t.Fatalf("ResolveMedia() cached error = %v", err)
+	}
+	if len(media) != len(proofIDs) {
+		t.Fatalf("cached media len=%d, want %d", len(media), len(proofIDs))
+	}
+	if downloader.calls != firstCalls {
+		t.Fatalf("cached ResolveMedia made %d extra downloads", downloader.calls-firstCalls)
+	}
+}
+
+func TestEnsureEvidenceAvailableChecksObjectsConcurrently(t *testing.T) {
+	checker := &countingAvailabilityDownloader{delay: 25 * time.Millisecond}
+	resolver := NewResolver(checker)
+	proofIDs := []string{
+		"10000000-0000-4000-8000-000000000001",
+		"10000000-0000-4000-8000-000000000002",
+		"10000000-0000-4000-8000-000000000003",
+		"10000000-0000-4000-8000-000000000004",
+	}
+
+	start := time.Now()
+	err := resolver.EnsureEvidenceAvailable(context.Background(), "00000000-0000-4000-8000-000000000001", proofIDs)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("EnsureEvidenceAvailable() error = %v", err)
+	}
+	if checker.maxInFlight < 2 {
+		t.Fatalf("maxInFlight=%d, want concurrent availability checks", checker.maxInFlight)
+	}
+	if elapsed >= checker.delay*time.Duration(len(proofIDs)) {
+		t.Fatalf("EnsureEvidenceAvailable took %s, expected less than serial duration %s", elapsed, checker.delay*time.Duration(len(proofIDs)))
+	}
+}
+
 type fakeActionPresentationResolver struct {
 	labels  map[string]string
 	answers map[string]string
@@ -147,6 +210,63 @@ func (d richDownloader) DownloadURL(context.Context, string, string) (string, er
 
 func (d richDownloader) DownloadArtifact(context.Context, string, string) (proofdomain.Artifact, string, error) {
 	return d.proof, d.url, nil
+}
+
+type countingArtifactDownloader struct {
+	delay       time.Duration
+	mu          sync.Mutex
+	calls       int
+	inFlight    int
+	maxInFlight int
+}
+
+func (d *countingArtifactDownloader) DownloadURL(context.Context, string, string) (string, error) {
+	return "", errors.New("DownloadArtifact should be used")
+}
+
+func (d *countingArtifactDownloader) DownloadArtifact(_ context.Context, _ string, proofID string) (proofdomain.Artifact, string, error) {
+	d.mu.Lock()
+	d.calls++
+	d.inFlight++
+	if d.inFlight > d.maxInFlight {
+		d.maxInFlight = d.inFlight
+	}
+	d.mu.Unlock()
+
+	time.Sleep(d.delay)
+
+	d.mu.Lock()
+	d.inFlight--
+	d.mu.Unlock()
+
+	return proofdomain.Artifact{ProofID: proofID, MimeType: "video/mp4"}, "https://signed.example/" + proofID, nil
+}
+
+type countingAvailabilityDownloader struct {
+	delay       time.Duration
+	mu          sync.Mutex
+	inFlight    int
+	maxInFlight int
+}
+
+func (d *countingAvailabilityDownloader) DownloadURL(_ context.Context, _, proofID string) (string, error) {
+	return "https://signed.example/" + proofID, nil
+}
+
+func (d *countingAvailabilityDownloader) EnsureObjectAvailable(context.Context, string, string) error {
+	d.mu.Lock()
+	d.inFlight++
+	if d.inFlight > d.maxInFlight {
+		d.maxInFlight = d.inFlight
+	}
+	d.mu.Unlock()
+
+	time.Sleep(d.delay)
+
+	d.mu.Lock()
+	d.inFlight--
+	d.mu.Unlock()
+	return nil
 }
 
 type memoryProofRepo struct {

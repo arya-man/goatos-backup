@@ -15,6 +15,13 @@ import (
 func (r *Repository) OversightAnalytics(ctx context.Context, tenantID string) (domain.OversightAnalytics, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	cacheKey := "oversight-analytics:" + tenantID
+	if cached, ok := r.getCachedValue(cacheKey); ok {
+		if result, ok := cached.(domain.OversightAnalytics); ok {
+			return result, nil
+		}
+	}
+	cacheEpoch := r.readCacheEpoch()
 
 	var out domain.OversightAnalytics
 
@@ -343,5 +350,6 @@ GROUP BY verified_by`, tenantID)
 		out.VerifierActivity = append(out.VerifierActivity, *activityByVerifier[id])
 	}
 
+	r.setCachedValueIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
 }

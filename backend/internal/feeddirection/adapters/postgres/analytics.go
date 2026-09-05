@@ -23,9 +23,14 @@ var _ ports.DirectedAnalyticsReader = (*Repository)(nil)
 const feedAnalyticsCacheTTL = 30 * time.Second
 
 func feedAnalyticsCacheKey(prefix string, tenantID string, q domain.DirectedAnalyticsQuery) string {
-	return fmt.Sprintf("%s|%s|%v|%s|%s|%s|%v|%d|%d|%s|%s|%s|%d|%d|%s|%s|%s",
-		prefix, tenantID, q.ParkIDs, q.DateFrom.Format("2006-01-02"), q.DateTo.Format("2006-01-02"),
-		q.WastageDay.Format("2006-01-02"), q.Sections, q.PackingVarianceLimit, q.PackingVarianceOffset,
+	parkIDs := make([]string, 0, len(q.ParkIDs))
+	for _, id := range q.ParkIDs {
+		parkIDs = append(parkIDs, id.String())
+	}
+	sort.Strings(parkIDs)
+	return fmt.Sprintf("%s|%s|%v|%s|%s|%s|%v|%v|%d|%d|%s|%s|%s|%d|%d|%s|%s|%s",
+		prefix, tenantID, parkIDs, q.DateFrom.Format("2006-01-02"), q.DateTo.Format("2006-01-02"),
+		q.WastageDay.Format("2006-01-02"), q.Sections, q.StockSections, q.PackingVarianceLimit, q.PackingVarianceOffset,
 		q.PackingVarianceParkLabel, q.PackingVarianceFeedItemKey, q.CompletionDay.Format("2006-01-02"),
 		q.CompletionLimit, q.CompletionOffset, q.CompletionParkID, q.CompletionShedID, q.CompletionStatus)
 }
@@ -51,6 +56,42 @@ func (r *Repository) setReadCache(key string, value any) {
 		r.readCache = map[string]readCacheEntry{}
 	}
 	r.readCache[key] = readCacheEntry{expiresAt: time.Now().Add(feedAnalyticsCacheTTL), value: value}
+}
+
+func (r *Repository) getOrLoadReadCache(ctx context.Context, key string, load func(context.Context) (any, error)) (any, error) {
+	if cached, ok := r.getReadCache(key); ok {
+		return cached, nil
+	}
+
+	r.cacheMu.Lock()
+	if flight, ok := r.readFlight[key]; ok {
+		r.cacheMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-flight.done:
+			if flight.err != nil {
+				return nil, flight.err
+			}
+			return flight.value, nil
+		}
+	}
+	flight := &readFlight{done: make(chan struct{})}
+	r.readFlight[key] = flight
+	r.cacheMu.Unlock()
+
+	value, err := load(ctx)
+	if err == nil {
+		r.setReadCache(key, value)
+	}
+
+	r.cacheMu.Lock()
+	flight.value = value
+	flight.err = err
+	close(flight.done)
+	delete(r.readFlight, key)
+	r.cacheMu.Unlock()
+	return value, err
 }
 
 // Feed Analytics rollup over the frozen sheet.
@@ -109,6 +150,7 @@ pen_item AS (
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1
      AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE r.quantity_kg IS NOT NULL
     GROUP BY i.feed_day, r.feed_item_key,
              r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
 ),
@@ -183,6 +225,7 @@ pen AS (
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1
      AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE r.quantity_kg IS NOT NULL
     GROUP BY i.feed_day, r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
 )
 SELECT feed_day::text,
@@ -196,8 +239,108 @@ FROM pen
 GROUP BY feed_day
 ORDER BY feed_day`
 
-// DirectedAnalytics serves the windowed directed rollup. Two set-based reads,
-// no per-day fan-out.
+const directedAnalyticsCombinedSQL = `
+WITH iss AS (
+    SELECT feed_direction_issue_id, feed_day
+    FROM feed_direction_issues
+    WHERE tenant_id = $1
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+      AND feed_day BETWEEN $3 AND $4
+      AND state IN ('issued', 'amended', 'locked')
+      -- BOTH workflows (maintainer decision 2026-08-19): experiment pens are real
+      -- animals eating real feed, so the overview includes them alongside the normal sheet.
+      AND workflow IN ('normal', 'experiment')
+),
+pen_item AS (
+    SELECT i.feed_day,
+           r.feed_item_key,
+           MIN(r.feed_item_label)                                AS feed_item_label,
+           r.shed_id,
+           r.partition_key,
+           r.shed_tag_key,
+           r.breed_key,
+           SUM(r.quantity_kg)                                    AS grain_kg,
+           MAX(r.head_count)                                     AS grain_heads
+    FROM iss i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1
+     AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE r.quantity_kg IS NOT NULL
+    GROUP BY i.feed_day, r.feed_item_key,
+             r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
+),
+ext AS (
+    SELECT x.feed_day,
+           x.feed_item_label,
+           x.feed_item_key,
+           SUM(x.quantity_kg) AS grain_kg,
+           0::bigint          AS grain_heads
+    FROM feed_effective_external_consumption x
+    WHERE x.tenant_id = $1
+      AND x.park_id IS NOT NULL
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
+      AND x.feed_day BETWEEN $3 AND $4
+    GROUP BY x.feed_day, x.feed_item_label, x.feed_item_key
+),
+item_rows AS (
+    SELECT 'item'::text                                          AS row_kind,
+           feed_day,
+           MIN(feed_item_label)                                  AS feed_item_label,
+           feed_item_key,
+           COALESCE(SUM(grain_kg), 0)                            AS directed_kg,
+           COALESCE(SUM(grain_heads), 0)                         AS head_days,
+           COALESCE(
+             round(SUM(grain_kg) * 1000 / NULLIF(SUM(grain_heads), 0), 1)::text,
+             ''
+           )                                                     AS per_head_grams
+    FROM (
+        SELECT feed_day, feed_item_label, feed_item_key, grain_kg, grain_heads FROM pen_item
+        UNION ALL
+        SELECT feed_day, feed_item_label, feed_item_key, grain_kg, grain_heads FROM ext
+    ) both_sources
+    GROUP BY feed_day, feed_item_key
+),
+day_pen AS (
+    SELECT feed_day,
+           shed_id,
+           partition_key,
+           shed_tag_key,
+           breed_key,
+           SUM(grain_kg)                                        AS grain_kg,
+           MAX(grain_heads)                                     AS grain_heads
+    FROM pen_item
+    GROUP BY feed_day, shed_id, partition_key, shed_tag_key, breed_key
+),
+day_rows AS (
+    SELECT 'day'::text                                           AS row_kind,
+           feed_day,
+           ''::text                                              AS feed_item_label,
+           ''::text                                              AS feed_item_key,
+           COALESCE(SUM(grain_kg), 0)                            AS directed_kg,
+           COALESCE(SUM(grain_heads), 0)                         AS head_days,
+           COALESCE(
+             round(SUM(grain_kg) * 1000 / NULLIF(SUM(grain_heads), 0), 1)::text,
+             ''
+           )                                                     AS per_head_grams
+    FROM day_pen
+    GROUP BY feed_day
+)
+SELECT row_kind,
+       feed_day::text,
+       feed_item_label,
+       feed_item_key,
+       directed_kg::text,
+       head_days,
+       per_head_grams
+FROM (
+    SELECT * FROM day_rows
+    UNION ALL
+    SELECT * FROM item_rows
+) rows
+ORDER BY feed_day, row_kind, feed_item_label`
+
+// DirectedAnalytics serves the windowed directed rollup. One set-based read
+// produces both arrays; no per-day fan-out and no duplicate scan for day totals.
 func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.DirectedAnalytics, error) {
 	cacheKey := feedAnalyticsCacheKey("directed", tenantID, q)
 	if cached, ok := r.getReadCache(cacheKey); ok {
@@ -215,42 +358,39 @@ func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q d
 	fromArg := from.Format("2006-01-02")
 	toArg := to.Format("2006-01-02")
 
-	out := domain.DirectedAnalytics{
-		Days:  []domain.DirectedDayTotal{},
-		Items: []domain.DirectedDayItem{},
-	}
-
-	dayRows, err := r.pool.Query(ctx, directedAnalyticsDaysSQL, tenantID, parkIDs, fromArg, toArg)
+	rows, err := r.pool.Query(ctx, directedAnalyticsCombinedSQL, tenantID, parkIDs, fromArg, toArg)
 	if err != nil {
-		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics day rollup: %w", err)
+		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics directed rollup: %w", err)
 	}
-	defer dayRows.Close()
-	for dayRows.Next() {
-		var d domain.DirectedDayTotal
-		if err := dayRows.Scan(&d.FeedDay, &d.DirectedKg, &d.HeadDays, &d.PerHeadGrams); err != nil {
-			return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics day rollup scan: %w", err)
-		}
-		out.Days = append(out.Days, d)
-	}
-	if err := dayRows.Err(); err != nil {
-		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics day rollup rows: %w", err)
-	}
+	defer rows.Close()
 
-	itemRows, err := r.pool.Query(ctx, directedAnalyticsSQL, tenantID, parkIDs, fromArg, toArg)
-	if err != nil {
-		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics item rollup: %w", err)
-	}
-	defer itemRows.Close()
-	for itemRows.Next() {
-		var it domain.DirectedDayItem
-		if err := itemRows.Scan(&it.FeedDay, &it.FeedItemLabel, &it.FeedItemKey, &it.DirectedKg, &it.HeadDays, &it.PerHeadGrams); err != nil {
-			return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics item rollup scan: %w", err)
+	days := []domain.DirectedDayTotal{}
+	items := []domain.DirectedDayItem{}
+	for rows.Next() {
+		var kind string
+		var feedDay, feedItemLabel, feedItemKey, directedKg, perHeadGrams string
+		var headDays int64
+		if err := rows.Scan(&kind, &feedDay, &feedItemLabel, &feedItemKey, &directedKg, &headDays, &perHeadGrams); err != nil {
+			return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics directed rollup scan: %w", err)
 		}
-		out.Items = append(out.Items, it)
+		switch kind {
+		case "day":
+			days = append(days, domain.DirectedDayTotal{
+				FeedDay: feedDay, DirectedKg: directedKg, HeadDays: headDays, PerHeadGrams: perHeadGrams,
+			})
+		case "item":
+			items = append(items, domain.DirectedDayItem{
+				FeedDay: feedDay, FeedItemLabel: feedItemLabel, FeedItemKey: feedItemKey,
+				DirectedKg: directedKg, HeadDays: headDays, PerHeadGrams: perHeadGrams,
+			})
+		default:
+			return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics directed rollup unknown row kind %q", kind)
+		}
 	}
-	if err := itemRows.Err(); err != nil {
-		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics item rollup rows: %w", err)
+	if err := rows.Err(); err != nil {
+		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics directed rollup rows: %w", err)
 	}
+	out := domain.DirectedAnalytics{Days: days, Items: items}
 	r.setReadCache(cacheKey, out)
 	return out, nil
 }
@@ -372,6 +512,7 @@ planned AS (
       AND i.feed_day BETWEEN $3 AND $4
       AND i.state IN ('issued', 'amended', 'locked')
       AND i.workflow IN ('normal', 'experiment')
+      AND r.quantity_kg IS NOT NULL
     GROUP BY i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key
 )
 SELECT rd.target_date::text,
@@ -441,7 +582,31 @@ LIMIT $6 OFFSET $7`
 // scale-guard:ignore: 5k-50k-envelope -- bounded per-(day, shed) aggregate over one window of
 // frozen sheets and their readings, canonical-indexed-SQL default.
 const executionConsumptionSQL = `
-WITH planned AS (
+WITH iss AS (
+    SELECT feed_direction_issue_id, feed_day, park_id
+    FROM feed_direction_issues
+    WHERE tenant_id = $1
+      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND feed_day BETWEEN $3 AND $4
+      AND state IN ('issued', 'amended', 'locked')
+      AND workflow IN ('normal', 'experiment')
+),
+planned_rows AS (
+    SELECT r.feed_direction_issue_id,
+           r.shed_id,
+           r.partition_key,
+           r.session_no,
+           r.workflow,
+           r.feed_item_key,
+           SUM(r.quantity_kg) AS target_kg
+    FROM iss i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1
+     AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE r.quantity_kg IS NOT NULL
+    GROUP BY r.feed_direction_issue_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key
+),
+planned AS (
     SELECT i.feed_day,
            i.park_id,
            r.shed_id,
@@ -449,18 +614,10 @@ WITH planned AS (
            r.session_no,
            r.workflow,
            r.feed_item_key,
-           SUM(r.quantity_kg) AS target_kg
-    FROM feed_direction_issues i
-    JOIN feed_direction_issue_rows r
-      ON r.tenant_id = $1
-     AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    WHERE i.tenant_id = $1
-      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
-      AND i.feed_day BETWEEN $3 AND $4
-      AND i.state IN ('issued', 'amended', 'locked')
-      AND i.workflow IN ('normal', 'experiment')
-      AND r.quantity_kg IS NOT NULL
-    GROUP BY i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key
+           r.target_kg
+    FROM iss i
+    JOIN planned_rows r
+      ON r.feed_direction_issue_id = i.feed_direction_issue_id
 ),
 readings AS (
     SELECT c.target_date,
@@ -527,36 +684,41 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 	}
 	fromArg, toArg := from.Format("2006-01-02"), to.Format("2006-01-02")
 
-	days := map[string]*domain.ExecutionDay{}
-	day := func(d string) *domain.ExecutionDay {
-		if existing, ok := days[d]; ok {
-			return existing
+	readDays := func() ([]domain.ExecutionDay, error) {
+		days := map[string]*domain.ExecutionDay{}
+		var daysMu sync.Mutex
+		addToDay := func(d string, apply func(*domain.ExecutionDay)) {
+			daysMu.Lock()
+			defer daysMu.Unlock()
+			e, ok := days[d]
+			if !ok {
+				e = &domain.ExecutionDay{Date: d}
+				days[d] = e
+			}
+			apply(e)
 		}
-		fresh := &domain.ExecutionDay{Date: d}
-		days[d] = fresh
-		return fresh
-	}
 
-	countInto := func(sql string, apply func(*domain.ExecutionDay, string, int64)) error {
-		rows, err := r.pool.Query(ctx, sql, tenantID, parkIDs, fromArg, toArg)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var d, status string
-			var n int64
-			if err := rows.Scan(&d, &status, &n); err != nil {
+		countInto := func(sql string, apply func(*domain.ExecutionDay, string, int64)) error {
+			rows, err := r.pool.Query(ctx, sql, tenantID, parkIDs, fromArg, toArg)
+			if err != nil {
 				return err
 			}
-			apply(day(d), status, n)
+			defer rows.Close()
+			for rows.Next() {
+				var d, status string
+				var n int64
+				if err := rows.Scan(&d, &status, &n); err != nil {
+					return err
+				}
+				addToDay(d, func(e *domain.ExecutionDay) {
+					apply(e, status, n)
+				})
+			}
+			return rows.Err()
 		}
-		return rows.Err()
-	}
 
-	// Each arm runs only when asked for. A page that needs one array from a second, differently
-	// scoped read fetches THAT array, not the whole payload.
-	if q.Wants(domain.ExecutionSectionDays) {
+		// Keep these reads sequential. They are individually tiny, and over the OCI SSH tunnel
+		// running them in parallel made one request queue against itself and pushed p95 over 1s.
 		if err := countInto(fmt.Sprintf(executionStatusSQL, "feed_packing_completions"), func(e *domain.ExecutionDay, status string, n int64) {
 			switch status {
 			case "completed":
@@ -567,7 +729,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 				e.PackingRework += n
 			}
 		}); err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing statuses: %w", err)
+			return nil, fmt.Errorf("feed analytics packing statuses: %w", err)
 		}
 		if err := countInto(fmt.Sprintf(executionStatusSQL, "feed_distribution_completions"), func(e *domain.ExecutionDay, status string, n int64) {
 			switch status {
@@ -579,7 +741,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 				e.DistributionRework += n
 			}
 		}); err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics distribution statuses: %w", err)
+			return nil, fmt.Errorf("feed analytics distribution statuses: %w", err)
 		}
 		if err := countInto(executionTransportSQL, func(e *domain.ExecutionDay, status string, n int64) {
 			switch status {
@@ -593,39 +755,41 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 				e.TransportRework += n
 			}
 		}); err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics transport statuses: %w", err)
+			return nil, fmt.Errorf("feed analytics transport statuses: %w", err)
 		}
-
 		latRows, err := r.pool.Query(ctx, executionLatencySQL, tenantID, parkIDs, fromArg, toArg)
 		if err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency: %w", err)
+			return nil, fmt.Errorf("feed analytics latency: %w", err)
 		}
 		defer latRows.Close()
 		for latRows.Next() {
 			var d string
 			var minutes int64
 			if err := latRows.Scan(&d, &minutes); err != nil {
-				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency scan: %w", err)
+				return nil, fmt.Errorf("feed analytics latency scan: %w", err)
 			}
 			m := minutes
-			day(d).MedianVerifyLatencyMinutes = &m
+			addToDay(d, func(e *domain.ExecutionDay) {
+				e.MedianVerifyLatencyMinutes = &m
+			})
 		}
 		if err := latRows.Err(); err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency rows: %w", err)
+			return nil, fmt.Errorf("feed analytics latency rows: %w", err)
 		}
+
+		outDays := make([]domain.ExecutionDay, 0, len(days))
+		keys := make([]string, 0, len(days))
+		for k := range days {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			outDays = append(outDays, *days[k])
+		}
+		return outDays, nil
 	}
 
-	out := domain.ExecutionAnalytics{Days: make([]domain.ExecutionDay, 0, len(days))}
-	keys := make([]string, 0, len(days))
-	for k := range days {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		out.Days = append(out.Days, *days[k])
-	}
-
-	if q.Wants(domain.ExecutionSectionConsumption) {
+	readConsumption := func() ([]domain.FeedConsumptionTrendDay, error) {
 		// ONE FEED DAY PAST THE WINDOW, so the trend's PACKING-day axis is not cut short.
 		//
 		// A bag is packed the day BEFORE the feed day it serves, and this arm plots packing days.
@@ -643,44 +807,45 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		consTo := to.AddDate(0, 0, 1).Format("2006-01-02")
 		consRows, err := r.pool.Query(ctx, executionConsumptionSQL, tenantID, parkIDs, fromArg, consTo, domain.PackingVarianceToleranceKg)
 		if err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption trend: %w", err)
+			return nil, fmt.Errorf("feed analytics consumption trend: %w", err)
 		}
 		defer consRows.Close()
-		out.ConsumptionTrend = []domain.FeedConsumptionTrendDay{}
+		trend := []domain.FeedConsumptionTrendDay{}
 		for consRows.Next() {
 			var day domain.FeedConsumptionTrendDay
 			var varianceText, comparedText string
 			if err := consRows.Scan(&day.FeedDay, &day.PackingDay, &day.TargetKg, &day.ActualKg, &varianceText, &comparedText); err != nil {
-				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption trend scan: %w", err)
+				return nil, fmt.Errorf("feed analytics consumption trend scan: %w", err)
 			}
 			if _, err := fmt.Sscan(varianceText, &day.VarianceRows); err != nil {
-				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption variance row count: %w", err)
+				return nil, fmt.Errorf("feed analytics consumption variance row count: %w", err)
 			}
 			if _, err := fmt.Sscan(comparedText, &day.ComparedRows); err != nil {
-				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption compared row count: %w", err)
+				return nil, fmt.Errorf("feed analytics consumption compared row count: %w", err)
 			}
-			out.ConsumptionTrend = append(out.ConsumptionTrend, day)
+			trend = append(trend, day)
 		}
 		if err := consRows.Err(); err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption trend rows: %w", err)
+			return nil, fmt.Errorf("feed analytics consumption trend rows: %w", err)
 		}
+		return trend, nil
 	}
 
-	if q.Wants(domain.ExecutionSectionPackingVariance) {
+	readPackingVariance := func() ([]domain.PackingVarianceRow, bool, error) {
 		// One row MORE than the page is asked for: if it comes back there is a next page. A COUNT(*)
 		// over the same predicate would be a second scan to learn one bit.
 		varLimit, varOffset, err := domain.NormalisePackingVariancePage(q.PackingVarianceLimit, q.PackingVarianceOffset)
 		if err != nil {
-			return domain.ExecutionAnalytics{}, err
+			return nil, false, err
 		}
 		varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg,
 			domain.MixedCohortLabel, varLimit+1, varOffset,
 			q.PackingVarianceParkLabel, q.PackingVarianceFeedItemKey)
 		if err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance: %w", err)
+			return nil, false, fmt.Errorf("feed analytics packing variance: %w", err)
 		}
 		defer varRows.Close()
-		out.PackingVariance = []domain.PackingVarianceRow{}
+		rowsOut := []domain.PackingVarianceRow{}
 		for varRows.Next() {
 			var v domain.PackingVarianceRow
 			if err := varRows.Scan(
@@ -688,28 +853,80 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 				&v.SessionNo, &v.SessionLabel, &v.Workflow, &v.FeedItemKey, &v.FeedItemLabel,
 				&v.BreedLabel, &v.PlannedKg, &v.VerifiedKg, &v.VarianceKg,
 			); err != nil {
-				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance scan: %w", err)
+				return nil, false, fmt.Errorf("feed analytics packing variance scan: %w", err)
 			}
 			// Canonical composition, never hand-rolled (operational-location rule).
 			v.OperationalLocationDisplay = oploc.OperationalLocation{
 				ShedName:       v.ShedLabel,
 				PartitionLabel: v.PartitionLabel,
 			}.Display()
-			out.PackingVariance = append(out.PackingVariance, v)
+			rowsOut = append(rowsOut, v)
 		}
 		if err := varRows.Err(); err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance rows: %w", err)
+			return nil, false, fmt.Errorf("feed analytics packing variance rows: %w", err)
 		}
-		if len(out.PackingVariance) > varLimit {
-			out.PackingVariance = out.PackingVariance[:varLimit]
-			out.PackingVarianceHasMore = true
+		hasMore := false
+		if len(rowsOut) > varLimit {
+			rowsOut = rowsOut[:varLimit]
+			hasMore = true
+		}
+		return rowsOut, hasMore, nil
+	}
+
+	var (
+		daysOut         []domain.ExecutionDay
+		consumptionOut  []domain.FeedConsumptionTrendDay
+		varianceOut     []domain.PackingVarianceRow
+		varianceHasMore bool
+		distributionOut domain.ExecutionAnalytics
+		err             error
+	)
+
+	// Each arm runs only when asked for. A page that needs one array from a second, differently
+	// scoped read fetches THAT array, not the whole payload. The sections stay sequential: each
+	// section is already set-based, and running the heavy arms together makes OCI/Cloud SQL queue
+	// them into p95 spikes even though the individual queries are small.
+	if q.Wants(domain.ExecutionSectionDays) {
+		daysOut, err = readDays()
+		if err != nil {
+			return domain.ExecutionAnalytics{}, err
+		}
+	}
+	if q.Wants(domain.ExecutionSectionConsumption) {
+		consumptionOut, err = readConsumption()
+		if err != nil {
+			return domain.ExecutionAnalytics{}, err
+		}
+	}
+	if q.Wants(domain.ExecutionSectionPackingVariance) {
+		varianceOut, varianceHasMore, err = readPackingVariance()
+		if err != nil {
+			return domain.ExecutionAnalytics{}, err
+		}
+	}
+	if q.Wants(domain.ExecutionSectionDistributionCompletions) {
+		if err := r.distributionCompletions(ctx, tenantID, parkIDs, to, q, &distributionOut); err != nil {
+			return domain.ExecutionAnalytics{}, err
 		}
 	}
 
+	out := domain.ExecutionAnalytics{}
+	if q.Wants(domain.ExecutionSectionDays) {
+		out.Days = daysOut
+	}
+	if q.Wants(domain.ExecutionSectionConsumption) {
+		out.ConsumptionTrend = consumptionOut
+	}
+	if q.Wants(domain.ExecutionSectionPackingVariance) {
+		out.PackingVariance = varianceOut
+		out.PackingVarianceHasMore = varianceHasMore
+	}
 	if q.Wants(domain.ExecutionSectionDistributionCompletions) {
-		if err := r.distributionCompletions(ctx, tenantID, parkIDs, to, q, &out); err != nil {
-			return domain.ExecutionAnalytics{}, err
-		}
+		out.DistributionCompletions = distributionOut.DistributionCompletions
+		out.DistributionCompletionsHasMore = distributionOut.DistributionCompletionsHasMore
+		out.CompletionDay = distributionOut.CompletionDay
+		out.CompletionTotals = distributionOut.CompletionTotals
+		out.CompletionFilterOptions = distributionOut.CompletionFilterOptions
 	}
 	r.setReadCache(cacheKey, out)
 	return out, nil
@@ -748,98 +965,112 @@ func (r *Repository) distributionCompletions(
 	parkFilter := nullableUUID(q.CompletionParkID)
 	shedFilter := nullableUUID(q.CompletionShedID)
 
-	// One row MORE than the page: if it comes back there is a next page, without a second scan.
-	rows, err := r.pool.Query(ctx, distributionCompletionRowsSQL,
-		tenantID, parkIDs, day, parkFilter, shedFilter, q.CompletionStatus, limit+1, offset)
-	if err != nil {
-		return fmt.Errorf("feed analytics distribution completions: %w", err)
-	}
-	defer rows.Close()
-	out.DistributionCompletions = []domain.DistributionCompletionRow{}
-	for rows.Next() {
-		var (
-			row                          domain.DistributionCompletionRow
-			weightRef, feedRef, waterRef string
-		)
-		if err := rows.Scan(
-			&row.FeedDay, &row.ParkID, &row.ParkLabel, &row.ShedID, &row.ShedLabel,
-			&row.PartitionLabel, &row.SessionNo, &row.SessionLabel, &row.Workflow,
-			&row.Status, &row.ReworkReason,
-			&weightRef, &feedRef, &waterRef,
-			&row.SubmittedAt, &row.VerifiedAt, &row.SubmittedByName, &row.VerifiedByName,
-		); err != nil {
-			return fmt.Errorf("feed analytics distribution completions scan: %w", err)
+	var (
+		rowsOut    []domain.DistributionCompletionRow
+		rowsMore   bool
+		totalsOut  domain.CompletionStatusTotals
+		optionsOut []domain.CompletionFilterOption
+	)
+	// Keep these reads sequential for the same reason as ExecutionAnalytics' top-level arms:
+	// each query is tiny, while parallel round trips over the remote DB path create p95 spikes.
+	{
+		// One row MORE than the page: if it comes back there is a next page, without a second scan.
+		rows, err := r.pool.Query(ctx, distributionCompletionRowsSQL,
+			tenantID, parkIDs, day, parkFilter, shedFilter, q.CompletionStatus, limit+1, offset)
+		if err != nil {
+			return fmt.Errorf("feed analytics distribution completions: %w", err)
 		}
-		// Canonical composition, never hand-rolled (operational-location rule).
-		row.OperationalLocationDisplay = oploc.OperationalLocation{
-			ShedName:       row.ShedLabel,
-			PartitionLabel: row.PartitionLabel,
-		}.Display()
-		// Always three slots, in the order they are shot. An empty ProofRef IS the missing video.
-		refs := map[string]string{
-			domain.DistributionSlotFeedWeightPhoto: weightRef,
-			domain.DistributionSlotFeedVideo:       feedRef,
-			domain.DistributionSlotWaterVideo:      waterRef,
+		defer rows.Close()
+		for rows.Next() {
+			var (
+				row                          domain.DistributionCompletionRow
+				weightRef, feedRef, waterRef string
+			)
+			if err := rows.Scan(
+				&row.FeedDay, &row.ParkID, &row.ParkLabel, &row.ShedID, &row.ShedLabel,
+				&row.PartitionLabel, &row.SessionNo, &row.SessionLabel, &row.Workflow,
+				&row.Status, &row.ReworkReason,
+				&weightRef, &feedRef, &waterRef,
+				&row.SubmittedAt, &row.VerifiedAt, &row.SubmittedByName, &row.VerifiedByName,
+			); err != nil {
+				return fmt.Errorf("feed analytics distribution completions scan: %w", err)
+			}
+			// Canonical composition, never hand-rolled (operational-location rule).
+			row.OperationalLocationDisplay = oploc.OperationalLocation{
+				ShedName:       row.ShedLabel,
+				PartitionLabel: row.PartitionLabel,
+			}.Display()
+			// Always three slots, in the order they are shot. An empty ProofRef IS the missing video.
+			refs := map[string]string{
+				domain.DistributionSlotFeedWeightPhoto: weightRef,
+				domain.DistributionSlotFeedVideo:       feedRef,
+				domain.DistributionSlotWaterVideo:      waterRef,
+			}
+			row.Proofs = make([]domain.DistributionProofSlot, 0, len(domain.DistributionSlotOrder))
+			for _, slot := range domain.DistributionSlotOrder {
+				row.Proofs = append(row.Proofs, domain.DistributionProofSlot{FieldKey: slot, ProofRef: refs[slot]})
+			}
+			rowsOut = append(rowsOut, row)
 		}
-		row.Proofs = make([]domain.DistributionProofSlot, 0, len(domain.DistributionSlotOrder))
-		for _, slot := range domain.DistributionSlotOrder {
-			row.Proofs = append(row.Proofs, domain.DistributionProofSlot{FieldKey: slot, ProofRef: refs[slot]})
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("feed analytics distribution completions rows: %w", err)
 		}
-		out.DistributionCompletions = append(out.DistributionCompletions, row)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("feed analytics distribution completions rows: %w", err)
-	}
-	if len(out.DistributionCompletions) > limit {
-		out.DistributionCompletions = out.DistributionCompletions[:limit]
-		out.DistributionCompletionsHasMore = true
-	}
-
-	// Totals follow the PLACE filters and ignore the STATUS one.
-	totalRows, err := r.pool.Query(ctx, distributionCompletionTotalsSQL,
-		tenantID, parkIDs, day, parkFilter, shedFilter)
-	if err != nil {
-		return fmt.Errorf("feed analytics distribution completion totals: %w", err)
-	}
-	defer totalRows.Close()
-	for totalRows.Next() {
-		var status string
-		var n int64
-		if err := totalRows.Scan(&status, &n); err != nil {
-			return fmt.Errorf("feed analytics distribution completion totals scan: %w", err)
-		}
-		switch status {
-		case domain.DistributionCompletionNotStarted:
-			out.CompletionTotals.NotStarted = n
-		case domain.DistributionCompletionAwaitingVerification:
-			out.CompletionTotals.AwaitingVerification = n
-		case domain.DistributionCompletionRework:
-			out.CompletionTotals.Rework = n
-		case domain.DistributionCompletionCompleted:
-			out.CompletionTotals.Completed = n
+		if len(rowsOut) > limit {
+			rowsOut = rowsOut[:limit]
+			rowsMore = true
 		}
 	}
-	if err := totalRows.Err(); err != nil {
-		return fmt.Errorf("feed analytics distribution completion totals rows: %w", err)
-	}
-
-	// Filter vocabulary: the whole day, unnarrowed by either filter.
-	optRows, err := r.pool.Query(ctx, distributionCompletionOptionsSQL, tenantID, parkIDs, day, nil, nil)
-	if err != nil {
-		return fmt.Errorf("feed analytics distribution completion options: %w", err)
-	}
-	defer optRows.Close()
-	out.CompletionFilterOptions = []domain.CompletionFilterOption{}
-	for optRows.Next() {
-		var opt domain.CompletionFilterOption
-		if err := optRows.Scan(&opt.ParkID, &opt.ParkLabel, &opt.ShedID, &opt.ShedLabel); err != nil {
-			return fmt.Errorf("feed analytics distribution completion options scan: %w", err)
+	{
+		// Totals follow the PLACE filters and ignore the STATUS one.
+		totalRows, err := r.pool.Query(ctx, distributionCompletionTotalsSQL,
+			tenantID, parkIDs, day, parkFilter, shedFilter)
+		if err != nil {
+			return fmt.Errorf("feed analytics distribution completion totals: %w", err)
 		}
-		out.CompletionFilterOptions = append(out.CompletionFilterOptions, opt)
+		defer totalRows.Close()
+		for totalRows.Next() {
+			var status string
+			var n int64
+			if err := totalRows.Scan(&status, &n); err != nil {
+				return fmt.Errorf("feed analytics distribution completion totals scan: %w", err)
+			}
+			switch status {
+			case domain.DistributionCompletionNotStarted:
+				totalsOut.NotStarted = n
+			case domain.DistributionCompletionAwaitingVerification:
+				totalsOut.AwaitingVerification = n
+			case domain.DistributionCompletionRework:
+				totalsOut.Rework = n
+			case domain.DistributionCompletionCompleted:
+				totalsOut.Completed = n
+			}
+		}
+		if err := totalRows.Err(); err != nil {
+			return fmt.Errorf("feed analytics distribution completion totals rows: %w", err)
+		}
 	}
-	if err := optRows.Err(); err != nil {
-		return fmt.Errorf("feed analytics distribution completion options rows: %w", err)
+	{
+		// Filter vocabulary: the whole day, unnarrowed by either filter.
+		optRows, err := r.pool.Query(ctx, distributionCompletionOptionsSQL, tenantID, parkIDs, day, nil, nil)
+		if err != nil {
+			return fmt.Errorf("feed analytics distribution completion options: %w", err)
+		}
+		defer optRows.Close()
+		for optRows.Next() {
+			var opt domain.CompletionFilterOption
+			if err := optRows.Scan(&opt.ParkID, &opt.ParkLabel, &opt.ShedID, &opt.ShedLabel); err != nil {
+				return fmt.Errorf("feed analytics distribution completion options scan: %w", err)
+			}
+			optionsOut = append(optionsOut, opt)
+		}
+		if err := optRows.Err(); err != nil {
+			return fmt.Errorf("feed analytics distribution completion options rows: %w", err)
+		}
 	}
+	out.DistributionCompletions = rowsOut
+	out.DistributionCompletionsHasMore = rowsMore
+	out.CompletionTotals = totalsOut
+	out.CompletionFilterOptions = optionsOut
 	return nil
 }
 
@@ -1038,6 +1269,7 @@ FROM iss i
 JOIN feed_direction_issue_rows r
   ON r.tenant_id = $1
  AND r.feed_direction_issue_id = i.feed_direction_issue_id
+WHERE r.quantity_kg IS NOT NULL
 GROUP BY i.feed_day, r.feed_item_key
 ORDER BY i.feed_day, r.feed_item_key`
 
@@ -1084,6 +1316,12 @@ ORDER BY p.park_label, p.shed_label, p.partition_key`
 
 // ExperimentAnalytics serves the trial arms' authored kg series.
 func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExperimentAnalytics, error) {
+	cacheKey := feedAnalyticsCacheKey("experiment", tenantID, q)
+	if cached, ok := r.getReadCache(cacheKey); ok {
+		if out, ok := cached.(domain.ExperimentAnalytics); ok {
+			return out, nil
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -1142,6 +1380,7 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 	if err := wrows.Err(); err != nil {
 		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment wastage rows: %w", err)
 	}
+	r.setReadCache(cacheKey, out)
 	return out, nil
 }
 
@@ -1149,9 +1388,11 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // Stock & expenditure
 // ---------------------------------------------------------------------------
 
-// Stock reads keep the purchase-weight expression in one place so older environments whose
-// feed_purchases table predates the delivery_status/stock_kg columns still serve the analytics
-// page. Newer migrated databases store the same value in stock_kg.
+// STOCK IS WHAT REACHED (maintainer decision 2026-09-03): every purchase CTE below reads
+// stock_kg (the received weight when entered, else the buying weight, and 0 in transit) and keeps
+// only delivery_status = 'reached' rows, so a load still on the road is counted nowhere and FIFO
+// depletion starts on the day it arrived (depletes_from follows reached_on). The rule lives in the
+// generated column and this predicate; no read re-derives it.
 //
 // projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), and feed_effective_external_consumption at (tenant, park_id, feed_item_key, feed_day) (feeds the ration grid does not direct — UHT Milk, resolved from the Milk Preparation workflow on submit, with the feed_external_consumption ledger as the fallback for days that workflow does not cover; migration 000216 guarantees at most one row per key, so the two sources cannot both contribute); the two consumption sources pre-aggregate to the same (park_id, feed_item_key, feed_day) grain and the UNION ALL is re-grouped on that key, so a day contributes once; group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
 //
@@ -1161,9 +1402,7 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded per-farm-item aggregates over the
 // small purchase ledger and windowed locked sheets, canonical-indexed-SQL default.
-// OCI/STG-like databases still at 000247 predate delivery tracking, so every imported
-// feed_purchases row is already a reached load and quantity_kg is the only available stock grain.
-const feedPurchaseStockKgSQL = `quantity_kg`
+const feedPurchaseStockKgSQL = `stock_kg`
 
 const stockItemsSQL = `
 WITH bought AS (
@@ -1171,11 +1410,12 @@ WITH bought AS (
            MAX(feed_item_label)                          AS feed_item_label,
            MIN(park_id::text)                            AS park_id_text,
            SUM(` + feedPurchaseStockKgSQL + ` - consumed_at_import_kg) AS net_kg,
-           MAX(batch_no)                                 AS latest_batch,
+           (array_agg(batch_no ORDER BY depletes_from DESC, purchase_date DESC, batch_no DESC))[1] AS latest_batch,
            MIN(depletes_from)                            AS depletes_from
-    FROM feed_purchases
-    WHERE tenant_id = $1
-      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+	FROM feed_purchases
+	WHERE tenant_id = $1
+	  AND delivery_status = 'reached'
+	  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
     GROUP BY farm_label, feed_item_key
 ),
 locked_cells AS (
@@ -1195,6 +1435,7 @@ locked_cells AS (
         WHERE i.tenant_id = $1
           AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
           AND i.state = 'locked'
+          AND r.quantity_kg IS NOT NULL
         GROUP BY i.park_id, r.feed_item_key, i.feed_day
         UNION ALL
         SELECT x.park_id, x.feed_item_key, x.feed_day, SUM(x.quantity_kg) AS kg
@@ -1282,6 +1523,7 @@ WITH fed_days AS (
         WHERE i.tenant_id = $1
           AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
           AND i.state = 'locked'
+          AND r.quantity_kg IS NOT NULL
         GROUP BY i.park_id, r.feed_item_key, i.feed_day
         UNION ALL
         SELECT x.park_id, x.feed_item_key, x.feed_day,
@@ -1313,11 +1555,12 @@ recent AS (
 -- exactly as the expenditure series excludes them.
 purchased AS (
     SELECT p.park_id, p.feed_item_key,
-           SUM(p.quantity_kg - p.consumed_at_import_kg) AS net_kg,
+           SUM(` + feedPurchaseStockKgSQL + ` - p.consumed_at_import_kg) AS net_kg,
            MIN(p.depletes_from)                         AS depletes_from
-    FROM feed_purchases p
-    WHERE p.tenant_id = $1
-      AND p.park_id IS NOT NULL
+	FROM feed_purchases p
+	WHERE p.tenant_id = $1
+	  AND p.delivery_status = 'reached'
+	  AND p.park_id IS NOT NULL
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
     GROUP BY p.park_id, p.feed_item_key
 ),
@@ -1348,13 +1591,14 @@ JOIN locations lp
 LEFT JOIN depleted d
   ON d.park_id = r.park_id AND d.feed_item_key = r.feed_item_key
 LEFT JOIN LATERAL (
-    SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) AS per_kg
-    FROM feed_purchases p
-    WHERE p.tenant_id = $1
-      AND p.park_id = r.park_id
+    SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.stock_kg, 0)) AS per_kg
+	FROM feed_purchases p
+	WHERE p.tenant_id = $1
+	  AND p.delivery_status = 'reached'
+	  AND p.park_id = r.park_id
       AND p.feed_item_key = r.feed_item_key
-      AND COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) IS NOT NULL
-    ORDER BY p.purchase_date DESC, p.batch_no DESC
+      AND COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.stock_kg, 0)) IS NOT NULL
+    ORDER BY p.depletes_from DESC, p.purchase_date DESC, p.batch_no DESC
     LIMIT 1
 ) rate ON TRUE
 WHERE r.avg_kg > 0
@@ -1389,9 +1633,10 @@ WITH bought AS (
            MIN(park_id::text)                       AS park_id_text,
            SUM(` + feedPurchaseStockKgSQL + ` - consumed_at_import_kg) AS net_kg,
            MIN(depletes_from)                       AS depletes_from
-    FROM feed_purchases
-    WHERE tenant_id = $1
-    GROUP BY farm_label, feed_item_key
+	FROM feed_purchases
+	WHERE tenant_id = $1
+	  AND delivery_status = 'reached'
+	GROUP BY farm_label, feed_item_key
 ),
 fed AS (
     SELECT park_id, feed_item_key, feed_day, SUM(kg) AS kg
@@ -1401,6 +1646,7 @@ fed AS (
         JOIN feed_direction_issue_rows r
           ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
         WHERE i.tenant_id = $1 AND i.state = 'locked'
+          AND r.quantity_kg IS NOT NULL
         GROUP BY i.park_id, r.feed_item_key, i.feed_day
         UNION ALL
         SELECT x.park_id, x.feed_item_key, x.feed_day, SUM(x.quantity_kg) AS kg
@@ -1490,6 +1736,7 @@ WITH day_item AS (
           AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
           AND i.state IN ('issued', 'amended', 'locked')
           AND i.feed_day BETWEEN $3 AND $4
+          AND r.quantity_kg IS NOT NULL
         GROUP BY i.feed_day, i.park_id, r.feed_item_key
         UNION ALL
         SELECT x.feed_day, x.park_id, x.feed_item_key, SUM(x.quantity_kg) AS kg
@@ -1506,14 +1753,15 @@ SELECT di.feed_day::text,
        round(SUM(di.kg * price.per_kg), 0)::text AS rupees
 FROM day_item di
 JOIN LATERAL (
-    SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) AS per_kg
-    FROM feed_purchases p
-    WHERE p.tenant_id = $1
-      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
+    SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.stock_kg, 0)) AS per_kg
+	FROM feed_purchases p
+	WHERE p.tenant_id = $1
+	  AND p.delivery_status = 'reached'
+	  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
       AND p.park_id = di.park_id
       AND p.feed_item_key = di.feed_item_key
-      AND p.purchase_date <= di.feed_day
-    ORDER BY p.purchase_date DESC, p.batch_no DESC
+      AND p.depletes_from <= di.feed_day
+    ORDER BY p.depletes_from DESC, p.purchase_date DESC, p.batch_no DESC
     LIMIT 1
 ) price ON price.per_kg IS NOT NULL
 GROUP BY di.feed_day
@@ -1548,6 +1796,7 @@ WITH day_item AS (
           AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
           AND i.state IN ('issued', 'amended', 'locked')
           AND i.feed_day BETWEEN $3 AND $4
+          AND r.quantity_kg IS NOT NULL
         GROUP BY i.feed_day, i.park_id, r.feed_item_key
         UNION ALL
         SELECT x.feed_day, x.park_id, x.feed_item_key, MAX(x.feed_item_label) AS feed_item_label,
@@ -1568,14 +1817,15 @@ SELECT di.feed_day::text,
        round(SUM(di.kg * price.per_kg), 0)::text  AS rupees
 FROM day_item di
 JOIN LATERAL (
-    SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) AS per_kg
-    FROM feed_purchases p
-    WHERE p.tenant_id = $1
-      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
+    SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.stock_kg, 0)) AS per_kg
+	FROM feed_purchases p
+	WHERE p.tenant_id = $1
+	  AND p.delivery_status = 'reached'
+	  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
       AND p.park_id = di.park_id
       AND p.feed_item_key = di.feed_item_key
-      AND p.purchase_date <= di.feed_day
-    ORDER BY p.purchase_date DESC, p.batch_no DESC
+      AND p.depletes_from <= di.feed_day
+    ORDER BY p.depletes_from DESC, p.purchase_date DESC, p.batch_no DESC
     LIMIT 1
 ) price ON price.per_kg IS NOT NULL
 GROUP BY di.feed_day, di.feed_item_key
@@ -1599,6 +1849,7 @@ WITH day_item AS (
           AND i.state IN ('issued', 'amended', 'locked')
           AND i.feed_day >= date_trunc('year', $3::date)::date
           AND i.feed_day < $3::date
+          AND r.quantity_kg IS NOT NULL
         GROUP BY i.feed_day, i.park_id, r.feed_item_key
         UNION ALL
         SELECT x.feed_day, x.park_id, x.feed_item_key, SUM(x.quantity_kg) AS kg
@@ -1616,14 +1867,15 @@ priced AS (
     SELECT di.feed_day, di.kg * price.per_kg AS spend
     FROM day_item di
     JOIN LATERAL (
-        SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) AS per_kg
-        FROM feed_purchases p
-        WHERE p.tenant_id = $1
-          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
+        SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.stock_kg, 0)) AS per_kg
+	FROM feed_purchases p
+	WHERE p.tenant_id = $1
+	  AND p.delivery_status = 'reached'
+	  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
           AND p.park_id = di.park_id
           AND p.feed_item_key = di.feed_item_key
-          AND p.purchase_date <= di.feed_day
-        ORDER BY p.purchase_date DESC, p.batch_no DESC
+          AND p.depletes_from <= di.feed_day
+        ORDER BY p.depletes_from DESC, p.purchase_date DESC, p.batch_no DESC
         LIMIT 1
     ) price ON price.per_kg IS NOT NULL
 )
@@ -1647,22 +1899,24 @@ WITH loads AS (
            MIN(park_id::text)   AS park_id_text,
            SUM(` + feedPurchaseStockKgSQL + ` - consumed_at_import_kg) AS net_kg,
            MIN(depletes_from)    AS depletes_from
-    FROM feed_purchases
-    WHERE tenant_id = $1
-      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+	FROM feed_purchases
+	WHERE tenant_id = $1
+	  AND delivery_status = 'reached'
+	  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_item_key = ANY ($3::text[])
     GROUP BY farm_label, feed_item_key
 ),
 last_load AS (
     SELECT DISTINCT ON (farm_label, feed_item_key)
            farm_label, feed_item_key,
-           batch_no, purchase_date, quantity_kg, vendor, total_cost, per_kg_cost,
+           batch_no, purchase_date, stock_kg, vendor, total_cost, per_kg_cost,
            depletes_from, ` + feedPurchaseStockKgSQL + ` - consumed_at_import_kg AS net_kg
-    FROM feed_purchases
-    WHERE tenant_id = $1
-      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+	FROM feed_purchases
+	WHERE tenant_id = $1
+	  AND delivery_status = 'reached'
+	  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_item_key = ANY ($3::text[])
-    ORDER BY farm_label, feed_item_key, purchase_date DESC, batch_no DESC
+    ORDER BY farm_label, feed_item_key, depletes_from DESC, purchase_date DESC, batch_no DESC
 ),
 locked_cells AS (
     SELECT i.park_id, r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
@@ -1673,6 +1927,7 @@ locked_cells AS (
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
       AND i.state = 'locked'
       AND r.feed_item_key = ANY ($3::text[])
+      AND r.quantity_kg IS NOT NULL
     GROUP BY i.park_id, r.feed_item_key, i.feed_day
 ),
 directed AS (
@@ -1750,7 +2005,7 @@ SELECT l.farm_label,
        COALESCE(round(d.recent_avg_kg * 7, 1)::text, '') AS weekly_required_kg,
        ll.batch_no,
        ll.purchase_date::text,
-       round(ll.quantity_kg, 1)::text AS last_quantity_kg,
+       round(ll.stock_kg, 1)::text AS last_quantity_kg,
        ll.vendor,
        COALESCE(round(ll.total_cost, 0)::text, '') AS last_total_cost,
        COALESCE(round(ll.per_kg_cost, 2)::text, '') AS last_per_kg_cost,
@@ -1771,12 +2026,78 @@ LEFT JOIN stock_balance sb
  AND sb.feed_item_key = l.feed_item_key
 ORDER BY l.feed_item_label, l.farm_label`
 
+const stockRevisionSQL = `
+WITH purchase_rev AS (
+    SELECT concat_ws(':',
+             COUNT(*)::text,
+             COALESCE(MAX(imported_at)::text, ''),
+             COALESCE(MAX(created_at)::text, ''),
+             COALESCE(MAX(updated_at)::text, ''),
+             COALESCE(MAX(purchase_date)::text, ''),
+             COALESCE(MAX(depletes_from)::text, ''),
+             COALESCE(MAX(COALESCE(reached_on, purchase_date))::text, ''),
+             COALESCE(SUM(stock_kg)::text, ''),
+             COALESCE(SUM(consumed_at_import_kg)::text, ''),
+             COALESCE(SUM(total_cost)::text, ''),
+             COALESCE(SUM(per_kg_cost)::text, ''),
+             COALESCE(SUM(batch_no)::text, ''),
+             COALESCE(MAX(farm_label), ''),
+             COALESCE(MAX(feed_item_label), ''),
+             COALESCE(MAX(feed_item_key), ''),
+             COALESCE(MAX(delivery_status), ''),
+             COALESCE(MAX(vendor), '')
+           ) AS rev
+    FROM feed_purchases
+    WHERE tenant_id = $1
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+),
+issue_rev AS (
+    SELECT concat_ws(':',
+             COUNT(*)::text,
+             COALESCE(MAX(i.updated_at)::text, ''),
+             COALESCE(MAX(i.locked_at)::text, ''),
+             COALESCE(MAX(i.amended_at)::text, '')
+           ) AS rev
+    FROM feed_direction_issues i
+    WHERE i.tenant_id = $1
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
+      AND i.state IN ('issued', 'amended', 'locked')
+),
+external_rev AS (
+    SELECT concat_ws(':',
+             COUNT(*)::text,
+             COALESCE(MAX(imported_at)::text, ''),
+             COALESCE(MAX(created_at)::text, ''),
+             COALESCE(MAX(updated_at)::text, ''),
+             COALESCE(MAX(feed_day)::text, ''),
+             COALESCE(SUM(quantity_kg)::text, ''),
+             COALESCE(MAX(feed_item_label), ''),
+             COALESCE(MAX(feed_item_key), ''),
+             COALESCE(SUM(batch_no)::text, '')
+           ) AS rev
+    FROM feed_external_consumption
+    WHERE tenant_id = $1
+      AND park_id IS NOT NULL
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+),
+milk_rev AS (
+    SELECT concat_ws(':',
+             COUNT(*)::text,
+             COALESCE(MAX(updated_at)::text, ''),
+             COALESCE(MAX(submitted_at)::text, ''),
+             COALESCE(MAX(verified_at)::text, '')
+           ) AS rev
+    FROM milk_preparation_completions
+    WHERE tenant_id = $1
+      AND status <> 'retired'
+      AND park_id IS NOT NULL
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+)
+SELECT purchase_rev.rev || '|' || issue_rev.rev || '|' || external_rev.rev || '|' || milk_rev.rev
+FROM purchase_rev, issue_rev, external_rev, milk_rev`
+
 // StockAnalytics serves the stock cards and the expenditure series.
 func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.StockAnalytics, error) {
-	cacheKey := feedAnalyticsCacheKey("stock", tenantID, q)
-	if cached, ok := r.getReadCache(cacheKey); ok {
-		return cached.(domain.StockAnalytics), nil
-	}
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -1785,6 +2106,24 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	if len(q.ParkIDs) > 0 {
 		parkIDs = q.ParkIDs
 	}
+	revision, err := r.feedStockRevision(ctx, tenantID, parkIDs)
+	if err != nil {
+		return domain.StockAnalytics{}, err
+	}
+	cacheKey := feedAnalyticsCacheKey("stock:"+revision, tenantID, q)
+	cached, err := r.getOrLoadReadCache(ctx, cacheKey, func(ctx context.Context) (any, error) {
+		return r.loadStockAnalytics(ctx, tenantID, q, from, to, parkIDs)
+	})
+	if err != nil {
+		return domain.StockAnalytics{}, err
+	}
+	if out, ok := cached.(domain.StockAnalytics); ok {
+		return out, nil
+	}
+	return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock cache type %T", cached)
+}
+
+func (r *Repository) loadStockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery, from, to time.Time, parkIDs []uuid.UUID) (domain.StockAnalytics, error) {
 	out := domain.StockAnalytics{
 		Items:           []domain.StockItem{},
 		FarmItems:       []domain.StockFarmItem{},
@@ -1798,96 +2137,62 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	expFrom, expTo := domain.ClampExpenditureWindow(from, to)
 	today := biztime.BusinessDate(time.Now())
 
-	ctx, cancelWorkers := context.WithCancel(ctx)
-	defer cancelWorkers()
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	var firstErr error
-	setErr := func(err error) {
-		if err == nil {
-			return
-		}
-		mu.Lock()
-		if firstErr == nil {
-			firstErr = err
-			cancelWorkers()
-		}
-		mu.Unlock()
-	}
-	wg.Add(6)
-	go func() {
-		defer wg.Done()
+	// Run stock sections sequentially. Against the OCI clone, parallel section
+	// queries kept median low but created seconds-class tail latency through
+	// connection/query-plan contention. The UI reads a small farm-item set; steady
+	// p95 matters more than shaving a few milliseconds from p50.
+	if q.WantsStock(domain.StockSectionItems) {
 		items, err := r.stockItems(ctx, tenantID, parkIDs)
 		if err != nil {
-			setErr(err)
-			return
+			return domain.StockAnalytics{}, err
 		}
-		mu.Lock()
 		out.Items = items
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
+	}
+	if q.WantsStock(domain.StockSectionFarmItems) {
 		items, err := r.stockFarmItems(ctx, tenantID, parkIDs)
 		if err != nil {
-			setErr(err)
-			return
+			return domain.StockAnalytics{}, err
 		}
-		mu.Lock()
 		out.FarmItems = items
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
+	}
+	if q.WantsStock(domain.StockSectionForecast) {
 		items, err := r.stockForecast(ctx, tenantID, parkIDs)
 		if err != nil {
-			setErr(err)
-			return
+			return domain.StockAnalytics{}, err
 		}
-		mu.Lock()
 		out.Forecast = items
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
+	}
+	if q.WantsStock(domain.StockSectionExpenditure) {
 		items, err := r.stockExpenditure(ctx, tenantID, parkIDs, expFrom, expTo)
 		if err != nil {
-			setErr(err)
-			return
+			return domain.StockAnalytics{}, err
 		}
-		mu.Lock()
 		out.Expenditure = items
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
+	}
+	if q.WantsStock(domain.StockSectionItemExpenditure) {
 		items, err := r.stockItemExpenditure(ctx, tenantID, parkIDs, expFrom, expTo)
 		if err != nil {
-			setErr(err)
-			return
+			return domain.StockAnalytics{}, err
 		}
-		mu.Lock()
 		out.ItemExpenditure = items
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
+	}
+	if q.WantsStock(domain.StockSectionSpend) {
 		var spend domain.SpendSummary
 		if err := r.pool.QueryRow(ctx, stockSpendSQL, tenantID, parkIDs, today).
 			Scan(&spend.Last7Days, &spend.ThisMonth, &spend.ThreeMonths, &spend.ThisYear); err != nil {
-			setErr(fmt.Errorf("feed analytics spend summary: %w", err))
-			return
+			return domain.StockAnalytics{}, fmt.Errorf("feed analytics spend summary: %w", err)
 		}
-		mu.Lock()
 		out.Spend = spend
-		mu.Unlock()
-	}()
-	wg.Wait()
-	if firstErr != nil {
-		return domain.StockAnalytics{}, firstErr
 	}
-	r.setReadCache(cacheKey, out)
 	return out, nil
+}
+
+func (r *Repository) feedStockRevision(ctx context.Context, tenantID string, parkIDs []uuid.UUID) (string, error) {
+	var revision string
+	if err := r.pool.QueryRow(ctx, stockRevisionSQL, tenantID, parkIDs).Scan(&revision); err != nil {
+		return "", fmt.Errorf("feed analytics stock revision: %w", err)
+	}
+	return revision, nil
 }
 
 func (r *Repository) stockItems(ctx context.Context, tenantID string, parkIDs []uuid.UUID) ([]domain.StockItem, error) {
@@ -2051,6 +2356,7 @@ pen_item AS (
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1
      AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE r.quantity_kg IS NOT NULL
     GROUP BY r.park_id, r.shed_id, r.partition_key, r.feed_item_key
     -- "Feed GIVEN": an item whose whole-window total is zero (all blocked, or
     -- authored 0 every day) is omitted — a 0 kg line is not feed given, and on

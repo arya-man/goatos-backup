@@ -55,15 +55,25 @@ func (s *Service) ActionCenter(ctx context.Context, q domain.Query) (domain.Acti
 
 func (s *Service) ActionCenterCounts(ctx context.Context, q domain.Query) (domain.ActionCenterCountsResponse, error) {
 	q = s.defaults(q)
-	result, err := s.repo.ListRows(ctx, q)
+	counts, err := s.repo.CountByWorkState(ctx, q)
 	if err != nil {
 		return domain.ActionCenterCountsResponse{}, err
 	}
+	var total int64
+	for _, c := range counts {
+		total += c.Count
+	}
 	return domain.ActionCenterCountsResponse{
 		Source:            domain.SourceAPI,
-		CountsByWorkState: result.CountsByWorkState,
-		TotalCount:        result.TotalCount,
-		Projection:        result.Projection,
+		CountsByWorkState: counts,
+		TotalCount:        total,
+		Projection: domain.ProjectionMetadata{
+			ProjectedAt:     q.AsOf,
+			AsOf:            q.AsOf,
+			FreshnessStatus: "green",
+			ServingState:    "canonical",
+			Stale:           false,
+		},
 	}, nil
 }
 

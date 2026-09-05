@@ -1,0 +1,51 @@
+{
+  "scope": {
+    "included": [
+      "verification_queue",
+      "verification_video_log",
+      "verification_oversight_analytics"
+    ],
+    "evidence_boundaries": {
+      "local_oci_ceo_reads": [
+        "verification_queue",
+        "verification_video_log",
+        "verification_oversight_analytics"
+      ]
+    },
+    "excluded": {
+      "verification_verdict_post": "POST /verification/items/{item_id}/verdict mutates shared verification state. Benchmark it only against a disposable item or inside a rollback SQL-level harness; do not run it against OCI/STG production-like data from this manifest."
+    }
+  },
+  "endpoints": [
+    {
+      "name": "verification_queue",
+      "method": "GET",
+      "path": "/verification/queue?limit=20",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 1048576,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "verification_video_log",
+      "method": "GET",
+      "path": "/verification/video-log?business_date=2026-09-04",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 1048576,
+      "assertion": { "type": "array_min", "path": "sheds", "min": 1 }
+    },
+    {
+      "name": "verification_oversight_analytics",
+      "method": "GET",
+      "path": "/verification/oversight-analytics",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 1048576,
+      "assertion": { "type": "number_min", "path": "kpis.videos_waiting", "min": 0 }
+    }
+  ]
+}

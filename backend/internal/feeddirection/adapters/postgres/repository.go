@@ -28,22 +28,29 @@ import (
 )
 
 type Repository struct {
-	pool      *pgxpool.Pool
-	timeout   time.Duration
-	cacheMu   sync.Mutex
-	readCache map[string]readCacheEntry
+	pool       *pgxpool.Pool
+	timeout    time.Duration
+	cacheMu    sync.Mutex
+	readCache  map[string]readCacheEntry
+	readFlight map[string]*readFlight
 }
 
 func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return &Repository{pool: pool, timeout: timeout, readCache: map[string]readCacheEntry{}}
+	return &Repository{pool: pool, timeout: timeout, readCache: map[string]readCacheEntry{}, readFlight: map[string]*readFlight{}}
 }
 
 type readCacheEntry struct {
 	expiresAt time.Time
 	value     any
+}
+
+type readFlight struct {
+	done  chan struct{}
+	value any
+	err   error
 }
 
 var _ ports.ConfigRepository = (*Repository)(nil)
