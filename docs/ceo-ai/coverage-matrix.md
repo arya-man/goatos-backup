@@ -590,6 +590,18 @@ coverage. Explicit documented exclusion — no coverage-matrix mapping required.
 
 | feed_direction_frozen_row_identity | func:RowKey | Explicit exclusion: internal feed-direction row reconstruction helper only; existing feed completion and verification reads remain the leadership assistant coverage source. |
 
+## Explicit exclusion: vaccination submit write helpers (2026-09-05)
+
+`func:AssignmentMatchesActor` and `func:ListScanCaptures` are internal SOP
+write-path helpers for vaccination scan/submit. They authorize the linked
+operator actor and collect already-recorded scan evidence for backend-owned
+submission. They add no new leadership KPI, table, read API route, Cube metric,
+`ceo_ai.*` view, MCP Toolbox tool, or read-only SQL fallback surface. Leadership
+assistant coverage remains the existing vaccination execution and verification
+reporting surfaces.
+
+| vaccination_submit_write_helpers | func:AssignmentMatchesActor, func:ListScanCaptures | Explicit exclusion: internal vaccination submit write-path helpers only; existing vaccination execution and verification reporting remain the leadership assistant coverage source. |
+
 ## Explicit exclusion: feed experiment basis conversion audit table (2026-09-01)
 
 `table:feed_experiment_basis_conversions` records one-time migration provenance for

@@ -120,7 +120,7 @@ class ScanViewModel @Inject constructor(
     private val taskRowVersion: Int? = savedStateHandle.get<Int>("taskRowVersion")?.takeIf { it > 0 }
     private val routeScanTitle: String? = savedStateHandle.get<String>("scanTitle")?.takeIf { it.isNotBlank() }
     private var readerRefreshJob: Job? = null
-    private val freshShedSummaryKeys = mutableSetOf<String>()
+    private val freshShedSummaryKeys = LinkedHashSet<String>()
 
     // The visible scan-list window size. loadMore() grows it; the full roster is already local in the
     // per-row SSOT after a refresh, so paging is a LOCAL window advance (page-N works offline), not a
@@ -626,7 +626,12 @@ class ScanViewModel @Inject constructor(
         val id = shedId ?: return
         val freshnessKey = shedSummaryFreshnessKey(selectedTaskId, id, partitionLabel)
         tasksRepository.refreshShedCompletionSummary(selectedTaskId, id, partitionLabel)
-            .onSuccess { freshShedSummaryKeys += freshnessKey }
+            .onSuccess {
+                freshShedSummaryKeys += freshnessKey
+                while (freshShedSummaryKeys.size > 16) {
+                    freshShedSummaryKeys.remove(freshShedSummaryKeys.first())
+                }
+            }
             .onFailure { freshShedSummaryKeys -= freshnessKey }
     }
 

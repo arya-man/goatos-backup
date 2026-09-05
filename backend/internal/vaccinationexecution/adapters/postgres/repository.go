@@ -2001,6 +2001,7 @@ SELECT
     OR classified.is_icu
   ) AS has_deferred,
   BOOL_OR(classified.work_state = 'overdue') AS has_overdue,
+  -- projection-review: membership=classified card-grain vaccination rows; group_key=shed_uuid + partition_label + sop_task_id + batch_id; join_cardinality=no new join, only BOOL_OR status projection over grouped classified rows; pagination=whole-filter aggregate with no LIMIT or cursor; scope=same tenant park shed operator partition date status predicates as the execution query
   BOOL_OR(classified.work_state IN ('verification_pending', 'proof_pending')) AS has_review_pending,
   -- Reachable now: classified.work_state is the CARD-GRAIN state derived in stateful/classified
   -- (operator absence -> blocked, task rework/rejected or completion_rejected -> rejected, etc),

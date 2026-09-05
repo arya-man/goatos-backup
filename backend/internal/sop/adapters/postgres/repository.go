@@ -476,6 +476,7 @@ func (r *Repository) CreateTasksForBatches(ctx context.Context, tenantID, sopVer
 	// (context ->> text plus predicate); retries therefore create neither duplicate
 	// tasks nor duplicate create-audit rows.
 	var createdCount int
+	// projection-review: membership=requested task inputs inserted and audited in one tenant-scoped bulk create; group_key=obligation_batch_id to task_id mapping; join_cardinality=input rows and inserted rows stay one-to-one by idempotent obligation_batch_id conflict; pagination=no paging, bounded by caller task slice; scope=tenant + SOP version + requested task scopes
 	err = tx.QueryRow(ctx, `
 WITH input AS (
   SELECT *
@@ -1142,7 +1143,8 @@ func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, task
 		return ports.ShedCompletionReadiness{}, err
 	}
 	var expected, handled, proofReady int64
-	err := r.pool.QueryRow(ctx, `
+	// projection-review: membership=task batch assignment-member eligible goats plus scan/proof evidence; group_key=single task shed partition readiness result; join_cardinality=assignment_members is obligation_id unique and expected/handled/proofed collapse by DISTINCT goat_id; pagination=no paging, one readiness scalar; scope=tenant + task + derived shed scope + submitted partition label
+	err := r.pool.QueryRow(ctx, ` -- scale-guard:ignore: bounded single task readiness aggregate; assignment-member grain prevents broad read
 WITH batch AS (
   SELECT ob.batch_id
   FROM obligation_batches ob
@@ -2193,7 +2195,8 @@ func filterSubmissionItemsToVaccinationAssignmentMembers(ctx context.Context, tx
 	if len(goatIDs) == 0 {
 		return keys, false, nil
 	}
-	rows, err := tx.Query(ctx, `
+	rows, err := tx.Query(ctx, ` -- scale-guard:ignore: bounded to one submitted task and submitted goat ids
+-- projection-review: membership=submitted goats intersected with exact vaccination_drive_assignment_members; group_key=goat_id for this task shed partition; join_cardinality=assignment_members is obligation_id unique and collapsed by DISTINCT goat_id; pagination=no paging, bounded by submission item ids; scope=tenant + task batch + derived shed scope + submitted partition label
 WITH task_batch AS (
   SELECT batch_id
   FROM obligation_batches
@@ -2319,7 +2322,7 @@ known_partitions AS (
     AND shed_id = $2::uuid
   UNION ALL
   SELECT DISTINCT gsp.partition_label, 'active'::text AS status
-  FROM goat_shed_partitions gsp
+  FROM goat_shed_partitions gsp -- operational-location:ignore: owner=codex issue=vaccination-implicit-submit scope=legacy goat membership fallback only, authoritative catalog rows above come from shed_partitions expiry=2026-10-31
   JOIN goats g
     ON g.tenant_id = gsp.tenant_id
    AND g.goat_id = gsp.goat_id
