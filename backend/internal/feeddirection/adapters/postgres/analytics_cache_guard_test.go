@@ -44,6 +44,7 @@ func TestFeedAnalyticsCacheOneToManyPageBoundaryParkScopeStatusMatrix(t *testing
 		"ORDER BY p.depletes_from DESC, p.purchase_date DESC, p.batch_no DESC",
 		"ORDER BY farm_label, feed_item_key, depletes_from DESC, purchase_date DESC, batch_no DESC",
 		"feedAnalyticsCacheTTL = 30 * time.Second",
+		"setReadCacheIfEpoch",
 	} {
 		if !strings.Contains(src, required) {
 			t.Fatalf("feed stock correctness guard missing %q", required)
@@ -81,11 +82,53 @@ func TestFeedAnalyticsCacheOneToManyPageBoundaryParkScopeStatusMatrix(t *testing
 	experiment := sourceBlock(t, src, "func (r *Repository) ExperimentAnalytics(")
 	for _, required := range []string{
 		`feedAnalyticsCacheKey("experiment", tenantID, q)`,
-		"r.setReadCache(cacheKey, out)",
+		"r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)",
 	} {
 		if !strings.Contains(experiment, required) {
 			t.Fatalf("experiment analytics must use the same bounded feed analytics cache; missing %q", required)
 		}
+	}
+}
+
+func TestFeedAnalyticsCacheInvalidatesAfterMutableWrites(t *testing.T) {
+	repo := mustReadRepositorySource(t)
+	for _, required := range []string{
+		"func (r *Repository) invalidateReadCache()",
+		"r.cacheEpoch++",
+		"func (r *Repository) commitAndInvalidateReadCache(ctx context.Context, tx pgx.Tx) error",
+	} {
+		if !strings.Contains(repo, required) {
+			t.Fatalf("feed repository must expose cache invalidation helper; missing %q", required)
+		}
+	}
+	for _, file := range []string{
+		"issues_repository.go",
+		"completions.go",
+		"packing_completions.go",
+		"distribution_completions.go",
+		"wastage_completions.go",
+		"transport.go",
+	} {
+		src := mustReadFile(t, file)
+		if strings.Contains(src, "tx.Commit(ctx)") {
+			t.Fatalf("%s must not commit mutable feed-direction writes without invalidating analytics cache", file)
+		}
+		if !strings.Contains(src, "r.commitAndInvalidateReadCache(ctx, tx)") {
+			t.Fatalf("%s must invalidate analytics cache after successful mutable write commits", file)
+		}
+	}
+	analytics := mustReadAnalyticsSource(t)
+	for _, required := range []string{
+		"cacheEpoch := r.readCacheEpoch()",
+		"r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)",
+		"if r.readFlight[key] == flight",
+	} {
+		if !strings.Contains(analytics, required) {
+			t.Fatalf("feed analytics cache must be epoch-guarded against concurrent writes; missing %q", required)
+		}
+	}
+	if strings.Contains(analytics, "r.setReadCache(cacheKey, out)") {
+		t.Fatalf("feed analytics must not store cache entries without the write-invalidation epoch")
 	}
 }
 
@@ -118,7 +161,17 @@ func TestFeedAnalyticsTrendQueriesStayNarrow(t *testing.T) {
 
 func mustReadAnalyticsSource(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile("analytics.go")
+	return mustReadFile(t, "analytics.go")
+}
+
+func mustReadRepositorySource(t *testing.T) string {
+	t.Helper()
+	return mustReadFile(t, "repository.go")
+}
+
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}

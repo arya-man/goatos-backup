@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,23 +10,15 @@ import (
 )
 
 type GrantSource struct {
-	pool     *pgxpool.Pool
-	timeout  time.Duration
-	cacheMu  sync.Mutex
-	grants   map[string]cachedGrants
-	cacheTTL time.Duration
-}
-
-type cachedGrants struct {
-	expiresAt time.Time
-	grants    []permissions.ActiveGrant
+	pool    *pgxpool.Pool
+	timeout time.Duration
 }
 
 func NewGrantSource(pool *pgxpool.Pool, timeout time.Duration) *GrantSource {
 	if timeout <= 0 {
 		timeout = 3 * time.Second
 	}
-	return &GrantSource{pool: pool, timeout: timeout, grants: map[string]cachedGrants{}, cacheTTL: 30 * time.Second}
+	return &GrantSource{pool: pool, timeout: timeout}
 }
 
 func (g *GrantSource) ActiveTenantRoles(ctx context.Context, userID, tenantID string) ([]string, error) {
@@ -64,9 +55,6 @@ ORDER BY role`, userID, tenantID)
 }
 
 func (g *GrantSource) ActiveTenantGrants(ctx context.Context, userID, tenantID string) ([]permissions.ActiveGrant, error) {
-	if cached, ok := g.cachedTenantGrants(userID, tenantID); ok {
-		return cached, nil
-	}
 	ctx, cancel := context.WithTimeout(ctx, g.timeout)
 	defer cancel()
 	rows, err := g.pool.Query(ctx, `
@@ -94,43 +82,5 @@ ORDER BY role, scope_type, scope_id`, userID, tenantID)
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	g.storeTenantGrants(userID, tenantID, grants)
 	return grants, nil
-}
-
-func (g *GrantSource) cachedTenantGrants(userID, tenantID string) ([]permissions.ActiveGrant, bool) {
-	key := userID + "|" + tenantID
-	now := time.Now()
-	g.cacheMu.Lock()
-	defer g.cacheMu.Unlock()
-	entry, ok := g.grants[key]
-	if !ok || now.After(entry.expiresAt) {
-		if ok {
-			delete(g.grants, key)
-		}
-		return nil, false
-	}
-	return cloneActiveGrants(entry.grants), true
-}
-
-func (g *GrantSource) storeTenantGrants(userID, tenantID string, grants []permissions.ActiveGrant) {
-	key := userID + "|" + tenantID
-	g.cacheMu.Lock()
-	defer g.cacheMu.Unlock()
-	if len(g.grants) > 512 {
-		g.grants = map[string]cachedGrants{}
-	}
-	g.grants[key] = cachedGrants{
-		expiresAt: time.Now().Add(g.cacheTTL),
-		grants:    cloneActiveGrants(grants),
-	}
-}
-
-func cloneActiveGrants(grants []permissions.ActiveGrant) []permissions.ActiveGrant {
-	if len(grants) == 0 {
-		return nil
-	}
-	out := make([]permissions.ActiveGrant, len(grants))
-	copy(out, grants)
-	return out
 }

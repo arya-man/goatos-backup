@@ -49,9 +49,18 @@ func (r *Repository) getReadCache(key string) (any, bool) {
 	return entry.value, true
 }
 
-func (r *Repository) setReadCache(key string, value any) {
+func (r *Repository) readCacheEpoch() uint64 {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
+	return r.cacheEpoch
+}
+
+func (r *Repository) setReadCacheIfEpoch(key string, value any, epoch uint64) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if r.cacheEpoch != epoch {
+		return
+	}
 	if len(r.readCache) > 256 {
 		r.readCache = map[string]readCacheEntry{}
 	}
@@ -62,6 +71,7 @@ func (r *Repository) getOrLoadReadCache(ctx context.Context, key string, load fu
 	if cached, ok := r.getReadCache(key); ok {
 		return cached, nil
 	}
+	cacheEpoch := r.readCacheEpoch()
 
 	r.cacheMu.Lock()
 	if flight, ok := r.readFlight[key]; ok {
@@ -82,14 +92,16 @@ func (r *Repository) getOrLoadReadCache(ctx context.Context, key string, load fu
 
 	value, err := load(ctx)
 	if err == nil {
-		r.setReadCache(key, value)
+		r.setReadCacheIfEpoch(key, value, cacheEpoch)
 	}
 
 	r.cacheMu.Lock()
 	flight.value = value
 	flight.err = err
 	close(flight.done)
-	delete(r.readFlight, key)
+	if r.readFlight[key] == flight {
+		delete(r.readFlight, key)
+	}
 	r.cacheMu.Unlock()
 	return value, err
 }
@@ -346,6 +358,7 @@ func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q d
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.DirectedAnalytics), nil
 	}
+	cacheEpoch := r.readCacheEpoch()
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -391,7 +404,7 @@ func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q d
 		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics directed rollup rows: %w", err)
 	}
 	out := domain.DirectedAnalytics{Days: days, Items: items}
-	r.setReadCache(cacheKey, out)
+	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
 }
 
@@ -674,6 +687,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.ExecutionAnalytics), nil
 	}
+	cacheEpoch := r.readCacheEpoch()
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -928,7 +942,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		out.CompletionTotals = distributionOut.CompletionTotals
 		out.CompletionFilterOptions = distributionOut.CompletionFilterOptions
 	}
-	r.setReadCache(cacheKey, out)
+	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
 }
 
@@ -1322,6 +1336,7 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 			return out, nil
 		}
 	}
+	cacheEpoch := r.readCacheEpoch()
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -1380,7 +1395,7 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 	if err := wrows.Err(); err != nil {
 		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment wastage rows: %w", err)
 	}
-	r.setReadCache(cacheKey, out)
+	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
 }
 
@@ -2404,6 +2419,7 @@ func (r *Repository) ShedFeedAnalytics(ctx context.Context, tenantID string, q d
 			return out, nil
 		}
 	}
+	cacheEpoch := r.readCacheEpoch()
 
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -2445,6 +2461,6 @@ func (r *Repository) ShedFeedAnalytics(ctx context.Context, tenantID string, q d
 	if err := rows.Err(); err != nil {
 		return domain.ShedFeedAnalytics{}, fmt.Errorf("feed analytics shed feed rows: %w", err)
 	}
-	r.setReadCache(cacheKey, out)
+	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
 }

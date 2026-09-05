@@ -13,11 +13,11 @@ func TestActiveTenantGrantsDoesNotCacheAuthorizationState(t *testing.T) {
 	}
 	src := string(b)
 	block := src[strings.Index(src, "func (g *GrantSource) ActiveTenantGrants("):]
-	if !strings.Contains(block, "cachedTenantGrants") || !strings.Contains(block, "storeTenantGrants") {
-		t.Fatal("ActiveTenantGrants must use the bounded burst cache so route switches do not repeat the same grant lookup per API")
+	if strings.Contains(block, "cachedTenantGrants") || strings.Contains(block, "storeTenantGrants") {
+		t.Fatal("ActiveTenantGrants must not cache authorization state; rely on the active-grant lookup index instead")
 	}
-	if !strings.Contains(src, "cacheTTL: 30 * time.Second") {
-		t.Fatal("authorization cache must stay bounded to the feed/read cache window; do not extend it without explicit revocation invalidation")
+	if strings.Contains(src, "cacheTTL") || strings.Contains(src, "cachedGrants") {
+		t.Fatal("authorization grant source must not keep cross-request result cache without explicit revocation invalidation")
 	}
 }
 

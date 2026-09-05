@@ -1,5 +1,5 @@
-// Package postgres reads the authored configuration and the shed catalog that feed-direction
-// generation resolves against.
+// Package postgres reads and writes feed-direction configuration, issue sheets, execution proof
+// state, and the analytics views those flows render.
 //
 // EVERY READ HERE IS SET-BASED AND BOUNDED. The whole authored config for a park is loaded in one
 // batch of eight independent statements, once per request -- never per shed, never per grain, and
@@ -8,9 +8,9 @@
 // ban, and it would be doubly bad here because the grid is small: it would trade ~700 rows of one
 // read for hundreds of round trips.
 //
-// This package writes NOTHING. feedconfig is the only writer of the feed_* config tables, and
-// counts is the only reader of the census. Reading the shared locations catalog is the one
-// cross-module read, and it is the same read feedconfig's own FKs rely on.
+// Config reads still stay set-based and bounded. The mutable execution/issue writers below clear
+// the short analytics read cache after successful commits so dashboard numbers never stay behind
+// operator or verifier actions inside the serving process.
 package postgres
 
 import (
@@ -31,6 +31,7 @@ type Repository struct {
 	pool       *pgxpool.Pool
 	timeout    time.Duration
 	cacheMu    sync.Mutex
+	cacheEpoch uint64
 	readCache  map[string]readCacheEntry
 	readFlight map[string]*readFlight
 }
@@ -51,6 +52,22 @@ type readFlight struct {
 	done  chan struct{}
 	value any
 	err   error
+}
+
+func (r *Repository) invalidateReadCache() {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	r.cacheEpoch++
+	r.readCache = map[string]readCacheEntry{}
+	r.readFlight = map[string]*readFlight{}
+}
+
+func (r *Repository) commitAndInvalidateReadCache(ctx context.Context, tx pgx.Tx) error {
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	r.invalidateReadCache()
+	return nil
 }
 
 var _ ports.ConfigRepository = (*Repository)(nil)
