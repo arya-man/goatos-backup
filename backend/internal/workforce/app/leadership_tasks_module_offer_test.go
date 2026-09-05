@@ -49,7 +49,11 @@ func TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO(t *testing.T) {
 			if found == nil {
 				t.Fatal("Tasks module did not render for a principal holding leadership_tasks.read")
 			}
-			if found.Label != "Tasks" || found.Href != "/leadership-tasks" || len(found.NavItems) != 1 || found.NavItems[0].Label != "Tasks" {
+			// NavItems is EMPTY on purpose (maintainer decision 2026-09-05): the module is one
+			// list, so it serves NO bar destinations and the phone draws no bar. The drawer row
+			// and the landing href are what keep it reachable, so both are still asserted --
+			// this must not decay into "the module vanished".
+			if found.Label != "Tasks" || found.Href != "/leadership-tasks" || len(found.NavItems) != 0 {
 				t.Fatalf("Tasks module rendered wrong: %+v", *found)
 			}
 		})

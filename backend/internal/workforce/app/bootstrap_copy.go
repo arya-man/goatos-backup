@@ -63,6 +63,17 @@ type moduleDefinition struct {
 	status              string // moduleStatusAvailable | moduleStatusSoon
 	priority            int    // drawer ordering; lower first
 	contributions       []moduleNavContribution
+	// noBottomBar declares that this module's screens carry NO bottom bar (maintainer
+	// decision 2026-09-05, Tasks). A bar is a SWITCHER; a module whose whole content is one
+	// list has nothing to switch to, so the bar spends a permanent strip of a phone screen
+	// saying only where the reader already is.
+	//
+	// The contributions stay declared, and that is deliberate rather than tidy-able: a
+	// module with no permitted contribution is dropped from the drawer entirely by
+	// modulesForScope, so deleting the item would delete the module. It keeps composing the
+	// landing href and the drawer row; only NavItems is served empty, and the client draws
+	// no bar for an empty list.
+	noBottomBar bool
 }
 
 const (
@@ -416,6 +427,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		landingHref: "/leadership-tasks", //nav-composition:ignore: registry entry
 		status:      moduleStatusAvailable,
 		priority:    9,
+		// NO bottom bar (maintainer decision 2026-09-05): the module is one list, so its bar
+		// held a single "Tasks" tab under a screen already titled Tasks. The drawer is how
+		// this principal leaves the module.
+		noBottomBar: true,
 		contributions: []moduleNavContribution{
 			{key: "leadership_tasks", labelKey: "nav.leadership_tasks", href: "/leadership-tasks", shared_key: "", priority: 1, requiredPermission: permissions.LeadershipTasksRead}, //nav-composition:ignore: registry entry
 		},
@@ -1465,6 +1480,12 @@ func modulesForScope(scope navScope, grantedModules []string, localeTag string, 
 	out := make([]domain.BootstrapModule, 0, len(available)+len(soonModuleKeys))
 	for _, def := range available {
 		items := composeNavigationFromModulesScope([]string{def.key}, scope, localeTag)
+		// A no-bar module still composes its items (they resolve the landing href below and
+		// keep the module in the drawer); they are simply not served as bar destinations.
+		barItems := items
+		if def.noBottomBar {
+			barItems = []domain.BootstrapNavigationItem{}
+		}
 		// Land on the first page this principal may actually open. The declared
 		// landingHref can be gated away (an Operator holds Counts but not the census
 		// page at /counts), and landing them on a route that 403s would be a
@@ -1482,7 +1503,7 @@ func modulesForScope(scope navScope, grantedModules []string, localeTag string, 
 			Label:    localizedBootstrapLabel(localeTag, def.labelKey),
 			Href:     href,
 			Status:   def.status,
-			NavItems: items,
+			NavItems: barItems,
 		})
 	}
 	// "Soon" roadmap rows advertise unbuilt modules, but only when that module is

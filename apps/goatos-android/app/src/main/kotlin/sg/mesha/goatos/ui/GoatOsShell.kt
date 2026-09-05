@@ -571,7 +571,13 @@ fun GoatOsShellChrome(
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                if (isTopLevel) {
+                // A bar is drawn only when the backend composed destinations to switch BETWEEN.
+                // A module that serves none (Tasks: one list, declared noBottomBar in
+                // bootstrap_copy.go) gets no bar rather than an empty strip, and the drawer
+                // stays its way out -- module.href keeps the route top-level, so the hamburger
+                // is still there. Which modules those are is the BACKEND's decision; the client
+                // only refuses to draw a bar with nothing in it.
+                if (isTopLevel && barItems.isNotEmpty()) {
                     MeshaNavBar(
                         items = barItems,
                         currentRoute = currentRoute,

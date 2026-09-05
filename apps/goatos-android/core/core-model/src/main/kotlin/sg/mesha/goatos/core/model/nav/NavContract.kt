@@ -87,9 +87,19 @@ data class NavState(
     }
 }
 
-/** Drawer rows the principal can actually enter. */
+/**
+ * Drawer rows the principal can actually enter.
+ *
+ * A module is enterable when it has somewhere to LAND -- its own landing href, or bar
+ * destinations. Requiring bar destinations alone excluded a module that serves none by design
+ * (Tasks, `noBottomBar` in bootstrap_copy.go): it vanished from this list, so its screen lost the
+ * drawer, resolveModule fell through and rendered ANOTHER module's bar on it, and
+ * grantsRootDestination refused its own route.
+ */
 fun NavState.availableModules(): List<NavModule> =
-    modules.filter { it.status == NavModuleStatus.AVAILABLE && it.navItems.isNotEmpty() }
+    modules.filter {
+        it.status == NavModuleStatus.AVAILABLE && (it.navItems.isNotEmpty() || it.href.isNotBlank())
+    }
 
 /**
  * Resolves which module the shell is currently in, WITHOUT any hardcoded module list.

@@ -135,6 +135,35 @@ class TopLevelChromeTest {
         ),
     )
 
+    // The Tasks module (director -> CXO ask desk) serves NO bar destinations: the backend
+    // declares it noBottomBar, so its navItems arrive empty (bootstrap_copy.go, maintainer
+    // decision 2026-09-05). Its drawer row and landing href still exist -- that is the way out.
+    private val tasks = NavModule(
+        key = "leadership_tasks",
+        label = "Tasks",
+        href = "/leadership-tasks",
+        status = NavModuleStatus.AVAILABLE,
+        navItems = emptyList(),
+    )
+
+    @Test
+    fun `a module serving no destinations gets no bottom bar but keeps its drawer route`() {
+        val state = NavState(chrome = NavChrome.EXPANDED, items = emptyList(), modules = listOf(tasks, vaccination))
+
+        // No bar: the shell renders MeshaNavBar only when this list is non-empty, so a single
+        // "Tasks" tab under a screen already titled Tasks is gone.
+        assertTrue(state.barItems("leadership_tasks", "/leadership-tasks").isEmpty())
+
+        // ...and the screen is still TOP LEVEL, which is what keeps the drawer hamburger on it.
+        // Derived from module.href, not from bar items -- computing it from the bar (as the
+        // topLevelRoutes list does) would strand this screen with no bar AND no drawer.
+        val drawerRoutes = state.availableModules().flatMap { listOf(it.href) + it.navItems.map { item -> item.href } }
+        assertTrue(isTopLevelRoute("/leadership-tasks", drawerRoutes))
+
+        // The rule is scoped: a module that DOES declare destinations still gets its bar.
+        assertEquals(3, state.barItems("vaccination", Routes.VACCINATION).size)
+    }
+
     private val counts = NavModule(
         key = "counts",
         label = "Counts",
