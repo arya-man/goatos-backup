@@ -1356,23 +1356,33 @@ function ExperimentTab({
 
 
 
-// TEMPORARY (maintainer request 2026-09-06): hide the Mesha concentrate stock
-// cards -- adult/kids x goat/sheep, both parks -- but ONLY the ones reading
-// zero days left. The same feed with stock still on it stays on screen. This is
+// TEMPORARY (maintainer request 2026-09-06): hide a concentrate stock card --
+// the Mesha adult/kids x goat/sheep feeds, plus the farm's plain "Concentrate"
+// -- but ONLY when it reads zero days left. The same feed with stock still on
+// it stays on screen, which is why this is decided per farm and not per feed. This is
 // a frontend-only hide with no backend or contract change, and it is meant to
 // be deleted: drop this function and the .filter() call in StockCards to bring
 // the cards straight back.
 //
-// A plain "Mesha Adult Concentrate" -- no species in the name -- is NOT one of
-// the eight and always keeps its card, zero days or not. That is why the match
-// REQUIRES goat or sheep in the label; loosening it would swallow that feed.
-function isTemporarilyHiddenStockItem(item: { feed_item_label: string; days_left?: number | null }): boolean {
-  const label = (item.feed_item_label ?? "").toLowerCase();
-  const isMeshaConcentrate =
+// A plain "Mesha Adult Concentrate" or "Mesha Kids Concentrate" -- no species in
+// the name -- always keeps its card, zero days or not. That carve-out is the
+// reason this is a named list rather than "any concentrate": widening it would
+// swallow those two.
+function isHideableConcentrate(feedItemLabel: string): boolean {
+  const label = (feedItemLabel ?? "").trim().toLowerCase();
+  // The farm's own unbranded feed, hidden per park (maintainer request
+  // 2026-09-06): CBE reads zero days and goes, CPT still has days and stays.
+  if (label === "concentrate") return true;
+  return (
     label.includes("mesha") &&
     label.includes("concentrate") &&
-    (label.includes("goat") || label.includes("sheep"));
-  return isMeshaConcentrate && item.days_left !== null && item.days_left !== undefined && item.days_left <= 0;
+    (label.includes("goat") || label.includes("sheep"))
+  );
+}
+
+function isTemporarilyHiddenStockItem(item: { feed_item_label: string; days_left?: number | null }): boolean {
+  if (!isHideableConcentrate(item.feed_item_label)) return false;
+  return item.days_left !== null && item.days_left !== undefined && item.days_left <= 0;
 }
 
 // TEMPORARY companion to isTemporarilyHiddenStockItem, same maintainer request
@@ -1388,12 +1398,7 @@ function isTemporarilyHiddenStockItem(item: { feed_item_label: string; days_left
 // average columns, so its week total counts exactly the rows it lists -- a
 // total over hidden rows would not add up on screen.
 function isTemporarilyHiddenFarmItem(feedItemLabel: string, avgDailyKg: string, stockKg: string): boolean {
-  const label = (feedItemLabel ?? "").toLowerCase();
-  const isMeshaConcentrate =
-    label.includes("mesha") &&
-    label.includes("concentrate") &&
-    (label.includes("goat") || label.includes("sheep"));
-  if (!isMeshaConcentrate) return false;
+  if (!isHideableConcentrate(feedItemLabel)) return false;
   const avg = num(avgDailyKg);
   if (avg <= 0 || stockKg === "") return false;
   return Math.max(Math.floor(num(stockKg) / avg), 0) <= 0;
