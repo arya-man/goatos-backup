@@ -11,10 +11,10 @@ const stockCards = source.slice(source.indexOf("function StockCards"), source.in
 // unfed load became invisible, and it is invisible in review because the page
 // still renders correctly for every feed that happens to be in use.
 // TEMPORARY (maintainer request 2026-09-06): the only rows the grid drops are
-// the four Mesha concentrate feeds, hidden by label. When that hide is removed,
+// the Mesha concentrate feeds that read zero days left. When that hide is removed,
 // restore the `const active = stock?.items ?? [];` assertion below.
 test("the stock card grid filters only on the temporary label hide", () => {
-  assert.match(stockCards, /const active = \(stock\?\.items \?\? \[\]\)\.filter\(\(item\) => !isTemporarilyHiddenStockItem\(item\.feed_item_label\)\);/);
+  assert.match(stockCards, /const active = \(stock\?\.items \?\? \[\]\)\.filter\(\(item\) => !isTemporarilyHiddenStockItem\(item\)\);/);
   assert.doesNotMatch(stockCards, /\.filter\(\s*\(item\)\s*=>\s*item\.days_left/);
   assert.doesNotMatch(stockCards, /days_left !== null/);
 });

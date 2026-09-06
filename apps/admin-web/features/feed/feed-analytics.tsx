@@ -1356,18 +1356,19 @@ function ExperimentTab({
 
 
 
-// TEMPORARY (maintainer request 2026-09-06): hide the four Mesha concentrate
-// stock cards -- adult/kids x goat/sheep -- in both parks, eight cards in all.
-// This is a frontend-only hide with no backend or contract change, and it is
-// meant to be deleted: drop this function and the .filter() call in StockCards
-// to bring the cards straight back.
-function isTemporarilyHiddenStockItem(feedItemLabel: string): boolean {
-  const label = (feedItemLabel ?? "").toLowerCase();
-  return (
+// TEMPORARY (maintainer request 2026-09-06): hide the Mesha concentrate stock
+// cards -- adult/kids x goat/sheep, both parks -- but ONLY the ones reading
+// zero days left. The same feed with stock still on it stays on screen. This is
+// a frontend-only hide with no backend or contract change, and it is meant to
+// be deleted: drop this function and the .filter() call in StockCards to bring
+// the cards straight back.
+function isTemporarilyHiddenStockItem(item: { feed_item_label: string; days_left?: number | null }): boolean {
+  const label = (item.feed_item_label ?? "").toLowerCase();
+  const isMeshaConcentrate =
     label.includes("mesha") &&
     label.includes("concentrate") &&
-    (label.includes("goat") || label.includes("sheep"))
-  );
+    (label.includes("goat") || label.includes("sheep"));
+  return isMeshaConcentrate && item.days_left !== null && item.days_left !== undefined && item.days_left <= 0;
 }
 
 function StockCards({
@@ -1383,7 +1384,7 @@ function StockCards({
   // source -- and dropping rows here instead hid two things that matter: a
   // freshly bought load nobody has started feeding, and a retired feed whose
   // frozen burn rate kept it on screen. Both are the backend's call now.
-  const active = (stock?.items ?? []).filter((item) => !isTemporarilyHiddenStockItem(item.feed_item_label));
+  const active = (stock?.items ?? []).filter((item) => !isTemporarilyHiddenStockItem(item));
   const farmItems = stock?.farm_items ?? [];
   const forecast = stock?.forecast ?? [];
   return (
