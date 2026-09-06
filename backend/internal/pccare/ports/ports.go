@@ -124,6 +124,9 @@ type TaskRow struct {
 	// RemovalPenLabels names the pens a round-grain feed & water removal card covers. Empty
 	// for normal per-pen tasks; rendered by the backend into the task label for removal cards.
 	RemovalPenLabels []string
+	// AnimalPenLabels are inferred from already-scanned animals. They are a display-only fallback
+	// for legacy/bad parent-shed task rows whose own partition_label is empty.
+	AnimalPenLabels []string
 }
 
 // InventoryRequirement is one vaccine/count line displayed on the inventory_vaccine card.

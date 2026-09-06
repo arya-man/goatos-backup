@@ -496,7 +496,8 @@ const taskSelectColumns = `
   coalesce(animals.animal_count, 0),
   coalesce(requirements.items, '[]'::jsonb),
   coalesce(task_proofs.items, '[]'::jsonb),
-  coalesce(removal_pens.labels, ARRAY[]::text[])`
+  coalesce(removal_pens.labels, ARRAY[]::text[]),
+  coalesce(animal_pens.items, '[]'::jsonb)`
 
 // taskFromJoins is the FROM/JOIN block matching taskSelectColumns. The assignee and animal
 // sides are PRE-AGGREGATED to exactly one row per task before joining, so they cannot multiply
@@ -554,19 +555,49 @@ LEFT JOIN LATERAL (
   SELECT array_remove(array_agg(p.pen_label ORDER BY p.pen_label), '') AS labels
   FROM pc_care_removal_pen_proofs p
   WHERE p.tenant_id = t.tenant_id AND p.removal_task_id = t.task_id
-) removal_pens ON true`
+) removal_pens ON true
+LEFT JOIN LATERAL (
+  SELECT jsonb_agg(
+           jsonb_build_object(
+             'shed_name', animal_pen_locations.shed_name,
+             'partition_label', animal_pen_locations.partition_label
+           )
+           ORDER BY animal_pen_locations.shed_name, animal_pen_locations.partition_label
+         ) AS items
+  FROM (
+    SELECT
+      coalesce(animal_shed.name, '') AS shed_name,
+      coalesce(sp.partition_label, nullif(gsp.partition_label, 'whole'), '') AS partition_label
+    FROM pc_care_task_animals an
+    JOIN goat_identifiers gi
+      ON gi.tenant_id = an.tenant_id
+     AND gi.status = 'active'
+     AND lower(btrim(gi.identifier_value)) = lower(btrim(an.scanned_identifier))
+    JOIN goat_shed_partitions gsp
+      ON gsp.tenant_id = gi.tenant_id AND gsp.goat_id = gi.goat_id
+    LEFT JOIN shed_partitions sp
+      ON sp.tenant_id = gsp.tenant_id
+     AND sp.shed_id = gsp.shed_id
+     AND sp.status = 'active'
+     AND sp.normalized_label = regexp_replace(lower(btrim(coalesce(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+    LEFT JOIN locations animal_shed
+      ON animal_shed.tenant_id = gsp.tenant_id AND animal_shed.location_id = gsp.shed_id
+    WHERE an.tenant_id = t.tenant_id AND an.task_id = t.task_id
+  ) animal_pen_locations
+) animal_pens ON true`
 
 func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 	var t ports.TaskRow
 	var submittedAt *time.Time
 	var requirementsJSON []byte
 	var taskProofsJSON []byte
+	var animalPensJSON []byte
 	if err := row.Scan(
 		&t.TaskID, &t.Category, &t.ParkID, &t.ParkName, &t.ShedID, &t.ShedName,
 		&t.PartitionLabel, &t.VaccineLabel, &t.PlannedBusinessDate, &t.DueBusinessDate,
 		&t.WorkState, &t.Status, &t.ReworkReason, &t.CloseReason, &t.RowVersion,
 		&t.SubmittedBy, &submittedAt, &t.AssigneeUserIDs, &t.AssigneeNames, &t.AnimalCount,
-		&requirementsJSON, &taskProofsJSON, &t.RemovalPenLabels,
+		&requirementsJSON, &taskProofsJSON, &t.RemovalPenLabels, &animalPensJSON,
 	); err != nil {
 		return ports.TaskRow{}, err
 	}
@@ -603,6 +634,28 @@ func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 				SlotKey: item.SlotKey, ProofRef: item.ProofRef, CapturedBy: item.CapturedBy,
 				CapturedByName: item.CapturedByName, CapturedAt: item.CapturedAt,
 			})
+		}
+	}
+	if len(animalPensJSON) > 0 {
+		var raw []struct {
+			ShedName       string `json:"shed_name"`
+			PartitionLabel string `json:"partition_label"`
+		}
+		if err := json.Unmarshal(animalPensJSON, &raw); err != nil {
+			return ports.TaskRow{}, fmt.Errorf("pccare: decode animal pen labels: %w", err)
+		}
+		seen := map[string]struct{}{}
+		t.AnimalPenLabels = make([]string, 0, len(raw))
+		for _, item := range raw {
+			label := (oploc.OperationalLocation{ShedName: item.ShedName, PartitionLabel: item.PartitionLabel}).Display()
+			if label == "" {
+				continue
+			}
+			if _, ok := seen[label]; ok {
+				continue
+			}
+			seen[label] = struct{}{}
+			t.AnimalPenLabels = append(t.AnimalPenLabels, label)
 		}
 	}
 	t.SubmittedAt = submittedAt

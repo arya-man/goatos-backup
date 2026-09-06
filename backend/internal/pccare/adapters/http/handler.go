@@ -217,6 +217,9 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 	if taskLabel == "" {
 		taskLabel = t.VaccineLabel
 	}
+	if taskLabel == t.ShedName && t.PartitionLabel == "" && len(t.AnimalPenLabels) > 0 {
+		taskLabel = compactPenTaskLabel(t.AnimalPenLabels)
+	}
 	if t.Category == domain.CategoryFeedWaterRemoval {
 		taskLabel = feedWaterRemovalTaskLabel(t.RemovalPenLabels, locationDisplay)
 	}
@@ -250,6 +253,17 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 }
 
 func feedWaterRemovalTaskLabel(penLabels []string, fallback string) string {
+	label := compactPenTaskLabel(penLabels)
+	if label == "" && strings.TrimSpace(fallback) != "" {
+		label = strings.TrimSpace(fallback)
+	}
+	if label == "" {
+		return "Remove feed & water"
+	}
+	return "Remove feed & water · " + label
+}
+
+func compactPenTaskLabel(penLabels []string) string {
 	labels := make([]string, 0, len(penLabels))
 	for _, label := range penLabels {
 		label = strings.TrimSpace(label)
@@ -257,18 +271,15 @@ func feedWaterRemovalTaskLabel(penLabels []string, fallback string) string {
 			labels = append(labels, label)
 		}
 	}
-	if len(labels) == 0 && strings.TrimSpace(fallback) != "" {
-		labels = append(labels, strings.TrimSpace(fallback))
-	}
 	switch len(labels) {
 	case 0:
-		return "Remove feed & water"
+		return ""
 	case 1:
-		return "Remove feed & water · " + labels[0]
+		return labels[0]
 	case 2:
-		return "Remove feed & water · " + labels[0] + ", " + labels[1]
+		return labels[0] + ", " + labels[1]
 	default:
-		return "Remove feed & water · " + labels[0] + ", " + labels[1] + " +" + strconv.Itoa(len(labels)-2) + " more"
+		return labels[0] + ", " + labels[1] + " +" + strconv.Itoa(len(labels)-2) + " more"
 	}
 }
 

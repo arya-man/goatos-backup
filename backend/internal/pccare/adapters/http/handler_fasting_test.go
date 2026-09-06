@@ -119,3 +119,18 @@ func TestFeedWaterRemovalTaskLabelNamesMultiplePensCompactly(t *testing.T) {
 		t.Fatalf("round-grain removal has no single operational location, got %q", dto.OperationalLocationDisplay)
 	}
 }
+
+func TestTaskDTOFallsBackToScannedAnimalPensWhenTaskPartitionMissing(t *testing.T) {
+	dto := taskDTOFrom(ports.TaskRow{
+		TaskID:          httpTask,
+		Category:        domain.CategoryDeworming,
+		ShedName:        "Mandela 2",
+		AnimalPenLabels: []string{"Mandela 2 - Part 1", "Mandela 2 - Part 3"},
+	})
+	if dto.TaskLabel != "Mandela 2 - Part 1, Mandela 2 - Part 3" {
+		t.Fatalf("task label = %q", dto.TaskLabel)
+	}
+	if dto.OperationalLocationDisplay != "Mandela 2" {
+		t.Fatalf("operational location display = %q", dto.OperationalLocationDisplay)
+	}
+}
