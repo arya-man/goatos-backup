@@ -1424,6 +1424,9 @@ class PcCareTaskViewModel @Inject constructor(
         outcome: String? = null,
         reason: String? = null,
         source: String? = null,
+        proofRowId: String? = null,
+        proofOutboxItemId: String? = null,
+        serverProofId: String? = null,
     ): Map<String, String> = buildMap {
         put(AnalyticsEvents.Params.KIND, mediaKind)
         put(AnalyticsEvents.Params.FIELD, fieldKey)
@@ -1434,6 +1437,9 @@ class PcCareTaskViewModel @Inject constructor(
         outcome?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTCOME, it) }
         reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
         source?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.SOURCE, it) }
+        proofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
+        proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
+        serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
     }
 
     private fun pcCareAnimalSlotAnalyticsProps(
@@ -1447,6 +1453,7 @@ class PcCareTaskViewModel @Inject constructor(
         reason: String? = null,
         proofRowId: String? = null,
         proofOutboxItemId: String? = null,
+        serverProofId: String? = null,
         outboxItemId: String? = null,
     ): Map<String, String> = buildMap {
         put(AnalyticsEvents.Params.KIND, legacyKind ?: mediaKind)
@@ -1463,6 +1470,7 @@ class PcCareTaskViewModel @Inject constructor(
         reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
         proofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
         proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
+        serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
         outboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, it) }
     }
 
@@ -1640,6 +1648,10 @@ class PcCareTaskViewModel @Inject constructor(
     ) {
         val animal = tagKey?.let { key -> latestAnimals.firstOrNull { it.normalizedTag == key } }
         if (animal != null) {
+            val previewSlot = state.value.animals
+                .firstOrNull { it.key == animal.normalizedTag }
+                ?.slots
+                ?.firstOrNull { it.fieldKey == slotFieldKey }
             analytics.track(
                 AnalyticsEvents.PC_CARE_SLOT_PROOF_PREVIEW,
                 pcCareAnimalSlotAnalyticsProps(
@@ -1649,11 +1661,15 @@ class PcCareTaskViewModel @Inject constructor(
                     slotKey = pcCareSlotProofFieldKey(animal.normalizedTag, slotFieldKey),
                     outcome = action,
                     mediaKind = mediaKind,
+                    proofRowId = previewSlot?.localProofRowId,
+                    proofOutboxItemId = previewSlot?.proofOutboxItemId,
+                    serverProofId = previewSlot?.serverProofId,
                 ),
             )
             return
         }
         val detail = latestDetail
+        val previewSlot = state.value.taskProofSlots.firstOrNull { it.fieldKey == slotFieldKey }
         analytics.track(
             AnalyticsEvents.PC_CARE_STOCK_PROOF_PREVIEW,
             pcCareStockProofAnalyticsProps(
@@ -1662,6 +1678,9 @@ class PcCareTaskViewModel @Inject constructor(
                 status = detail?.status.orEmpty(),
                 outcome = action,
                 source = "proof_preview",
+                proofRowId = previewSlot?.localProofRowId,
+                proofOutboxItemId = previewSlot?.proofOutboxItemId,
+                serverProofId = previewSlot?.serverProofId,
             ),
         )
     }
@@ -1989,9 +2008,12 @@ internal fun pcCareSlotChip(
                 statusLabel = "Video sent",
                 hintLabel = hint,
                 canRecord = false,
-                previewPath = previewPath,
-                previewKind = previewKind,
-            )
+            previewPath = previewPath,
+            previewKind = previewKind,
+            localProofRowId = localRow.id,
+            proofOutboxItemId = localRow.outboxItemId,
+            serverProofId = localRow.serverProofId,
+        )
             ProofProcessingStatus.RECORD_AGAIN -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
@@ -2087,6 +2109,9 @@ internal fun pcCareBuildTaskProofSlot(
             canRecord = false,
             previewPath = localInProgressPreview.previewUri().orEmpty(),
             previewKind = pcCarePreviewKind(localInProgressPreview.mimeType),
+            localProofRowId = localInProgressPreview.id,
+            proofOutboxItemId = localInProgressPreview.outboxItemId,
+            serverProofId = localInProgressPreview.serverProofId,
         )
     }
     if (serverProof != null && localRow?.processingStatus != ProofProcessingStatus.UPLOADED) {
@@ -2111,6 +2136,9 @@ internal fun pcCareBuildTaskProofSlot(
             canRecord = category.isPcCareRepeatableTaskProofCategory(),
             previewPath = serverPreviewUrl.ifBlank { previewRow?.previewUri().orEmpty() },
             previewKind = previewRow?.mimeType?.let(::pcCarePreviewKind) ?: expectedKind,
+            localProofRowId = previewRow?.id,
+            proofOutboxItemId = previewRow?.outboxItemId,
+            serverProofId = serverProof.proofRef,
         )
     }
     if (localRow != null) {
@@ -2129,6 +2157,9 @@ internal fun pcCareBuildTaskProofSlot(
                     .orEmpty()
                     .ifBlank { localRow.previewUri().orEmpty() },
                 previewKind = pcCarePreviewKind(localRow.mimeType),
+                localProofRowId = localRow.id,
+                proofOutboxItemId = localRow.outboxItemId,
+                serverProofId = localRow.serverProofId,
             )
             ProofProcessingStatus.RECORD_AGAIN -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
@@ -2140,6 +2171,9 @@ internal fun pcCareBuildTaskProofSlot(
                 canRecord = true,
                 previewPath = localRow.previewUri().orEmpty(),
                 previewKind = pcCarePreviewKind(localRow.mimeType),
+                localProofRowId = localRow.id,
+                proofOutboxItemId = localRow.outboxItemId,
+                serverProofId = localRow.serverProofId,
             )
             else -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
@@ -2151,6 +2185,9 @@ internal fun pcCareBuildTaskProofSlot(
                 canRecord = localRow.syncStatus == CaptureSyncStatus.FAILED,
                 previewPath = localRow.previewUri().orEmpty(),
                 previewKind = pcCarePreviewKind(localRow.mimeType),
+                localProofRowId = localRow.id,
+                proofOutboxItemId = localRow.outboxItemId,
+                serverProofId = localRow.serverProofId,
             )
         }
     }
@@ -2169,6 +2206,7 @@ internal fun pcCareBuildTaskProofSlot(
             canRecord = true,
             previewPath = remotePreviewUrls[slot.fieldKey]?.url.orEmpty(),
             previewKind = expectedKind,
+            serverProofId = serverProof.proofRef,
         )
     }
     return PcCareSlotChipUi(

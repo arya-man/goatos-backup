@@ -253,8 +253,8 @@ fun PcCareTaskScreen(
                         onRecordSlot = { fieldKey ->
                             onEvent(PcCareTaskEvent.RecordSlot(state.animals[index].key, fieldKey))
                         },
-                        onPreviewAction = { fieldKey, mediaKind, action ->
-                            onEvent(PcCareTaskEvent.ProofPreviewAction(fieldKey, mediaKind, action))
+                        onPreviewAction = { fieldKey, mediaKind, action, tagKey ->
+                            onEvent(PcCareTaskEvent.ProofPreviewAction(fieldKey, mediaKind, action, tagKey = tagKey))
                         },
                     )
                 }
@@ -473,7 +473,7 @@ private fun PcCareAnimalRow(
     locked: Boolean,
     onOpen: () -> Unit,
     onRecordSlot: (String) -> Unit,
-    onPreviewAction: (String, String, String) -> Unit = { _, _, _ -> },
+    onPreviewAction: (String, String, String, String) -> Unit = { _, _, _, _ -> },
 ) {
     Column(
         // The whole card opens the animal's own capture screen (the roster drill) — the
@@ -502,6 +502,7 @@ private fun PcCareAnimalRow(
                         slot.fieldKey,
                         if (slot.previewKind == PcCareProofPreviewKind.PHOTO) "photo" else "video",
                         action,
+                        animal.key,
                     )
                 },
             )

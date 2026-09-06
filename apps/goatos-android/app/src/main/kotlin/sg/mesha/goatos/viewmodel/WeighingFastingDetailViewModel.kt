@@ -122,16 +122,18 @@ class WeighingFastingDetailViewModel @Inject constructor(
     }
 
     private fun trackPreviewAction(kind: WeighingFastingSlotKind, action: String) {
+        val proofOutboxItemId = slotItemId(kind)
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION,
-            mapOf(
-                AnalyticsEvents.Params.SOURCE to "weighing_fasting_detail",
-                AnalyticsEvents.Params.FIELD to fieldKey(kind),
-                AnalyticsEvents.Params.KIND to kind.name.lowercase(),
-                AnalyticsEvents.Params.ACTION to action,
-                AnalyticsEvents.Params.CAMPAIGN_ID to fastingTaskId,
-                AnalyticsEvents.Params.CAMPAIGN_SHED_ID to campaignShedId,
-            ),
+            buildMap {
+                put(AnalyticsEvents.Params.SOURCE, "weighing_fasting_detail")
+                put(AnalyticsEvents.Params.FIELD, fieldKey(kind))
+                put(AnalyticsEvents.Params.KIND, kind.name.lowercase())
+                put(AnalyticsEvents.Params.ACTION, action)
+                put(AnalyticsEvents.Params.CAMPAIGN_ID, fastingTaskId)
+                put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, campaignShedId)
+                proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
+            },
         )
     }
 

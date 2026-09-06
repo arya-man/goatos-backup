@@ -752,7 +752,17 @@ private fun ProofMediaFullscreenDialog(
                             }
                         }
                         DisposableEffect(player) {
+                            var lastIsPlaying: Boolean? = null
                             val listener = object : Player.Listener {
+                                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                                    if (lastIsPlaying != isPlaying) {
+                                        onPreviewAction(
+                                            if (isPlaying) ProofMediaPreviewActions.PLAY else ProofMediaPreviewActions.PAUSE,
+                                        )
+                                        lastIsPlaying = isPlaying
+                                    }
+                                }
+
                                 override fun onPlayerError(error: PlaybackException) {
                                     onPreviewAction(ProofMediaPreviewActions.PLAYBACK_FAILED)
                                     onDismiss()

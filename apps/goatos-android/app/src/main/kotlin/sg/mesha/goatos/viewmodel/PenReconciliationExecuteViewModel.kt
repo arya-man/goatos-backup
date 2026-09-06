@@ -109,16 +109,18 @@ class PenReconciliationExecuteViewModel @Inject constructor(
     }
 
     private fun trackPreviewAction(action: String) {
+        val proofOutboxItemId = draft.proofs[STEP_RETURN]?.takeIf { it.isNotBlank() }
         analytics.track(
             AnalyticsEvents.COUNTS_PEN_RECONCILIATION_PROOF_PREVIEW_ACTION,
-            mapOf(
-                AnalyticsEvents.Params.SOURCE to SCREEN_EXECUTE,
-                AnalyticsEvents.Params.KIND to KIND_COMPLETE,
-                AnalyticsEvents.Params.ACTION to action,
-                AnalyticsEvents.Params.FIELD to FIELD_RETURN_VIDEO,
-                AnalyticsEvents.Params.SHED_ID to registeredShedId,
-                "task_id" to cardId,
-            ),
+            buildMap {
+                put(AnalyticsEvents.Params.SOURCE, SCREEN_EXECUTE)
+                put(AnalyticsEvents.Params.KIND, KIND_COMPLETE)
+                put(AnalyticsEvents.Params.ACTION, action)
+                put(AnalyticsEvents.Params.FIELD, FIELD_RETURN_VIDEO)
+                put(AnalyticsEvents.Params.SHED_ID, registeredShedId)
+                put("task_id", cardId)
+                proofOutboxItemId?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
+            },
         )
     }
 

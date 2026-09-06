@@ -154,6 +154,9 @@ data class RosterRow(
     val captureInFlight: Boolean = false,
     val canCaptureEvidence: Boolean = false,
     val proofPreviewPath: String? = null,
+    val proofPreviewId: String? = null,
+    val proofPreviewOutboxItemId: String? = null,
+    val proofPreviewServerId: String? = null,
 )
 
 /** One entry in the live "last taps" feed (given or skipped only). */

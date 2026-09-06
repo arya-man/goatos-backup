@@ -114,6 +114,9 @@ data class PcCareSlotChipUi(
     /** Local captured proof preview, preferring the processed overlay artifact when available. */
     val previewPath: String = "",
     val previewKind: PcCareProofPreviewKind = PcCareProofPreviewKind.VIDEO,
+    val localProofRowId: String? = null,
+    val proofOutboxItemId: String? = null,
+    val serverProofId: String? = null,
 )
 
 @Immutable

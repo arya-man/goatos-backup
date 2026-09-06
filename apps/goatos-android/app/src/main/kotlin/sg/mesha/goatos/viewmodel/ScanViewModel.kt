@@ -1482,6 +1482,9 @@ class ScanViewModel @Inject constructor(
             evidenceFailed = failedProofs,
             proofPreviewPath = latestPreviewProof?.processedUri?.takeIf { it.isNotBlank() }
                 ?: latestPreviewProof?.localUri?.takeIf { it.isNotBlank() },
+            proofPreviewId = latestPreviewProof?.id,
+            proofPreviewOutboxItemId = latestPreviewProof?.outboxItemId,
+            proofPreviewServerId = latestPreviewProof?.serverProofId,
         )
     }
 
@@ -1978,7 +1981,12 @@ class ScanViewModel @Inject constructor(
                     AnalyticsEvents.Params.GOAT_ID to goatId,
                     AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
                     AnalyticsEvents.Params.SOURCE to "proof_preview",
-                ),
+                ) +
+                listOfNotNull(
+                    row?.proofPreviewId?.takeIf { it.isNotBlank() }?.let { AnalyticsEvents.Params.PROOF_ID to it },
+                    row?.proofPreviewOutboxItemId?.takeIf { it.isNotBlank() }?.let { AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID to it },
+                    row?.proofPreviewServerId?.takeIf { it.isNotBlank() }?.let { "server_proof_id" to it },
+                ).toMap(),
         )
     }
 

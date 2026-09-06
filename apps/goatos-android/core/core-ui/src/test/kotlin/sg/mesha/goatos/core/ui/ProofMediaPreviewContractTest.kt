@@ -45,6 +45,7 @@ class ProofMediaPreviewContractTest {
         assertTrue(source.contains("isRemote && remoteReadable -> ProofPreviewLoad.ReadableWithoutPoster"))
         assertTrue(source.contains("Video unavailable"))
         assertTrue(source.contains("Photo unavailable"))
+        assertTrue(source.contains("override fun onIsPlayingChanged(isPlaying: Boolean)"))
         assertTrue(source.contains("onPreviewAction(ProofMediaPreviewActions.PLAYBACK_FAILED)"))
         assertFalse(
             "Shared proof preview must use the instrumented proof player factory, not a direct Media3 player.",

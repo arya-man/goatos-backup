@@ -259,13 +259,27 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     }
 
     private fun trackPreviewAction(fieldKey: String, action: String) {
-        val slot = ProofSlot.fromFieldKey(fieldKey)
+        val slot = ProofSlot.fromFieldKey(fieldKey) ?: return
+        val proofRowId = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofRowId.value
+            ProofSlot.FEED_VIDEO -> videoProofRowId.value
+            ProofSlot.WATER_VIDEO -> waterVideoProofRowId.value
+        }
+        val proofOutboxItemId = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofItemId.value
+            ProofSlot.FEED_VIDEO -> videoProofItemId.value
+            ProofSlot.WATER_VIDEO -> waterVideoProofItemId.value
+        }
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_PROOF_PREVIEW_ACTION,
             distributionEventProps(
                 slot = slot,
                 action = action,
-                extra = mapOf(AnalyticsEvents.Params.FIELD to fieldKey),
+                extra = buildMap {
+                    put(AnalyticsEvents.Params.FIELD, fieldKey)
+                    proofRowId?.takeIf { it.isNotBlank() }?.let { put(PARAM_PROOF_ID, it) }
+                    proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
+                },
             ),
         )
     }
