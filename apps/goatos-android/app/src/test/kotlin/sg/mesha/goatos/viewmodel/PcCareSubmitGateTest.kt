@@ -26,6 +26,7 @@ import sg.mesha.goatos.feature.pccare.PcCareSlotState
 import sg.mesha.goatos.feature.pccare.PcCareTaskEvent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 
 /**
  * The whole-task submit gate: blocked while any expected slot is missing on any scanned animal;
@@ -124,6 +125,39 @@ class PcCareSubmitGateTest {
         assertEquals(PcCareSlotState.WORKING, chip.state)
         assertEquals("file:///processed/t1-video.mp4", chip.previewPath)
         assertEquals(PcCareProofPreviewKind.VIDEO, chip.previewKind)
+    }
+
+    @Test
+    fun `animal slot preview actions include proof trace ids and task context`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val analytics = FakeAnalyticsPort()
+        val fieldKey = pcCareSlotProofFieldKey("t1", "video")
+        repo.detailFlow.value = singleSlotDetail.copy(captureMode = "per_animal")
+        repo.animalsFlow.value = listOf(pcCareAnimalEntity(tag = "t1", scannedByName = "Amit Kumar"))
+        proofRepo.seedProofs(
+            localProof(
+                fieldKey = fieldKey,
+                syncStatus = CaptureSyncStatus.SYNCED,
+                serverProofId = "server-proof-t1-video",
+            ),
+        )
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, analytics = analytics)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        vm.onEvent(PcCareTaskEvent.ProofPreviewAction("video", "video", "share", tagKey = "t1"))
+
+        val event = analytics.events.last()
+        assertEquals(AnalyticsEvents.PC_CARE_SLOT_PROOF_PREVIEW, event.first)
+        assertEquals("share", event.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("proof-$fieldKey", event.second["local_proof_row_id"])
+        assertEquals("outbox-$fieldKey", event.second[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("server-proof-t1-video", event.second["server_proof_id"])
+        assertEquals("deworming", event.second["category"])
+        assertEquals("per_animal", event.second["capture_mode"])
+        assertEquals("t1", event.second["normalized_rfid"])
+        collectJob.cancel()
     }
 
     @Test

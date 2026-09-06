@@ -88,6 +88,14 @@ const iconByToken: Record<string, ElementType> = {
   zap: Zap,
 };
 
+function navIconForToken(token: string): ElementType {
+  const icon = iconByToken[token];
+  if (!icon) {
+    throw new Error(`Admin-web navigation icon token is not mapped: ${token}`);
+  }
+  return icon;
+}
+
 function shellCopy(contract: AdminWebBootstrapResponse, key: string): string {
   const value = contract.copy[key];
   if (typeof value !== "string") {
@@ -814,7 +822,7 @@ export function MeshaShell({
         {showSidebar ? (
         <aside className={`side ${navOpen ? "open" : ""}`} id="side">
           {primary.map((n) => {
-            const Icon = iconByToken[n.icon] ?? TowerControl;
+            const Icon = navIconForToken(n.icon);
             if (!n.enabled) {
               return (
                 <span
@@ -843,7 +851,7 @@ export function MeshaShell({
           })}
 
           {groups.map((g) => {
-            const GroupIcon = iconByToken[g.icon] ?? TowerControl;
+            const GroupIcon = navIconForToken(g.icon);
             const open = openGroups[g.id];
             return (
               <div key={g.id}>

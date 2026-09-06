@@ -15,6 +15,7 @@ import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.capture.FakeProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
@@ -47,7 +48,7 @@ class PcCareRemovalPenSlotsTest {
         detailFlow.value = pcCareTaskDtoFixture(
             category = "feed_water_removal",
             expectedSlots = listOf(feedSlot, waterSlot),
-        )
+        ).copy(captureMode = "task_proof")
     }
 
     @Test
@@ -102,6 +103,58 @@ class PcCareRemovalPenSlotsTest {
         val slots = vm.state.value.taskProofSlots
         assertEquals(2, slots.size)
         assertEquals(listOf("feed_video", "water_video"), slots.map { it.fieldKey })
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `feed water preview actions include task proof trace ids`() = runTest(dispatcher) {
+        val analytics = FakeAnalyticsPort()
+        val gatedTaskId = "eee9fdaa-4bd5-468b-818d-5b7072e24e31"
+        val slotKey = "$gatedTaskId::feed_video"
+        val repo = removalRepo(
+            listOf(PcCareRemovalPenDto(removalPenId = "pen-a", gatedTaskId = gatedTaskId, penLabel = "Castro 1")),
+        )
+        val proofRepo = FakeProofCaptureRepository()
+        proofRepo.seedProofs(
+            ProofCaptureRow(
+                id = "proof-pen-feed",
+                fieldKey = slotKey,
+                proofSubject = ProofSubject.OTHER,
+                subjectId = "task-1",
+                localUri = "file:///feed.mp4",
+                mimeType = "video/mp4",
+                caption = "Feed removal proof",
+                capturedAtMs = 10L,
+                capturedStartMs = 0L,
+                capturedEndMs = 1_000L,
+                capturedByPrincipalId = null,
+                syncStatus = CaptureSyncStatus.SYNCED,
+                serverProofId = "server-proof-feed",
+                outboxItemId = "proof-outbox-feed",
+                lastError = null,
+                processingState = "UPLOADED",
+            ),
+        )
+        val vm = buildPcCareTaskViewModel(
+            repo = repo,
+            proofRepo = proofRepo,
+            analytics = analytics,
+            title = "Remove feed & water",
+            category = "feed_water_removal",
+        )
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        vm.onEvent(PcCareTaskEvent.ProofPreviewAction(slotKey, "video", "fullscreen_open"))
+
+        val event = analytics.events.last()
+        assertEquals(AnalyticsEvents.PC_CARE_FEED_WATER_PROOF_PREVIEW, event.first)
+        assertEquals("fullscreen_open", event.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("proof-pen-feed", event.second["local_proof_row_id"])
+        assertEquals("proof-outbox-feed", event.second[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("server-proof-feed", event.second["server_proof_id"])
+        assertEquals("feed_water_removal", event.second["category"])
+        assertEquals("task_proof", event.second["capture_mode"])
         collectJob.cancel()
     }
 

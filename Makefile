@@ -232,6 +232,8 @@ cascade-event-wiring-guard:
 frontend-foundations-guard:
 	node tools/agent-hooks/check-frontend-foundations.mjs --self-test
 	node tools/agent-hooks/check-frontend-foundations.mjs
+	node tools/agent-hooks/check-admin-web-nav-icon-coverage.mjs --self-test
+	node tools/agent-hooks/check-admin-web-nav-icon-coverage.mjs
 
 guardrail-registration-guard:
 	node tools/ci/check-guardrail-registration.mjs --self-test
