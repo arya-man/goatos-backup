@@ -186,6 +186,20 @@ PY
   jq -er '.access_token' <<<"$token_response"
 }
 
+remote_config_etag() {
+  local headers_file="$1"
+  local body_file="$2"
+  local etag
+
+  etag="$(awk 'BEGIN{IGNORECASE=1} /^etag:/ {gsub(/\r/,""); sub(/^[^:]*:[[:space:]]*/,""); print; exit}' "$headers_file")"
+  if [[ -n "$etag" ]]; then
+    printf '%s\n' "$etag"
+    return 0
+  fi
+
+  jq -er '.etag // empty' "$body_file" 2>/dev/null
+}
+
 publish_force_update_floor() {
   local version_code="$1"
   local update_url="$2"
@@ -209,7 +223,7 @@ publish_force_update_floor() {
     return 1
   fi
 
-  etag="$(awk 'BEGIN{IGNORECASE=1} /^etag:/ {gsub(/\r/,""); sub(/^[^:]*:[[:space:]]*/,""); print; exit}' "$template_file.headers")"
+  etag="$(remote_config_etag "$template_file.headers" "$template_file")"
   if [[ -z "$etag" ]]; then
     echo "Remote Config read did not return an ETag; refusing to publish force-update floor." >&2
     return 1
@@ -276,7 +290,7 @@ require_force_update_config_access() {
     return 1
   fi
 
-  etag="$(awk 'BEGIN{IGNORECASE=1} /^etag:/ {gsub(/\r/,""); sub(/^[^:]*:[[:space:]]*/,""); print; exit}' "$template_file.headers")"
+  etag="$(remote_config_etag "$template_file.headers" "$template_file")"
   if [[ -z "$etag" ]]; then
     echo "Remote Config preflight did not return an ETag; refusing to start Android distribution." >&2
     return 1
