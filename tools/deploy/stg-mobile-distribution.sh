@@ -197,7 +197,7 @@ remote_config_etag() {
     return 0
   fi
 
-  jq -er '.etag // empty' "$body_file" 2>/dev/null
+  jq -r '.etag // empty' "$body_file" 2>/dev/null || true
 }
 
 publish_force_update_floor() {
