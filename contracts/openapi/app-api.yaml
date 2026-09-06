@@ -18648,7 +18648,7 @@ components:
         One FARM's current stock position for one feed item, off the purchase ledger. Each farm
         keeps its own physical store, so there is deliberately no tenant-wide combined balance
         (maintainer decision 2026-08-21) — under an all-parks scope every card names its farm.
-      required: [farm_label, feed_item_label, feed_item_key, balance_kg, avg_daily_kg, latest_batch_no, low_stock]
+      required: [farm_label, feed_item_label, feed_item_key, balance_kg, avg_daily_kg, latest_batch_no, low_stock, not_started]
       properties:
         farm_label:
           type: string
@@ -18672,6 +18672,14 @@ components:
           format: int64
         low_stock:
           type: boolean
+          description: Fewer than 5 days left. Never true together with not_started.
+        not_started:
+          type: boolean
+          description: >-
+            Stock on hand that has never been drawn -- a positive balance with no burn rate.
+            The card names the kg in store and says feeding has not begun. Rows are already
+            scoped to the farm's ACTIVE feed vocabulary (feed_item_catalog), so a retired feed
+            is absent from this list rather than arriving as a card the client must know to drop.
     FeedAnalyticsStockFarmItem:
       type: object
       description: >-

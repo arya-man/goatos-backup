@@ -699,6 +699,12 @@ type StockItem struct {
 	LatestBatchNo int64
 	// LowStock flags fewer than LowStockDays days left.
 	LowStock bool
+	// NotStarted is stock on hand that has never been drawn: a positive
+	// balance with no burn rate to divide by (maintainer decision
+	// 2026-09-06). The card shows the kg in store and says feeding has not
+	// begun, instead of the item vanishing for want of a days-left figure.
+	// Never LowStock -- a full untouched load is the opposite of nearly out.
+	NotStarted bool
 }
 
 // LowStockDays mirrors the legacy sheet's warning threshold: the RED CARD on the Stock tab, which

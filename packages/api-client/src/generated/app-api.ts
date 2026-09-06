@@ -7958,7 +7958,10 @@ export interface components {
             days_left?: number | null;
             /** Format: int64 */
             latest_batch_no: number;
+            /** @description Fewer than 5 days left. Never true together with not_started. */
             low_stock: boolean;
+            /** @description Stock on hand that has never been drawn -- a positive balance with no burn rate. The card names the kg in store and says feeding has not begun. Rows are already scoped to the farm's ACTIVE feed vocabulary (feed_item_catalog), so a retired feed is absent from this list rather than arriving as a card the client must know to drop. */
+            not_started: boolean;
         };
         /** @description One (farm, Mesha concentrate) row of the Stock tab's per-farm purchase/consumption table. Covers the four in-house Mesha concentrate feeds only (maintainer decision 2026-08-21). Consumption figures come from LOCKED GoatOS feed sheets. */
         FeedAnalyticsStockFarmItem: {

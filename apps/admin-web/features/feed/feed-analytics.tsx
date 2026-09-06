@@ -1363,12 +1363,13 @@ function StockCards({
   stock: FeedAnalyticsStockResponse | null;
   pageContract: AdminUiPageContract;
 }) {
-  // Only items with a live days-left figure make a card (maintainer request
-  // 2026-08-18): an item not directed recently has no burn rate to divide by,
-  // and a wall of "not directed recently" boxes buried the ones that matter.
-  const active = (stock?.items ?? []).filter(
-    (item) => item.days_left !== null && item.days_left !== undefined,
-  );
+  // Every served row is a card (maintainer decision 2026-09-06). The backend
+  // already scopes items to the farm's ACTIVE feed vocabulary, so the wall of
+  // "not directed recently" boxes the 2026-08-18 filter removed is gone at the
+  // source -- and dropping rows here instead hid two things that matter: a
+  // freshly bought load nobody has started feeding, and a retired feed whose
+  // frozen burn rate kept it on screen. Both are the backend's call now.
+  const active = stock?.items ?? [];
   const farmItems = stock?.farm_items ?? [];
   const forecast = stock?.forecast ?? [];
   return (
@@ -1389,16 +1390,21 @@ function StockCards({
                   {`${item.farm_label} · ${item.feed_item_label}`}
                 </div>
                 <div className="val" style={item.low_stock ? { color: "var(--danger)" } : undefined}>
-                  {item.days_left === null || item.days_left === undefined
-                    ? fa(pageContract, "stock.never_directed")
-                    : `${nf(Math.max(item.days_left, 0))} ${fa(pageContract, "stock.days_left")}`}
+                  {item.not_started
+                    ? `${nf(num(item.balance_kg))} ${fa(pageContract, "unit.kg")}`
+                    : item.days_left === null || item.days_left === undefined
+                      ? fa(pageContract, "stock.never_directed")
+                      : `${nf(Math.max(item.days_left, 0))} ${fa(pageContract, "stock.days_left")}`}
                 </div>
                 <div className="muted small">
-                  {`${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")}${
-                    item.avg_daily_kg ? ` · ${nf(num(item.avg_daily_kg))} ${fa(pageContract, "stock.per_day")}` : ""
-                  } · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
+                  {item.not_started
+                    ? `${fa(pageContract, "stock.not_started_sub")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`
+                    : `${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")}${
+                        item.avg_daily_kg ? ` · ${nf(num(item.avg_daily_kg))} ${fa(pageContract, "stock.per_day")}` : ""
+                      } · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
                 </div>
                 {item.low_stock ? <span className="tag t-dng">{fa(pageContract, "stock.low")}</span> : null}
+                {item.not_started ? <span className="tag t-ok">{fa(pageContract, "stock.not_started")}</span> : null}
               </div>
             ))}
           </div>

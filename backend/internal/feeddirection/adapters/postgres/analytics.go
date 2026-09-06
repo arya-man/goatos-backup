@@ -1413,11 +1413,31 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // depletion starts on the day it arrived (depletes_from follows reached_on). The rule lives in the
 // generated column and this predicate; no read re-derives it.
 //
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), and feed_effective_external_consumption at (tenant, park_id, feed_item_key, feed_day) (feeds the ration grid does not direct — UHT Milk, resolved from the Milk Preparation workflow on submit, with the feed_external_consumption ledger as the fallback for days that workflow does not cover; migration 000216 guarantees at most one row per key, so the two sources cannot both contribute); the two consumption sources pre-aggregate to the same (park_id, feed_item_key, feed_day) grain and the UNION ALL is re-grouped on that key, so a day contributes once; group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), and feed_effective_external_consumption at (tenant, park_id, feed_item_key, feed_day) (feeds the ration grid does not direct — UHT Milk, resolved from the Milk Preparation workflow on submit, with the feed_external_consumption ledger as the fallback for days that workflow does not cover; migration 000216 guarantees at most one row per key, so the two sources cannot both contribute); the two consumption sources pre-aggregate to the same (park_id, feed_item_key, feed_day) grain and the UNION ALL is re-grouped on that key, so a day contributes once; group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; the feed_item_catalog LEFT JOIN is 1:0..1 on its (tenant_id, feed_item_key) unique key and filters rows only, fanning nothing out; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
 //
 // PER-FARM GRAIN (maintainer decision 2026-08-21): each farm keeps its own
 // physical feed store, so a tenant-wide balance/days-left is a number nobody's
 // store holds. Every stock card is one (farm, item) and names its farm.
+//
+// WHICH FEEDS (maintainer decision 2026-09-06, SUPERSEDING the frontend's
+// days-left filter): membership is the farm's ACTIVE feed vocabulary --
+// feed_item_catalog.status <> 'retired' -- not "has a burn rate". The old rule
+// answered the wrong question in both directions. A feed RETIRED out of the
+// ration grid kept its card FOREVER, because `recent` averages the 3 most
+// recent days the item APPEARED on a locked sheet, not the last 3 calendar
+// days: stop feeding it and those 3 days simply stop advancing, freezing a
+// burn rate for feeding that ended months ago. (A feed zeroed but LEFT in the
+// grid decays to avg 0 in 3 days and vanishes -- so the same operator
+// intention had two opposite outcomes.) And a feed just bought and not yet fed
+// has no burn rate at all, so a full sack in the store showed nowhere. The
+// catalog is the farm's own switch for this and needs no invented recency
+// threshold. A key with NO catalog row is SHOWN (fail open): hiding a balance
+// because its catalog row is missing loses stock, which is worse than one
+// noisy card on a tab whose whole question is "do we have feed".
+//
+// NotStarted is that second case: stock on hand, nothing drawn yet. It is
+// deliberately NOT low_stock -- a full untouched load is the opposite of
+// nearly out -- and it sorts LAST, behind every card with a real days-left.
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded per-farm-item aggregates over the
 // small purchase ledger and windowed locked sheets, canonical-indexed-SQL default.
@@ -1494,13 +1514,18 @@ SELECT b.farm_label,
        CASE WHEN COALESCE(r.avg_kg, 0) > 0
             THEN GREATEST(floor((b.net_kg - d.kg) / r.avg_kg), 0)::bigint
        END                                                AS days_left,
-       b.latest_batch
+       b.latest_batch,
+       (COALESCE(r.avg_kg, 0) <= 0
+        AND round(b.net_kg - d.kg, 1) > 0)                AS not_started
 FROM bought b
 JOIN directed d USING (farm_label, feed_item_key)
 LEFT JOIN recent r
   ON b.park_id_text IS NOT NULL
  AND r.park_id = b.park_id_text::uuid
  AND r.feed_item_key = b.feed_item_key
+LEFT JOIN feed_item_catalog c
+  ON c.tenant_id = $1 AND c.feed_item_key = b.feed_item_key
+WHERE COALESCE(c.status, 'active') <> 'retired'
 ORDER BY days_left NULLS LAST, b.feed_item_label, b.farm_label`
 
 // Next-7-days requirement and cost (maintainer decision 2026-08-23), at
@@ -2223,7 +2248,7 @@ func (r *Repository) stockItems(ctx context.Context, tenantID string, parkIDs []
 	out := []domain.StockItem{}
 	for rows.Next() {
 		var it domain.StockItem
-		if err := rows.Scan(&it.FarmLabel, &it.FeedItemLabel, &it.FeedItemKey, &it.BalanceKg, &it.AvgDailyKg, &it.DaysLeft, &it.LatestBatchNo); err != nil {
+		if err := rows.Scan(&it.FarmLabel, &it.FeedItemLabel, &it.FeedItemKey, &it.BalanceKg, &it.AvgDailyKg, &it.DaysLeft, &it.LatestBatchNo, &it.NotStarted); err != nil {
 			return nil, fmt.Errorf("feed analytics stock scan: %w", err)
 		}
 		it.LowStock = it.DaysLeft != nil && *it.DaysLeft < domain.LowStockDays

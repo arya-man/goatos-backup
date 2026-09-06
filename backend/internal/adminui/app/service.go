@@ -4683,6 +4683,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"stock.batch":                    "latest load",
 			"stock.low":                      "Low stock",
 			"stock.never_directed":           "not directed recently",
+			"stock.not_started":              "Feeding not started",
+			"stock.not_started_sub":          "In store, none given yet",
 			"stock.empty":                    "No purchase ledger yet — stock appears once the feed loads are imported.",
 			"stock.farms.title":              "Mesha concentrates by farm",
 			"stock.farms.hint":               "Each farm's latest load and when its consumption started — a new load is used only once the earlier stock is finished. Mesha concentrate feeds only",

@@ -500,6 +500,7 @@ type stockItemDTO struct {
 	DaysLeft      *int64 `json:"days_left"`
 	LatestBatchNo int64  `json:"latest_batch_no"`
 	LowStock      bool   `json:"low_stock"`
+	NotStarted    bool   `json:"not_started"`
 }
 
 type expenditureDayDTO struct {

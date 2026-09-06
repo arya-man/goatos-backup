@@ -2184,3 +2184,135 @@ func mustFloat(t *testing.T, raw string) float64 {
 	}
 	return value
 }
+
+// The Stock CARD set (maintainer decision 2026-09-06): membership is the
+// farm's ACTIVE feed vocabulary, not "has a burn rate".
+//
+// Both halves are asserted because the old rule failed in both directions. A
+// RETIRED feed kept its card forever -- `recent` averages the 3 most recent
+// days the item APPEARED on a locked sheet, so when feeding stops those days
+// stop advancing and the burn rate freezes at whatever it was. A feed just
+// BOUGHT and not yet fed has no burn rate at all, so a full sack in the store
+// showed nowhere. Output strings are asserted on a real DB round trip.
+func TestStockCardsActiveVocabularyOneToManyPageBoundaryParkScopeStatusBucketsNotBurnRate(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	catalog := func(label, status string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+VALUES ($1, $2, $3)
+ON CONFLICT (tenant_id, feed_item_key) DO UPDATE SET status = EXCLUDED.status`,
+			fdiTenant, label, status); err != nil {
+			t.Fatalf("catalog %s=%s: %v", label, status, err)
+		}
+	}
+	purchase := func(label string, batch int64, qty string) {
+		t.Helper()
+		park := fdiPark
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE '2026-08-10', 'Navaladi', 'Paid')`,
+			fdiTenant, park, label, batch, qty); err != nil {
+			t.Fatalf("purchase %s: %v", label, err)
+		}
+	}
+
+	// FED: an active feed with a real burn rate -> an ordinary days-left card.
+	catalog("Mesha Kids Goat Concentrate", "active")
+	purchase("Mesha Kids Goat Concentrate", 300, "600.000")
+	// NOT STARTED: active, bought, never directed -> a card that says so.
+	catalog("Mesha Adult Concentrate", "active")
+	purchase("Mesha Adult Concentrate", 301, "2250.000")
+	// RETIRED with stock left, and retired while STILL CARRYING a burn rate
+	// from the days it was fed -- the frozen-card case. Neither may appear.
+	catalog("Toor Dal Bhusa Pellet", "retired")
+	purchase("Toor Dal Bhusa Pellet", 302, "3864.800")
+	catalog("Hedge Lucerne", "retired")
+	purchase("Hedge Lucerne", 303, "500.000")
+
+	// One locked day feeding the kids concentrate and the (later) retired
+	// Hedge Lucerne, so both own a burn rate at the moment of the read.
+	issuedAt := time.Date(2026, 8, 11, 9, 0, 0, 0, biztime.DefaultLocation())
+	cell := func(label, key, qty string) domain.StoredCell {
+		return domain.StoredCell{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: label, FeedItemKey: key,
+			QuantityKg: kg(qty), SessionTotalKg: qty,
+		}
+	}
+	if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-08-11", Workflow: domain.WorkflowNormal,
+		IssuedAt: issuedAt, Fingerprint: "stockcards",
+		IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":2026-08-11:stockcards",
+		GeneratedBy:    "test",
+		Cells: []domain.StoredCell{
+			cell("Mesha Kids Goat Concentrate", "mesha_kids_goat_concentrate", "120.000"),
+			cell("Hedge Lucerne", "hedge_lucerne", "50.000"),
+		},
+	}); err != nil {
+		t.Fatalf("persist locked day: %v", err)
+	}
+	if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-08-11",
+		Workflow: domain.WorkflowNormal, LockedAt: issuedAt,
+	}); err != nil || lock.Outcome != "locked" {
+		t.Fatalf("lock = (%v, %v)", lock.Outcome, err)
+	}
+
+	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+
+	byItem := map[string]domain.StockItem{}
+	for _, it := range got.Items {
+		byItem[it.FeedItemKey] = it
+	}
+	if len(byItem) != 2 {
+		t.Fatalf("want exactly the 2 ACTIVE feeds as cards, got %d: %+v", len(byItem), got.Items)
+	}
+	for _, retired := range []string{"toor_dal_bhusa_pellet", "hedge_lucerne"} {
+		if it, ok := byItem[retired]; ok {
+			t.Errorf("retired feed %q must not be served as a card (its burn rate is frozen, not current): %+v", retired, it)
+		}
+	}
+
+	fed, ok := byItem["mesha_kids_goat_concentrate"]
+	if !ok {
+		t.Fatalf("fed active feed missing from cards: %+v", got.Items)
+	}
+	if fed.NotStarted {
+		t.Errorf("a feed with a burn rate is not `not started`: %+v", fed)
+	}
+	if fed.DaysLeft == nil || fed.BalanceKg != "480.0" || fed.AvgDailyKg != "120.0" {
+		t.Errorf("fed card round trip: want balance 480.0 avg 120.0 with a days-left, got %+v", fed)
+	}
+
+	fresh, ok := byItem["mesha_adult_concentrate"]
+	if !ok {
+		t.Fatalf("bought-but-unfed active feed missing from cards: %+v", got.Items)
+	}
+	if !fresh.NotStarted {
+		t.Errorf("a bought, never-directed feed must be `not started`, got %+v", fresh)
+	}
+	if fresh.DaysLeft != nil || fresh.AvgDailyKg != "" {
+		t.Errorf("`not started` has no burn rate to report: %+v", fresh)
+	}
+	if fresh.BalanceKg != "2250.0" {
+		t.Errorf("`not started` must still name the kg in store, got %q", fresh.BalanceKg)
+	}
+	if fresh.LowStock {
+		t.Errorf("a full untouched load is the opposite of low stock: %+v", fresh)
+	}
+	// Least urgent last: the not-started card trails every days-left card.
+	if got.Items[len(got.Items)-1].FeedItemKey != "mesha_adult_concentrate" {
+		t.Errorf("`not started` must sort behind every card with a real days-left, got %+v", got.Items)
+	}
+}
