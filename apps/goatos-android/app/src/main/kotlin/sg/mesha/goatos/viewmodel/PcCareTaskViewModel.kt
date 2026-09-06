@@ -171,7 +171,7 @@ class PcCareTaskViewModel @Inject constructor(
         local,
     ) { detail, animals, proofs, roster, bits ->
         buildState(detail, animals, proofs, roster, bits)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PcCareTaskUiState(title = categoryTitle))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PcCareTaskUiState(title = pcCareTaskTitle(null)))
 
     init {
         analytics.track(AnalyticsEvents.PC_CARE_TASK_OPENED, mapOf(AnalyticsEvents.Params.KIND to taskId))

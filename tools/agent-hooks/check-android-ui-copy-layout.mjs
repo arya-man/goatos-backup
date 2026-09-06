@@ -27,6 +27,7 @@ const supportedLocales = ["hi", "kn", "te"];
 
 const internalToken =
   /\b(?:task_id|row_version|proof_id|submission_id|subject_id|scope_id|trace_id|idempotency_key|provider_message_id)\b/i;
+const visibleSnakeCaseToken = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/;
 const uuidLiteral = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i;
 const stateToken = String.raw`\b(?:selected|isSelected|active|checked|current|status|tone|done|enabled|loading)\b`;
 const geometryCall = String.raw`(?:Modifier\.)?(?:padding|height|width|size|heightIn|widthIn)\s*\(`;
@@ -123,6 +124,13 @@ function findingsFor(file, text) {
           message: "user-facing string exposes an internal API/storage field name",
         });
       }
+      if (visibleSnakeCaseToken.test(value)) {
+        findings.push({
+          rel,
+          line: lineNumber(text, match.index ?? 0),
+          message: "user-facing string exposes a raw snake_case contract token",
+        });
+      }
       if (uuidLiteral.test(value)) {
         findings.push({
           rel,
@@ -136,7 +144,7 @@ function findingsFor(file, text) {
 
   // Only inspect literal copy passed to common visible/accessibility sinks.
   for (const match of text.matchAll(
-    /(?:Text|AnnotatedString)\s*\(\s*"([^"]*)"|(?:title|subtitle|label|placeholder|contentDescription)\s*=\s*"([^"]*)"/g,
+    /(?<![A-Za-z0-9_])(?:Text|AnnotatedString)\s*\(\s*"([^"]*)"|(?:title|subtitle|placeholder|contentDescription)\s*=\s*"([^"]*)"/g,
   )) {
     const value = match[1] ?? match[2] ?? "";
     if (internalToken.test(value)) {
@@ -144,6 +152,13 @@ function findingsFor(file, text) {
         rel,
         line: lineNumber(text, match.index ?? 0),
         message: "visible copy exposes an internal API/storage field name",
+      });
+    }
+    if (!value.includes("${") && visibleSnakeCaseToken.test(value)) {
+      findings.push({
+        rel,
+        line: lineNumber(text, match.index ?? 0),
+        message: "visible copy exposes a raw snake_case contract token",
       });
     }
     if (uuidLiteral.test(value)) {
@@ -201,6 +216,16 @@ function findingsFor(file, text) {
       "task transport fields/internal ids must not feed visible submit copy; render TaskPresentation",
     );
   }
+  if (rel.endsWith("app/src/main/kotlin/sg/mesha/goatos/viewmodel/PcCareTaskViewModel.kt")) {
+    addMatches(
+      /\bPcCareTaskUiState\s*\(\s*title\s*=\s*categoryTitle\b/g,
+      "PC Care task headers must normalize route/category tokens before rendering",
+    );
+    addMatches(
+      /\btitle\s*=\s*categoryTitle\.ifBlank\s*\{/g,
+      "PC Care task headers must normalize route/category tokens before rendering",
+    );
+  }
   if (rel.endsWith("backend/internal/obligation/app/sweeper.go")) {
     addMatches(
       /\bTitle\s*:\s*[^\n]*(?:ScopeID|BatchID|TaskID)/g,
@@ -213,6 +238,7 @@ function findingsFor(file, text) {
 function runSelfTest() {
   const bad = `
     Text("proof_id")
+    Text("feed_water_removal")
     Modifier.absoluteOffset(x = 12.dp)
     Modifier.graphicsLayer { translationX = 8f }
     val label = TextStyle.NARROW
@@ -227,10 +253,12 @@ function runSelfTest() {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp))
   `;
   const badTaskPresentation = `shed = task.title\nTitle: "Vaccination drive " + b.ScopeID`;
+  const badPcCareTitle = `PcCareTaskUiState(title = categoryTitle)\ntitle = categoryTitle.ifBlank { detail?.category.orEmpty() }`;
   const badFindings = findingsFor("Screen.kt", bad);
   const goodFindings = findingsFor("Screen.kt", good);
   const badVmFindings = findingsFor("app/src/main/kotlin/sg/mesha/goatos/viewmodel/SubmitViewModel.kt", badTaskPresentation);
   const badBackendFindings = findingsFor("backend/internal/obligation/app/sweeper.go", badTaskPresentation);
+  const badPcCareTitleFindings = findingsFor("app/src/main/kotlin/sg/mesha/goatos/viewmodel/PcCareTaskViewModel.kt", badPcCareTitle);
   const fixtureBase = path.join(root, "fixture", "src", "main", "res", "values", "strings.xml");
   const fixtureFiles = new Map([
     [fixtureBase, `<resources><string name="visible">Visible</string><string name="channel_id" translatable="false">id</string></resources>`],
@@ -248,9 +276,9 @@ function runSelfTest() {
     () => `<resources><string name="channel_id" translatable="false">id</string></resources>`,
     () => false,
   );
-  if (badFindings.length !== 9 || goodFindings.length !== 0 || badVmFindings.length !== 1 || badBackendFindings.length !== 1) {
+  if (badFindings.length !== 11 || goodFindings.length !== 0 || badVmFindings.length !== 1 || badBackendFindings.length !== 1 || badPcCareTitleFindings.length !== 2) {
     throw new Error(
-      `self-test failed: bad=${JSON.stringify(badFindings)} good=${JSON.stringify(goodFindings)} vm=${JSON.stringify(badVmFindings)} backend=${JSON.stringify(badBackendFindings)}`,
+      `self-test failed: bad=${JSON.stringify(badFindings)} good=${JSON.stringify(goodFindings)} vm=${JSON.stringify(badVmFindings)} backend=${JSON.stringify(badBackendFindings)} pcCareTitle=${JSON.stringify(badPcCareTitleFindings)}`,
     );
   }
   if (localeFindings.length !== 1 || !localeFindings[0].message.includes("values-kn") || identifierOnlyFindings.length !== 0) {
