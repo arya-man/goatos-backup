@@ -525,6 +525,8 @@ internal fun stepSubjectKey(stepNo: Int): String = "step-$stepNo"
 internal fun toxinProofPolicy(proofMode: String, captureSource: String): ProofPolicy =
     ProofPolicy.Default.copy(
         proofMode = proofMode,
+        featureSurface = "toxin",
+        featureCategory = "toxin_control",
         subjectScope = ProofSubject.OTHER.wireValue,
         expectedSubjects = listOf(ProofSubject.OTHER.wireValue),
         captureSource = captureSource,

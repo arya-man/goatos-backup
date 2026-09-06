@@ -604,6 +604,8 @@ class HealthDetailViewModel @Inject constructor(
 internal fun healthTreatmentProofPolicy(captureSource: String): ProofPolicy =
     ProofPolicy.Default.copy(
         proofMode = "per_session_video",
+        featureSurface = "health",
+        featureCategory = "treatment",
         subjectScope = ProofSubject.GOAT.wireValue,
         expectedSubjects = listOf(ProofSubject.GOAT.wireValue),
         captureSource = captureSource,

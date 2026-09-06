@@ -69,6 +69,39 @@ function scanText(rel, text) {
       findings.push({ rel, line: index + 1, reason: "generic 5-proof goat cap name reintroduced", snippet: line.trim().slice(0, 140) });
     }
   });
+  const policyCopyPattern = /ProofPolicy\.Default\.copy\s*\(/g;
+  let policyMatch;
+  while ((policyMatch = policyCopyPattern.exec(text)) !== null) {
+    const start = policyMatch.index;
+    const open = text.indexOf("(", start);
+    let depth = 0;
+    let end = -1;
+    for (let i = open; i < text.length; i += 1) {
+      if (text[i] === "(") depth += 1;
+      else if (text[i] === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end < 0) continue;
+    const policy = text.slice(start, end + 1);
+    const startLine = text.slice(0, start).split("\n").length;
+    const hasMaxCount = /\bmaximumCount(?:PerSubject)?\s*=/.test(policy);
+    const hasFeatureLabels = /\bfeatureSurface\s*=/.test(policy) && /\bfeatureCategory\s*=/.test(policy);
+    if (hasMaxCount && !hasFeatureLabels && !policy.includes("proof-policy-default:ignore")) {
+      findings.push({
+        rel,
+        line: startLine,
+        reason: "client max proof counts must be feature-labelled, never anonymous/shared caps",
+        snippet: policy.split("\n")[0].trim().slice(0, 140),
+      });
+    }
+    policyCopyPattern.lastIndex = end + 1;
+  }
+
   const callPattern = /\b(?:proofCaptureRepository|captureRepository|proofs|repo)\.capture(?:ReplacingLatest)?\s*\(/g;
   let match;
   while ((match = callPattern.exec(text)) !== null) {
@@ -116,7 +149,9 @@ function selfTest() {
   const badElvisFallback = "proofPolicy = sopVersion?.toProofPolicy() ?: ProofPolicy.Default";
   const badOmitted = "proofCaptureRepository.capture(taskId = id, fieldKey = key)";
   const badCap = "const val MAX_PROOFS_PER_GOAT = 5";
+  const badAnonymousClientCap = "ProofPolicy.Default.copy(maximumCountPerSubject = 5)";
   const goodCopy = "capture(proofPolicy = ProofPolicy.Default.copy(maximumCountPerField = 1))";
+  const goodFeatureCap = "ProofPolicy.Default.copy(featureSurface = \"weighing\", featureCategory = \"per_shed_partition\", maximumCountPerSubject = 5)";
   const goodExplicit = "proofCaptureRepository.capture(\n  taskId = id,\n  proofPolicy = policy,\n)";
   const goodIgnored = "capture(proofPolicy = ProofPolicy.Default) // proof-policy-default:ignore legacy task policy fallback";
   const ok =
@@ -125,7 +160,9 @@ function selfTest() {
     scanText("bad-elvis-fallback.kt", badElvisFallback).length === 1 &&
     scanText("bad-omitted.kt", badOmitted).length === 1 &&
     scanText("bad-cap.kt", badCap).length === 1 &&
+    scanText("bad-anonymous-client-cap.kt", badAnonymousClientCap).length === 1 &&
     scanText("good-copy.kt", goodCopy).length === 0 &&
+    scanText("good-feature-cap.kt", goodFeatureCap).length === 0 &&
     scanText("good-explicit.kt", goodExplicit).length === 0 &&
     scanText("good-ignored.kt", goodIgnored).length === 0;
   console.log(ok ? "android-proof-policy-default self-test: ok" : "android-proof-policy-default self-test: FAIL");

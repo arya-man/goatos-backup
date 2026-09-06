@@ -2452,6 +2452,8 @@ class WeighingViewModel @Inject constructor(
                         capturedByPrincipalId = principalId,
                         proofPolicy = ProofPolicy.Default.copy(
                             proofMode = "shed_level_video",
+                            featureSurface = "weighing",
+                            featureCategory = PER_SHED_PARTITION_CATEGORY,
                             subjectScope = "shed",
                             expectedSubjects = listOf("shed"),
                             minimumCount = 1,
@@ -3093,6 +3095,8 @@ class WeighingViewModel @Inject constructor(
             capturedByPrincipalId = principalId,
             proofPolicy = ProofPolicy.Default.copy(
                 proofMode = "free_flow_video",
+                featureSurface = "weighing",
+                featureCategory = INDIVIDUAL_ANIMAL_CATEGORY,
                 subjectScope = "other",
                 expectedSubjects = listOf("other"),
                 maximumCount = MAX_PROOFS_PER_WEIGHING_SCOPE,
