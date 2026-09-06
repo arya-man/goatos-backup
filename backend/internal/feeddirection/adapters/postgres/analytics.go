@@ -1932,7 +1932,7 @@ FROM priced`
 
 // Per-farm Mesha-concentrate purchase/consumption table (Stock tab).
 //
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, filtered to the four MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on both purchase sides — loads GROUP BY that pair and last_load is DISTINCT ON the same pair so they meet exactly 1:1, while the directed side collapses locked issue-row cells to (park_id, feed_item_key) before joining and one farm_label resolves to exactly one park (the importer maps CBE/CPT to the tenant's park locations) -- load_consumption is a FIFO crossing: locked_cells is one row per (park, feed_item_key, feed_day), so the running SUM window per (farm_label, feed_item_key) sees each day once, and MIN(feed_day) over the crossing days collapses back to one row per pair; join_cardinality=loads JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, no side left unaggregated; pagination=none — four items across a tenant's farms is a bounded table with no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets.
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, filtered to MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on both purchase sides — loads GROUP BY that pair and last_load is DISTINCT ON the same pair so they meet exactly 1:1, while the directed side collapses locked issue-row cells to (park_id, feed_item_key) before joining and one farm_label resolves to exactly one park (the importer maps CBE/CPT to the tenant's park locations) -- load_consumption is a FIFO crossing: locked_cells is one row per (park, feed_item_key, feed_day), so the running SUM window per (farm_label, feed_item_key) sees each day once, and MIN(feed_day) over the crossing days collapses back to one row per pair; join_cardinality=loads JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, no side left unaggregated; pagination=none — a handful of named items across a tenant's farms is a bounded table with no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets.
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded four-item aggregate over the
 // small purchase ledger and locked sheets, canonical-indexed-SQL default.
@@ -2038,7 +2038,7 @@ stock_balance AS (
 -- pre-aggregates its FIFO crossing days to MIN(feed_day) per pair; join_cardinality=loads
 -- JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, LEFT JOIN
 -- stock_balance 1:0..1, no side left unaggregated, and weekly_required_kg is a scalar multiple
--- of the same recent_avg_kg rather than a differently-grouped sum; pagination=none, four items
+-- of the same recent_avg_kg rather than a differently-grouped sum; pagination=none, a handful of named items
 -- across a tenant's farms is bounded with no limit/offset input; scope=tenant_id everywhere
 -- plus the caller's authorized park set.
 SELECT l.farm_label,

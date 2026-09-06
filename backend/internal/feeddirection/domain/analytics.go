@@ -733,9 +733,11 @@ type LowStockFeed struct {
 
 // MeshaConcentrateStockKeys is the fixed set of in-house Mesha concentrate
 // feeds the per-farm purchase/consumption table covers (maintainer decision
-// 2026-08-21: exactly these four, not every ledger item). Keys are
+// 2026-08-21: a named set, not every ledger item; the species-less
+// mesha_adult_concentrate added by maintainer request 2026-09-06). Keys are
 // feed_config_norm outputs of the ledger's feed_item_label values.
 var MeshaConcentrateStockKeys = []string{
+	"mesha_adult_concentrate",
 	"mesha_adult_concentrate_goat",
 	"mesha_adult_concentrate_sheep",
 	"mesha_kids_goat_concentrate",
@@ -790,7 +792,7 @@ const StockForecastDays = 7
 // ledger: every feed the farm actually feeds gets a row, including feeds
 // GoatOS does not direct through sheets (UHT Milk, feed_external_consumption)
 // and feeds with no purchase history at all. That is deliberately wider than
-// StockFarmItem's four Mesha concentrates — a requirement table that silently
+// StockFarmItem's named Mesha concentrates — a requirement table that silently
 // omitted a feed would under-order it.
 //
 // Money is present here by explicit maintainer decision 2026-08-23, which

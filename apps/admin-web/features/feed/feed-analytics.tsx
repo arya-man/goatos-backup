@@ -1375,6 +1375,26 @@ function isTemporarilyHiddenStockItem(item: { feed_item_label: string; days_left
   return isMeshaConcentrate && item.days_left !== null && item.days_left !== undefined && item.days_left <= 0;
 }
 
+// TEMPORARY companion to isTemporarilyHiddenStockItem, same maintainer request
+// and same rule one grain over: a Mesha concentrate ROW of the per-farm table
+// drops when it reads zero days left. The table has no served days_left, so it
+// is recomputed exactly as DaysLeftText renders it -- stock over the recent
+// daily average, floored at zero -- and a row whose average is unavailable has
+// no days figure at all, so it is kept. The species-less "Mesha Adult
+// Concentrate" is never hidden, matching the card rule. Delete this function
+// and the .filter() call above to bring the rows back.
+function isTemporarilyHiddenFarmItem(row: { feed_item_label: string; avg_daily_kg: string; ledger_stock_kg: string }): boolean {
+  const label = (row.feed_item_label ?? "").toLowerCase();
+  const isMeshaConcentrate =
+    label.includes("mesha") &&
+    label.includes("concentrate") &&
+    (label.includes("goat") || label.includes("sheep"));
+  if (!isMeshaConcentrate) return false;
+  const avg = num(row.avg_daily_kg);
+  if (avg <= 0) return false;
+  return Math.max(Math.floor(num(row.ledger_stock_kg) / avg), 0) <= 0;
+}
+
 function StockCards({
   stock,
   pageContract,
@@ -1389,7 +1409,7 @@ function StockCards({
   // freshly bought load nobody has started feeding, and a retired feed whose
   // frozen burn rate kept it on screen. Both are the backend's call now.
   const active = (stock?.items ?? []).filter((item) => !isTemporarilyHiddenStockItem(item));
-  const farmItems = stock?.farm_items ?? [];
+  const farmItems = (stock?.farm_items ?? []).filter((row) => !isTemporarilyHiddenFarmItem(row));
   const forecast = stock?.forecast ?? [];
   return (
     <>
