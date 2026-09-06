@@ -3223,7 +3223,10 @@ class WeighingViewModel @Inject constructor(
         analytics.track(
             AnalyticsEvents.WEIGHING_PROOF_CAPTURE_ATTEMPT,
             weighingProofProps(row, null) +
-                (AnalyticsEvents.Params.OUTCOME to "attempt"),
+                mapOf(
+                    AnalyticsEvents.Params.OUTCOME to "attempt",
+                    AnalyticsEvents.Params.SOURCE to "camera",
+                ),
         )
         // LAZY so `proofCaptureJob` is installed BEFORE the body can run: the `finally` below
         // compares job identity, and a body that completed before the assignment would compare
@@ -3238,7 +3241,10 @@ class WeighingViewModel @Inject constructor(
                         analytics.track(
                             AnalyticsEvents.WEIGHING_PROOF_CAPTURE_SUCCESS,
                             weighingProofProps(row, proof.value) +
-                                (AnalyticsEvents.Params.OUTCOME to "success"),
+                                mapOf(
+                                    AnalyticsEvents.Params.OUTCOME to "success",
+                                    AnalyticsEvents.Params.SOURCE to "camera",
+                                ),
                         )
                     }
                     is AppResult.Err -> {
@@ -3253,6 +3259,7 @@ class WeighingViewModel @Inject constructor(
                                 mapOf(
                                     AnalyticsEvents.Params.OUTCOME to if (proof.message == "missing_video") "cancelled" else "failure",
                                     AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
+                                    AnalyticsEvents.Params.SOURCE to "camera",
                                 ),
                         )
                         if (proof.message != "missing_video") {

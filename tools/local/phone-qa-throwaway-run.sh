@@ -14,7 +14,7 @@ label="sg.mesha.goatos.phone-qa-api"
 plist="$HOME/Library/LaunchAgents/$label.plist"
 launch_domain="gui/$(id -u)"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
-user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000102}"
+user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000202}"
 adb_serial=""
 
 args=("$@")
@@ -32,6 +32,7 @@ die() { echo "phone-qa-throwaway-run: $*" >&2; exit 1; }
 log() { printf '[phone-qa] %s\n' "$*"; }
 
 [ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL is required"
+database_target="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[^:/@]+://([^@]+@)?##; s#[?].*$##')"
 case "$DATABASE_URL" in
   *127.0.0.1:15544/*|*localhost:15544/*) ;;
   *127.0.0.1:15432/goatos_e2e_*|*localhost:15432/goatos_e2e_*) ;;
@@ -232,7 +233,7 @@ if [ -n "$adb_serial" ]; then
 else
   adb reverse tcp:8080 tcp:"$host_port" >/dev/null
 fi
-log "API is on :$host_port using ${DATABASE_URL%%\?*}; device localhost:8080 -> laptop:$host_port; installing Android as $user_id"
+log "API is on :$host_port using $database_target; device localhost:8080 -> laptop:$host_port; installing Android as $user_id"
 
 GOATOS_LOCAL_USER_ID="$user_id" \
 GOATOS_TENANT_ID="$tenant_id" \

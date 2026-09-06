@@ -99,6 +99,13 @@ function scanText(rel, text) {
         reason: "ProofMediaPreview call must pass onPreviewAction for play/pause/fullscreen/share/failure analytics",
         snippet: call.split("\n").slice(0, 4).join(" ").trim().slice(0, 180),
       });
+    } else if (/onPreviewAction\s*=\s*\{\s*(?:_\s*->)?\s*\}/s.test(call)) {
+      findings.push({
+        rel,
+        line: lineForOffset(text, match.index),
+        reason: "ProofMediaPreview onPreviewAction must route actions to analytics; empty callbacks hide fullscreen/share/play/retry journeys",
+        snippet: call.split("\n").slice(0, 4).join(" ").trim().slice(0, 180),
+      });
     }
   }
   return findings;
@@ -111,11 +118,13 @@ function scan(files) {
 function selfTest() {
   const bad = "ProofMediaPreview(path = path, kind = ProofMediaPreviewKind.Video)";
   const good = "ProofMediaPreview(path = path, kind = kind, onPreviewAction = { action -> onEvent(action) })";
+  const swallowed = "ProofMediaPreview(path = path, kind = kind, onPreviewAction = { _ -> })";
   const ignored = "// proof-preview-analytics:ignore legacy viewer\nProofMediaPreview(path = path, kind = kind)";
   const badFindings = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", bad);
   const goodFindings = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", good);
+  const swallowedFindings = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", swallowed);
   const ignoredFindings = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", ignored);
-  if (badFindings.length !== 1 || goodFindings.length !== 0 || ignoredFindings.length !== 0) {
+  if (badFindings.length !== 1 || goodFindings.length !== 0 || swallowedFindings.length !== 1 || ignoredFindings.length !== 0) {
     console.error("android-proof-preview-analytics self-test failed");
     process.exit(1);
   }

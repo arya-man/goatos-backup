@@ -1,6 +1,6 @@
 # PR 206 Proof Media Progress
 
-Last updated: 2026-09-07 04:58 IST.
+Last updated: 2026-09-07 05:24 IST.
 
 ## Goal
 
@@ -31,7 +31,8 @@ Finish PR 206 end to end: proof caps, common proof preview/retry UX, analytics t
 - Feed distribution terminal proof upload success/failure now emits proof row id, proof outbox id, server proof id, and terminal failure reason.
 - PC Care animal-slot reconcile/repair now emits registration success/failure with tag/slot/proof row/proof outbox/registration outbox/server ids.
 - Existing pushed fixes already include shared `ProofMediaPreview`, preview analytics guard, proof policy guard, Android/admin nav icon guards, bottom bar fit, vaccination stock icon mapping, and seed fixture expansion.
-- Throwaway phone-QA seed now redacts the credentialed database URL and fails fast if the fixture loses Pramod PC Care tasks, per-shed feed-water removal rows, eight weighing buckets with both individual/lump-sum categories, eight vaccination shed assignments, 20 vaccination animals, per-animal one-proof vaccination policy, two counts cards, or four feed rows.
+- Throwaway phone-QA seed now redacts the credentialed database URL and fails fast if the fixture loses Pramod PC Care tasks, per-shed feed-water removal rows, eight weighing buckets with both individual/lump-sum categories, Pramod's per-shed weighing fasting card, eight vaccination shed assignments, 26 vaccination obligation member rows, concrete Part labels for partitioned QA animals, per-animal one-proof vaccination policy, two counts cards, or four feed rows.
+- Phone-QA runner defaults to Pramod, the visible CBE operator profile used for this E2E.
 
 ## Verification Already Run In This Segment
 
@@ -41,6 +42,13 @@ Finish PR 206 end to end: proof caps, common proof preview/retry UX, analytics t
 - `./apps/goatos-android/gradlew -p apps/goatos-android :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.PenReconciliationExecuteEvidenceDraftTest' --tests 'sg.mesha.goatos.viewmodel.ScanViewModelTest' --tests 'sg.mesha.goatos.viewmodel.PcCareInventoryTaskProofTest' --tests 'sg.mesha.goatos.viewmodel.PcCareRemovalPenSlotsTest' --tests 'sg.mesha.goatos.viewmodel.PcCareSubmitGateTest' --no-parallel --console=plain`: passed.
 - `./apps/goatos-android/gradlew -p apps/goatos-android :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.WeighingFastingDetailViewModelTest' --tests 'sg.mesha.goatos.viewmodel.WeighingViewModelTest' --no-parallel --console=plain`: passed.
 - `go test ./internal/pccare/adapters/postgres ./internal/processintegrity/app -count=1`: passed.
+- `GOATOS_ENV=local DATABASE_URL=<OCI throwaway> tools/local/phone-qa-throwaway-seed.sh`: passed after the seed reset stale fasting submissions and stopped deduping multi-vaccine obligation members.
+- `./apps/goatos-android/gradlew -p apps/goatos-android :app:compileDevDebugKotlin --no-parallel --console=plain`: passed after latest analytics + seed patches.
+- Focused Android tests for weighing fasting, weighing, PC Care task/removal gates, counts reconciliation, vaccination, and backend analytics adapter: passed.
+- `node tools/agent-hooks/check-android-proof-preview-analytics.mjs --self-test && node tools/agent-hooks/check-android-proof-preview-analytics.mjs --all`: passed.
+- `make mobile-guard-audit`: passed.
+- `make frontend-foundations-guard`: passed.
+- `git diff --check`: passed.
 
 ## Active Agents
 
@@ -51,8 +59,8 @@ Finish PR 206 end to end: proof caps, common proof preview/retry UX, analytics t
 
 ## Pending Implementation
 
-- Strengthen seed data with failed/retry/rework/outbox-state variants across proof features before phone E2E.
-- Rerun a fresh analytics/sync judge after guard/test pass and seed strengthening.
+- Commit and push latest analytics + seed/run fixes.
+- Rerun a fresh analytics/sync/seed judge after push.
 
 ## Pending Gates Before E2E
 

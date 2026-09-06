@@ -622,7 +622,7 @@ VALUES (
   '${tenant_id}'::uuid,
   'deworming',
   '91000000-0000-4000-8000-000000000101',
-  ${today_sql} + 1,
+  ${today_sql},
   'phone-qa-pc-care-deworming-round-cbe',
   '90000000-0000-4000-8000-000000000102',
   now(),
@@ -697,8 +697,8 @@ VALUES
     '91000000-0000-4000-8000-000000000101',
     '91000000-0000-4000-8000-000000000201',
 		    'Part 1',
-    ${today_sql} + 1,
-    ${today_sql} + 1,
+    ${today_sql},
+    ${today_sql},
     'scheduled',
     'open',
     'phone-qa-pc-care-deworming-godel-1-part-1',
@@ -714,8 +714,8 @@ VALUES
     '91000000-0000-4000-8000-000000000101',
     '91000000-0000-4000-8000-000000000203',
 	    'Part 2',
-    ${today_sql} + 1,
-    ${today_sql} + 1,
+    ${today_sql},
+    ${today_sql},
     'scheduled',
     'open',
     'phone-qa-pc-care-deworming-yashoda-1-part-2',
@@ -805,9 +805,9 @@ VALUES (
   '91000000-0000-4000-8000-000000000101',
   NULL,
   NULL,
-  ${today_sql},
-  ${today_sql},
-  'scheduled',
+  ${today_sql} - 1,
+  ${today_sql} - 1,
+  'delayed',
   'open',
   'phone-qa-pc-care-feed-water-removal-cbe',
   '90000000-0000-4000-8000-000000000102',
@@ -1325,9 +1325,24 @@ SET goat_id = EXCLUDED.goat_id, identifier_value = EXCLUDED.identifier_value,
     identifier_type = EXCLUDED.identifier_type, is_primary_for_goat = true, status = 'active', updated_at = now();
 
 INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
-SELECT '${tenant_id}'::uuid, g.goat_id, g.shed_id, 'whole', s.shed_name, now()
+SELECT '${tenant_id}'::uuid,
+       g.goat_id,
+       g.shed_id,
+       CASE
+         WHEN s.animal_count <= 1 THEN 'whole'
+         ELSE 'Part ' || (((t.idx - 1) % s.animal_count) + 1)::text
+       END,
+       s.shed_name,
+       now()
 FROM goats g
 JOIN qa_sheds s ON s.shed_id = g.shed_id
+JOIN goat_identifiers gi
+  ON gi.tenant_id = g.tenant_id
+ AND gi.goat_id = g.goat_id
+ AND gi.is_primary_for_goat
+ AND gi.status = 'active'
+JOIN qa_tags t
+  ON gi.normalized_value = s.prefix || t.tag
 WHERE g.tenant_id = '${tenant_id}'::uuid
   AND (g.goat_id::text LIKE '9a000000%' OR g.goat_id::text LIKE '91000000-0000-4000-8000-0000000010%' OR g.goat_id::text LIKE '92000000-0000-4000-8000-0000000010%')
 ON CONFLICT (tenant_id, goat_id) DO UPDATE
@@ -1424,8 +1439,7 @@ SET batch_id = EXCLUDED.batch_id, planned_date = EXCLUDED.planned_date, operator
     total_doses = EXCLUDED.total_doses, updated_at = now();
 
 INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
-SELECT DISTINCT ON (s.seq, oi.target_id)
-       '${tenant_id}'::uuid,
+SELECT '${tenant_id}'::uuid,
        ('9e000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
        oi.obligation_id, oi.target_id
 FROM obligation_instances oi
@@ -1433,7 +1447,6 @@ JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
 JOIN qa_sheds s ON s.shed_id = g.shed_id
 WHERE oi.tenant_id = '${tenant_id}'::uuid
   AND oi.status = 'due'
-ORDER BY s.seq, oi.target_id, oi.sequence, oi.obligation_id
 ON CONFLICT (tenant_id, obligation_id) DO UPDATE
 SET assignment_id = EXCLUDED.assignment_id;
 
@@ -1466,6 +1479,65 @@ SET location_id = EXCLUDED.location_id, display_name = EXCLUDED.display_name,
     expected_animal_count = 0, weighing_category = EXCLUDED.weighing_category,
     operator_user_id = EXCLUDED.operator_user_id, park_id = EXCLUDED.park_id,
     start_business_date = EXCLUDED.start_business_date, updated_at = now();
+
+DELETE FROM weighing_fasting_shed_proofs
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND fasting_task_id IN (
+    SELECT fasting_task_id
+    FROM weighing_fasting_tasks
+    WHERE tenant_id = '${tenant_id}'::uuid
+      AND campaign_id IN (
+        '92000000-0000-4000-8000-000000000701',
+        '92000000-0000-4000-8000-000000000702'
+      )
+  );
+
+INSERT INTO weighing_fasting_tasks (
+  fasting_task_id, tenant_id, campaign_id, park_id, operator_user_id,
+  planned_weigh_date, weigh_business_date, status, idempotency_key, created_by, updated_at
+)
+VALUES
+  (
+    '8a000000-0000-4000-8000-000000000701',
+    '${tenant_id}'::uuid,
+    '92000000-0000-4000-8000-000000000701',
+    '91000000-0000-4000-8000-000000000101',
+    '90000000-0000-4000-8000-000000000202',
+    ${today_sql},
+    ${today_sql},
+    'open',
+    'phone-qa-weighing-fasting-cbe',
+    '90000000-0000-4000-8000-000000000103',
+    now()
+  ),
+  (
+    '8a000000-0000-4000-8000-000000000702',
+    '${tenant_id}'::uuid,
+    '92000000-0000-4000-8000-000000000702',
+    '92000000-0000-4000-8000-000000000101',
+    '90000000-0000-4000-8000-000000000201',
+    ${today_sql},
+    ${today_sql},
+    'open',
+    'phone-qa-weighing-fasting-cpt',
+    '90000000-0000-4000-8000-000000000103',
+    now()
+  )
+ON CONFLICT (tenant_id, campaign_id) DO UPDATE
+SET park_id = EXCLUDED.park_id,
+    operator_user_id = EXCLUDED.operator_user_id,
+    planned_weigh_date = EXCLUDED.planned_weigh_date,
+    weigh_business_date = EXCLUDED.weigh_business_date,
+    status = 'open',
+    feed_proof_ref = NULL,
+    water_proof_ref = NULL,
+    submitted_by = NULL,
+    submitted_at = NULL,
+    verified_by = NULL,
+    verified_at = NULL,
+    rework_reason = NULL,
+    row_version = weighing_fasting_tasks.row_version + 1,
+    updated_at = now();
 
 -- This fixture is a TWO-PARK world: CBE and CPT, four sheds each. That is the whole
 -- point of it -- vaccination scheduled for one operator per park, and per park two
@@ -1727,8 +1799,40 @@ BEGIN
   SELECT count(*) INTO bad
   FROM vaccination_drive_assignment_members
   WHERE tenant_id = '${tenant_id}'::uuid;
-  IF bad <> 20 THEN
-    RAISE EXCEPTION 'phone-qa seed: % vaccination assignment members, want 20 animals across sheds', bad;
+  IF bad <> 26 THEN
+    RAISE EXCEPTION 'phone-qa seed: % vaccination assignment members, want 26 vaccine obligations across sheds', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM goat_shed_partitions p
+  JOIN goats g
+    ON g.tenant_id = p.tenant_id
+   AND g.goat_id = p.goat_id
+  WHERE p.tenant_id = '${tenant_id}'::uuid
+    AND g.lifecycle_status = 'alive'
+    AND p.shed_id IN (
+      '91000000-0000-4000-8000-000000000201',
+      '91000000-0000-4000-8000-000000000203',
+      '91000000-0000-4000-8000-000000000202',
+      '92000000-0000-4000-8000-000000000203'
+    )
+    AND p.partition_label ~ '^Part [1-3]$';
+  IF bad < 10 THEN
+    RAISE EXCEPTION 'phone-qa seed: only % active QA animals have concrete Part labels, want base partitioned herds testable', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM weighing_fasting_tasks ft
+  JOIN weighing_campaign_sheds cs
+    ON cs.tenant_id = ft.tenant_id
+   AND cs.campaign_id = ft.campaign_id
+   AND cs.status <> 'canceled'
+  WHERE ft.tenant_id = '${tenant_id}'::uuid
+    AND ft.operator_user_id = '90000000-0000-4000-8000-000000000202'
+    AND ft.weigh_business_date = ${today_sql}
+    AND ft.status = 'open';
+  IF bad <> 4 THEN
+    RAISE EXCEPTION 'phone-qa seed: Pramod weighing fasting exposes % shed slots, want 4 CBE sheds', bad;
   END IF;
 
   SELECT count(*) INTO bad

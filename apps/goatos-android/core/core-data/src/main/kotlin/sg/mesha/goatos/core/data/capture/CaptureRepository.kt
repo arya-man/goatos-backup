@@ -1371,8 +1371,12 @@ class DefaultProofCaptureRepository(
                     updatedAtMs = clock(),
                 )
                 recordProofEvent(uploadEntity, "upload_enqueued", uploadEntity.processingState, uploadEntity.stateAttempt)
-                telemetry.track(proofUploadRegisteredEvent, proofAnalyticsProps(uploadEntity))
                 dao.setOutboxItemId(uploadEntity.id, result.value)
+                telemetry.track(
+                    proofUploadRegisteredEvent,
+                    proofAnalyticsProps(uploadEntity) +
+                        ("proof_outbox_item_id" to result.value),
+                )
                 followOutboxItem(uploadEntity.id, result.value)
             }
             is AppResult.Err -> {

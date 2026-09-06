@@ -122,9 +122,16 @@ class WeighingFastingDetailViewModel @Inject constructor(
     }
 
     private fun trackPreviewAction(kind: WeighingFastingSlotKind, action: String) {
+        val slot = _state.value.slotOf(kind)
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION,
-            weighingFastingAnalyticsProps(kind, action = action, source = "proof_preview"),
+            weighingFastingAnalyticsProps(
+                kind,
+                action = action,
+                source = "proof_preview",
+                proofRowId = slot.localProofRowId,
+                serverProofId = slot.serverProofId,
+            ),
         )
     }
 
@@ -288,6 +295,16 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     null
                 }
                 if (captured == null) {
+                    analytics.track(
+                        AnalyticsEventsWeighing.WEIGHING_REMOVAL_SLOT_CAPTURED,
+                        weighingFastingAnalyticsProps(
+                            kind = kind,
+                            action = "capture_cancelled",
+                            source = "camera",
+                            outcome = "cancelled",
+                            reason = "camera_cancelled",
+                        ),
+                    )
                     updateSlot(kind) { it.copy(busy = false) }
                     return@launch
                 }
@@ -362,6 +379,8 @@ class WeighingFastingDetailViewModel @Inject constructor(
                                 status = WeighingFastingSlotStatus.QUEUED,
                                 statusLabel = PROOF_QUEUED_LABEL,
                                 previewPath = captured.localUri,
+                                localProofRowId = result.value.id,
+                                serverProofId = result.value.serverProofId,
                             )
                         }
                         recomputeSubmit()

@@ -1052,7 +1052,16 @@ class PcCareTaskViewModel @Inject constructor(
                                     )
                                     analytics.track(
                                         AnalyticsEvents.PC_CARE_SLOT_CAPTURED,
-                                        mapOf(AnalyticsEvents.Params.KIND to slotFieldKey),
+                                        pcCareStockProofAnalyticsProps(
+                                            fieldKey = slotFieldKey,
+                                            mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                            status = detail.status,
+                                            outcome = "success",
+                                            source = "capture_repository",
+                                            proofRowId = result.value.id,
+                                            proofOutboxItemId = proofOutboxId,
+                                            serverProofId = result.value.serverProofId,
+                                        ),
                                     )
                                 }
                                 is AppResult.Err -> {

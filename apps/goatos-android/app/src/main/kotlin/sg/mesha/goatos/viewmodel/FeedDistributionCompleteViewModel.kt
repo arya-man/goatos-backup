@@ -282,7 +282,10 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 action = action,
                 extra = buildMap {
                     put(AnalyticsEvents.Params.FIELD, fieldKey)
-                    proofRowId?.takeIf { it.isNotBlank() }?.let { put(PARAM_PROOF_ID, it) }
+                    proofRowId?.takeIf { it.isNotBlank() }?.let {
+                        put(PARAM_PROOF_ID, it)
+                        put("local_proof_row_id", it)
+                    }
                     proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
                     serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
                 },
