@@ -195,6 +195,8 @@ data class WeighingFastingSlotUi(
     val previewPath: String? = null,
     /** Signed server URL for an already-submitted clip (reinstall / read-only card). */
     val remoteUrl: String? = null,
+    /** Server proof id/ref when the preview is backed by an already-submitted clip. */
+    val serverProofId: String? = null,
 )
 
 @Immutable

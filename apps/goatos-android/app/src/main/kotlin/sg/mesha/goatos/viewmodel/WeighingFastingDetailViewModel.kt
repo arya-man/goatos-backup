@@ -123,6 +123,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
 
     private fun trackPreviewAction(kind: WeighingFastingSlotKind, action: String) {
         val proofOutboxItemId = slotItemId(kind)
+        val serverProofId = _state.value.slotOf(kind).serverProofId
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION,
             buildMap {
@@ -133,6 +134,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                 put(AnalyticsEvents.Params.CAMPAIGN_ID, fastingTaskId)
                 put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, campaignShedId)
                 proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
+                serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
             },
         )
     }
@@ -200,6 +202,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     status = WeighingFastingSlotStatus.SYNCED,
                     statusLabel = PROOF_SYNCED_LABEL,
                     remoteUrl = url,
+                    serverProofId = proofRef,
                 )
             }
         }

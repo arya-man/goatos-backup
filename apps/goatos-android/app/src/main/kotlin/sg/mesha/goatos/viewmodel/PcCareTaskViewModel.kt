@@ -2008,12 +2008,12 @@ internal fun pcCareSlotChip(
                 statusLabel = "Video sent",
                 hintLabel = hint,
                 canRecord = false,
-            previewPath = previewPath,
-            previewKind = previewKind,
-            localProofRowId = localRow.id,
-            proofOutboxItemId = localRow.outboxItemId,
-            serverProofId = localRow.serverProofId,
-        )
+                previewPath = previewPath,
+                previewKind = previewKind,
+                localProofRowId = localRow.id,
+                proofOutboxItemId = localRow.outboxItemId,
+                serverProofId = localRow.serverProofId,
+            )
             ProofProcessingStatus.RECORD_AGAIN -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
@@ -2024,6 +2024,9 @@ internal fun pcCareSlotChip(
                 canRecord = true,
                 previewPath = previewPath,
                 previewKind = previewKind,
+                localProofRowId = localRow.id,
+                proofOutboxItemId = localRow.outboxItemId,
+                serverProofId = localRow.serverProofId,
             )
             else -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
@@ -2035,6 +2038,9 @@ internal fun pcCareSlotChip(
                 canRecord = localRow.syncStatus == CaptureSyncStatus.FAILED,
                 previewPath = previewPath,
                 previewKind = previewKind,
+                localProofRowId = localRow.id,
+                proofOutboxItemId = localRow.outboxItemId,
+                serverProofId = localRow.serverProofId,
             )
         }
     }

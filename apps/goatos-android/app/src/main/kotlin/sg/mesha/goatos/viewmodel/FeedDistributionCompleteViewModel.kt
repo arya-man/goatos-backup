@@ -270,6 +270,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             ProofSlot.FEED_VIDEO -> videoProofItemId.value
             ProofSlot.WATER_VIDEO -> waterVideoProofItemId.value
         }
+        val serverProofId = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightRemoteRef.value
+            ProofSlot.FEED_VIDEO -> videoRemoteRef.value
+            ProofSlot.WATER_VIDEO -> waterVideoRemoteRef.value
+        }
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_PROOF_PREVIEW_ACTION,
             distributionEventProps(
@@ -279,6 +284,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     put(AnalyticsEvents.Params.FIELD, fieldKey)
                     proofRowId?.takeIf { it.isNotBlank() }?.let { put(PARAM_PROOF_ID, it) }
                     proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
+                    serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
                 },
             ),
         )
