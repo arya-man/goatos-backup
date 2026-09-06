@@ -73,6 +73,12 @@ resource "google_project_iam_member" "github_deployer_logging_writer" {
   member  = "serviceAccount:${google_service_account.github_deployer.email}"
 }
 
+resource "google_project_iam_member" "github_deployer_firebase_admin" {
+  project = var.project_id
+  role    = "roles/firebase.admin"
+  member  = "serviceAccount:${google_service_account.github_deployer.email}"
+}
+
 resource "google_project_iam_member" "slack_deploy_bot_cloudbuild_editor" {
   project = var.project_id
   role    = "roles/cloudbuild.builds.editor"
