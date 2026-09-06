@@ -1460,7 +1460,13 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 const feedPurchaseStockKgSQL = `stock_kg`
 
 const stockItemsSQL = `
-WITH merge_map AS (
+WITH rate_override AS (
+    -- HARD-CODED burn rates (domain.StockRateOverrides). Keyed on (farm, feed);
+    -- an empty list is the behaviour without it.
+    SELECT o.farm_label, o.feed_item_key, o.kg_per_day::numeric AS kg_per_day
+    FROM unnest($6::text[], $7::text[], $8::text[]) AS o(farm_label, feed_item_key, kg_per_day)
+),
+merge_map AS (
     -- TRANSITIONAL split-concentrate merge (domain.StockFamilyMerge). An EMPTY
     -- mapping leaves every item its own family, reducing this query to the
     -- per-item shape it had before the merge -- which is how it reverts.
@@ -1582,18 +1588,21 @@ SELECT fs.farm_label,
        fs.family_label,
        fs.family_key,
        round(fs.balance_kg, 1)::text                      AS balance_kg,
-       COALESCE(round(r.avg_kg, 1)::text, '')             AS avg_daily_kg,
-       CASE WHEN COALESCE(r.avg_kg, 0) > 0
-            THEN GREATEST(floor(fs.balance_kg / r.avg_kg), 0)::bigint
+       COALESCE(round(COALESCE(ov.kg_per_day, r.avg_kg), 1)::text, '') AS avg_daily_kg,
+       CASE WHEN COALESCE(ov.kg_per_day, r.avg_kg, 0) > 0
+            THEN GREATEST(floor(fs.balance_kg / COALESCE(ov.kg_per_day, r.avg_kg)), 0)::bigint
        END                                                AS days_left,
        fs.latest_batch,
-       (COALESCE(r.avg_kg, 0) <= 0
+       (COALESCE(ov.kg_per_day, r.avg_kg, 0) <= 0
         AND round(fs.balance_kg, 1) > 0)                  AS not_started
 FROM family_stock fs
 LEFT JOIN recent r
   ON fs.park_id_text IS NOT NULL
  AND r.park_id = fs.park_id_text::uuid
  AND r.family_key = fs.family_key
+LEFT JOIN rate_override ov
+  ON ov.farm_label = fs.farm_label
+ AND ov.feed_item_key = fs.family_key
 -- The retired check reads the FAMILY key, so a retired MEMBER still contributes
 -- its leftover stock while a retired feed with no successor still drops out.
 LEFT JOIN feed_item_catalog c
@@ -1744,7 +1753,13 @@ ORDER BY lp.name, feed_item_label`
 // scale-guard:ignore: 5k-50k-envelope -- bounded per-(farm, item) aggregate over the small purchase
 // ledger and locked sheets, canonical-indexed-SQL default.
 const feedLowStockSQL = `
-WITH merge_map AS (
+WITH rate_override AS (
+    -- HARD-CODED burn rates (domain.StockRateOverrides). Keyed on (farm, feed);
+    -- an empty list is the behaviour without it.
+    SELECT o.farm_label, o.feed_item_key, o.kg_per_day::numeric AS kg_per_day
+    FROM unnest($6::text[], $7::text[], $8::text[]) AS o(farm_label, feed_item_key, kg_per_day)
+),
+merge_map AS (
     -- The SAME transitional fold the stock cards use ($3/$4/$5 from
     -- domain.StockFamilyMergeArrays). The alert and the card must never
     -- disagree about a farm's runway: without this the push would still say
@@ -1833,17 +1848,20 @@ SELECT COALESCE(fs.park_id_text, ''),
        fs.family_label,
        fs.family_key,
        round(fs.balance_kg, 1)::text                      AS balance_kg,
-       round(r.avg_kg, 1)::text                           AS avg_daily_kg,
-       GREATEST(floor(fs.balance_kg / r.avg_kg), 0)::bigint AS days_left
+       round(COALESCE(ov.kg_per_day, r.avg_kg), 1)::text   AS avg_daily_kg,
+       GREATEST(floor(fs.balance_kg / COALESCE(ov.kg_per_day, r.avg_kg)), 0)::bigint AS days_left
 FROM family_stock fs
 JOIN recent r
   ON fs.park_id_text IS NOT NULL
  AND r.park_id = fs.park_id_text::uuid
  AND r.family_key = fs.family_key
+LEFT JOIN rate_override ov
+  ON ov.farm_label = fs.farm_label
+ AND ov.feed_item_key = fs.family_key
 -- A feed with no recent consumption has no burn rate to divide by, so it has no days-left to be
 -- low: it is joined INNER on purpose. Alerting on it would be a guess.
-WHERE r.avg_kg > 0
-  AND floor(fs.balance_kg / r.avg_kg) < $2
+WHERE COALESCE(ov.kg_per_day, r.avg_kg) > 0
+  AND floor(fs.balance_kg / COALESCE(ov.kg_per_day, r.avg_kg)) < $2
 ORDER BY days_left, fs.farm_label, fs.family_label`
 
 // LowStockFeeds lists the feeds whose stock runs out inside withinDays, for the daily alert.
@@ -1851,7 +1869,9 @@ func (r *Repository) LowStockFeeds(ctx context.Context, tenantID string, withinD
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	mergeMembers, mergeFamilies, mergeLabels := domain.StockFamilyMergeArrays()
-	rows, err := r.pool.Query(ctx, feedLowStockSQL, tenantID, withinDays, mergeMembers, mergeFamilies, mergeLabels)
+	rateFarms, rateFeeds, rateKg := domain.StockRateOverrideArrays()
+	rows, err := r.pool.Query(ctx, feedLowStockSQL, tenantID, withinDays,
+		mergeMembers, mergeFamilies, mergeLabels, rateFarms, rateFeeds, rateKg)
 	if err != nil {
 		return nil, fmt.Errorf("feed low stock: %w", err)
 	}
@@ -2349,7 +2369,9 @@ func (r *Repository) feedStockRevision(ctx context.Context, tenantID string, par
 
 func (r *Repository) stockItems(ctx context.Context, tenantID string, parkIDs []uuid.UUID) ([]domain.StockItem, error) {
 	mergeMembers, mergeFamilies, mergeLabels := domain.StockFamilyMergeArrays()
-	rows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs, mergeMembers, mergeFamilies, mergeLabels)
+	rateFarms, rateFeeds, rateKg := domain.StockRateOverrideArrays()
+	rows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs,
+		mergeMembers, mergeFamilies, mergeLabels, rateFarms, rateFeeds, rateKg)
 	if err != nil {
 		return nil, fmt.Errorf("feed analytics stock items: %w", err)
 	}

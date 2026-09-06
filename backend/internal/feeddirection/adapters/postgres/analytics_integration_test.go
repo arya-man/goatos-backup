@@ -2630,3 +2630,116 @@ VALUES ($1, $2, $3, $4, $5, DATE '2026-08-09', $6::numeric, 40, 1000, 0, DATE '2
 		t.Errorf("a park with no purchases has no cards, got %+v", foreign)
 	}
 }
+
+// TestStockCardRateOverridePinsOneFarmFeedOnly proves the hard-coded burn rate
+// (domain.StockRateOverrides) reaches exactly the (farm, feed) pair it names and
+// nothing else -- the same feed at the OTHER farm keeps dividing by its own
+// computed rate. The two farms feed the same item at the same daily kg here, so
+// a leak shows up as an identical days-left on both cards rather than as a
+// missing row.
+//
+// It also pins the two halves that must move together: the pinned rate is the
+// rate the card DISPLAYS as well as the divisor behind days-left, and the daily
+// low-stock push divides by the same figure, so the push and the tab can never
+// quote different rates for one feed.
+func TestStockCardRateOverridePinsOneFarmFeedOnly(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	const park2 = "fd100000-0000-4000-8000-000000003002"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'CPT', 'CPT', 'active')
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, park2); err != nil {
+		t.Fatalf("seed second park: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+VALUES ($1, 'Concentrate', 'active') ON CONFLICT (tenant_id, feed_item_key) DO NOTHING`, fdiTenant); err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	for _, farm := range []struct {
+		park, label string
+		batch       int64
+		shed        string
+	}{{fdiPark, "CBE", 600, fdiShedA}, {park2, "CPT", 601, fdiShedB}} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, $3, 'Concentrate', $4, DATE '2026-08-09', 1100, 40, 1000, 0, DATE '2026-08-10', 'Navaladi', 'Paid')`,
+			fdiTenant, farm.park, farm.label, farm.batch); err != nil {
+			t.Fatalf("purchase at %s: %v", farm.label, err)
+		}
+		at := time.Date(2026, 8, 11, 9, 0, 0, 0, biztime.DefaultLocation())
+		// 100 kg/day computed at BOTH farms, so only the override can separate them.
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: farm.park, FeedDay: "2026-08-11", Workflow: domain.WorkflowNormal,
+			IssuedAt: at, Fingerprint: "override" + farm.label,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + farm.park + ":2026-08-11:override",
+			GeneratedBy:    "test",
+			Cells: []domain.StoredCell{{
+				ParkID: farm.park, ParkLabel: farm.label, ShedID: farm.shed, ShedLabel: "Castro",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: "Concentrate", FeedItemKey: "concentrate",
+				QuantityKg: kg("100.000"), SessionTotalKg: "100.000",
+			}},
+		}); err != nil {
+			t.Fatalf("persist %s: %v", farm.label, err)
+		}
+		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: farm.park, FeedDay: "2026-08-11",
+			Workflow: domain.WorkflowNormal, LockedAt: at,
+		}); err != nil || lock.Outcome != "locked" {
+			t.Fatalf("lock %s = (%v, %v)", farm.label, lock.Outcome, err)
+		}
+	}
+
+	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	byFarm := map[string]domain.StockItem{}
+	for _, it := range got.Items {
+		if it.FeedItemKey == "concentrate" {
+			byFarm[it.FarmLabel] = it
+		}
+	}
+
+	// 1000 kg left at both farms. CBE divides by the pinned 55, CPT by its own 100.
+	cbe, ok := byFarm["CBE"]
+	if !ok {
+		t.Fatalf("CBE Concentrate card missing: %+v", got.Items)
+	}
+	if cbe.AvgDailyKg != "55.0" {
+		t.Errorf("the pinned rate is what the card SHOWS: want 55.0, got %q", cbe.AvgDailyKg)
+	}
+	if cbe.DaysLeft == nil || *cbe.DaysLeft != 18 {
+		t.Errorf("CBE days left = floor(1000/55) = 18, got %v (10 means the override was ignored)", cbe.DaysLeft)
+	}
+	cpt, ok := byFarm["CPT"]
+	if !ok {
+		t.Fatalf("CPT Concentrate card missing: %+v", got.Items)
+	}
+	if cpt.AvgDailyKg != "100.0" || cpt.DaysLeft == nil || *cpt.DaysLeft != 10 {
+		t.Errorf("the other farm keeps its computed rate: want 100.0 and 10 days, got %q and %v (18 means the override leaked)", cpt.AvgDailyKg, cpt.DaysLeft)
+	}
+
+	// The push divides by the same figures, so it cannot contradict the tab.
+	low, err := repo.LowStockFeeds(ctx, fdiTenant, 20)
+	if err != nil {
+		t.Fatalf("LowStockFeeds: %v", err)
+	}
+	seen := map[string]domain.LowStockFeed{}
+	for _, f := range low {
+		seen[f.FarmLabel] = f
+	}
+	if f := seen["CBE"]; f.DaysLeft != 18 || f.AvgDailyKg != "55.0" {
+		t.Errorf("push must quote the tab's CBE figures (18 days at 55.0), got %d at %q", f.DaysLeft, f.AvgDailyKg)
+	}
+	if f := seen["CPT"]; f.DaysLeft != 10 || f.AvgDailyKg != "100.0" {
+		t.Errorf("push must quote the tab's CPT figures (10 days at 100.0), got %d at %q", f.DaysLeft, f.AvgDailyKg)
+	}
+}

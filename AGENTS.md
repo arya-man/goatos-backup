@@ -1347,6 +1347,14 @@ bans. The per-farm Mesha concentrate table, the 7-day forecast, expenditure and
 the whole operational feed chain are deliberately NOT folded -- this is a
 reporting fold and no write path reads it.
 
+SEPARATELY AND ALSO TEMPORARY (maintainer instruction 2026-09-06): CBE's
+`Concentrate` burn rate is HARD-CODED at 55 kg/day in
+`domain.StockRateOverrides`, against a computed 64.9 -- one farm's one feed
+answered from the maintainer's knowledge rather than the sheet. It pins the
+days-left divisor, the kg/day the card SHOWS, and the daily push, from one
+table; it touches no other farm-feed pair and no other surface. A ~10 kg/day
+gap on one feed is worth diagnosing, not keeping.
+
 IT EXPIRES ON ITS OWN: once the members' stock reaches zero and the grid names
 only the successors, each family is a single feed and `domain.StockFamilyMerge`
 plus its two query parameters can be deleted with no visible change. An EMPTY

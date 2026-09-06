@@ -82,6 +82,36 @@ parameters from the same `domain.StockFamilyMergeArrays()`. Without that, the
 daily alert would still say "Mesha Adult Concentrate Goat · 2 days" while the tab
 read 12 — the cross-surface disagreement `AGENTS.md` bans.
 
+## The hard-coded CBE Concentrate rate
+
+**Also temporary, also built to be deleted, and separate from the fold.**
+Maintainer instruction, 2026-09-06: CBE's `Concentrate` burn rate is pinned at
+**55 kg/day**. The computed rate — the average of the three most recent locked
+feed days the item appeared on — reads **64.9**, and the maintainer's figure for
+what that store actually issues is 55. The card moves from `0 days left` to
+`1 day left`, and its subtitle reads 55.0 kg/day rather than 64.9.
+
+This is not a claim that the computation is broken. It is one farm's one feed
+answered from the maintainer's knowledge instead of from the sheet, until
+whatever makes the two disagree is found. Worth finding: a ~10 kg/day gap on one
+feed usually means either the sheet directs more than the store issues, or the
+ledger is missing a load.
+
+`domain.StockRateOverrides` holds it, keyed on `(farm, feed)`. It reaches:
+
+- the stock card's **days-left**, and the **kg/day the card displays** — both, so
+  the screen never shows a days-left its own rate cannot reproduce;
+- the **daily low-stock push**, from the same table, so the push and the tab can
+  never quote different rates for one feed.
+
+It reaches nothing else — not the feed sheet, not the expenditure series, not the
+per-farm table, not the ledger, and no other farm-feed pair. Removing the file
+and its three query parameters is the whole revert, exactly as with the fold, and
+an empty list is the behaviour without it. Pinned by
+`TestStockRateOverridesArePinnedPerFarmFeedAndParseAsNumbers` and
+`TestStockCardRateOverridePinsOneFarmFeedOnly`, which feeds the same item at the
+same daily kg at both farms so a leak shows as two identical cards.
+
 ## What is deliberately NOT folded
 
 | surface | why |
