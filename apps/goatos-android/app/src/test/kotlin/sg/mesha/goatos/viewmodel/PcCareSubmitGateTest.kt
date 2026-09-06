@@ -270,6 +270,8 @@ internal fun buildPcCareTaskViewModel(
     analytics: FakeAnalyticsPort = FakeAnalyticsPort(),
     syncRepository: SyncRepository = MinimalPcCareSyncRepository(),
     approveView: Boolean = false,
+    title: String = "Hoof trimming",
+    category: String = "",
 ): PcCareTaskViewModel = PcCareTaskViewModel(
     repository = repo,
     proofCaptureRepository = proofRepo,
@@ -283,7 +285,8 @@ internal fun buildPcCareTaskViewModel(
     savedStateHandle = SavedStateHandle(
         buildMap {
             put("task_id", "task-1")
-            put("title", "Hoof trimming")
+            put("title", title)
+            if (category.isNotBlank()) put("category", category)
             if (approveView) put("approve", "1")
         },
     ),

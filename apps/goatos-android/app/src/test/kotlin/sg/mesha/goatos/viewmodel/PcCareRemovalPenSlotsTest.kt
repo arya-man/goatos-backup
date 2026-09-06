@@ -51,6 +51,21 @@ class PcCareRemovalPenSlotsTest {
     }
 
     @Test
+    fun `feed water removal task title never shows the internal category key`() = runTest(dispatcher) {
+        val repo = removalRepo(emptyList())
+        val vm = buildPcCareTaskViewModel(
+            repo = repo,
+            title = "feed_water_removal",
+            category = "feed_water_removal",
+        )
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        assertEquals("Remove feed & water", vm.state.value.title)
+        collectJob.cancel()
+    }
+
+    @Test
     fun `a round removal shows both videos for every pen, each labelled by its pen`() = runTest(dispatcher) {
         val repo = removalRepo(
             listOf(

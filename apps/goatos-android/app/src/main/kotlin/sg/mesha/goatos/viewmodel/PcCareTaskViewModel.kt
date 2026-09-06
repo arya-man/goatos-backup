@@ -1506,6 +1506,19 @@ class PcCareTaskViewModel @Inject constructor(
         routeCategory == PC_CARE_CATEGORY_FEED_WATER_REMOVAL ||
             detail?.category == PC_CARE_CATEGORY_FEED_WATER_REMOVAL
 
+    private fun pcCareTaskTitle(detail: PcCareTaskDto?): String {
+        val raw = categoryTitle.trim()
+        val normalized = raw.lowercase().replace("%20", " ").replace("_", " ")
+        if (
+            pcCareIsFeedWaterRemoval(detail) ||
+            raw == PC_CARE_CATEGORY_FEED_WATER_REMOVAL ||
+            normalized == "feed water removal"
+        ) {
+            return "Remove feed & water"
+        }
+        return raw.ifBlank { detail?.category.orEmpty() }
+    }
+
     private fun pcCareEffectiveExpectedSlots(detail: PcCareTaskDto?): List<PcCareSlotDto> {
         if (detail == null) return emptyList()
         if (!pcCareIsTaskProofMode(detail)) return detail.expectedSlots
@@ -1674,7 +1687,7 @@ class PcCareTaskViewModel @Inject constructor(
         }
         return PcCareTaskUiState(
             focusAnimal = focusAnimal,
-            title = categoryTitle.ifBlank { detail?.category.orEmpty() },
+            title = pcCareTaskTitle(detail),
             locationDisplay = detail?.let { d -> d.taskLabel.ifBlank { d.operationalLocationDisplay.ifBlank { d.shedLabel } } }.orEmpty(),
             parkLabel = detail?.parkLabel.orEmpty(),
             dateLabel = detail?.plannedBusinessDate.orEmpty(),
