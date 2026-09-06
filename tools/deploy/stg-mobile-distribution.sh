@@ -28,6 +28,7 @@ triggered_by="${TRIGGERED_BY:-unknown Slack user}"
 firebase_uploaded=false
 play_uploaded=false
 apk_mirrored=false
+force_update_published=false
 
 slack_webhook_url() {
   gcloud secrets versions access latest \
@@ -185,6 +186,76 @@ PY
   jq -er '.access_token' <<<"$token_response"
 }
 
+publish_force_update_floor() {
+  local version_code="$1"
+  local update_url="$2"
+  local token template_file body_file response_file etag status
+
+  token="$(gcloud auth print-access-token)"
+  template_file=".local/android-signing/firebase-remote-config-template.json"
+  body_file=".local/android-signing/firebase-remote-config-update.json"
+  response_file=".local/android-signing/firebase-remote-config-response.json"
+
+  mkdir -p .local/android-signing
+  status="$(
+    curl -sS -D "$template_file.headers" -o "$template_file" -w '%{http_code}' \
+      -H "Authorization: Bearer ${token}" \
+      -H "Accept: application/json" \
+      "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
+  )"
+  if [[ ! "$status" =~ ^2 ]]; then
+    echo "Remote Config read failed after HTTP $status; refusing to mark mobile distribution complete." >&2
+    sed 's/^/remote-config-read-response: /' "$template_file" >&2 || true
+    return 1
+  fi
+
+  etag="$(awk 'BEGIN{IGNORECASE=1} /^etag:/ {gsub(/\r/,""); sub(/^[^:]*:[[:space:]]*/,""); print; exit}' "$template_file.headers")"
+  if [[ -z "$etag" ]]; then
+    echo "Remote Config read did not return an ETag; refusing to publish force-update floor." >&2
+    return 1
+  fi
+
+  jq \
+    --arg versionCode "$version_code" \
+    --arg updateUrl "$update_url" \
+    '.parameters.min_supported_version_code = {
+        "defaultValue": {"value": $versionCode},
+        "valueType": "NUMBER",
+        "description": "Minimum GoatOS Android versionCode allowed to open. Updated by STG mobile distribution."
+      }
+      | .parameters.update_url = {
+        "defaultValue": {"value": $updateUrl},
+        "valueType": "STRING",
+        "description": "Stable operator APK URL opened by the force-update gate. Updated by STG mobile distribution."
+      }' \
+    "$template_file" > "$body_file"
+
+  status="$(
+    curl -sS -X PUT -o "$response_file" -w '%{http_code}' \
+      -H "Authorization: Bearer ${token}" \
+      -H "Content-Type: application/json; UTF-8" \
+      -H "If-Match: ${etag}" \
+      --data-binary @"$body_file" \
+      "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
+  )"
+  if [[ ! "$status" =~ ^2 ]]; then
+    echo "Remote Config publish failed after HTTP $status; refusing to mark mobile distribution complete." >&2
+    sed 's/^/remote-config-publish-response: /' "$response_file" >&2 || true
+    return 1
+  fi
+
+  local published_min published_url
+  published_min="$(jq -r '.parameters.min_supported_version_code.defaultValue.value // empty' "$response_file")"
+  published_url="$(jq -r '.parameters.update_url.defaultValue.value // empty' "$response_file")"
+  if [[ "$published_min" != "$version_code" || "$published_url" != "$update_url" ]]; then
+    echo "Remote Config verification failed: got min=${published_min:-empty} url=${published_url:-empty}" >&2
+    return 1
+  fi
+
+  force_update_published=true
+  echo "FORCE_UPDATE_FLOOR_PUBLISHED ${version_code} ${update_url}"
+}
+
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
@@ -193,6 +264,8 @@ on_exit() {
 
     if [[ "$firebase_uploaded" == "true" && "$apk_mirrored" != "true" ]]; then
       notify_slack "FAILED" "${prefix} Firebase App Distribution uploaded, but mesha.sg/app.apk did not update."
+    elif [[ "$firebase_uploaded" == "true" && "$apk_mirrored" == "true" && "$force_update_published" != "true" ]]; then
+      notify_slack "FAILED" "${prefix} Firebase App Distribution and mesha.sg/app.apk updated, but the force-update Remote Config floor did not publish."
     else
       notify_slack "FAILED" "${prefix} Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk did NOT all complete."
     fi
@@ -437,6 +510,8 @@ curl -fsSI https://storage.googleapis.com/goatos-stg-public-downloads/operator/l
 curl -fsSIL https://mesha.sg/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 apk_mirrored=true
 
+publish_force_update_floor "$ANDROID_VERSION_CODE" "https://mesha.sg/app.apk"
+
 if play_access_token="$(play_access_token)" &&
   edit_response="$(curl -sS -X POST -H "Authorization: Bearer ${play_access_token}" -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" "${play_base}/edits")"; then
   edit_id="$(jq -r '.id // empty' <<<"$edit_response")"
@@ -493,7 +568,7 @@ if [[ "$play_uploaded" != "true" ]]; then
   exit 1
 fi
 
-notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
+notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, mesha.sg/app.apk now serves ${DOWNLOAD_NAME}, and force update blocks older builds below ${ANDROID_VERSION_CODE}."
 post_deploy_panel
 trap - EXIT
 

@@ -770,7 +770,12 @@ do not invent a second release identity. Keep the Play internal tester list to
 the same email IDs that have access to Firebase App Distribution; do not
 maintain a separate hand-picked Play tester list. Keep the browser download
 filename versioned as `Mesha-<versionName>.apk`, verify matching APK hashes, and
-validate the live versioned URL in Chrome before reporting done.
+validate the live versioned URL in Chrome before reporting done. The same mobile
+distribution must publish Firebase Remote Config
+`min_supported_version_code=<released versionCode>` and
+`update_url=https://mesha.sg/app.apk`, then read the values back. If that
+force-update floor publish fails, the mobile distribution is incomplete even if
+Firebase App Distribution, Play Internal Testing, and the APK mirror succeeded.
 
 Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
 the user explicitly asks to change deployment architecture. The machine-readable

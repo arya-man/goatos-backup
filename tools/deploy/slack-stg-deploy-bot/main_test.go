@@ -81,6 +81,32 @@ func TestDeployPanelCopiesStayIdleAndConsistent(t *testing.T) {
 	}
 }
 
+func TestMobileDistributionRequiresForceUpdateRemoteConfig(t *testing.T) {
+	content, err := os.ReadFile("../stg-mobile-distribution.sh")
+	if err != nil {
+		t.Fatalf("read mobile distribution script: %v", err)
+	}
+	text := string(content)
+
+	for _, want := range []string{
+		"publish_force_update_floor \"$ANDROID_VERSION_CODE\" \"https://mesha.sg/app.apk\"",
+		"FORCE_UPDATE_FLOOR_PUBLISHED",
+		"min_supported_version_code",
+		"update_url",
+		"force update blocks older builds below",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("mobile distribution script is missing %q", want)
+		}
+	}
+
+	success := strings.Index(text, "notify_slack \"SUCCEEDED\"")
+	publish := strings.Index(text, "publish_force_update_floor \"$ANDROID_VERSION_CODE\" \"https://mesha.sg/app.apk\"")
+	if success < 0 || publish < 0 || publish > success {
+		t.Fatalf("force-update floor must publish before the success notification")
+	}
+}
+
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)

@@ -41,6 +41,22 @@ GOATOS_AUTH_AUDIENCE=goatos-stg
 That `goatos-stg` value is internal auth plumbing. It must not leak into public
 URLs, release labels, package names, or operator-facing instructions.
 
+## Force Update
+
+Every Android distribution must publish the force-update floor after the exact
+APK bytes are mirrored to `https://mesha.sg/app.apk` and verified:
+
+```text
+min_supported_version_code = <new APK versionCode>
+update_url = https://mesha.sg/app.apk
+```
+
+The app blocks only when its installed `versionCode` is lower than
+`min_supported_version_code`, so publishing the newly released code blocks all
+older builds while allowing the just-published build to open. Do not report
+mobile distribution as complete if Remote Config cannot be published and read
+back with these values.
+
 ## DNS
 
 Cloudflare should expose production-facing names only:
