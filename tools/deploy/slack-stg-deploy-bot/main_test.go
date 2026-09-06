@@ -89,6 +89,8 @@ func TestMobileDistributionRequiresForceUpdateRemoteConfig(t *testing.T) {
 	text := string(content)
 
 	for _, want := range []string{
+		"require_force_update_config_access",
+		"FORCE_UPDATE_REMOTE_CONFIG_UPDATE_PREFLIGHT_OK",
 		"publish_force_update_floor \"$ANDROID_VERSION_CODE\" \"https://mesha.sg/app.apk\"",
 		"FORCE_UPDATE_FLOOR_PUBLISHED",
 		"min_supported_version_code",
@@ -104,6 +106,12 @@ func TestMobileDistributionRequiresForceUpdateRemoteConfig(t *testing.T) {
 	publish := strings.Index(text, "publish_force_update_floor \"$ANDROID_VERSION_CODE\" \"https://mesha.sg/app.apk\"")
 	if success < 0 || publish < 0 || publish > success {
 		t.Fatalf("force-update floor must publish before the success notification")
+	}
+
+	preflight := strings.Index(text, "require_force_update_config_access")
+	firebaseUpload := strings.Index(text, ":app:appDistributionUploadProdRelease")
+	if preflight < 0 || firebaseUpload < 0 || preflight > firebaseUpload {
+		t.Fatalf("Remote Config update preflight must run before Firebase/App APK distribution")
 	}
 }
 

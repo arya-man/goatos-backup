@@ -257,10 +257,11 @@ publish_force_update_floor() {
 }
 
 require_force_update_config_access() {
-  local token template_file status etag
+  local token template_file response_file status etag
 
   token="$(gcloud auth print-access-token)"
   template_file=".local/android-signing/firebase-remote-config-preflight.json"
+  response_file=".local/android-signing/firebase-remote-config-preflight-response.json"
 
   mkdir -p .local/android-signing
   status="$(
@@ -281,7 +282,21 @@ require_force_update_config_access() {
     return 1
   fi
 
-  echo "FORCE_UPDATE_REMOTE_CONFIG_PREFLIGHT_OK"
+  status="$(
+    curl -sS -X PUT -o "$response_file" -w '%{http_code}' \
+      -H "Authorization: Bearer ${token}" \
+      -H "Content-Type: application/json; UTF-8" \
+      -H "If-Match: ${etag}" \
+      --data-binary @"$template_file" \
+      "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
+  )"
+  if [[ ! "$status" =~ ^2 ]]; then
+    echo "Remote Config update preflight failed after HTTP $status; refusing to start Android distribution." >&2
+    sed 's/^/remote-config-update-preflight-response: /' "$response_file" >&2 || true
+    return 1
+  fi
+
+  echo "FORCE_UPDATE_REMOTE_CONFIG_UPDATE_PREFLIGHT_OK"
 }
 
 on_exit() {
