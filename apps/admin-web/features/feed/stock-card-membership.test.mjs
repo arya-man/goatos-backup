@@ -10,8 +10,11 @@ const stockCards = source.slice(source.indexOf("function StockCards"), source.in
 // Re-adding a client-side filter is the regression -- it is how a bought but
 // unfed load became invisible, and it is invisible in review because the page
 // still renders correctly for every feed that happens to be in use.
-test("the stock card grid renders every served row and filters none out", () => {
-  assert.match(stockCards, /const active = stock\?\.items \?\? \[\];/);
+// TEMPORARY (maintainer request 2026-09-06): the only rows the grid drops are
+// the four Mesha concentrate feeds, hidden by label. When that hide is removed,
+// restore the `const active = stock?.items ?? [];` assertion below.
+test("the stock card grid filters only on the temporary label hide", () => {
+  assert.match(stockCards, /const active = \(stock\?\.items \?\? \[\]\)\.filter\(\(item\) => !isTemporarilyHiddenStockItem\(item\.feed_item_label\)\);/);
   assert.doesNotMatch(stockCards, /\.filter\(\s*\(item\)\s*=>\s*item\.days_left/);
   assert.doesNotMatch(stockCards, /days_left !== null/);
 });

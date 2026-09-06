@@ -1356,6 +1356,20 @@ function ExperimentTab({
 
 
 
+// TEMPORARY (maintainer request 2026-09-06): hide the four Mesha concentrate
+// stock cards -- adult/kids x goat/sheep -- in both parks, eight cards in all.
+// This is a frontend-only hide with no backend or contract change, and it is
+// meant to be deleted: drop this function and the .filter() call in StockCards
+// to bring the cards straight back.
+function isTemporarilyHiddenStockItem(feedItemLabel: string): boolean {
+  const label = (feedItemLabel ?? "").toLowerCase();
+  return (
+    label.includes("mesha") &&
+    label.includes("concentrate") &&
+    (label.includes("goat") || label.includes("sheep"))
+  );
+}
+
 function StockCards({
   stock,
   pageContract,
@@ -1369,7 +1383,7 @@ function StockCards({
   // source -- and dropping rows here instead hid two things that matter: a
   // freshly bought load nobody has started feeding, and a retired feed whose
   // frozen burn rate kept it on screen. Both are the backend's call now.
-  const active = stock?.items ?? [];
+  const active = (stock?.items ?? []).filter((item) => !isTemporarilyHiddenStockItem(item.feed_item_label));
   const farmItems = stock?.farm_items ?? [];
   const forecast = stock?.forecast ?? [];
   return (
