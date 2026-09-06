@@ -85,9 +85,10 @@ test("the daily charts run through today while the rest of the page stays on yes
   assert.match(source, /const chartWindow = rangeDates\(range, todayIso\(\)\);/);
   assert.match(source, /const chartParams = \{ park_id: parkId, \.\.\.chartWindow \};/);
   assert.match(source, /wantDirected\s*\?\s*getFeedAnalyticsDirected\(chartParams\)/s);
-  assert.match(source, /tab === "overview"\s*\?\s*"expenditure,spend"/s);
-  assert.match(source, /stockOnly\s*\?\s*"items,farm_items,forecast"/s);
-  assert.match(source, /:\s*"items,farm_items,forecast,item_expenditure"/s);
+  assert.match(source, /tab === "overview"\s*\?\s*"expenditure,spend,item_expenditure"/s);
+  // The Stock tab's arms no longer branch on stockOnly: both readers of that tab
+  // render the same three, and item_expenditure moved to the tab that reads it.
+  assert.match(source, /:\s*"items,farm_items,forecast";/s);
   assert.match(source, /wantStock\s*\?\s*getFeedAnalyticsStock\(\{ \.\.\.chartParams, sections: stockSections \}\)/s);
   assert.match(source, /wantExecution\s*\?\s*getFeedAnalyticsExecution\(\{\s*\.\.\.params,/s);
 });
@@ -142,4 +143,35 @@ test("the stacked chart's own copy says the milk is in it", () => {
   );
   assert.match(contract, /"chart\.daily\.hint":\s*"Total kg fed per day, stacked by feed item — the issued sheet plus the milk the crew prepared"/);
   assert.doesNotMatch(contract, /"chart\.daily\.hint":\s*"Total kg on the issued sheet per day/);
+});
+
+// A tab that does not ASK for a stock arm is served an empty one, silently and
+// with no error, so a narrowing that omits an arm the tab renders is invisible
+// to typecheck and to every rendering test. It shipped once: Consumption asked
+// for "expenditure,spend" while item_expenditure -- the only source of per-item
+// money -- was requested by the Stock tab, which never reads it. The spend-share
+// pie hid itself (it is gated on having slices), every per-item card fell back
+// to its unpriced state, and the spend ranking collapsed to input order.
+test("the Consumption tab requests every stock arm it renders, item money included", () => {
+  const overviewSections = source.match(/tab === "overview"\s*\n\s*\? "([a-z_,]+)"/);
+  assert.ok(overviewSections, "the stock sections narrowing must name the overview tab's arms");
+  const asked = new Set(overviewSections[1].split(","));
+  // buildItemMoney reads item_expenditure and is built for the overview tab alone.
+  assert.match(source, /const itemMoney = tab === "overview" \? buildItemMoney\(stock,/);
+  assert.match(source, /for \(const row of stock\.item_expenditure \?\? \[\]\)/);
+  for (const arm of ["expenditure", "spend", "item_expenditure"]) {
+    assert.ok(asked.has(arm), `the Consumption tab renders ${arm} and must request it`);
+  }
+});
+
+// The Stock tab reads items/farm_items/forecast and nothing else; paying for
+// item_expenditure there is the same mistake pointing the other way.
+test("the Stock tab requests its own arms and does not pay for item money", () => {
+  const stockTabSections = source.match(/: "(items[a-z_,]*)";/);
+  assert.ok(stockTabSections, "the stock sections narrowing must name the Stock tab's arms");
+  const asked = new Set(stockTabSections[1].split(","));
+  for (const arm of ["items", "farm_items", "forecast"]) {
+    assert.ok(asked.has(arm), `the Stock tab renders ${arm} and must request it`);
+  }
+  assert.ok(!asked.has("item_expenditure"), "the Stock tab never builds itemMoney");
 });

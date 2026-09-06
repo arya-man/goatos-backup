@@ -324,12 +324,18 @@ export async function FeedAnalyticsPage({
   const completionShedFilter = one(searchParams, "fdc_shed") ?? "";
   const completionStatusFilter = readCompletionStatus(searchParams);
   const wantStock = tab === "overview" || tab === "items";
+  // Each tab asks for exactly the stock arms IT renders, and the backend honours
+  // the narrowing strictly -- an arm not named here comes back empty, with no
+  // error. Consumption (overview) is the ONLY tab that builds itemMoney, so
+  // item_expenditure belongs HERE: without it the spend-share pie has no slices
+  // and hides itself, every per-item card falls back to its unpriced state, and
+  // the spend ranking collapses because rankItemCards sorts on a money total
+  // that is null for every feed. The Stock tab never reads item_expenditure and
+  // must not pay for it.
   const stockSections =
     tab === "overview"
-      ? "expenditure,spend"
-      : stockOnly
-        ? "items,farm_items,forecast"
-        : "items,farm_items,forecast,item_expenditure";
+      ? "expenditure,spend,item_expenditure"
+      : "items,farm_items,forecast";
   // The overview's "Feed by shed" table reads its OWN last-7-days window
   // (ending yesterday, the page's stated basis), independent of the range
   // chips — the maintainer asked for a 7-day default while the charts default
