@@ -175,6 +175,7 @@ class BackendAnalyticsAdapter(
             AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
             AnalyticsEvents.PC_CARE_STOCK_PROOF_SYNC,
             AnalyticsEvents.PC_CARE_STOCK_PROOF_PREVIEW,
+            AnalyticsEvents.PC_CARE_FEED_WATER_PROOF_PREVIEW,
             AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT,
             AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED,
             AnalyticsEvents.PC_CARE_SLOT_CAPTURE_STARTED,

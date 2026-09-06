@@ -34,6 +34,7 @@ class MeshaIconsNavKeyTest {
      */
     private val moduleKeys = listOf(
         "vaccination",
+        "vaccine_stock",
         "weighing",
         "counts",
         "aas_health",

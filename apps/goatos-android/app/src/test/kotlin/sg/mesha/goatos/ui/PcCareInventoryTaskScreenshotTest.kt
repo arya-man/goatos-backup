@@ -78,4 +78,40 @@ class PcCareInventoryTaskScreenshotTest {
             }
         }
     }
+
+    @Test
+    fun taskProofRetryStateKeepsPreviewControls() {
+        paparazzi.snapshot(name = "pc_care_task_proof_retry_preview") {
+            GoatOsTheme {
+                ProvideAppLocale {
+                    Box(androidx.compose.ui.Modifier.fillMaxSize().background(MeshaColors.Bg)) {
+                        PcCareTaskScreen(
+                            state = PcCareTaskUiState(
+                                title = "Hair Trimming",
+                                locationDisplay = "Yashoda 1 - Part 3",
+                                parkLabel = "CBE",
+                                dateLabel = "2026-09-07",
+                                assigneeLine = "Scanned by Pramod",
+                                taskProofMode = true,
+                                taskProofSlots = listOf(
+                                    PcCareSlotChipUi(
+                                        fieldKey = "before_video",
+                                        label = "Before trimming",
+                                        description = "Show the animal's coat before the work",
+                                        state = PcCareSlotState.FAILED,
+                                        statusLabel = "Upload failed",
+                                        canRecord = true,
+                                        previewPath = "/tmp/goatos-hair-before.mp4",
+                                        previewKind = PcCareProofPreviewKind.VIDEO,
+                                    ),
+                                ),
+                                submitEnabled = false,
+                                submitBlockedReason = "1 video needs retry",
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

@@ -100,6 +100,7 @@ internal class FakePcCareRepository : PcCareRepository {
     var slotRegistrations = mutableListOf<List<String>>()
     var taskProofRegistrations = mutableListOf<List<String>>()
     val proofDownloadUrls = mutableMapOf<String, String>()
+    val proofDownloadFailures = mutableSetOf<String>()
     var pollCount = 0
         private set
     var failNextSubmit = false
@@ -194,7 +195,11 @@ internal class FakePcCareRepository : PcCareRepository {
     }
 
     override suspend fun proofDownloadUrl(proofId: String): AppResult<String> =
-        AppResult.Ok(proofDownloadUrls[proofId] ?: "https://proof.local/$proofId")
+        if (proofId in proofDownloadFailures) {
+            AppResult.Err("missing proof URL")
+        } else {
+            AppResult.Ok(proofDownloadUrls[proofId] ?: "https://proof.local/$proofId")
+        }
 
     override suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String> {
         if (failNextSubmit) {

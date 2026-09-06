@@ -133,6 +133,7 @@ class PcCareTaskViewModel @Inject constructor(
         val readerStatusLabel: String = "",
         val readerConnected: Boolean = false,
         val taskProofPreviewUrls: Map<String, TaskProofPreviewUrl> = emptyMap(),
+        val animalProofPreviewUrls: Map<String, TaskProofPreviewUrl> = emptyMap(),
         // PC Director's stock verdict (approve view only).
         val verdictInFlight: Boolean = false,
         val showRejectDialog: Boolean = false,
@@ -191,6 +192,7 @@ class PcCareTaskViewModel @Inject constructor(
                 if (pcCareIsTaskProofMode(detail)) {
                     hydrateTaskProofPreviews(detail)
                 }
+                hydrateAnimalProofPreviews(detail, latestAnimals)
                 // The pen list rides the card's own contract, so it may arrive after screen
                 // entry; refresh it once the category is known and only once it is a removal.
                 // The RENDER comes from Room below, so a cached card shows its pens at once.
@@ -244,7 +246,12 @@ class PcCareTaskViewModel @Inject constructor(
                     }
                 }
         }
-        viewModelScope.launch { repository.observeAnimals(taskId).collect { latestAnimals = it } }
+        viewModelScope.launch {
+            repository.observeAnimals(taskId).collect { animals ->
+                latestAnimals = animals
+                hydrateAnimalProofPreviews(latestDetail, animals)
+            }
+        }
         viewModelScope.launch { proofCaptureRepository.observeProofs(taskId).collect { latestProofs = it } }
         // Reader free-flow: every hardware read lands here while this screen's VM is alive. A scan
         // during an in-flight recording still records the ANIMAL — it must never retarget the
@@ -1421,6 +1428,8 @@ class PcCareTaskViewModel @Inject constructor(
         fieldKey: String = PC_CARE_SLOT_STOCK_FRIDGE_VIDEO,
         mediaKind: String = "task_proof",
         status: String = latestDetail?.status.orEmpty(),
+        category: String = latestDetail?.category.orEmpty(),
+        captureMode: String = latestDetail?.captureMode.orEmpty(),
         outcome: String? = null,
         reason: String? = null,
         source: String? = null,
@@ -1432,7 +1441,9 @@ class PcCareTaskViewModel @Inject constructor(
         put(AnalyticsEvents.Params.FIELD, fieldKey)
         put("field_key", fieldKey)
         put("task_id", taskId)
-        put("feature_surface", "pc_care_stock")
+        put("feature_surface", if (category == PC_CARE_CATEGORY_FEED_WATER_REMOVAL) "pc_care_feed_water_removal" else "pc_care_stock")
+        category.takeIf { it.isNotBlank() }?.let { put("category", it) }
+        captureMode.takeIf { it.isNotBlank() }?.let { put("capture_mode", it) }
         status.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.STATUS, it) }
         outcome?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTCOME, it) }
         reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
@@ -1465,6 +1476,8 @@ class PcCareTaskViewModel @Inject constructor(
         put(AnalyticsEvents.Params.RFID, tagVerbatim)
         put("normalized_rfid", tagKey)
         put("feature_surface", "pc_care_animal_slot")
+        latestDetail?.category?.takeIf { it.isNotBlank() }?.let { put("category", it) }
+        latestDetail?.captureMode?.takeIf { it.isNotBlank() }?.let { put("capture_mode", it) }
         put(AnalyticsEvents.Params.OUTCOME, outcome)
         latestDetail?.status?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.STATUS, it) }
         reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
@@ -1519,6 +1532,13 @@ class PcCareTaskViewModel @Inject constructor(
     private fun pcCareIsFeedWaterRemoval(detail: PcCareTaskDto?): Boolean =
         routeCategory == PC_CARE_CATEGORY_FEED_WATER_REMOVAL ||
             detail?.category == PC_CARE_CATEGORY_FEED_WATER_REMOVAL
+
+    private fun pcCareTaskProofPreviewEvent(detail: PcCareTaskDto?): String =
+        if (pcCareIsFeedWaterRemoval(detail)) {
+            AnalyticsEvents.PC_CARE_FEED_WATER_PROOF_PREVIEW
+        } else {
+            AnalyticsEvents.PC_CARE_STOCK_PROOF_PREVIEW
+        }
 
     private fun pcCareTaskTitle(detail: PcCareTaskDto?): String {
         val raw = categoryTitle.trim()
@@ -1626,17 +1646,78 @@ class PcCareTaskViewModel @Inject constructor(
                         }
                     }
                     is AppResult.Err -> analytics.track(
-                        AnalyticsEvents.PC_CARE_STOCK_PROOF_PREVIEW,
+                        pcCareTaskProofPreviewEvent(detail),
                         pcCareStockProofAnalyticsProps(
                             fieldKey = proof.slotKey,
                             status = detail?.status.orEmpty(),
+                            category = detail?.category.orEmpty(),
+                            captureMode = detail?.captureMode.orEmpty(),
                             outcome = "failure",
                             reason = "preview_url_unavailable",
                             source = "proof_preview",
+                            serverProofId = proof.proofRef,
                         ),
                     )
                 }
             }
+        }
+    }
+
+    private fun hydrateAnimalProofPreviews(detail: PcCareTaskDto?, animals: List<PcCareAnimalRowEntity>) {
+        val now = System.currentTimeMillis()
+        animals.forEach { animal ->
+            decodeServerSlots(json, animal.serverSlotsJson)
+                .filter { it.proofRef.isNotBlank() }
+                .forEach { slot ->
+                    val cacheKey = pcCareSlotProofFieldKey(animal.normalizedTag, slot.fieldKey)
+                    val cached = local.value.animalProofPreviewUrls[cacheKey]
+                    if (
+                        cached != null &&
+                        cached.proofRef == slot.proofRef &&
+                        now - cached.resolvedAtMs < TASK_PROOF_PREVIEW_URL_TTL_MS
+                    ) {
+                        return@forEach
+                    }
+                    viewModelScope.launch {
+                        when (val resolved = repository.proofDownloadUrl(slot.proofRef)) {
+                            is AppResult.Ok -> if (resolved.value.isNotBlank()) {
+                                val resolvedAtMs = System.currentTimeMillis()
+                                local.update { bits ->
+                                    val existing = bits.animalProofPreviewUrls[cacheKey]
+                                    if (
+                                        existing?.proofRef == slot.proofRef &&
+                                        existing.resolvedAtMs >= resolvedAtMs - TASK_PROOF_PREVIEW_URL_TTL_MS
+                                    ) {
+                                        bits
+                                    } else {
+                                        bits.copy(
+                                            animalProofPreviewUrls = bits.animalProofPreviewUrls + (
+                                                cacheKey to TaskProofPreviewUrl(
+                                                    proofRef = slot.proofRef,
+                                                    url = pcCareAbsoluteProofUrl(resolved.value),
+                                                    resolvedAtMs = resolvedAtMs,
+                                                )
+                                            ),
+                                        )
+                                    }
+                                }
+                            }
+                            is AppResult.Err -> analytics.track(
+                                AnalyticsEvents.PC_CARE_SLOT_PROOF_PREVIEW,
+                                pcCareAnimalSlotAnalyticsProps(
+                                    tagKey = animal.normalizedTag,
+                                    tagVerbatim = animal.tagVerbatim,
+                                    slotFieldKey = slot.fieldKey,
+                                    slotKey = cacheKey,
+                                    outcome = "failure",
+                                    reason = "preview_url_unavailable",
+                                    serverProofId = slot.proofRef,
+                                    mediaKind = "video",
+                                ),
+                            )
+                        }
+                    }
+                }
         }
     }
 
@@ -1669,13 +1750,21 @@ class PcCareTaskViewModel @Inject constructor(
             return
         }
         val detail = latestDetail
-        val previewSlot = state.value.taskProofSlots.firstOrNull { it.fieldKey == slotFieldKey }
+        val currentState = state.value
+        val previewSlot = listOfNotNull(
+            currentState.taskProofPhotoSlot,
+            currentState.taskProofVideoSlot,
+            currentState.taskProofSlot,
+        ).firstOrNull { it.fieldKey == slotFieldKey }
+            ?: currentState.taskProofSlots.firstOrNull { it.fieldKey == slotFieldKey }
         analytics.track(
-            AnalyticsEvents.PC_CARE_STOCK_PROOF_PREVIEW,
+            pcCareTaskProofPreviewEvent(detail),
             pcCareStockProofAnalyticsProps(
                 fieldKey = slotFieldKey,
                 mediaKind = mediaKind,
                 status = detail?.status.orEmpty(),
+                category = detail?.category.orEmpty(),
+                captureMode = detail?.captureMode.orEmpty(),
                 outcome = action,
                 source = "proof_preview",
                 proofRowId = previewSlot?.localProofRowId,
@@ -1697,7 +1786,15 @@ class PcCareTaskViewModel @Inject constructor(
         val rosterMode = detail?.captureMode == PC_CARE_CAPTURE_MODE_ROSTER
         val taskProofMode = pcCareIsTaskProofMode(detail)
         val rosterRows = if (rosterMode) {
-            pcCareBuildRosterRows(expectedSlots, roster, animals, proofs, bits.capturingSlotKey, json)
+            pcCareBuildRosterRows(
+                expectedSlots,
+                roster,
+                animals,
+                proofs,
+                bits.capturingSlotKey,
+                json,
+                bits.animalProofPreviewUrls,
+            )
         } else {
             emptyList()
         }
@@ -1725,6 +1822,7 @@ class PcCareTaskViewModel @Inject constructor(
                 proofs,
                 bits.capturingSlotKey,
                 json,
+                bits.animalProofPreviewUrls,
             ).firstOrNull() ?: PcCareAnimalUi(
                 key = focusTagKey,
                 tagLabel = focusTagVerbatim.ifBlank { focusTagKey },
@@ -1761,7 +1859,14 @@ class PcCareTaskViewModel @Inject constructor(
             reworkReason = detail?.takeIf { it.status == PC_CARE_STATUS_REWORK }?.reworkReason.orEmpty(),
             scanInput = bits.scanInput,
             scanNotice = bits.scanNotice,
-            animals = pcCareBuildAnimalUis(expectedSlots, animals, proofs, bits.capturingSlotKey, json),
+            animals = pcCareBuildAnimalUis(
+                expectedSlots,
+                animals,
+                proofs,
+                bits.capturingSlotKey,
+                json,
+                bits.animalProofPreviewUrls,
+            ),
             inventoryRequirements = detail?.inventoryRequirements.orEmpty().map {
                 PcCareInventoryRequirementUi(
                     vaccineLabel = it.vaccineLabel,
@@ -1977,6 +2082,7 @@ internal fun pcCareSlotChip(
     animalProofs: List<ProofCaptureRow>,
     serverSlots: List<PcCareAnimalSlotDto>,
     capturingSlotKey: String?,
+    remotePreviewUrls: Map<String, TaskProofPreviewUrl> = emptyMap(),
 ): PcCareSlotChipUi {
     val slotKey = pcCareSlotProofFieldKey(normalizedTag, slot.fieldKey)
     val hint = pcCareSlotHintLabel(slot.minDurationHintSeconds)
@@ -2046,6 +2152,7 @@ internal fun pcCareSlotChip(
     }
     val serverSlot = serverSlots.firstOrNull { it.fieldKey == slot.fieldKey && it.proofRef.isNotBlank() }
     if (serverSlot != null) {
+        val remotePreview = remotePreviewUrls[slotKey]?.takeIf { it.proofRef == serverSlot.proofRef }
         return PcCareSlotChipUi(
             fieldKey = slot.fieldKey,
             label = slot.label,
@@ -2058,6 +2165,9 @@ internal fun pcCareSlotChip(
             },
             hintLabel = hint,
             canRecord = false,
+            previewPath = remotePreview?.url.orEmpty(),
+            previewKind = PcCareProofPreviewKind.VIDEO,
+            serverProofId = serverSlot.proofRef,
         )
     }
     return PcCareSlotChipUi(
@@ -2259,6 +2369,7 @@ internal fun pcCareBuildAnimalUis(
     proofs: List<ProofCaptureRow>,
     capturingSlotKey: String?,
     json: Json,
+    remotePreviewUrls: Map<String, TaskProofPreviewUrl> = emptyMap(),
 ): List<PcCareAnimalUi> {
     // Parse/group once, never re-filter inside the per-slot loop for the WHOLE proof list.
     val proofsByAnimal = proofs.groupBy { it.fieldKey.substringBefore(':') }
@@ -2274,7 +2385,7 @@ internal fun pcCareBuildAnimalUis(
                 else -> animal.scannedByName.takeIf { it.isNotBlank() }?.let { "Scanned by $it" }.orEmpty()
             },
             slots = expectedSlots.map { slot ->
-                pcCareSlotChip(slot, animal.normalizedTag, animalProofs, serverSlots, capturingSlotKey)
+                pcCareSlotChip(slot, animal.normalizedTag, animalProofs, serverSlots, capturingSlotKey, remotePreviewUrls)
             },
         )
     }
@@ -2297,6 +2408,7 @@ internal fun pcCareBuildRosterRows(
     proofs: List<ProofCaptureRow>,
     capturingSlotKey: String?,
     json: Json,
+    remotePreviewUrls: Map<String, TaskProofPreviewUrl> = emptyMap(),
 ): List<PcCareRosterRowUi> {
     if (expectedSlots.isEmpty()) return emptyList()
     val proofsByAnimal = proofs.groupBy { it.fieldKey.substringBefore(':') }
@@ -2308,7 +2420,7 @@ internal fun pcCareBuildRosterRows(
         val serverSlots = decodeServerSlots(json, animal.serverSlotsJson)
         val animalProofs = proofsByAnimal[tagKey].orEmpty()
         val chips = expectedSlots.map { slot ->
-            pcCareSlotChip(slot, tagKey, animalProofs, serverSlots, capturingSlotKey)
+            pcCareSlotChip(slot, tagKey, animalProofs, serverSlots, capturingSlotKey, remotePreviewUrls)
         }
         val doneCount = chips.count(::pcCareChipDone)
         val done = doneCount == chips.size

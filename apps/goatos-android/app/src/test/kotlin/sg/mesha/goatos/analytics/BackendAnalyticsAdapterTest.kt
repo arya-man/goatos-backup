@@ -198,6 +198,7 @@ class BackendAnalyticsAdapterTest {
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION))
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_STOCK_PROOF_SYNC))
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_STOCK_PROOF_PREVIEW))
+        assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_FEED_WATER_PROOF_PREVIEW))
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT))
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED))
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_SLOT_CAPTURE_STARTED))

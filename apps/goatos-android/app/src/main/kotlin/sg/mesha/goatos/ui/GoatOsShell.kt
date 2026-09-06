@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
@@ -750,19 +751,18 @@ private fun MeshaNavBar(
                         )
                     }
                 },
-                // design-system:ignore: weight-only override on the M3 NavigationBarItem label
-                // (no fontSize to pair with); applying a full MeshaType style would also change
-                // the bar label's size away from the M3 default.
-                // ONE LINE, always. A bar label that wraps turns the whole bar into a block of
-                // text — five PC Care tabs did exactly that. Backend labels are kept short for
-                // this reason; the clamp is the floor under them, so an over-long label from a
-                // future module degrades to an ellipsis rather than reflowing every sibling.
+                // Five-tab modules have narrow slots, so keep backend labels one-line and centered
+                // with a smaller fixed size instead of letting a long title crowd the bar.
                 label = {
                     Text(
                         item.label,
                         fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.sp,
+                        lineHeight = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 },
                 colors = itemColors,

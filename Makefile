@@ -846,6 +846,8 @@ mobile-guard:
 	node tools/agent-hooks/check-android-ui-foundations.mjs
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs --self-test
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs
+	node tools/agent-hooks/check-android-nav-icon-coverage.mjs --self-test
+	node tools/agent-hooks/check-android-nav-icon-coverage.mjs
 	node tools/agent-hooks/check-android-orientation-lock.mjs --self-test
 	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --self-test
@@ -881,6 +883,7 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs --all
 	node tools/agent-hooks/check-android-ui-foundations.mjs
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs
+	node tools/agent-hooks/check-android-nav-icon-coverage.mjs
 	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all

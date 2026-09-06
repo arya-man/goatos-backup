@@ -14,6 +14,12 @@ trace screen -> field -> proof row -> outbox -> retry -> backend registration ->
 submit -> success/failure. Do not show raw internal identifiers such as
 `feed_water_removal` as user-facing titles.
 
+Any backend-composed navigation key or user-facing category added in the
+backend must have an explicit Android/frontend display mapping before it ships:
+icon, label/copy behavior, and layout fit. Never let mobile or web silently fall
+back to a generic icon, raw enum/title, or unbounded label just because the
+backend added a new key.
+
 For phone E2E, test only the Android user profile and app package visible to
 the maintainer unless they explicitly authorize switching.
 

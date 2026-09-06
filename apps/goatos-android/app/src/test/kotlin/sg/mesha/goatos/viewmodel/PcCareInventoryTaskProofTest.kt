@@ -18,6 +18,7 @@ import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.capture.CapturedPhoto
 import sg.mesha.goatos.capture.FakePhotoCaptureSource
 import sg.mesha.goatos.capture.FakeProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
@@ -269,6 +270,85 @@ class PcCareInventoryTaskProofTest {
         assertEquals(PcCareProofPreviewKind.VIDEO, state.taskProofVideoSlot?.previewKind)
         assertFalse(state.submitEnabled)
         assertEquals("Record the fridge stock photo and video first", state.submitBlockedReason)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `inventory task preview actions include stock proof trace ids`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val analytics = FakeAnalyticsPort()
+        proofRepo.seedProofs(
+            proof(
+                fieldKey = stockVideoSlot.fieldKey,
+                syncStatus = CaptureSyncStatus.SYNCED,
+                serverProofId = "server-proof-video",
+                outboxItemId = "proof-outbox-video",
+            ),
+        )
+        repo.detailFlow.value = pcCareTaskDtoFixture(
+            category = "inventory_vaccine",
+            expectedSlots = listOf(stockPhotoSlot, stockVideoSlot),
+        ).copy(captureMode = "task_proof")
+
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, analytics = analytics)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        vm.onEvent(
+            PcCareTaskEvent.ProofPreviewAction(
+                slotFieldKey = stockVideoSlot.fieldKey,
+                mediaKind = "video",
+                action = "share",
+            ),
+        )
+
+        val event = analytics.events.last()
+        assertEquals(AnalyticsEvents.PC_CARE_STOCK_PROOF_PREVIEW, event.first)
+        assertEquals("proof-stock-${stockVideoSlot.fieldKey}", event.second["local_proof_row_id"])
+        assertEquals("proof-outbox-video", event.second[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("server-proof-video", event.second["server_proof_id"])
+        assertEquals("inventory_vaccine", event.second["category"])
+        assertEquals("task_proof", event.second["capture_mode"])
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `feed water preview URL failures keep feed water event and server proof id`() = runTest(dispatcher) {
+        val feedSlot = PcCareSlotDto(
+            fieldKey = "feed_video",
+            label = "Feed removal video",
+        )
+        val repo = FakePcCareRepository()
+        val analytics = FakeAnalyticsPort()
+        repo.proofDownloadFailures += "server-proof-feed"
+        repo.detailFlow.value = pcCareTaskDtoFixture(
+            category = "feed_water_removal",
+            expectedSlots = listOf(feedSlot),
+            taskProofs = listOf(
+                PcCareTaskProofDto(
+                    slotKey = feedSlot.fieldKey,
+                    proofRef = "server-proof-feed",
+                    capturedByName = "Pramod",
+                ),
+            ),
+        ).copy(captureMode = "task_proof")
+
+        val vm = buildPcCareTaskViewModel(
+            repo,
+            analytics = analytics,
+            title = "Remove feed & water",
+            category = "feed_water_removal",
+        )
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        val event = analytics.events.last { it.second[AnalyticsEvents.Params.REASON] == "preview_url_unavailable" }
+        assertEquals(AnalyticsEvents.PC_CARE_FEED_WATER_PROOF_PREVIEW, event.first)
+        assertEquals("preview_url_unavailable", event.second[AnalyticsEvents.Params.REASON])
+        assertEquals("server-proof-feed", event.second["server_proof_id"])
+        assertEquals("feed_water_removal", event.second["category"])
+        assertEquals("task_proof", event.second["capture_mode"])
         collectJob.cancel()
     }
 

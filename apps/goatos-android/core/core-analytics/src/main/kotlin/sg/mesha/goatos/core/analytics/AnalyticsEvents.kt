@@ -603,6 +603,9 @@ object AnalyticsEvents {
     /** Stock detail proof preview URL hydration/playback. */
     const val PC_CARE_STOCK_PROOF_PREVIEW = "pc_care_stock_proof_preview"
 
+    /** Feed/water removal task proof preview URL hydration/playback. */
+    const val PC_CARE_FEED_WATER_PROOF_PREVIEW = "pc_care_feed_water_proof_preview"
+
     /** Stock proof submit button was tapped or blocked before confirmation. */
     const val PC_CARE_STOCK_PROOF_SUBMIT = "pc_care_stock_proof_submit"
 

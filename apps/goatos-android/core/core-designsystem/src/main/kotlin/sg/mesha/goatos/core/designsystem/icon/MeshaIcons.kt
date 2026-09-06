@@ -393,9 +393,12 @@ object MeshaIcons {
         // verify_ prefix says which app section you are in, not which feature the row is, so it
         // is stripped and the row keeps its own module glyph.
         "calendar" -> Calendar
-        // Vaccination MODULE + its own destinations. The syringe is scoped to this module.
+        // Vaccination MODULE + its own destinations. The syringe is scoped to injection/drive
+        // work; vaccine stock is the vial/inventory face and must not fall back to Module.
         "vaccination", "sheds", "pc.vaccination", "execution" -> Syringe
+        "vaccine_stock" -> Vaccine
         "home", "dhome", "overview" -> Home
+        "clock" -> Clock
         // "weighing_alerts" is WEIGHING's own alerts destination, distinct from the
         // vaccination "alerts" feed but the same kind of surface, so it takes the same bell.
         "alerts", "notifications", "weighing_alerts" -> Bell
@@ -413,7 +416,10 @@ object MeshaIcons {
         "counts" -> Goat
         // Weighing is the numbers surface: weights and their trend.
         "weighing" -> BarChart
+        "tasks" -> Tasks
+        "operators" -> User
         "birth_death" -> ArrowUpDown
+        "reconcile" -> ClipboardCheck
         "birth" -> Birth
         "death" -> Death
         "shifting" -> Transfer
@@ -445,6 +451,7 @@ object MeshaIcons {
         // Breeding is a mating-pair concept, not the herd-at-large -- see [Breeding] doc comment.
         "breeding" -> Breeding
         "aas_health", "health_adults", "health_kids" -> Health
+        "toxin" -> Warn
         // Preventive Care module + its four category tabs. The module wears the shield-plus;
         // each tab names its own work so four tabs on one bar never share a mark.
         "pc_care" -> PcCare
