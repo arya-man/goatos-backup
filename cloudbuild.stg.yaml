@@ -232,7 +232,8 @@ steps:
           exit 0
         fi
         export COMMIT_SHA="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
+        export DEBIAN_FRONTEND=noninteractive
         apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl git jq make openjdk-21-jdk openssl unzip
+        apt-get install -y --no-install-recommends ca-certificates curl git jq make openjdk-21-jdk-headless openssl unzip
         tools/deploy/stg-mobile-distribution.sh
 timeout: 7200s
