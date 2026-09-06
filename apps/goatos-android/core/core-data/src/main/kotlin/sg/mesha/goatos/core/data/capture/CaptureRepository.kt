@@ -2092,6 +2092,7 @@ private fun proofAnalyticsProps(
     proofUploadStatus: String = entity.syncStatus.lowercase(),
 ): Map<String, String> = buildMap {
     put("proof_id", entity.id)
+    put("local_proof_row_id", entity.id)
     put("task_id", entity.taskId)
     put("partition_key", entity.partitionKey)
     put("field_key", entity.fieldKey)
@@ -2109,6 +2110,11 @@ private fun proofAnalyticsProps(
     put("processing_state", entity.processingState)
     put("processing_attempt", attempt.toString())
     put("proof_upload_status", proofUploadStatus)
+    entity.outboxItemId?.takeIf { it.isNotBlank() }?.let { put("proof_outbox_item_id", it) }
+    entity.serverProofId?.takeIf { it.isNotBlank() }?.let {
+        put("server_proof_id", it)
+        put("server_proof_ref", it)
+    }
     put("upload_original", uploadOriginal.toString())
     put("duration_bucket", durationBucket(entity.durationMs ?: (entity.capturedEndMs - entity.capturedStartMs).coerceAtLeast(0)))
     entity.originalBytes?.let { put("original_size_bucket", byteBucket(it)) }

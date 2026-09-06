@@ -712,6 +712,7 @@ class CaptureRepositoryTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
+            val telemetryEvents = mutableListOf<Pair<String, Map<String, String>>>()
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
@@ -719,6 +720,7 @@ class CaptureRepositoryTest {
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
                 mediaProcessor = IdentityProofMediaProcessor(),
+                telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
             )
 
             val captured = (
@@ -757,6 +759,11 @@ class CaptureRepositoryTest {
             row = repo.observeProofs("task-5").first().first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
             assertEquals("server-proof-123", row.serverProofId)
+            val completed = telemetryEvents.last { it.first == "proof_upload_completed" }.second
+            assertEquals(captured.id, completed["local_proof_row_id"])
+            assertEquals(itemId, completed["proof_outbox_item_id"])
+            assertEquals("server-proof-123", completed["server_proof_id"])
+            assertEquals("server-proof-123", completed["server_proof_ref"])
         } finally {
             closeDb(db)
         }
