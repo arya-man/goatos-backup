@@ -1319,7 +1319,8 @@ SET batch_id = EXCLUDED.batch_id, planned_date = EXCLUDED.planned_date, operator
     total_doses = EXCLUDED.total_doses, updated_at = now();
 
 INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
-SELECT '${tenant_id}'::uuid,
+SELECT DISTINCT ON (s.seq, oi.target_id)
+       '${tenant_id}'::uuid,
        ('9e000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
        oi.obligation_id, oi.target_id
 FROM obligation_instances oi
@@ -1327,6 +1328,7 @@ JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
 JOIN qa_sheds s ON s.shed_id = g.shed_id
 WHERE oi.tenant_id = '${tenant_id}'::uuid
   AND oi.status = 'due'
+ORDER BY s.seq, oi.target_id, oi.sequence, oi.obligation_id
 ON CONFLICT (tenant_id, obligation_id) DO UPDATE
 SET assignment_id = EXCLUDED.assignment_id;
 
@@ -1348,9 +1350,10 @@ SELECT ('9f000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
             THEN '92000000-0000-4000-8000-000000000701'::uuid
             ELSE '92000000-0000-4000-8000-000000000702'::uuid END,
        '${tenant_id}'::uuid, s.shed_id, 'shed', s.shed_name, 0,
-       -- Castro 3 is deliberately LUMP-SUM so both weighing categories are testable on one phone:
-       -- a lump-sum bucket takes one shed-level weight and video instead of per-animal capture.
-       CASE WHEN s.seq = 8 THEN 'per_shed_partition' ELSE 'individual_animal' END,
+      -- Yashoda 1 and Castro 3 are deliberately LUMP-SUM so both weighing categories are
+      -- testable on each park's visible operator phone:
+      -- a lump-sum bucket takes one shed-level weight and video instead of per-animal capture.
+      CASE WHEN s.seq IN (2, 8) THEN 'per_shed_partition' ELSE 'individual_animal' END,
        s.weighing_operator, 'pending', s.park_id, ${today_sql}, now()
 FROM qa_sheds s
 ON CONFLICT (tenant_id, campaign_id, location_id, COALESCE(partition_label, ''::text)) DO UPDATE
@@ -1471,6 +1474,40 @@ INSERT INTO feed_transport_tasks (
   ('8f000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', current_date, current_date + time '15:30', 'due', '90000000-0000-4000-8000-000000000201'),
   ('8f000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', current_date, current_date + time '15:30', 'completed', '90000000-0000-4000-8000-000000000201');
 
+DELETE FROM pen_reconciliation_cards
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND card_id IN (
+    '8c000000-0000-4000-8000-000000000001',
+    '8c000000-0000-4000-8000-000000000002'
+  );
+
+INSERT INTO pen_reconciliation_cards (
+  card_id, tenant_id, goat_id, scanned_identifier,
+  found_location_id, found_partition_label, found_display_name,
+  registered_shed_id, registered_partition_label,
+  park_id, campaign_id, campaign_shed_id, status, raised_at, row_version
+) VALUES
+  (
+    '8c000000-0000-4000-8000-000000000001', '${tenant_id}'::uuid,
+    '91000000-0000-4000-8000-000000001001', '901007000504418',
+    '91000000-0000-4000-8000-000000000203', 'Part 1', 'Yashoda 1 - Part 1',
+    '91000000-0000-4000-8000-000000000201', 'Part 1',
+    '91000000-0000-4000-8000-000000000101',
+    '92000000-0000-4000-8000-000000000701',
+    '9f000000-0000-4000-8000-000000000002',
+    'open', now(), 1
+  ),
+  (
+    '8c000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid,
+    '91000000-0000-4000-8000-000000001002', '901007000504332',
+    '91000000-0000-4000-8000-000000000203', 'Part 2', 'Yashoda 1 - Part 2',
+    '91000000-0000-4000-8000-000000000201', 'Part 1',
+    '91000000-0000-4000-8000-000000000101',
+    '92000000-0000-4000-8000-000000000701',
+    '9f000000-0000-4000-8000-000000000002',
+    'open', now(), 1
+  );
+
 COMMIT;
 SQL
 
@@ -1533,7 +1570,7 @@ Each shed still has up to ${animals_per_shed} seeded RFID identities; only due o
 
   Shed        Park  Due animals  Vaccines       Weighing assignee
   Godel 1     CBE   2            ET+TT          Pramod
-  Yashoda 1   CBE   3            ET+TT, PPR     Pramod
+  Yashoda 1   CBE   3            ET+TT, PPR     Pramod (LUMP-SUM)
   Gandhi 1    CBE   2            ET+TT          Dinakar
   Gandhi 2    CBE   3            ET+TT          Dinakar
   Mandela 2   CPT   2            ET+TT          Amit
