@@ -439,25 +439,58 @@ if play_access_token="$(play_access_token)" &&
   edit_response="$(curl -sS -X POST -H "Authorization: Bearer ${play_access_token}" -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" "${play_base}/edits")"; then
   edit_id="$(jq -r '.id // empty' <<<"$edit_response")"
   if [[ -n "$edit_id" ]]; then
-    track_response_file=".local/android-signing/play-internal-track-existing.json"
-    track_status="$(
-      curl -sS -o "$track_response_file" -w '%{http_code}' \
+    max_existing_play_version_code=0
+
+    tracks_response_file=".local/android-signing/play-tracks-existing.json"
+    tracks_status="$(
+      curl -sS -o "$tracks_response_file" -w '%{http_code}' \
         -H "Authorization: Bearer ${play_access_token}" \
         -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" \
-        "${play_base}/edits/${edit_id}/tracks/internal"
+        "${play_base}/edits/${edit_id}/tracks"
     )"
-    if [[ "$track_status" =~ ^2 ]]; then
-      max_play_version_code="$(
-        jq -r '[.releases[]?.versionCodes[]? | tonumber] | max // 0' "$track_response_file"
-      )"
-      if (( DEPLOY_VERSION_CODE <= max_play_version_code )); then
-        DEPLOY_VERSION_CODE="$((max_play_version_code + 1))"
-        echo "Play Internal already used versionCode ${max_play_version_code}; using versionCode ${DEPLOY_VERSION_CODE}."
-      fi
+    if [[ "$tracks_status" =~ ^2 ]]; then
+      max_track_version_code="$(jq -r '[.tracks[]?.releases[]?.versionCodes[]? | tonumber?] | max // 0' "$tracks_response_file" 2>/dev/null || printf '0\n')"
+      (( max_track_version_code > max_existing_play_version_code )) && max_existing_play_version_code="$max_track_version_code"
     else
-      echo "Play Internal version preflight skipped after HTTP $track_status; continuing with versionCode ${DEPLOY_VERSION_CODE}." >&2
-      sed 's/^/play-track-response: /' "$track_response_file" >&2 || true
+      echo "Play tracks version preflight skipped after HTTP $tracks_status; continuing with versionCode ${DEPLOY_VERSION_CODE}." >&2
+      sed 's/^/play-tracks-response: /' "$tracks_response_file" >&2 || true
     fi
+
+    bundles_response_file=".local/android-signing/play-bundles-existing.json"
+    bundles_status="$(
+      curl -sS -o "$bundles_response_file" -w '%{http_code}' \
+        -H "Authorization: Bearer ${play_access_token}" \
+        -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" \
+        "${play_base}/edits/${edit_id}/bundles"
+    )"
+    if [[ "$bundles_status" =~ ^2 ]]; then
+      max_bundle_version_code="$(jq -r '[.bundles[]?.versionCode? | tonumber?] | max // 0' "$bundles_response_file" 2>/dev/null || printf '0\n')"
+      (( max_bundle_version_code > max_existing_play_version_code )) && max_existing_play_version_code="$max_bundle_version_code"
+    else
+      echo "Play bundles version preflight skipped after HTTP $bundles_status; continuing with versionCode ${DEPLOY_VERSION_CODE}." >&2
+      sed 's/^/play-bundles-response: /' "$bundles_response_file" >&2 || true
+    fi
+
+    apks_response_file=".local/android-signing/play-apks-existing.json"
+    apks_status="$(
+      curl -sS -o "$apks_response_file" -w '%{http_code}' \
+        -H "Authorization: Bearer ${play_access_token}" \
+        -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" \
+        "${play_base}/edits/${edit_id}/apks"
+    )"
+    if [[ "$apks_status" =~ ^2 ]]; then
+      max_apk_version_code="$(jq -r '[.apks[]?.versionCode? | tonumber?] | max // 0' "$apks_response_file" 2>/dev/null || printf '0\n')"
+      (( max_apk_version_code > max_existing_play_version_code )) && max_existing_play_version_code="$max_apk_version_code"
+    else
+      echo "Play APK version preflight skipped after HTTP $apks_status; continuing with versionCode ${DEPLOY_VERSION_CODE}." >&2
+      sed 's/^/play-apks-response: /' "$apks_response_file" >&2 || true
+    fi
+
+    if (( DEPLOY_VERSION_CODE <= max_existing_play_version_code )); then
+      DEPLOY_VERSION_CODE="$((max_existing_play_version_code + 1))"
+      echo "Play already used versionCode ${max_existing_play_version_code}; using versionCode ${DEPLOY_VERSION_CODE}."
+    fi
+
     curl -sS -X DELETE \
       -H "Authorization: Bearer ${play_access_token}" \
       -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" \
