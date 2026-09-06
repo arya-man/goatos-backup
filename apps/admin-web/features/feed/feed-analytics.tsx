@@ -1362,6 +1362,10 @@ function ExperimentTab({
 // a frontend-only hide with no backend or contract change, and it is meant to
 // be deleted: drop this function and the .filter() call in StockCards to bring
 // the cards straight back.
+//
+// A plain "Mesha Adult Concentrate" -- no species in the name -- is NOT one of
+// the eight and always keeps its card, zero days or not. That is why the match
+// REQUIRES goat or sheep in the label; loosening it would swallow that feed.
 function isTemporarilyHiddenStockItem(item: { feed_item_label: string; days_left?: number | null }): boolean {
   const label = (item.feed_item_label ?? "").toLowerCase();
   const isMeshaConcentrate =
