@@ -1,6 +1,6 @@
 # PR 206 Proof Media Progress
 
-Last updated: 2026-09-07 04:43 IST.
+Last updated: 2026-09-07 04:58 IST.
 
 ## Goal
 
@@ -31,6 +31,7 @@ Finish PR 206 end to end: proof caps, common proof preview/retry UX, analytics t
 - Feed distribution terminal proof upload success/failure now emits proof row id, proof outbox id, server proof id, and terminal failure reason.
 - PC Care animal-slot reconcile/repair now emits registration success/failure with tag/slot/proof row/proof outbox/registration outbox/server ids.
 - Existing pushed fixes already include shared `ProofMediaPreview`, preview analytics guard, proof policy guard, Android/admin nav icon guards, bottom bar fit, vaccination stock icon mapping, and seed fixture expansion.
+- Throwaway phone-QA seed now redacts the credentialed database URL and fails fast if the fixture loses Pramod PC Care tasks, per-shed feed-water removal rows, eight weighing buckets with both individual/lump-sum categories, eight vaccination shed assignments, 20 vaccination animals, per-animal one-proof vaccination policy, two counts cards, or four feed rows.
 
 ## Verification Already Run In This Segment
 
@@ -60,6 +61,7 @@ Finish PR 206 end to end: proof caps, common proof preview/retry UX, analytics t
 - Backend analytics adapter focused test.
 - Focused Go tests for PC Care and process integrity after final backend changes.
 - `git diff --check`
+- Rerun throwaway seed against OCI after seed self-check patch.
 
 ## E2E Plan
 

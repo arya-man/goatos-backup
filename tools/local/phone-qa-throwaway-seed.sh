@@ -12,6 +12,7 @@ today_sql="(now() AT TIME ZONE 'Asia/Kolkata')::date"
 # per-shed pattern below, but the base seeder still needs the five physical RFID
 # identities to exist.
 animals_per_shed="${GOATOS_ANIMALS_PER_SHED:-5}"
+database_target="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[^:/@]+://([^@]+@)?##; s#[?].*$##')"
 
 die() { echo "phone-qa-throwaway-seed: $*" >&2; exit 1; }
 
@@ -633,7 +634,31 @@ SET planned_business_date = EXCLUDED.planned_business_date,
 
 DELETE FROM pc_care_removal_pen_proofs
 WHERE tenant_id = '${tenant_id}'::uuid
-  AND removal_task_id = '94000000-0000-4000-8000-000000000800';
+  AND (
+    removal_task_id = '94000000-0000-4000-8000-000000000800'
+    OR removal_task_id IN (
+      SELECT task_id FROM pc_care_tasks
+      WHERE tenant_id = '${tenant_id}'::uuid
+        AND idempotency_key LIKE 'pr206-proof-cap:%'
+    )
+    OR gated_task_id IN (
+      SELECT task_id FROM pc_care_tasks
+      WHERE tenant_id = '${tenant_id}'::uuid
+        AND idempotency_key LIKE 'pr206-proof-cap:%'
+    )
+  );
+
+DELETE FROM pc_care_task_assignees
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND task_id IN (
+    SELECT task_id FROM pc_care_tasks
+    WHERE tenant_id = '${tenant_id}'::uuid
+      AND idempotency_key LIKE 'pr206-proof-cap:%'
+  );
+
+DELETE FROM pc_care_tasks
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND idempotency_key LIKE 'pr206-proof-cap:%';
 
 DELETE FROM pc_care_task_assignees
 WHERE tenant_id = '${tenant_id}'::uuid
@@ -1039,7 +1064,7 @@ COMMIT;
 SQL
 
 cat <<EOF
-Seeded throwaway phone QA DB on ${DATABASE_URL%%\?*}
+Seeded throwaway phone QA DB on ${database_target}
 Vaccination RFID setup: CBE raw RFID, CPT uses CPT-<RFID> for local dev scan transform.
 
 Use these GOATOS_LOCAL_USER_ID values with tools/dev/android-dev-run.sh:
@@ -1637,6 +1662,107 @@ BEGIN
   ) q;
   IF bad <> 7 THEN
     RAISE EXCEPTION 'phone-qa seed: % of the 7 QA identities have an active scope grant, want 7 (pending-only grants cause runtime 403s)', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM pc_care_tasks t
+  JOIN pc_care_task_assignees a
+    ON a.tenant_id = t.tenant_id
+   AND a.task_id = t.task_id
+   AND a.operator_user_id = '90000000-0000-4000-8000-000000000202'
+  WHERE t.tenant_id = '${tenant_id}'::uuid
+    AND t.status = 'open'
+    AND t.category IN (
+      'deworming',
+      'anti_protozoan',
+      'ticks_removal',
+      'hoof_trimming',
+      'hair_trimming',
+      'feed_water_removal'
+    );
+  IF bad <> 7 THEN
+    RAISE EXCEPTION 'phone-qa seed: Pramod has % visible PC Care tasks, want 7 across deworming/protozoa/ticks/hoof/hair/feed-water', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM pc_care_removal_pen_proofs p
+  WHERE p.tenant_id = '${tenant_id}'::uuid
+    AND p.removal_task_id = '94000000-0000-4000-8000-000000000800'
+    AND p.gated_task_id IN (
+      '94000000-0000-4000-8000-000000000801',
+      '94000000-0000-4000-8000-000000000802'
+    )
+    AND p.pen_label IS NOT NULL
+    AND p.status = 'open';
+  IF bad <> 2 THEN
+    RAISE EXCEPTION 'phone-qa seed: feed-water removal has % open per-shed pen rows, want 2 for gated deworming sheds', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM weighing_campaign_sheds
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND start_business_date = ${today_sql}
+    AND status = 'pending';
+  IF bad <> 8 THEN
+    RAISE EXCEPTION 'phone-qa seed: % pending weighing shed buckets today, want 8', bad;
+  END IF;
+
+  SELECT count(DISTINCT weighing_category) INTO bad
+  FROM weighing_campaign_sheds
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND start_business_date = ${today_sql}
+    AND status = 'pending';
+  IF bad <> 2 THEN
+    RAISE EXCEPTION 'phone-qa seed: weighing fixture exposes % category kinds, want individual + lump-sum', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM vaccination_drive_assignments
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND planned_date = ${today_sql};
+  IF bad <> 8 THEN
+    RAISE EXCEPTION 'phone-qa seed: % vaccination assignments today, want 8 shed-scoped assignments', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM vaccination_drive_assignment_members
+  WHERE tenant_id = '${tenant_id}'::uuid;
+  IF bad <> 20 THEN
+    RAISE EXCEPTION 'phone-qa seed: % vaccination assignment members, want 20 animals across sheds', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM protocol_rules
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND rule_id IN (
+      '91000000-0000-4000-8000-000000000503',
+      '91000000-0000-4000-8000-000000000504'
+    )
+    AND proof_policy->>'proof_mode' = 'per_goat_video'
+    AND proof_policy->>'subject_scope' = 'goat'
+    AND proof_policy->>'maximum_count' = '1'
+    AND proof_policy->>'maximum_count_per_subject' = '1';
+  IF bad <> 2 THEN
+    RAISE EXCEPTION 'phone-qa seed: vaccination proof policy is not per-animal one-proof for both QA vaccines';
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM pen_reconciliation_cards
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND status = 'open';
+  IF bad <> 2 THEN
+    RAISE EXCEPTION 'phone-qa seed: % open counts reconciliation cards, want 2', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM feed_direction_issue_rows
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND feed_direction_issue_id IN (
+      '8d000000-0000-4000-8000-000000000001',
+      '8d000000-0000-4000-8000-000000000002'
+    );
+  IF bad <> 4 THEN
+    RAISE EXCEPTION 'phone-qa seed: % feed direction rows, want 4', bad;
   END IF;
 END
 \$check\$;
