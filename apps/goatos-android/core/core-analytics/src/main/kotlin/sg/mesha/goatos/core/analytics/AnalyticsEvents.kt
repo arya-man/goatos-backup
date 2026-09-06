@@ -611,6 +611,18 @@ object AnalyticsEvents {
     /** A slot's video recorder was opened; [Params.KIND] carries the slot field key. */
     const val PC_CARE_SLOT_CAPTURE_STARTED = "pc_care_slot_capture_started"
 
+    /** Camera returned for a per-animal PC Care slot before durable Room enqueue. */
+    const val PC_CARE_SLOT_CAPTURE_RESULT = "pc_care_slot_capture_result"
+
+    /** A per-animal PC Care slot proof row was written to Room. */
+    const val PC_CARE_SLOT_ROOM_WRITTEN = "pc_care_slot_room_written"
+
+    /** A per-animal PC Care proof upload outbox row became visible in Room. */
+    const val PC_CARE_SLOT_UPLOAD_ENQUEUED = "pc_care_slot_upload_enqueued"
+
+    /** A per-animal PC Care slot registration write was enqueued or failed. */
+    const val PC_CARE_SLOT_REGISTRATION = "pc_care_slot_registration"
+
     /** A slot's video was captured and its upload queued; [Params.KIND] the slot field key. */
     const val PC_CARE_SLOT_CAPTURED = "pc_care_slot_captured"
 

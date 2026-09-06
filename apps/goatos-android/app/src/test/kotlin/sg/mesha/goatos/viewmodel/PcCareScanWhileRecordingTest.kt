@@ -15,6 +15,7 @@ import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.capture.FakeProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 
 /**
@@ -100,6 +101,75 @@ class PcCareScanWhileRecordingTest {
 
         gate.complete(null)
         runCurrent()
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `animal slot video emits ordered durable diagnostics for every local handoff`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        repo.detailFlow.value = detail
+        repo.animalsFlow.value = listOf(pcCareAnimalEntity(tag = "t1", scannedByName = "Amit Kumar"))
+        val proofRepo = FakeProofCaptureRepository()
+        val proofSource = FakeProofCaptureSource(
+            mutableListOf(CapturedVideo(localUri = "file:///clip.mp4", startedAtMs = 0L, endedAtMs = 12_000L)),
+        )
+        val analytics = FakeAnalyticsPort()
+        val vm = buildPcCareTaskViewModel(
+            repo = repo,
+            proofRepo = proofRepo,
+            proofSource = proofSource,
+            analytics = analytics,
+        )
+        val collectJob = launch { vm.state.collect { } }
+        runCurrent()
+
+        vm.onEvent(sg.mesha.goatos.feature.pccare.PcCareTaskEvent.RecordSlot("t1", "video"))
+        runCurrent()
+
+        val eventNames = analytics.events.map { it.first }
+        assertEquals(
+            listOf(
+                AnalyticsEvents.PC_CARE_SLOT_CAPTURE_STARTED,
+                AnalyticsEvents.PC_CARE_SLOT_CAPTURE_RESULT,
+                AnalyticsEvents.PC_CARE_SLOT_ROOM_WRITTEN,
+                AnalyticsEvents.PC_CARE_SLOT_UPLOAD_ENQUEUED,
+                AnalyticsEvents.PC_CARE_SLOT_REGISTRATION,
+                AnalyticsEvents.PC_CARE_SLOT_CAPTURED,
+            ),
+            eventNames.filter { it.startsWith("pc_care_slot_") },
+        )
+
+        val byName = analytics.events.associateBy { it.first }
+        val started = requireNotNull(byName[AnalyticsEvents.PC_CARE_SLOT_CAPTURE_STARTED])
+        assertEquals("video", started.second[AnalyticsEvents.Params.KIND])
+        assertEquals("video", started.second["media_kind"])
+
+        val captureResult = requireNotNull(byName[AnalyticsEvents.PC_CARE_SLOT_CAPTURE_RESULT])
+        assertEquals("success", captureResult.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("video", captureResult.second[AnalyticsEvents.Params.KIND])
+        assertEquals("t1", captureResult.second[AnalyticsEvents.Params.RFID])
+        assertEquals("t1", captureResult.second["normalized_rfid"])
+        assertEquals("video", captureResult.second[AnalyticsEvents.Params.FIELD])
+        assertEquals(pcCareSlotProofFieldKey("t1", "video"), captureResult.second["field_key"])
+
+        val roomWritten = requireNotNull(byName[AnalyticsEvents.PC_CARE_SLOT_ROOM_WRITTEN])
+        assertEquals("success", roomWritten.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("proof-0", roomWritten.second["local_proof_row_id"])
+
+        val uploadEnqueued = requireNotNull(byName[AnalyticsEvents.PC_CARE_SLOT_UPLOAD_ENQUEUED])
+        assertEquals("success", uploadEnqueued.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("proof-0", uploadEnqueued.second["local_proof_row_id"])
+        assertEquals("proof-outbox-1", uploadEnqueued.second[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+
+        val registration = requireNotNull(byName[AnalyticsEvents.PC_CARE_SLOT_REGISTRATION])
+        assertEquals("enqueued", registration.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("slot-outbox-1", registration.second[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+
+        val captured = requireNotNull(byName[AnalyticsEvents.PC_CARE_SLOT_CAPTURED])
+        assertEquals("success", captured.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("video", captured.second[AnalyticsEvents.Params.KIND])
+        assertEquals("video", captured.second["media_kind"])
+        assertEquals("slot-outbox-1", captured.second[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
         collectJob.cancel()
     }
 }

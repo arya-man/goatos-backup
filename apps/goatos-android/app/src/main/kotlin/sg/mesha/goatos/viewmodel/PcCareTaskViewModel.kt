@@ -460,11 +460,18 @@ class PcCareTaskViewModel @Inject constructor(
         local.update { it.copy(capturingSlotKey = slotKey, message = null) }
         analytics.track(
             AnalyticsEvents.PC_CARE_SLOT_CAPTURE_STARTED,
-            mapOf(AnalyticsEvents.Params.KIND to slotFieldKey),
+            pcCareAnimalSlotAnalyticsProps(
+                tagKey = tagKey,
+                tagVerbatim = animalTagVerbatim,
+                slotFieldKey = slotFieldKey,
+                slotKey = slotKey,
+                outcome = "started",
+                legacyKind = slotFieldKey,
+            ),
         )
         viewModelScope.launch {
             try {
-                val captured = try {
+                val captured =
                     proofCaptureSource.captureVideo(
                         ProofCaptureContext(
                             // Backend-owned slot label leads the recorder chrome; the duration
@@ -475,114 +482,255 @@ class PcCareTaskViewModel @Inject constructor(
                             headerTitle = categoryTitle.ifBlank { null },
                         ),
                     )
-                } catch (error: Exception) {
-                    crashReporter.recordException(error, "pc care slot video capture failed")
-                    null
+                if (captured == null) {
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_SLOT_CAPTURE_RESULT,
+                        pcCareAnimalSlotAnalyticsProps(
+                            tagKey = tagKey,
+                            tagVerbatim = animalTagVerbatim,
+                            slotFieldKey = slotFieldKey,
+                            slotKey = slotKey,
+                            outcome = "cancelled",
+                        ),
+                    )
+                    return@launch
                 }
-                if (captured == null) return@launch
+                analytics.track(
+                    AnalyticsEvents.PC_CARE_SLOT_CAPTURE_RESULT,
+                    pcCareAnimalSlotAnalyticsProps(
+                        tagKey = tagKey,
+                        tagVerbatim = animalTagVerbatim,
+                        slotFieldKey = slotFieldKey,
+                        slotKey = slotKey,
+                        outcome = "success",
+                        mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                    ),
+                )
                 // Everything after a REAL recording is durable bookkeeping — the animal's scan,
                 // the clip's processing/upload enqueue, and the slot registration. It runs
                 // NonCancellable so backing out of the screen (which cancels this ViewModel's
                 // scope) can never orphan a clip the operator actually shot: that exact
                 // cancellation left uploads with no slot registration on 2026-08-21.
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                // The FIRST record for a roster animal records its scan (the tap IS the free-flow
-                // scan). A tag already in the task is a Duplicate no-op.
-                if (latestAnimals.none { it.normalizedTag == tagKey }) {
-                    repository.recordScan(taskId, animalTagVerbatim)
-                }
-                val slot = EvidenceSlot(
-                    identity = ProofIdentity(
-                        flow = ProofFlow.PC_CARE,
-                        taskId = taskId,
-                        subjectKey = slotKey,
-                    ),
-                    fieldKey = slotKey,
-                )
-                when (
-                    val result = proofCaptureRepository.captureReplacingLatest(
-                        slot = slot,
-                        subject = ProofSubject.OTHER,
-                        // The proof platform requires a UUID subject/scope (validateCreate); the
-                        // animal's tag identity rides rfidTag + the slot field key instead.
-                        subjectId = taskId,
-                        localUri = captured.localUri,
-                        mimeType = captured.mimeType,
-                        caption = "${slotDto.label} · $animalTagVerbatim",
-                        rfidTag = animalTagVerbatim,
-                        scopeType = "task",
-                        scopeId = taskId,
-                        capturedStartMs = captured.startedAtMs,
-                        capturedEndMs = captured.endedAtMs,
-                        capturedByPrincipalId = null,
-                        proofPolicy = pcCareProofPolicy(captured.captureSource),
-                        awaitUploadEnqueue = true,
-                        // One FIFO lane per task: the upload drains BEFORE the slot registration
-                        // that resolves it and before the final submit (PcCarePayloads.kt).
-                        uploadGroupKey = pcCareTaskGroupKey(taskId),
+                    // The FIRST record for a roster animal records its scan (the tap IS the free-flow
+                    // scan). A tag already in the task is a Duplicate no-op.
+                    if (latestAnimals.none { it.normalizedTag == tagKey }) {
+                        repository.recordScan(taskId, animalTagVerbatim)
+                    }
+                    val slot = EvidenceSlot(
+                        identity = ProofIdentity(
+                            flow = ProofFlow.PC_CARE,
+                            taskId = taskId,
+                            subjectKey = slotKey,
+                        ),
+                        fieldKey = slotKey,
                     )
-                ) {
-                    is AppResult.Ok -> {
-                        // The upload-row id can land in Room a beat AFTER the capture result is
-                        // composed, so a blank id here is usually a read race, not a lost clip
-                        // (2026-08-21: a fully uploaded clip reported "didn't save" and its slot
-                        // registration was skipped). Re-read the durable row before concluding
-                        // anything failed; only a row still without an upload id after the wait
-                        // is a real capture failure.
-                        var proofOutboxId = result.value.outboxItemId
-                        var waited = 0L
-                        while (proofOutboxId.isNullOrBlank() && waited < PROOF_ROW_SETTLE_MAX_MS) {
-                            delay(PROOF_ROW_SETTLE_STEP_MS)
-                            waited += PROOF_ROW_SETTLE_STEP_MS
-                            proofOutboxId = proofCaptureRepository.observeProofs(taskId).first()
-                                .firstOrNull { it.id == result.value.id }
-                                ?.outboxItemId
-                        }
-                        if (proofOutboxId.isNullOrBlank()) {
-                            crashReporter.recordException(
-                                IllegalStateException("pc care clip ${result.value.id} has no upload row after ${waited}ms"),
-                                "pc care slot capture never enqueued its upload",
-                            )
-                            local.update { it.copy(message = "Video didn't save. Record again.") }
-                            return@withContext
-                        }
-                        // Durable draft: re-entering the screen after process death still knows
-                        // which slot this queued clip belongs to.
-                        captureDrafts.putProof(CaptureFlow.PC_CARE, taskId, slotKey, proofOutboxId)
-                        when (
-                            val registered = repository.registerSlotProof(
-                                taskId = taskId,
-                                normalizedTag = tagKey,
-                                slotFieldKey = slotFieldKey,
-                                proofOutboxItemId = proofOutboxId,
-                            )
-                        ) {
-                            is AppResult.Ok -> {
-                                analytics.track(
-                                    AnalyticsEvents.PC_CARE_SLOT_CAPTURED,
-                                    mapOf(AnalyticsEvents.Params.KIND to slotFieldKey),
-                                )
-                            }
-                            is AppResult.Err -> {
-                                registered.cause?.let { crashReporter.recordException(it, "pc care slot registration enqueue failed") }
-                                analytics.track(
-                                    AnalyticsEvents.PC_CARE_FAILURE,
-                                    mapOf(AnalyticsEvents.Params.REASON to registered.message.take(MAX_REASON_CHARS)),
-                                )
-                                local.update { it.copy(message = "Video saved, but couldn't be attached. Tap refresh to retry.") }
-                            }
-                        }
-                    }
-                    is AppResult.Err -> {
-                        result.cause?.let { crashReporter.recordException(it, "pc care slot capture enqueue failed") }
-                        analytics.track(
-                            AnalyticsEvents.PC_CARE_FAILURE,
-                            mapOf(AnalyticsEvents.Params.REASON to result.message.take(MAX_REASON_CHARS)),
+                    when (
+                        val result = proofCaptureRepository.captureReplacingLatest(
+                            slot = slot,
+                            subject = ProofSubject.OTHER,
+                            // The proof platform requires a UUID subject/scope (validateCreate); the
+                            // animal's tag identity rides rfidTag + the slot field key instead.
+                            subjectId = taskId,
+                            localUri = captured.localUri,
+                            mimeType = captured.mimeType,
+                            caption = "${slotDto.label} · $animalTagVerbatim",
+                            rfidTag = animalTagVerbatim,
+                            scopeType = "task",
+                            scopeId = taskId,
+                            capturedStartMs = captured.startedAtMs,
+                            capturedEndMs = captured.endedAtMs,
+                            capturedByPrincipalId = null,
+                            proofPolicy = pcCareProofPolicy(captured.captureSource),
+                            awaitUploadEnqueue = true,
+                            // One FIFO lane per task: the upload drains BEFORE the slot registration
+                            // that resolves it and before the final submit (PcCarePayloads.kt).
+                            uploadGroupKey = pcCareTaskGroupKey(taskId),
                         )
-                        local.update { it.copy(message = result.message) }
+                    ) {
+                        is AppResult.Ok -> {
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_SLOT_ROOM_WRITTEN,
+                                pcCareAnimalSlotAnalyticsProps(
+                                    tagKey = tagKey,
+                                    tagVerbatim = animalTagVerbatim,
+                                    slotFieldKey = slotFieldKey,
+                                    slotKey = slotKey,
+                                    outcome = "success",
+                                    mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                    proofRowId = result.value.id,
+                                ),
+                            )
+                            // The upload-row id can land in Room a beat AFTER the capture result is
+                            // composed, so a blank id here is usually a read race, not a lost clip
+                            // (2026-08-21: a fully uploaded clip reported "didn't save" and its slot
+                            // registration was skipped). Re-read the durable row before concluding
+                            // anything failed; only a row still without an upload id after the wait
+                            // is a real capture failure.
+                            var proofOutboxId = result.value.outboxItemId
+                            var waited = 0L
+                            while (proofOutboxId.isNullOrBlank() && waited < PROOF_ROW_SETTLE_MAX_MS) {
+                                delay(PROOF_ROW_SETTLE_STEP_MS)
+                                waited += PROOF_ROW_SETTLE_STEP_MS
+                                proofOutboxId = proofCaptureRepository.observeProofs(taskId).first()
+                                    .firstOrNull { it.id == result.value.id }
+                                    ?.outboxItemId
+                            }
+                            if (proofOutboxId.isNullOrBlank()) {
+                                crashReporter.recordException(
+                                    IllegalStateException("pc care clip ${result.value.id} has no upload row after ${waited}ms"),
+                                    "pc care slot capture never enqueued its upload",
+                                )
+                                analytics.track(
+                                    AnalyticsEvents.PC_CARE_SLOT_UPLOAD_ENQUEUED,
+                                    pcCareAnimalSlotAnalyticsProps(
+                                        tagKey = tagKey,
+                                        tagVerbatim = animalTagVerbatim,
+                                        slotFieldKey = slotFieldKey,
+                                        slotKey = slotKey,
+                                        outcome = "failure",
+                                        reason = "missing_outbox_item_after_capture",
+                                        mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                        proofRowId = result.value.id,
+                                    ),
+                                )
+                                local.update { it.copy(message = "Video didn't save. Record again.") }
+                                return@withContext
+                            }
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_SLOT_UPLOAD_ENQUEUED,
+                                pcCareAnimalSlotAnalyticsProps(
+                                    tagKey = tagKey,
+                                    tagVerbatim = animalTagVerbatim,
+                                    slotFieldKey = slotFieldKey,
+                                    slotKey = slotKey,
+                                    outcome = "success",
+                                    mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                    proofRowId = result.value.id,
+                                    proofOutboxItemId = proofOutboxId,
+                                ),
+                            )
+                            // Durable draft: re-entering the screen after process death still knows
+                            // which slot this queued clip belongs to.
+                            captureDrafts.putProof(CaptureFlow.PC_CARE, taskId, slotKey, proofOutboxId)
+                            when (
+                                val registered = repository.registerSlotProof(
+                                    taskId = taskId,
+                                    normalizedTag = tagKey,
+                                    slotFieldKey = slotFieldKey,
+                                    proofOutboxItemId = proofOutboxId,
+                                )
+                            ) {
+                                is AppResult.Ok -> {
+                                    analytics.track(
+                                        AnalyticsEvents.PC_CARE_SLOT_REGISTRATION,
+                                        pcCareAnimalSlotAnalyticsProps(
+                                            tagKey = tagKey,
+                                            tagVerbatim = animalTagVerbatim,
+                                            slotFieldKey = slotFieldKey,
+                                            slotKey = slotKey,
+                                            outcome = "enqueued",
+                                            mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                            proofRowId = result.value.id,
+                                            proofOutboxItemId = proofOutboxId,
+                                            outboxItemId = registered.value,
+                                        ),
+                                    )
+                                    analytics.track(
+                                        AnalyticsEvents.PC_CARE_SLOT_CAPTURED,
+                                        pcCareAnimalSlotAnalyticsProps(
+                                            tagKey = tagKey,
+                                            tagVerbatim = animalTagVerbatim,
+                                            slotFieldKey = slotFieldKey,
+                                            slotKey = slotKey,
+                                            outcome = "success",
+                                            mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                            legacyKind = slotFieldKey,
+                                            proofRowId = result.value.id,
+                                            proofOutboxItemId = proofOutboxId,
+                                            outboxItemId = registered.value,
+                                        ),
+                                    )
+                                }
+                                is AppResult.Err -> {
+                                    registered.cause?.let { crashReporter.recordException(it, "pc care slot registration enqueue failed") }
+                                    analytics.track(
+                                        AnalyticsEvents.PC_CARE_SLOT_REGISTRATION,
+                                        pcCareAnimalSlotAnalyticsProps(
+                                            tagKey = tagKey,
+                                            tagVerbatim = animalTagVerbatim,
+                                            slotFieldKey = slotFieldKey,
+                                            slotKey = slotKey,
+                                            outcome = "failure",
+                                            reason = registered.message.take(MAX_REASON_CHARS),
+                                            mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                            proofRowId = result.value.id,
+                                            proofOutboxItemId = proofOutboxId,
+                                        ),
+                                    )
+                                    analytics.track(
+                                        AnalyticsEvents.PC_CARE_FAILURE,
+                                        pcCareAnimalSlotAnalyticsProps(
+                                            tagKey = tagKey,
+                                            tagVerbatim = animalTagVerbatim,
+                                            slotFieldKey = slotFieldKey,
+                                            slotKey = slotKey,
+                                            outcome = "failure",
+                                            reason = registered.message.take(MAX_REASON_CHARS),
+                                            mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                            proofRowId = result.value.id,
+                                            proofOutboxItemId = proofOutboxId,
+                                        ),
+                                    )
+                                    local.update { it.copy(message = "Video saved, but couldn't be attached. Tap refresh to retry.") }
+                                }
+                            }
+                        }
+                        is AppResult.Err -> {
+                            result.cause?.let { crashReporter.recordException(it, "pc care slot capture enqueue failed") }
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_SLOT_ROOM_WRITTEN,
+                                pcCareAnimalSlotAnalyticsProps(
+                                    tagKey = tagKey,
+                                    tagVerbatim = animalTagVerbatim,
+                                    slotFieldKey = slotFieldKey,
+                                    slotKey = slotKey,
+                                    outcome = "failure",
+                                    reason = result.message.take(MAX_REASON_CHARS),
+                                    mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                ),
+                            )
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_FAILURE,
+                                pcCareAnimalSlotAnalyticsProps(
+                                    tagKey = tagKey,
+                                    tagVerbatim = animalTagVerbatim,
+                                    slotFieldKey = slotFieldKey,
+                                    slotKey = slotKey,
+                                    outcome = "failure",
+                                    reason = result.message.take(MAX_REASON_CHARS),
+                                    mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                ),
+                            )
+                            local.update { it.copy(message = result.message) }
+                        }
                     }
-                }
                 } // NonCancellable
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                crashReporter.recordException(error, "pc care slot video capture failed")
+                analytics.track(
+                    AnalyticsEvents.PC_CARE_SLOT_CAPTURE_RESULT,
+                    pcCareAnimalSlotAnalyticsProps(
+                        tagKey = tagKey,
+                        tagVerbatim = animalTagVerbatim,
+                        slotFieldKey = slotFieldKey,
+                        slotKey = slotKey,
+                        outcome = "failure",
+                        reason = error.javaClass.simpleName.take(MAX_REASON_CHARS),
+                    ),
+                )
             } finally {
                 local.update { it.copy(capturingSlotKey = null) }
             }
@@ -1129,6 +1277,36 @@ class PcCareTaskViewModel @Inject constructor(
         outcome?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTCOME, it) }
         reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
         source?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.SOURCE, it) }
+    }
+
+    private fun pcCareAnimalSlotAnalyticsProps(
+        tagKey: String,
+        tagVerbatim: String,
+        slotFieldKey: String,
+        slotKey: String,
+        outcome: String,
+        mediaKind: String = "video",
+        legacyKind: String? = null,
+        reason: String? = null,
+        proofRowId: String? = null,
+        proofOutboxItemId: String? = null,
+        outboxItemId: String? = null,
+    ): Map<String, String> = buildMap {
+        put(AnalyticsEvents.Params.KIND, legacyKind ?: mediaKind)
+        if (legacyKind != null) put("media_kind", mediaKind)
+        put(AnalyticsEvents.Params.FIELD, slotFieldKey)
+        put("field_key", slotKey)
+        put("slot_field_key", slotFieldKey)
+        put("task_id", taskId)
+        put(AnalyticsEvents.Params.RFID, tagVerbatim)
+        put("normalized_rfid", tagKey)
+        put("feature_surface", "pc_care_animal_slot")
+        put(AnalyticsEvents.Params.OUTCOME, outcome)
+        latestDetail?.status?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.STATUS, it) }
+        reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
+        proofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
+        proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
+        outboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, it) }
     }
 
     private fun pcCareMediaKindFromMime(mimeType: String): String =
