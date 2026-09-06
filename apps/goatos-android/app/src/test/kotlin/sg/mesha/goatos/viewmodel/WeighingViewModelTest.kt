@@ -756,6 +756,62 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `shed video preview retry and upload trouble analytics include proof outbox trace ids`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val failedShedProof = proofRow(
+            id = "shed-proof-failed",
+            fieldKey = "weighing_shed_partition_video",
+            proofSubject = ProofSubject.SHED,
+            subjectId = "shed-1",
+            caption = "Weighing lump-sum · Shed 1 · video 1",
+            syncStatus = CaptureSyncStatus.FAILED,
+            serverProofId = "server-shed-proof",
+            outboxItemId = "proof-outbox-shed",
+            lastError = "upload_timeout",
+        )
+        val proofs = FakeProofCaptureRepository(maxProofs = 10).also { it.seedProofs(failedShedProof) }
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            scoped = true,
+            proofCaptureRepository = proofs,
+            weighingCategory = "per_shed_partition",
+            analytics = analytics,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.trackShedVideoPreviewAction("shed-proof-failed", "fullscreen_open")
+        vm.retryShedVideo("shed-proof-failed")
+        advanceUntilIdle()
+
+        val uploadFailure = analytics.events.single {
+            it.name == sg.mesha.goatos.core.analytics.AnalyticsEvents.WEIGHING_PROOF_UPLOAD_FAILED
+        }.props
+        assertEquals("shed-proof-failed", uploadFailure["local_proof_row_id"])
+        assertEquals("proof-outbox-shed", uploadFailure[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("server-shed-proof", uploadFailure[sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.Params.SERVER_PROOF_ID])
+        assertEquals("upload_timeout", uploadFailure[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.REASON])
+        assertEquals("per_shed_partition", uploadFailure[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.CATEGORY])
+        assertEquals("campaign-1:group-1:campaign-shed-1", uploadFailure["scope_key"])
+
+        val preview = analytics.events.single {
+            it.name == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_PREVIEW_ACTION
+        }.props
+        assertEquals("fullscreen_open", preview[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.ACTION])
+        assertEquals("shed_video_preview", preview[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.SOURCE])
+        assertEquals("proof-outbox-shed", preview[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("server-shed-proof", preview[sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.Params.SERVER_PROOF_ID])
+
+        val retryQueued = analytics.events.single {
+            it.name == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_SUCCEEDED
+        }.props
+        assertEquals("retry", retryQueued[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.ACTION])
+        assertEquals("retry_button", retryQueued[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.SOURCE])
+        assertEquals("queued", retryQueued[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.OUTCOME])
+        assertEquals("proof-outbox-shed", retryQueued[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+    }
+
+    @Test
     fun `latest synced shed proof survives reopen before shed draft exists`() = runTest(dispatcher) {
         val proofs = FakeProofCaptureRepository(maxProofs = 10).also { repo ->
             repo.seedProofs(
@@ -2138,6 +2194,87 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `successful individual submit analytics include durable submit outbox id`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val scans = FakeScanCaptureRepository()
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                rosterWindow = emptyList(),
+                individualDrafts = listOf(acceptedDraft(animalId = TEST_TAG, weightKg = 12.5)),
+                shedDrafts = emptyList(),
+                totalExpected = 1,
+            ),
+        )
+        repository.submitIndividualScopeResult = AppResult.Ok("submit-outbox-123")
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            scanCaptureRepository = scans,
+            analytics = analytics,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        scans.recordScan(
+            taskId = "campaign-1:group-1:campaign-shed-1",
+            fieldKey = "weighing_free_flow_scan",
+            tag = TEST_TAG,
+        )
+        advanceUntilIdle()
+
+        vm.submitIndividualScope {}
+        advanceUntilIdle()
+        vm.confirmSubmitIndividualScope()
+        advanceUntilIdle()
+
+        val submitSuccess = analytics.events.single {
+            it.name == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_SUBMIT_SUCCEEDED
+        }.props
+        assertEquals("submit-outbox-123", submitSuccess[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+        assertEquals("submit_repository", submitSuccess[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.SOURCE])
+        assertEquals("queued", submitSuccess[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.OUTCOME])
+        assertEquals("1", submitSuccess[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.COUNT])
+    }
+
+    @Test
+    fun `individual video retry analytics include proof outbox and server proof ids`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val failedProof = proofRow(
+            id = "proof-individual-failed",
+            fieldKey = "weighing_individual_video",
+            proofSubject = ProofSubject.OTHER,
+            subjectId = null,
+            caption = "Weighing · $TEST_TAG",
+            rfidTag = TEST_TAG,
+            syncStatus = CaptureSyncStatus.FAILED,
+            serverProofId = "server-individual-proof",
+            outboxItemId = "proof-outbox-individual",
+            lastError = "upload_500",
+        )
+        val proofs = FakeProofCaptureRepository().also { it.seedProofs(failedProof) }
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(listOf(rosterRow()), emptyList(), emptyList(), 1)),
+            scoped = true,
+            proofCaptureRepository = proofs,
+            analytics = analytics,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.retryVideo(TEST_TAG)
+        advanceUntilIdle()
+
+        val retryQueued = analytics.events.single {
+            it.name == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_INDIVIDUAL_PROOF_RETRY_SUCCEEDED
+        }.props
+        assertEquals("proof-individual-failed", retryQueued["local_proof_row_id"])
+        assertEquals("proof-outbox-individual", retryQueued[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("server-individual-proof", retryQueued[sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.Params.SERVER_PROOF_ID])
+        assertEquals(TEST_TAG, retryQueued[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.RFID])
+        assertEquals("proof_row", retryQueued[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.SOURCE])
+        assertEquals("queued", retryQueued[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.OUTCOME])
+    }
+
+    @Test
     fun `the client-side submit gate tracks submit_blocked when the scope is incomplete`() = runTest(dispatcher) {
         val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val vm = weighingViewModel(
@@ -2688,6 +2825,8 @@ class WeighingViewModelTest {
         capturedAtMs: Long = 1_000,
         capturedStartMs: Long = 1_000,
         capturedEndMs: Long = 2_000,
+        outboxItemId: String? = null,
+        lastError: String? = null,
     ) = ProofCaptureRow(
         id = id,
         fieldKey = fieldKey,
@@ -2703,7 +2842,8 @@ class WeighingViewModelTest {
         capturedByPrincipalId = null,
         syncStatus = syncStatus,
         serverProofId = serverProofId,
-        lastError = null,
+        outboxItemId = outboxItemId,
+        lastError = lastError,
     )
 
     private object LeadershipBootstrapRepository : BootstrapRepository {

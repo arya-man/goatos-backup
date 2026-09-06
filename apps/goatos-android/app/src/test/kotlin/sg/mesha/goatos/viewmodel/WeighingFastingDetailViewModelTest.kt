@@ -26,6 +26,7 @@ import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
@@ -65,6 +66,7 @@ class WeighingFastingDetailViewModelTest {
         proofCaptureSource: FakeProofCaptureSource = FakeProofCaptureSource(),
         syncRepository: RecordingFastingSyncRepository = RecordingFastingSyncRepository(),
         fastingRepository: FakeWeighingFastingRepository = FakeWeighingFastingRepository(),
+        analytics: sg.mesha.goatos.core.analytics.AnalyticsPort = NoopAnalytics(),
         savedStateHandle: SavedStateHandle = SavedStateHandle(
             mapOf(
                 Routes.WEIGHING_FASTING_TASK_ARG to "task-1",
@@ -77,7 +79,7 @@ class WeighingFastingDetailViewModelTest {
         proofCaptureRepository = proofCaptureRepository,
         proofCaptureSource = proofCaptureSource,
         syncRepository = syncRepository,
-        analytics = NoopAnalytics(),
+        analytics = analytics,
         crashReporter = NoopCrashReporter(),
         appContext = ApplicationProvider.getApplicationContext(),
         savedStateHandle = savedStateHandle,
@@ -155,6 +157,81 @@ class WeighingFastingDetailViewModelTest {
             submit.idempotencyKey,
         )
         assertEquals(true, vm.state.value.submitQueued)
+    }
+
+    @Test
+    fun `capture preview submit and outbox analytics carry fasting proof trace ids`() = runTest(dispatcher) {
+        val analytics = FakeAnalyticsPort()
+        val sync = RecordingFastingSyncRepository()
+        val source = FakeProofCaptureSource(
+            mutableListOf(video("/proof/feed.mp4"), video("/proof/water.mp4")),
+        )
+        val fastingRepository = FakeWeighingFastingRepository()
+        val vm = viewModel(
+            proofCaptureSource = source,
+            syncRepository = sync,
+            fastingRepository = fastingRepository,
+            analytics = analytics,
+        )
+        fastingRepository.cardFlow.value = card()
+        advanceUntilIdle()
+
+        vm.onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.FEED))
+        advanceUntilIdle()
+        vm.onEvent(WeighingFastingDetailEvent.PreviewAction(WeighingFastingSlotKind.FEED, "share"))
+        advanceUntilIdle()
+        sync.emitItem(
+            SyncQueueItem(
+                id = "proof-outbox-1",
+                idempotencyKey = "proof-upload-feed",
+                opType = "PROOF_UPLOAD",
+                groupKey = "weighing-fasting:task-1:shed-b:feed",
+                status = SyncItemStatus.FAILED,
+                attemptCount = 5,
+                maxAttempts = 5,
+                conflict = false,
+                createdAt = 1L,
+                updatedAt = 2L,
+                lastError = "upload_403",
+            ),
+        )
+        advanceUntilIdle()
+
+        val captured = analytics.events.single {
+            it.first == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_REMOVAL_SLOT_CAPTURED &&
+                it.second[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.ACTION] == "captured"
+        }.second
+        assertEquals("proof-0", captured["local_proof_row_id"])
+        assertEquals("proof-outbox-1", captured[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("shed-b", captured[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.CAMPAIGN_SHED_ID])
+        assertEquals("weighing-fasting:task-1:shed-b", captured["scope_key"])
+
+        val preview = analytics.events.single {
+            it.first == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION
+        }.second
+        assertEquals("share", preview[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.ACTION])
+        assertEquals("proof-outbox-1", preview[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+
+        val uploadFailure = analytics.events.single {
+            it.first == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_REMOVAL_FAILURE &&
+                it.second[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.SOURCE] == "proof_outbox_observer"
+        }.second
+        assertEquals("sync_terminal_failure", uploadFailure[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.OUTCOME])
+        assertEquals("upload_403", uploadFailure[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.REASON])
+        assertEquals("proof-outbox-1", uploadFailure[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+
+        vm.onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.WATER))
+        advanceUntilIdle()
+        vm.onEvent(WeighingFastingDetailEvent.Submit)
+        advanceUntilIdle()
+
+        val submitted = analytics.events.single {
+            it.first == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_REMOVAL_SUBMITTED &&
+                it.second[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.SOURCE] == "submit_button"
+        }.second
+        assertEquals("outbox-fasting-1", submitted[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+        assertEquals("proof-outbox-1", submitted["feed_proof_outbox_item_id"])
+        assertEquals("proof-outbox-2", submitted["water_proof_outbox_item_id"])
     }
 
     @Test
@@ -318,6 +395,10 @@ internal class RecordingFastingSyncRepository : SyncRepository {
 
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
         items.getOrPut(itemId) { MutableStateFlow(null) }
+
+    fun emitItem(item: SyncQueueItem) {
+        items.getOrPut(item.id) { MutableStateFlow(null) }.value = item
+    }
 
     override suspend fun retry(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
 

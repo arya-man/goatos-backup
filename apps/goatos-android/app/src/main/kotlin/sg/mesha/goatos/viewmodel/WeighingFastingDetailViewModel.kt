@@ -122,20 +122,9 @@ class WeighingFastingDetailViewModel @Inject constructor(
     }
 
     private fun trackPreviewAction(kind: WeighingFastingSlotKind, action: String) {
-        val proofOutboxItemId = slotItemId(kind)
-        val serverProofId = _state.value.slotOf(kind).serverProofId
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION,
-            buildMap {
-                put(AnalyticsEvents.Params.SOURCE, "weighing_fasting_detail")
-                put(AnalyticsEvents.Params.FIELD, fieldKey(kind))
-                put(AnalyticsEvents.Params.KIND, kind.name.lowercase())
-                put(AnalyticsEvents.Params.ACTION, action)
-                put(AnalyticsEvents.Params.CAMPAIGN_ID, fastingTaskId)
-                put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, campaignShedId)
-                proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
-                serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
-            },
+            weighingFastingAnalyticsProps(kind, action = action, source = "proof_preview"),
         )
     }
 
@@ -335,7 +324,13 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     is AppResult.Ok -> {
                         val proofOutboxId = result.value.outboxItemId
                         if (proofOutboxId.isNullOrBlank()) {
-                            trackFailure(fieldKey, "missing_upload_outbox")
+                            trackFailure(
+                                fieldKey = fieldKey,
+                                reason = "missing_upload_outbox",
+                                kind = kind,
+                                proofRowId = result.value.id,
+                                serverProofId = result.value.serverProofId,
+                            )
                             updateSlot(kind) {
                                 it.copy(
                                     busy = false,
@@ -350,7 +345,15 @@ class WeighingFastingDetailViewModel @Inject constructor(
                         observeProofItem(kind, proofOutboxId)
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_REMOVAL_SLOT_CAPTURED,
-                            mapOf(AnalyticsEvents.Params.FIELD to fieldKey),
+                            weighingFastingAnalyticsProps(
+                                kind = kind,
+                                action = "captured",
+                                source = "capture_repository",
+                                outcome = "success",
+                                proofRowId = result.value.id,
+                                proofOutboxItemId = proofOutboxId,
+                                serverProofId = result.value.serverProofId,
+                            ),
                         )
                         updateSlot(kind) {
                             it.copy(
@@ -365,7 +368,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     }
                     is AppResult.Err -> {
                         result.cause?.let { crashReporter.recordException(it, "weighing removal proof enqueue failed") }
-                        trackFailure(fieldKey, result.message)
+                        trackFailure(fieldKey, result.message, kind = kind)
                         updateSlot(kind) {
                             it.copy(
                                 busy = false,
@@ -415,7 +418,14 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     observeSubmitItem(result.value)
                     analytics.track(
                         AnalyticsEventsWeighing.WEIGHING_REMOVAL_SUBMITTED,
-                        mapOf(AnalyticsEvents.Params.STATUS to current.status),
+                        weighingFastingSubmitAnalyticsProps(
+                            status = current.status,
+                            outcome = "queued",
+                            source = "submit_button",
+                            submitOutboxId = result.value,
+                            feedProofOutboxItemId = feedItem,
+                            waterProofOutboxItemId = waterItem,
+                        ),
                     )
                     submitEnqueueInFlight = false
                     _state.update {
@@ -429,7 +439,14 @@ class WeighingFastingDetailViewModel @Inject constructor(
                 is AppResult.Err -> {
                     submitEnqueueInFlight = false
                     result.cause?.let { crashReporter.recordException(it, "weighing removal submit enqueue failed") }
-                    trackFailure("submit", result.message)
+                    trackFailure(
+                        fieldKey = "submit",
+                        reason = result.message,
+                        outcome = "enqueue_failure",
+                        source = "submit_button",
+                        feedProofOutboxItemId = feedItem,
+                        waterProofOutboxItemId = waterItem,
+                    )
                     _state.update { it.copy(message = result.message) }
                 }
             }
@@ -466,6 +483,22 @@ class WeighingFastingDetailViewModel @Inject constructor(
                 },
             )
         }
+        if (item.status == SyncItemStatus.SUCCEEDED || item.isTerminalFailure) {
+            val slot = _state.value.slotOf(kind)
+            analytics.track(
+                AnalyticsEventsWeighing.WEIGHING_REMOVAL_FAILURE.takeIf { item.isTerminalFailure }
+                    ?: AnalyticsEventsWeighing.WEIGHING_REMOVAL_SLOT_CAPTURED,
+                weighingFastingAnalyticsProps(
+                    kind = kind,
+                    action = "upload_${item.status.name.lowercase()}",
+                    source = "proof_outbox_observer",
+                    outcome = if (item.status == SyncItemStatus.SUCCEEDED) "sync_success" else "sync_terminal_failure",
+                    reason = item.lastError,
+                    proofOutboxItemId = item.id,
+                    serverProofId = slot.serverProofId,
+                ),
+            )
+        }
         recomputeSubmit()
     }
 
@@ -489,6 +522,20 @@ class WeighingFastingDetailViewModel @Inject constructor(
                         // operator can re-record and submit again under a new proof set.
                         submitOutboxItemId.value = null
                         recomputeSubmit()
+                    }
+                    if (item.status == SyncItemStatus.SUCCEEDED || item.isTerminalFailure) {
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_REMOVAL_SUBMITTED,
+                            weighingFastingSubmitAnalyticsProps(
+                                status = _state.value.status,
+                                outcome = if (item.status == SyncItemStatus.SUCCEEDED) "sync_success" else "sync_terminal_failure",
+                                reason = item.lastError,
+                                source = "submit_outbox_observer",
+                                submitOutboxId = item.id,
+                                feedProofOutboxItemId = slotItemId(WeighingFastingSlotKind.FEED),
+                                waterProofOutboxItemId = slotItemId(WeighingFastingSlotKind.WATER),
+                            ),
+                        )
                     }
                 }
         }
@@ -582,14 +629,101 @@ class WeighingFastingDetailViewModel @Inject constructor(
     internal fun submitIdempotencyKey(feedItemId: String, waterItemId: String): String =
         "weighing-fasting-submit:$fastingTaskId:$campaignShedId:$feedItemId|$waterItemId"
 
-    private fun trackFailure(fieldKey: String, reason: String) {
+    private fun trackFailure(
+        fieldKey: String,
+        reason: String,
+        kind: WeighingFastingSlotKind? = null,
+        outcome: String = "failure",
+        source: String = "viewmodel",
+        proofRowId: String? = null,
+        proofOutboxItemId: String? = kind?.let(::slotItemId),
+        serverProofId: String? = kind?.let { _state.value.slotOf(it).serverProofId },
+        feedProofOutboxItemId: String? = null,
+        waterProofOutboxItemId: String? = null,
+    ) {
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_FAILURE,
-            mapOf(
-                AnalyticsEvents.Params.FIELD to fieldKey,
-                AnalyticsEvents.Params.REASON to reason.take(MAX_REASON_CHARS),
-            ),
+            if (kind != null) {
+                weighingFastingAnalyticsProps(
+                    kind = kind,
+                    action = "failure",
+                    source = source,
+                    outcome = outcome,
+                    reason = reason,
+                    proofRowId = proofRowId,
+                    proofOutboxItemId = proofOutboxItemId,
+                    serverProofId = serverProofId,
+                )
+            } else {
+                weighingFastingSubmitAnalyticsProps(
+                    status = _state.value.status,
+                    outcome = outcome,
+                    reason = reason,
+                    source = source,
+                    feedProofOutboxItemId = feedProofOutboxItemId,
+                    waterProofOutboxItemId = waterProofOutboxItemId,
+                ) + mapOf(AnalyticsEvents.Params.FIELD to fieldKey)
+            },
         )
+    }
+
+    private fun weighingFastingAnalyticsProps(
+        kind: WeighingFastingSlotKind,
+        action: String,
+        source: String,
+        outcome: String? = null,
+        reason: String? = null,
+        proofRowId: String? = null,
+        proofOutboxItemId: String? = slotItemId(kind),
+        serverProofId: String? = _state.value.slotOf(kind).serverProofId,
+    ): Map<String, String> = buildMap {
+        put(AnalyticsEvents.Params.SOURCE, source)
+        put(AnalyticsEvents.Params.FIELD, fieldKey(kind))
+        put(AnalyticsEvents.Params.KIND, kind.name.lowercase())
+        put(AnalyticsEvents.Params.ACTION, action)
+        put(AnalyticsEvents.Params.ITEM_ID, submitGroupKey())
+        put(AnalyticsEvents.Params.CAMPAIGN_ID, fastingTaskId)
+        put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, campaignShedId)
+        put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
+        put(AnalyticsEvents.Params.SUBJECT_TYPE, "task")
+        put("feature_surface", "weighing_fasting")
+        put("task_id", fastingTaskId)
+        put("scope_key", submitGroupKey())
+        put("submit_group_key", submitGroupKey())
+        outcome?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTCOME, it) }
+        reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
+        proofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
+        proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
+        serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
+    }
+
+    private fun weighingFastingSubmitAnalyticsProps(
+        status: String,
+        outcome: String,
+        source: String,
+        reason: String? = null,
+        submitOutboxId: String? = submitOutboxItemId.value,
+        feedProofOutboxItemId: String? = slotItemId(WeighingFastingSlotKind.FEED),
+        waterProofOutboxItemId: String? = slotItemId(WeighingFastingSlotKind.WATER),
+    ): Map<String, String> = buildMap {
+        put(AnalyticsEvents.Params.SOURCE, source)
+        put(AnalyticsEvents.Params.ACTION, "submit")
+        put(AnalyticsEvents.Params.KIND, "weighing_fasting_submit")
+        put(AnalyticsEvents.Params.ITEM_ID, submitGroupKey())
+        put(AnalyticsEvents.Params.CAMPAIGN_ID, fastingTaskId)
+        put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, campaignShedId)
+        put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
+        put(AnalyticsEvents.Params.SUBJECT_TYPE, "task")
+        put("feature_surface", "weighing_fasting")
+        put("task_id", fastingTaskId)
+        put("scope_key", submitGroupKey())
+        put("submit_group_key", submitGroupKey())
+        status.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.STATUS, it) }
+        put(AnalyticsEvents.Params.OUTCOME, outcome)
+        reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
+        submitOutboxId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, it) }
+        feedProofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put("feed_proof_outbox_item_id", it) }
+        waterProofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put("water_proof_outbox_item_id", it) }
     }
 
     companion object {

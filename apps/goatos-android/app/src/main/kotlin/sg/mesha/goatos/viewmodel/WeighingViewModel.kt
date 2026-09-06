@@ -1951,17 +1951,23 @@ class WeighingViewModel @Inject constructor(
         savedStateHandle.remove<ArrayList<String>>(KEY_SUBMIT_PENDING_IDENTIFIERS)
         submitPendingCallback = null
         actionInFlight.value = true
+        val submitAttemptProps = weighingSubmitProps(
+            captureCategory = INDIVIDUAL_ANIMAL_CATEGORY,
+            source = "submit_confirmation",
+            outcome = "attempt",
+            identifierCount = identifiers.size,
+        )
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_CONFIRMED,
-            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+            submitAttemptProps,
         )
         analytics.track(
             AnalyticsEvents.WEIGHING_SUBMIT_ATTEMPT,
-            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+            submitAttemptProps,
         )
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SUBMIT_ATTEMPTED,
-            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+            submitAttemptProps,
         )
         viewModelScope.launch {
             try {
@@ -1976,11 +1982,23 @@ class WeighingViewModel @Inject constructor(
                         refreshScopeSubmitted()
                         analytics.track(
                             AnalyticsEvents.WEIGHING_SUBMIT_SUCCESS,
-                            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+                            weighingSubmitProps(
+                                captureCategory = INDIVIDUAL_ANIMAL_CATEGORY,
+                                source = "submit_repository",
+                                outcome = "queued",
+                                submitOutboxItemId = submitted.value,
+                                identifierCount = identifiers.size,
+                            ),
                         )
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SUBMIT_SUCCEEDED,
-                            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+                            weighingSubmitProps(
+                                captureCategory = INDIVIDUAL_ANIMAL_CATEGORY,
+                                source = "submit_repository",
+                                outcome = "queued",
+                                submitOutboxItemId = submitted.value,
+                                identifierCount = identifiers.size,
+                            ),
                         )
                         // The write is now DURABLY QUEUED (outbox), not yet server-confirmed --
                         // WeighingRepository.submitIndividualScope enqueues instead of calling the
@@ -2009,13 +2027,23 @@ class WeighingViewModel @Inject constructor(
                             ?: "Couldn't submit this shed. Try again."
                         analytics.track(
                             AnalyticsEvents.WEIGHING_SUBMIT_FAILURE,
-                            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
-                                (AnalyticsEvents.Params.REASON to submitted.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                            weighingSubmitProps(
+                                captureCategory = INDIVIDUAL_ANIMAL_CATEGORY,
+                                source = "submit_repository",
+                                outcome = "failure",
+                                reason = submitted.message,
+                                identifierCount = identifiers.size,
+                            ),
                         )
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SUBMIT_FAILED,
-                            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
-                                (AnalyticsEvents.Params.REASON to submitted.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                            weighingSubmitProps(
+                                captureCategory = INDIVIDUAL_ANIMAL_CATEGORY,
+                                source = "submit_repository",
+                                outcome = "failure",
+                                reason = submitted.message,
+                                identifierCount = identifiers.size,
+                            ),
                         )
                         crashReporter.recordException(
                             submitted.cause ?: IllegalStateException(submitted.message),
@@ -2267,10 +2295,17 @@ class WeighingViewModel @Inject constructor(
     fun retryShedVideo(proofId: String) {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
+        val proof = proofById(proofId)
         actionInFlight.value = true
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_ATTEMPTED,
-            shedVideoActionProps(SHED_VIDEO_ACTION_RETRY, proofId),
+            shedVideoActionProps(
+                action = SHED_VIDEO_ACTION_RETRY,
+                proofId = proofId,
+                proof = proof,
+                source = "retry_button",
+                outcome = "attempt",
+            ),
         )
         viewModelScope.launch {
             try {
@@ -2279,15 +2314,27 @@ class WeighingViewModel @Inject constructor(
                         message.value = "Group video retry queued."
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_SUCCEEDED,
-                            shedVideoActionProps(SHED_VIDEO_ACTION_RETRY, proofId),
+                            shedVideoActionProps(
+                                action = SHED_VIDEO_ACTION_RETRY,
+                                proofId = proofId,
+                                proof = proof,
+                                source = "retry_button",
+                                outcome = "queued",
+                            ),
                         )
                     }
                     is AppResult.Err -> {
                         message.value = retried.message
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_FAILED,
-                            shedVideoActionProps(SHED_VIDEO_ACTION_RETRY, proofId) +
-                                (AnalyticsEvents.Params.REASON to retried.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                            shedVideoActionProps(
+                                action = SHED_VIDEO_ACTION_RETRY,
+                                proofId = proofId,
+                                proof = proof,
+                                source = "retry_button",
+                                outcome = "failure",
+                                reason = retried.message,
+                            ),
                         )
                     }
                 }
@@ -2300,10 +2347,17 @@ class WeighingViewModel @Inject constructor(
     fun removeShedVideo(proofId: String) {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
+        val proof = proofById(proofId)
         actionInFlight.value = true
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_ATTEMPTED,
-            shedVideoActionProps(SHED_VIDEO_ACTION_REMOVE, proofId),
+            shedVideoActionProps(
+                action = SHED_VIDEO_ACTION_REMOVE,
+                proofId = proofId,
+                proof = proof,
+                source = "remove_button",
+                outcome = "attempt",
+            ),
         )
         viewModelScope.launch {
             try {
@@ -2312,15 +2366,27 @@ class WeighingViewModel @Inject constructor(
                         message.value = "Group video removed."
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_SUCCEEDED,
-                            shedVideoActionProps(SHED_VIDEO_ACTION_REMOVE, proofId),
+                            shedVideoActionProps(
+                                action = SHED_VIDEO_ACTION_REMOVE,
+                                proofId = proofId,
+                                proof = proof,
+                                source = "remove_button",
+                                outcome = "success",
+                            ),
                         )
                     }
                     is AppResult.Err -> {
                         message.value = removed.message
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_FAILED,
-                            shedVideoActionProps(SHED_VIDEO_ACTION_REMOVE, proofId) +
-                                (AnalyticsEvents.Params.REASON to removed.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                            shedVideoActionProps(
+                                action = SHED_VIDEO_ACTION_REMOVE,
+                                proofId = proofId,
+                                proof = proof,
+                                source = "remove_button",
+                                outcome = "failure",
+                                reason = removed.message,
+                            ),
                         )
                     }
                 }
@@ -2334,13 +2400,17 @@ class WeighingViewModel @Inject constructor(
 
     fun trackShedVideoPreviewAction(proofId: String, action: String) {
         if (category != PER_SHED_PARTITION_CATEGORY) return
+        val proof = proofById(proofId)
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_PREVIEW_ACTION,
-            shedVideoActionProps(action, proofId) +
-                mapOf(
-                    AnalyticsEvents.Params.SOURCE to "shed_video_preview",
-                    AnalyticsEvents.Params.KIND to "video",
-                ),
+            shedVideoActionProps(
+                action = action,
+                proofId = proofId,
+                proof = proof,
+                source = "shed_video_preview",
+                outcome = "action",
+                kind = "video",
+            ),
         )
     }
 
@@ -2403,17 +2473,26 @@ class WeighingViewModel @Inject constructor(
         val shedVideoAction = if (replacingProofId == null) SHED_VIDEO_ACTION_CAPTURE else SHED_VIDEO_ACTION_REPLACE
         analytics.track(
             AnalyticsEvents.WEIGHING_PROOF_CAPTURE_ATTEMPT,
-            weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
-                mapOf(
-                    AnalyticsEvents.Params.OUTCOME to "attempt",
-                    AnalyticsEvents.Params.PROOF_ID to replacingProofId.orEmpty(),
-                    AnalyticsEvents.Params.PROOF_CAPTURED to "false",
-                    AnalyticsEvents.Params.PROOF_UPLOADED to "false",
-                ),
+            shedVideoActionProps(
+                action = shedVideoAction,
+                proofId = replacingProofId,
+                proof = proofById(replacingProofId),
+                source = "capture_button",
+                outcome = "attempt",
+            ) + mapOf(
+                AnalyticsEvents.Params.PROOF_CAPTURED to "false",
+                AnalyticsEvents.Params.PROOF_UPLOADED to "false",
+            ),
         )
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_ATTEMPTED,
-            shedVideoActionProps(shedVideoAction, replacingProofId),
+            shedVideoActionProps(
+                action = shedVideoAction,
+                proofId = replacingProofId,
+                proof = proofById(replacingProofId),
+                source = "capture_button",
+                outcome = "attempt",
+            ),
         )
         viewModelScope.launch {
             try {
@@ -2431,11 +2510,14 @@ class WeighingViewModel @Inject constructor(
                 ) ?: run {
                     analytics.track(
                         AnalyticsEvents.WEIGHING_PROOF_CAPTURE_CANCELLED,
-                        weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
-                            mapOf(
-                                AnalyticsEvents.Params.OUTCOME to "cancelled",
-                                AnalyticsEvents.Params.REASON to "camera_cancelled",
-                            ),
+                        shedVideoActionProps(
+                            action = shedVideoAction,
+                            proofId = replacingProofId,
+                            proof = proofById(replacingProofId),
+                            source = "camera",
+                            outcome = "cancelled",
+                            reason = "camera_cancelled",
+                        ),
                     )
                     return@launch
                 }
@@ -2483,11 +2565,16 @@ class WeighingViewModel @Inject constructor(
                                     message.value = removed.message
                                     analytics.track(
                                         AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_FAILED,
-                                        shedVideoActionProps(shedVideoAction, replacingProofId) +
-                                            (
-                                                AnalyticsEvents.Params.REASON to
-                                                    removed.message.take(MAX_ANALYTICS_REASON_CHARS)
-                                                ),
+                                        shedVideoActionProps(
+                                            action = shedVideoAction,
+                                            proofId = proof.value.id,
+                                            proof = proof.value,
+                                            replacedProofId = replacingProofId,
+                                            replacedProof = proofById(replacingProofId),
+                                            source = "replace_remove_old",
+                                            outcome = "failure",
+                                            reason = removed.message,
+                                        ),
                                     )
                                     return@launch
                                 }
@@ -2500,20 +2587,29 @@ class WeighingViewModel @Inject constructor(
                         }
                         analytics.track(
                             AnalyticsEvents.WEIGHING_PROOF_CAPTURE_SUCCESS,
-                            weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
-                                mapOf(
-                                    AnalyticsEvents.Params.OUTCOME to "success",
-                                    AnalyticsEvents.Params.PROOF_ID to proof.value.id,
-                                    AnalyticsEvents.Params.PROOF_CAPTURED to "true",
-                                    AnalyticsEvents.Params.PROOF_UPLOADED to (proof.value.syncStatus == CaptureSyncStatus.SYNCED).toString(),
-                                ),
+                            shedVideoActionProps(
+                                action = shedVideoAction,
+                                proofId = proof.value.id,
+                                proof = proof.value,
+                                replacedProofId = replacingProofId,
+                                replacedProof = proofById(replacingProofId),
+                                source = "capture_repository",
+                                outcome = "success",
+                            ) + mapOf(
+                                AnalyticsEvents.Params.PROOF_CAPTURED to "true",
+                                AnalyticsEvents.Params.PROOF_UPLOADED to (proof.value.syncStatus == CaptureSyncStatus.SYNCED).toString(),
+                            ),
                         )
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_SUCCEEDED,
                             shedVideoActionProps(
                                 action = shedVideoAction,
                                 proofId = proof.value.id,
+                                proof = proof.value,
                                 replacedProofId = replacingProofId,
+                                replacedProof = proofById(replacingProofId),
+                                source = "capture_repository",
+                                outcome = "success",
                             ),
                         )
                     }
@@ -2521,16 +2617,25 @@ class WeighingViewModel @Inject constructor(
                         message.value = proof.message
                         analytics.track(
                             AnalyticsEvents.WEIGHING_PROOF_CAPTURE_FAILURE,
-                            weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
-                                mapOf(
-                                    AnalyticsEvents.Params.OUTCOME to "failure",
-                                    AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
-                                ),
+                            shedVideoActionProps(
+                                action = shedVideoAction,
+                                proofId = replacingProofId,
+                                proof = proofById(replacingProofId),
+                                source = "capture_repository",
+                                outcome = "failure",
+                                reason = proof.message,
+                            ),
                         )
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_FAILED,
-                            shedVideoActionProps(shedVideoAction, replacingProofId) +
-                                (AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                            shedVideoActionProps(
+                                action = shedVideoAction,
+                                proofId = replacingProofId,
+                                proof = proofById(replacingProofId),
+                                source = "capture_repository",
+                                outcome = "failure",
+                                reason = proof.message,
+                            ),
                         )
                     }
                 }
@@ -2586,17 +2691,7 @@ class WeighingViewModel @Inject constructor(
             val signature = "${proof.id}|$reason|$terminal"
             if (!reportedProofUploadTrouble.add(signature)) return@forEach
             val attempt = proofUploadAttempts.merge(proof.id, 1, Int::plus) ?: 1
-            val props = buildMap {
-                put(AnalyticsEvents.Params.PROOF_ID, proof.id)
-                put(
-                    AnalyticsEvents.Params.SUBJECT_TYPE,
-                    if (proof.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY) "shed" else "other",
-                )
-                put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
-                put(AnalyticsEvents.Params.ITEM_ID, scopeKey.orEmpty())
-                put(AnalyticsEvents.Params.ATTEMPT, attempt.toString())
-                put(AnalyticsEvents.Params.REASON, reason.take(MAX_ANALYTICS_REASON_CHARS))
-            }
+            val props = proofUploadTroubleProps(proof, terminal, attempt, reason)
             if (terminal) {
                 crashReporter.log("weighing proof upload failed: ${reason.take(MAX_ANALYTICS_REASON_CHARS)}")
                 analytics.track(AnalyticsEvents.WEIGHING_PROOF_UPLOAD_FAILED, props)
@@ -2725,9 +2820,33 @@ class WeighingViewModel @Inject constructor(
             put(AnalyticsEvents.Params.CAMPAIGN_ID, campaignId)
             put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, campaignShedId)
             put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
+            put("feature_surface", "weighing")
+            scopeKey?.takeIf(String::isNotBlank)?.let { put("scope_key", it) }
+            workGroupId.takeIf(String::isNotBlank)?.let { put("work_group_id", it) }
             expectedLocationId.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.PARTITION_ID, it) }
             expectedLocationLabel.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.PARTITION_LABEL, it) }
         }
+
+    private fun weighingSubmitProps(
+        captureCategory: String,
+        source: String,
+        outcome: String,
+        submitOutboxItemId: String? = null,
+        identifierCount: Int? = null,
+        reason: String? = null,
+    ): Map<String, String> =
+        weighingCaptureProps(captureCategory) +
+            buildMap {
+                put(AnalyticsEvents.Params.ACTION, "submit")
+                put(AnalyticsEvents.Params.SOURCE, source)
+                put(AnalyticsEvents.Params.OUTCOME, outcome)
+                put(AnalyticsEvents.Params.SUBJECT_TYPE, if (captureCategory == PER_SHED_PARTITION_CATEGORY) "shed" else "animal")
+                submitOutboxItemId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, it) }
+                identifierCount?.let { put(AnalyticsEvents.Params.COUNT, it.toString()) }
+                reason?.takeIf(String::isNotBlank)?.let {
+                    put(AnalyticsEvents.Params.REASON, it.take(MAX_ANALYTICS_REASON_CHARS))
+                }
+            }
 
     private fun weighingAnimalProps(
         row: WeighingRosterRowEntity,
@@ -2741,18 +2860,19 @@ class WeighingViewModel @Inject constructor(
                 AnalyticsEvents.Params.WEIGHT_KG to weightKg.toString(),
                 AnalyticsEvents.Params.PROOF_CAPTURED to (proof != null).toString(),
                 AnalyticsEvents.Params.PROOF_UPLOADED to (proof?.syncStatus == CaptureSyncStatus.SYNCED).toString(),
-            ) +
-            (proof?.id?.let { mapOf(AnalyticsEvents.Params.PROOF_ID to it) } ?: emptyMap())
+            ) + proofAnalyticsProps(proof, subjectType = "animal")
 
     private fun weighingProofProps(row: WeighingRosterRowEntity, proof: ProofCaptureRow?): Map<String, String> =
         weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
-            mapOf(
-                AnalyticsEvents.Params.RFID to row.primaryTag.ifBlank { row.animalId },
-                AnalyticsEvents.Params.GOAT_ID to row.animalId,
-                AnalyticsEvents.Params.PROOF_CAPTURED to (proof != null).toString(),
-                AnalyticsEvents.Params.PROOF_UPLOADED to (proof?.syncStatus == CaptureSyncStatus.SYNCED).toString(),
-            ) +
-            (proof?.id?.let { mapOf(AnalyticsEvents.Params.PROOF_ID to it) } ?: emptyMap())
+            buildMap {
+                put(AnalyticsEvents.Params.RFID, row.primaryTag.ifBlank { row.animalId })
+                put("rfid_tag", row.primaryTag.ifBlank { row.animalId })
+                put(AnalyticsEvents.Params.GOAT_ID, row.animalId)
+                put(AnalyticsEvents.Params.FIELD, INDIVIDUAL_PROOF_FIELD_KEY)
+                put(AnalyticsEvents.Params.SUBJECT_TYPE, "animal")
+                put(AnalyticsEvents.Params.PROOF_CAPTURED, (proof != null).toString())
+                put(AnalyticsEvents.Params.PROOF_UPLOADED, (proof?.syncStatus == CaptureSyncStatus.SYNCED).toString())
+            } + proofAnalyticsProps(proof, subjectType = "animal")
 
     private fun trackWeighingScan(
         rfid: String,
@@ -2779,18 +2899,97 @@ class WeighingViewModel @Inject constructor(
         )
     }
 
+    private fun proofById(proofId: String?): ProofCaptureRow? {
+        if (proofId.isNullOrBlank()) return null
+        return observedProofs.value.firstOrNull { it.id == proofId }
+            ?: rawProofs.value.firstOrNull { it.id == proofId }
+            ?: autoProofs.value.values.firstOrNull { it.id == proofId }
+    }
+
+    private fun proofAnalyticsProps(proof: ProofCaptureRow?, subjectType: String): Map<String, String> =
+        buildMap {
+            if (proof == null) return@buildMap
+            put(AnalyticsEvents.Params.PROOF_ID, proof.id)
+            put("local_proof_row_id", proof.id)
+            put(AnalyticsEvents.Params.FIELD, proof.fieldKey)
+            put(AnalyticsEvents.Params.SUBJECT_TYPE, subjectType)
+            put(AnalyticsEvents.Params.PROOF_STATE, proof.syncStatus.name.lowercase())
+            put(AnalyticsEvents.Params.PROOF_UPLOADED, (proof.syncStatus == CaptureSyncStatus.SYNCED).toString())
+            proof.outboxItemId?.takeIf(String::isNotBlank)?.let {
+                put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it)
+            }
+            proof.serverProofId?.takeIf(String::isNotBlank)?.let {
+                put(AnalyticsEventsWeighing.Params.SERVER_PROOF_ID, it)
+            }
+            proof.lastError?.takeIf(String::isNotBlank)?.let {
+                put("proof_last_error", it.take(MAX_ANALYTICS_REASON_CHARS))
+            }
+        }
+
+    private fun proofUploadTroubleProps(
+        proof: ProofCaptureRow,
+        terminal: Boolean,
+        attempt: Int,
+        reason: String,
+    ): Map<String, String> =
+        weighingCaptureProps(
+            if (proof.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY) {
+                PER_SHED_PARTITION_CATEGORY
+            } else {
+                INDIVIDUAL_ANIMAL_CATEGORY
+            },
+        ) +
+            proofAnalyticsProps(
+                proof = proof,
+                subjectType = if (proof.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY) "shed" else "animal",
+            ) +
+            buildMap {
+                put(AnalyticsEvents.Params.ACTION, if (terminal) "upload_failed" else "upload_retry")
+                put(AnalyticsEvents.Params.SOURCE, "proof_observer")
+                put(AnalyticsEvents.Params.OUTCOME, if (terminal) "sync_terminal_failure" else "retrying")
+                put(AnalyticsEvents.Params.ATTEMPT, attempt.toString())
+                put(AnalyticsEvents.Params.REASON, reason.take(MAX_ANALYTICS_REASON_CHARS))
+                proof.rfidTag?.takeIf(String::isNotBlank)?.let {
+                    put(AnalyticsEvents.Params.RFID, it)
+                    put("rfid_tag", it)
+                }
+                proof.subjectId?.takeIf(String::isNotBlank)?.let { put("proof_subject_id", it) }
+            }
+
     private fun shedVideoActionProps(
         action: String,
         proofId: String?,
+        proof: ProofCaptureRow? = proofById(proofId),
         replacedProofId: String? = null,
+        replacedProof: ProofCaptureRow? = proofById(replacedProofId),
+        source: String? = null,
+        outcome: String? = null,
+        reason: String? = null,
+        kind: String = "shed_video",
     ): Map<String, String> =
-        buildMap {
-            put(AnalyticsEvents.Params.CATEGORY, action)
-            put(AnalyticsEvents.Params.ITEM_ID, scopeKey.orEmpty())
-            put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
-            proofId?.let { put(AnalyticsEvents.Params.PROOF_ID, it) }
-            replacedProofId?.let { put(AnalyticsEvents.Params.REPLACED_PROOF_ID, it) }
-        }
+        weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
+            proofAnalyticsProps(proof, subjectType = "shed") +
+            buildMap {
+                put(AnalyticsEvents.Params.CATEGORY, action)
+                put(AnalyticsEvents.Params.ACTION, action)
+                put(AnalyticsEvents.Params.KIND, kind)
+                put(AnalyticsEvents.Params.FIELD, proof?.fieldKey ?: SHED_PARTITION_PROOF_FIELD_KEY)
+                put(AnalyticsEvents.Params.SUBJECT_TYPE, "shed")
+                put(AnalyticsEvents.Params.PROOF_CAPTURED, (proof != null).toString())
+                put(AnalyticsEvents.Params.PROOF_UPLOADED, (proof?.syncStatus == CaptureSyncStatus.SYNCED).toString())
+                source?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.SOURCE, it) }
+                outcome?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.OUTCOME, it) }
+                reason?.takeIf(String::isNotBlank)?.let {
+                    put(AnalyticsEvents.Params.REASON, it.take(MAX_ANALYTICS_REASON_CHARS))
+                }
+                proofId?.takeIf(String::isNotBlank)?.let {
+                    put(AnalyticsEvents.Params.PROOF_ID, it)
+                    put("local_proof_row_id", it)
+                }
+                replacedProofId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.REPLACED_PROOF_ID, it) }
+                replacedProof?.outboxItemId?.takeIf(String::isNotBlank)?.let { put("replaced_proof_outbox_item_id", it) }
+                replacedProof?.serverProofId?.takeIf(String::isNotBlank)?.let { put("replaced_server_proof_id", it) }
+            }
 
     override fun onCleared() {
         readerRefreshJob?.cancel()
