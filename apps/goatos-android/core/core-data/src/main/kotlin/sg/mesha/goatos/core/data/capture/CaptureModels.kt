@@ -4,11 +4,8 @@ package sg.mesha.goatos.core.data.capture
 // (canonical addressing via shedId + partition across operational surfaces); the guard
 // regex looks for the word "partition" as a standalone identifier but this uses "partitionKey".
 
-/** Bounded Room read ceiling for one shed task. The business cap is per goat, below. */
+/** Bounded Room read ceiling for one task's local proof rows. Not a business proof cap. */
 const val MAX_PROOFS_PER_TASK = 10_000
-
-/** A goat may have several camera clips from one handling, while still keeping each row bounded. */
-const val MAX_PROOFS_PER_GOAT = 5
 
 /** Field key used by the shed-level vaccination Scan screen before the Submit form is opened.
  *  Submit folds these roster-level captures into the SOP-declared GOAT_SCAN answer field, whose

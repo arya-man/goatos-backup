@@ -485,15 +485,6 @@ class SubmitViewModel @Inject constructor(
         if (outboxItemId != null || captureAllowed == false) return
         if (captureInFlightKey != null) return // one capture at a time
         val subject = subjectForFieldKey(key)
-        val policyMaxCount = if (currentProofPolicy.isShedLevelVideo && subject == ProofSubject.SHED) {
-            currentProofPolicy.maximumCount
-        } else {
-            currentProofPolicy.maximumCountPerSubject
-        }
-        val activeCaptured = currentProofs.count {
-            it.proofSubject == subject && it.syncStatus != CaptureSyncStatus.FAILED
-        }
-        if (activeCaptured >= policyMaxCount) return
         if (source == "gallery_picker" && !currentProofPolicy.allowsGalleryPicker) return
         captureInFlightKey = key
         viewModelScope.launch {
@@ -1135,7 +1126,7 @@ class SubmitViewModel @Inject constructor(
 
     private fun currentShedProofReadiness(): ShedProofReadiness {
         val required = currentProofPolicy.minimumCount.coerceAtLeast(1)
-        val maximum = currentProofPolicy.maximumCount.coerceAtLeast(required)
+        val maximum = currentProofPolicy.maximumCount?.coerceAtLeast(required) ?: required
         val shedProofs = currentProofs.filter { it.proofSubject == ProofSubject.SHED }
         val localSynced = shedProofs.count { it.isCompletedProofRef() }
         val serverSynced = currentShedCompletionSummary?.proofReadyCount ?: 0
@@ -1575,11 +1566,7 @@ class SubmitViewModel @Inject constructor(
         FormFieldType.VIDEO_PROOF -> {
             val items = currentProofs.filter { it.fieldKey == key }
             val isExtraSlot = repeat
-            // R50-027: respect the per-subject cap from policy, not hardcoded MAX_PROOFS_PER_TASK
             val fieldSubject = proofSubject?.let { raw -> ProofSubject.entries.firstOrNull { it.wireValue == raw } } ?: subjectForFieldKey(key)
-            val activeCaptured = currentProofs.count {
-                it.proofSubject == fieldSubject && it.syncStatus != CaptureSyncStatus.FAILED
-            }
             val shedReadiness = if (currentProofPolicy.isShedLevelVideo && fieldSubject == ProofSubject.SHED) {
                 currentShedProofReadiness()
             } else {
@@ -1596,11 +1583,6 @@ class SubmitViewModel @Inject constructor(
             } else {
                 emptyList()
             }
-            val policyMaxCount = if (currentProofPolicy.isShedLevelVideo && fieldSubject == ProofSubject.SHED) {
-                currentProofPolicy.maximumCount
-            } else {
-                currentProofPolicy.maximumCountPerSubject
-            }
             val allowMultiple = isExtraSlot || (currentProofPolicy.isShedLevelVideo && fieldSubject == ProofSubject.SHED)
             FormFieldUi(
                 key = key,
@@ -1611,7 +1593,7 @@ class SubmitViewModel @Inject constructor(
                 proofCaptured = items.isNotEmpty() || serverProofItems.isNotEmpty(),
                 proofItems = items.map { it.toProofItemUi(label, isExtraSlot) } + serverProofItems,
                 canCaptureMore = if (allowMultiple) {
-                    maxOf(activeCaptured, shedReadiness?.synced ?: 0) < policyMaxCount
+                    true
                 } else {
                     items.none { it.syncStatus != CaptureSyncStatus.FAILED }
                 },

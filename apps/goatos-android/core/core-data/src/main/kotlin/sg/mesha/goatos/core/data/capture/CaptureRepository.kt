@@ -517,7 +517,7 @@ interface ProofCaptureRepository {
      *
      *  [proofPolicy] (R50-027) drives the per-subject cap and the `capture_source` metadata sent
      *  with the registration; callers that have not loaded the task's SOP proof policy yet may
-     *  omit it and fall back to [ProofPolicy.Default] (the historical hardcoded values).
+     *  omit it and fall back to [ProofPolicy.Default] (the neutral shared baseline).
      *
      *  [allowReplacementOverCap] permits captureReplacingLatest to bypass per-field cap temporarily
      *  for the new capture (the transient second row during replace). Manohar ordering: new proof
@@ -813,7 +813,7 @@ class DefaultProofCaptureRepository(
             return@withContext AppResult.Err("Select a scanned goat before recording proof.")
         }
         // R50-027: caps are policy-driven. Per-goat mode uses the per-subject cap; shed-level
-        // mode uses the SOP's shed total cap (1 required, up to 5 videos) because the whole shed
+        // mode uses the SOP's shed total cap because the whole shed
         // is the proof subject.
         val maxPerSubject = if (proofPolicy.isShedLevelVideo && subject == ProofSubject.SHED) {
             proofPolicy.maximumCount
@@ -845,8 +845,7 @@ class DefaultProofCaptureRepository(
                 dao.activeCountForSubjectType(taskId, partitionKey, subject.wireValue)
             else -> 0
         }
-        val bypassHistoricalGoatProofCap = subject == ProofSubject.GOAT && effectiveSubjectId != null
-        if (!bypassHistoricalGoatProofCap && existing >= maxPerSubject) {
+        if (maxPerSubject != null && existing >= maxPerSubject) {
             val subjectLabel = when (subject) {
                 ProofSubject.GOAT -> "goat"
                 ProofSubject.SHED -> "shed"

@@ -495,7 +495,7 @@ private fun proofCaptureHint(field: FormFieldUi): String {
         uploading > 0 && failed > 0 -> "Upload still pending · failed video can be retried"
         uploading > 0 -> "Uploading video · keep this screen available"
         failed > 0 -> "Upload failed · retry or remove and record again"
-        else -> field.helpText ?: "1 required · up to 5 videos"
+        else -> field.helpText ?: "Video required"
     }
 }
 

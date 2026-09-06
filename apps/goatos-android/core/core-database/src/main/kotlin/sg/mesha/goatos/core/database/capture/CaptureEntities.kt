@@ -796,9 +796,8 @@ interface ProofCaptureDao {
     suspend fun clearAll()
 
     companion object {
-        /** Safety ceiling for a bounded task read; the write cap is five clips per goat. */
+        /** Safety ceiling for bounded task-local reads. Not a business proof cap. */
         const val MAX_PROOFS_PER_TASK = 10_000
-        const val MAX_PROOFS_PER_GOAT = 5
 
         /** R50-028: bounded page size for [listRecoverableUploadsPage]'s startup-recovery walk. */
         const val RECOVERABLE_UPLOADS_PAGE_SIZE = 20

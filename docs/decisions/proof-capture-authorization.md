@@ -7,6 +7,12 @@ Status: accepted (2026-08-03).
 **Proof/evidence capture is authorized by the SAME execution right that authorizes
 the work it proves — never by another vertical's task permission.**
 
+Proof capture also has no shared business cap. The common capture layer may store,
+retry, replace, and sync evidence, but it must not decide that "a subject gets N
+videos" for every feature. A cap like the old vaccination shed-video limit belongs
+only to that named feature/grain, and must not be reused as a backend, Android, or
+frontend default.
+
 A write that mandates evidence and the upload of that evidence are one indivisible
 act. If a role may perform the write, it may complete the proof handshake for it.
 Anything else produces a role that can do the work and can never prove it, which in

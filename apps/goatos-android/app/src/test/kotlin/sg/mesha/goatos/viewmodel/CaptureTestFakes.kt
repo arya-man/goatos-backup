@@ -186,8 +186,8 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
     }
 }
 
-/** In-memory [ProofCaptureRepository] test double — enforces the same 5-video cap the Room-
- *  backed implementation does, records every [capture] call's arguments for assertions. */
+/** In-memory [ProofCaptureRepository] test double — enforces explicit policy caps the same way
+ *  the Room-backed implementation does, records every [capture] call's arguments for assertions. */
 class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureRepository {
     companion object {
         /** Sentinel taskId for seeded rows: matches any observed/queried task. */
@@ -336,7 +336,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
                 it.row.subjectId == subjectId &&
                 it.row.syncStatus != CaptureSyncStatus.FAILED
         }
-        if (activeRows >= effectiveMaxProofs) {
+        if (effectiveMaxProofs != null && activeRows >= effectiveMaxProofs) {
             val subjectLabel = when (subject) {
                 ProofSubject.GOAT -> "goat"
                 ProofSubject.SHED -> "shed"
@@ -671,7 +671,6 @@ fun feedShedProofPolicy(captureSource: String): ProofPolicy =
         expectedSubjects = listOf(ProofSubject.SHED.wireValue),
         captureSource = captureSource,
         maximumCountPerField = 1,
-        maximumCount = 5,
     )
 
 /** Shared test double for analytics. Used across multiple test files to avoid redeclaration. */

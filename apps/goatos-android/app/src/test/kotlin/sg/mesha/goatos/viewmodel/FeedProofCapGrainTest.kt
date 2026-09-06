@@ -4,17 +4,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlinx.coroutines.flow.first
-import sg.mesha.goatos.core.data.capture.MAX_PROOFS_PER_GOAT
 
 /**
  * The feed proof cap is PER SLOT, not one pooled budget for the whole shed.
  *
  * Feed distribution's three proofs — weight photo, feed video, water video — all carry the SHED as
- * their subject, so the per-subject cap counted them together: one budget of five
- * ([MAX_PROOFS_PER_GOAT]) for three required steps. Combined with a re-capture that leaked its old
- * row instead of replacing it (the hydration defect fixed the same day), pens reached five and
- * every later capture was REFUSED — returning an error and writing no Room row, so the operator's
- * proof simply never came back.
+ * their subject, so any per-subject cap would count them together. Combined with a re-capture that
+ * leaked its old row instead of replacing it (the hydration defect fixed the same day), a pooled
+ * cap refuses later slots — returning an error and writing no Room row, so the operator's proof
+ * simply never comes back.
  *
  * Found 2026-08-13 on Castro - 1 session 2, holding three weight photos and two videos, with no
  * water video and therefore no way to ever submit.
@@ -51,8 +49,8 @@ class FeedProofCapGrainTest {
             slots.size * perFieldCap > perFieldCap,
         )
         assertTrue(
-            "the subject cap must still leave room for one proof in each slot",
-            slots.size <= policy.maximumCount,
+            "feed proofs must not carry a shared subject cap",
+            policy.maximumCount == null && policy.maximumCountPerSubject == null,
         )
     }
 

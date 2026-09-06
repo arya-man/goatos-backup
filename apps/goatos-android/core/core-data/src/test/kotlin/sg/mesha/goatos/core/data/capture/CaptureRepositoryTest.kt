@@ -58,7 +58,7 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
  * MOB-002 Room-first capture coverage (docs/mobile/proof-capture-sync-and-e2e.md §3):
  *  1. [ScanCaptureRepository] dedups a repeat tag at the DB layer (unique index), not just
  *     in-memory.
- *  2. [ProofCaptureRepository] enforces the 5-video cap, persists Room FIRST, and follows a
+ *  2. [ProofCaptureRepository] enforces explicit policy caps, persists Room FIRST, and follows a
  *     registration outbox item's status back onto the row (PENDING -> IN_FLIGHT -> SYNCED,
  *     decoding the server proof id from the outbox's echoed result JSON).
  *  3. Process-death restore: a NEW repository instance built over the SAME (still-open) Room
@@ -538,7 +538,7 @@ class CaptureRepositoryTest {
     }
 
     @Test
-    fun `R50-027 generic (no-subjectId) shed proof capture is capped, not unlimited`() = runTest {
+    fun `R50-027 explicit generic shed proof cap is enforced without a subject id`() = runTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
@@ -549,8 +549,9 @@ class CaptureRepositoryTest {
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
-            // A shed proof has no per-goat subjectId. Before the fix the per-subject count saw 0
-            // and the cap never applied, so generic proofs were unbounded.
+            // A shed proof has no per-goat subjectId. The shared default is deliberately uncapped,
+            // so this test opts into a feature-owned cap before asserting cap enforcement.
+            val cappedShedPolicy = ProofPolicy.Default.copy(maximumCountPerSubject = 5)
             repeat(5) { index ->
                 val result = repo.capture(
                     taskId = "task-shed",
@@ -565,6 +566,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = cappedShedPolicy,
                 )
                 assertTrue("shed capture #$index (under cap) must succeed", result is AppResult.Ok)
             }
@@ -581,8 +583,9 @@ class CaptureRepositoryTest {
                 capturedStartMs = 1_000L,
                 capturedEndMs = 4_000L,
                 capturedByPrincipalId = "operator-1",
+                proofPolicy = cappedShedPolicy,
             )
-            assertTrue("generic shed cap must reject the 6th, not accept unlimited", sixth is AppResult.Err)
+            assertTrue("explicit generic shed cap must reject the 6th, not accept unlimited", sixth is AppResult.Err)
             assertEquals(5, repo.observeProofs("task-shed").first().size)
         } finally {
             closeDb(db)
@@ -639,7 +642,7 @@ class CaptureRepositoryTest {
                 capturedByPrincipalId = "operator-1",
             )
 
-            assertTrue("failed rows must not permanently burn the 5-video cap", replacement is AppResult.Ok)
+            assertTrue("failed rows must not permanently burn the explicit proof cap", replacement is AppResult.Ok)
             assertEquals(CaptureSyncStatus.PENDING, repo.observeProofs("task-failed-cap").first().first().syncStatus)
             awaitEnqueueCallCount(sync, expectedCount = 6)
         } finally {
@@ -856,7 +859,7 @@ class CaptureRepositoryTest {
             val row = repo.observeProofs("task-corrupt-proof-result").first().first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.FAILED, row.syncStatus)
             assertEquals(null, row.serverProofId)
-            assertEquals("Proof upload finished without a server proof id. Record this video again.", row.lastError)
+            assertEquals("Proof upload finished without a server proof id. Retry this saved proof.", row.lastError)
         } finally {
             closeDb(db)
         }

@@ -854,6 +854,8 @@ mobile-guard:
 	node tools/agent-hooks/check-android-proof-video-pipeline.mjs
 	node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs --self-test
 	node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs
+	node tools/agent-hooks/check-android-proof-policy-default.mjs --self-test
+	node tools/agent-hooks/check-android-proof-policy-default.mjs
 	node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test
 	node tools/agent-hooks/check-android-feed-proof-submit.mjs
 	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test

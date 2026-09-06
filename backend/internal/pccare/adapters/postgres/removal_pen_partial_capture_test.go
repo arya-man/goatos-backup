@@ -105,3 +105,66 @@ WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid`, pcTenant, removalTas
 		}
 	}
 }
+
+func TestRemovalPenProofsStayPartitionGrainedInsideOneRemovalCard(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupPCCareDB(t, ctx)
+
+	round, err := repo.CreateRound(ctx, ports.CreateRoundParams{
+		TenantID: pcTenant, Category: domain.CategoryDeworming, ParkID: pcPark,
+		Pens: []domain.RoundPen{
+			{ShedID: pcShedA, PartitionLabel: "Part 1"},
+			{ShedID: pcShedA, PartitionLabel: "Part 2"},
+		},
+		PlannedBusinessDate:    pcBusinessDay(2026, 9, 19),
+		AssigneeUserIDs:        []string{pcOperator1},
+		FeedRemovalRequired:    true,
+		RemovalOperatorUserIDs: []string{pcOperator2},
+		IdempotencyKey:         "removal-partition-grain",
+		CreatedBy:              pcVerifier, ActorID: pcVerifier,
+	})
+	if err != nil {
+		t.Fatalf("CreateRound: %v", err)
+	}
+	var removalTaskID string
+	if err := pool.QueryRow(ctx, `
+SELECT task_id::text FROM pc_care_tasks
+WHERE tenant_id = $1::uuid AND gates_round_id = $2::uuid`, pcTenant, round.RoundID).Scan(&removalTaskID); err != nil {
+		t.Fatalf("read removal card: %v", err)
+	}
+
+	for i, pen := range round.Pens {
+		if err := repo.RegisterRemovalPenProof(ctx, ports.RegisterRemovalPenProofParams{
+			TenantID: pcTenant, RemovalTaskID: removalTaskID, GatedTaskID: pen.TaskID,
+			SlotKey: domain.SlotFeedVideo, ProofRef: "proof-feed-part-" + pen.PartitionLabel,
+			CapturedBy: pcOperator2, IdempotencyKey: "partition-feed-" + pen.TaskID, ActorID: pcOperator2,
+		}); err != nil {
+			t.Fatalf("feed video pen %d: %v", i, err)
+		}
+		if err := repo.RegisterRemovalPenProof(ctx, ports.RegisterRemovalPenProofParams{
+			TenantID: pcTenant, RemovalTaskID: removalTaskID, GatedTaskID: pen.TaskID,
+			SlotKey: domain.SlotWaterVideo, ProofRef: "proof-water-part-" + pen.PartitionLabel,
+			CapturedBy: pcOperator2, IdempotencyKey: "partition-water-" + pen.TaskID, ActorID: pcOperator2,
+		}); err != nil {
+			t.Fatalf("water video pen %d: %v", i, err)
+		}
+	}
+
+	pens, err := repo.ListRemovalPenProofs(ctx, pcTenant, removalTaskID)
+	if err != nil {
+		t.Fatalf("ListRemovalPenProofs: %v", err)
+	}
+	if len(pens) != 2 {
+		t.Fatalf("removal pen proofs = %+v, want exactly two partition-grained rows", pens)
+	}
+	seen := map[string]ports.RemovalPenProofRow{}
+	for _, pen := range pens {
+		seen[pen.GatedTaskID] = pen
+	}
+	for _, pen := range round.Pens {
+		got := seen[pen.TaskID]
+		if got.FeedProofRef != "proof-feed-part-"+pen.PartitionLabel || got.WaterProofRef != "proof-water-part-"+pen.PartitionLabel {
+			t.Fatalf("pen %s refs = %+v, want refs scoped to %s", pen.TaskID, got, pen.PartitionLabel)
+		}
+	}
+}

@@ -375,5 +375,4 @@ internal fun vendorVoiceNotePolicy(captureSource: String): ProofPolicy = ProofPo
     expectedSubjects = listOf(ProofSubject.OTHER.wireValue),
     captureSource = captureSource,
     maximumCountPerField = 1,
-    maximumCountPerSubject = 5,
 )

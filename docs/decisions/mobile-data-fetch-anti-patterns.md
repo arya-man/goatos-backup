@@ -182,7 +182,7 @@ Re-verified against `origin/main` 05889b83 on 2026-07-20:
 
 - **Proof read cap (`ProofCaptureDao.observeForTask`/`listForTask` `LIMIT MAX_PROOFS_PER_TASK=10_000`)**
   is an UNREACHABLE safety bound, not a silent truncation: a task's proofs are bounded by
-  `MAX_PROOFS_PER_GOAT=5` × the shed's animals (hundreds at most) — orders of magnitude below 10k.
+  the feature's explicit proof policy × the shed's animals (hundreds at most) — orders of magnitude below 10k.
   It is not a live data-loss bug.
 - **Crash-recovery re-enqueue must preserve proof capture source.** `capture_source` is now
   SOP-controlled: per-goat proof remains `in_app_camera`, while shed-level proof may use

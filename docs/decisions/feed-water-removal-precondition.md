@@ -19,19 +19,17 @@ precondition as a first-class task:
    The evening-shift person and the task's own operator are different people,
    which is why this is its own assignment.
 3. The removal cards are **served from 20:00 IST on D−1** (server-side clock;
-   no client derives the window). **ONE CARD PER SHED** (maintainer correction
-   #2, same day, superseding the umbrella-card-with-per-shed-slots second cut,
-   which had itself superseded the one-pair-per-card first cut): the operator's
-   LIST holds a separate card for each shed of the round — "Remove feed &
-   water · Castro 1" — never one card the sheds hide inside. Each card owes its
-   own live-camera feed-removal video and water-removal video (one clip
-   stretched over several sheds proves nothing) and is SUBMITTED ON ITS OWN.
+   no client derives the window). Weighing is **one card per shed bucket**:
+   every shed/partition bucket owes its own live-camera feed-removal video and
+   water-removal video, and the card is submitted on its own. PC Care deworming
+   round removal is **one removal card per round**, but the proof rows inside it
+   are still per planned pen (`gated_task_id`), so `Godel 2 - Part 1` and
+   `Godel 2 - Part 2` are separate evidence rows even though they share the same
+   removal card. A common proof layer must never pool those slots under a shared
+   subject cap.
    The round's deadline is unchanged — **00:00 IST of D** — and is satisfied
-   only when EVERY shed's card is submitted: the LAST shed's submit stamps the
-   round's `submitted_at` inside the same transaction, and that stamp is the
-   only fact the midnight gate reads. A clip reused anywhere in the round —
-   the card's other slot or a sibling shed's card — refuses the submit.
-   Deworming's removal is a single pen, so it is one card by construction.
+   only when EVERY required removal proof set is submitted. A clip reused across
+   slots or sibling pens/sheds refuses the submit.
 4. **Operator SUBMISSION is the gate.** Submission of every card before
    midnight lets day-D work run. The videos go to the **verifier post-hoc**,
    and review follows the EVIDENCE (ledger B-5): **one item per shed**,
@@ -76,14 +74,15 @@ never learn an animal.
 
 **Deworming (PC Care)**: a new category `feed_water_removal` (capture mode
 `task_proof`, backend-owned slots `feed_video` + `water_video`), created in the
-**same transaction** as the deworming when `feed_removal_required` is true,
-linked via `pc_care_tasks.gates_task_id` (migration 000254; partial unique
-index makes the gate join provably 1:1). It rides the existing PC Care
-machinery end to end: assignees, worklist (served **inside the Deworming tab**
-— the four-tab bar lock stands), task-level proofs, submit, verification,
-roll-forward. Midnight gate: `sweepDewormingRemovalGate` in
-`pccare/adapters/postgres/kernel.go`. Canceling a deworming cancels its
-unsubmitted removal (a submitted one is history).
+**same transaction** as the deworming when `feed_removal_required` is true. For
+single-pen tasks the legacy join is `pc_care_tasks.gates_task_id`; for round
+tasks one removal card gates the round and `pc_care_removal_pen_proofs` stores
+one evidence row per planned pen via `gated_task_id` (migration 000256). It
+rides the existing PC Care machinery end to end: assignees, worklist (served
+**inside the Deworming tab** — the four-tab bar lock stands), slot proofs,
+submit, verification, roll-forward. Midnight gate:
+`sweepDewormingRemovalGate` in `pccare/adapters/postgres/kernel.go`. Canceling
+a deworming cancels its unsubmitted removal (a submitted one is history).
 
 ## Deliberate narrowings
 
@@ -123,7 +122,9 @@ PC Care: `TestFeedWaterRemovalCategoryContract`,
 `TestEarliestFeedRemovalDewormingDateCrossesTheEveningCutoff`,
 `TestCreateTaskFeedRemovalRequiresRemovalOperators`,
 `TestCreateTaskFeedRemovalOnNonDewormingIsRejected`,
-`TestDewormingRemovalGateSweepShape`, and the pg integration suite in
+`TestDewormingRemovalGateSweepShape`,
+`TestRemovalPenPartialCaptureIsAllowedAndSubmitStillDemandsBoth`,
+`TestRemovalPenProofsStayPartitionGrainedInsideOneRemovalCard`, and the pg integration suite in
 `pccare/adapters/postgres/fasting_precondition_integration_test.go`.
 Key mutations were run red→green when written (cutoff branch deleted, gate
 invocation removed, `submitted_at IS NULL` dropped, visibility predicate

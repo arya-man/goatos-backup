@@ -4,11 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import sg.mesha.goatos.core.data.forms.ProofPolicy
-import sg.mesha.goatos.core.data.capture.ProofSubject
 
 /**
  * R50-027: Proof policy enforcement unit tests.
- * Verifies: minimum counts enforced, subject derived from policy, per-subject caps applied.
+ * Verifies: minimum counts, subject selection, and explicit caps. The default policy must never
+ * invent a cross-feature proof cap.
  */
 class ProofPolicyEnforcementTest {
 
@@ -53,12 +53,22 @@ class ProofPolicyEnforcementTest {
     }
 
     @Test
-    fun `default policy has safe values`() {
+    fun `default policy does not invent a client-side proof cap`() {
         val default = ProofPolicy.Default
         assertEquals(0, default.minimumCount)
         assertEquals(0, default.minimumCountPerSubject)
-        assertEquals(5, default.maximumCountPerSubject) // MAX_PROOFS_PER_GOAT
+        assertEquals(null, default.maximumCount)
+        assertEquals(null, default.maximumCountPerSubject)
         assertEquals("in_app_camera", default.captureSource)
+    }
+
+    @Test
+    fun `weighing fasting feed and water proofs are capped per slot only`() {
+        val policy = weighingFastingProofPolicy("in_app_camera")
+
+        assertEquals(1, policy.maximumCountPerField)
+        assertEquals(null, policy.maximumCount)
+        assertEquals(null, policy.maximumCountPerSubject)
     }
 
     @Test

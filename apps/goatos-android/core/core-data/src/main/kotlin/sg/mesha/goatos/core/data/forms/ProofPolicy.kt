@@ -5,7 +5,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
-import sg.mesha.goatos.core.data.capture.MAX_PROOFS_PER_GOAT
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.network.dto.SopVersionDto
 
@@ -13,9 +12,9 @@ import sg.mesha.goatos.core.network.dto.SopVersionDto
  * Typed, render-ready view of a SOP `proof_policy` (R50-027). The backend owns the schema
  * (golden frontend rule); this is a STRUCTURAL walk of the free-form JSON, same pattern as
  * [FormSpec] for `form_dsl`. A row-level policy may be a bare token array (e.g. `["video"]`) or
- * absent entirely — both parse to [ProofPolicy.Default] rather than throwing, so an
- * older/partial backend payload degrades to the same safe defaults the client hardcoded before
- * this policy existed.
+ * absent entirely — both parse to [ProofPolicy.Default] rather than throwing. The default is
+ * deliberately uncapped: capture limits are business policy and must be supplied explicitly by the
+ * backend policy or the feature-specific caller.
  *
  * Real backend shape (baseline 000001):
  * `{"types":["video"],"required":true,"subject_scope":"goat","expected_subjects":["goat"],
@@ -31,11 +30,10 @@ data class ProofPolicy(
     val subjectScope: String = "goat",
     val expectedSubjects: List<String> = listOf("goat"),
     val minimumCount: Int = 0,
-    val maximumCount: Int = MAX_PROOFS_PER_GOAT,
+    val maximumCount: Int? = null,
     val minimumCountPerSubject: Int = 0,
-    /** Falls back to the historical hardcoded cap ([MAX_PROOFS_PER_GOAT]) when the backend has
-     *  not published this field yet. */
-    val maximumCountPerSubject: Int = MAX_PROOFS_PER_GOAT,
+    /** Null means the shared Android proof layer must not invent a per-subject business cap. */
+    val maximumCountPerSubject: Int? = null,
     /**
      * Cap ONE capture slot, instead of pooling every slot under the subject cap. Null keeps the
      * historical per-subject behaviour.
@@ -108,9 +106,9 @@ fun Map<String, JsonElement>.toProofPolicy(): ProofPolicy {
         subjectScope = this["subject_scope"].asStringOrEmpty().ifBlank { ProofPolicy.Default.subjectScope },
         expectedSubjects = expectedSubjects,
         minimumCount = this["minimum_count"].asIntOrDefault(ProofPolicy.Default.minimumCount),
-        maximumCount = this["maximum_count"].asIntOrDefault(ProofPolicy.Default.maximumCount),
+        maximumCount = this["maximum_count"].asIntOrNull() ?: ProofPolicy.Default.maximumCount,
         minimumCountPerSubject = this["minimum_count_per_subject"].asIntOrDefault(ProofPolicy.Default.minimumCountPerSubject),
-        maximumCountPerSubject = this["maximum_count_per_subject"].asIntOrDefault(ProofPolicy.Default.maximumCountPerSubject),
+        maximumCountPerSubject = this["maximum_count_per_subject"].asIntOrNull() ?: ProofPolicy.Default.maximumCountPerSubject,
         captureSource = this["capture_source"].asStringOrEmpty().ifBlank { ProofPolicy.Default.captureSource },
         allowedCaptureSources = allowedSources,
     )
@@ -127,3 +125,6 @@ private fun JsonElement?.asBool(): Boolean =
 
 private fun JsonElement?.asIntOrDefault(default: Int): Int =
     (this as? JsonPrimitive)?.intOrNull ?: default
+
+private fun JsonElement?.asIntOrNull(): Int? =
+    (this as? JsonPrimitive)?.intOrNull

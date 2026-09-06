@@ -155,6 +155,13 @@ contract by the backend — not hand-typed into config and not hardcoded in the 
 - The app treats config as **presentation + bounded runtime knobs only**; every
   mutating action is still revalidated server-side (permissions + form_version +
   current state), and every policy/scheduling decision is computed server-side.
+- Proof-video quantity limits are never a shared client rule. A historical
+  vaccination shed-video limit such as "5 videos" is not a default for proof
+  capture, PC Care, feed/water removal, weighing, feed distribution, or any other
+  feature. If a feature needs a proof cap, the backend/domain contract must name
+  that exact feature and grain; Android may only render the computed disabled
+  reason or enforce a slot-local technical constraint such as "one active clip for
+  this feed slot".
 
 ## Observability
 
