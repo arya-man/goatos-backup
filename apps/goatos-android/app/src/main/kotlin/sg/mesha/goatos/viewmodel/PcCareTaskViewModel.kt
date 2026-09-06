@@ -981,6 +981,9 @@ class PcCareTaskViewModel @Inject constructor(
                                     status = detail.status,
                                     outcome = "success",
                                     source = "room",
+                                    proofRowId = result.value.id,
+                                    proofOutboxItemId = result.value.outboxItemId,
+                                    serverProofId = result.value.serverProofId,
                                 ),
                             )
                             var proofOutboxId = result.value.outboxItemId
@@ -1001,6 +1004,8 @@ class PcCareTaskViewModel @Inject constructor(
                                         status = detail.status,
                                         outcome = "failure",
                                         reason = "missing_upload_outbox",
+                                        proofRowId = result.value.id,
+                                        serverProofId = result.value.serverProofId,
                                     ),
                                 )
                                 local.update { it.copy(message = "$proofNoun didn't queue. Retry upload.") }
@@ -1014,6 +1019,9 @@ class PcCareTaskViewModel @Inject constructor(
                                     status = detail.status,
                                     outcome = "success",
                                     source = "room",
+                                    proofRowId = result.value.id,
+                                    proofOutboxItemId = proofOutboxId,
+                                    serverProofId = result.value.serverProofId,
                                 ),
                             )
                             captureDrafts.putProof(CaptureFlow.PC_CARE, taskId, slotFieldKey, proofOutboxId)
@@ -1037,6 +1045,9 @@ class PcCareTaskViewModel @Inject constructor(
                                             status = detail.status,
                                             outcome = "success",
                                             source = "outbox",
+                                            proofRowId = result.value.id,
+                                            proofOutboxItemId = proofOutboxId,
+                                            serverProofId = result.value.serverProofId,
                                         ),
                                     )
                                     analytics.track(
@@ -1054,6 +1065,9 @@ class PcCareTaskViewModel @Inject constructor(
                                             status = detail.status,
                                             outcome = "failure",
                                             reason = registered.message.take(MAX_REASON_CHARS),
+                                            proofRowId = result.value.id,
+                                            proofOutboxItemId = proofOutboxId,
+                                            serverProofId = result.value.serverProofId,
                                         ),
                                     )
                                     local.update { it.copy(message = "$proofNoun saved, but couldn't be attached. Tap refresh to retry.") }
@@ -1248,7 +1262,8 @@ class PcCareTaskViewModel @Inject constructor(
                     if (pcCareIsTaskProofMode(detail)) {
                         analytics.track(
                             AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED,
-                            pcCareStockProofAnalyticsProps(status = detail.status, outcome = "success", source = "submit_dialog"),
+                            pcCareStockProofAnalyticsProps(status = detail.status, outcome = "success", source = "submit_dialog") +
+                                mapOf(AnalyticsEvents.Params.OUTBOX_ITEM_ID to result.value),
                         )
                     }
                     local.update { it.copy(submitInFlight = false, submitQueued = true, submitOutboxItemId = result.value) }
@@ -1286,6 +1301,14 @@ class PcCareTaskViewModel @Inject constructor(
                 when {
                     item == null -> Unit
                     item.status == SyncItemStatus.SUCCEEDED -> {
+                        analytics.track(
+                            AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT,
+                            pcCareStockProofAnalyticsProps(
+                                status = latestDetail?.status.orEmpty(),
+                                outcome = "sync_success",
+                                source = "outbox_observer",
+                            ) + mapOf(AnalyticsEvents.Params.OUTBOX_ITEM_ID to outboxItemId),
+                        )
                         local.update { current ->
                             if (current.submitOutboxItemId == outboxItemId) {
                                 current.copy(submitQueued = false, submitOutboxItemId = null)
@@ -1303,7 +1326,7 @@ class PcCareTaskViewModel @Inject constructor(
                                 outcome = "sync_terminal_failure",
                                 reason = item.lastError.orEmpty(),
                                 source = "outbox_observer",
-                            ),
+                            ) + mapOf(AnalyticsEvents.Params.OUTBOX_ITEM_ID to outboxItemId),
                         )
                         local.update { current ->
                             if (current.submitOutboxItemId == outboxItemId) {
@@ -1379,14 +1402,44 @@ class PcCareTaskViewModel @Inject constructor(
             val (removalGatedTaskId, removalSlot) = pcCareSplitRemovalSlotKey(row.fieldKey)
             if (removalGatedTaskId.isNotBlank() && pcCareTaskProofSlotKeys.contains(removalSlot)) {
                 if (!pcCareStockSlotMatchesMime(removalSlot, row.mimeType)) return@forEach
-                repository.registerTaskProof(taskId, removalSlot, outboxId, removalGatedTaskId)
+                val result = repository.registerTaskProof(taskId, removalSlot, outboxId, removalGatedTaskId)
+                analytics.track(
+                    AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
+                    pcCareStockProofAnalyticsProps(
+                        fieldKey = row.fieldKey,
+                        mediaKind = pcCareMediaKindFromMime(row.mimeType),
+                        status = latestDetail?.status.orEmpty(),
+                        outcome = if (result is AppResult.Ok) "success" else "failure",
+                        reason = (result as? AppResult.Err)?.message,
+                        source = "reconcile",
+                        proofRowId = row.id,
+                        proofOutboxItemId = outboxId,
+                        serverProofId = row.serverProofId,
+                    ),
+                )
                 return@forEach
             }
             val hasAnimalSlotKey = row.fieldKey.contains(':')
             val tag = row.fieldKey.substringBefore(':')
             val slot = row.fieldKey.substringAfter(':')
             if (hasAnimalSlotKey && tag.isNotBlank() && slot.isNotBlank()) {
-                repository.registerSlotProof(taskId, tag, slot, outboxId)
+                val result = repository.registerSlotProof(taskId, tag, slot, outboxId)
+                analytics.track(
+                    AnalyticsEvents.PC_CARE_SLOT_REGISTRATION,
+                    pcCareAnimalSlotAnalyticsProps(
+                        tagKey = tag,
+                        tagVerbatim = tag,
+                        slotFieldKey = row.fieldKey,
+                        slotKey = slot,
+                        outcome = if (result is AppResult.Ok) "success" else "failure",
+                        reason = (result as? AppResult.Err)?.message,
+                        mediaKind = pcCareMediaKindFromMime(row.mimeType),
+                        proofRowId = row.id,
+                        proofOutboxItemId = outboxId,
+                        serverProofId = row.serverProofId,
+                        outboxItemId = (result as? AppResult.Ok)?.value,
+                    ),
+                )
             } else if (pcCareTaskProofSlotKeys.contains(row.fieldKey)) {
                 if (!pcCareStockSlotMatchesMime(pcCareSplitRemovalSlotKey(row.fieldKey).second, row.mimeType)) {
                     analytics.track(
@@ -1398,6 +1451,9 @@ class PcCareTaskViewModel @Inject constructor(
                             outcome = "failure",
                             reason = "slot_media_mismatch",
                             source = "reconcile",
+                            proofRowId = row.id,
+                            proofOutboxItemId = outboxId,
+                            serverProofId = row.serverProofId,
                         ),
                     )
                     return@forEach
@@ -1417,7 +1473,11 @@ class PcCareTaskViewModel @Inject constructor(
                         mediaKind = pcCareMediaKindFromMime(row.mimeType),
                         status = latestDetail?.status.orEmpty(),
                         outcome = if (result is AppResult.Ok) "success" else "failure",
+                        reason = (result as? AppResult.Err)?.message,
                         source = "reconcile",
+                        proofRowId = row.id,
+                        proofOutboxItemId = outboxId,
+                        serverProofId = row.serverProofId,
                     ),
                 )
             }

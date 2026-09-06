@@ -23,6 +23,7 @@ import org.junit.Test
 import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
@@ -92,6 +93,56 @@ class PenReconciliationExecuteEvidenceDraftTest {
             listOf(drafts.rows[CARD_ID]?.proofs?.get("return")),
             sync.completeProofItemIds,
         )
+    }
+
+    @Test
+    fun `capture preview submit and sync analytics carry proof and outbox trace ids`() = runTest(dispatcher) {
+        val sync = FakePenReconciliationSyncRepository()
+        val drafts = PenReconciliationDraftFake()
+        val analytics = FakeAnalyticsPort()
+        val vm = newViewModel(FakePenReconciliationCardRepository(), drafts, sync, analytics = analytics)
+        advanceUntilIdle()
+
+        vm.onEvent(PenReconciliationExecuteEvent.RecordVideo)
+        advanceUntilIdle()
+        vm.onEvent(PenReconciliationExecuteEvent.PreviewAction("share"))
+        vm.onEvent(PenReconciliationExecuteEvent.MarkDone)
+        advanceUntilIdle()
+        sync.succeed(sync.completeItemIds.last())
+        advanceUntilIdle()
+
+        val captureSuccess = analytics.events.last {
+            it.first == AnalyticsEvents.COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED &&
+                it.second[AnalyticsEvents.Params.OUTCOME] == "success"
+        }.second
+        assertEquals("capture", captureSuccess[AnalyticsEvents.Params.ACTION])
+        assertEquals(CARD_ID, captureSuccess["task_id"])
+        assertEquals("goat-1", captureSuccess[AnalyticsEvents.Params.GOAT_ID])
+        assertEquals("982000123456789", captureSuccess[AnalyticsEvents.Params.RFID])
+        assertEquals("proof-0", captureSuccess["local_proof_row_id"])
+        assertEquals("proof-outbox-1", captureSuccess[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+
+        val preview = analytics.events.last {
+            it.first == AnalyticsEvents.COUNTS_PEN_RECONCILIATION_PROOF_PREVIEW_ACTION
+        }.second
+        assertEquals("share", preview[AnalyticsEvents.Params.ACTION])
+        assertEquals("proof-0", preview["local_proof_row_id"])
+        assertEquals("proof-outbox-1", preview[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+
+        val enqueue = analytics.events.last {
+            it.first == AnalyticsEvents.COUNTS_PEN_RECONCILIATION_COMPLETED &&
+                it.second[AnalyticsEvents.Params.ACTION] == "submit_enqueue"
+        }.second
+        assertEquals("queued", enqueue[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("proof-outbox-1", enqueue[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("complete-1", enqueue[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+
+        val syncSuccess = analytics.events.last {
+            it.first == AnalyticsEvents.COUNTS_PEN_RECONCILIATION_COMPLETED &&
+                it.second[AnalyticsEvents.Params.ACTION] == "submit_sync"
+        }.second
+        assertEquals("success", syncSuccess[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("complete-1", syncSuccess[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
     }
 
     @Test

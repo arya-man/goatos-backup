@@ -72,6 +72,7 @@ class PenReconciliationExecuteViewModel @Inject constructor(
 
     // The card's registered shed is the proof subject/scope. Resolved from the cached row on load.
     private var registeredShedId: String = ""
+    private var goatId: String = ""
     private var parkLabel: String = ""
     private var belongsLabel: String = ""
 
@@ -83,6 +84,8 @@ class PenReconciliationExecuteViewModel @Inject constructor(
      * backstack, so Back + re-entry keeps the recorded clip and resends under the SAME key.
      */
     private var draft = CaptureDraft()
+    private var returnProofTrace = CountsProofTrace()
+    private val submitTerminalEventsTracked = mutableSetOf<String>()
 
     private val _state = MutableStateFlow(PenReconciliationExecuteUiState(cardId = cardId))
     val state: StateFlow<PenReconciliationExecuteUiState> = _state.asStateFlow()
@@ -109,18 +112,13 @@ class PenReconciliationExecuteViewModel @Inject constructor(
     }
 
     private fun trackPreviewAction(action: String) {
-        val proofOutboxItemId = draft.proofs[STEP_RETURN]?.takeIf { it.isNotBlank() }
         analytics.track(
             AnalyticsEvents.COUNTS_PEN_RECONCILIATION_PROOF_PREVIEW_ACTION,
-            buildMap {
-                put(AnalyticsEvents.Params.SOURCE, SCREEN_EXECUTE)
-                put(AnalyticsEvents.Params.KIND, KIND_COMPLETE)
-                put(AnalyticsEvents.Params.ACTION, action)
-                put(AnalyticsEvents.Params.FIELD, FIELD_RETURN_VIDEO)
-                put(AnalyticsEvents.Params.SHED_ID, registeredShedId)
-                put("task_id", cardId)
-                proofOutboxItemId?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
-            },
+            countsJourneyProps(
+                action = action,
+                outcome = "preview_action",
+                source = SOURCE_PROOF_PREVIEW,
+            ),
         )
     }
 
@@ -129,6 +127,10 @@ class PenReconciliationExecuteViewModel @Inject constructor(
             // Rehydrate the durable draft FIRST: everything below reads the evidence this card
             // already has.
             draft = drafts.find(CaptureFlow.PEN_RECONCILIATION, cardId)
+            returnProofTrace = returnProofTrace.copy(
+                proofOutboxItemId = draft.proofs[STEP_RETURN]?.takeIf { it.isNotBlank() },
+                submitOutboxItemId = draft.submitOutboxItemId?.takeIf { it.isNotBlank() },
+            )
             val cached = repo.findCached(cardId)
             if (cached == null) {
                 _state.update { it.copy(loading = false, notFound = true, canComplete = false) }
@@ -142,6 +144,7 @@ class PenReconciliationExecuteViewModel @Inject constructor(
             draft.submitOutboxItemId?.let(::observeOutboxItem)
             observeProofOutbox()
             registeredShedId = cached.registeredShedId
+            goatId = cached.goatId
             parkLabel = cached.parkName.orEmpty()
             belongsLabel = cached.registeredOperationalLocationDisplay.ifBlank { cached.registeredShedName }
             _state.update { current -> cached.toUiState(current) }
@@ -158,6 +161,16 @@ class PenReconciliationExecuteViewModel @Inject constructor(
         if (_state.value.isCapturingVideo || registeredShedId.isBlank()) return
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
+            val captureAction = if (replacing) ACTION_RETRY else ACTION_CAPTURE
+            var captureFailureReason: String? = null
+            analytics.track(
+                AnalyticsEvents.COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED,
+                countsJourneyProps(
+                    action = captureAction,
+                    outcome = "attempt",
+                    source = SCREEN_EXECUTE,
+                ),
+            )
             val captured = try {
                 proofCaptureSource.captureVideo(
                     ProofCaptureContext(
@@ -169,9 +182,30 @@ class PenReconciliationExecuteViewModel @Inject constructor(
                 )
             } catch (error: Exception) {
                 crashReporter.recordException(error, "pen reconciliation video capture failed")
+                captureFailureReason = error.message ?: error::class.simpleName.orEmpty()
+                analytics.track(
+                    AnalyticsEvents.COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED,
+                    countsJourneyProps(
+                        action = captureAction,
+                        outcome = "failure",
+                        source = SOURCE_CAMERA,
+                        reason = captureFailureReason,
+                    ),
+                )
                 null
             }
             if (captured == null) {
+                if (captureFailureReason == null) {
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED,
+                        countsJourneyProps(
+                            action = captureAction,
+                            outcome = "cancelled",
+                            source = SOURCE_CAMERA,
+                            reason = "camera_cancelled",
+                        ),
+                    )
+                }
                 _state.update { it.copy(isCapturingVideo = false) }
                 return@launch
             }
@@ -201,7 +235,22 @@ class PenReconciliationExecuteViewModel @Inject constructor(
             when (result) {
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
+                    returnProofTrace = CountsProofTrace(
+                        localProofRowId = result.value.id,
+                        proofOutboxItemId = proofOutboxId?.takeIf { it.isNotBlank() },
+                        serverProofId = result.value.serverProofId?.takeIf { it.isNotBlank() },
+                        submitOutboxItemId = draft.submitOutboxItemId?.takeIf { it.isNotBlank() },
+                    )
                     if (proofOutboxId.isNullOrBlank()) {
+                        analytics.track(
+                            AnalyticsEvents.COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED,
+                            countsJourneyProps(
+                                action = captureAction,
+                                outcome = "failure",
+                                source = SOURCE_ROOM,
+                                reason = "missing_proof_outbox_item",
+                            ),
+                        )
                         _state.update { it.copy(isCapturingVideo = false, videoMessage = VIDEO_FAILED) }
                         return@launch
                     }
@@ -220,15 +269,11 @@ class PenReconciliationExecuteViewModel @Inject constructor(
                     observeProofOutbox()
                     analytics.track(
                         AnalyticsEvents.COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED,
-                        mapOf(
-                            AnalyticsEvents.Params.SOURCE to SCREEN_EXECUTE,
-                            AnalyticsEvents.Params.KIND to KIND_COMPLETE,
-                            AnalyticsEvents.Params.ACTION to ACTION_CAPTURED,
-                            AnalyticsEvents.Params.FIELD to FIELD_RETURN_VIDEO,
-                            AnalyticsEvents.Params.SHED_ID to registeredShedId,
-                            AnalyticsEvents.Params.PROOF_ID to result.value.id,
-                            PARAM_GROUP_KEY to cardId,
-                            PARAM_OUTBOX_ITEM_ID to proofOutboxId,
+                        countsJourneyProps(
+                            action = captureAction,
+                            outcome = "success",
+                            source = SOURCE_ROOM,
+                            proofTrace = returnProofTrace,
                         ),
                     )
                     _state.update {
@@ -245,6 +290,15 @@ class PenReconciliationExecuteViewModel @Inject constructor(
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, "pen reconciliation proof enqueue failed") }
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED,
+                        countsJourneyProps(
+                            action = captureAction,
+                            outcome = "failure",
+                            source = SOURCE_ROOM,
+                            reason = result.message,
+                        ),
+                    )
                     _state.update { it.copy(isCapturingVideo = false, videoMessage = VIDEO_FAILED) }
                 }
             }
@@ -295,16 +349,30 @@ class PenReconciliationExecuteViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     drafts.putSubmit(CaptureFlow.PEN_RECONCILIATION, cardId, completeIdempotencyKey, result.value)
                     draft = drafts.find(CaptureFlow.PEN_RECONCILIATION, cardId)
+                    returnProofTrace = returnProofTrace.copy(
+                        proofOutboxItemId = proofItemId,
+                        submitOutboxItemId = result.value,
+                    )
                     observeOutboxItem(result.value)
-                    analytics.track(AnalyticsEvents.COUNTS_PEN_RECONCILIATION_COMPLETED)
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_PEN_RECONCILIATION_COMPLETED,
+                        countsJourneyProps(
+                            action = ACTION_SUBMIT_ENQUEUE,
+                            outcome = "queued",
+                            source = SOURCE_OUTBOX,
+                            proofTrace = returnProofTrace,
+                        ),
+                    )
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, "pen reconciliation complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.COUNTS_WRITE_FAILURE,
-                        mapOf(
-                            AnalyticsEvents.Params.KIND to KIND_COMPLETE,
-                            AnalyticsEvents.Params.REASON to result.message,
+                        countsJourneyProps(
+                            action = ACTION_SUBMIT_ENQUEUE,
+                            outcome = "failure",
+                            source = SOURCE_OUTBOX,
+                            reason = result.message,
                         ),
                     )
                     _state.update {
@@ -388,11 +456,34 @@ class PenReconciliationExecuteViewModel @Inject constructor(
                         it.copy(result = writeResult, canComplete = !writeResult.isCommitted)
                     }
                     if (item.status == SyncItemStatus.SUCCEEDED) {
+                        if (submitTerminalEventsTracked.add(item.id)) {
+                            analytics.track(
+                                AnalyticsEvents.COUNTS_PEN_RECONCILIATION_COMPLETED,
+                                countsJourneyProps(
+                                    action = ACTION_SUBMIT_SYNC,
+                                    outcome = "success",
+                                    source = SOURCE_OUTBOX_OBSERVER,
+                                    proofTrace = returnProofTrace.copy(submitOutboxItemId = item.id),
+                                ),
+                            )
+                        }
                         // The card is submitted: drop it from the cached list and clear its draft,
                         // then return the operator to the Reconcile list with the confirmation.
                         repo.forgetCompleted(cardId)
                         drafts.clear(CaptureFlow.PEN_RECONCILIATION, cardId)
                         _state.update { it.copy(returnToList = true, submissionNotice = SYNCED_MESSAGE) }
+                    } else if (item.isTerminalFailure && submitTerminalEventsTracked.add(item.id)) {
+                        analytics.track(
+                            AnalyticsEvents.COUNTS_WRITE_FAILURE,
+                            countsJourneyProps(
+                                action = ACTION_SUBMIT_SYNC,
+                                outcome = "failure",
+                                source = SOURCE_OUTBOX_OBSERVER,
+                                reason = item.lastError?.takeIf { it.isNotBlank() }
+                                    ?: if (item.conflict) "conflict" else "attempts_exhausted",
+                                proofTrace = returnProofTrace.copy(submitOutboxItemId = item.id),
+                            ),
+                        )
                     }
                 }
         }
@@ -421,9 +512,19 @@ class PenReconciliationExecuteViewModel @Inject constructor(
         const val FIELD_RETURN_VIDEO = "pen_reconciliation_return_video"
         const val SCREEN_EXECUTE = "pen_reconciliation_execute"
         const val KIND_COMPLETE = "pen_reconciliation_complete"
-        const val ACTION_CAPTURED = "captured"
-        const val PARAM_GROUP_KEY = "group_key"
-        const val PARAM_OUTBOX_ITEM_ID = "outbox_item_id"
+        const val ACTION_CAPTURE = "capture"
+        const val ACTION_RETRY = "retry"
+        const val ACTION_SUBMIT_ENQUEUE = "submit_enqueue"
+        const val ACTION_SUBMIT_SYNC = "submit_sync"
+        const val PARAM_TASK_ID = "task_id"
+        const val PARAM_LOCAL_PROOF_ROW_ID = "local_proof_row_id"
+        const val PARAM_SERVER_PROOF_ID = "server_proof_id"
+        const val SOURCE_CAMERA = "camera"
+        const val SOURCE_ROOM = "room"
+        const val SOURCE_OUTBOX = "outbox"
+        const val SOURCE_OUTBOX_OBSERVER = "outbox_observer"
+        const val SOURCE_PROOF_PREVIEW = "proof_preview"
+        const val MAX_ANALYTICS_REASON_CHARS = 80
         const val KEY_PROOF_IDEMPOTENCY = "penReconciliationExecute.proofKey"
         const val UNKNOWN_LOCATION = "—"
         const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
@@ -435,4 +536,48 @@ class PenReconciliationExecuteViewModel @Inject constructor(
         const val VIDEO_REQUIRED = "Record the pen return video first — it is required evidence."
         const val REWORK_REQUIRED = "The reviewer asked for a new video. Record fresh evidence before submitting again."
     }
+
+    private data class CountsProofTrace(
+        val localProofRowId: String? = null,
+        val proofOutboxItemId: String? = null,
+        val submitOutboxItemId: String? = null,
+        val serverProofId: String? = null,
+    )
+
+    private fun countsJourneyProps(
+        action: String,
+        outcome: String,
+        source: String,
+        reason: String? = null,
+        proofTrace: CountsProofTrace = returnProofTrace,
+    ): Map<String, String> =
+        buildMap {
+            put(AnalyticsEvents.Params.SOURCE, source)
+            put(AnalyticsEvents.Params.KIND, KIND_COMPLETE)
+            put(AnalyticsEvents.Params.ACTION, action)
+            put(AnalyticsEvents.Params.OUTCOME, outcome)
+            put(AnalyticsEvents.Params.FIELD, FIELD_RETURN_VIDEO)
+            put(AnalyticsEvents.Params.SHED_ID, registeredShedId)
+            put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, registeredShedId)
+            put(PARAM_TASK_ID, cardId)
+            goatId.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.GOAT_ID, it) }
+            put(AnalyticsEvents.Params.RFID, _state.value.scannedIdentifier)
+            put(AnalyticsEvents.Params.GROUP_KEY, cardId)
+            reason?.takeIf { it.isNotBlank() }?.let {
+                put(AnalyticsEvents.Params.REASON, it.take(MAX_ANALYTICS_REASON_CHARS))
+            }
+            proofTrace.localProofRowId?.takeIf { it.isNotBlank() }?.let {
+                put(PARAM_LOCAL_PROOF_ROW_ID, it)
+                put(AnalyticsEvents.Params.PROOF_ID, it)
+            }
+            proofTrace.proofOutboxItemId?.takeIf { it.isNotBlank() }?.let {
+                put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it)
+            }
+            proofTrace.submitOutboxItemId?.takeIf { it.isNotBlank() }?.let {
+                put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, it)
+            }
+            proofTrace.serverProofId?.takeIf { it.isNotBlank() }?.let {
+                put(PARAM_SERVER_PROOF_ID, it)
+            }
+        }
 }

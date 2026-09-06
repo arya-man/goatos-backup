@@ -80,6 +80,8 @@ import javax.inject.Inject
 import kotlinx.serialization.json.JsonPrimitive
 
 private const val MAX_ANALYTICS_REASON_CHARS = 96
+private const val PARAM_LOCAL_PROOF_ROW_ID = "local_proof_row_id"
+private const val PARAM_SERVER_PROOF_ID = "server_proof_id"
 
 /**
  * Scan (tap-to-scan) state holder — the offline-first pattern (docs/decisions/android-offline-first.md).
@@ -702,9 +704,11 @@ class ScanViewModel @Inject constructor(
             AnalyticsEvents.VACCINATION_AUTO_SUBMIT_QUEUED,
             vaccinationJourneyProps(state.value) +
                 mapOf(
+                    "task_id" to selectedTaskId,
                     AnalyticsEvents.Params.ACTION to "auto_submit",
                     AnalyticsEvents.Params.SOURCE to source,
                     AnalyticsEvents.Params.OUTCOME to "queued",
+                    AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
                 ),
         )
         AnalyticsFunnels.trackSubmitAttempted(analytics, selectedTaskId)
@@ -724,6 +728,18 @@ class ScanViewModel @Inject constructor(
             )) {
                 is AppResult.Ok -> {
                     _autoSubmitNotice.value = "Submitting this shed for verification..."
+                    analytics.track(
+                        AnalyticsEvents.VACCINATION_AUTO_SUBMIT_QUEUED,
+                        vaccinationJourneyProps(state.value) +
+                            mapOf(
+                                "task_id" to selectedTaskId,
+                                AnalyticsEvents.Params.ACTION to "auto_submit",
+                                AnalyticsEvents.Params.SOURCE to source,
+                                AnalyticsEvents.Params.OUTCOME to "enqueue_success",
+                                AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                                AnalyticsEvents.Params.OUTBOX_ITEM_ID to result.value,
+                            ),
+                    )
                     AnalyticsFunnels.trackSubmitStatus(
                         analytics = analytics,
                         taskId = selectedTaskId,
@@ -739,9 +755,12 @@ class ScanViewModel @Inject constructor(
                         AnalyticsEvents.VACCINATION_AUTO_SUBMIT_FAILED,
                         vaccinationJourneyProps(state.value) +
                             mapOf(
+                                "task_id" to selectedTaskId,
                                 AnalyticsEvents.Params.ACTION to "auto_submit",
+                                AnalyticsEvents.Params.SOURCE to source,
                                 AnalyticsEvents.Params.OUTCOME to "enqueue_failed",
                                 AnalyticsEvents.Params.REASON to result.message.take(MAX_ANALYTICS_REASON_CHARS),
+                                AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
                             ),
                     )
                     AnalyticsFunnels.trackSubmitFailed(
@@ -866,9 +885,29 @@ class ScanViewModel @Inject constructor(
             maxAttempts = item.maxAttempts,
         )
         when {
-            item.status == SyncItemStatus.SUCCEEDED -> AnalyticsFunnels.trackSubmitSucceeded(analytics, taskId)
-            item.conflict -> AnalyticsFunnels.trackSubmitFailed(analytics, taskId, item.lastError?.ifBlank { "conflict" } ?: "conflict")
-            item.isDeadLetter -> AnalyticsFunnels.trackSubmitFailed(analytics, taskId, item.lastError?.ifBlank { "dead_letter" } ?: "dead_letter")
+            item.status == SyncItemStatus.SUCCEEDED -> {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_SUBMIT_SUCCESS,
+                    vaccinationSubmitOutboxProps(taskId, item, submitStatus, "success"),
+                )
+                AnalyticsFunnels.trackSubmitSucceeded(analytics, taskId)
+            }
+            item.conflict -> {
+                val reason = item.lastError?.ifBlank { "conflict" } ?: "conflict"
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_SUBMIT_FAILURE,
+                    vaccinationSubmitOutboxProps(taskId, item, submitStatus, "failure", reason),
+                )
+                AnalyticsFunnels.trackSubmitFailed(analytics, taskId, reason)
+            }
+            item.isDeadLetter -> {
+                val reason = item.lastError?.ifBlank { "dead_letter" } ?: "dead_letter"
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_SUBMIT_FAILURE,
+                    vaccinationSubmitOutboxProps(taskId, item, submitStatus, "failure", reason),
+                )
+                AnalyticsFunnels.trackSubmitFailed(analytics, taskId, reason)
+            }
         }
     }
 
@@ -1738,10 +1777,15 @@ class ScanViewModel @Inject constructor(
             _duplicateNotice.value = PROOF_CAPTURE_BUSY_MESSAGE
             analytics.track(
                 AnalyticsEvents.PROOF_CAPTURE_SCAN_DROPPED,
-                mapOf(
-                    AnalyticsEvents.Params.KIND to "vaccination",
-                    AnalyticsEvents.Params.REASON to if (strandedGoatId == row.goatId) "same_goat_recording_in_progress" else "recording_in_progress",
-                ),
+                vaccinationActionProps(row, row.primaryTag) +
+                    mapOf(
+                        AnalyticsEvents.Params.KIND to "vaccination",
+                        AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                        AnalyticsEvents.Params.ACTION to "scan_dropped",
+                        AnalyticsEvents.Params.SOURCE to "rfid_reader",
+                        AnalyticsEvents.Params.OUTCOME to "blocked",
+                        AnalyticsEvents.Params.REASON to if (strandedGoatId == row.goatId) "same_goat_recording_in_progress" else "recording_in_progress",
+                    ),
             )
             return
         }
@@ -1759,7 +1803,12 @@ class ScanViewModel @Inject constructor(
                 analytics.track(
                     AnalyticsEvents.VACCINATION_PROOF_CAPTURE_ATTEMPT,
                     vaccinationActionProps(row, row.primaryTag) +
-                        (AnalyticsEvents.Params.OUTCOME to "attempt"),
+                        mapOf(
+                            AnalyticsEvents.Params.ACTION to "capture",
+                            AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                            AnalyticsEvents.Params.SOURCE to "camera",
+                            AnalyticsEvents.Params.OUTCOME to "attempt",
+                        ),
                 )
                 val captured = proofCaptureSource.captureVideo(
                     ProofCaptureContext(
@@ -1773,6 +1822,9 @@ class ScanViewModel @Inject constructor(
                         AnalyticsEvents.VACCINATION_PROOF_CAPTURE_CANCELLED,
                         vaccinationActionProps(row, row.primaryTag) +
                             mapOf(
+                                AnalyticsEvents.Params.ACTION to "capture",
+                                AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                                AnalyticsEvents.Params.SOURCE to "camera",
                                 AnalyticsEvents.Params.OUTCOME to "cancelled",
                                 AnalyticsEvents.Params.REASON to "camera_cancelled",
                             ),
@@ -1807,6 +1859,7 @@ class ScanViewModel @Inject constructor(
                     capturedByPrincipalId = currentPrincipalId,
                     proofPolicy = policy,
                     partitionLabel = partitionLabel,
+                    awaitUploadEnqueue = true,
                     )
                 ) {
                     is AppResult.Ok -> {
@@ -1825,11 +1878,14 @@ class ScanViewModel @Inject constructor(
                             AnalyticsEvents.VACCINATION_PROOF_CAPTURE_SUCCESS,
                             vaccinationActionProps(row, row.primaryTag) +
                                 mapOf(
+                                    AnalyticsEvents.Params.ACTION to "capture",
+                                    AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                                    AnalyticsEvents.Params.SOURCE to "room",
                                     AnalyticsEvents.Params.OUTCOME to "success",
                                     AnalyticsEvents.Params.PROOF_CAPTURED to "true",
                                     AnalyticsEvents.Params.PROOF_UPLOADED to (proof.value.syncStatus == CaptureSyncStatus.SYNCED).toString(),
-                                    AnalyticsEvents.Params.PROOF_ID to proof.value.id,
-                                ),
+                                ) +
+                                vaccinationProofTraceProps(proof.value),
                         )
                     }
                     is AppResult.Err -> {
@@ -1839,6 +1895,9 @@ class ScanViewModel @Inject constructor(
                             AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
                             vaccinationActionProps(row, row.primaryTag) +
                                 mapOf(
+                                    AnalyticsEvents.Params.ACTION to "capture",
+                                    AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                                    AnalyticsEvents.Params.SOURCE to "room",
                                     AnalyticsEvents.Params.OUTCOME to "failure",
                                     AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
                                 ),
@@ -1853,6 +1912,9 @@ class ScanViewModel @Inject constructor(
                     AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
                     vaccinationActionProps(row, row.primaryTag) +
                         mapOf(
+                            AnalyticsEvents.Params.ACTION to "capture",
+                            AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                            AnalyticsEvents.Params.SOURCE to "camera",
                             AnalyticsEvents.Params.OUTCOME to "failure",
                             AnalyticsEvents.Params.REASON to (error.message ?: error::class.simpleName.orEmpty()).take(MAX_ANALYTICS_REASON_CHARS),
                         ),
@@ -1894,6 +1956,7 @@ class ScanViewModel @Inject constructor(
         buildMap {
             put(AnalyticsEvents.Params.RFID, rfid)
             taskId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.CAMPAIGN_ID, it) }
+            taskId?.takeIf(String::isNotBlank)?.let { put("task_id", it) }
             shedId?.takeIf(String::isNotBlank)?.let {
                 put(AnalyticsEvents.Params.SHED_ID, it)
                 put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, it)
@@ -1910,6 +1973,7 @@ class ScanViewModel @Inject constructor(
             )
             put(AnalyticsEvents.Params.PROOF_UPLOADED, (row?.proofUploadStatus == ProofUploadStatus.SYNCED).toString())
             row?.proofUploadStatus?.let { put("proof_upload_status", it.name.lowercase()) }
+            putAll(vaccinationProofTraceProps(row))
         }
 
     private fun trackScanScreenOpened() {
@@ -1950,9 +2014,66 @@ class ScanViewModel @Inject constructor(
         val selectedTaskId = taskId ?: return
         if (_operatorAllowed.value != true || goatId.isBlank()) return
         viewModelScope.launch {
-            observedProofs.value.orEmpty()
+            val row = (state.value.roster + state.value.proofActionNeeded)
+                .firstOrNull { it.goatId == goatId }
+            val failedProofs = observedProofs.value.orEmpty()
                 .filter { it.subjectId == goatId && it.syncStatus == CaptureSyncStatus.FAILED }
-                .forEach { proofCaptureRepository.retryUpload(selectedTaskId, it.id) }
+            if (failedProofs.isEmpty()) {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED,
+                    vaccinationActionProps(row, row?.primaryTag.orEmpty()) +
+                        mapOf(
+                            AnalyticsEvents.Params.ACTION to "retry",
+                            AnalyticsEvents.Params.GOAT_ID to goatId,
+                            AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                            AnalyticsEvents.Params.SOURCE to "proof_retry",
+                            AnalyticsEvents.Params.OUTCOME to "failure",
+                            AnalyticsEvents.Params.REASON to "no_failed_proof",
+                        ),
+                )
+                return@launch
+            }
+            failedProofs.forEach { proof ->
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED,
+                    vaccinationActionProps(row, row?.primaryTag.orEmpty()) +
+                        mapOf(
+                            AnalyticsEvents.Params.ACTION to "retry",
+                            AnalyticsEvents.Params.GOAT_ID to goatId,
+                            AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                            AnalyticsEvents.Params.SOURCE to "proof_retry",
+                            AnalyticsEvents.Params.OUTCOME to "attempt",
+                        ) +
+                        vaccinationProofTraceProps(proof),
+                )
+                when (val result = proofCaptureRepository.retryUpload(selectedTaskId, proof.id)) {
+                    is AppResult.Ok -> analytics.track(
+                        AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED,
+                        vaccinationActionProps(row, row?.primaryTag.orEmpty()) +
+                            mapOf(
+                                AnalyticsEvents.Params.ACTION to "retry",
+                                AnalyticsEvents.Params.GOAT_ID to goatId,
+                                AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                                AnalyticsEvents.Params.SOURCE to "proof_retry",
+                                AnalyticsEvents.Params.OUTCOME to "success",
+                            ) +
+                            vaccinationProofTraceProps(proof),
+                    )
+                    is AppResult.Err -> analytics.track(
+                        AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED,
+                        vaccinationActionProps(row, row?.primaryTag.orEmpty()) +
+                            mapOf(
+                                AnalyticsEvents.Params.ACTION to "retry",
+                                AnalyticsEvents.Params.GOAT_ID to goatId,
+                                AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                                AnalyticsEvents.Params.SOURCE to "proof_retry",
+                                AnalyticsEvents.Params.OUTCOME to "failure",
+                                AnalyticsEvents.Params.REASON to result.message.take(MAX_ANALYTICS_REASON_CHARS),
+                            ) +
+                            vaccinationProofTraceProps(proof),
+                    )
+                }
+            }
         }
     }
 
@@ -1965,7 +2086,9 @@ class ScanViewModel @Inject constructor(
                 mapOf(
                     AnalyticsEvents.Params.ACTION to action,
                     AnalyticsEvents.Params.GOAT_ID to goatId,
+                    AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
                     AnalyticsEvents.Params.SOURCE to "proof_row",
+                    AnalyticsEvents.Params.OUTCOME to "tapped",
                 ),
         )
     }
@@ -1981,14 +2104,63 @@ class ScanViewModel @Inject constructor(
                     AnalyticsEvents.Params.GOAT_ID to goatId,
                     AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
                     AnalyticsEvents.Params.SOURCE to "proof_preview",
+                    AnalyticsEvents.Params.OUTCOME to "preview_action",
                 ) +
-                listOfNotNull(
-                    row?.proofPreviewId?.takeIf { it.isNotBlank() }?.let { AnalyticsEvents.Params.PROOF_ID to it },
-                    row?.proofPreviewOutboxItemId?.takeIf { it.isNotBlank() }?.let { AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID to it },
-                    row?.proofPreviewServerId?.takeIf { it.isNotBlank() }?.let { "server_proof_id" to it },
-                ).toMap(),
+                vaccinationProofTraceProps(row),
         )
     }
+
+    private fun vaccinationSubmitOutboxProps(
+        selectedTaskId: String,
+        item: SyncQueueItem,
+        submitStatus: String,
+        outcome: String,
+        reason: String? = null,
+    ): Map<String, String> =
+        vaccinationJourneyProps(state.value) +
+            buildMap {
+                put("task_id", selectedTaskId)
+                put(AnalyticsEvents.Params.CAMPAIGN_ID, selectedTaskId)
+                put(AnalyticsEvents.Params.ACTION, "auto_submit")
+                put(AnalyticsEvents.Params.FIELD, GOAT_PROOF_FIELD_KEY)
+                put(AnalyticsEvents.Params.SOURCE, "outbox_observer")
+                put(AnalyticsEvents.Params.OUTCOME, outcome)
+                put(AnalyticsEvents.Params.STATUS, submitStatus)
+                put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, item.id)
+                put(AnalyticsEvents.Params.GROUP_KEY, item.groupKey)
+                put(AnalyticsEvents.Params.IDEMPOTENCY_KEY, item.idempotencyKey)
+                reason?.takeIf { it.isNotBlank() }?.let {
+                    put(AnalyticsEvents.Params.REASON, it.take(MAX_ANALYTICS_REASON_CHARS))
+                }
+            }
+
+    private fun vaccinationProofTraceProps(row: RosterRow?): Map<String, String> =
+        buildMap {
+            row?.proofPreviewId?.takeIf { it.isNotBlank() }?.let {
+                put(PARAM_LOCAL_PROOF_ROW_ID, it)
+                put(AnalyticsEvents.Params.PROOF_ID, it)
+            }
+            row?.proofPreviewOutboxItemId?.takeIf { it.isNotBlank() }?.let {
+                put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it)
+            }
+            row?.proofPreviewServerId?.takeIf { it.isNotBlank() }?.let {
+                put(PARAM_SERVER_PROOF_ID, it)
+            }
+        }
+
+    private fun vaccinationProofTraceProps(proof: ProofCaptureRow?): Map<String, String> =
+        buildMap {
+            proof?.id?.takeIf { it.isNotBlank() }?.let {
+                put(PARAM_LOCAL_PROOF_ROW_ID, it)
+                put(AnalyticsEvents.Params.PROOF_ID, it)
+            }
+            proof?.outboxItemId?.takeIf { it.isNotBlank() }?.let {
+                put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it)
+            }
+            proof?.serverProofId?.takeIf { it.isNotBlank() }?.let {
+                put(PARAM_SERVER_PROOF_ID, it)
+            }
+        }
 
 private fun normalize(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
 

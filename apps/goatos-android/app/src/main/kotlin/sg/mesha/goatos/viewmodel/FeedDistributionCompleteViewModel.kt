@@ -1309,10 +1309,49 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         if (proofStatus == FeedDistributionProofStatus.SYNCED && syncedProofAnalytics.add(slot)) {
             analytics.track(
                 AnalyticsEvents.FEED_DISTRIBUTION_PROOF_UPLOAD_SYNCED,
-                distributionEventProps(slot, ACTION_UPLOAD_SYNCED),
+                distributionEventProps(
+                    slot,
+                    ACTION_UPLOAD_SYNCED,
+                    proofUploadTerminalProps(slot, item, outcome = "sync_success"),
+                ),
+            )
+        } else if (proofStatus == FeedDistributionProofStatus.FAILED) {
+            analytics.track(
+                AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
+                distributionEventProps(
+                    slot,
+                    ACTION_UPLOAD_FAILED,
+                    proofUploadTerminalProps(slot, item, outcome = "sync_terminal_failure"),
+                ),
             )
         }
         recomputeCanComplete()
+    }
+
+    private fun proofUploadTerminalProps(
+        slot: ProofSlot,
+        item: SyncQueueItem,
+        outcome: String,
+    ): Map<String, String> = buildMap {
+        put(AnalyticsEvents.Params.OUTCOME, outcome)
+        put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, item.id)
+        put(PARAM_OUTBOX_ITEM_ID, item.id)
+        item.lastError?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(96)) }
+        val proofRowId = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofRowId.value
+            ProofSlot.FEED_VIDEO -> videoProofRowId.value
+            ProofSlot.WATER_VIDEO -> waterVideoProofRowId.value
+        }
+        val serverProofId = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightRemoteRef.value
+            ProofSlot.FEED_VIDEO -> videoRemoteRef.value
+            ProofSlot.WATER_VIDEO -> waterVideoRemoteRef.value
+        }
+        proofRowId?.takeIf { it.isNotBlank() }?.let {
+            put(PARAM_PROOF_ID, it)
+            put("local_proof_row_id", it)
+        }
+        serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
     }
 
     private fun trackCaptureFailure(kind: String, reason: String) {
@@ -1483,6 +1522,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         private const val ACTION_CAPTURED = "captured"
         private const val ACTION_CAPTURE_FAILED = "capture_failed"
         private const val ACTION_UPLOAD_SYNCED = "upload_synced"
+        private const val ACTION_UPLOAD_FAILED = "upload_failed"
         private const val ACTION_REFRESH = "refresh"
         private const val ACTION_SUBMIT = "submit"
         private const val ACTION_SUBMIT_BLOCKED = "submit_blocked"

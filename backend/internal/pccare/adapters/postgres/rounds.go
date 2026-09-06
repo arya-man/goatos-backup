@@ -782,8 +782,7 @@ func removalPenSubmitRefs(ctx context.Context, tx pgx.Tx, tenantID, removalTaskI
 		return nil, nil, fmt.Errorf("pccare: read removal pen proofs for submit: %w", err)
 	}
 	defer rows.Close()
-	pens := make([]ports.RemovalPenRef, 0, 8)
-	media := make([]ports.LabeledRef, 0, 16)
+	pensNeedingVerification := make([]ports.RemovalPenRef, 0, 8)
 	for rows.Next() {
 		var pen ports.RemovalPenRef
 		if err := rows.Scan(&pen.RemovalPenID, &pen.GatedTaskID, &pen.PenLabel,
@@ -794,24 +793,27 @@ func removalPenSubmitRefs(ctx context.Context, tx pgx.Tx, tenantID, removalTaskI
 			return nil, nil, domain.ErrRemovalProofIncomplete
 		}
 		if pen.Status != domain.StatusCompleted {
-			pens = append(pens, pen)
-			media = append(media,
-				ports.LabeledRef{ProofRef: pen.FeedProofRef, Label: pen.PenLabel + " · Feed removal video"},
-				ports.LabeledRef{ProofRef: pen.WaterProofRef, Label: pen.PenLabel + " · Water removal video"},
-			)
+			pensNeedingVerification = append(pensNeedingVerification, pen)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, nil, fmt.Errorf("pccare: iterate removal pen proofs for submit: %w", err)
 	}
-	if len(pens) == 0 {
+	if len(pensNeedingVerification) == 0 {
 		// A round-grain removal card always has pens; none means the round was planned wrong.
 		return nil, nil, domain.ErrRemovalProofIncomplete
+	}
+	media := make([]ports.LabeledRef, 0, len(pensNeedingVerification)*2)
+	for _, pen := range pensNeedingVerification {
+		media = append(media,
+			ports.LabeledRef{ProofRef: pen.FeedProofRef, Label: pen.PenLabel + " · Feed removal video"},
+			ports.LabeledRef{ProofRef: pen.WaterProofRef, Label: pen.PenLabel + " · Water removal video"},
+		)
 	}
 	if _, err := tx.Exec(ctx, removalPensPendingSQL, tenantID, removalTaskID); err != nil {
 		return nil, nil, fmt.Errorf("pccare: flip removal pens pending: %w", err)
 	}
-	return pens, media, nil
+	return pensNeedingVerification, media, nil
 }
 
 // ApplyVerifiedRemovalPen flips ONE pen's evidence to completed and rolls the parent card up.

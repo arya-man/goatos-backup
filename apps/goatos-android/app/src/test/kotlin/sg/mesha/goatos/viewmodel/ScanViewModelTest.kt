@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -30,6 +29,7 @@ import org.junit.Test
 import sg.mesha.goatos.capture.ChannelBackedProofCaptureSource
 import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.capture.CapturedVideo
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.common.AppResult
@@ -1208,6 +1208,7 @@ class ScanViewModelTest {
     @Test
     fun `backend-ready shed auto queues submit with partition label`() = runTest(dispatcher) {
         val sync = CapturingSubmitSyncRepository()
+        val analytics = FakeAnalyticsPort()
         val tasks = FakeTasksRepositoryForCapture(
             detail = TaskDetail(
                 task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 7, sopVersionId = "sop-v1"),
@@ -1235,7 +1236,7 @@ class ScanViewModelTest {
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = tasks,
             syncRepository = sync,
-            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            analytics = analytics,
             savedStateHandle = SavedStateHandle(
                 mapOf(
                     "shedId" to "shed-1",
@@ -1253,6 +1254,26 @@ class ScanViewModelTest {
         assertEquals("Godel 1 - Part 1", sync.lastRequest?.partitionLabel)
         assertEquals("sop-v1", sync.lastRequest?.sopVersionId)
         assertTrue(sync.lastIdempotencyKey.orEmpty().contains("partition:1"))
+
+        val enqueue = analytics.events.last {
+            it.first == AnalyticsEvents.VACCINATION_AUTO_SUBMIT_QUEUED &&
+                it.second[AnalyticsEvents.Params.OUTCOME] == "enqueue_success"
+        }.second
+        assertEquals("task-1", enqueue["task_id"])
+        assertEquals("shed-1", enqueue[AnalyticsEvents.Params.SHED_ID])
+        assertEquals("Godel 1 - Part 1", enqueue[AnalyticsEvents.Params.PARTITION_LABEL])
+        assertEquals("item-1", enqueue[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+
+        sync.succeed("item-1")
+        advanceUntilIdle()
+
+        val syncSuccess = analytics.events.last {
+            it.first == AnalyticsEvents.VACCINATION_SUBMIT_SUCCESS
+        }.second
+        assertEquals("auto_submit", syncSuccess[AnalyticsEvents.Params.ACTION])
+        assertEquals("success", syncSuccess[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("synced", syncSuccess[AnalyticsEvents.Params.STATUS])
+        assertEquals("item-1", syncSuccess[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
     }
 
     @Test
@@ -1535,6 +1556,64 @@ class ScanViewModelTest {
         val action = vm.state.value.proofActionNeeded.single()
         assertEquals("goat-2", action.goatId)
         assertEquals(sg.mesha.goatos.feature.scan.ProofUploadStatus.FAILED, action.proofUploadStatus)
+    }
+
+    @Test
+    fun `vaccination capture preview and retry analytics carry proof trace ids`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository()
+        val reader = FakeRfidReaderPort()
+        val analytics = FakeAnalyticsPort()
+        val vm = ScanViewModel(
+            repo = rosterRepo(listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            reader = reader,
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = autoVideoProofSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
+            analytics = analytics,
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        vm.onEvent(ScanEvent.ProofPreviewAction("goat-1", "share"))
+        proofRepo.markFailed("proof-0", "network down")
+        advanceUntilIdle()
+        vm.onEvent(ScanEvent.RetryProof("goat-1"))
+        advanceUntilIdle()
+
+        val captureSuccess = analytics.events.last {
+            it.first == AnalyticsEvents.VACCINATION_PROOF_CAPTURE_SUCCESS
+        }.second
+        assertEquals("capture", captureSuccess[AnalyticsEvents.Params.ACTION])
+        assertEquals("success", captureSuccess[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("goat-1", captureSuccess[AnalyticsEvents.Params.GOAT_ID])
+        assertEquals("TAG-100", captureSuccess[AnalyticsEvents.Params.RFID])
+        assertEquals("proof-0", captureSuccess["local_proof_row_id"])
+        assertEquals("proof-outbox-1", captureSuccess[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+
+        val preview = analytics.events.last {
+            it.first == AnalyticsEvents.VACCINATION_PROOF_PREVIEW_ACTION
+        }.second
+        assertEquals("share", preview[AnalyticsEvents.Params.ACTION])
+        assertEquals("preview_action", preview[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("proof-0", preview["local_proof_row_id"])
+        assertEquals("proof-outbox-1", preview[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+
+        val retrySuccess = analytics.events.last {
+            it.first == AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED &&
+                it.second[AnalyticsEvents.Params.ACTION] == "retry" &&
+                it.second[AnalyticsEvents.Params.OUTCOME] == "success"
+        }.second
+        assertEquals("proof_retry", retrySuccess[AnalyticsEvents.Params.SOURCE])
+        assertEquals("proof-0", retrySuccess["local_proof_row_id"])
+        assertEquals("proof-outbox-1", retrySuccess[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals(listOf("proof-0"), proofRepo.retryUploadIds)
     }
 
     @Test
@@ -2268,7 +2347,33 @@ private class CapturingSubmitSyncRepository : SyncRepository {
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
 
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = emptyFlow()
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
+        status.map { snapshot -> snapshot.items.firstOrNull { it.id == itemId } }
+
+    fun succeed(itemId: String) {
+        updateItem(itemId, SyncItemStatus.SUCCEEDED)
+    }
+
+    fun fail(itemId: String, reason: String = "sync failed") {
+        updateItem(itemId, SyncItemStatus.FAILED, attemptCount = 5, lastError = reason)
+    }
+
+    private fun updateItem(
+        itemId: String,
+        newStatus: SyncItemStatus,
+        attemptCount: Int = 1,
+        lastError: String? = null,
+    ) {
+        status.value = status.value.copy(
+            items = status.value.items.map { item ->
+                if (item.id == itemId) {
+                    item.copy(status = newStatus, attemptCount = attemptCount, lastError = lastError, updatedAt = item.updatedAt + 1)
+                } else {
+                    item
+                }
+            },
+        )
+    }
 
     override suspend fun enqueueShedSubmit(
         taskId: String,

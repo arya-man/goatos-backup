@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -274,10 +276,11 @@ WHERE idempotency_key = $1`, pcTenant+":pc_care.animal.slot:stale-approved-feed-
 	}); err != nil {
 		t.Fatalf("reshoot water video: %v", err)
 	}
-	if _, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
+	reworkSubmit, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
 		TenantID: pcTenant, TaskID: removalTaskID, SubmittedBy: pcOperator2,
 		IdempotencyKey: "removal-submit-after-rework", ActorID: pcOperator2,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("rework submit: %v", err)
 	}
 
@@ -298,6 +301,49 @@ WHERE idempotency_key = $1`, pcTenant+":pc_care.animal.slot:stale-approved-feed-
 			if pen.Status != domain.StatusPendingVerification {
 				t.Fatalf("reworked pen status = %q, want pending_verification", pen.Status)
 			}
+		}
+	}
+
+	var payload []byte
+	if err := pool.QueryRow(ctx, `
+SELECT payload FROM outbox_messages
+WHERE tenant_id = $1::uuid
+  AND event_type = 'pc_care.task.pending_verification'
+  AND aggregate_id = $2::uuid
+  AND idempotency_key = $3
+`, pcTenant, removalTaskID, "pc-care-verification:"+removalTaskID+":"+strconv.Itoa(int(reworkSubmit.RowVersion))).Scan(&payload); err != nil {
+		t.Fatalf("read rework pending verification payload: %v", err)
+	}
+	var envelope struct {
+		Payload struct {
+			MediaRefs []struct {
+				ProofRef string `json:"proof_ref"`
+				Label    string `json:"label"`
+			} `json:"media_refs"`
+			RemovalPens []struct {
+				RemovalPenID  string `json:"removal_pen_id"`
+				GatedTaskID   string `json:"gated_task_id"`
+				PenLabel      string `json:"pen_label"`
+				FeedProofRef  string `json:"feed_proof_ref"`
+				WaterProofRef string `json:"water_proof_ref"`
+			} `json:"removal_pens"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		t.Fatalf("decode rework pending verification payload: %v", err)
+	}
+	if len(envelope.Payload.RemovalPens) != 1 {
+		t.Fatalf("rework payload removal_pens = %+v, want only the reworked pen", envelope.Payload.RemovalPens)
+	}
+	if got := envelope.Payload.RemovalPens[0]; got.RemovalPenID != reworkPenID || got.GatedTaskID != reworkGatedTaskID {
+		t.Fatalf("rework payload pen = %+v, want reworked pen %s/%s", got, reworkPenID, reworkGatedTaskID)
+	}
+	if len(envelope.Payload.MediaRefs) != 2 {
+		t.Fatalf("rework payload media_refs = %+v, want exactly feed + water for the reworked pen", envelope.Payload.MediaRefs)
+	}
+	for _, ref := range envelope.Payload.MediaRefs {
+		if strings.Contains(ref.ProofRef, "Part 1") || strings.Contains(ref.Label, "Part 1") {
+			t.Fatalf("approved sibling leaked into rework media_refs: %+v", envelope.Payload.MediaRefs)
 		}
 	}
 }
