@@ -113,6 +113,14 @@ Database: postgres://postgres:${REMOTE_POSTGRES_PASSWORD}@127.0.0.1:15432/goatos
 Tunnel:   127.0.0.1:15432 -> OCI VM 127.0.0.1:5432
 ```
 
+This default is only for local Goat OS development and staging-like clone work.
+If Ravi explicitly says `goatos-stg`, `stg db`, `staging database`, or asks to
+check the real staging database, do not use OCI as a substitute. Use the real
+GCP `goatos-stg` Cloud SQL database through Secret Manager and Cloud SQL Auth
+Proxy, and state that the query is against `goatos-stg:asia-south1:goatos-stg-core-db`.
+The OCI tunnel may be used only for a separately named comparison after the
+real staging result is already checked.
+
 Current OCI dev VM connection details, credentials, and recovery metadata must
 live outside git. Resolve them from the operator's local environment or Google
 Secret Manager; do not commit account names, public IPs, laptop home paths, SSH
@@ -2594,19 +2602,23 @@ Organization boundaries:
 - If any Google auth surface expires or cannot refresh non-interactively
   (`gcloud`, ADC, Cloud SQL Auth Proxy, Secret Manager, Google Drive/Docs/
   Sheets, or a Google browser session), do not stop at "token refresh failed"
+  and do not silently switch to OCI, a clone, or a service-account workaround
   when the task requires Google access. Use browser-based reauthentication
-  immediately: `gcloud auth login ravi@mesha.sg` for CLI user credentials,
+  immediately: `gcloud auth login` for CLI user credentials,
   `gcloud auth application-default login` for ADC, or the relevant browser/
   connector sign-in for Drive/Docs/Sheets. After reauth, re-verify the active
   account, organization, project, and target before any write/deploy/config
-  mutation. For Goat OS, the expected account is `ravi@mesha.sg` and the
-  expected Google Cloud organization is `vgoats.com`.
+  mutation. For Goat OS, use the expected Mesha/VGoats account and organization
+  from the task-specific runbook. Use a service-account fallback only when Ravi
+  explicitly asks for it or the exact runbook requires it.
 - For read-only Google-backed data pulls, Cloud SQL queries, dashboard issue
   CSVs, or any request phrased as "use gcloud/browser login", follow
-  `docs/runbooks/google-cloud-environments.md` -> `goatos-dev Read-Only Cloud
+  `docs/runbooks/google-cloud-environments.md` -> `goatos-stg Read-Only Cloud
   SQL Access` before touching Chrome or dashboard UI. The default source is
   gcloud + Secret Manager + Cloud SQL Auth Proxy + Postgres, not dashboard DOM
-  scraping.
+  scraping. If the user names `goatos-stg` or `stg db`, that explicit target
+  wins over the Ravi-laptop OCI default: query `goatos-stg` Cloud SQL, not the
+  OCI staging-like clone.
 - For GitHub operations in this repo, use the Mesha/VGoats repository token
   path: `git mesha-push main` for pushes and the `MESHA_GITHUB_PAT`-backed
   remote URL for direct remote/CI verification. Do not rely on whatever `gh`

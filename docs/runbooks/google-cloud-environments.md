@@ -189,7 +189,10 @@ gcloud config set account ravi@mesha.sg
 gcloud config set project goatos-stg
 ```
 
-If the gcloud user token is expired, use browser-code auth:
+If the gcloud user token is expired, use browser-code auth immediately. Do not
+switch the task to OCI, a staging-like clone, or a service-account workaround
+unless Ravi explicitly asks for that fallback or a task-specific runbook requires
+that exact identity.
 
 ```bash
 gcloud auth login --no-launch-browser --brief
@@ -198,6 +201,15 @@ gcloud auth login --no-launch-browser --brief
 Open the printed URL, complete Google login as `ravi@mesha.sg`, then paste the
 verification code back into the CLI. Do not enter a Google password directly
 into the terminal.
+
+If ADC is the expired surface, run the browser ADC flow instead:
+
+```bash
+gcloud auth application-default login
+```
+
+After either flow, re-run the account/project/org checks above before touching
+Cloud SQL, Secret Manager, deploys, IAM, Drive, Sheets, or Docs.
 
 For data pulls, discover the current runtime resources instead of guessing:
 
