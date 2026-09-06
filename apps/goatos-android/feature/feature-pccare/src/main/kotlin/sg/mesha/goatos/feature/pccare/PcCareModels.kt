@@ -229,6 +229,12 @@ sealed interface PcCareTaskEvent {
     data object SubmitTypedScan : PcCareTaskEvent
     data class RecordSlot(val tagKey: String, val slotFieldKey: String) : PcCareTaskEvent
     data class RecordTaskProof(val slotFieldKey: String, val mediaKind: String) : PcCareTaskEvent
+    data class ProofPreviewAction(
+        val slotFieldKey: String,
+        val mediaKind: String,
+        val action: String,
+        val tagKey: String? = null,
+    ) : PcCareTaskEvent
     data object Submit : PcCareTaskEvent
     data object ConfirmSubmit : PcCareTaskEvent
     data object DismissSubmitConfirmation : PcCareTaskEvent

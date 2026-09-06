@@ -2149,6 +2149,7 @@ fun AppNavHost(
                     onRetryShedVideo = vm::retryShedVideo,
                     onReplaceShedVideo = vm::replaceShedVideo,
                     onRemoveShedVideo = vm::removeShedVideo,
+                    onShedVideoPreviewAction = vm::trackShedVideoPreviewAction,
                     onReconnectReader = { navController.navigate(Routes.RFID) { launchSingleTop = true } },
                     onRefresh = vm::refresh,
                     onBack = { navController.popBackStack() },

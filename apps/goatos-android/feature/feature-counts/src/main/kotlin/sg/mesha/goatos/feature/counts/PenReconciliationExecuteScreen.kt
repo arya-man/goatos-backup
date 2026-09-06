@@ -94,6 +94,7 @@ sealed interface PenReconciliationExecuteEvent {
      */
     data object ReRecordVideo : PenReconciliationExecuteEvent
     data object MarkDone : PenReconciliationExecuteEvent
+    data class PreviewAction(val action: String) : PenReconciliationExecuteEvent
     data object Back : PenReconciliationExecuteEvent
 
     /** The host consumed [PenReconciliationExecuteUiState.returnToList]; clear it so it fires once. */
@@ -135,6 +136,7 @@ fun PenReconciliationExecuteScreen(
                         previewPath = state.videoPreviewPath,
                         onClick = { onEvent(PenReconciliationExecuteEvent.RecordVideo) },
                         onReRecord = { onEvent(PenReconciliationExecuteEvent.ReRecordVideo) },
+                        onPreviewAction = { action -> onEvent(PenReconciliationExecuteEvent.PreviewAction(action)) },
                     )
                     state.videoMessage?.let { Text(it, color = MeshaColors.Faint, style = MeshaType.rowCaption) }
                     if (state.result.status != CountsWriteStatus.IDLE) {
@@ -207,6 +209,7 @@ private fun PenReturnVideoCard(
     previewPath: String?,
     onClick: () -> Unit,
     onReRecord: () -> Unit = onClick,
+    onPreviewAction: (String) -> Unit = {},
 ) {
     Column(modifier = penCardModifier(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -230,6 +233,7 @@ private fun PenReturnVideoCard(
                     path = previewPath,
                     kind = ProofMediaPreviewKind.Video,
                     onPlaybackFailure = { previewFailed = true },
+                    onPreviewAction = onPreviewAction,
                 )
             } else {
                 Text(

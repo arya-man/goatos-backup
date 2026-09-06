@@ -317,12 +317,14 @@ private fun LeadershipAttachmentRow(
         }
         if (attachment.localPath.isNotBlank()) {
             when (attachment.kind) {
+                // proof-preview-analytics:ignore leadership attachment viewer, not proof capture/outbox media.
                 LeadershipAttachmentKind.PHOTO -> ProofMediaPreview(
                     path = attachment.localPath,
                     kind = ProofMediaPreviewKind.Photo,
                     modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp)),
                     expandable = true,
                 )
+                // proof-preview-analytics:ignore leadership attachment viewer, not proof capture/outbox media.
                 LeadershipAttachmentKind.VIDEO -> ProofMediaPreview(
                     path = attachment.localPath,
                     kind = ProofMediaPreviewKind.Video,

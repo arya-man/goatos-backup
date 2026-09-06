@@ -227,6 +227,7 @@ data class WeighingFastingDetailUiState(
 
 sealed interface WeighingFastingDetailEvent {
     data class RecordSlot(val kind: WeighingFastingSlotKind) : WeighingFastingDetailEvent
+    data class PreviewAction(val kind: WeighingFastingSlotKind, val action: String) : WeighingFastingDetailEvent
     data object Submit : WeighingFastingDetailEvent
     data object Refresh : WeighingFastingDetailEvent
     data object DismissMessage : WeighingFastingDetailEvent
@@ -289,6 +290,9 @@ fun WeighingFastingDetailScreen(
                     slot = state.feedSlot,
                     locked = state.isReadOnly || state.submitQueued,
                     onRecord = { onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.FEED)) },
+                    onPreviewAction = { action ->
+                        onEvent(WeighingFastingDetailEvent.PreviewAction(WeighingFastingSlotKind.FEED, action))
+                    },
                 )
             }
             item(key = "removal-slot-water") {
@@ -296,6 +300,9 @@ fun WeighingFastingDetailScreen(
                     slot = state.waterSlot,
                     locked = state.isReadOnly || state.submitQueued,
                     onRecord = { onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.WATER)) },
+                    onPreviewAction = { action ->
+                        onEvent(WeighingFastingDetailEvent.PreviewAction(WeighingFastingSlotKind.WATER, action))
+                    },
                 )
             }
             state.message?.takeIf { it.isNotBlank() }?.let { message ->
@@ -362,7 +369,12 @@ private fun FastingStatusCard(state: WeighingFastingDetailUiState, onSubmit: () 
  * action — so recording a removal looks and works exactly like recording a feed distribution.
  */
 @Composable
-private fun FastingProofAction(slot: WeighingFastingSlotUi, locked: Boolean, onRecord: () -> Unit) {
+private fun FastingProofAction(
+    slot: WeighingFastingSlotUi,
+    locked: Boolean,
+    onRecord: () -> Unit,
+    onPreviewAction: (String) -> Unit = {},
+) {
     val failed = slot.status == WeighingFastingSlotStatus.FAILED
     val synced = slot.status == WeighingFastingSlotStatus.SYNCED
     val uploading = slot.busy || slot.status == WeighingFastingSlotStatus.UPLOADING
@@ -429,6 +441,7 @@ private fun FastingProofAction(slot: WeighingFastingSlotUi, locked: Boolean, onR
                     onPlaybackFailure = {
                         if (previewToShow == slot.previewPath) localPreviewFailed = true
                     },
+                    onPreviewAction = onPreviewAction,
                 )
             }
             if (slot.statusLabel.isNotBlank()) {

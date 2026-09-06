@@ -77,8 +77,21 @@ object AnalyticsEventsWeighing {
      *  field in [WeighingViewModel] — never a bare "failed". */
     const val WEIGHING_SHED_VIDEO_ACTION_FAILED = "weighing_shed_video_action_failed"
 
+    /** Operator interacted with a lump-sum shed video preview. [AnalyticsEvents.Params.CATEGORY]
+     *  carries play/pause/fullscreen/share/failure, and [AnalyticsEvents.Params.PROOF_ID] carries
+     *  the exact local proof row so preview problems can be traced through Room/outbox retry. */
+    const val WEIGHING_SHED_VIDEO_PREVIEW_ACTION = "weighing_shed_video_preview_action"
+
+    /** Operator interacted with a fasting-removal feed/water proof preview. */
+    const val WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION = "weighing_removal_proof_preview_action"
+
     /** A synced per-animal weighing proof had no draft proof id but was recovered by its RFID tag. */
     const val WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED = "weighing_orphan_synced_proof_recovered"
+
+    /** Operator retried a failed per-animal weighing proof upload. */
+    const val WEIGHING_INDIVIDUAL_PROOF_RETRY_ATTEMPTED = "weighing_individual_proof_retry_attempted"
+    const val WEIGHING_INDIVIDUAL_PROOF_RETRY_SUCCEEDED = "weighing_individual_proof_retry_succeeded"
+    const val WEIGHING_INDIVIDUAL_PROOF_RETRY_FAILED = "weighing_individual_proof_retry_failed"
 
     /** A synced per-animal proof could not be attached because the local observation row was missing. */
     const val WEIGHING_PROOF_ATTACH_NO_OBSERVATION = "weighing_proof_attach_no_observation"

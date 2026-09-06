@@ -114,10 +114,25 @@ class WeighingFastingDetailViewModel @Inject constructor(
     fun onEvent(event: WeighingFastingDetailEvent) {
         when (event) {
             is WeighingFastingDetailEvent.RecordSlot -> recordSlot(event.kind)
+            is WeighingFastingDetailEvent.PreviewAction -> trackPreviewAction(event.kind, event.action)
             WeighingFastingDetailEvent.Submit -> submit()
             WeighingFastingDetailEvent.Refresh -> refresh()
             WeighingFastingDetailEvent.DismissMessage -> _state.update { it.copy(message = null) }
         }
+    }
+
+    private fun trackPreviewAction(kind: WeighingFastingSlotKind, action: String) {
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION,
+            mapOf(
+                AnalyticsEvents.Params.SOURCE to "weighing_fasting_detail",
+                AnalyticsEvents.Params.FIELD to fieldKey(kind),
+                AnalyticsEvents.Params.KIND to kind.name.lowercase(),
+                AnalyticsEvents.Params.ACTION to action,
+                AnalyticsEvents.Params.CAMPAIGN_ID to fastingTaskId,
+                AnalyticsEvents.Params.CAMPAIGN_SHED_ID to campaignShedId,
+            ),
+        )
     }
 
     /** Room is the SSOT for this shed card; the network refresh only rewrites Room. */

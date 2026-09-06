@@ -133,6 +133,7 @@ sealed interface FeedDistributionEvent {
     data object Back : FeedDistributionEvent
     data object FeedVideoPlaybackFailed : FeedDistributionEvent
     data object WaterVideoPlaybackFailed : FeedDistributionEvent
+    data class ProofPreviewAction(val fieldKey: String, val action: String) : FeedDistributionEvent
 }
 
 @Composable
@@ -208,6 +209,9 @@ fun FeedDistributionCompleteScreen(
                     onClick = { onEvent(FeedDistributionEvent.TakeFeedWeightPhoto) },
                     remotePreviewUrl = state.feedWeightPhotoRemoteUrl,
                     showAction = !state.alreadySubmitted,
+                    onPreviewAction = { action ->
+                        onEvent(FeedDistributionEvent.ProofPreviewAction("feed_distribution_feed_weight_photo", action))
+                    },
                 )
             }
             item {
@@ -230,6 +234,9 @@ fun FeedDistributionCompleteScreen(
                     remotePreviewUrl = state.videoRemoteUrl,
                     onPlaybackFailure = { onEvent(FeedDistributionEvent.FeedVideoPlaybackFailed) },
                     showAction = !state.alreadySubmitted,
+                    onPreviewAction = { action ->
+                        onEvent(FeedDistributionEvent.ProofPreviewAction("feed_distribution_video", action))
+                    },
                 )
             }
             item {
@@ -252,6 +259,9 @@ fun FeedDistributionCompleteScreen(
                     remotePreviewUrl = state.waterVideoRemoteUrl,
                     onPlaybackFailure = { onEvent(FeedDistributionEvent.WaterVideoPlaybackFailed) },
                     showAction = !state.alreadySubmitted,
+                    onPreviewAction = { action ->
+                        onEvent(FeedDistributionEvent.ProofPreviewAction("feed_distribution_water_video", action))
+                    },
                 )
             }
         }
@@ -328,6 +338,7 @@ internal fun FeedDistProofAction(
     remotePreviewUrl: String? = null,
     onPlaybackFailure: () -> Unit = {},
     showAction: Boolean = true,
+    onPreviewAction: (String) -> Unit = {},
 ) {
     val failed = status == FeedDistributionProofStatus.FAILED
     val synced = status == FeedDistributionProofStatus.SYNCED
@@ -396,6 +407,7 @@ internal fun FeedDistProofAction(
                         }
                         onPlaybackFailure()
                     },
+                    onPreviewAction = onPreviewAction,
                 )
                 if (showAction) {
                     FeedDistRetryButton(label = if (failed) retryLabel else replaceLabel, enabled = enabled, onClick = onClick)
@@ -411,8 +423,19 @@ internal fun FeedDistProofAction(
 }
 
 @Composable
-private fun FeedDistPreview(path: String, kind: FeedDistPreviewKind, onPlaybackFailure: () -> Unit = {}) {
-    ProofMediaPreview(path = path, kind = kind, onPlaybackFailure = onPlaybackFailure, expandable = true)
+private fun FeedDistPreview(
+    path: String,
+    kind: FeedDistPreviewKind,
+    onPlaybackFailure: () -> Unit = {},
+    onPreviewAction: (String) -> Unit = {},
+) {
+    ProofMediaPreview(
+        path = path,
+        kind = kind,
+        onPlaybackFailure = onPlaybackFailure,
+        expandable = true,
+        onPreviewAction = onPreviewAction,
+    )
 }
 
 @Composable

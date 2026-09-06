@@ -2332,6 +2332,18 @@ class WeighingViewModel @Inject constructor(
 
     fun replaceShedVideo(proofId: String) = captureShedVideo(replacingProofId = proofId)
 
+    fun trackShedVideoPreviewAction(proofId: String, action: String) {
+        if (category != PER_SHED_PARTITION_CATEGORY) return
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_PREVIEW_ACTION,
+            shedVideoActionProps(action, proofId) +
+                mapOf(
+                    AnalyticsEvents.Params.SOURCE to "shed_video_preview",
+                    AnalyticsEvents.Params.KIND to "video",
+                ),
+        )
+    }
+
     // Durable across process death via SavedStateHandle -- NOT the file-scope `mutableMapOf` this
     // replaced. A process-wide static map neither survives a killed process (the operator's
     // half-typed lump-sum weight/count silently vanished) nor scopes cleanly to one VM instance
@@ -2918,10 +2930,35 @@ class WeighingViewModel @Inject constructor(
         val key = scopeKey ?: return
         val proof = proofForAnimal(animalId)
         if (proof?.syncStatus != CaptureSyncStatus.FAILED) return
+        val row = scannedRows.value.firstOrNull { it.animalId == animalId }
+            ?: unknownWeighingRow(key, proof.rfidTag.orEmpty().ifBlank { animalId }, proof.capturedAtMs)
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_INDIVIDUAL_PROOF_RETRY_ATTEMPTED,
+            weighingProofProps(row, proof) +
+                mapOf(AnalyticsEvents.Params.OUTCOME to "attempt", AnalyticsEvents.Params.SOURCE to "proof_row"),
+        )
         viewModelScope.launch {
             when (val result = proofCaptureRepository.retryUpload(key, proof.id)) {
-                is AppResult.Ok -> message.value = "Video retry queued."
-                is AppResult.Err -> message.value = result.message
+                is AppResult.Ok -> {
+                    message.value = "Video retry queued."
+                    analytics.track(
+                        AnalyticsEventsWeighing.WEIGHING_INDIVIDUAL_PROOF_RETRY_SUCCEEDED,
+                        weighingProofProps(row, proof) +
+                            mapOf(AnalyticsEvents.Params.OUTCOME to "queued", AnalyticsEvents.Params.SOURCE to "proof_row"),
+                    )
+                }
+                is AppResult.Err -> {
+                    message.value = result.message
+                    analytics.track(
+                        AnalyticsEventsWeighing.WEIGHING_INDIVIDUAL_PROOF_RETRY_FAILED,
+                        weighingProofProps(row, proof) +
+                            mapOf(
+                                AnalyticsEvents.Params.OUTCOME to "failed",
+                                AnalyticsEvents.Params.SOURCE to "proof_row",
+                                AnalyticsEvents.Params.REASON to result.message.take(MAX_ANALYTICS_REASON_CHARS),
+                            ),
+                    )
+                }
             }
         }
     }
@@ -3346,6 +3383,7 @@ class WeighingViewModel @Inject constructor(
                         CaptureSyncStatus.SYNCED -> sg.mesha.goatos.feature.scan.ProofUploadStatus.SYNCED
                         CaptureSyncStatus.FAILED -> sg.mesha.goatos.feature.scan.ProofUploadStatus.FAILED
                     },
+                    previewPath = proof.previewUri(),
                 )
             }
 

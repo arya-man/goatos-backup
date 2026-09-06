@@ -254,7 +254,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             FeedDistributionEvent.Back -> analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_BACK_TAPPED)
             FeedDistributionEvent.FeedVideoPlaybackFailed -> refreshTeammatePreviewUrl(ProofSlot.FEED_VIDEO)
             FeedDistributionEvent.WaterVideoPlaybackFailed -> refreshTeammatePreviewUrl(ProofSlot.WATER_VIDEO)
+            is FeedDistributionEvent.ProofPreviewAction -> trackPreviewAction(event.fieldKey, event.action)
         }
+    }
+
+    private fun trackPreviewAction(fieldKey: String, action: String) {
+        val slot = ProofSlot.fromFieldKey(fieldKey)
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_PROOF_PREVIEW_ACTION,
+            distributionEventProps(
+                slot = slot,
+                action = action,
+                extra = mapOf(AnalyticsEvents.Params.FIELD to fieldKey),
+            ),
+        )
     }
 
     private fun captureFeedWeightPhoto() {
@@ -1480,7 +1493,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         private const val PROOF_FAILED = "Couldn't save that proof. Please capture it again."
     }
 
-    private enum class ProofSlot { FEED_WEIGHT_PHOTO, FEED_VIDEO, WATER_VIDEO }
+    private enum class ProofSlot { FEED_WEIGHT_PHOTO, FEED_VIDEO, WATER_VIDEO;
+        companion object
+    }
 
 private fun ProofSlot.analyticsKind(): String = when (this) {
     ProofSlot.FEED_WEIGHT_PHOTO -> "feed_weight_photo"
@@ -1492,6 +1507,13 @@ private fun ProofSlot.fieldKey(): String = when (this) {
     ProofSlot.FEED_WEIGHT_PHOTO -> "feed_distribution_feed_weight_photo"
     ProofSlot.FEED_VIDEO -> "feed_distribution_video"
     ProofSlot.WATER_VIDEO -> "feed_distribution_water_video"
+}
+
+private fun ProofSlot.Companion.fromFieldKey(fieldKey: String): ProofSlot? = when (fieldKey) {
+    "feed_distribution_feed_weight_photo" -> ProofSlot.FEED_WEIGHT_PHOTO
+    "feed_distribution_video" -> ProofSlot.FEED_VIDEO
+    "feed_distribution_water_video" -> ProofSlot.WATER_VIDEO
+    else -> null
 }
 
 }

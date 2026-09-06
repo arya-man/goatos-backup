@@ -1,5 +1,22 @@
 # Goat OS Workspace Agent Context
 
+## Android Proof Media Rule
+
+For Goat OS Android proof capture/preview work, never add a client-wide
+proof/video cap. Caps must be explicit per feature and field; a vaccine rule
+must not affect weighing, PC Care, feed, counts, health, toxin, workflow, or any
+other proof flow.
+
+Post-capture image/video proof cards should use the shared `ProofMediaPreview`
+surface with play/pause, fullscreen, share, retry/re-record where applicable,
+and feature-owned `onPreviewAction` analytics. Track enough bounded context to
+trace screen -> field -> proof row -> outbox -> retry -> backend registration ->
+submit -> success/failure. Do not show raw internal identifiers such as
+`feed_water_removal` as user-facing titles.
+
+For phone E2E, test only the Android user profile and app package visible to
+the maintainer unless they explicitly authorize switching.
+
 ## PR Review + Land Main Rule
 
 When the maintainer asks to review a GitHub PR and land main, the task is not

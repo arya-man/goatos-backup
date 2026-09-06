@@ -665,8 +665,14 @@ class ScanViewModel @Inject constructor(
                 _rosterExpanded.value = !_rosterExpanded.value
             is ScanEvent.CaptureVideo -> requestGoatProof(event.goatId)
             is ScanEvent.CaptureProof -> requestGoatProof(event.goatId)
-            is ScanEvent.RetryProof -> retryGoatProof(event.goatId)
-            is ScanEvent.ArmProofReplacement -> armProofReplacement(event.goatId)
+            is ScanEvent.RetryProof -> {
+                trackProofActionTapped(event.goatId, "retry")
+                retryGoatProof(event.goatId)
+            }
+            is ScanEvent.ArmProofReplacement -> {
+                trackProofActionTapped(event.goatId, "replace")
+                armProofReplacement(event.goatId)
+            }
             ScanEvent.OpenShedSwitcher,
             ScanEvent.DismissShedSwitcher,
             is ScanEvent.SwitchShed -> Unit
@@ -1941,6 +1947,20 @@ class ScanViewModel @Inject constructor(
                 .filter { it.subjectId == goatId && it.syncStatus == CaptureSyncStatus.FAILED }
                 .forEach { proofCaptureRepository.retryUpload(selectedTaskId, it.id) }
         }
+    }
+
+    private fun trackProofActionTapped(goatId: String, action: String) {
+        val row = (state.value.roster + state.value.proofActionNeeded)
+            .firstOrNull { it.goatId == goatId }
+        analytics.track(
+            AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED,
+            vaccinationActionProps(row, row?.primaryTag.orEmpty()) +
+                mapOf(
+                    AnalyticsEvents.Params.ACTION to action,
+                    AnalyticsEvents.Params.GOAT_ID to goatId,
+                    AnalyticsEvents.Params.SOURCE to "proof_row",
+                ),
+        )
     }
 
 private fun normalize(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()

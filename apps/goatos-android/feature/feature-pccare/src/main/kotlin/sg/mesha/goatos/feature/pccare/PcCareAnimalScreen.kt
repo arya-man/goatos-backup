@@ -92,6 +92,16 @@ fun PcCareAnimalScreen(
                         stepLabel = if (animal.slots.size > 1) "Video ${index + 1} of ${animal.slots.size}" else "",
                         locked = state.isLocked,
                         onRecord = { onEvent(PcCareTaskEvent.RecordSlot(animal.key, animal.slots[index].fieldKey)) },
+                        onPreviewAction = { action ->
+                            onEvent(
+                                PcCareTaskEvent.ProofPreviewAction(
+                                    slotFieldKey = animal.slots[index].fieldKey,
+                                    mediaKind = animal.slots[index].previewKind.name.lowercase(),
+                                    action = action,
+                                    tagKey = animal.key,
+                                ),
+                            )
+                        },
                     )
                 }
             }
@@ -134,6 +144,7 @@ private fun PcCareProofCard(
     stepLabel: String,
     locked: Boolean,
     onRecord: () -> Unit,
+    onPreviewAction: (String) -> Unit = {},
 ) {
     val working = slot.state == PcCareSlotState.WORKING
     val done = slot.state == PcCareSlotState.SYNCED || slot.state == PcCareSlotState.PEER
@@ -211,6 +222,7 @@ private fun PcCareProofCard(
                     },
                     modifier = Modifier.padding(top = 6.dp),
                     expandable = true,
+                    onPreviewAction = onPreviewAction,
                 )
             }
             if (canRecord && !working) {

@@ -82,6 +82,8 @@ import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.feature.scan.ProofUploadStatus
@@ -107,7 +109,8 @@ import sg.mesha.goatos.feature.scan.ScanUiState
  */
 private const val SHED_PROOF_VIDEO_LIMIT = 5
 
-// telemetry:exempt Weighing execution V1 has repository/viewmodel sync events; screen-level click telemetry is deferred until workflow names settle.
+// telemetry:exempt stateless renderer; weighing proof preview/action events are routed to the
+// ViewModel through callbacks so analytics payloads include task/shed/proof identity.
 
 /**
  * What this shed's group videos ACTUALLY are, by upload state.
@@ -256,6 +259,7 @@ data class WeighingProofUiRow(
     val id: String,
     val label: String,
     val status: ProofUploadStatus,
+    val previewPath: String? = null,
 )
 
 // Weighing is free-flow: this row is identified ONLY by the scanned identifier. It carries no
@@ -444,6 +448,7 @@ fun WeighingScreen(
     onRetryShedVideo: (String) -> Unit = {},
     onReplaceShedVideo: (String) -> Unit = {},
     onRemoveShedVideo: (String) -> Unit = {},
+    onShedVideoPreviewAction: (String, String) -> Unit = { _, _ -> },
     onReconnectReader: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     onReopenAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
@@ -510,6 +515,7 @@ fun WeighingScreen(
             onRetryShedVideo = onRetryShedVideo,
             onReplaceShedVideo = onReplaceShedVideo,
             onRemoveShedVideo = onRemoveShedVideo,
+            onShedVideoPreviewAction = onShedVideoPreviewAction,
             onReconnectReader = onReconnectReader,
             onRefresh = onRefresh,
             onBack = onBack,
@@ -567,6 +573,7 @@ fun WeighingScreen(
                             onRecordIndividual = onRecordIndividual,
                             onRecordShedPartition = onRecordShedPartition,
                             onCaptureShedVideo = onCaptureShedVideo,
+                            onShedVideoPreviewAction = onShedVideoPreviewAction,
                             onOpenRoster = { rosterSheetOpen = true },
                         )
                     } else {
@@ -1100,6 +1107,7 @@ private fun WeighingCapturePanel(
     onRecordIndividual: () -> Unit,
     onRecordShedPartition: () -> Unit,
     onCaptureShedVideo: () -> Unit,
+    onShedVideoPreviewAction: (String, String) -> Unit,
     onOpenRoster: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1347,6 +1355,7 @@ private fun WeighingExecutionScanScreen(
     onRetryShedVideo: (String) -> Unit,
     onReplaceShedVideo: (String) -> Unit,
     onRemoveShedVideo: (String) -> Unit,
+    onShedVideoPreviewAction: (String, String) -> Unit,
     onReconnectReader: () -> Unit,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
@@ -1525,6 +1534,7 @@ private fun WeighingExecutionScanScreen(
                         onRetryShedVideo = onRetryShedVideo,
                         onReplaceShedVideo = onReplaceShedVideo,
                         onRemoveShedVideo = onRemoveShedVideo,
+                        onShedVideoPreviewAction = onShedVideoPreviewAction,
                     )
                 }
             }
@@ -1903,6 +1913,7 @@ private fun WeighingLumpSumCapture(
     onRetryShedVideo: (String) -> Unit,
     onReplaceShedVideo: (String) -> Unit,
     onRemoveShedVideo: (String) -> Unit,
+    onShedVideoPreviewAction: (String, String) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -1985,6 +1996,13 @@ private fun WeighingLumpSumCapture(
                     text = proof.label,
                     color = proofColor,
                     style = MeshaType.caption,
+                )
+            }
+            proof.previewPath?.takeIf { it.isNotBlank() }?.let { previewPath ->
+                ProofMediaPreview(
+                    path = previewPath,
+                    kind = ProofMediaPreviewKind.Video,
+                    onPreviewAction = { action -> onShedVideoPreviewAction(proof.id, action) },
                 )
             }
             when (proof.status) {

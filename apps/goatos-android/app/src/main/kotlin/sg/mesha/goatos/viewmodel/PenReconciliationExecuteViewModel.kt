@@ -102,9 +102,24 @@ class PenReconciliationExecuteViewModel @Inject constructor(
             // queued old take only AFTER the new one is durable, so a cancel keeps the old clip.
             PenReconciliationExecuteEvent.ReRecordVideo -> captureVideo(replacing = true)
             PenReconciliationExecuteEvent.MarkDone -> markDone()
+            is PenReconciliationExecuteEvent.PreviewAction -> trackPreviewAction(event.action)
             PenReconciliationExecuteEvent.Back -> Unit // navigation — handled by the nav host.
             PenReconciliationExecuteEvent.NavigationHandled -> _state.update { it.copy(returnToList = false) }
         }
+    }
+
+    private fun trackPreviewAction(action: String) {
+        analytics.track(
+            AnalyticsEvents.COUNTS_PEN_RECONCILIATION_PROOF_PREVIEW_ACTION,
+            mapOf(
+                AnalyticsEvents.Params.SOURCE to SCREEN_EXECUTE,
+                AnalyticsEvents.Params.KIND to KIND_COMPLETE,
+                AnalyticsEvents.Params.ACTION to action,
+                AnalyticsEvents.Params.FIELD to FIELD_RETURN_VIDEO,
+                AnalyticsEvents.Params.SHED_ID to registeredShedId,
+                "task_id" to cardId,
+            ),
+        )
     }
 
     private fun loadCard() {

@@ -290,6 +290,12 @@ class PcCareTaskViewModel @Inject constructor(
             PcCareTaskEvent.SubmitTypedScan -> handleScan(local.value.scanInput, fromTypedEntry = true)
             is PcCareTaskEvent.RecordSlot -> onRecordSlot(event.tagKey, event.slotFieldKey)
             is PcCareTaskEvent.RecordTaskProof -> onRecordTaskProof(event.slotFieldKey, event.mediaKind)
+            is PcCareTaskEvent.ProofPreviewAction -> trackProofPreviewAction(
+                slotFieldKey = event.slotFieldKey,
+                mediaKind = event.mediaKind,
+                action = event.action,
+                tagKey = event.tagKey,
+            )
             PcCareTaskEvent.Submit -> armSubmit()
             PcCareTaskEvent.ConfirmSubmit -> confirmSubmit()
             PcCareTaskEvent.DismissSubmitConfirmation ->
@@ -493,7 +499,7 @@ class PcCareTaskViewModel @Inject constructor(
                             title = slotDto.label,
                             primaryTag = animalTagVerbatim,
                             workLabel = pcCareSlotHintLabel(slotDto.minDurationHintSeconds),
-                            headerTitle = categoryTitle.ifBlank { null },
+                            headerTitle = pcCareTaskTitle(detail).ifBlank { null },
                         ),
                     )
                 if (captured == null) {
@@ -869,7 +875,7 @@ class PcCareTaskViewModel @Inject constructor(
                                 primaryTag = detail.taskLabel.ifBlank { detail.operationalLocationDisplay.ifBlank { detail.shedLabel } },
                                 workLabel = slotDto.description.ifBlank { slotDto.label },
                                 prompt = if (pcCareIsFeedWaterRemoval(detail)) null else ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
-                                headerTitle = categoryTitle.ifBlank { null },
+                                headerTitle = pcCareTaskTitle(detail).ifBlank { null },
                             ),
                         )?.let {
                             PcCareCapturedTaskProof(
@@ -1624,6 +1630,40 @@ class PcCareTaskViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun trackProofPreviewAction(
+        slotFieldKey: String,
+        mediaKind: String,
+        action: String,
+        tagKey: String?,
+    ) {
+        val animal = tagKey?.let { key -> latestAnimals.firstOrNull { it.normalizedTag == key } }
+        if (animal != null) {
+            analytics.track(
+                AnalyticsEvents.PC_CARE_SLOT_PROOF_PREVIEW,
+                pcCareAnimalSlotAnalyticsProps(
+                    tagKey = animal.normalizedTag,
+                    tagVerbatim = animal.tagVerbatim,
+                    slotFieldKey = slotFieldKey,
+                    slotKey = pcCareSlotProofFieldKey(animal.normalizedTag, slotFieldKey),
+                    outcome = action,
+                    mediaKind = mediaKind,
+                ),
+            )
+            return
+        }
+        val detail = latestDetail
+        analytics.track(
+            AnalyticsEvents.PC_CARE_STOCK_PROOF_PREVIEW,
+            pcCareStockProofAnalyticsProps(
+                fieldKey = slotFieldKey,
+                mediaKind = mediaKind,
+                status = detail?.status.orEmpty(),
+                outcome = action,
+                source = "proof_preview",
+            ),
+        )
     }
 
     private fun buildState(

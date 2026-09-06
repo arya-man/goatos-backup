@@ -167,6 +167,9 @@ fun PcCareTaskScreen(
                         replaceLabel = "Replace video",
                         capturedLabel = proofSlot.statusLabel.ifBlank { "Video captured" },
                         onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "video")) },
+                        onPreviewAction = { action ->
+                            onEvent(PcCareTaskEvent.ProofPreviewAction(proofSlot.fieldKey, "video", action))
+                        },
                     )
                 }
             }
@@ -184,6 +187,9 @@ fun PcCareTaskScreen(
                             replaceLabel = "Replace photo",
                             capturedLabel = proofSlot.statusLabel.ifBlank { "Photo captured" },
                             onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "photo")) },
+                            onPreviewAction = { action ->
+                                onEvent(PcCareTaskEvent.ProofPreviewAction(proofSlot.fieldKey, "photo", action))
+                            },
                         )
                     }
                 }
@@ -200,6 +206,9 @@ fun PcCareTaskScreen(
                             replaceLabel = "Replace video",
                             capturedLabel = proofSlot.statusLabel.ifBlank { "Video captured" },
                             onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "video")) },
+                            onPreviewAction = { action ->
+                                onEvent(PcCareTaskEvent.ProofPreviewAction(proofSlot.fieldKey, "video", action))
+                            },
                         )
                     }
                 }
@@ -243,6 +252,9 @@ fun PcCareTaskScreen(
                         onOpen = { onEvent(PcCareTaskEvent.RosterTapped(state.animals[index].key)) },
                         onRecordSlot = { fieldKey ->
                             onEvent(PcCareTaskEvent.RecordSlot(state.animals[index].key, fieldKey))
+                        },
+                        onPreviewAction = { fieldKey, mediaKind, action ->
+                            onEvent(PcCareTaskEvent.ProofPreviewAction(fieldKey, mediaKind, action))
                         },
                     )
                 }
@@ -461,6 +473,7 @@ private fun PcCareAnimalRow(
     locked: Boolean,
     onOpen: () -> Unit,
     onRecordSlot: (String) -> Unit,
+    onPreviewAction: (String, String, String) -> Unit = { _, _, _ -> },
 ) {
     Column(
         // The whole card opens the animal's own capture screen (the roster drill) — the
@@ -484,6 +497,13 @@ private fun PcCareAnimalRow(
                 slot = slot,
                 locked = locked,
                 onRecord = { onRecordSlot(slot.fieldKey) },
+                onPreviewAction = { action ->
+                    onPreviewAction(
+                        slot.fieldKey,
+                        if (slot.previewKind == PcCareProofPreviewKind.PHOTO) "photo" else "video",
+                        action,
+                    )
+                },
             )
         }
     }
@@ -500,6 +520,7 @@ private fun PcCareSlotChipRow(
     locked: Boolean,
     onRecord: () -> Unit,
     onRecordPhoto: (() -> Unit)? = null,
+    onPreviewAction: (String) -> Unit = {},
 ) {
     Row(
         modifier = Modifier
@@ -535,6 +556,7 @@ private fun PcCareSlotChipRow(
                     },
                     modifier = Modifier.padding(top = 6.dp),
                     expandable = true,
+                    onPreviewAction = onPreviewAction,
                 )
             }
         }
@@ -567,6 +589,7 @@ private fun PcCareTaskProofAction(
     replaceLabel: String,
     capturedLabel: String,
     onRecord: () -> Unit,
+    onPreviewAction: (String) -> Unit = {},
 ) {
     val failed = slot.state == PcCareSlotState.FAILED
     val synced = slot.state == PcCareSlotState.SYNCED
@@ -631,6 +654,7 @@ private fun PcCareTaskProofAction(
                         PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
                     },
                     expandable = true,
+                    onPreviewAction = onPreviewAction,
                 )
                 if (enabled) {
                     PcCareProofRetryButton(label = if (failed) retryLabel else replaceLabel, onClick = onRecord)

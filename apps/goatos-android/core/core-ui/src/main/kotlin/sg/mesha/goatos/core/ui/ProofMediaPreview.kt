@@ -68,6 +68,15 @@ import sg.mesha.goatos.core.media.LocalProofPlayerFactory
 
 enum class ProofMediaPreviewKind { Photo, Video }
 
+object ProofMediaPreviewActions {
+    const val PLAY = "play"
+    const val PAUSE = "pause"
+    const val FULLSCREEN_OPEN = "fullscreen_open"
+    const val FULLSCREEN_CLOSE = "fullscreen_close"
+    const val SHARE = "share"
+    const val PLAYBACK_FAILED = "playback_failed"
+}
+
 private sealed interface ProofPreviewLoad {
     data object Loading : ProofPreviewLoad
     data class Ready(val bitmap: android.graphics.Bitmap) : ProofPreviewLoad
@@ -138,6 +147,7 @@ private fun ProofPreviewActions(
     path: String,
     kind: ProofMediaPreviewKind,
     onExpand: (() -> Unit)?,
+    onAction: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -150,13 +160,19 @@ private fun ProofPreviewActions(
             ProofPreviewActionButton(
                 icon = MeshaIcons.Expand,
                 contentDescription = "Open proof full screen",
-                onClick = onExpand,
+                onClick = {
+                    onAction(ProofMediaPreviewActions.FULLSCREEN_OPEN)
+                    onExpand()
+                },
             )
         }
         ProofPreviewActionButton(
             icon = MeshaIcons.Share,
             contentDescription = "Share proof",
-            onClick = { context.startProofShare(path, kind) },
+            onClick = {
+                onAction(ProofMediaPreviewActions.SHARE)
+                context.startProofShare(path, kind)
+            },
         )
     }
 }
@@ -167,6 +183,7 @@ fun ProofMediaPreview(
     kind: ProofMediaPreviewKind,
     modifier: Modifier = Modifier,
     onPlaybackFailure: () -> Unit = {},
+    onPreviewAction: (String) -> Unit = {},
     // When true, tapping the tile (photo) or the expand button (video) opens the proof
     // full-screen. Proof surfaces opt in by default; pass false only for deliberately static media.
     expandable: Boolean = true,
@@ -174,16 +191,29 @@ fun ProofMediaPreview(
     var showFullscreen by remember(path) { mutableStateOf(false) }
     val onExpand: (() -> Unit)? = if (expandable) ({ showFullscreen = true }) else null
     when (kind) {
-        ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier, onExpand)
-        ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, onPlaybackFailure, onExpand, showFullscreen)
+        ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier, onExpand, onPreviewAction)
+        ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, onPlaybackFailure, onExpand, showFullscreen, onPreviewAction)
     }
     if (showFullscreen) {
-        ProofMediaFullscreenDialog(path = path, kind = kind, onDismiss = { showFullscreen = false })
+        ProofMediaFullscreenDialog(
+            path = path,
+            kind = kind,
+            onPreviewAction = onPreviewAction,
+            onDismiss = {
+                onPreviewAction(ProofMediaPreviewActions.FULLSCREEN_CLOSE)
+                showFullscreen = false
+            },
+        )
     }
 }
 
 @Composable
-private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier, onExpand: (() -> Unit)? = null) {
+private fun ProofPhotoPreview(
+    path: String,
+    modifier: Modifier = Modifier,
+    onExpand: (() -> Unit)? = null,
+    onPreviewAction: (String) -> Unit = {},
+) {
     val context = LocalContext.current
     val isRemote = path.startsWith("http://") || path.startsWith("https://")
     // Local decode stays synchronous (small local files, unchanged behavior); a REMOTE preview must
@@ -225,7 +255,10 @@ private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier, onExp
         Modifier.clickable(
             onClickLabel = "Open proof photo full screen",
             role = Role.Button,
-            onClick = onExpand,
+            onClick = {
+                onPreviewAction(ProofMediaPreviewActions.FULLSCREEN_OPEN)
+                onExpand()
+            },
         )
     } else {
         Modifier
@@ -246,6 +279,7 @@ private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier, onExp
                     path = path,
                     kind = ProofMediaPreviewKind.Photo,
                     onExpand = onExpand,
+                    onAction = onPreviewAction,
                     modifier = Modifier.align(Alignment.TopStart),
                 )
             }
@@ -265,6 +299,7 @@ private fun ProofVideoPreview(
     onPlaybackFailure: () -> Unit = {},
     onExpand: (() -> Unit)? = null,
     fullscreenShowing: Boolean = false,
+    onPreviewAction: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val playerFactory = LocalProofPlayerFactory.current
@@ -323,6 +358,7 @@ private fun ProofVideoPreview(
                 isPlaying = false
                 armed = false
                 firstFrameRendered = false
+                onPreviewAction(ProofMediaPreviewActions.PLAYBACK_FAILED)
                 onPlaybackFailure()
             }
         }
@@ -397,7 +433,10 @@ private fun ProofVideoPreview(
                     .clickable(
                         onClickLabel = "Open proof video full screen",
                         role = Role.Button,
-                        onClick = onExpand,
+                        onClick = {
+                            onPreviewAction(ProofMediaPreviewActions.FULLSCREEN_OPEN)
+                            onExpand()
+                        },
                     ),
             )
         }
@@ -405,6 +444,7 @@ private fun ProofVideoPreview(
             path = path,
             kind = ProofMediaPreviewKind.Video,
             onExpand = onExpand,
+            onAction = onPreviewAction,
             modifier = Modifier.align(Alignment.TopStart),
         )
         Box(
@@ -417,8 +457,10 @@ private fun ProofVideoPreview(
                     onClick = {
                         val currentPlayer = player
                         if (playRequested || currentPlayer?.isPlaying == true) {
+                            onPreviewAction(ProofMediaPreviewActions.PAUSE)
                             playRequested = false
                         } else {
+                            onPreviewAction(ProofMediaPreviewActions.PLAY)
                             if (!armed) armed = true
                             if (currentPlayer?.playbackState == Player.STATE_ENDED) {
                                 currentPlayer.seekTo(0L)
@@ -608,6 +650,7 @@ private const val PROOF_REMOTE_PROBE_TIMEOUT_MS = 1_500
 private fun ProofMediaFullscreenDialog(
     path: String,
     kind: ProofMediaPreviewKind,
+    onPreviewAction: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     androidx.compose.ui.window.Dialog(
@@ -629,7 +672,10 @@ private fun ProofMediaFullscreenDialog(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(
-                    onClick = { context.startProofShare(path, kind) },
+                    onClick = {
+                        onPreviewAction(ProofMediaPreviewActions.SHARE)
+                        context.startProofShare(path, kind)
+                    },
                     modifier = Modifier.size(40.dp),
                 ) {
                     Box(

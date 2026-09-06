@@ -128,6 +128,9 @@ object AnalyticsEvents {
     /** The operator recorded (or re-recorded) the mandatory pen-return video on a Reconcile card. */
     const val COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED = "counts_pen_reconciliation_video_captured"
 
+    /** Operator used the common proof preview controls on the pen-return video. */
+    const val COUNTS_PEN_RECONCILIATION_PROOF_PREVIEW_ACTION = "counts_pen_reconciliation_proof_preview_action"
+
     /** The operator pressed "Mark done": the Reconcile completion write was queued. */
     const val COUNTS_PEN_RECONCILIATION_COMPLETED = "counts_pen_reconciliation_completed"
 
@@ -221,6 +224,7 @@ object AnalyticsEvents {
     const val VACCINATION_PROOF_CAPTURE_SUCCESS = "vaccination_proof_capture_success"
     const val VACCINATION_PROOF_CAPTURE_FAILURE = "vaccination_proof_capture_failure"
     const val VACCINATION_PROOF_CAPTURE_CANCELLED = "vaccination_proof_capture_cancelled"
+    const val VACCINATION_PROOF_ACTION_TAPPED = "vaccination_proof_action_tapped"
     const val VACCINATION_SCAN_SCREEN_OPENED = "vaccination_scan_screen_opened"
     const val VACCINATION_FINALIZE_TAPPED = "vaccination_finalize_tapped"
     const val VACCINATION_FINALIZE_BLOCKED = "vaccination_finalize_blocked"
@@ -453,6 +457,9 @@ object AnalyticsEvents {
     /** A feed-distribution proof upload reached backend sync. [Params.KIND] names the proof slot. */
     const val FEED_DISTRIBUTION_PROOF_UPLOAD_SYNCED = "feed_distribution_proof_upload_synced"
 
+    /** Operator used the common proof preview controls on a feed proof card. */
+    const val FEED_DISTRIBUTION_PROOF_PREVIEW_ACTION = "feed_distribution_proof_preview_action"
+
     /** Operator tapped a completed proof card to reupload that proof. */
     const val FEED_DISTRIBUTION_PROOF_REUPLOAD_TAPPED = "feed_distribution_proof_reupload_tapped"
 
@@ -625,6 +632,9 @@ object AnalyticsEvents {
 
     /** A slot's video was captured and its upload queued; [Params.KIND] the slot field key. */
     const val PC_CARE_SLOT_CAPTURED = "pc_care_slot_captured"
+
+    /** Operator used the common proof preview controls on a PC Care animal slot. */
+    const val PC_CARE_SLOT_PROOF_PREVIEW = "pc_care_slot_proof_preview"
 
     /** Submit was refused; [Params.REASON] carries the coarse blocked cause. */
     const val PC_CARE_SUBMIT_BLOCKED = "pc_care_submit_blocked"
