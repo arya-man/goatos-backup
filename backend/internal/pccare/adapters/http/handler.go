@@ -217,6 +217,9 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 	if taskLabel == "" {
 		taskLabel = t.VaccineLabel
 	}
+	if t.Category == domain.CategoryFeedWaterRemoval {
+		taskLabel = feedWaterRemovalTaskLabel(t.RemovalPenLabels, locationDisplay)
+	}
 	return taskDTO{
 		TaskID:                     t.TaskID,
 		Category:                   t.Category,
@@ -243,6 +246,29 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 		ExpectedSlots:              slotDTOs,
 		InventoryRequirements:      requirements,
 		TaskProofs:                 taskProofs,
+	}
+}
+
+func feedWaterRemovalTaskLabel(penLabels []string, fallback string) string {
+	labels := make([]string, 0, len(penLabels))
+	for _, label := range penLabels {
+		label = strings.TrimSpace(label)
+		if label != "" {
+			labels = append(labels, label)
+		}
+	}
+	if len(labels) == 0 && strings.TrimSpace(fallback) != "" {
+		labels = append(labels, strings.TrimSpace(fallback))
+	}
+	switch len(labels) {
+	case 0:
+		return "Remove feed & water"
+	case 1:
+		return "Remove feed & water · " + labels[0]
+	case 2:
+		return "Remove feed & water · " + labels[0] + ", " + labels[1]
+	default:
+		return "Remove feed & water · " + labels[0] + ", " + labels[1] + " +" + strconv.Itoa(len(labels)-2) + " more"
 	}
 }
 

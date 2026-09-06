@@ -495,7 +495,8 @@ const taskSelectColumns = `
   coalesce(assignees.names, ARRAY[]::text[]),
   coalesce(animals.animal_count, 0),
   coalesce(requirements.items, '[]'::jsonb),
-  coalesce(task_proofs.items, '[]'::jsonb)`
+  coalesce(task_proofs.items, '[]'::jsonb),
+  coalesce(removal_pens.labels, ARRAY[]::text[])`
 
 // taskFromJoins is the FROM/JOIN block matching taskSelectColumns. The assignee and animal
 // sides are PRE-AGGREGATED to exactly one row per task before joining, so they cannot multiply
@@ -548,7 +549,12 @@ LEFT JOIN LATERAL (
   LEFT JOIN workforce_members m
     ON m.tenant_id = p.tenant_id AND m.user_id = p.captured_by AND m.status = 'active'
   WHERE p.tenant_id = t.tenant_id AND p.task_id = t.task_id
-) task_proofs ON true`
+) task_proofs ON true
+LEFT JOIN LATERAL (
+  SELECT array_remove(array_agg(p.pen_label ORDER BY p.pen_label), '') AS labels
+  FROM pc_care_removal_pen_proofs p
+  WHERE p.tenant_id = t.tenant_id AND p.removal_task_id = t.task_id
+) removal_pens ON true`
 
 func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 	var t ports.TaskRow
@@ -560,7 +566,7 @@ func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 		&t.PartitionLabel, &t.VaccineLabel, &t.PlannedBusinessDate, &t.DueBusinessDate,
 		&t.WorkState, &t.Status, &t.ReworkReason, &t.CloseReason, &t.RowVersion,
 		&t.SubmittedBy, &submittedAt, &t.AssigneeUserIDs, &t.AssigneeNames, &t.AnimalCount,
-		&requirementsJSON, &taskProofsJSON,
+		&requirementsJSON, &taskProofsJSON, &t.RemovalPenLabels,
 	); err != nil {
 		return ports.TaskRow{}, err
 	}

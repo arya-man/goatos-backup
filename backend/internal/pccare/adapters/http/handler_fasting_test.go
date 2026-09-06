@@ -75,6 +75,9 @@ func TestFeedWaterRemovalContractCopyIsFarmLanguage(t *testing.T) {
 	if dto.CaptureMode != domain.CaptureModeTaskProof {
 		t.Fatalf("capture mode = %q, want task_proof", dto.CaptureMode)
 	}
+	if dto.TaskLabel != "Remove feed & water · Castro - 2" {
+		t.Fatalf("task label = %q, want removal action with pen name", dto.TaskLabel)
+	}
 	if len(dto.ExpectedSlots) != 2 {
 		t.Fatalf("expected slots = %d, want 2", len(dto.ExpectedSlots))
 	}
@@ -95,9 +98,24 @@ func TestFeedWaterRemovalContractCopyIsFarmLanguage(t *testing.T) {
 
 func taskRowForCopyCheck() ports.TaskRow {
 	return ports.TaskRow{
-		TaskID:         httpTask,
-		Category:       domain.CategoryFeedWaterRemoval,
-		ShedName:       "Castro",
-		PartitionLabel: "2",
+		TaskID:           httpTask,
+		Category:         domain.CategoryFeedWaterRemoval,
+		ShedName:         "Castro",
+		PartitionLabel:   "2",
+		RemovalPenLabels: []string{"Castro - 2"},
+	}
+}
+
+func TestFeedWaterRemovalTaskLabelNamesMultiplePensCompactly(t *testing.T) {
+	dto := taskDTOFrom(ports.TaskRow{
+		TaskID:           httpTask,
+		Category:         domain.CategoryFeedWaterRemoval,
+		RemovalPenLabels: []string{"Yashoda 10", "Castro 2", "Yashoda 8"},
+	})
+	if dto.TaskLabel != "Remove feed & water · Yashoda 10, Castro 2 +1 more" {
+		t.Fatalf("task label = %q", dto.TaskLabel)
+	}
+	if dto.OperationalLocationDisplay != "" {
+		t.Fatalf("round-grain removal has no single operational location, got %q", dto.OperationalLocationDisplay)
 	}
 }

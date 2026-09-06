@@ -121,6 +121,9 @@ type TaskRow struct {
 	InventoryRequirements []InventoryRequirement
 	// TaskProofs snapshots task-level proof rows for inventory_vaccine tasks.
 	TaskProofs []TaskProofRow
+	// RemovalPenLabels names the pens a round-grain feed & water removal card covers. Empty
+	// for normal per-pen tasks; rendered by the backend into the task label for removal cards.
+	RemovalPenLabels []string
 }
 
 // InventoryRequirement is one vaccine/count line displayed on the inventory_vaccine card.
