@@ -288,7 +288,7 @@ require_force_update_config_access() {
       -H "Content-Type: application/json; UTF-8" \
       -H "If-Match: ${etag}" \
       --data-binary @"$template_file" \
-      "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
+      "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig?validate_only=true"
   )"
   if [[ ! "$status" =~ ^2 ]]; then
     echo "Remote Config update preflight failed after HTTP $status; refusing to start Android distribution." >&2
