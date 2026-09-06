@@ -1858,9 +1858,12 @@ JOIN recent r
 LEFT JOIN rate_override ov
   ON ov.farm_label = fs.farm_label
  AND ov.feed_item_key = fs.family_key
+LEFT JOIN feed_item_catalog c
+  ON c.tenant_id = $1 AND c.feed_item_key = fs.family_key
 -- A feed with no recent consumption has no burn rate to divide by, so it has no days-left to be
 -- low: it is joined INNER on purpose. Alerting on it would be a guess.
 WHERE COALESCE(ov.kg_per_day, r.avg_kg) > 0
+  AND COALESCE(c.status, 'active') <> 'retired'
   AND floor(fs.balance_kg / COALESCE(ov.kg_per_day, r.avg_kg)) < $2
 ORDER BY days_left, fs.farm_label, fs.family_label`
 

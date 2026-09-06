@@ -2318,6 +2318,16 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 	if got.Items[len(got.Items)-1].FeedItemKey != "mesha_adult_concentrate" {
 		t.Errorf("`not started` must sort behind every card with a real days-left, got %+v", got.Items)
 	}
+
+	low, err := repo.LowStockFeeds(ctx, fdiTenant, 20)
+	if err != nil {
+		t.Fatalf("LowStockFeeds: %v", err)
+	}
+	for _, f := range low {
+		if f.FeedItemKey == "hedge_lucerne" {
+			t.Errorf("low-stock push must use the same retired-feed filter as the stock cards, got %+v", f)
+		}
+	}
 }
 
 // TestStockCardsFoldSplitConcentratesOneToManyAcrossEveryStatusBucket pins the TRANSITIONAL
