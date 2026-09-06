@@ -40,6 +40,14 @@ Latest verification:
 - `make mobile-guard` passed.
 - `make mobile-guard-audit` passed.
 - Focused compile/UI/analytics Gradle run passed.
+- Throwaway DB seed reran successfully.
+- DB sanity confirmed PC Care seed has 3 QA tasks: 2 `deworming`, 1 `feed_water_removal`.
+- DB sanity confirmed PC Care removal seed has 2 partition removal proof rows.
+- DB sanity confirmed `operations` module grants are `counts,feed_direction,pc_care,vaccination,weighing`.
+
+Current blocker:
+- Phone E2E is waiting for the maintainer-visible phone `143382555G111292` to be connected again.
+- Only device currently attached is `F5625U031150`; do not use it unless explicitly authorized.
 
 Next steps:
 - Commit/rebase/push latest judge fix.
