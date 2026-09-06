@@ -215,6 +215,7 @@ publish_force_update_floor() {
     curl -sS -D "$template_file.headers" -o "$template_file" -w '%{http_code}' \
       -H "Authorization: Bearer ${token}" \
       -H "Accept: application/json" \
+      -H "X-Firebase-ETag: true" \
       "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
   )"
   if [[ ! "$status" =~ ^2 ]]; then
@@ -282,6 +283,7 @@ require_force_update_config_access() {
     curl -sS -D "$template_file.headers" -o "$template_file" -w '%{http_code}' \
       -H "Authorization: Bearer ${token}" \
       -H "Accept: application/json" \
+      -H "X-Firebase-ETag: true" \
       "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
   )"
   if [[ ! "$status" =~ ^2 ]]; then
