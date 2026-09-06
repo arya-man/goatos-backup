@@ -1382,17 +1382,21 @@ function isTemporarilyHiddenStockItem(item: { feed_item_label: string; days_left
 // daily average, floored at zero -- and a row whose average is unavailable has
 // no days figure at all, so it is kept. The species-less "Mesha Adult
 // Concentrate" is never hidden, matching the card rule. Delete this function
-// and the .filter() call above to bring the rows back.
-function isTemporarilyHiddenFarmItem(row: { feed_item_label: string; avg_daily_kg: string; ledger_stock_kg: string }): boolean {
-  const label = (row.feed_item_label ?? "").toLowerCase();
+// and the two .filter() calls above to bring the rows back.
+//
+// The next-7-days forecast table applies the SAME rule off its own stock and
+// average columns, so its week total counts exactly the rows it lists -- a
+// total over hidden rows would not add up on screen.
+function isTemporarilyHiddenFarmItem(feedItemLabel: string, avgDailyKg: string, stockKg: string): boolean {
+  const label = (feedItemLabel ?? "").toLowerCase();
   const isMeshaConcentrate =
     label.includes("mesha") &&
     label.includes("concentrate") &&
     (label.includes("goat") || label.includes("sheep"));
   if (!isMeshaConcentrate) return false;
-  const avg = num(row.avg_daily_kg);
-  if (avg <= 0) return false;
-  return Math.max(Math.floor(num(row.ledger_stock_kg) / avg), 0) <= 0;
+  const avg = num(avgDailyKg);
+  if (avg <= 0 || stockKg === "") return false;
+  return Math.max(Math.floor(num(stockKg) / avg), 0) <= 0;
 }
 
 function StockCards({
@@ -1409,8 +1413,8 @@ function StockCards({
   // freshly bought load nobody has started feeding, and a retired feed whose
   // frozen burn rate kept it on screen. Both are the backend's call now.
   const active = (stock?.items ?? []).filter((item) => !isTemporarilyHiddenStockItem(item));
-  const farmItems = (stock?.farm_items ?? []).filter((row) => !isTemporarilyHiddenFarmItem(row));
-  const forecast = stock?.forecast ?? [];
+  const farmItems = (stock?.farm_items ?? []).filter((row) => !isTemporarilyHiddenFarmItem(row.feed_item_label, row.avg_daily_kg, row.ledger_stock_kg));
+  const forecast = (stock?.forecast ?? []).filter((row) => !isTemporarilyHiddenFarmItem(row.feed_item_label, row.avg_daily_kg, row.stock_kg));
   return (
     <>
       {!stock || active.length === 0 ? (
