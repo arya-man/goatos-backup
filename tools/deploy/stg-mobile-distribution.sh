@@ -256,6 +256,34 @@ publish_force_update_floor() {
   echo "FORCE_UPDATE_FLOOR_PUBLISHED ${version_code} ${update_url}"
 }
 
+require_force_update_config_access() {
+  local token template_file status etag
+
+  token="$(gcloud auth print-access-token)"
+  template_file=".local/android-signing/firebase-remote-config-preflight.json"
+
+  mkdir -p .local/android-signing
+  status="$(
+    curl -sS -D "$template_file.headers" -o "$template_file" -w '%{http_code}' \
+      -H "Authorization: Bearer ${token}" \
+      -H "Accept: application/json" \
+      "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
+  )"
+  if [[ ! "$status" =~ ^2 ]]; then
+    echo "Remote Config preflight failed after HTTP $status; refusing to start Android distribution." >&2
+    sed 's/^/remote-config-preflight-response: /' "$template_file" >&2 || true
+    return 1
+  fi
+
+  etag="$(awk 'BEGIN{IGNORECASE=1} /^etag:/ {gsub(/\r/,""); sub(/^[^:]*:[[:space:]]*/,""); print; exit}' "$template_file.headers")"
+  if [[ -z "$etag" ]]; then
+    echo "Remote Config preflight did not return an ETag; refusing to start Android distribution." >&2
+    return 1
+  fi
+
+  echo "FORCE_UPDATE_REMOTE_CONFIG_PREFLIGHT_OK"
+}
+
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
@@ -309,6 +337,7 @@ FIREBASE_APP_ID="${FIREBASE_APP_ID:-$json_firebase_app_id}"
   exit 1
 }
 
+require_force_update_config_access
 notify_slack "STARTED" "Backend/web deploy finished; building signed GoatOS Android release."
 
 install_android_sdk
