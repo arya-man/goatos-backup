@@ -2222,8 +2222,11 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 	}
 
 	// FED: an active feed with a real burn rate -> an ordinary days-left card.
-	catalog("Mesha Kids Goat Concentrate", "active")
-	purchase("Mesha Kids Goat Concentrate", 300, "600.000")
+	// Deliberately a feed OUTSIDE domain.StockFamilyMerge, so this test keeps
+	// answering its own question (vocabulary, not burn rate) rather than also
+	// exercising the transitional fold, which has its own test below.
+	catalog("Concentrate", "active")
+	purchase("Concentrate", 300, "600.000")
 	// NOT STARTED: active, bought, never directed -> a card that says so.
 	catalog("Mesha Adult Concentrate", "active")
 	purchase("Mesha Adult Concentrate", 301, "2250.000")
@@ -2253,7 +2256,7 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 		IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":2026-08-11:stockcards",
 		GeneratedBy:    "test",
 		Cells: []domain.StoredCell{
-			cell("Mesha Kids Goat Concentrate", "mesha_kids_goat_concentrate", "120.000"),
+			cell("Concentrate", "concentrate", "120.000"),
 			cell("Hedge Lucerne", "hedge_lucerne", "50.000"),
 		},
 	}); err != nil {
@@ -2284,7 +2287,7 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 		}
 	}
 
-	fed, ok := byItem["mesha_kids_goat_concentrate"]
+	fed, ok := byItem["concentrate"]
 	if !ok {
 		t.Fatalf("fed active feed missing from cards: %+v", got.Items)
 	}
@@ -2314,5 +2317,316 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 	// Least urgent last: the not-started card trails every days-left card.
 	if got.Items[len(got.Items)-1].FeedItemKey != "mesha_adult_concentrate" {
 		t.Errorf("`not started` must sort behind every card with a real days-left, got %+v", got.Items)
+	}
+}
+
+// TestStockCardsFoldSplitConcentratesOneToManyAcrossEveryStatusBucket pins the TRANSITIONAL
+// merge (domain.StockFamilyMerge, maintainer decision 2026-09-06): while the
+// farm still holds sacks of the four retired split concentrates, each family
+// reads as ONE card whose stock is the sum of its members' balances and whose
+// burn rate is the family's kg per CALENDAR DAY.
+//
+// The fixture is adversarial on the three ways this can be got wrong:
+//
+//  1. SUBSTITUTION. Day one feeds the two old adult feeds; day two feeds the
+//     successor INSTEAD. Summing each member's own 3-day average gives 240
+//     kg/day against a true family draw of 120 -- exactly the 40%-high error
+//     the live data showed on Channapatna. The days-left asserted here is only
+//     reachable through the family-day regrouping.
+//  2. A NEGATIVE MEMBER. The sheep feed is overdrawn (bought 10, fed 20). Its
+//     -10 kg is SUBTRACTED, not floored: in a merged store that feed came out
+//     of a sibling sack. Flooring would read 9 days here instead of 8.
+//  3. A RETIRED MEMBER. The sheep feed is retired in the catalog -- as it is on
+//     the live farm -- and must still contribute its stock, while a retired feed
+//     with NO successor still drops out entirely.
+//
+// The kids family covers the fourth case: a successor bought and never fed is
+// no longer a `not started` kg tile once its members' burn rate carries it.
+func TestStockCardsFoldSplitConcentratesOneToManyAcrossEveryStatusBucket(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	catalog := func(label, status string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+VALUES ($1, $2, $3)
+ON CONFLICT (tenant_id, feed_item_key) DO UPDATE SET status = EXCLUDED.status`,
+			fdiTenant, label, status); err != nil {
+			t.Fatalf("catalog %s=%s: %v", label, status, err)
+		}
+	}
+	purchase := func(label string, batch int64, qty string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE '2026-08-10', 'Navaladi', 'Paid')`,
+			fdiTenant, fdiPark, label, batch, qty); err != nil {
+			t.Fatalf("purchase %s: %v", label, err)
+		}
+	}
+	cell := func(seq int32, label, key, qty string) domain.StoredCell {
+		return domain.StoredCell{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: label, FeedItemKey: key,
+			QuantityKg: kg(qty), SessionTotalKg: qty,
+			RowSeq: seq, ItemSeq: seq,
+		}
+	}
+	lockDay := func(day string, cells ...domain.StoredCell) {
+		t.Helper()
+		at := time.Date(2026, 8, 11, 9, 0, 0, 0, biztime.DefaultLocation())
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: at, Fingerprint: "fold" + day,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + day + ":fold",
+			GeneratedBy:    "test",
+			Cells:          cells,
+		}); err != nil {
+			t.Fatalf("persist %s: %v", day, err)
+		}
+		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day,
+			Workflow: domain.WorkflowNormal, LockedAt: at,
+		}); err != nil || lock.Outcome != "locked" {
+			t.Fatalf("lock %s = (%v, %v)", day, lock.Outcome, err)
+		}
+	}
+
+	catalog("Mesha Adult Concentrate Goat", "active")
+	catalog("Mesha Adult Concentrate Sheep", "retired") // retired MEMBER: still counts
+	catalog("Mesha Adult Concentrate", "active")
+	catalog("Mesha Kids Goat Concentrate", "active")
+	catalog("Mesha Kids Concentrate", "active")
+	catalog("Hedge Lucerne", "retired") // retired, NO successor: still drops out
+
+	purchase("Mesha Adult Concentrate Goat", 400, "300.000")
+	purchase("Mesha Adult Concentrate Sheep", 401, "10.000")
+	purchase("Mesha Adult Concentrate", 402, "1000.000")
+	purchase("Mesha Kids Goat Concentrate", 403, "200.000")
+	purchase("Mesha Kids Concentrate", 404, "500.000")
+	purchase("Hedge Lucerne", 405, "800.000")
+
+	// Day one: the two OLD adult feeds, and the old kids feed.
+	lockDay("2026-08-11",
+		cell(0, "Mesha Adult Concentrate Goat", "mesha_adult_concentrate_goat", "100.000"),
+		cell(1, "Mesha Adult Concentrate Sheep", "mesha_adult_concentrate_sheep", "20.000"),
+		cell(2, "Mesha Kids Goat Concentrate", "mesha_kids_goat_concentrate", "50.000"),
+	)
+	// Day two: the successor is fed INSTEAD of the two old adult feeds. Same
+	// pens, same mouths, same 120 kg -- one family-day, not three item-days.
+	lockDay("2026-08-12",
+		cell(0, "Mesha Adult Concentrate", "mesha_adult_concentrate", "120.000"),
+		cell(1, "Mesha Kids Goat Concentrate", "mesha_kids_goat_concentrate", "50.000"),
+	)
+
+	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	byKey := map[string]domain.StockItem{}
+	for _, it := range got.Items {
+		if _, dup := byKey[it.FeedItemKey]; dup {
+			t.Fatalf("a family must serve ONE card per farm, got a second %q: %+v", it.FeedItemKey, got.Items)
+		}
+		byKey[it.FeedItemKey] = it
+	}
+
+	for _, gone := range []string{
+		"mesha_adult_concentrate_goat", "mesha_adult_concentrate_sheep",
+		"mesha_kids_goat_concentrate", "hedge_lucerne",
+	} {
+		if it, ok := byKey[gone]; ok {
+			t.Errorf("%q must not be its own card (folded, or retired with no successor): %+v", gone, it)
+		}
+	}
+	if len(byKey) != 2 {
+		t.Fatalf("want exactly the 2 family cards, got %d: %+v", len(byKey), got.Items)
+	}
+
+	adult, ok := byKey["mesha_adult_concentrate"]
+	if !ok {
+		t.Fatalf("adult family card missing: %+v", got.Items)
+	}
+	if adult.FeedItemLabel != "Mesha Adult Concentrate" {
+		t.Errorf("the family card is titled with the feed the farm buys NOW, got %q", adult.FeedItemLabel)
+	}
+	// 300-100 goat, 10-20 sheep (negative, SUBTRACTED), 1000-120 successor.
+	if adult.BalanceKg != "1070.0" {
+		t.Errorf("family stock = sum of member balances incl. the overdrawn member: want 1070.0, got %q", adult.BalanceKg)
+	}
+	// (100+20) on day one, 120 on day two: two family-days of 120 kg. Summing
+	// the members' own averages instead would read 240 and halve the runway.
+	if adult.AvgDailyKg != "120.0" {
+		t.Errorf("family rate is the family's kg per CALENDAR DAY: want 120.0, got %q (240 means the members' rates were summed)", adult.AvgDailyKg)
+	}
+	if adult.DaysLeft == nil || *adult.DaysLeft != 8 {
+		t.Errorf("days left = floor(1070/120) = 8, got %v (9 means a negative member was floored)", adult.DaysLeft)
+	}
+	if adult.NotStarted {
+		t.Errorf("a family its members are burning has started: %+v", adult)
+	}
+
+	kids, ok := byKey["mesha_kids_concentrate"]
+	if !ok {
+		t.Fatalf("kids family card missing: %+v", got.Items)
+	}
+	// 200-100 old + 500 untouched successor, over the old feed's own 50 kg/day.
+	if kids.BalanceKg != "600.0" || kids.AvgDailyKg != "50.0" {
+		t.Errorf("kids family: want 600.0 kg over 50.0 kg/day, got %q over %q", kids.BalanceKg, kids.AvgDailyKg)
+	}
+	if kids.NotStarted {
+		t.Errorf("a successor bought and not yet fed is NOT `not started` once its family burns: %+v", kids)
+	}
+	if kids.DaysLeft == nil || *kids.DaysLeft != 12 {
+		t.Errorf("kids days left = floor(600/50) = 12, got %v", kids.DaysLeft)
+	}
+
+	// Every status bucket a stock card has, decided on the FAMILY: a days-left
+	// card, the low-stock flag, the `not started` card, and dropped-as-retired.
+	// The buckets are disjoint and each is asserted on the folded row, because
+	// the fold is what now decides which bucket a feed lands in.
+	if adult.LowStock || kids.LowStock {
+		t.Errorf("8 and 12 days are both above the %d-day low-stock line: adult=%v kids=%v",
+			domain.LowStockDays, adult.LowStock, kids.LowStock)
+	}
+	if adult.NotStarted || kids.NotStarted {
+		t.Errorf("neither family is `not started`: adult=%v kids=%v", adult.NotStarted, kids.NotStarted)
+	}
+	for _, it := range got.Items {
+		if it.DaysLeft == nil && !it.NotStarted {
+			t.Errorf("a served card sits in no bucket at all: %+v", it)
+		}
+		if it.NotStarted && it.LowStock {
+			t.Errorf("`not started` and `low stock` are disjoint: %+v", it)
+		}
+	}
+}
+
+// TestStockCardsFoldHoldsUnderParkScopeWithNoPageBoundary pins the two grain
+// properties the fold could quietly break: it must not leak one farm's stock
+// into another's family card, and the card list must stay a WHOLE-filter
+// aggregate.
+//
+// Both are live risks here rather than theoretical ones. The fold groups by
+// (farm_label, family_key) while the burn rate is reached through (park_id,
+// family_key), so a fold that grouped by family_key alone -- or that let the
+// merge_map join fan a row out -- would sum two farms' sacks into one card and
+// still look right at a single-farm fixture. And the card list takes no limit
+// or offset, so every family of every authorized farm must come back in one
+// read: a family missing here would read as "we have no such feed" rather than
+// as a truncated page.
+func TestStockCardsFoldHoldsUnderParkScopeWithNoPageBoundary(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	const park2 = "fd100000-0000-4000-8000-000000003002"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'CPT', 'CPT', 'active')
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, park2); err != nil {
+		t.Fatalf("seed second park: %v", err)
+	}
+	for _, label := range []string{"Mesha Adult Concentrate Goat", "Mesha Adult Concentrate"} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+VALUES ($1, $2, 'active') ON CONFLICT (tenant_id, feed_item_key) DO NOTHING`, fdiTenant, label); err != nil {
+			t.Fatalf("catalog %s: %v", label, err)
+		}
+	}
+	purchase := func(park, farm, label string, batch int64, qty string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, $3, $4, $5, DATE '2026-08-09', $6::numeric, 40, 1000, 0, DATE '2026-08-10', 'Navaladi', 'Paid')`,
+			fdiTenant, park, farm, label, batch, qty); err != nil {
+			t.Fatalf("purchase %s at %s: %v", label, farm, err)
+		}
+	}
+	feed := func(park, parkLabel, shed, day, label, key, qty string) {
+		t.Helper()
+		at := time.Date(2026, 8, 11, 9, 0, 0, 0, biztime.DefaultLocation())
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: park, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: at, Fingerprint: "scope" + park + day,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + park + ":" + day + ":scope",
+			GeneratedBy:    "test",
+			Cells: []domain.StoredCell{{
+				ParkID: park, ParkLabel: parkLabel, ShedID: shed, ShedLabel: "Castro",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: label, FeedItemKey: key, QuantityKg: kg(qty), SessionTotalKg: qty,
+			}},
+		}); err != nil {
+			t.Fatalf("persist %s %s: %v", parkLabel, day, err)
+		}
+		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: park, FeedDay: day,
+			Workflow: domain.WorkflowNormal, LockedAt: at,
+		}); err != nil || lock.Outcome != "locked" {
+			t.Fatalf("lock %s %s = (%v, %v)", parkLabel, day, lock.Outcome, err)
+		}
+	}
+
+	// Both farms hold the SAME family, with different quantities, so a card
+	// carrying the other farm's kg is visible as a wrong number rather than as
+	// a missing row.
+	purchase(fdiPark, "CBE", "Mesha Adult Concentrate Goat", 500, "300.000")
+	purchase(fdiPark, "CBE", "Mesha Adult Concentrate", 501, "700.000")
+	purchase(park2, "CPT", "Mesha Adult Concentrate Goat", 502, "150.000")
+	purchase(park2, "CPT", "Mesha Adult Concentrate", 503, "50.000")
+	feed(fdiPark, "CBE", fdiShedA, "2026-08-11", "Mesha Adult Concentrate Goat", "mesha_adult_concentrate_goat", "100.000")
+	feed(park2, "CPT", fdiShedB, "2026-08-11", "Mesha Adult Concentrate Goat", "mesha_adult_concentrate_goat", "50.000")
+
+	cards := func(t *testing.T, q domain.DirectedAnalyticsQuery) map[string]domain.StockItem {
+		t.Helper()
+		got, err := repo.StockAnalytics(ctx, fdiTenant, q)
+		if err != nil {
+			t.Fatalf("StockAnalytics: %v", err)
+		}
+		out := map[string]domain.StockItem{}
+		for _, it := range got.Items {
+			key := it.FarmLabel + "|" + it.FeedItemKey
+			if _, dup := out[key]; dup {
+				t.Fatalf("one card per (farm, family): %q served twice", key)
+			}
+			out[key] = it
+		}
+		return out
+	}
+
+	// WHOLE-FILTER: both farms' families come back in one read, each with its
+	// own stock and its own rate. 900 = 300-100 + 700; 150 = 150-50 + 50.
+	all := cards(t, domain.DirectedAnalyticsQuery{})
+	if len(all) != 2 {
+		t.Fatalf("want one family card per farm and no truncation, got %d: %+v", len(all), all)
+	}
+	cbe, cpt := all["CBE|mesha_adult_concentrate"], all["CPT|mesha_adult_concentrate"]
+	if cbe.BalanceKg != "900.0" || cbe.AvgDailyKg != "100.0" {
+		t.Errorf("CBE family: want 900.0 kg over 100.0 kg/day, got %q over %q", cbe.BalanceKg, cbe.AvgDailyKg)
+	}
+	if cpt.BalanceKg != "150.0" || cpt.AvgDailyKg != "50.0" {
+		t.Errorf("CPT family: want 150.0 kg over 50.0 kg/day, got %q over %q (a farm-blind fold reads 1050.0/150.0)", cpt.BalanceKg, cpt.AvgDailyKg)
+	}
+
+	// PARK SCOPE: one park returns only its own card, with the SAME numbers the
+	// unfiltered read gave -- the filter narrows rows, it never re-aggregates.
+	scoped := cards(t, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.MustParse(park2)}})
+	if len(scoped) != 1 {
+		t.Fatalf("park scope must serve that park alone, got %d: %+v", len(scoped), scoped)
+	}
+	if got := scoped["CPT|mesha_adult_concentrate"]; got.BalanceKg != cpt.BalanceKg || got.AvgDailyKg != cpt.AvgDailyKg {
+		t.Errorf("park-scoped card must match the unfiltered one: %+v vs %+v", got, cpt)
+	}
+	if foreign := cards(t, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.New()}}); len(foreign) != 0 {
+		t.Errorf("a park with no purchases has no cards, got %+v", foreign)
 	}
 }

@@ -1322,6 +1322,39 @@ ref_type=feed_distribution_completion`. Canonical source:
 `docs/decisions/feed-distribution-verification.md`; migration
 `000032_feed_distribution_verification_gate.sql`.
 
+Confirmed TRANSITIONAL feed-stock concentrate merge (maintainer decision
+2026-09-06), and it is the rare rule here that is meant to be DELETED: the farm
+retired four in-house concentrates (adult goat/sheep, kids goat/sheep) into two
+(one adult, one kids), so while the old sacks last the store holds up to three
+feeds that are one feed operationally. The Stock cards and the low-stock alert
+fold each retired split feed into its successor on BOTH sides of the division --
+family stock is the sum of its members' balances, and the family rate is the
+family's kg per CALENDAR DAY. On 2026-09-06 CBE read "2 days left" beside "166
+days left" for what is one feed; the answer is 12.
+
+THE RATE IS NOT THE SUM OF THE MEMBERS' RATES, and that is the whole trick: the
+feeds SUBSTITUTE for each other while the ration grid switches over (CPT fed 84
+kg of the successor INSTEAD of the sheep feed on 5-6 Sep), so summing each
+member's own 3-day average read 184.9 kg/day against a true family draw of
+128.2 -- 40% high. Re-group consumption to the family BEFORE averaging.
+
+A negative member is SUBTRACTED, not floored (that feed came out of a sibling
+sack); the retired-vocabulary check reads the FAMILY key, so a retired MEMBER
+still contributes while a retired feed with no successor still drops out; and
+BOTH the cards and the daily push take the same mapping, because a push saying
+"2 days" beside a tab saying 12 is the cross-surface disagreement this file
+bans. The per-farm Mesha concentrate table, the 7-day forecast, expenditure and
+the whole operational feed chain are deliberately NOT folded -- this is a
+reporting fold and no write path reads it.
+
+IT EXPIRES ON ITS OWN: once the members' stock reaches zero and the grid names
+only the successors, each family is a single feed and `domain.StockFamilyMerge`
+plus its two query parameters can be deleted with no visible change. An EMPTY
+mapping is the pre-merge behaviour exactly, verified against live STG. Do not
+grow this into a general substitution model -- that belongs on
+`feed_item_catalog` as a maintainer decision. Canonical prose and the revert
+recipe: `docs/decisions/feed-stock-transitional-concentrate-merge.md`.
+
 Confirmed FEED PURCHASE ENTRY rule (maintainer decision 2026-08-24, SUPERSEDING the READ-ONLY
 half — and only that half — of the 2026-08-17 lock recorded in migration `000174`): feed bought
 for CBE and CPT is now RECORDED IN THE APP on `/procurement/feed-purchases`, carrying the same

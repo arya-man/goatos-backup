@@ -1439,12 +1439,35 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // deliberately NOT low_stock -- a full untouched load is the opposite of
 // nearly out -- and it sorts LAST, behind every card with a real days-left.
 //
+// FAMILY GRAIN (transitional, maintainer decision 2026-09-06 -- see
+// domain.StockFamilyMerge and docs/decisions/feed-stock-transitional-concentrate-merge.md):
+// the card grain is (farm_label, family_key), where family_key is the item's own
+// key unless the transitional mapping folds it into a successor.
+//
+// projection-review (family fold): membership=the same feed_purchases rows, each
+// keeping its own per-item balance before the fold; group_key=(farm_label,
+// family_key) on BOTH sides -- family_stock GROUPs the per-item balances by that
+// pair and `recent` reaches it through (park_id, family_key), one park per farm
+// label; join_cardinality=family_stock LEFT JOIN recent 1:0..1 because recent is
+// pre-aggregated to one row per (park, family) and merge_map is unique on
+// member_key so neither LEFT JOIN mm can fan a row out; the numerator (summed
+// member balances) and the denominator (family kg per calendar day) range over
+// the IDENTICAL family key set, which is the whole point of the fold -- summing
+// the members' separate 3-day averages instead ranged the denominator over a
+// per-ITEM key set and read 40% high on a substituted day.
 // scale-guard:ignore: 5k-50k-envelope — bounded per-farm-item aggregates over the
 // small purchase ledger and windowed locked sheets, canonical-indexed-SQL default.
 const feedPurchaseStockKgSQL = `stock_kg`
 
 const stockItemsSQL = `
-WITH bought AS (
+WITH merge_map AS (
+    -- TRANSITIONAL split-concentrate merge (domain.StockFamilyMerge). An EMPTY
+    -- mapping leaves every item its own family, reducing this query to the
+    -- per-item shape it had before the merge -- which is how it reverts.
+    SELECT m.member_key, m.family_key, m.family_label
+    FROM unnest($3::text[], $4::text[], $5::text[]) AS m(member_key, family_key, family_label)
+),
+bought AS (
     SELECT farm_label, feed_item_key,
            MAX(feed_item_label)                          AS feed_item_label,
            MIN(park_id::text)                            AS park_id_text,
@@ -1496,37 +1519,87 @@ directed AS (
      AND lc.feed_day >= b.depletes_from
     GROUP BY b.farm_label, b.feed_item_key
 ),
+-- Each item keeps its OWN ledger arithmetic -- net purchased minus everything
+-- directed since ITS depletion date -- and only the finished balance is folded
+-- into the family. Merging the purchases first would have collapsed the members'
+-- differing depletes_from into one MIN and counted consumption that predates a
+-- member's own load.
+item_balance AS (
+    SELECT b.farm_label,
+           COALESCE(mm.family_key, b.feed_item_key)     AS family_key,
+           COALESCE(mm.family_label, b.feed_item_label) AS family_label,
+           b.park_id_text,
+           b.latest_batch,
+           b.depletes_from,
+           b.net_kg - d.kg                              AS balance_kg
+    FROM bought b
+    JOIN directed d USING (farm_label, feed_item_key)
+    LEFT JOIN merge_map mm ON mm.member_key = b.feed_item_key
+),
+family_stock AS (
+    -- SUM, not SUM of GREATEST(...,0): a member's negative balance means the
+    -- farm fed more than the ledger bought, and in a merged store that feed
+    -- physically came out of a sibling sack -- so subtracting it is both the
+    -- truer figure and the more conservative one. It also keeps the family
+    -- balance the plain sum of the same per-item balances the tab already
+    -- shows, and preserves the never-clamp rule on every unmerged card.
+    --
+    -- latest_batch keeps MAIN's tie-break (freshest depletion date, then
+    -- purchase date, then batch number) by carrying the winner of each member
+    -- and picking the family's freshest member the same way -- never MAX(),
+    -- which would report an older load that happens to carry a higher number.
+    SELECT farm_label, family_key,
+           MAX(family_label) AS family_label,
+           MIN(park_id_text) AS park_id_text,
+           (array_agg(latest_batch ORDER BY depletes_from DESC, latest_batch DESC))[1] AS latest_batch,
+           SUM(balance_kg)   AS balance_kg
+    FROM item_balance
+    GROUP BY farm_label, family_key
+),
+family_day AS (
+    -- Consumption re-grouped to the FAMILY before the daily average, so two
+    -- members feeding the same pens on the same day count once and a member
+    -- SUBSTITUTED for another does not inflate the rate.
+    SELECT lc.park_id,
+           COALESCE(mm.family_key, lc.feed_item_key) AS family_key,
+           lc.feed_day,
+           SUM(lc.kg)                                AS kg
+    FROM locked_cells lc
+    LEFT JOIN merge_map mm ON mm.member_key = lc.feed_item_key
+    GROUP BY lc.park_id, COALESCE(mm.family_key, lc.feed_item_key), lc.feed_day
+),
 recent AS (
-    SELECT park_id, feed_item_key, AVG(kg) AS avg_kg
+    SELECT park_id, family_key, AVG(kg) AS avg_kg
     FROM (
-        SELECT park_id, feed_item_key, kg,
-               ROW_NUMBER() OVER (PARTITION BY park_id, feed_item_key ORDER BY feed_day DESC) AS rn
-        FROM locked_cells
+        SELECT park_id, family_key, kg,
+               ROW_NUMBER() OVER (PARTITION BY park_id, family_key ORDER BY feed_day DESC) AS rn
+        FROM family_day
     ) ranked
     WHERE rn <= 3
-    GROUP BY park_id, feed_item_key
+    GROUP BY park_id, family_key
 )
-SELECT b.farm_label,
-       b.feed_item_label,
-       b.feed_item_key,
-       round(b.net_kg - d.kg, 1)::text                    AS balance_kg,
+SELECT fs.farm_label,
+       fs.family_label,
+       fs.family_key,
+       round(fs.balance_kg, 1)::text                      AS balance_kg,
        COALESCE(round(r.avg_kg, 1)::text, '')             AS avg_daily_kg,
        CASE WHEN COALESCE(r.avg_kg, 0) > 0
-            THEN GREATEST(floor((b.net_kg - d.kg) / r.avg_kg), 0)::bigint
+            THEN GREATEST(floor(fs.balance_kg / r.avg_kg), 0)::bigint
        END                                                AS days_left,
-       b.latest_batch,
+       fs.latest_batch,
        (COALESCE(r.avg_kg, 0) <= 0
-        AND round(b.net_kg - d.kg, 1) > 0)                AS not_started
-FROM bought b
-JOIN directed d USING (farm_label, feed_item_key)
+        AND round(fs.balance_kg, 1) > 0)                  AS not_started
+FROM family_stock fs
 LEFT JOIN recent r
-  ON b.park_id_text IS NOT NULL
- AND r.park_id = b.park_id_text::uuid
- AND r.feed_item_key = b.feed_item_key
+  ON fs.park_id_text IS NOT NULL
+ AND r.park_id = fs.park_id_text::uuid
+ AND r.family_key = fs.family_key
+-- The retired check reads the FAMILY key, so a retired MEMBER still contributes
+-- its leftover stock while a retired feed with no successor still drops out.
 LEFT JOIN feed_item_catalog c
-  ON c.tenant_id = $1 AND c.feed_item_key = b.feed_item_key
+  ON c.tenant_id = $1 AND c.feed_item_key = fs.family_key
 WHERE COALESCE(c.status, 'active') <> 'retired'
-ORDER BY days_left NULLS LAST, b.feed_item_label, b.farm_label`
+ORDER BY days_left NULLS LAST, fs.family_label, fs.farm_label`
 
 // Next-7-days requirement and cost (maintainer decision 2026-08-23), at
 // (park, feed item) grain.
@@ -1671,7 +1744,15 @@ ORDER BY lp.name, feed_item_label`
 // scale-guard:ignore: 5k-50k-envelope -- bounded per-(farm, item) aggregate over the small purchase
 // ledger and locked sheets, canonical-indexed-SQL default.
 const feedLowStockSQL = `
-WITH bought AS (
+WITH merge_map AS (
+    -- The SAME transitional fold the stock cards use ($3/$4/$5 from
+    -- domain.StockFamilyMergeArrays). The alert and the card must never
+    -- disagree about a farm's runway: without this the push would still say
+    -- "Mesha Adult Concentrate Goat - 2 days" while the tab reads 12.
+    SELECT m.member_key, m.family_key, m.family_label
+    FROM unnest($3::text[], $4::text[], $5::text[]) AS m(member_key, family_key, family_label)
+),
+bought AS (
     SELECT farm_label, feed_item_key,
            MAX(feed_item_label)                     AS feed_item_label,
            MIN(park_id::text)                       AS park_id_text,
@@ -1710,40 +1791,67 @@ directed AS (
      AND f.feed_day >= b.depletes_from
     GROUP BY b.farm_label, b.feed_item_key
 ),
+item_balance AS (
+    SELECT b.farm_label,
+           COALESCE(mm.family_key, b.feed_item_key)     AS family_key,
+           COALESCE(mm.family_label, b.feed_item_label) AS family_label,
+           b.park_id_text,
+           b.net_kg - d.kg                              AS balance_kg
+    FROM bought b
+    JOIN directed d USING (farm_label, feed_item_key)
+    LEFT JOIN merge_map mm ON mm.member_key = b.feed_item_key
+),
+family_stock AS (
+    SELECT farm_label, family_key,
+           MAX(family_label) AS family_label,
+           MIN(park_id_text) AS park_id_text,
+           SUM(balance_kg)   AS balance_kg
+    FROM item_balance
+    GROUP BY farm_label, family_key
+),
+family_day AS (
+    SELECT f.park_id,
+           COALESCE(mm.family_key, f.feed_item_key) AS family_key,
+           f.feed_day,
+           SUM(f.kg)                                AS kg
+    FROM fed f
+    LEFT JOIN merge_map mm ON mm.member_key = f.feed_item_key
+    GROUP BY f.park_id, COALESCE(mm.family_key, f.feed_item_key), f.feed_day
+),
 recent AS (
-    SELECT park_id, feed_item_key, AVG(kg) AS avg_kg
+    SELECT park_id, family_key, AVG(kg) AS avg_kg
     FROM (
-        SELECT park_id, feed_item_key, kg,
-               ROW_NUMBER() OVER (PARTITION BY park_id, feed_item_key ORDER BY feed_day DESC) AS rn
-        FROM fed
+        SELECT park_id, family_key, kg,
+               ROW_NUMBER() OVER (PARTITION BY park_id, family_key ORDER BY feed_day DESC) AS rn
+        FROM family_day
     ) ranked
     WHERE rn <= 3
-    GROUP BY park_id, feed_item_key
+    GROUP BY park_id, family_key
 )
-SELECT COALESCE(b.park_id_text, ''),
-       b.farm_label,
-       b.feed_item_label,
-       b.feed_item_key,
-       round(b.net_kg - d.kg, 1)::text                    AS balance_kg,
+SELECT COALESCE(fs.park_id_text, ''),
+       fs.farm_label,
+       fs.family_label,
+       fs.family_key,
+       round(fs.balance_kg, 1)::text                      AS balance_kg,
        round(r.avg_kg, 1)::text                           AS avg_daily_kg,
-       GREATEST(floor((b.net_kg - d.kg) / r.avg_kg), 0)::bigint AS days_left
-FROM bought b
-JOIN directed d USING (farm_label, feed_item_key)
+       GREATEST(floor(fs.balance_kg / r.avg_kg), 0)::bigint AS days_left
+FROM family_stock fs
 JOIN recent r
-  ON b.park_id_text IS NOT NULL
- AND r.park_id = b.park_id_text::uuid
- AND r.feed_item_key = b.feed_item_key
+  ON fs.park_id_text IS NOT NULL
+ AND r.park_id = fs.park_id_text::uuid
+ AND r.family_key = fs.family_key
 -- A feed with no recent consumption has no burn rate to divide by, so it has no days-left to be
 -- low: it is joined INNER on purpose. Alerting on it would be a guess.
 WHERE r.avg_kg > 0
-  AND floor((b.net_kg - d.kg) / r.avg_kg) < $2
-ORDER BY days_left, b.farm_label, b.feed_item_label`
+  AND floor(fs.balance_kg / r.avg_kg) < $2
+ORDER BY days_left, fs.farm_label, fs.family_label`
 
 // LowStockFeeds lists the feeds whose stock runs out inside withinDays, for the daily alert.
 func (r *Repository) LowStockFeeds(ctx context.Context, tenantID string, withinDays int) ([]domain.LowStockFeed, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, feedLowStockSQL, tenantID, withinDays)
+	mergeMembers, mergeFamilies, mergeLabels := domain.StockFamilyMergeArrays()
+	rows, err := r.pool.Query(ctx, feedLowStockSQL, tenantID, withinDays, mergeMembers, mergeFamilies, mergeLabels)
 	if err != nil {
 		return nil, fmt.Errorf("feed low stock: %w", err)
 	}
@@ -2240,7 +2348,8 @@ func (r *Repository) feedStockRevision(ctx context.Context, tenantID string, par
 }
 
 func (r *Repository) stockItems(ctx context.Context, tenantID string, parkIDs []uuid.UUID) ([]domain.StockItem, error) {
-	rows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs)
+	mergeMembers, mergeFamilies, mergeLabels := domain.StockFamilyMergeArrays()
+	rows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs, mergeMembers, mergeFamilies, mergeLabels)
 	if err != nil {
 		return nil, fmt.Errorf("feed analytics stock items: %w", err)
 	}
