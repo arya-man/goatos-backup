@@ -221,6 +221,8 @@ class WeighingFastingDetailViewModel @Inject constructor(
             ?.takeIf {
                 it.busy ||
                     it.status == WeighingFastingSlotStatus.FAILED ||
+                    it.remoteUrl != null ||
+                    it.serverProofId != null ||
                     slotItemId(kind) != null
             }
         return live ?: emptySlot(kind)

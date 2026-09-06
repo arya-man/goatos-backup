@@ -93,6 +93,8 @@ class WeighingFastingDetailViewModelTest {
     private fun card(
         status: String = "open",
         reworkReason: String? = null,
+        feedProofRef: String? = null,
+        waterProofRef: String? = null,
     ) = WeighingFastingCard(
         WeighingFastingShedCardDto(
             fastingTaskId = "task-1",
@@ -102,6 +104,8 @@ class WeighingFastingDetailViewModelTest {
             status = status,
             removalBusinessDate = "2026-09-03",
             reworkReason = reworkReason,
+            feedProofRef = feedProofRef,
+            waterProofRef = waterProofRef,
         ),
     )
 
@@ -248,6 +252,29 @@ class WeighingFastingDetailViewModelTest {
         assertEquals(true, vm.state.value.isReadOnly)
         assertEquals(false, vm.state.value.submitEnabled)
         assertTrue(vm.state.value.lockNotice.isNotBlank())
+    }
+
+    @Test
+    fun `server backed read-only preview survives repeated Room emissions`() = runTest(dispatcher) {
+        val fastingRepository = FakeWeighingFastingRepository().apply {
+            proofDownloadUrl = "https://example.test/proof/feed.mp4"
+        }
+        val vm = viewModel(fastingRepository = fastingRepository)
+        val submittedCard = card(
+            status = "pending_verification",
+            feedProofRef = "server-feed-proof",
+        )
+        fastingRepository.cardFlow.value = submittedCard
+        advanceUntilIdle()
+
+        assertEquals("https://example.test/proof/feed.mp4", vm.state.value.feedSlot.remoteUrl)
+        assertEquals("server-feed-proof", vm.state.value.feedSlot.serverProofId)
+
+        fastingRepository.cardFlow.value = submittedCard.copy()
+        advanceUntilIdle()
+
+        assertEquals("https://example.test/proof/feed.mp4", vm.state.value.feedSlot.remoteUrl)
+        assertEquals("server-feed-proof", vm.state.value.feedSlot.serverProofId)
     }
 }
 
