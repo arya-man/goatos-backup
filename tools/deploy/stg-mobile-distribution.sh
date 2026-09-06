@@ -203,7 +203,7 @@ remote_config_etag() {
 publish_force_update_floor() {
   local version_code="$1"
   local update_url="$2"
-  local token template_file body_file response_file etag status
+  local token template_file body_file response_file etag if_match status
 
   token="$(gcloud auth print-access-token)"
   template_file=".local/android-signing/firebase-remote-config-template.json"
@@ -226,8 +226,9 @@ publish_force_update_floor() {
 
   etag="$(remote_config_etag "$template_file.headers" "$template_file")"
   if [[ -z "$etag" ]]; then
-    echo "Remote Config read did not return an ETag; refusing to publish force-update floor." >&2
-    return 1
+    if_match="*"
+  else
+    if_match="$etag"
   fi
 
   jq \
@@ -249,7 +250,7 @@ publish_force_update_floor() {
     curl -sS -X PUT -o "$response_file" -w '%{http_code}' \
       -H "Authorization: Bearer ${token}" \
       -H "Content-Type: application/json; UTF-8" \
-      -H "If-Match: ${etag}" \
+      -H "If-Match: ${if_match}" \
       --data-binary @"$body_file" \
       "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
   )"
@@ -272,7 +273,7 @@ publish_force_update_floor() {
 }
 
 require_force_update_config_access() {
-  local token template_file response_file status etag
+  local token template_file response_file status etag if_match
 
   token="$(gcloud auth print-access-token)"
   template_file=".local/android-signing/firebase-remote-config-preflight.json"
@@ -291,18 +292,20 @@ require_force_update_config_access() {
     sed 's/^/remote-config-preflight-response: /' "$template_file" >&2 || true
     return 1
   fi
+  jq -e '.parameters | type == "object"' "$template_file" >/dev/null
 
   etag="$(remote_config_etag "$template_file.headers" "$template_file")"
   if [[ -z "$etag" ]]; then
-    echo "Remote Config preflight did not return an ETag; refusing to start Android distribution." >&2
-    return 1
+    if_match="*"
+  else
+    if_match="$etag"
   fi
 
   status="$(
     curl -sS -X PUT -o "$response_file" -w '%{http_code}' \
       -H "Authorization: Bearer ${token}" \
       -H "Content-Type: application/json; UTF-8" \
-      -H "If-Match: ${etag}" \
+      -H "If-Match: ${if_match}" \
       --data-binary @"$template_file" \
       "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig?validate_only=true"
   )"
