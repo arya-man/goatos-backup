@@ -486,6 +486,14 @@ class SubmitViewModel @Inject constructor(
         if (captureInFlightKey != null) return // one capture at a time
         val subject = subjectForFieldKey(key)
         if (source == "gallery_picker" && !currentProofPolicy.allowsGalleryPicker) return
+        val fieldProofs = currentProofs.filter { it.fieldKey == key }
+        val activeProofCount = fieldProofs.count { it.syncStatus != CaptureSyncStatus.FAILED } +
+            if (fieldProofs.isEmpty() && currentProofPolicy.isShedLevelVideo && subject == ProofSubject.SHED) {
+                currentShedProofReadiness().synced
+            } else {
+                0
+            }
+        if (currentProofPolicy.maximumCount?.let { activeProofCount >= it } == true) return
         captureInFlightKey = key
         viewModelScope.launch {
             try {
@@ -1584,6 +1592,12 @@ class SubmitViewModel @Inject constructor(
                 emptyList()
             }
             val allowMultiple = isExtraSlot || (currentProofPolicy.isShedLevelVideo && fieldSubject == ProofSubject.SHED)
+            val activeProofCount = items.count { it.syncStatus != CaptureSyncStatus.FAILED } + serverProofItems.size
+            val canCaptureMore = if (allowMultiple) {
+                currentProofPolicy.maximumCount?.let { max -> activeProofCount < max } ?: true
+            } else {
+                items.none { it.syncStatus != CaptureSyncStatus.FAILED }
+            }
             FormFieldUi(
                 key = key,
                 label = label,
@@ -1592,11 +1606,7 @@ class SubmitViewModel @Inject constructor(
                 helpText = helpText,
                 proofCaptured = items.isNotEmpty() || serverProofItems.isNotEmpty(),
                 proofItems = items.map { it.toProofItemUi(label, isExtraSlot) } + serverProofItems,
-                canCaptureMore = if (allowMultiple) {
-                    true
-                } else {
-                    items.none { it.syncStatus != CaptureSyncStatus.FAILED }
-                },
+                canCaptureMore = canCaptureMore,
                 allowGalleryPicker = currentProofPolicy.isShedLevelVideo && fieldSubject == ProofSubject.SHED && currentProofPolicy.allowsGalleryPicker,
             )
         }

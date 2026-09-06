@@ -112,6 +112,7 @@ type RemovalPenRef struct {
 	PenLabel      string
 	FeedProofRef  string
 	WaterProofRef string
+	Status        string
 	RowVersion    int32
 }
 

@@ -538,7 +538,7 @@ interface ProofCaptureRepository {
         capturedStartMs: Long,
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
-        proofPolicy: ProofPolicy = ProofPolicy.Default,
+        proofPolicy: ProofPolicy,
         partitionLabel: String? = null,
         awaitUploadEnqueue: Boolean = false,
         uploadGroupKey: String? = null,
@@ -606,7 +606,7 @@ interface ProofCaptureRepository {
         capturedStartMs: Long,
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
-        proofPolicy: ProofPolicy = ProofPolicy.Default,
+        proofPolicy: ProofPolicy,
         awaitUploadEnqueue: Boolean = false,
         uploadGroupKey: String? = null,
     ): AppResult<ProofCaptureRow>

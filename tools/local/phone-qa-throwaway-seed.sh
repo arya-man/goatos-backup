@@ -24,7 +24,8 @@ esac
 
 case "$DATABASE_URL" in
   *127.0.0.1:15544/*|*localhost:15544/*) ;;
-  *) die "refusing DATABASE_URL outside throwaway port 15544: ${DATABASE_URL%%\?*}" ;;
+  *127.0.0.1:15432/goatos_e2e_*|*localhost:15432/goatos_e2e_*) ;;
+  *) die "refusing DATABASE_URL outside local throwaway port 15544 or OCI goatos_e2e_* tunnel: ${DATABASE_URL%%\?*}" ;;
 esac
 
 case "${GOATOS_ENV:-}" in
@@ -64,6 +65,7 @@ JOIN (VALUES
   ('operations', 'vaccination'),
   ('operations', 'weighing'),
   ('operations', 'feed_direction'),
+  ('operations', 'pc_care'),
   ('verification', 'verification'),
   ('feed', 'feed_direction'),
   ('leadership', 'vaccination'),
@@ -941,7 +943,7 @@ VALUES (
   'immediate',
   '{"stage":"K2","lifecycle":"alive"}'::jsonb,
   '91000000-0000-4000-8000-000000000402',
-  '{"types":["video"],"required":true,"proof_mode":"per_goat_video","subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count":25,"maximum_count_per_subject":5,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}'::jsonb,
+  '{"types":["video"],"required":true,"proof_mode":"per_goat_video","subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count":1,"maximum_count_per_subject":1,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}'::jsonb,
   20
 )
 ON CONFLICT (rule_id) DO UPDATE

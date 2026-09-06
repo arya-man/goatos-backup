@@ -132,7 +132,7 @@ SELECT rule_id, '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502'::uu
        dose_code, sequence, 'manual_campaign', 0, 3, 0, 'none', 'immediate',
        '{"stage":"K2","lifecycle":"alive"}'::jsonb,
        '91000000-0000-4000-8000-000000000402'::uuid,
-       '{"types":["video"],"required":true,"proof_mode":"per_goat_video","subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count":25,"maximum_count_per_subject":5,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}'::jsonb,
+       '{"types":["video"],"required":true,"proof_mode":"per_goat_video","subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count":1,"maximum_count_per_subject":1,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}'::jsonb,
        sort_order
 FROM qa_vax_rules
 ON CONFLICT ON CONSTRAINT protocol_rules_version_dose_unique DO UPDATE

@@ -374,6 +374,7 @@ SET feed_proof_ref = $4,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid AND gated_task_id = $3::uuid
+  AND status <> 'completed'
 RETURNING removal_pen_id::text`
 
 const removalPenWaterProofSQL = `
@@ -384,11 +385,18 @@ SET water_proof_ref = $4,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid AND gated_task_id = $3::uuid
+  AND status <> 'completed'
 RETURNING removal_pen_id::text`
+
+const removalPenCompletedIDSQL = `
+SELECT removal_pen_id::text
+FROM pc_care_removal_pen_proofs
+WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid AND gated_task_id = $3::uuid
+  AND status = 'completed'`
 
 const removalPenSubmitRefsSQL = `
 SELECT removal_pen_id::text, gated_task_id::text, pen_label,
-       coalesce(feed_proof_ref, ''), coalesce(water_proof_ref, ''), row_version
+       coalesce(feed_proof_ref, ''), coalesce(water_proof_ref, ''), status, row_version
 FROM pc_care_removal_pen_proofs
 WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid
 ORDER BY pen_label, removal_pen_id
@@ -397,7 +405,7 @@ FOR UPDATE`
 const removalPensPendingSQL = `
 UPDATE pc_care_removal_pen_proofs
 SET status = 'pending_verification', updated_at = now()
-WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid`
+WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid AND status <> 'completed'`
 
 const removalPenVerdictSQL = `
 UPDATE pc_care_removal_pen_proofs
@@ -706,6 +714,22 @@ func (r *Repository) RegisterRemovalPenProof(ctx context.Context, p ports.Regist
 	err = tx.QueryRow(ctx, updateSQL,
 		p.TenantID, p.RemovalTaskID, p.GatedTaskID, strings.TrimSpace(p.ProofRef)).Scan(&removalPenID)
 	if errors.Is(err, pgx.ErrNoRows) {
+		var completedRemovalPenID string
+		completedErr := tx.QueryRow(ctx, removalPenCompletedIDSQL,
+			p.TenantID, p.RemovalTaskID, p.GatedTaskID).Scan(&completedRemovalPenID)
+		if completedErr == nil {
+			if err := completeIdempotency(ctx, tx, p.TenantID, pcCareSlotIdemScope, p.IdempotencyKey, pcCareRemovalPenResourceType, completedRemovalPenID); err != nil {
+				return fmt.Errorf("pccare: complete completed removal pen proof noop idempotency: %w", err)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return fmt.Errorf("pccare: commit completed removal pen proof noop: %w", err)
+			}
+			committed = true
+			return nil
+		}
+		if !errors.Is(completedErr, pgx.ErrNoRows) {
+			return fmt.Errorf("pccare: check completed removal pen proof: %w", completedErr)
+		}
 		// No evidence row means this pen is not part of the gated round. Refusing beats
 		// inserting one: an invented row would put a pen in the verifier's queue that nobody
 		// planned and that gates no work.
@@ -763,19 +787,19 @@ func removalPenSubmitRefs(ctx context.Context, tx pgx.Tx, tenantID, removalTaskI
 	for rows.Next() {
 		var pen ports.RemovalPenRef
 		if err := rows.Scan(&pen.RemovalPenID, &pen.GatedTaskID, &pen.PenLabel,
-			&pen.FeedProofRef, &pen.WaterProofRef, &pen.RowVersion); err != nil {
+			&pen.FeedProofRef, &pen.WaterProofRef, &pen.Status, &pen.RowVersion); err != nil {
 			return nil, nil, fmt.Errorf("pccare: scan removal pen proof for submit: %w", err)
 		}
 		if strings.TrimSpace(pen.FeedProofRef) == "" || strings.TrimSpace(pen.WaterProofRef) == "" {
 			return nil, nil, domain.ErrRemovalProofIncomplete
 		}
-		pens = append(pens, pen)
-		// The parent card's media set is still every clip, so a reader of the card sees the
-		// whole evening; the per-pen split is what the verifier's items are built from.
-		media = append(media,
-			ports.LabeledRef{ProofRef: pen.FeedProofRef, Label: pen.PenLabel + " · Feed removal video"},
-			ports.LabeledRef{ProofRef: pen.WaterProofRef, Label: pen.PenLabel + " · Water removal video"},
-		)
+		if pen.Status != domain.StatusCompleted {
+			pens = append(pens, pen)
+			media = append(media,
+				ports.LabeledRef{ProofRef: pen.FeedProofRef, Label: pen.PenLabel + " · Feed removal video"},
+				ports.LabeledRef{ProofRef: pen.WaterProofRef, Label: pen.PenLabel + " · Water removal video"},
+			)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, nil, fmt.Errorf("pccare: iterate removal pen proofs for submit: %w", err)

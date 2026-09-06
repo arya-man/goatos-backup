@@ -139,9 +139,26 @@ func (h *Handler) CreateUpload(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	if err != nil {
+		h.logProofFailure(r, "proof_upload_create_failed", err,
+			slog.String("proof_type", req.ProofType),
+			slog.String("mime_type", req.MimeType),
+			slog.String("scope_type", req.ScopeType),
+			slog.String("scope_id", req.ScopeID),
+			slog.String("subject_type", req.SubjectType),
+		)
 		h.respondErr(w, r, err)
 		return
 	}
+	h.log.LogAttrs(r.Context(), slog.LevelInfo, "proof_upload_created",
+		append(proofLogAttrs(r, target.Proof.ProofID),
+			slog.String("proof_type", target.Proof.ProofType),
+			slog.String("mime_type", target.Proof.MimeType),
+			slog.String("scope_type", target.Proof.ScopeType),
+			slog.String("scope_id", target.Proof.ScopeID),
+			slog.String("subject_type", target.Proof.SubjectType),
+			slog.String("upload_state", target.Proof.UploadState),
+		)...,
+	)
 	httpresponse.WriteJSON(w, http.StatusCreated, createUploadResponse{
 		Proof:          toProofResponse(target.Proof),
 		UploadURL:      target.UploadURL,
@@ -162,9 +179,20 @@ func (h *Handler) UploadLocal(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	proof, err := h.service.StoreUpload(r.Context(), tenantID(r), r.PathValue("proof_id"), r.Header.Get("Content-Type"), http.MaxBytesReader(w, r.Body, maxLocalUploadBytes))
 	if err != nil {
+		h.logProofFailure(r, "proof_upload_store_failed", err,
+			slog.String("proof_id", r.PathValue("proof_id")),
+			slog.String("mime_type", r.Header.Get("Content-Type")),
+		)
 		h.respondErr(w, r, err)
 		return
 	}
+	h.log.LogAttrs(r.Context(), slog.LevelInfo, "proof_upload_stored",
+		append(proofLogAttrs(r, proof.ProofID),
+			slog.String("mime_type", proof.MimeType),
+			slog.Int64("size_bytes", proof.SizeBytes),
+			slog.String("upload_state", proof.UploadState),
+		)...,
+	)
 	httpresponse.WriteJSON(w, http.StatusOK, map[string]proofResponse{"proof": toProofResponse(proof)})
 }
 
@@ -238,9 +266,22 @@ func (h *Handler) UploadLocalSigned(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	proof, err := h.service.StoreUpload(r.Context(), tenantID, r.PathValue("proof_id"), r.Header.Get("Content-Type"), http.MaxBytesReader(w, r.Body, maxLocalUploadBytes))
 	if err != nil {
+		h.logProofFailure(r, "proof_upload_store_failed", err,
+			slog.String("proof_id", r.PathValue("proof_id")),
+			slog.String("mime_type", r.Header.Get("Content-Type")),
+			slog.Bool("signed_url", true),
+		)
 		h.respondErr(w, r, err)
 		return
 	}
+	h.log.LogAttrs(r.Context(), slog.LevelInfo, "proof_upload_stored",
+		append(proofLogAttrsForTenant(r, tenantID, proof.ProofID),
+			slog.String("mime_type", proof.MimeType),
+			slog.Int64("size_bytes", proof.SizeBytes),
+			slog.String("upload_state", proof.UploadState),
+			slog.Bool("signed_url", true),
+		)...,
+	)
 	httpresponse.WriteJSON(w, http.StatusOK, map[string]proofResponse{"proof": toProofResponse(proof)})
 }
 
@@ -259,9 +300,21 @@ func (h *Handler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 		Metadata:    req.Metadata,
 	})
 	if err != nil {
+		h.logProofFailure(r, "proof_upload_complete_failed", err,
+			slog.String("proof_id", r.PathValue("proof_id")),
+			slog.String("mime_type", req.MimeType),
+			slog.Int64("size_bytes", req.SizeBytes),
+		)
 		h.respondErr(w, r, err)
 		return
 	}
+	h.log.LogAttrs(r.Context(), slog.LevelInfo, "proof_upload_completed",
+		append(proofLogAttrs(r, proof.ProofID),
+			slog.String("mime_type", proof.MimeType),
+			slog.Int64("size_bytes", proof.SizeBytes),
+			slog.String("upload_state", proof.UploadState),
+		)...,
+	)
 	httpresponse.WriteJSON(w, http.StatusOK, map[string]proofResponse{"proof": toProofResponse(proof)})
 }
 
@@ -308,9 +361,11 @@ func (h *Handler) DownloadSigned(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteUpload(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.DeleteUpload(r.Context(), tenantID(r), r.PathValue("proof_id"), actorID(r)); err != nil {
+		h.logProofFailure(r, "proof_upload_delete_failed", err, slog.String("proof_id", r.PathValue("proof_id")))
 		h.respondErr(w, r, err)
 		return
 	}
+	h.log.LogAttrs(r.Context(), slog.LevelInfo, "proof_upload_deleted", proofLogAttrs(r, r.PathValue("proof_id"))...)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -371,8 +426,43 @@ func (h *Handler) respondErr(w http.ResponseWriter, r *http.Request, err error) 
 }
 
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, message string) {
+	h.log.LogAttrs(r.Context(), slog.LevelWarn, "proof_request_rejected",
+		append(proofLogAttrs(r, r.PathValue("proof_id")),
+			slog.String("code", code),
+			slog.String("reason", message),
+		)...,
+	)
 	httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
 		errorEnvelope{Code: code, Message: message, TraceID: traceID(r)}, nil)
+}
+
+func (h *Handler) logProofFailure(r *http.Request, event string, err error, attrs ...slog.Attr) {
+	h.log.LogAttrs(r.Context(), slog.LevelWarn, event,
+		append(proofLogAttrs(r, r.PathValue("proof_id")),
+			append(attrs,
+				slog.String("error", err.Error()),
+			)...,
+		)...,
+	)
+}
+
+func proofLogAttrs(r *http.Request, proofID string) []slog.Attr {
+	return proofLogAttrsForTenant(r, tenantID(r), proofID)
+}
+
+func proofLogAttrsForTenant(r *http.Request, tenantID string, proofID string) []slog.Attr {
+	attrs := []slog.Attr{
+		slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+		slog.String("trace_id", traceID(r)),
+		slog.String("tenant_id", tenantID),
+		slog.String("actor_id", actorID(r)),
+		slog.String("device_id", httpmiddleware.DeviceIDFromContext(r.Context())),
+		slog.String("route", r.Method+" "+r.URL.Path),
+	}
+	if proofID != "" {
+		attrs = append(attrs, slog.String("proof_id", proofID))
+	}
+	return attrs
 }
 
 func toProofResponse(p domain.Artifact) proofResponse {

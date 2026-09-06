@@ -168,3 +168,136 @@ WHERE tenant_id = $1::uuid AND gates_round_id = $2::uuid`, pcTenant, round.Round
 		}
 	}
 }
+
+func TestRemovalPenReworkSubmitDoesNotResetApprovedSiblingPen(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupPCCareDB(t, ctx)
+
+	round, err := repo.CreateRound(ctx, ports.CreateRoundParams{
+		TenantID: pcTenant, Category: domain.CategoryDeworming, ParkID: pcPark,
+		Pens: []domain.RoundPen{
+			{ShedID: pcShedA, PartitionLabel: "Part 1"},
+			{ShedID: pcShedA, PartitionLabel: "Part 2"},
+		},
+		PlannedBusinessDate:    pcBusinessDay(2026, 9, 20),
+		AssigneeUserIDs:        []string{pcOperator1},
+		FeedRemovalRequired:    true,
+		RemovalOperatorUserIDs: []string{pcOperator2},
+		IdempotencyKey:         "removal-rework-sibling-isolation",
+		CreatedBy:              pcVerifier, ActorID: pcVerifier,
+	})
+	if err != nil {
+		t.Fatalf("CreateRound: %v", err)
+	}
+	var removalTaskID string
+	if err := pool.QueryRow(ctx, `
+	SELECT task_id::text FROM pc_care_tasks
+	WHERE tenant_id = $1::uuid AND gates_round_id = $2::uuid`, pcTenant, round.RoundID).Scan(&removalTaskID); err != nil {
+		t.Fatalf("read removal card: %v", err)
+	}
+
+	for _, pen := range round.Pens {
+		if err := repo.RegisterRemovalPenProof(ctx, ports.RegisterRemovalPenProofParams{
+			TenantID: pcTenant, RemovalTaskID: removalTaskID, GatedTaskID: pen.TaskID,
+			SlotKey: domain.SlotFeedVideo, ProofRef: "initial-feed-" + pen.PartitionLabel,
+			CapturedBy: pcOperator2, IdempotencyKey: "initial-feed-" + pen.TaskID, ActorID: pcOperator2,
+		}); err != nil {
+			t.Fatalf("feed video pen %s: %v", pen.PartitionLabel, err)
+		}
+		if err := repo.RegisterRemovalPenProof(ctx, ports.RegisterRemovalPenProofParams{
+			TenantID: pcTenant, RemovalTaskID: removalTaskID, GatedTaskID: pen.TaskID,
+			SlotKey: domain.SlotWaterVideo, ProofRef: "initial-water-" + pen.PartitionLabel,
+			CapturedBy: pcOperator2, IdempotencyKey: "initial-water-" + pen.TaskID, ActorID: pcOperator2,
+		}); err != nil {
+			t.Fatalf("water video pen %s: %v", pen.PartitionLabel, err)
+		}
+	}
+	if _, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
+		TenantID: pcTenant, TaskID: removalTaskID, SubmittedBy: pcOperator2,
+		IdempotencyKey: "removal-submit-before-rework", ActorID: pcOperator2,
+	}); err != nil {
+		t.Fatalf("initial submit: %v", err)
+	}
+
+	pens, err := repo.ListRemovalPenProofs(ctx, pcTenant, removalTaskID)
+	if err != nil {
+		t.Fatalf("ListRemovalPenProofs: %v", err)
+	}
+	var approvedPenID, approvedGatedTaskID, reworkPenID, reworkGatedTaskID string
+	for _, pen := range pens {
+		switch pen.PenLabel {
+		case "Shed A - Part 1":
+			approvedPenID = pen.RemovalPenID
+			approvedGatedTaskID = pen.GatedTaskID
+		case "Shed A - Part 2":
+			reworkPenID = pen.RemovalPenID
+			reworkGatedTaskID = pen.GatedTaskID
+		}
+	}
+	if approvedPenID == "" || approvedGatedTaskID == "" || reworkPenID == "" || reworkGatedTaskID == "" {
+		t.Fatalf("missing expected pens: %+v", pens)
+	}
+	if ok, err := repo.ApplyVerifiedRemovalPen(ctx, ports.ApplyRemovalPenVerdictParams{
+		TenantID: pcTenant, RemovalPenID: approvedPenID, VerifiedBy: pcVerifier,
+	}); err != nil || !ok {
+		t.Fatalf("approve sibling pen ok=%v err=%v", ok, err)
+	}
+	if ok, err := repo.BounceRemovalPenForRework(ctx, ports.ApplyRemovalPenVerdictParams{
+		TenantID: pcTenant, RemovalPenID: reworkPenID, VerifiedBy: pcVerifier, Reason: "reshoot water",
+	}); err != nil || !ok {
+		t.Fatalf("bounce rework pen ok=%v err=%v", ok, err)
+	}
+
+	// A stale client can resend all local clips when a round-grain card is reopened. The
+	// already-approved sibling must stay completed; the resend is a no-op, not a reopen.
+	if err := repo.RegisterRemovalPenProof(ctx, ports.RegisterRemovalPenProofParams{
+		TenantID: pcTenant, RemovalTaskID: removalTaskID, GatedTaskID: approvedGatedTaskID,
+		SlotKey: domain.SlotFeedVideo, ProofRef: "stale-feed-for-approved-sibling",
+		CapturedBy: pcOperator2, IdempotencyKey: "stale-approved-feed-resend", ActorID: pcOperator2,
+	}); err != nil {
+		t.Fatalf("stale resend for approved sibling should no-op, got: %v", err)
+	}
+	var staleStatus string
+	if err := pool.QueryRow(ctx, `
+SELECT status FROM idempotency_keys
+WHERE idempotency_key = $1`, pcTenant+":pc_care.animal.slot:stale-approved-feed-resend").Scan(&staleStatus); err != nil {
+		t.Fatalf("read stale resend idempotency: %v", err)
+	}
+	if staleStatus != "completed" {
+		t.Fatalf("stale resend idempotency status = %q, want completed", staleStatus)
+	}
+
+	if err := repo.RegisterRemovalPenProof(ctx, ports.RegisterRemovalPenProofParams{
+		TenantID: pcTenant, RemovalTaskID: removalTaskID, GatedTaskID: reworkGatedTaskID,
+		SlotKey: domain.SlotWaterVideo, ProofRef: "reshoot-water-Part 2",
+		CapturedBy: pcOperator2, IdempotencyKey: "reshoot-water-part-2", ActorID: pcOperator2,
+	}); err != nil {
+		t.Fatalf("reshoot water video: %v", err)
+	}
+	if _, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
+		TenantID: pcTenant, TaskID: removalTaskID, SubmittedBy: pcOperator2,
+		IdempotencyKey: "removal-submit-after-rework", ActorID: pcOperator2,
+	}); err != nil {
+		t.Fatalf("rework submit: %v", err)
+	}
+
+	pens, err = repo.ListRemovalPenProofs(ctx, pcTenant, removalTaskID)
+	if err != nil {
+		t.Fatalf("ListRemovalPenProofs after rework submit: %v", err)
+	}
+	for _, pen := range pens {
+		switch pen.RemovalPenID {
+		case approvedPenID:
+			if pen.Status != domain.StatusCompleted {
+				t.Fatalf("approved sibling status = %q, want completed", pen.Status)
+			}
+			if pen.FeedProofRef != "initial-feed-Part 1" {
+				t.Fatalf("approved sibling feed ref = %q, want original ref", pen.FeedProofRef)
+			}
+		case reworkPenID:
+			if pen.Status != domain.StatusPendingVerification {
+				t.Fatalf("reworked pen status = %q, want pending_verification", pen.Status)
+			}
+		}
+	}
+}

@@ -18,11 +18,14 @@ import java.util.concurrent.TimeUnit
  *  - `update_url` (String) — the install link the force-update CTA opens (a Firebase
  *    App Distribution tester link, since this app is not on the Play Store).
  *
- * Fail-open by construction: the default FirebaseApp auto-inits from the per-flavor
- * `firebase.xml` (present on stg/prod, absent on the dev flavor). When it is absent
- * `FirebaseRemoteConfig.getInstance()` throws, and any SDK/network failure is caught —
- * all of these resolve to [UpdateDecision.Allowed]. The in-app default for the minimum
- * is `0`, so a project that has Remote Config but no key set also stays allowed.
+ * The dev flavor always skips Remote Config and resolves to [UpdateDecision.Allowed].
+ * Internal throwaway and laptop-backed QA builds must not be stopped by a stale Firebase
+ * value or a local debug override from a previous session.
+ *
+ * Stg/prod fail-open by construction: the default FirebaseApp auto-inits from the
+ * per-flavor `firebase.xml`. Any SDK/network failure is caught and resolves to
+ * [UpdateDecision.Allowed]. The in-app default for the minimum is `0`, so a project
+ * that has Remote Config but no key set also stays allowed.
  *
  * "Remembers" while offline: `fetchAndActivate` returns the last ACTIVATED values when
  * the cached config is younger than the fetch interval, and the SDK persists activated
@@ -33,9 +36,11 @@ class RemoteConfigUpdateGate(
     private val context: Context? = null,
     private val currentVersionCode: Long = BuildConfig.VERSION_CODE.toLong(),
     private val minFetchIntervalSeconds: Long = DEFAULT_MIN_FETCH_INTERVAL_SECONDS,
+    private val skipRemoteConfig: Boolean = BuildConfig.FLAVOR == "dev",
 ) : UpdateGate {
 
     override suspend fun check(): UpdateDecision = withContext(Dispatchers.IO) {
+        if (skipRemoteConfig) return@withContext UpdateDecision.Allowed
         debugOverrideDecision()?.let { return@withContext it }
         runCatching {
             val rc = FirebaseRemoteConfig.getInstance()

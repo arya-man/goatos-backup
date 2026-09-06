@@ -882,6 +882,7 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all
+	node tools/agent-hooks/check-android-proof-policy-default.mjs --all
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
 	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --all
 	node tools/agent-hooks/check-android-row-action-scope.mjs

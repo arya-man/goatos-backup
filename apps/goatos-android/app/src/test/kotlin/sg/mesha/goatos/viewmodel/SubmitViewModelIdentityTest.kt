@@ -23,6 +23,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.forms.FormSpec
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -143,10 +144,11 @@ private class CapturingTasksRepository : TasksRepository {
 
     override suspend fun taskDetail(taskId: String): TaskDetail {
         detailTaskId = taskId
-        return TaskDetail(
-            task = TaskSummaryDto(taskId = taskId, sopVersionId = "sop-1", scopeId = "shed-1", rowVersion = 7),
-            form = FormSpec.Empty,
-        )
+	        return TaskDetail(
+	            task = TaskSummaryDto(taskId = taskId, sopVersionId = "sop-1", scopeId = "shed-1", rowVersion = 7),
+	            form = FormSpec.Empty,
+	            proofPolicy = ProofPolicy.Default,
+	        )
     }
 
     override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> = detailFlow

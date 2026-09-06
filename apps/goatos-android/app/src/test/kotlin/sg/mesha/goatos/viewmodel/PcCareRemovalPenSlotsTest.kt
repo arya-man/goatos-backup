@@ -13,6 +13,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.capture.CapturedVideo
+import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
@@ -142,6 +144,40 @@ class PcCareRemovalPenSlotsTest {
             listOf(listOf("task-1", "feed_video", "proof-outbox-pen", gatedTaskId)),
             repo.taskProofRegistrations,
         )
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `a pen removal video captured from camera is accepted by base slot mime and registered to that pen`() = runTest(dispatcher) {
+        val gatedTaskId = "eee9fdaa-4bd5-468b-818d-5b7072e24e31"
+        val repo = removalRepo(
+            listOf(PcCareRemovalPenDto(removalPenId = "pen-a", gatedTaskId = gatedTaskId, penLabel = "Godel 1 - Part 2")),
+        )
+        val proofRepo = FakeProofCaptureRepository()
+        val proofSource = FakeProofCaptureSource(
+            mutableListOf(
+                CapturedVideo(
+                    localUri = "file:///water.mp4",
+                    mimeType = "video/mp4",
+                    startedAtMs = 1_000L,
+                    endedAtMs = 4_000L,
+                    captureSource = "in_app_camera",
+                ),
+            ),
+        )
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, proofSource = proofSource)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        val waterField = "$gatedTaskId::water_video"
+        vm.onEvent(PcCareTaskEvent.RecordTaskProof(waterField, "video"))
+        runCurrent()
+
+        assertEquals(1, proofSource.captureCount)
+        assertEquals("video/mp4", proofRepo.captureCalls.single().mimeType)
+        assertEquals(waterField, proofRepo.captureCalls.single().fieldKey)
+        assertEquals(listOf(listOf("task-1", "water_video", "proof-outbox-1", gatedTaskId)), repo.taskProofRegistrations)
+        assertTrue(vm.state.value.message?.contains("Wrong proof type") != true)
         collectJob.cancel()
     }
 }

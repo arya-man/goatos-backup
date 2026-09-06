@@ -525,6 +525,7 @@ class CaptureRepositoryTest {
                 capturedStartMs = 1_000L,
                 capturedEndMs = 4_000L,
                 capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                 awaitUploadEnqueue = true,
             )
             assertTrue(sixth is AppResult.Ok)
@@ -620,6 +621,7 @@ class CaptureRepositoryTest {
                         capturedStartMs = 1_000L,
                         capturedEndMs = 4_000L,
                         capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     ) as AppResult.Ok
                     ).value.id
             }
@@ -640,6 +642,7 @@ class CaptureRepositoryTest {
                 capturedStartMs = 5_000L,
                 capturedEndMs = 8_000L,
                 capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
             )
 
             assertTrue("failed rows must not permanently burn the explicit proof cap", replacement is AppResult.Ok)
@@ -731,6 +734,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
@@ -797,6 +801,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
@@ -846,6 +851,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
@@ -1190,6 +1196,7 @@ class CaptureRepositoryTest {
                 capturedStartMs = 1_000L,
                 capturedEndMs = 4_000L,
                 capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                 awaitUploadEnqueue = true,
             )
             advanceUntilIdle()
@@ -1439,6 +1446,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
@@ -1491,6 +1499,7 @@ class CaptureRepositoryTest {
                 capturedStartMs = 1_000L,
                 capturedEndMs = 4_000L,
                 capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                 awaitUploadEnqueue = true,
             )
 
@@ -1547,6 +1556,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
@@ -1991,6 +2001,7 @@ class CaptureRepositoryTest {
                 capturedStartMs = 1_000L,
                 capturedEndMs = 4_000L,
                 capturedByPrincipalId = null,
+                    proofPolicy = ProofPolicy.Default,
                 awaitUploadEnqueue = true,
                 uploadGroupKey = "feed-dist:2026-08-12:shed-1:part 3:1:normal:feed_video",
             )
@@ -2087,6 +2098,7 @@ class CaptureRepositoryTest {
                 capturedStartMs = 1_000L,
                 capturedEndMs = 4_000L,
                 capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
             )
             advanceUntilIdle()
 
@@ -2139,6 +2151,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
             ).value
@@ -2191,6 +2204,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
             ).value
@@ -2247,6 +2261,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
@@ -2289,6 +2304,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
             ).value
@@ -2458,6 +2474,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
             ).value
@@ -2559,6 +2576,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
             ).value
@@ -2632,6 +2650,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value

@@ -171,9 +171,9 @@ class ScanViewModel @Inject constructor(
         } ?: flowOf(null))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    private val proofPolicy: StateFlow<ProofPolicy> =
-        taskDetail.map { it?.proofPolicy ?: ProofPolicy.Default }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProofPolicy.Default)
+    private val proofPolicy: StateFlow<ProofPolicy?> =
+        taskDetail.map { it?.proofPolicy }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val shedCompletionSummary: StateFlow<ShedCompletionSummaryDto?> =
         (taskId?.let { id ->
@@ -318,7 +318,7 @@ class ScanViewModel @Inject constructor(
         val proofRows = proofs.orEmpty()
         val operatorAllowed = values[17] as Boolean?
         val refreshError = values[18] as String?
-        val policy = values[19] as ProofPolicy
+        val policy = values[19] as ProofPolicy?
         val duplicateNotice = values[20] as String?
         val scanErrorNotice = values[21] as ScanError?
         val detail = values[22] as TaskDetail?
@@ -450,9 +450,9 @@ class ScanViewModel @Inject constructor(
             taskId = taskId,
             sopVersionId = sopVersionId,
             taskRowVersion = taskRowVersion,
-            requireGoatProof = policy.isPerGoatVideo,
+            requireGoatProof = policy?.isPerGoatVideo == true,
             proofSyncingStartedAt = effectiveProofSyncingStartedAt,
-            serverAllGoatProofsReady = policy.isPerGoatVideo && shedSummary.allHandledProofsReady(),
+            serverAllGoatProofsReady = policy?.isPerGoatVideo == true && shedSummary.allHandledProofsReady(),
         )
         // Full-roster (page-independent) aggregates overlay the window-derived counts (R50-008).
         val aggregated = applyFullRosterCounts(base, counts, reconciledLocalDoneGoats, shedSummary)
@@ -489,7 +489,7 @@ class ScanViewModel @Inject constructor(
                     evidenceUploading = it.evidenceUploading,
                     evidenceFailed = it.evidenceFailed,
                     tone = if (
-                        policy.isPerGoatVideo &&
+                        policy?.isPerGoatVideo == true &&
                         it.proofUploadStatus != ProofUploadStatus.SYNCED &&
                         it.evidenceSyncedCount <= 0
                     ) {
@@ -967,7 +967,7 @@ class ScanViewModel @Inject constructor(
                 // Route both the explicitly-armed replacement AND any goat the gate already flagged
                 // through the same proof-recapture path instead of rejecting the scan.
                 val needsProofRecapture = state.value.proofActionNeeded.any { it.goatId == dbRow.goatId }
-                if (proofPolicy.value.isPerGoatVideo && (armedReplacementGoatId == dbRow.goatId || needsProofRecapture)) {
+                if (proofPolicy.value?.isPerGoatVideo == true && (armedReplacementGoatId == dbRow.goatId || needsProofRecapture)) {
                     val replacementLabel = sameGoatRows
                         .map { it.vaccineLabel.trim() }
                         .filter { it.isNotBlank() }
@@ -1041,7 +1041,7 @@ class ScanViewModel @Inject constructor(
                 goatId = dbRow.goatId,
                 obligationId = selectedRow.obligationId,
                 obligationRowVersion = selectedRow.obligationRowVersion,
-                proofRequired = proofPolicy.value.isPerGoatVideo,
+                proofRequired = proofPolicy.value?.isPerGoatVideo == true,
             )
             val tagRole = row.tagRoleFor(target)
             when (row.status) {
@@ -1052,7 +1052,7 @@ class ScanViewModel @Inject constructor(
                     _proofCaptureBusyNotice.value = false
                     _scanErrorNotice.value = null
                     recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, null, capturedAtMs)
-                    if (proofPolicy.value.isPerGoatVideo) {
+                    if (proofPolicy.value?.isPerGoatVideo == true) {
                         requestGoatProof(
                             row,
                             pendingScanCommit = PendingScanCommit(
@@ -1078,7 +1078,7 @@ class ScanViewModel @Inject constructor(
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, "manual_done_replaced_by_reader_scan", capturedAtMs)
                         recordRosterScan(row, tag, capturedAtMs, scannableSameGoatRows)
                         requestGoatProof(row)
-                    } else if (proofPolicy.value.isPerGoatVideo && armedReplacementGoatId == row.goatId) {
+                    } else if (proofPolicy.value?.isPerGoatVideo == true && armedReplacementGoatId == row.goatId) {
                         _proofReplacementGoatId.value = null
                         _duplicateNotice.value = null
                         _proofCaptureBusyNotice.value = false
@@ -1086,7 +1086,7 @@ class ScanViewModel @Inject constructor(
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.DUPLICATE, tagRole, "proof_replace_requested", capturedAtMs)
                         requestGoatProof(row)
                     } else if (
-                        proofPolicy.value.isPerGoatVideo &&
+                        proofPolicy.value?.isPerGoatVideo == true &&
                         state.value.proofActionNeeded.any { it.goatId == row.goatId }
                     ) {
                         _proofReplacementGoatId.value = null
@@ -1143,7 +1143,7 @@ class ScanViewModel @Inject constructor(
         // Track the goat as done this session so the submit proof gate requires its proof video even
         // before a refresh syncs the backend status (option 2: proof over the full roster).
         if (row.goatId.isNotBlank()) _localDoneGoatIds.update { it + row.goatId }
-        val proofUploading = proofPolicy.value.isPerGoatVideo
+        val proofUploading = proofPolicy.value?.isPerGoatVideo == true
         _feed.update {
             prependFeed(
                 ScanFeedEntry(
@@ -1484,11 +1484,11 @@ class ScanViewModel @Inject constructor(
         localDoneGoats: Set<String>,
         persistedScans: List<ScannedGoatRow>,
         proofs: List<ProofCaptureRow>?,
-        policy: ProofPolicy,
+        policy: ProofPolicy?,
         shedSummary: ShedCompletionSummaryDto?,
         proofSyncingStartedAt: Map<String, Long>,
     ): ScanUiState {
-        if (policy.isShedLevelVideo) {
+        if (policy?.isShedLevelVideo == true) {
             val canSubmit = base.ringTotal > 0 && base.pendingCount == 0
             maybeTrackScanCompleted(canSubmit, base.ringDone)
             return base.copy(
@@ -1512,7 +1512,7 @@ class ScanViewModel @Inject constructor(
             .filter { it.isNotBlank() }
             .filter { currentRosterGoatIds.isEmpty() || it in currentRosterGoatIds }
             .toSet()
-        val showAutoSubmitOnly = policy.isPerGoatVideo
+        val showAutoSubmitOnly = policy?.isPerGoatVideo == true
         if (proofs == null && !shedSummary.allHandledProofsReady()) {
             return base.copy(canSubmit = false, showSubmitAction = !showAutoSubmitOnly, proofActionNeeded = emptyList())
         }
@@ -1575,7 +1575,7 @@ class ScanViewModel @Inject constructor(
                     val mapped = row.toRosterRow(
                         localDone = emptySet(),
                         goatProofsBySubject = goatProofsBySubject,
-                        requireGoatProof = policy.isPerGoatVideo,
+                        requireGoatProof = policy?.isPerGoatVideo == true,
                         optimisticProofUploadingAtMs = proofSyncingStartedAt[row.goatId],
                         serverProofReady = shedSummary.allHandledProofsReady(),
                     )
@@ -1676,7 +1676,7 @@ class ScanViewModel @Inject constructor(
 
     private fun requestGoatProof(goatId: String) {
         val selectedTaskId = taskId ?: return
-        val policy = proofPolicy.value
+        val policy = proofPolicy.value ?: return
         if (!policy.isPerGoatVideo || _operatorAllowed.value != true || goatId.isBlank()) return
         // Resolve the goat from the visible window OR the proof-action-needed list — an animal needing
         // a proof re-capture may be below the scroll window (the gate surfaces the full-roster set).
@@ -1707,7 +1707,7 @@ class ScanViewModel @Inject constructor(
      *  reopen the same camera on itself. */
     private fun requestGoatProof(row: RosterRow, pendingScanCommit: PendingScanCommit? = null) {
         val selectedTaskId = taskId ?: return
-        val policy = proofPolicy.value
+        val policy = proofPolicy.value ?: return
         if (!policy.isPerGoatVideo || _operatorAllowed.value != true || row.goatId.isBlank()) return
 
         val strandedGoatId = proofCaptureGoatId
@@ -1780,7 +1780,7 @@ class ScanViewModel @Inject constructor(
                     taskId = selectedTaskId,
                     fieldKey = GOAT_PROOF_FIELD_KEY,
                     // R50-027: policy-driven default subject (falls back to GOAT via
-                    // ProofPolicy.Default.subjectScope when no policy has loaded yet).
+                    // backend-owned proof policy for this task.
                     subject = policy.defaultSubject,
                     subjectId = row.goatId,
                     localUri = captured.localUri,
@@ -1919,7 +1919,7 @@ class ScanViewModel @Inject constructor(
                 put(AnalyticsEvents.Params.PARTITION_LABEL, it)
             }
             sopVersionId?.takeIf(String::isNotBlank)?.let { put("sop_version_id", it) }
-            put(AnalyticsEvents.Params.PROOF_MODE, proofPolicy.value.defaultSubject.name.lowercase())
+            proofPolicy.value?.let { put(AnalyticsEvents.Params.PROOF_MODE, it.defaultSubject.name.lowercase()) }
             put("ring_total", uiState.ringTotal.toString())
             put("ring_done", uiState.ringDone.toString())
             put("done_count", uiState.doneCount.toString())

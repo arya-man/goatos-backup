@@ -398,11 +398,12 @@ class SubmitViewModelFormTest {
             caption = null,
             scopeType = "task",
             scopeId = task.taskId,
-            capturedStartMs = 1L,
-            capturedEndMs = 2L,
-            capturedByPrincipalId = "operator-1",
-            partitionLabel = "1",
-        ) as AppResult.Ok
+	            capturedStartMs = 1L,
+	            capturedEndMs = 2L,
+	            capturedByPrincipalId = "operator-1",
+	            proofPolicy = ProofPolicy.Default,
+	            partitionLabel = "1",
+	        ) as AppResult.Ok
         val partTwoProof = proofs.capture(
             taskId = task.taskId,
             fieldKey = "administration_video",
@@ -412,11 +413,12 @@ class SubmitViewModelFormTest {
             caption = null,
             scopeType = "task",
             scopeId = task.taskId,
-            capturedStartMs = 3L,
-            capturedEndMs = 4L,
-            capturedByPrincipalId = "operator-1",
-            partitionLabel = "Part 2",
-        ) as AppResult.Ok
+	            capturedStartMs = 3L,
+	            capturedEndMs = 4L,
+	            capturedByPrincipalId = "operator-1",
+	            proofPolicy = ProofPolicy.Default,
+	            partitionLabel = "Part 2",
+	        ) as AppResult.Ok
         proofs.markSynced(partOneProof.value.id, "server-proof-part-1")
         proofs.markSynced(partTwoProof.value.id, "server-proof-part-2")
         val sync = CapturingSyncRepository()
@@ -783,10 +785,11 @@ class SubmitViewModelFormTest {
                 caption = null,
                 scopeType = "task",
                 scopeId = "task-five-failed-proof",
-                capturedStartMs = index * 1_000L,
-                capturedEndMs = index * 1_000L + 500L,
-                capturedByPrincipalId = "operator-1",
-            ) as AppResult.Ok
+	                capturedStartMs = index * 1_000L,
+	                capturedEndMs = index * 1_000L + 500L,
+	                capturedByPrincipalId = "operator-1",
+	                proofPolicy = ProofPolicy.Default,
+	            ) as AppResult.Ok
             proofCaptureRepository.markFailed(captured.value.id, "network gave up")
         }
         advanceUntilIdle()
@@ -1246,7 +1249,7 @@ class SubmitViewModelFormTest {
             expectedSubjects = listOf("shed"),
             minimumCount = 1,
             maximumCount = 5,
-            maximumCountPerSubject = 1,
+            maximumCountPerSubject = 5,
             captureSource = "in_app_camera",
             allowedCaptureSources = listOf("in_app_camera", "gallery_picker"),
         )

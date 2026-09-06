@@ -32,7 +32,7 @@ data class TaskDetail(
     val task: TaskSummaryDto,
     val form: FormSpec,
     val submissions: List<SubmissionSummaryDto> = emptyList(),
-    val proofPolicy: ProofPolicy = ProofPolicy.Default,
+    val proofPolicy: ProofPolicy,
 )
 
 /**
@@ -164,7 +164,7 @@ private fun TaskDetailResponseDto.toDomain(): TaskDetail = TaskDetail(
     ),
     form = (sopVersion?.toFormSpec() ?: FormSpec.Empty).withOptionValues(optionValues),
     submissions = submissions,
-    proofPolicy = sopVersion?.toProofPolicy() ?: ProofPolicy.Default,
+    proofPolicy = requireNotNull(sopVersion) { "Task detail ${task.taskId} missing SOP version proof policy" }.toProofPolicy(),
 )
 
 private fun FormSpec.withOptionValues(values: TaskOptionValuesResponseDto?): FormSpec {

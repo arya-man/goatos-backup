@@ -916,7 +916,8 @@ class PcCareTaskViewModel @Inject constructor(
                         outcome = "success",
                     ),
                 )
-                if (!pcCareStockSlotMatchesMime(slotFieldKey, captured.mimeType)) {
+                val (_, mimeSlotKey) = pcCareSplitRemovalSlotKey(slotFieldKey)
+                if (!pcCareStockSlotMatchesMime(mimeSlotKey, captured.mimeType)) {
                     analytics.track(
                         AnalyticsEvents.PC_CARE_STOCK_PROOF_ROOM_WRITTEN,
                         pcCareStockProofAnalyticsProps(

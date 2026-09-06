@@ -119,7 +119,7 @@ class SubmitViewModelWhileSubscribedTest {
 
 /** Counts active collectors of [observeTaskDetail]'s Flow — always has a valid cached task. */
 private class CountingTasksRepository(task: TaskSummaryDto) : TasksRepository {
-    private val flow = MutableStateFlow(Resource(data = TaskDetail(task = task, form = FormSpec.Empty)))
+    private val flow = MutableStateFlow(Resource(data = TaskDetail(task = task, form = FormSpec.Empty, proofPolicy = ProofPolicy.Default)))
     var activeDetailCollectors = 0
         private set
 

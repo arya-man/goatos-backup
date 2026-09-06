@@ -15,6 +15,18 @@ plist="$HOME/Library/LaunchAgents/$label.plist"
 launch_domain="gui/$(id -u)"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000102}"
+adb_serial=""
+
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[$i]}" in
+    -s|--serial)
+      if (( i + 1 < ${#args[@]} )); then
+        adb_serial="${args[$((i + 1))]}"
+      fi
+      ;;
+  esac
+done
 
 die() { echo "phone-qa-throwaway-run: $*" >&2; exit 1; }
 log() { printf '[phone-qa] %s\n' "$*"; }
@@ -22,7 +34,8 @@ log() { printf '[phone-qa] %s\n' "$*"; }
 [ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL is required"
 case "$DATABASE_URL" in
   *127.0.0.1:15544/*|*localhost:15544/*) ;;
-  *) die "refusing DATABASE_URL outside throwaway port 15544: ${DATABASE_URL%%\?*}" ;;
+  *127.0.0.1:15432/goatos_e2e_*|*localhost:15432/goatos_e2e_*) ;;
+  *) die "refusing DATABASE_URL outside local throwaway port 15544 or OCI goatos_e2e_* tunnel: ${DATABASE_URL%%\?*}" ;;
 esac
 
 mkdir -p "$(dirname "$api_bin")" "$api_log_dir" "$(dirname "$plist")"
@@ -214,7 +227,11 @@ if [ -n "${before:-}" ] && [ "${before:-0}" -gt 0 ]; then
 fi
 
 # Device-side stays 8080 (the APK's baked base URL); host side is the QA port.
-adb reverse tcp:8080 tcp:"$host_port" >/dev/null
+if [ -n "$adb_serial" ]; then
+  adb -s "$adb_serial" reverse tcp:8080 tcp:"$host_port" >/dev/null
+else
+  adb reverse tcp:8080 tcp:"$host_port" >/dev/null
+fi
 log "API is on :$host_port using ${DATABASE_URL%%\?*}; device localhost:8080 -> laptop:$host_port; installing Android as $user_id"
 
 GOATOS_LOCAL_USER_ID="$user_id" \

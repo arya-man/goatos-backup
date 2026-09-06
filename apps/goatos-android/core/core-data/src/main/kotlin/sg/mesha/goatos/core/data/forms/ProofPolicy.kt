@@ -18,7 +18,7 @@ import sg.mesha.goatos.core.network.dto.SopVersionDto
  *
  * Real backend shape (baseline 000001):
  * `{"types":["video"],"required":true,"subject_scope":"goat","expected_subjects":["goat"],
- *   "minimum_count":1,"minimum_count_per_subject":1,"maximum_count_per_subject":5,
+ *   "minimum_count":1,"minimum_count_per_subject":1,"maximum_count":1,"maximum_count_per_subject":1,
  *   "capture_source":"in_app_camera"}`
  */
 data class ProofPolicy(

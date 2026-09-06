@@ -136,10 +136,11 @@ class ScanViewModelTest {
             caption = null,
             scopeType = "task",
             scopeId = "task-1",
-            capturedStartMs = 1_000,
-            capturedEndMs = 2_000,
-            capturedByPrincipalId = "operator-1",
-        ) as AppResult.Ok
+	            capturedStartMs = 1_000,
+	            capturedEndMs = 2_000,
+	            capturedByPrincipalId = "operator-1",
+	            proofPolicy = ProofPolicy.Default,
+	        ) as AppResult.Ok
         proofRepo.markSynced(capturedProof.value.id, "proof-1")
         val submitVm = SubmitViewModel(
             repo = FakeTaskRepository(
@@ -284,14 +285,15 @@ class ScanViewModelTest {
             proofCaptureSource = autoVideoProofSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(
-                TaskDetail(
-                    task = TaskSummaryDto(
-                        taskId = "task-1",
-                        title = "Generic vaccination cohort",
-                        presentation = TaskPresentationDto(title = "Park"),
-                    ),
-                    form = FormSpec.Empty,
-                ),
+	            TaskDetail(
+	                task = TaskSummaryDto(
+	                    taskId = "task-1",
+	                    title = "Generic vaccination cohort",
+	                    presentation = TaskPresentationDto(title = "Park"),
+	                ),
+	                form = FormSpec.Empty,
+	                proofPolicy = ProofPolicy.Default,
+	            ),
             ),
             syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
@@ -1507,7 +1509,7 @@ class ScanViewModelTest {
 
         seedSyncedProof(proofRepo, "goat-1")
         seedSyncedProof(proofRepo, "goat-2")
-        proofRepo.capture(taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT, subjectId = "goat-3", localUri = "file://g3.mp4", mimeType = "video/mp4", caption = null, scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2, capturedByPrincipalId = "op") // stays PENDING
+        proofRepo.capture(taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT, subjectId = "goat-3", localUri = "file://g3.mp4", mimeType = "video/mp4", caption = null, scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2, capturedByPrincipalId = "op", proofPolicy = ProofPolicy.Default) // stays PENDING
         advanceUntilIdle()
 
         assertFalse("a pending upload blocks submit", vm.state.value.canSubmit)
@@ -1525,7 +1527,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         seedSyncedProof(proofRepo, "goat-1")
-        val failing = proofRepo.capture(taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT, subjectId = "goat-2", localUri = "file://g2.mp4", mimeType = "video/mp4", caption = null, scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2, capturedByPrincipalId = "op") as AppResult.Ok
+        val failing = proofRepo.capture(taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT, subjectId = "goat-2", localUri = "file://g2.mp4", mimeType = "video/mp4", caption = null, scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2, capturedByPrincipalId = "op", proofPolicy = ProofPolicy.Default) as AppResult.Ok
         proofRepo.markFailed(failing.value.id, "upload failed")
         advanceUntilIdle()
 
@@ -1735,12 +1737,13 @@ class ScanViewModelTest {
         )
 
     private suspend fun seedSyncedProof(proofRepo: FakeProofCaptureRepository, goatId: String) {
-        val created = proofRepo.capture(
-            taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT,
-            subjectId = goatId, localUri = "file://$goatId.mp4", mimeType = "video/mp4", caption = null,
-            scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2,
-            capturedByPrincipalId = "op",
-        ) as AppResult.Ok
+	        val created = proofRepo.capture(
+	            taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT,
+	            subjectId = goatId, localUri = "file://$goatId.mp4", mimeType = "video/mp4", caption = null,
+	            scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2,
+	            capturedByPrincipalId = "op",
+	            proofPolicy = ProofPolicy.Default,
+	        ) as AppResult.Ok
         proofRepo.markSynced(created.value.id, "server-$goatId")
     }
 
@@ -2246,11 +2249,11 @@ private class FakeTaskRepository(
 ) : TasksRepository {
     private val taskDetail = MutableStateFlow(Resource<TaskDetail>(data = null))
 
-    override suspend fun taskDetail(taskId: String): TaskDetail = TaskDetail(task = task, form = form)
-    override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> = taskDetail
-    override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {
-        taskDetail.value = Resource(data = TaskDetail(task = task, form = form), lastSyncedAt = 1L)
-    }
+	    override suspend fun taskDetail(taskId: String): TaskDetail = TaskDetail(task = task, form = form, proofPolicy = ProofPolicy.Default)
+	    override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> = taskDetail
+	    override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {
+	        taskDetail.value = Resource(data = TaskDetail(task = task, form = form, proofPolicy = ProofPolicy.Default), lastSyncedAt = 1L)
+	    }
     override fun observeShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Flow<ShedCompletionSummaryDto?> =
         MutableStateFlow(null)
     override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Result<Unit> = Result.success(Unit)
