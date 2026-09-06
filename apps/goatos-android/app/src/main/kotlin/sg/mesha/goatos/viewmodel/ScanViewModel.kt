@@ -673,6 +673,7 @@ class ScanViewModel @Inject constructor(
                 trackProofActionTapped(event.goatId, "replace")
                 armProofReplacement(event.goatId)
             }
+            is ScanEvent.ProofPreviewAction -> trackProofPreviewAction(event.goatId, event.action)
             ScanEvent.OpenShedSwitcher,
             ScanEvent.DismissShedSwitcher,
             is ScanEvent.SwitchShed -> Unit
@@ -1446,6 +1447,7 @@ class ScanViewModel @Inject constructor(
             .filter { it.syncStatus == CaptureSyncStatus.FAILED }
             .maxByOrNull { it.capturedAtMs }
             ?.takeUnless { hasSyncedProof }
+        val latestPreviewProof = goatProofs.maxByOrNull { it.capturedAtMs }
         val proofStatusLabel = proofStatusLabel(
             latestSyncedAtMs = latestSyncedProof?.capturedAtMs ?: if (serverProofReady) scannedAtMs else null,
             latestUploadingProof = latestUploadingProof,
@@ -1478,6 +1480,8 @@ class ScanViewModel @Inject constructor(
             evidenceSyncedCount = if (hasSyncedProof) 1 else 0,
             evidenceUploading = uploadingProofs,
             evidenceFailed = failedProofs,
+            proofPreviewPath = latestPreviewProof?.processedUri?.takeIf { it.isNotBlank() }
+                ?: latestPreviewProof?.localUri?.takeIf { it.isNotBlank() },
         )
     }
 
@@ -1959,6 +1963,21 @@ class ScanViewModel @Inject constructor(
                     AnalyticsEvents.Params.ACTION to action,
                     AnalyticsEvents.Params.GOAT_ID to goatId,
                     AnalyticsEvents.Params.SOURCE to "proof_row",
+                ),
+        )
+    }
+
+    private fun trackProofPreviewAction(goatId: String, action: String) {
+        val row = (state.value.roster + state.value.proofActionNeeded)
+            .firstOrNull { it.goatId == goatId }
+        analytics.track(
+            AnalyticsEvents.VACCINATION_PROOF_PREVIEW_ACTION,
+            vaccinationActionProps(row, row?.primaryTag.orEmpty()) +
+                mapOf(
+                    AnalyticsEvents.Params.ACTION to action,
+                    AnalyticsEvents.Params.GOAT_ID to goatId,
+                    AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                    AnalyticsEvents.Params.SOURCE to "proof_preview",
                 ),
         )
     }

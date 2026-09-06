@@ -194,6 +194,7 @@ class BackendAnalyticsAdapter(
             AnalyticsEvents.VACCINATION_PROOF_CAPTURE_CANCELLED,
             AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
             AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED,
+            AnalyticsEvents.VACCINATION_PROOF_PREVIEW_ACTION,
             AnalyticsEvents.FEED_DISTRIBUTION_OPENED,
             AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
             AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,

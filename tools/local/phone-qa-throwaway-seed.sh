@@ -66,6 +66,7 @@ JOIN (VALUES
   ('operations', 'weighing'),
   ('operations', 'feed_direction'),
   ('operations', 'pc_care'),
+  ('operations', 'counts'),
   ('verification', 'verification'),
   ('feed', 'feed_direction'),
   ('leadership', 'vaccination'),
@@ -610,6 +611,145 @@ WHERE oi.tenant_id = '${tenant_id}'::uuid
   )
 ON CONFLICT (tenant_id, obligation_id) DO UPDATE
 SET assignment_id = EXCLUDED.assignment_id;
+
+INSERT INTO pc_care_rounds (
+  round_id, tenant_id, category, park_id, planned_business_date,
+  idempotency_key, created_by, created_at, updated_at
+)
+VALUES (
+  '94000000-0000-4000-8000-000000000701',
+  '${tenant_id}'::uuid,
+  'deworming',
+  '91000000-0000-4000-8000-000000000101',
+  ${today_sql} + 1,
+  'phone-qa-pc-care-deworming-round-cbe',
+  '90000000-0000-4000-8000-000000000102',
+  now(),
+  now()
+)
+ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
+SET planned_business_date = EXCLUDED.planned_business_date,
+    updated_at = now();
+
+DELETE FROM pc_care_removal_pen_proofs
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND removal_task_id = '94000000-0000-4000-8000-000000000800';
+
+DELETE FROM pc_care_task_assignees
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND task_id IN (
+    '94000000-0000-4000-8000-000000000801',
+    '94000000-0000-4000-8000-000000000802',
+    '94000000-0000-4000-8000-000000000800'
+  );
+
+DELETE FROM pc_care_tasks
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND task_id IN (
+    '94000000-0000-4000-8000-000000000801',
+    '94000000-0000-4000-8000-000000000802',
+    '94000000-0000-4000-8000-000000000800'
+  );
+
+INSERT INTO pc_care_tasks (
+  task_id, tenant_id, category, park_id, shed_id, partition_label,
+  planned_business_date, due_business_date, work_state, status,
+  idempotency_key, created_by, round_id, created_at, updated_at
+)
+VALUES
+  (
+    '94000000-0000-4000-8000-000000000801',
+    '${tenant_id}'::uuid,
+    'deworming',
+    '91000000-0000-4000-8000-000000000101',
+    '91000000-0000-4000-8000-000000000201',
+    'Godel 1 - Part 1',
+    ${today_sql} + 1,
+    ${today_sql} + 1,
+    'scheduled',
+    'open',
+    'phone-qa-pc-care-deworming-godel-1-part-1',
+    '90000000-0000-4000-8000-000000000102',
+    '94000000-0000-4000-8000-000000000701',
+    now(),
+    now()
+  ),
+  (
+    '94000000-0000-4000-8000-000000000802',
+    '${tenant_id}'::uuid,
+    'deworming',
+    '91000000-0000-4000-8000-000000000101',
+    '91000000-0000-4000-8000-000000000203',
+    'Yashoda 1 - Part 2',
+    ${today_sql} + 1,
+    ${today_sql} + 1,
+    'scheduled',
+    'open',
+    'phone-qa-pc-care-deworming-yashoda-1-part-2',
+    '90000000-0000-4000-8000-000000000102',
+    '94000000-0000-4000-8000-000000000701',
+    now(),
+    now()
+  );
+
+INSERT INTO pc_care_tasks (
+  task_id, tenant_id, category, park_id, shed_id, partition_label,
+  planned_business_date, due_business_date, work_state, status,
+  idempotency_key, created_by, gates_round_id, created_at, updated_at
+)
+VALUES (
+  '94000000-0000-4000-8000-000000000800',
+  '${tenant_id}'::uuid,
+  'feed_water_removal',
+  '91000000-0000-4000-8000-000000000101',
+  NULL,
+  NULL,
+  ${today_sql},
+  ${today_sql},
+  'scheduled',
+  'open',
+  'phone-qa-pc-care-feed-water-removal-cbe',
+  '90000000-0000-4000-8000-000000000102',
+  '94000000-0000-4000-8000-000000000701',
+  now(),
+  now()
+);
+
+INSERT INTO pc_care_task_assignees (tenant_id, task_id, operator_user_id)
+VALUES
+  ('${tenant_id}'::uuid, '94000000-0000-4000-8000-000000000801', '90000000-0000-4000-8000-000000000202'),
+  ('${tenant_id}'::uuid, '94000000-0000-4000-8000-000000000802', '90000000-0000-4000-8000-000000000202'),
+  ('${tenant_id}'::uuid, '94000000-0000-4000-8000-000000000800', '90000000-0000-4000-8000-000000000202')
+ON CONFLICT (tenant_id, task_id, operator_user_id) DO NOTHING;
+
+INSERT INTO pc_care_removal_pen_proofs (
+  removal_pen_id, tenant_id, removal_task_id, gated_task_id, pen_label, status
+)
+VALUES
+  (
+    '94000000-0000-4000-8000-000000000811',
+    '${tenant_id}'::uuid,
+    '94000000-0000-4000-8000-000000000800',
+    '94000000-0000-4000-8000-000000000801',
+    'Godel 1 - Part 1',
+    'open'
+  ),
+  (
+    '94000000-0000-4000-8000-000000000812',
+    '${tenant_id}'::uuid,
+    '94000000-0000-4000-8000-000000000800',
+    '94000000-0000-4000-8000-000000000802',
+    'Yashoda 1 - Part 2',
+    'open'
+  )
+ON CONFLICT (tenant_id, removal_task_id, gated_task_id) DO UPDATE
+SET pen_label = EXCLUDED.pen_label,
+    status = 'open',
+    feed_proof_ref = NULL,
+    water_proof_ref = NULL,
+    rework_reason = NULL,
+    row_version = pc_care_removal_pen_proofs.row_version + 1,
+    updated_at = now();
 
 INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, expected_animal_count, weighing_category, operator_user_id, status, park_id, start_business_date, updated_at)
 VALUES

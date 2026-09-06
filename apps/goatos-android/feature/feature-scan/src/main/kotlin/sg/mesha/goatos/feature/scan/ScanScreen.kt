@@ -47,6 +47,8 @@ import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 
 // telemetry:exempt pure stateless renderer; AnalyticsPort/funnel wiring lives in ScanViewModel.
 
@@ -151,6 +153,7 @@ data class RosterRow(
     val evidenceFailed: Boolean = false,
     val captureInFlight: Boolean = false,
     val canCaptureEvidence: Boolean = false,
+    val proofPreviewPath: String? = null,
 )
 
 /** One entry in the live "last taps" feed (given or skipped only). */
@@ -296,6 +299,7 @@ sealed interface ScanEvent {
     data class CaptureProof(val goatId: String) : ScanEvent
     data class RetryProof(val goatId: String) : ScanEvent
     data class ArmProofReplacement(val goatId: String) : ScanEvent
+    data class ProofPreviewAction(val goatId: String, val action: String) : ScanEvent
     data class SelectGroup(val groupId: String) : ScanEvent
     data class OpenTile(val status: ScanStatus) : ScanEvent
 }
@@ -465,6 +469,7 @@ fun ScanScreen(
                         ProofNeededFeedRow(
                             row = row,
                             armedForReplacement = state.proofReplacementGoatId == row.goatId,
+                            onPreviewAction = { action -> onEvent(ScanEvent.ProofPreviewAction(row.goatId, action)) },
                         ) {
                             if (row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed) {
                                 onEvent(ScanEvent.RetryProof(row.goatId))
@@ -1216,26 +1221,37 @@ private fun ProofGate(rows: List<RosterRow>) {
 private fun ProofNeededFeedRow(
     row: RosterRow,
     armedForReplacement: Boolean = false,
+    onPreviewAction: (String) -> Unit = {},
     onAction: () -> Unit = {},
 ) {
     val (line, tone) = proofLineAndTone(row)
     val retryable = row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed
     val replaceable = row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0
-    ScanRosterFlatRow(
-        primaryTag = row.primaryTag,
-        secondaryTag = row.secondaryTag,
-        vaccineLabel = row.vaccineLabel,
-        status = ScanStatus.DONE,
-        tone = tone,
-        secondaryLine = if (armedForReplacement) stringResource(R.string.scan_proof_replace_armed) else line,
-        actionLabel = when {
-            retryable -> stringResource(R.string.scan_proof_retry_action)
-            replaceable -> stringResource(R.string.scan_proof_replace_action)
-            else -> null
-        },
-        onAction = onAction,
-        modifier = if (retryable || replaceable) Modifier.clickable { onAction() } else Modifier,
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ScanRosterFlatRow(
+            primaryTag = row.primaryTag,
+            secondaryTag = row.secondaryTag,
+            vaccineLabel = row.vaccineLabel,
+            status = ScanStatus.DONE,
+            tone = tone,
+            secondaryLine = if (armedForReplacement) stringResource(R.string.scan_proof_replace_armed) else line,
+            actionLabel = when {
+                retryable -> stringResource(R.string.scan_proof_retry_action)
+                replaceable -> stringResource(R.string.scan_proof_replace_action)
+                else -> null
+            },
+            onAction = onAction,
+            modifier = if (retryable || replaceable) Modifier.clickable { onAction() } else Modifier,
+        )
+        row.proofPreviewPath?.takeIf { it.isNotBlank() }?.let { path ->
+            ProofMediaPreview(
+                path = path,
+                kind = ProofMediaPreviewKind.Video,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                onPreviewAction = onPreviewAction,
+            )
+        }
+    }
 }
 
 @Composable

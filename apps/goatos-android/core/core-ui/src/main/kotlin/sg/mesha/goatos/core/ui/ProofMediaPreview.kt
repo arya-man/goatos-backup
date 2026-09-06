@@ -754,6 +754,7 @@ private fun ProofMediaFullscreenDialog(
                         DisposableEffect(player) {
                             val listener = object : Player.Listener {
                                 override fun onPlayerError(error: PlaybackException) {
+                                    onPreviewAction(ProofMediaPreviewActions.PLAYBACK_FAILED)
                                     onDismiss()
                                 }
                             }

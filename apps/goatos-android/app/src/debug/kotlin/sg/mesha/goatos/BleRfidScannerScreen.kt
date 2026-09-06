@@ -417,6 +417,7 @@ private fun RfidDrivenVaccinationScanScreen(
                 is ScanEvent.CaptureProof -> Unit
                 is ScanEvent.RetryProof -> Unit
                 is ScanEvent.ArmProofReplacement -> Unit
+                is ScanEvent.ProofPreviewAction -> Unit
             }
         },
     )

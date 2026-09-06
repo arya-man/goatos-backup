@@ -212,6 +212,7 @@ class BackendAnalyticsAdapterTest {
         assertTrue(allowlist.contains(AnalyticsEvents.VACCINATION_PROOF_CAPTURE_CANCELLED))
         assertTrue(allowlist.contains(AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.VACCINATION_PROOF_PREVIEW_ACTION))
         assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_OPENED))
         assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED))
         assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED))

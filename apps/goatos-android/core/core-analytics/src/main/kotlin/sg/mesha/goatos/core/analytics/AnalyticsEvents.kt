@@ -225,6 +225,9 @@ object AnalyticsEvents {
     const val VACCINATION_PROOF_CAPTURE_FAILURE = "vaccination_proof_capture_failure"
     const val VACCINATION_PROOF_CAPTURE_CANCELLED = "vaccination_proof_capture_cancelled"
     const val VACCINATION_PROOF_ACTION_TAPPED = "vaccination_proof_action_tapped"
+
+    /** Operator used the common proof preview controls on a vaccination per-animal proof row. */
+    const val VACCINATION_PROOF_PREVIEW_ACTION = "vaccination_proof_preview_action"
     const val VACCINATION_SCAN_SCREEN_OPENED = "vaccination_scan_screen_opened"
     const val VACCINATION_FINALIZE_TAPPED = "vaccination_finalize_tapped"
     const val VACCINATION_FINALIZE_BLOCKED = "vaccination_finalize_blocked"
