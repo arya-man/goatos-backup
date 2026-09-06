@@ -72,6 +72,15 @@ class ProofPolicyEnforcementTest {
     }
 
     @Test
+    fun `pc care removal proofs are capped per slot only`() {
+        val policy = pcCareProofPolicy("in_app_camera")
+
+        assertEquals(1, policy.maximumCountPerField)
+        assertEquals(null, policy.maximumCount)
+        assertEquals(null, policy.maximumCountPerSubject)
+    }
+
+    @Test
     fun `expected subjects list drives subject selection`() {
         val policy = ProofPolicy(expectedSubjects = listOf("goat", "shed", "vial"))
         // Verify the policy can specify multiple expected subjects

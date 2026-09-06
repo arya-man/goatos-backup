@@ -1868,12 +1868,9 @@ internal fun pcCareProofPolicy(captureSource: String): ProofPolicy =
         subjectScope = ProofSubject.OTHER.wireValue,
         expectedSubjects = listOf(ProofSubject.OTHER.wireValue),
         captureSource = captureSource,
-        // One active clip per (animal, slot) is the REAL bound (the field key carries the animal
-        // tag). The per-subject budget pools the WHOLE task, because the proof platform requires
-        // a UUID subject and that subject is the TASK — so it must cover a large pen's full
-        // triple (hundreds of clips) plus transient replacement rows, never a per-animal 5.
+        // One active clip per slot field is the real local bound. The backend owns any
+        // feature-specific total limits; Android must not pool the whole task under a subject cap.
         maximumCountPerField = 1,
-        maximumCountPerSubject = 1200,
     )
 
 private fun pcCareProofPolicy(captureSource: String, category: String): ProofPolicy =
