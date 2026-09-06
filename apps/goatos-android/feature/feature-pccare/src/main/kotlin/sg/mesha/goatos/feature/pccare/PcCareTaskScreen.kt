@@ -490,7 +490,7 @@ private fun PcCareAnimalRow(
 }
 
 /**
- * One slot's chip line: label, live status, and its own Record / Record again button. The button
+ * One slot's chip line: label, live status, and its own Record / Retry button. The button
  * is gated ONLY by this slot's [PcCareSlotChipUi.canRecord] and the task [locked] state — never
  * by a sibling slot.
  */
@@ -540,14 +540,11 @@ private fun PcCareSlotChipRow(
         }
         if (!locked && slot.canRecord) {
             if (onRecordPhoto == null) {
-                PcCarePrimaryButton(
-                    label = when (slot.state) {
-                        PcCareSlotState.EMPTY -> "Record"
-                        else -> "Record again"
-                    },
-                    enabled = true,
-                    onClick = onRecord,
-                )
+                if (slot.state == PcCareSlotState.EMPTY) {
+                    PcCarePrimaryButton(label = "Record", enabled = true, onClick = onRecord)
+                } else {
+                    PcCareProofRetryButton(label = "Retry video", onClick = onRecord)
+                }
             } else {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     PcCarePrimaryButton(label = "Photo", enabled = true, onClick = onRecordPhoto)
@@ -772,7 +769,7 @@ private fun PcCareRosterRow(
             Text(
                 text = when {
                     row.working -> "Recording…"
-                    row.done -> "Record again"
+                    row.done -> "Retry"
                     else -> "Record"
                 },
                 color = if (row.done) MeshaColors.Muted else MeshaColors.BrandD,

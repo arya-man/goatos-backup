@@ -428,6 +428,38 @@ class PcCareInventoryTaskProofTest {
     }
 
     @Test
+    fun `failed inventory task proof retries saved upload instead of opening camera again`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val proofSource = FakeProofCaptureSource()
+        repo.detailFlow.value = pcCareTaskDtoFixture(
+            category = "inventory_vaccine",
+            expectedSlots = listOf(stockPhotoSlot, stockVideoSlot),
+        ).copy(captureMode = "task_proof")
+        proofRepo.seedProofs(
+            proof(
+                fieldKey = stockVideoSlot.fieldKey,
+                syncStatus = CaptureSyncStatus.FAILED,
+                outboxItemId = "proof-outbox-failed-stock-video",
+                mimeType = "video/mp4",
+            ),
+        )
+
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, proofSource = proofSource)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        assertEquals(PcCareSlotState.FAILED, vm.state.value.taskProofVideoSlot?.state)
+        vm.onEvent(PcCareTaskEvent.RecordTaskProof(stockVideoSlot.fieldKey, "video"))
+        runCurrent()
+
+        assertEquals(0, proofSource.captureCount)
+        assertEquals(listOf("proof-stock-${stockVideoSlot.fieldKey}"), proofRepo.retryUploadIds)
+        assertEquals("Saved proof upload retry queued.", vm.state.value.message)
+        collectJob.cancel()
+    }
+
+    @Test
     fun `task proof refresh hook decodes task proof payload`() = runTest(dispatcher) {
         val repo = FakePcCareRepository()
         val hook = pcCareTaskProofRegisterRefreshHook(repo)

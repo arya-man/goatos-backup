@@ -16,7 +16,11 @@ import org.junit.Test
 import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
+import sg.mesha.goatos.feature.pccare.PcCareSlotState
 
 /**
  * A hardware reader scan arriving WHILE a slot video is being recorded must record the scanned
@@ -101,6 +105,50 @@ class PcCareScanWhileRecordingTest {
 
         gate.complete(null)
         runCurrent()
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `failed deworming slot retries saved video instead of opening camera again`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        repo.detailFlow.value = detail
+        repo.animalsFlow.value = listOf(pcCareAnimalEntity(tag = "t1", scannedByName = "Amit Kumar"))
+        val proofRepo = FakeProofCaptureRepository()
+        proofRepo.seedProofs(
+            ProofCaptureRow(
+                id = "proof-failed-video",
+                fieldKey = pcCareSlotProofFieldKey("t1", "video"),
+                proofSubject = ProofSubject.OTHER,
+                subjectId = "task-1",
+                localUri = "file:///saved-deworming-proof.mp4",
+                mimeType = "video/mp4",
+                caption = "Deworming video · t1",
+                rfidTag = "t1",
+                capturedAtMs = 1L,
+                capturedStartMs = 0L,
+                capturedEndMs = 12_000L,
+                capturedByPrincipalId = null,
+                syncStatus = CaptureSyncStatus.FAILED,
+                serverProofId = null,
+                outboxItemId = "proof-upload-outbox",
+                lastError = "network failed",
+            ),
+        )
+        val proofSource = FakeProofCaptureSource()
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, proofSource = proofSource)
+        val collectJob = launch { vm.state.collect { } }
+        runCurrent()
+
+        val slot = vm.state.value.animals.single().slots.single()
+        assertEquals(PcCareSlotState.FAILED, slot.state)
+        assertEquals("Upload failed. Retrying", slot.statusLabel)
+
+        vm.onEvent(sg.mesha.goatos.feature.pccare.PcCareTaskEvent.RecordSlot("t1", "video"))
+        runCurrent()
+
+        assertTrue(proofRepo.captureCalls.isEmpty())
+        assertEquals(listOf("proof-failed-video"), proofRepo.retryUploadIds)
+        assertEquals("Saved video upload retry queued.", vm.state.value.message)
         collectJob.cancel()
     }
 

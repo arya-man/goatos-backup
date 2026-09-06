@@ -412,7 +412,7 @@ internal fun FeedDistProofAction(
 
 @Composable
 private fun FeedDistPreview(path: String, kind: FeedDistPreviewKind, onPlaybackFailure: () -> Unit = {}) {
-    ProofMediaPreview(path = path, kind = kind, onPlaybackFailure = onPlaybackFailure)
+    ProofMediaPreview(path = path, kind = kind, onPlaybackFailure = onPlaybackFailure, expandable = true)
 }
 
 @Composable

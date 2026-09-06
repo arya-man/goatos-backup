@@ -1654,3 +1654,14 @@ val MIGRATION_58_59: Migration = object : Migration(58, 59) {
         )
     }
 }
+
+/**
+ * v59 -> v60: persist feature category on proof_capture for common proof upload/processing
+ * diagnostics. Nullable/additive so installed phones keep every captured file, proof row, and
+ * outbox item during an in-place update.
+ */
+val MIGRATION_59_60: Migration = object : Migration(59, 60) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `featureCategory` TEXT")
+    }
+}

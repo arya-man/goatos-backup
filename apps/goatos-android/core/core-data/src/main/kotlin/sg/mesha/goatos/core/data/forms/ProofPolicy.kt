@@ -26,6 +26,8 @@ data class ProofPolicy(
     val types: List<String> = listOf("video"),
     val required: Boolean = true,
     val proofMode: String = "per_goat_video",
+    val featureSurface: String? = null,
+    val featureCategory: String? = null,
     val subjectScope: String = "goat",
     val expectedSubjects: List<String> = listOf("goat"),
     val minimumCount: Int = 0,
@@ -101,6 +103,8 @@ fun Map<String, JsonElement>.toProofPolicy(): ProofPolicy {
         proofMode = this["proof_mode"].asStringOrEmpty().ifBlank {
             if (this["subject_scope"].asStringOrEmpty() == "shed") "shed_level_video" else ProofPolicy.Default.proofMode
         },
+        featureSurface = this["feature_surface"].asStringOrNull(),
+        featureCategory = this["feature_category"].asStringOrNull(),
         subjectScope = this["subject_scope"].asStringOrEmpty().ifBlank { ProofPolicy.Default.subjectScope },
         expectedSubjects = expectedSubjects,
         minimumCount = this["minimum_count"].asIntOrDefault(ProofPolicy.Default.minimumCount),

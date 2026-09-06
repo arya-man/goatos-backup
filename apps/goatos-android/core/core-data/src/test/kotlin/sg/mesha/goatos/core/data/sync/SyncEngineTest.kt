@@ -1437,6 +1437,13 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
         fingerprint: String,
         now: Long,
     ) = inner.reopenFailedProofUploadForRetry(id, groupKey, payloadJson, fingerprint, now)
+    override suspend fun refreshActiveProofUploadPayload(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ) = inner.refreshActiveProofUploadPayload(id, groupKey, payloadJson, fingerprint, now)
     override suspend fun reclaimInFlight(now: Long) = inner.reclaimInFlight(now)
     override suspend fun delete(id: String) = inner.delete(id)
 }

@@ -326,6 +326,29 @@ interface OutboxDao {
         now: Long,
     ): Int
 
+    /**
+     * A proof retry may regenerate the processed file path for the same proof idempotency key while
+     * an older queued outbox row is still waiting. Refresh the payload/group and make sure queued/failed
+     * rows are eligible immediately; do not touch IN_FLIGHT, SUCCEEDED, or non-proof writes.
+     */
+    @Query(
+        "UPDATE outbox SET groupKey = :groupKey, payloadJson = :payloadJson, " +
+            "requestFingerprint = :fingerprint, updatedAt = :now, " +
+            "lastError = CASE WHEN status = 'FAILED' THEN NULL ELSE lastError END, " +
+            "nextAttemptAt = CASE WHEN status IN ('QUEUED', 'FAILED') THEN :now ELSE nextAttemptAt END, " +
+            "attemptCount = CASE WHEN status = 'FAILED' THEN 0 ELSE attemptCount END, " +
+            "conflict = CASE WHEN status = 'FAILED' THEN 0 ELSE conflict END, " +
+            "status = CASE WHEN status = 'FAILED' THEN 'QUEUED' ELSE status END " +
+            "WHERE id = :id AND opType = 'PROOF_UPLOAD' AND status IN ('QUEUED', 'FAILED')",
+    )
+    suspend fun refreshActiveProofUploadPayload(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ): Int
+
     /** Recovers rows orphaned IN_FLIGHT by a process death / crash mid-dispatch back to QUEUED.
      *  Safe to run at the top of a drain pass: the drain mutex guarantees no other dispatch is
      *  in progress, so any IN_FLIGHT row is necessarily stranded, not actively being sent. */

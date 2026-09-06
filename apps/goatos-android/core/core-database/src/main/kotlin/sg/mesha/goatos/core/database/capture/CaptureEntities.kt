@@ -463,6 +463,7 @@ data class ProofCaptureEntity(
      *  derived "task" scope. */
     val scopeId: String = "",
     val featureSurface: String? = null,
+    val featureCategory: String? = null,
     val proofMode: String? = null,
     val slotIndex: Int? = null,
     val slotRequired: Boolean = false,

@@ -71,6 +71,12 @@ object MeshaIcons {
         "download",
         "M12 4v10M8 11l4 4 4-4M5 19h14",
     )
+    val Share: ImageVector = strokeIcon(
+        "share",
+        "M12 15V4",
+        "M7.5 8.5 12 4l4.5 4.5",
+        "M5 13.5v4a2.5 2.5 0 0 0 2.5 2.5h9a2.5 2.5 0 0 0 2.5-2.5v-4",
+    )
     val Chevron: ImageVector = strokeIcon("chev", "M9 5l7 7-7 7")
     val Close: ImageVector = strokeIcon("x", "M6 6l12 12M18 6L6 18")
     val Warn: ImageVector = strokeIcon("warn", "M12 4l9 16H3zM12 10v4.5M12 18h.01")

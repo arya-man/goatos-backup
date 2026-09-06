@@ -5,6 +5,7 @@ package sg.mesha.goatos.feature.pccare
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +32,8 @@ import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 
 /**
  * ONE animal's video capture (the roster drill, Feed Direction's completion-screen shape): each
@@ -122,7 +126,7 @@ private fun PcCareAnimalBanner(text: String, danger: Boolean) {
  * One video's card — the FeedDistProofAction shape: state-toned icon box (spinner while the
  * camera/upload runs, check when the clip is in, warn on failure), the backend-owned label plus
  * the backend-owned sentence saying what the clip must show, the live status line, and the
- * card's own Record / Record again button.
+ * card's own Record / Retry button.
  */
 @Composable
 private fun PcCareProofCard(
@@ -198,14 +202,38 @@ private fun PcCareProofCard(
                     style = MeshaType.caption,
                 )
             }
-            if (canRecord && !working) {
-                // The weighing surfaces' primary-button chrome (Brand fill, dark label).
-                PcCarePrimaryButton(
-                    label = if (slot.state == PcCareSlotState.EMPTY) "Record" else "Record again",
-                    enabled = true,
-                    onClick = onRecord,
+            if (slot.previewPath.isNotBlank()) {
+                ProofMediaPreview(
+                    path = slot.previewPath,
+                    kind = when (slot.previewKind) {
+                        PcCareProofPreviewKind.PHOTO -> ProofMediaPreviewKind.Photo
+                        PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
+                    },
+                    modifier = Modifier.padding(top = 6.dp),
+                    expandable = true,
                 )
+            }
+            if (canRecord && !working) {
+                if (slot.state == PcCareSlotState.EMPTY) {
+                    PcCarePrimaryButton(label = "Record", enabled = true, onClick = onRecord)
+                } else {
+                    PcCareCompactRetryButton(label = "Retry video", onClick = onRecord)
+                }
             }
         }
     }
+}
+
+@Composable
+private fun PcCareCompactRetryButton(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = MeshaColors.BrandD,
+        style = MeshaType.cta,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .minimumInteractiveComponentSize()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+    )
 }

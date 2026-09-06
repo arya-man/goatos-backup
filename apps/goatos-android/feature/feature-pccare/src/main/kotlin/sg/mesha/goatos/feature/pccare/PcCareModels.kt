@@ -88,7 +88,7 @@ enum class PcCareSlotState {
     /** A teammate recorded this slot on another phone ("Captured by X"). */
     PEER,
 
-    /** This phone's capture terminally failed — record again. */
+    /** This phone's saved capture could not upload — retry the saved proof. */
     FAILED,
 }
 

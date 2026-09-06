@@ -5,9 +5,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
-import sg.mesha.goatos.core.database.outbox.OutboxEntity
-import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.database.outbox.ActiveOutboxCounts
+import sg.mesha.goatos.core.database.outbox.OutboxEntity
+import sg.mesha.goatos.core.database.outbox.OutboxOpType
+import sg.mesha.goatos.core.database.outbox.OutboxStatus
 
 /**
  * In-memory [OutboxStore] test double — no Room/Robolectric needed. [OutboxEntity] is a
@@ -219,6 +220,42 @@ class FakeOutboxStore : OutboxStore {
                         updatedAt = now,
                         payloadJson = payloadJson,
                         requestFingerprint = fingerprint,
+                    )
+                } else {
+                    it
+                }
+            }
+        }
+        return true
+    }
+
+    override suspend fun refreshActiveProofUploadPayload(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ): Boolean {
+        val current = rows.value.firstOrNull { it.id == id } ?: return false
+        if (
+            current.opType != OutboxOpType.PROOF_UPLOAD.name ||
+            current.status !in setOf(OutboxStatus.QUEUED.name, OutboxStatus.FAILED.name)
+        ) {
+            return false
+        }
+        rows.update { list ->
+            list.map {
+                if (it.id == id) {
+                    it.copy(
+                        status = if (it.status == OutboxStatus.FAILED.name) OutboxStatus.QUEUED.name else it.status,
+                        groupKey = groupKey,
+                        payloadJson = payloadJson,
+                        requestFingerprint = fingerprint,
+                        attemptCount = if (it.status == OutboxStatus.FAILED.name) 0 else it.attemptCount,
+                        conflict = if (it.status == OutboxStatus.FAILED.name) false else it.conflict,
+                        lastError = if (it.status == OutboxStatus.FAILED.name) null else it.lastError,
+                        nextAttemptAt = if (it.status in setOf(OutboxStatus.QUEUED.name, OutboxStatus.FAILED.name)) now else it.nextAttemptAt,
+                        updatedAt = now,
                     )
                 } else {
                     it

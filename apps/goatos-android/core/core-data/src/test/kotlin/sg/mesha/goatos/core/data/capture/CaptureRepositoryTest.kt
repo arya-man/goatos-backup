@@ -500,6 +500,10 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default.copy(
+                        featureSurface = "feed",
+                        proofMode = "shed_level_video",
+                    ),
                     awaitUploadEnqueue = true,
                 )
                 assertTrue("capture #$index (under the cap) must succeed", result is AppResult.Ok)
@@ -656,6 +660,10 @@ class CaptureRepositoryTest {
                 dispatchers = unconfinedDispatchers,
                 mediaProcessor = IdentityProofMediaProcessor(),
             )
+            val original = Files.createTempDirectory("proof-original")
+                .toFile()
+                .resolve("original-proof.mp4")
+                .apply { writeBytes(ByteArray(16) { 1 }) }
             val captured = (
                 repo.capture(
                     taskId = "task-retry-proof",
@@ -669,6 +677,10 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default.copy(
+                        featureSurface = "feed",
+                        proofMode = "shed_level_video",
+                    ),
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
@@ -1227,6 +1239,10 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default.copy(
+                        featureSurface = "feed",
+                        proofMode = "shed_level_video",
+                    ),
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
@@ -1303,9 +1319,8 @@ class CaptureRepositoryTest {
 
     @Test
     fun `processor failure leaves proof awaiting operator retry and never auto-uploads the raw original`() = runTest {
-        // P1 fix: processing failure used to fall through to uploadOriginal=true and auto-enqueue
-        // the raw original as completed proof -- an overlay-free capture could then silently
-        // satisfy a compliance proof gate. The new default (no proof_policy opt-in exists) is:
+        // First processing failure used to fall through to uploadOriginal=true and auto-enqueue
+        // the raw original immediately. The current policy gives the processor one explicit retry:
         // NO enqueue, NO gallery save, state exposes an actionable retry, original stays on disk.
         val db = newDb()
         try {
@@ -1323,12 +1338,16 @@ class CaptureRepositoryTest {
                 telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
             )
 
+            val original = Files.createTempDirectory("proof-original")
+                .toFile()
+                .resolve("original-proof.mp4")
+                .apply { writeBytes(ByteArray(16) { 1 }) }
             val captured = (
                 repo.capture(
                     taskId = "task-gallery-fallback",
                     fieldKey = "feed_distribution_video",
                     subject = ProofSubject.SHED,
-                    localUri = "file://original-proof.mp4",
+                    localUri = original.toURI().toString(),
                     mimeType = "video/mp4",
                     caption = "Feed direction proof",
                     scopeType = "task",
@@ -1336,6 +1355,10 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default.copy(
+                        featureSurface = "feed",
+                        proofMode = "shed_level_video",
+                    ),
                     awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
@@ -1351,12 +1374,17 @@ class CaptureRepositoryTest {
                 row?.processingState,
             )
             assertEquals("uploadOriginal must stay false — nothing is queued", false, row?.uploadOriginal)
-            assertEquals("Original file path preserved (safety kept)", "file://original-proof.mp4", row?.localUri)
+            assertEquals("Original file path preserved (safety kept)", original.toURI().toString(), row?.localUri)
             assertEquals("syncStatus stays PENDING — never FAILED for a processing failure", CaptureSyncStatus.PENDING.name, row?.syncStatus)
-            assertTrue(
-                "processing failure must emit a durable forensic event",
-                telemetryEvents.any { it.first == "proof_processing_failed" },
-            )
+            val processingFailure = telemetryEvents.firstOrNull { it.first == "proof_processing_failed" }?.second
+            assertTrue("processing failure must emit a durable forensic event", processingFailure != null)
+            assertEquals("feed", processingFailure?.get("feature_surface"))
+            assertEquals("shed_level_video", processingFailure?.get("proof_mode"))
+            assertEquals("burn_overlay", processingFailure?.get("processing_stage"))
+            assertEquals("true", processingFailure?.get("original_file_available"))
+            assertEquals("true", processingFailure?.get("local_file_available"))
+            assertEquals("false", processingFailure?.get("processed_file_available"))
+            assertEquals("false", processingFailure?.get("original_upload_fallback"))
             assertTrue(
                 "awaitUploadEnqueue with no outbox must emit the missing-driver breadcrumb",
                 telemetryEvents.any {
@@ -1544,6 +1572,208 @@ class CaptureRepositoryTest {
             assertEquals(
                 "false",
                 sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content,
+            )
+        } finally {
+            closeDb(db)
+        }
+    }
+
+    @Test
+    fun `retryUpload queues original when processing retry fails again`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val gallery = RecordingGalleryProofSaver()
+            val telemetryEvents = mutableListOf<Pair<String, Map<String, String>>>()
+            val processor = SometimesFailingProofMediaProcessor(
+                failFirst = 2,
+                successResult = ProofMediaProcessingResult(
+                    outputUri = "file://processed-proof.mp4",
+                    outputMimeType = "video/mp4",
+                    originalBytes = 12_000_000L,
+                    processedBytes = 4_000_000L,
+                ),
+            )
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = processor,
+                galleryProofSaver = gallery,
+                telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-retry-processing-original-fallback",
+                    fieldKey = "pc-care-tag-1:deworming_video",
+                    subject = ProofSubject.OTHER,
+                    subjectId = "task-retry-processing-original-fallback",
+                    localUri = "file://original-proof.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Deworming proof",
+                    rfidTag = "901007000504190",
+                    scopeType = "task",
+                    scopeId = "task-retry-processing-original-fallback",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default.copy(
+                        featureSurface = "pc_care",
+                        proofMode = "per_animal_slot_video",
+                    ),
+                    awaitUploadEnqueue = true,
+                    uploadGroupKey = "pc-care:task:task-retry-processing-original-fallback",
+                ) as AppResult.Ok
+                ).value
+
+            assertEquals(0, sync.enqueueCalls.size)
+            assertEquals(
+                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                db.proofCaptureDao().findById(captured.id)?.processingState,
+            )
+
+            val retryResult = repo.retryUpload("task-retry-processing-original-fallback", captured.id)
+            assertTrue("Retry succeeds by queuing the original fallback", retryResult is AppResult.Ok)
+
+            val row = db.proofCaptureDao().findById(captured.id)
+            assertEquals(ProofProcessingState.REGISTERING_UPLOAD.name, row?.processingState)
+            assertEquals(true, row?.uploadOriginal)
+            assertEquals("file://original-proof.mp4", row?.localUri)
+            assertEquals(1, sync.enqueueCalls.size)
+            assertEquals("file://original-proof.mp4", sync.enqueueCalls.single().localFilePath)
+            assertEquals("pc-care:task:task-retry-processing-original-fallback", sync.enqueueCalls.single().groupKey)
+            assertEquals(
+                "true",
+                sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content,
+            )
+            assertTrue(
+                telemetryEvents.any { (event, props) ->
+                    event == "proof_processing_failed" &&
+                        props["feature_surface"] == "pc_care" &&
+                        props["proof_mode"] == "per_animal_slot_video" &&
+                        props["processing_stage"] == "burn_overlay" &&
+                        props["original_upload_fallback"] == "true"
+                },
+            )
+            assertEquals(
+                1,
+                db.proofCaptureDao().countStateEvents(captured.id, "processing_retry_failed_original_upload_queued"),
+            )
+        } finally {
+            closeDb(db)
+        }
+    }
+
+    @Test
+    fun `retryUpload crash recovery queues original on second processing failure with persisted group`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val processor = ThrowingProofMediaProcessor()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-crash-retry",
+                    taskId = "task-crash-retry",
+                    fieldKey = "901007000504190:video",
+                    idempotencyKey = "proof-upload:task-crash-retry:proof-crash-retry",
+                    uploadGroupKey = "pc-care:task:task-crash-retry",
+                ).copy(
+                    localUri = "file://original-crash-proof.mp4",
+                    originalUri = "file://original-crash-proof.mp4",
+                    processedUri = null,
+                    syncStatus = CaptureSyncStatus.FAILED.name,
+                    processingState = ProofProcessingState.PROCESSING_MEDIA.name,
+                    processingAttempted = true,
+                    stateAttempt = 2,
+                    uploadOriginal = false,
+                    outboxItemId = null,
+                    lastError = "process died while retrying processing",
+                ),
+            )
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = processor,
+            )
+
+            val retry = repo.retryUpload("task-crash-retry", "proof-crash-retry")
+
+            assertTrue(retry is AppResult.Ok)
+            val row = db.proofCaptureDao().findById("proof-crash-retry")
+            assertEquals(ProofProcessingState.REGISTERING_UPLOAD.name, row?.processingState)
+            assertEquals(true, row?.uploadOriginal)
+            assertEquals(1, sync.enqueueCalls.size)
+            assertEquals("file://original-crash-proof.mp4", sync.enqueueCalls.single().localFilePath)
+            assertEquals("pc-care:task:task-crash-retry", sync.enqueueCalls.single().groupKey)
+            assertEquals(
+                1,
+                db.proofCaptureDao().countStateEvents("proof-crash-retry", "processing_retry_failed_original_upload_queued"),
+            )
+        } finally {
+            closeDb(db)
+        }
+    }
+
+    @Test
+    fun `retryUpload adopts succeeded proof outbox row when local link was lost`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val proofId = "proof-lost-link"
+            val taskId = "task-lost-link"
+            val idempotencyKey = "proof-upload:$taskId:$proofId"
+            val outboxId = "outbox-succeeded-proof"
+            val serverProofId = "server-proof-lost-link"
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = proofId,
+                    taskId = taskId,
+                    fieldKey = "901007000504190:video",
+                    idempotencyKey = idempotencyKey,
+                ).copy(
+                    syncStatus = CaptureSyncStatus.FAILED.name,
+                    processingState = ProofProcessingState.PROCESSED.name,
+                    outboxItemId = null,
+                    serverProofId = null,
+                    lastError = "Idempotency key already belongs to a different queued write.",
+                ),
+            )
+            sync.seed(
+                syncQueueItem(
+                    id = outboxId,
+                    status = SyncItemStatus.SUCCEEDED,
+                    resultJson = syncJson.encodeToString(
+                        ProofUploadResponseDto(proof = ProofReferenceDto(proofId = serverProofId)),
+                    ),
+                    idempotencyKey = idempotencyKey,
+                ),
+            )
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            val retry = repo.retryUpload(taskId, proofId)
+
+            assertTrue(retry is AppResult.Ok)
+            val row = db.proofCaptureDao().findById(proofId)
+            assertEquals(CaptureSyncStatus.SYNCED.name, row?.syncStatus)
+            assertEquals(outboxId, row?.outboxItemId)
+            assertEquals(serverProofId, row?.serverProofId)
+            assertEquals(null, row?.lastError)
+            assertEquals(0, sync.enqueueCalls.size)
+            assertEquals(
+                1,
+                db.proofCaptureDao().countStateEvents(proofId, "upload_recovered_from_succeeded_outbox"),
             )
         } finally {
             closeDb(db)
@@ -3688,7 +3918,7 @@ private class RecordingProofMediaProcessor(
 
 private class ThrowingProofMediaProcessor : ProofMediaProcessor {
     override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult =
-        error("processor failed")
+        throw ProofMediaProcessingException("burn_overlay", "processor failed", IllegalStateException("overlay failed"))
 }
 
 /** Fails the first [failFirst] invocations, then returns [successResult] — models a processor
@@ -3702,7 +3932,13 @@ private class SometimesFailingProofMediaProcessor(
 
     override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult {
         invocations += 1
-        if (invocations <= failFirst) error("processor failed (attempt $invocations)")
+        if (invocations <= failFirst) {
+            throw ProofMediaProcessingException(
+                "burn_overlay",
+                "processor failed (attempt $invocations)",
+                IllegalStateException("overlay failed"),
+            )
+        }
         return successResult
     }
 }
@@ -3776,6 +4012,9 @@ private class FakeSyncRepository(
     override suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> =
         AppResult.Ok(status.value.items.firstOrNull { it.id == itemId })
 
+    override suspend fun findOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<SyncQueueItem?> =
+        AppResult.Ok(status.value.items.firstOrNull { it.idempotencyKey == idempotencyKey })
+
     // Turn the existing outbox row (seeded by capture()'s enqueue) into a definitively-rejected
     // conflict/dead-letter with a controllable lastError, so the reconcile dead-letter branch is
     // exercised. Replaces in place (never appends a duplicate id) so findOutboxItem resolves it.
@@ -3795,6 +4034,10 @@ private class FakeSyncRepository(
         status.value = status.value.copy(
             items = status.value.items + syncQueueItem(itemId, itemStatus, resultJson),
         )
+    }
+
+    fun seed(item: SyncQueueItem) {
+        status.value = status.value.copy(items = status.value.items + item)
     }
 
     fun emit(itemId: String, itemStatus: SyncItemStatus, resultJson: String?) {
@@ -3923,10 +4166,11 @@ private fun syncQueueItem(
     groupKey: String = "task",
     conflict: Boolean = false,
     lastError: String? = null,
+    idempotencyKey: String = "test-idempotency-key",
 ) = SyncQueueItem(
     id = id,
     opType = "PROOF_UPLOAD",
-    idempotencyKey = "test-idempotency-key",
+    idempotencyKey = idempotencyKey,
     groupKey = groupKey,
     status = status,
     attemptCount = 0,

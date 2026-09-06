@@ -257,6 +257,53 @@ class SyncRepositoryTest {
         assertTrue("new proof payload must replace stale local file path", reopened.payloadJson.contains("/new/file.mp4"))
     }
 
+    @Test
+    fun `re-enqueuing an active proof upload refreshes generated file path instead of conflicting`() = runBlocking {
+        val store = FakeOutboxStore()
+        val api = ScriptedAppApi()
+        val repo = repository(store = store, api = api, online = false)
+        store.insert(
+            OutboxEntity(
+                id = "proof-row-1",
+                opType = OutboxOpType.PROOF_UPLOAD.name,
+                groupKey = "pc-care:old-group",
+                idempotencyKey = "proof-upload:proof-1",
+                payloadJson = "{\"localFilePath\":\"/old/processed.mp4\"}",
+                requestFingerprint = "old-fingerprint",
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+            ),
+        )
+
+        val result = repo.enqueueProofUpload(
+            groupKey = "pc-care:new-group",
+            idempotencyKey = "proof-upload:proof-1",
+            request = ProofUploadRequestDto(
+                proofType = "video",
+                mimeType = "video/mp4",
+                scopeType = "animal",
+                scopeId = "goat-1",
+                subjectType = "animal",
+                subjectId = "goat-1",
+            ),
+            localFilePath = "/new/processed.mp4",
+            durationMs = 30000L,
+        )
+
+        assertTrue("active proof retry must reattach to the existing outbox row", result is AppResult.Ok)
+        assertEquals("proof-row-1", (result as AppResult.Ok).value)
+        val refreshed = store.snapshot().single()
+        assertEquals(OutboxStatus.QUEUED.name, refreshed.status)
+        assertEquals("pc-care:new-group", refreshed.groupKey)
+        assertTrue("new processed path must be what the upload worker will send", refreshed.payloadJson.contains("/new/processed.mp4"))
+    }
+
     // ---------------------------------------------------------------------------------------
     // WEIGHING_SCOPE_SUBMIT outbox path (weighing-durable-state item 3): the same durable-
     // enqueue guarantees every other outbox op has already had proven above, plus the

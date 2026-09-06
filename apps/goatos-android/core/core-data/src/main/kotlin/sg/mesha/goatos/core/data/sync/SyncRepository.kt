@@ -1930,6 +1930,21 @@ class DefaultSyncRepository(
             val refreshed = store.findById(existing.id) ?: existing
             return reopenOrReplayExistingRowOnce(refreshed, opType, groupKey, payloadJson, fingerprint)
         }
+        if (
+            existing.opType == OutboxOpType.PROOF_UPLOAD.name &&
+            existing.status == OutboxStatus.QUEUED.name
+        ) {
+            val refreshed = store.refreshActiveProofUploadPayload(
+                id = existing.id,
+                groupKey = groupKey,
+                payloadJson = payloadJson,
+                fingerprint = fingerprint,
+                now = clock(),
+            )
+            if (refreshed) return existing.id
+            val current = store.findById(existing.id) ?: existing
+            return reopenOrReplayExistingRowOnce(current, opType, groupKey, payloadJson, fingerprint)
+        }
         if (!existing.isTerminalOutboxFailure()) {
             return existingReplayIdOrThrow(existing, opType, groupKey, payloadJson, fingerprint)
         }

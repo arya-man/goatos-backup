@@ -363,6 +363,7 @@ data class ProofCaptureRow(
     /** Normalized operational partition identity (`whole` for an unpartitioned shed). */
     val partitionKey: String = "whole",
     val featureSurface: String? = null,
+    val featureCategory: String? = null,
     val proofMode: String? = null,
     val slotIndex: Int? = null,
     val slotRequired: Boolean = false,

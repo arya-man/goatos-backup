@@ -457,6 +457,20 @@ class PcCareTaskViewModel @Inject constructor(
             ?: focusTagVerbatim.takeIf { tagKey == focusTagKey && it.isNotBlank() }
             ?: return
         val slotKey = pcCareSlotProofFieldKey(tagKey, slotFieldKey)
+        val failedRow = latestProofs
+            .filter { it.fieldKey == slotKey }
+            .maxByOrNull { it.capturedAtMs }
+            ?.takeIf { it.processingStatus == ProofProcessingStatus.RECORD_AGAIN || it.syncStatus == CaptureSyncStatus.FAILED }
+        if (failedRow != null) {
+            retryPcCareSlotUpload(
+                row = failedRow,
+                tagKey = tagKey,
+                tagVerbatim = animalTagVerbatim,
+                slotFieldKey = slotFieldKey,
+                slotKey = slotKey,
+            )
+            return
+        }
         local.update { it.copy(capturingSlotKey = slotKey, message = null) }
         analytics.track(
             AnalyticsEvents.PC_CARE_SLOT_CAPTURE_STARTED,
@@ -541,7 +555,7 @@ class PcCareTaskViewModel @Inject constructor(
                             capturedStartMs = captured.startedAtMs,
                             capturedEndMs = captured.endedAtMs,
                             capturedByPrincipalId = null,
-                            proofPolicy = pcCareProofPolicy(captured.captureSource),
+                            proofPolicy = pcCareProofPolicy(captured.captureSource, detail.category),
                             awaitUploadEnqueue = true,
                             // One FIFO lane per task: the upload drains BEFORE the slot registration
                             // that resolves it and before the final submit (PcCarePayloads.kt).
@@ -594,7 +608,7 @@ class PcCareTaskViewModel @Inject constructor(
                                         proofRowId = result.value.id,
                                     ),
                                 )
-                                local.update { it.copy(message = "Video didn't save. Record again.") }
+                                local.update { it.copy(message = "Video didn't queue. Retry upload.") }
                                 return@withContext
                             }
                             analytics.track(
@@ -737,6 +751,68 @@ class PcCareTaskViewModel @Inject constructor(
         }
     }
 
+    private fun retryPcCareSlotUpload(
+        row: ProofCaptureRow,
+        tagKey: String,
+        tagVerbatim: String,
+        slotFieldKey: String,
+        slotKey: String,
+    ) {
+        analytics.track(
+            AnalyticsEvents.PC_CARE_SLOT_UPLOAD_ENQUEUED,
+            pcCareAnimalSlotAnalyticsProps(
+                tagKey = tagKey,
+                tagVerbatim = tagVerbatim,
+                slotFieldKey = slotFieldKey,
+                slotKey = slotKey,
+                outcome = "retry_requested",
+                mediaKind = pcCareMediaKindFromMime(row.mimeType),
+                proofRowId = row.id,
+                proofOutboxItemId = row.outboxItemId,
+            ),
+        )
+        local.update { it.copy(message = "Retrying saved video upload…") }
+        viewModelScope.launch {
+            when (val retry = proofCaptureRepository.retryUpload(taskId, row.id)) {
+                is AppResult.Ok -> {
+                    reconcileSlotRegistrations()
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_SLOT_UPLOAD_ENQUEUED,
+                        pcCareAnimalSlotAnalyticsProps(
+                            tagKey = tagKey,
+                            tagVerbatim = tagVerbatim,
+                            slotFieldKey = slotFieldKey,
+                            slotKey = slotKey,
+                            outcome = "retry_enqueued",
+                            mediaKind = pcCareMediaKindFromMime(row.mimeType),
+                            proofRowId = row.id,
+                            proofOutboxItemId = row.outboxItemId,
+                        ),
+                    )
+                    local.update { it.copy(message = "Saved video upload retry queued.") }
+                }
+                is AppResult.Err -> {
+                    retry.cause?.let { crashReporter.recordException(it, "pc care slot upload retry failed") }
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_SLOT_UPLOAD_ENQUEUED,
+                        pcCareAnimalSlotAnalyticsProps(
+                            tagKey = tagKey,
+                            tagVerbatim = tagVerbatim,
+                            slotFieldKey = slotFieldKey,
+                            slotKey = slotKey,
+                            outcome = "retry_failed",
+                            reason = retry.message.take(MAX_REASON_CHARS),
+                            mediaKind = pcCareMediaKindFromMime(row.mimeType),
+                            proofRowId = row.id,
+                            proofOutboxItemId = row.outboxItemId,
+                        ),
+                    )
+                    local.update { it.copy(message = retry.message) }
+                }
+            }
+        }
+    }
+
     // ---- Submit ------------------------------------------------------------------------------
 
     private fun onRecordTaskProof(slotFieldKey: String, mediaKind: String) {
@@ -749,10 +825,23 @@ class PcCareTaskViewModel @Inject constructor(
         if (detail == null || !pcCareIsTaskProofMode(detail) || isLifecycleLocked(detail)) return
         val expectedSlots = pcCareTaskProofExpectedSlots(detail)
         val slotDto = expectedSlots.firstOrNull { it.fieldKey == slotFieldKey } ?: return
+        val failedRow = latestProofs
+            .filter { it.fieldKey == slotFieldKey }
+            .maxByOrNull { it.capturedAtMs }
+            ?.takeIf { it.processingStatus == ProofProcessingStatus.RECORD_AGAIN || it.syncStatus == CaptureSyncStatus.FAILED }
         analytics.track(
             AnalyticsEvents.PC_CARE_STOCK_PROOF_ACTION_TAPPED,
             pcCareStockProofAnalyticsProps(fieldKey = slotFieldKey, mediaKind = mediaKind, status = detail.status, source = "proof_row"),
         )
+        if (failedRow != null) {
+            retryPcCareTaskProofUpload(
+                detail = detail,
+                slotFieldKey = slotFieldKey,
+                mediaKind = mediaKind,
+                row = failedRow,
+            )
+            return
+        }
         local.update { it.copy(capturingSlotKey = slotFieldKey, message = null) }
         viewModelScope.launch {
             try {
@@ -864,7 +953,7 @@ class PcCareTaskViewModel @Inject constructor(
                             capturedStartMs = captured.startedAtMs,
                             capturedEndMs = captured.endedAtMs,
                             capturedByPrincipalId = null,
-                            proofPolicy = pcCareProofPolicy(captured.captureSource),
+                            proofPolicy = pcCareProofPolicy(captured.captureSource, detail.category),
                             awaitUploadEnqueue = true,
                             uploadGroupKey = pcCareTaskGroupKey(taskId),
                         )
@@ -900,7 +989,7 @@ class PcCareTaskViewModel @Inject constructor(
                                         reason = "missing_upload_outbox",
                                     ),
                                 )
-                                local.update { it.copy(message = "$proofNoun didn't save. Record again.") }
+                                local.update { it.copy(message = "$proofNoun didn't queue. Retry upload.") }
                                 return@withContext
                             }
                             analytics.track(
@@ -975,6 +1064,67 @@ class PcCareTaskViewModel @Inject constructor(
                 }
             } finally {
                 local.update { it.copy(capturingSlotKey = null) }
+            }
+        }
+    }
+
+    private fun retryPcCareTaskProofUpload(
+        detail: PcCareTaskDto,
+        slotFieldKey: String,
+        mediaKind: String,
+        row: ProofCaptureRow,
+    ) {
+        analytics.track(
+            AnalyticsEvents.PC_CARE_STOCK_PROOF_UPLOAD_ENQUEUED,
+            pcCareStockProofAnalyticsProps(
+                fieldKey = slotFieldKey,
+                mediaKind = mediaKind,
+                status = detail.status,
+                outcome = "retry_requested",
+                source = "proof_row",
+            ) + mapOf(
+                AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID to row.outboxItemId.orEmpty(),
+                "local_proof_row_id" to row.id,
+            ),
+        )
+        local.update { it.copy(message = "Retrying saved proof upload…") }
+        viewModelScope.launch {
+            when (val retry = proofCaptureRepository.retryUpload(taskId, row.id)) {
+                is AppResult.Ok -> {
+                    reconcileSlotRegistrations()
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_STOCK_PROOF_UPLOAD_ENQUEUED,
+                        pcCareStockProofAnalyticsProps(
+                            fieldKey = slotFieldKey,
+                            mediaKind = pcCareMediaKindFromMime(row.mimeType),
+                            status = detail.status,
+                            outcome = "retry_enqueued",
+                            source = "proof_row",
+                        ) + mapOf(
+                            AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID to row.outboxItemId.orEmpty(),
+                            "local_proof_row_id" to row.id,
+                        ),
+                    )
+                    local.update { it.copy(message = "Saved proof upload retry queued.") }
+                }
+                is AppResult.Err -> {
+                    retry.cause?.let { crashReporter.recordException(it, "pc care task proof upload retry failed") }
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_STOCK_PROOF_UPLOAD_ENQUEUED,
+                        pcCareStockProofAnalyticsProps(
+                            fieldKey = slotFieldKey,
+                            mediaKind = pcCareMediaKindFromMime(row.mimeType),
+                            status = detail.status,
+                            outcome = "retry_failed",
+                            reason = retry.message.take(MAX_REASON_CHARS),
+                            source = "proof_row",
+                        ) + mapOf(
+                            AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID to row.outboxItemId.orEmpty(),
+                            "local_proof_row_id" to row.id,
+                        ),
+                    )
+                    local.update { it.copy(message = retry.message) }
+                }
             }
         }
     }
@@ -1556,6 +1706,7 @@ class PcCareTaskViewModel @Inject constructor(
                         taskProofs = detail?.taskProofs.orEmpty(),
                         capturingSlotKey = bits.capturingSlotKey,
                         remotePreviewUrls = bits.taskProofPreviewUrls,
+                        category = detail?.category.orEmpty(),
                     )
                 }
             } else {
@@ -1563,7 +1714,14 @@ class PcCareTaskViewModel @Inject constructor(
             },
             taskProofSlot = if (taskProofMode && !pcCareIsFeedWaterRemoval(detail)) {
                 expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO }?.let { slot ->
-                    pcCareBuildTaskProofSlot(slot, proofs, detail?.taskProofs.orEmpty(), bits.capturingSlotKey, bits.taskProofPreviewUrls)
+                    pcCareBuildTaskProofSlot(
+                        slot,
+                        proofs,
+                        detail?.taskProofs.orEmpty(),
+                        bits.capturingSlotKey,
+                        bits.taskProofPreviewUrls,
+                        detail?.category.orEmpty(),
+                    )
                 }
             } else {
                 null
@@ -1576,6 +1734,7 @@ class PcCareTaskViewModel @Inject constructor(
                         taskProofs = detail?.taskProofs.orEmpty(),
                         capturingSlotKey = bits.capturingSlotKey,
                         remotePreviewUrls = bits.taskProofPreviewUrls,
+                        category = detail?.category.orEmpty(),
                     )
                 }
             } else {
@@ -1589,6 +1748,7 @@ class PcCareTaskViewModel @Inject constructor(
                         taskProofs = detail?.taskProofs.orEmpty(),
                         capturingSlotKey = bits.capturingSlotKey,
                         remotePreviewUrls = bits.taskProofPreviewUrls,
+                        category = detail?.category.orEmpty(),
                     )
                 }
             } else {
@@ -1703,6 +1863,8 @@ internal fun pcCareSlotHintLabel(minDurationHintSeconds: Int): String =
 internal fun pcCareProofPolicy(captureSource: String): ProofPolicy =
     ProofPolicy.Default.copy(
         proofMode = "per_animal_slot_video",
+        featureSurface = "pc_care",
+        featureCategory = "pc_care",
         subjectScope = ProofSubject.OTHER.wireValue,
         expectedSubjects = listOf(ProofSubject.OTHER.wireValue),
         captureSource = captureSource,
@@ -1713,6 +1875,17 @@ internal fun pcCareProofPolicy(captureSource: String): ProofPolicy =
         maximumCountPerField = 1,
         maximumCountPerSubject = 1200,
     )
+
+private fun pcCareProofPolicy(captureSource: String, category: String): ProofPolicy =
+    pcCareProofPolicy(captureSource).copy(featureCategory = category.trim().ifBlank { "pc_care" })
+
+private fun String.isPcCareRepeatableTaskProofCategory(): Boolean =
+    when (trim()) {
+        PcCareTaskViewModel.PC_CARE_CATEGORY_FEED_WATER_REMOVAL,
+        PcCareTaskViewModel.PC_CARE_CATEGORY_INVENTORY_VACCINE,
+        -> true
+        else -> false
+    }
 
 private fun decodeServerSlots(json: Json, serverSlotsJson: String): List<PcCareAnimalSlotDto> {
     if (serverSlotsJson.isBlank()) return emptyList()
@@ -1764,7 +1937,7 @@ internal fun pcCareSlotChip(
                 state = PcCareSlotState.SYNCED,
                 statusLabel = "Video sent",
                 hintLabel = hint,
-                canRecord = true,
+                canRecord = false,
                 previewPath = previewPath,
                 previewKind = previewKind,
             )
@@ -1773,7 +1946,7 @@ internal fun pcCareSlotChip(
                 label = slot.label,
                 description = slot.description,
                 state = PcCareSlotState.FAILED,
-                statusLabel = "Record again",
+                statusLabel = "Retry video",
                 hintLabel = hint,
                 canRecord = true,
                 previewPath = previewPath,
@@ -1825,6 +1998,7 @@ internal fun pcCareBuildTaskProofSlot(
     taskProofs: List<PcCareTaskProofDto>,
     capturingSlotKey: String?,
     remotePreviewUrls: Map<String, TaskProofPreviewUrl> = emptyMap(),
+    category: String = PcCareTaskViewModel.PC_CARE_CATEGORY_INVENTORY_VACCINE,
 ): PcCareSlotChipUi {
     val hint = pcCareSlotHintLabel(slot.minDurationHintSeconds)
     val serverProof = taskProofs.firstOrNull { it.slotKey == slot.fieldKey && it.proofRef.isNotBlank() }
@@ -1883,7 +2057,7 @@ internal fun pcCareBuildTaskProofSlot(
             state = PcCareSlotState.SYNCED,
             statusLabel = byline,
             hintLabel = hint,
-            canRecord = true,
+            canRecord = category.isPcCareRepeatableTaskProofCategory(),
             previewPath = serverPreviewUrl.ifBlank { previewRow?.previewUri().orEmpty() },
             previewKind = previewRow?.mimeType?.let(::pcCarePreviewKind) ?: expectedKind,
         )
@@ -1897,7 +2071,7 @@ internal fun pcCareBuildTaskProofSlot(
                 state = PcCareSlotState.SYNCED,
                 statusLabel = "Proof sent",
                 hintLabel = hint,
-                canRecord = true,
+                canRecord = category.isPcCareRepeatableTaskProofCategory(),
                 previewPath = remotePreview
                     ?.takeIf { it.proofRef == localRow.serverProofId }
                     ?.url
@@ -1910,7 +2084,7 @@ internal fun pcCareBuildTaskProofSlot(
                 label = slot.label,
                 description = slot.description,
                 state = PcCareSlotState.FAILED,
-                statusLabel = "Record again",
+                statusLabel = "Retry proof",
                 hintLabel = hint,
                 canRecord = true,
                 previewPath = localRow.previewUri().orEmpty(),
@@ -2050,7 +2224,7 @@ internal fun pcCareBuildRosterRows(
             recordingNow -> "Recording…"
             done && chips.size == 1 -> chips.first().statusLabel
             done -> "All ${chips.size} videos in"
-            chips.any { it.state == PcCareSlotState.FAILED } -> "Record again"
+            chips.any { it.state == PcCareSlotState.FAILED } -> "Retry upload"
             doneCount > 0 || chips.any { it.state == PcCareSlotState.WORKING } ->
                 "$doneCount of ${chips.size} videos"
             else -> ""

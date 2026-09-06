@@ -48,6 +48,12 @@ data class ProofMediaProcessingResult(
     val targetAudioBitrate: Int? = null,
 )
 
+class ProofMediaProcessingException(
+    val stage: String,
+    message: String,
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)
+
 fun interface ProofMediaProcessor {
     suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult
 

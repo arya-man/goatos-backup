@@ -117,6 +117,17 @@ interface OutboxStore {
         now: Long,
     ): Boolean
 
+    /** Refreshes the file payload for an active proof-upload row that already owns the same
+     *  idempotency key. Proof capture retry can legitimately produce a different processed file
+     *  path for the same saved proof; returning a conflict here strands the UI in upload retry. */
+    suspend fun refreshActiveProofUploadPayload(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ): Boolean
+
     /** Recovers rows stranded IN_FLIGHT by a prior crash/process-death mid-dispatch back to
      *  QUEUED. Returns the number reclaimed. Called at the top of every drain pass (safe under
      *  the drain mutex — no dispatch is concurrently in progress). */
@@ -187,6 +198,14 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
         fingerprint: String,
         now: Long,
     ): Boolean = dao.reopenFailedProofUploadForRetry(id, groupKey, payloadJson, fingerprint, now) > 0
+
+    override suspend fun refreshActiveProofUploadPayload(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ): Boolean = dao.refreshActiveProofUploadPayload(id, groupKey, payloadJson, fingerprint, now) > 0
 
     override suspend fun reclaimInFlight(now: Long): Int = dao.reclaimInFlight(now)
 

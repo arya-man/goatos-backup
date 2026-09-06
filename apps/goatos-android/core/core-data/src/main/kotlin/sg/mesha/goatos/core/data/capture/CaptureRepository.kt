@@ -1,6 +1,7 @@
 package sg.mesha.goatos.core.data.capture
 
 import android.database.SQLException
+import android.os.Build
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -887,6 +888,9 @@ class DefaultProofCaptureRepository(
             // between initial attempt and recovery.
             scopeType = scopeType,
             scopeId = scopeId,
+            featureSurface = proofPolicy.featureSurface,
+            featureCategory = proofPolicy.featureCategory,
+            proofMode = proofPolicy.proofMode,
             originalUri = localUri,
             durationMs = (capturedEndMs - capturedStartMs).coerceAtLeast(0),
             locationStatus = location.locationStatus,
@@ -1029,17 +1033,32 @@ class DefaultProofCaptureRepository(
                 uploadOriginal = false,
             )
             val (scopeType, scopeId) = recoveryScope(recovered)
-            enqueueRegistrationNow(recovered, scopeType, scopeId)
+            enqueueRegistrationNow(recovered, scopeType, scopeId, uploadGroupKey = recovered.uploadGroupKey)
             return@withContext AppResult.Ok(Unit)
         }
         if (entity.syncStatus != EntitySyncStatus.FAILED.name) return@withContext AppResult.Ok(Unit)
         val outboxItemId = entity.outboxItemId
         if (outboxItemId.isNullOrBlank()) {
+            when (val existing = syncRepository.findOutboxItemByIdempotencyKey(entity.idempotencyKey)) {
+                is AppResult.Ok -> {
+                    val item = existing.value
+                    if (item?.status == SyncItemStatus.SUCCEEDED) {
+                        val proofId = decodeServerProofId(item.resultJson)
+                        if (!proofId.isNullOrBlank()) {
+                            dao.setOutboxItemId(entity.id, item.id)
+                            dao.updateStatus(entity.id, EntitySyncStatus.SYNCED.name, proofId, null)
+                            recordProofEvent(entity, "upload_recovered_from_succeeded_outbox", EntitySyncStatus.SYNCED.name, entity.stateAttempt)
+                            return@withContext AppResult.Ok(Unit)
+                        }
+                    }
+                }
+                is AppResult.Err -> Unit
+            }
             dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
             val recovered = dao.findById(entity.id)
                 ?: entity.copy(syncStatus = EntitySyncStatus.PENDING.name, outboxItemId = null, lastError = null)
             val (scopeType, scopeId) = recoveryScope(recovered)
-            enqueueRegistrationNow(recovered, scopeType, scopeId)
+            enqueueRegistrationNow(recovered, scopeType, scopeId, uploadGroupKey = recovered.uploadGroupKey)
             return@withContext AppResult.Ok(Unit)
         }
         when (val retry = syncRepository.retry(outboxItemId)) {
@@ -1436,19 +1455,22 @@ class DefaultProofCaptureRepository(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
-                    // P1 fix: processing failed again on retry. Original stays on disk (safety
-                    // preserved) but is NOT queued for upload — required-overlay flows must never
-                    // let an overlay-free capture satisfy a compliance proof gate. See
-                    // PROCESSING_FAILED_AWAITING_RETRY's kdoc.
-                    val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
-                    val failureProps = proofProcessingFailureProps(error)
+                    val uploadOriginalAfterRetryFailure = attempt > 1
+                    val fallbackState = if (uploadOriginalAfterRetryFailure) {
+                        ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED
+                    } else {
+                        ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY
+                    }
+                    val root = (error as? ProofMediaProcessingException)?.cause ?: error
+                    val errorClass = root::class.java.simpleName.ifBlank { "Throwable" }
+                    val failureProps = proofProcessingFailureProps(entity, error)
                     dao.updateProcessingArtifact(
                         id = entity.id,
                         localUri = entity.originalUri ?: entity.localUri,
                         mimeType = entity.mimeType,
-                        processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                        processingState = fallbackState.name,
                         processingAttempted = true,
-                        uploadOriginal = false,
+                        uploadOriginal = uploadOriginalAfterRetryFailure,
                         processedUri = null,
                         originalBytes = localFileBytes(entity.originalUri ?: entity.localUri),
                         processedBytes = null,
@@ -1460,32 +1482,41 @@ class DefaultProofCaptureRepository(
                     )
                     dao.updateProcessingState(
                         id = entity.id,
-                        processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                        processingState = fallbackState.name,
                         attempt = attempt,
                         processingAttempted = true,
-                        uploadOriginal = false,
+                        uploadOriginal = uploadOriginalAfterRetryFailure,
                         lastErrorStage = "processing",
                         lastErrorClass = errorClass,
-                        lastErrorRetryable = true,
+                        lastErrorRetryable = !uploadOriginalAfterRetryFailure,
                         lastErrorMessageHash = error.message?.hashCode()?.toString(),
                         updatedAtMs = clock(),
                     )
                     recordProofEvent(
                         entity,
-                        "processing_failed_awaiting_retry",
-                        ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                        if (uploadOriginalAfterRetryFailure) "processing_retry_failed_original_upload_queued" else "processing_failed_awaiting_retry",
+                        fallbackState.name,
                         attempt,
                         bytesIn = localFileBytes(entity.originalUri ?: entity.localUri),
                         errorClass = errorClass,
-                        retryable = true,
+                        retryable = !uploadOriginalAfterRetryFailure,
                     )
                     telemetry.track(
                         proofProcessingFailedEvent,
-                        proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = false) + failureProps,
+                        proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = uploadOriginalAfterRetryFailure) +
+                            failureProps +
+                            mapOf(
+                                "original_upload_fallback" to uploadOriginalAfterRetryFailure.toString(),
+                                "fallback_state" to fallbackState.name,
+                                "retryable" to (!uploadOriginalAfterRetryFailure).toString(),
+                            ),
                     )
                     dao.findById(entity.id) ?: entity.copy(
-                        processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
-                        uploadOriginal = false,
+                        localUri = entity.originalUri ?: entity.localUri,
+                        processingState = fallbackState.name,
+                        processingAttempted = true,
+                        stateAttempt = attempt,
+                        uploadOriginal = uploadOriginalAfterRetryFailure,
                     )
                 }
             }
@@ -1570,21 +1601,25 @@ class DefaultProofCaptureRepository(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            // P1 fix: a required-overlay flow (every flow — there is no proof_policy opt-in for
-            // originals today) must never let a processing failure silently ship an overlay-free
-            // original as completed proof. The original stays on disk (safety preserved, same as
-            // before) but the row is left AWAITING_RETRY and is NOT enqueued for upload —
-            // enqueueRegistrationNow short-circuits on this state. An operator must explicitly
-            // retry (re-record, or retryUpload() once the processor recovers).
-            val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
-            val failureProps = proofProcessingFailureProps(error)
+            // First processing failure: keep the original local file and ask the operator for one
+            // explicit retry. If that retry also fails (attempt > 1), fall forward to uploading the
+            // original instead of trapping a one-time real-world proof in an endless retry loop.
+            val uploadOriginalAfterRetryFailure = attempt > 1
+            val fallbackState = if (uploadOriginalAfterRetryFailure) {
+                ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED
+            } else {
+                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY
+            }
+            val root = (error as? ProofMediaProcessingException)?.cause ?: error
+            val errorClass = root::class.java.simpleName.ifBlank { "Throwable" }
+            val failureProps = proofProcessingFailureProps(entity, error)
             dao.updateProcessingArtifact(
                 id = entity.id,
                 localUri = entity.originalUri ?: entity.localUri,
                 mimeType = entity.mimeType,
-                processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                processingState = fallbackState.name,
                 processingAttempted = true,
-                uploadOriginal = false,
+                uploadOriginal = uploadOriginalAfterRetryFailure,
                 processedUri = null,
                 originalBytes = localFileBytes(entity.originalUri ?: entity.localUri),
                 processedBytes = null,
@@ -1596,36 +1631,42 @@ class DefaultProofCaptureRepository(
             )
             dao.updateProcessingState(
                 id = entity.id,
-                processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                processingState = fallbackState.name,
                 attempt = attempt,
                 processingAttempted = true,
-                uploadOriginal = false,
+                uploadOriginal = uploadOriginalAfterRetryFailure,
                 lastErrorStage = "processing",
                 lastErrorClass = errorClass,
-                lastErrorRetryable = true,
+                lastErrorRetryable = !uploadOriginalAfterRetryFailure,
                 lastErrorMessageHash = error.message?.hashCode()?.toString(),
                 updatedAtMs = clock(),
             )
             recordProofEvent(
                 entity,
-                "processing_failed_awaiting_retry",
-                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                if (uploadOriginalAfterRetryFailure) "processing_retry_failed_original_upload_queued" else "processing_failed_awaiting_retry",
+                fallbackState.name,
                 attempt,
                 durationMs = clock() - startedAtMs,
                 bytesIn = localFileBytes(entity.originalUri ?: entity.localUri),
                 errorClass = errorClass,
-                retryable = true,
+                retryable = !uploadOriginalAfterRetryFailure,
             )
             telemetry.track(
                 proofProcessingFailedEvent,
-                proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = false) + failureProps,
+                proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = uploadOriginalAfterRetryFailure) +
+                    failureProps +
+                    mapOf(
+                        "original_upload_fallback" to uploadOriginalAfterRetryFailure.toString(),
+                        "fallback_state" to fallbackState.name,
+                        "retryable" to (!uploadOriginalAfterRetryFailure).toString(),
+                    ),
             )
             dao.findById(entity.id) ?: entity.copy(
                 localUri = entity.originalUri ?: entity.localUri,
-                processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                processingState = fallbackState.name,
                 processingAttempted = true,
                 stateAttempt = attempt,
-                uploadOriginal = false,
+                uploadOriginal = uploadOriginalAfterRetryFailure,
             )
         }
     }
@@ -2025,7 +2066,7 @@ private fun decodeServerProofId(resultJson: String?): String? {
         ?.takeIf { it.isNotBlank() }
 }
 
-private const val corruptProofUploadResultMessage = "Proof upload finished without a server proof id. Record this video again."
+private const val corruptProofUploadResultMessage = "Proof upload finished without a server proof id. Retry this saved proof."
 
 private const val proofProcessingStartedEvent = "proof_processing_started"
 private const val proofProcessingCompletedEvent = "proof_processing_completed"
@@ -2059,6 +2100,7 @@ private fun proofAnalyticsProps(
     entity.subjectId?.takeIf { it.isNotBlank() }?.let { put("subject_id", it) }
     humanRfidTag(entity)?.let { put("rfid_tag", it) }
     entity.featureSurface?.takeIf { it.isNotBlank() }?.let { put("feature_surface", it) }
+    entity.featureCategory?.takeIf { it.isNotBlank() }?.let { put("feature_category", it) }
     entity.proofMode?.takeIf { it.isNotBlank() }?.let { put("proof_mode", it) }
     entity.slotIndex?.let { put("slot_index", it.toString()) }
     put("slot_required", entity.slotRequired.toString())
@@ -2114,23 +2156,42 @@ private class ProcessedArtifactValidationException(
     val videoTrackDurationMs: Long?,
 ) : IllegalStateException("Processed artifact validation failed: $reason")
 
-private fun proofProcessingFailureProps(error: Throwable): Map<String, String> = buildMap {
-    val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
+private fun proofProcessingFailureProps(entity: ProofCaptureEntity, error: Throwable): Map<String, String> = buildMap {
+    val root = (error as? ProofMediaProcessingException)?.cause ?: error
+    val errorClass = root::class.java.simpleName.ifBlank { "Throwable" }
     put("error_class", errorClass)
-    if (error is ProcessedArtifactValidationException) {
-        put("failure_kind", error.failureKind)
-        put("reason", error.failureKind)
-        put("validation_reason", error.reason)
-        error.containerDurationMs?.let { put("container_duration_ms", it.toString()) }
-        error.videoTrackDurationMs?.let { put("video_track_duration_ms", it.toString()) }
-        if (error.containerDurationMs != null && error.containerDurationMs > 0 && error.videoTrackDurationMs != null) {
-            put("video_track_duration_ratio_bps", ((error.videoTrackDurationMs * 10_000) / error.containerDurationMs).toString())
+    put("error_wrapper_class", error::class.java.simpleName.ifBlank { "Throwable" })
+    put("processing_stage", (error as? ProofMediaProcessingException)?.stage ?: "unknown")
+    put("device_manufacturer", Build.MANUFACTURER.orEmpty().ifBlank { "unknown" })
+    put("device_model", Build.MODEL.orEmpty().ifBlank { "unknown" })
+    put("android_api", Build.VERSION.SDK_INT.toString())
+    put("local_uri_scheme", uriScheme(entity.localUri))
+    put("original_uri_scheme", uriScheme(entity.originalUri ?: entity.localUri))
+    put("processed_uri_present", (!entity.processedUri.isNullOrBlank()).toString())
+    put("local_file_available", localFileAvailable(entity.localUri).toString())
+    put("original_file_available", localFileAvailable(entity.originalUri ?: entity.localUri).toString())
+    put("processed_file_available", localFileAvailable(entity.processedUri.orEmpty()).toString())
+    localFileBytes(entity.localUri)?.let { put("local_file_size_bucket", byteBucket(it)) }
+    localFileBytes(entity.originalUri ?: entity.localUri)?.let { put("original_file_size_bucket", byteBucket(it)) }
+    localFileBytes(entity.processedUri.orEmpty())?.let { put("processed_file_size_bucket", byteBucket(it)) }
+    put("retryable", "true")
+    if (root is ProcessedArtifactValidationException) {
+        put("failure_kind", root.failureKind)
+        put("reason", root.failureKind)
+        put("validation_reason", root.reason)
+        root.containerDurationMs?.let { put("container_duration_ms", it.toString()) }
+        root.videoTrackDurationMs?.let { put("video_track_duration_ms", it.toString()) }
+        if (root.containerDurationMs != null && root.containerDurationMs > 0 && root.videoTrackDurationMs != null) {
+            put("video_track_duration_ratio_bps", ((root.videoTrackDurationMs * 10_000) / root.containerDurationMs).toString())
         }
     } else {
         put("failure_kind", "processing_exception")
         put("reason", errorClass)
     }
 }
+
+private fun uriScheme(localUri: String): String =
+    localUri.substringBefore(':', missingDelimiterValue = "path").ifBlank { "path" }
 
 private val rfidBurnOverlayFieldKeys = setOf(
     "vaccination_goat_proof",
@@ -2139,11 +2200,23 @@ private val rfidBurnOverlayFieldKeys = setOf(
 
 private fun localFileBytes(localUri: String): Long? =
     try {
-        val file = if (localUri.startsWith("file:", ignoreCase = true)) File(URI(localUri)) else File(localUri)
-        file.takeIf { it.exists() }?.length()
+        val file = localFile(localUri)
+        file?.takeIf { it.exists() }?.length()
     } catch (_: Exception) {
         null
     }
+
+private fun localFileAvailable(localUri: String): Boolean =
+    localFile(localUri)?.let { it.exists() && it.canRead() && it.length() > 0L } == true
+
+private fun localFile(localUri: String): File? {
+    if (localUri.isBlank()) return null
+    return try {
+        if (localUri.startsWith("file:", ignoreCase = true)) File(URI(localUri)) else File(localUri)
+    } catch (_: Exception) {
+        null
+    }
+}
 
 private fun proofTypeForMime(mimeType: String): String = when {
     mimeType.startsWith("image/", ignoreCase = true) -> "photo"
@@ -2189,6 +2262,7 @@ private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     lastError = lastError,
     partitionKey = partitionKey,
     featureSurface = featureSurface,
+    featureCategory = featureCategory,
     proofMode = proofMode,
     slotIndex = slotIndex,
     slotRequired = slotRequired,

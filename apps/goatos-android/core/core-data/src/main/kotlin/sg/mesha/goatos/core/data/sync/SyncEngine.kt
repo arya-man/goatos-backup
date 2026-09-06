@@ -306,26 +306,27 @@ class SyncEngine(
         // concurrent pass already claimed it) markInFlight is a no-op and we skip it — never
         // dispatch a row we didn't actually transition.
         if (!store.markInFlight(item.id, clock())) return true
+        val claimedItem = store.findById(item.id) ?: item
         report(
             OutboxTelemetryEvent(
                 phase = OutboxWritePhase.ATTEMPT_STARTED,
-                opType = item.opType,
-                itemId = item.id,
-                groupKey = item.groupKey,
-                idempotencyKey = item.idempotencyKey,
-                referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
-                attempt = item.attemptCount + 1,
-                maxAttempts = item.maxAttempts,
+                opType = claimedItem.opType,
+                itemId = claimedItem.id,
+                groupKey = claimedItem.groupKey,
+                idempotencyKey = claimedItem.idempotencyKey,
+                referencedProofOutboxItemId = claimedItem.referencedProofOutboxItemId(),
+                attempt = claimedItem.attemptCount + 1,
+                maxAttempts = claimedItem.maxAttempts,
             ),
         )
         return try {
-            val resultJson = dispatch(item)
-            val preSuccessRefreshApplied = reconcileFeatureBeforeSuccess(item)
-            if (store.markSucceeded(item.id, resultJson, clock())) {
+            val resultJson = dispatch(claimedItem)
+            val preSuccessRefreshApplied = reconcileFeatureBeforeSuccess(claimedItem)
+            if (store.markSucceeded(claimedItem.id, resultJson, clock())) {
                 // Reconcile with the response from this successful dispatch. The original
                 // in-memory item predates markSucceeded and therefore has resultJson=null.
                 reconcileFeatureSuccess(
-                    item.copy(resultJson = resultJson),
+                    claimedItem.copy(resultJson = resultJson),
                     skipPostSuccessRefresh = preSuccessRefreshApplied,
                 )
             }
@@ -333,10 +334,10 @@ class SyncEngine(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (pendingProof: ProofDependencyPendingException) {
-            recordPendingProofDependency(item, pendingProof)?.let(rememberRetryDue)
+            recordPendingProofDependency(claimedItem, pendingProof)?.let(rememberRetryDue)
             false
         } catch (error: Throwable) {
-            recordFailure(item, error)?.let(rememberRetryDue)
+            recordFailure(claimedItem, error)?.let(rememberRetryDue)
             false
         }
     }

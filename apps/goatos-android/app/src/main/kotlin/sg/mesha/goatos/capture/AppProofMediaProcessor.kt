@@ -35,6 +35,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.capture.ProofMediaProcessingRequest
 import sg.mesha.goatos.core.data.capture.ProofMediaProcessingResult
+import sg.mesha.goatos.core.data.capture.ProofMediaProcessingException
 import sg.mesha.goatos.core.data.capture.ProofMediaProcessor
 import java.io.File
 import java.net.URI
@@ -67,9 +68,9 @@ class AppProofMediaProcessor @Inject constructor(
      * capture pipeline requires the processed artifact to be a distinct file from the original.
      */
     private fun processAudio(request: ProofMediaProcessingRequest): ProofMediaProcessingResult {
-        val source = resolveLocalFile(request.originalUri)
-        val target = processedFile(request.proofId, "m4a")
-        source.copyTo(target, overwrite = true)
+        val source = runProcessingStage("resolve_source") { resolveLocalFile(request.originalUri) }
+        val target = runProcessingStage("create_output_file") { processedFile(request.proofId, "m4a") }
+        runProcessingStage("copy_audio") { source.copyTo(target, overwrite = true) }
         return ProofMediaProcessingResult(
             outputUri = target.toURI().toString(),
             outputMimeType = request.mimeType,
@@ -79,12 +80,12 @@ class AppProofMediaProcessor @Inject constructor(
     }
 
     private suspend fun processPhoto(request: ProofMediaProcessingRequest): ProofMediaProcessingResult {
-        val source = resolveLocalFile(request.originalUri)
+        val source = runProcessingStage("resolve_source") { resolveLocalFile(request.originalUri) }
         val originalBytes = source.length().takeIf { it > 0L }
-        val bitmap = BitmapFactory.decodeFile(source.absolutePath)
+        val bitmap = runProcessingStage("decode_photo") { BitmapFactory.decodeFile(source.absolutePath) }
             ?: error("proof photo decode failed")
-        val resized = resizePhotoForProof(bitmap)
-        val outputBitmap = resized.copy(Bitmap.Config.ARGB_8888, true)
+        val resized = runProcessingStage("resize_photo") { resizePhotoForProof(bitmap) }
+        val outputBitmap = runProcessingStage("copy_photo_bitmap") { resized.copy(Bitmap.Config.ARGB_8888, true) }
         if (resized !== bitmap) resized.recycle()
         bitmap.recycle()
         val outputWidth = outputBitmap.width
@@ -92,17 +93,21 @@ class AppProofMediaProcessor @Inject constructor(
         return try {
             // Photo overlay sits TOP-LEFT, the same corner as the video overlay
             // (drawAuditOverlayAtTopLeft in processVideo) so both proofs read identically.
-            drawAuditOverlayAtTopLeft(
-                canvas = Canvas(outputBitmap),
-                width = outputBitmap.width,
-                height = outputBitmap.height,
-                lines = overlayLines(request),
-                textScale = photoOverlayScale(outputBitmap.width, outputBitmap.height),
-            )
-            val output = processedFile(request.proofId, "jpg")
-            output.outputStream().use { stream ->
-                check(outputBitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream)) {
-                    "proof photo encode failed"
+            runSuspendProcessingStage("burn_overlay") {
+                drawAuditOverlayAtTopLeft(
+                    canvas = Canvas(outputBitmap),
+                    width = outputBitmap.width,
+                    height = outputBitmap.height,
+                    lines = overlayLines(request),
+                    textScale = photoOverlayScale(outputBitmap.width, outputBitmap.height),
+                )
+            }
+            val output = runProcessingStage("create_output_file") { processedFile(request.proofId, "jpg") }
+            runProcessingStage("encode_photo") {
+                output.outputStream().use { stream ->
+                    check(outputBitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream)) {
+                        "proof photo encode failed"
+                    }
                 }
             }
             ProofMediaProcessingResult(
@@ -119,16 +124,18 @@ class AppProofMediaProcessor @Inject constructor(
     }
 
     private suspend fun processVideo(request: ProofMediaProcessingRequest): ProofMediaProcessingResult {
-        val source = resolveLocalFile(request.originalUri)
-        val metadata = readVideoMetadata(source)
+        val source = runProcessingStage("resolve_source") { resolveLocalFile(request.originalUri) }
+        val metadata = runProcessingStage("read_metadata") { readVideoMetadata(source) }
         val targetVideoBitrate = selectVideoBitrate(metadata.width, metadata.height, metadata.bitrate)
         val targetAudioBitrate = 48_000
-        val overlayBitmap = createVideoOverlayBitmap(overlayLines(request), metadata.width, metadata.height)
+        val overlayBitmap = runSuspendProcessingStage("burn_overlay") {
+            createVideoOverlayBitmap(overlayLines(request), metadata.width, metadata.height)
+        }
         val overlaySettings = StaticOverlaySettings.Builder()
             .setOverlayFrameAnchor(0f, 0f)
             .setBackgroundFrameAnchor(0f, 0f)
             .build()
-        val output = processedFile(request.proofId, "mp4")
+        val output = runProcessingStage("create_output_file") { processedFile(request.proofId, "mp4") }
         val mediaItem = MediaItem.Builder()
             .setUri(Uri.fromFile(source))
             .setMimeType(request.mimeType.ifBlank { MimeTypes.VIDEO_MP4 })
@@ -152,28 +159,30 @@ class AppProofMediaProcessor @Inject constructor(
             .setTransmuxVideo(false)
             .build()
         val result = try {
-            withContext(Dispatchers.Main.immediate) {
-                Transformer.Builder(context)
-                    .setVideoMimeType(MimeTypes.VIDEO_H264)
-                    .setAudioMimeType(MimeTypes.AUDIO_AAC)
-                    .setEncoderFactory(
-                        DefaultEncoderFactory.Builder(context)
-                            .setRequestedVideoEncoderSettings(
-                                VideoEncoderSettings.Builder()
-                                    .setBitrate(targetVideoBitrate)
-                                    .setiFrameIntervalSeconds(2f)
-                                    .build(),
-                            )
-                            .setRequestedAudioEncoderSettings(
-                                AudioEncoderSettings.Builder()
-                                    .setBitrate(targetAudioBitrate)
-                                    .build(),
-                            )
-                            .setEnableFallback(true)
-                            .build(),
-                    )
-                    .build()
-                    .exportAwait(composition, output.absolutePath)
+            runSuspendProcessingStage("transcode") {
+                withContext(Dispatchers.Main.immediate) {
+                    Transformer.Builder(context)
+                        .setVideoMimeType(MimeTypes.VIDEO_H264)
+                        .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                        .setEncoderFactory(
+                            DefaultEncoderFactory.Builder(context)
+                                .setRequestedVideoEncoderSettings(
+                                    VideoEncoderSettings.Builder()
+                                        .setBitrate(targetVideoBitrate)
+                                        .setiFrameIntervalSeconds(2f)
+                                        .build(),
+                                )
+                                .setRequestedAudioEncoderSettings(
+                                    AudioEncoderSettings.Builder()
+                                        .setBitrate(targetAudioBitrate)
+                                        .build(),
+                                )
+                                .setEnableFallback(true)
+                                .build(),
+                        )
+                        .build()
+                        .exportAwait(composition, output.absolutePath)
+                }
             }
         } finally {
             overlayBitmap.recycle()
@@ -189,6 +198,24 @@ class AppProofMediaProcessor @Inject constructor(
             targetAudioBitrate = targetAudioBitrate,
         )
     }
+
+    private inline fun <T> runProcessingStage(stage: String, block: () -> T): T =
+        try {
+            block()
+        } catch (error: ProofMediaProcessingException) {
+            throw error
+        } catch (error: Throwable) {
+            throw ProofMediaProcessingException(stage, "proof media processing failed at $stage", error)
+        }
+
+    private suspend inline fun <T> runSuspendProcessingStage(stage: String, crossinline block: suspend () -> T): T =
+        try {
+            block()
+        } catch (error: ProofMediaProcessingException) {
+            throw error
+        } catch (error: Throwable) {
+            throw ProofMediaProcessingException(stage, "proof media processing failed at $stage", error)
+        }
 
     private suspend fun Transformer.exportAwait(composition: Composition, outputPath: String): ExportResult =
         suspendCancellableCoroutine { continuation ->
