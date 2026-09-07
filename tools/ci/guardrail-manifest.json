@@ -228,6 +228,17 @@
       "notes": "Every common proof preview surface must wire play/fullscreen/share/failure actions into feature analytics."
     },
     {
+      "id": "android-pen-visit-proof-preview",
+      "script": "tools/agent-hooks/check-android-pen-visit-proof-preview.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-pen-visit-proof-preview.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-pen-visit-proof-preview.mjs --self-test",
+      "owningDoc": "docs/decisions/pen-visit-tasks.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Pen Visit submission must keep the captured live-camera video on the shared proof preview surface with replay, fullscreen, share, retry, and feature-owned analytics."
+    },
+    {
       "id": "android-proof-video-pipeline",
       "script": "tools/agent-hooks/check-android-proof-video-pipeline.mjs",
       "makeTarget": null,

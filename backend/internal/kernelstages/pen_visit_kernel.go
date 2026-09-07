@@ -96,6 +96,7 @@ func (s *PenVisitKernelStage) Run(ctx context.Context) error {
 		}
 		s.logResult(ctx, result)
 		if len(digests) == 0 {
+			// scale-guard:ignore: bounded by GOATOS_PEN_VISIT_LOOKBACK_DAYS (1..7, default 2); one retry digest read per source business date, never per row.
 			digests, err = s.store.DueDigestsForSourceDate(ctx, s.tenantID, sourceDate)
 			if err != nil {
 				return err

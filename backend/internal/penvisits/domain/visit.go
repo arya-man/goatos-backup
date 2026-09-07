@@ -241,7 +241,7 @@ func Title(t Task) string {
 
 // Instruction is the detail screen's one sentence of what to do.
 func Instruction(t Task) string {
-	return "Go to the pen, look at the animals and record one video. Submit it here."
+	return "Go to the pen, look at the animals and record one video. It will submit automatically."
 }
 
 // DoneLine is the detail line once the visit is submitted.

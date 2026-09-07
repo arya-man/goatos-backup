@@ -306,7 +306,9 @@ class WeighingPlanWizardViewModel @Inject constructor(
             if (current.editCampaignId != null || selectedDate == null) {
                 current.copy(removalCutoff = cutoff)
             } else {
-                val selected = runCatching { LocalDate.parse(selectedDate, ISO_DATE) }.getOrNull()
+				val selected = runCatching { LocalDate.parse(selectedDate, ISO_DATE) }
+					.onFailure { crashReporter.recordException(it, "weighing feed removal selected date parse failed") }
+					.getOrNull()
                 if (selected == null || !selected.isBefore(earliest)) {
                     current.copy(removalCutoff = cutoff)
                 } else {

@@ -301,3 +301,31 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 		t.Fatalf("page 2 = %+v err %v", second, err)
 	}
 }
+
+func TestPenVisitMaterializeCatchupPreservesOriginalOwedDate(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedPenVisitFixture(t, ctx, pool)
+
+	const source = "2026-09-05"
+	const today = "2026-09-07"
+	now := istInstant(today, 0).Add(5 * time.Minute)
+	repo := NewRepository(pool, 10*time.Second).WithClock(func() time.Time { return now })
+	seedWork(t, ctx, pool, "old-castro-vacc", pvParkCBE, pvShedCastro, "3", "vaccination", "vaccination_proof", istInstant(source, 10))
+
+	result, digests, err := repo.Materialize(ctx, pvTenant, source, today, now)
+	if err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	if result.Created != 1 || len(digests) != 1 || len(digests[0].Tasks) != 1 {
+		t.Fatalf("materialize result/digest = %+v %+v", result, digests)
+	}
+	task := digests[0].Tasks[0]
+	if task.PlannedDate != "2026-09-06" || task.DueDate != today || task.WorkState != domain.WorkStateDelayed || task.RolledFwd != 1 {
+		t.Fatalf("catch-up task lost delayed semantics: %+v", task)
+	}
+	if task.DelayedSince == nil || *task.DelayedSince != "2026-09-06" {
+		t.Fatalf("delayed_since = %v", task.DelayedSince)
+	}
+}

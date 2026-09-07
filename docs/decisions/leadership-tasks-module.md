@@ -119,4 +119,3 @@ rule is kept for the CXO and restated as "a bar only when there is something to 
 (`barOnlyWhenSwitching` in the module registry): a CXO's Tasks module is still one list with no
 bar; a director's now carries **Raised by me** (this module's list) and **For me**. The list
 screen title stays "Tasks"; the two nav labels are backend copy in four locales.
-

@@ -335,9 +335,18 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 	if err != nil {
 		return result, nil, fmt.Errorf("pen visit: materialize: bad source date %q: %w", sourceDate, err)
 	}
-	dueDate := src.AddDate(0, 0, 1).Format("2006-01-02")
-	if today > dueDate {
+	plannedDate := src.AddDate(0, 0, 1).Format("2006-01-02")
+	dueDate := plannedDate
+	workState := domain.WorkStateScheduled
+	delayedSince := ""
+	rolledForwardCount := 0
+	if today > plannedDate {
 		dueDate = today
+		workState = domain.WorkStateDelayed
+		delayedSince = plannedDate
+		if parsedToday, err := time.Parse("2006-01-02", today); err == nil {
+			rolledForwardCount = int(parsedToday.Sub(src.AddDate(0, 0, 1)).Hours() / 24)
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -431,7 +440,7 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 	if len(parkIDs) == 0 {
 		return result, nil, tx.Commit(ctx)
 	}
-	uRows, err := tx.Query(ctx, sqlRepository8, tenantID, parkIDs, shedIDs, partitions, reasonCSV, userIDs, sourceDate, dueDate)
+	uRows, err := tx.Query(ctx, sqlRepository8, tenantID, parkIDs, shedIDs, partitions, reasonCSV, userIDs, sourceDate, plannedDate, dueDate, workState, delayedSince, rolledForwardCount)
 	if err != nil {
 		return result, nil, fmt.Errorf("pen visit: materialize: upsert: %w", err)
 	}
@@ -633,10 +642,11 @@ WHERE vi.tenant_id = $1::uuid
 	sqlRepository8 = `
 INSERT INTO pen_visit_tasks (
   tenant_id, park_id, shed_id, partition_label, reasons, source_business_date,
-  planned_business_date, due_business_date, work_state, assignee_user_id
+  planned_business_date, due_business_date, work_state, assignee_user_id,
+  delayed_since_business_date, rolled_forward_count
 )
 SELECT $1::uuid, p.park_id, p.shed_id, NULLIF(p.partition_label, ''), string_to_array(p.reasons_csv, ','),
-       $7::date, $8::date, $8::date, 'scheduled', p.user_id
+       $7::date, $8::date, $9::date, $10::text, p.user_id, NULLIF($11::text, '')::date, $12::integer
 FROM unnest($2::uuid[], $3::uuid[], $4::text[], $5::text[], $6::uuid[])
   AS p(park_id, shed_id, partition_label, reasons_csv, user_id)
 ON CONFLICT ON CONSTRAINT pen_visit_tasks_natural_uq DO UPDATE

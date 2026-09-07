@@ -2,8 +2,11 @@ package notificationbridge
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -41,7 +44,7 @@ func (n *PenVisitDueNotifier) WithClock(now func() time.Time) *PenVisitDueNotifi
 	return n
 }
 
-// NotifyCreated queues one push per digest (one park, one assignee, one due date).
+// NotifyCreated queues one push per digest key (one park, one assignee, one due date).
 func (n *PenVisitDueNotifier) NotifyCreated(ctx context.Context, tenantID string, digests []penvisitports.CreatedDigest) error {
 	if n == nil || n.recipients == nil || n.queue == nil {
 		return nil
@@ -50,6 +53,7 @@ func (n *PenVisitDueNotifier) NotifyCreated(ctx context.Context, tenantID string
 	if tenantID == "" {
 		return fmt.Errorf("pen visit notification: tenant id is required")
 	}
+	digests = mergePenVisitDueDigests(digests)
 	for _, d := range digests {
 		if len(d.Tasks) == 0 || strings.TrimSpace(d.AssigneeID) == "" {
 			continue
@@ -68,7 +72,7 @@ func (n *PenVisitDueNotifier) NotifyCreated(ctx context.Context, tenantID string
 			continue
 		}
 		title, body := PenVisitDueCopy(d)
-		eventKey := fmt.Sprintf("pen_visit.due:%s:%s:%s", d.DueDate, d.ParkID, d.AssigneeID)
+		eventKey := fmt.Sprintf("pen_visit.due:%s:%s:%s:%s", d.DueDate, d.ParkID, d.AssigneeID, penVisitDigestBatchKey(d.Tasks))
 		// One write per PARK that gained visits on this pass: the farm has two parks, so this loop
 		// is bounded by the park count, never by pens or animals.
 		// scale-guard:ignore: bounded per-park digest loop, one queue write per park with new visits (two parks on the farm).
@@ -103,6 +107,47 @@ func (n *PenVisitDueNotifier) NotifyCreated(ctx context.Context, tenantID string
 		}
 	}
 	return nil
+}
+
+func mergePenVisitDueDigests(digests []penvisitports.CreatedDigest) []penvisitports.CreatedDigest {
+	merged := map[string]*penvisitports.CreatedDigest{}
+	order := make([]string, 0, len(digests))
+	for _, d := range digests {
+		key := d.DueDate + "|" + d.ParkID + "|" + d.AssigneeID
+		out, ok := merged[key]
+		if !ok {
+			copyDigest := d
+			copyDigest.Tasks = nil
+			out = &copyDigest
+			merged[key] = out
+			order = append(order, key)
+		}
+		if out.ParkName == "" {
+			out.ParkName = d.ParkName
+		}
+		out.Tasks = append(out.Tasks, d.Tasks...)
+	}
+	out := make([]penvisitports.CreatedDigest, 0, len(order))
+	for _, key := range order {
+		out = append(out, *merged[key])
+	}
+	return out
+}
+
+func penVisitDigestBatchKey(tasks []penvisitdomain.Task) string {
+	ids := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		id := strings.TrimSpace(task.TaskID)
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return "no-task-ids"
+	}
+	sort.Strings(ids)
+	sum := sha1.Sum([]byte(strings.Join(ids, ",")))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 // PenVisitDueCopy composes the push: which park, how many pens, which pens and why, and the day

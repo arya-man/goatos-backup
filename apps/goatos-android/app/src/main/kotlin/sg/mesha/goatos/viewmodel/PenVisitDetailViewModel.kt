@@ -109,7 +109,13 @@ class PenVisitDetailViewModel @Inject constructor(
     private val submitItem = local
         .map { it.submitOutboxItemId }
         .distinctUntilChanged()
-        .flatMapLatest { id -> if (id.isBlank()) flowOf(null) else syncRepository.observeItem(id) }
+        .flatMapLatest { id ->
+            if (id.isBlank()) {
+                flowOf(latestDurableSubmitItem())
+            } else {
+                syncRepository.observeItem(id)
+            }
+        }
 
     val state: StateFlow<PenVisitDetailUiState> =
         combine(
@@ -161,6 +167,7 @@ class PenVisitDetailViewModel @Inject constructor(
         val detail = repository.observeVisit(taskId).first() ?: return
         if (!detail.canSubmit || detail.workState == PEN_VISIT_WORK_STATE_COMPLETED) return
         if (penVisitGrainKey(taskId) in syncRepository.observeSubmittedForReviewGrains().first()) return
+        if (latestDurableSubmitItem()?.isTerminalFailure == true) return
         val proof = proofCaptureRepository.observeLatest(videoSlot).first() ?: return
         val proofOutboxId = proof.outboxItemId?.takeIf { it.isNotBlank() } ?: return
         if (proof.syncStatus == CaptureSyncStatus.FAILED || proof.processingStatus == ProofProcessingStatus.RECORD_AGAIN) return
@@ -498,6 +505,7 @@ class PenVisitDetailViewModel @Inject constructor(
 
     private companion object {
         const val ARG_TASK_ID = "task_id"
+        const val OP_TYPE_PEN_VISIT_SUBMIT = "PEN_VISIT_SUBMIT"
         const val SCOPE_TYPE_TASK = "task"
         const val CAPTURE_RESULT_RECORDED = "recorded"
         const val CAPTURE_RESULT_CANCELLED = "cancelled"
@@ -506,6 +514,15 @@ class PenVisitDetailViewModel @Inject constructor(
         const val MAX_REASON_CHARS = 120
         const val PARAM_TASK_ID = "task_id"
     }
+
+    private suspend fun latestDurableSubmitItem(): SyncQueueItem? =
+        when (val result = syncRepository.findLatestOutboxItem(penVisitTaskGroupKey(taskId), OP_TYPE_PEN_VISIT_SUBMIT)) {
+            is AppResult.Ok -> result.value
+            is AppResult.Err -> {
+                result.cause?.let { crashReporter.recordException(it, "pen visit submit durable lookup failed") }
+                null
+            }
+        }
 }
 
 /** The slot's derived state plus the one line the WORKING/FAILED renders carry. */

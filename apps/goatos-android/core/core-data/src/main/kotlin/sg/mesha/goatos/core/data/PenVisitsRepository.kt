@@ -161,8 +161,12 @@ class DefaultPenVisitsRepository(
             // holds is never written back. The sync engine replays a succeeded write's stored
             // response after a restart, and that response is the task as it was when the write
             // landed; if the screen has since refreshed a newer row, the replay must lose.
-            val cached = detailDao.get(task.taskId)?.dtoJson
-                ?.let { runCatching { json.decodeFromString<PenVisitDto>(it) }.getOrNull() }
+			val cached = detailDao.get(task.taskId)?.dtoJson
+				?.let {
+					runCatching { json.decodeFromString<PenVisitDto>(it) }
+						.onFailure { error -> android.util.Log.w(LOG_TAG, "pen_visit_detail_cached_decode_failed task=${task.taskId}", error) }
+						.getOrNull()
+				}
             if (cached != null && cached.rowVersion > task.rowVersion) {
                 android.util.Log.w(
                     LOG_TAG,

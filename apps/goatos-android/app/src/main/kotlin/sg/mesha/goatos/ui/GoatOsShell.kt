@@ -973,7 +973,7 @@ private const val MAX_BADGE_COUNT = 99
  * client-side.
  */
 internal fun NavState.moduleBadgesByHref(): Map<String, Int> {
-    val out = mutableMapOf<String, Int>()
+    val out = mutableMapOf<String, Int>() // mobile-guard:ignore: bounded by backend-declared nav modules/items in one bootstrap payload; rebuilt on demand and never retained globally
     availableModules().forEach { module ->
         val itemBadges = module.navItems.filter { it.badgeCount > 0 }
         if (itemBadges.isNotEmpty()) {

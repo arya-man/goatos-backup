@@ -8909,7 +8909,7 @@ export interface components {
             planned_business_date: string;
             /** @description The operators authorized to work EVERY pen of this round. */
             assignee_user_ids: string[];
-            /** @description Deworming only (maintainer decision 2026-09-03, at round grain 2026-09-05): tablets given in feed need feed & water removed the evening before. When true the same write also creates ONE round-grain feed_water_removal card for the evening before, assigned to removal_operator_user_ids, carrying one feed video and one water video slot PER PEN. The deworming date must still have a removal evening ahead of it (creating at/after 20:00 IST for tomorrow -> 422 fasting_window_closed). On any other category -> 422 feed_removal_not_applicable. Injection deworming simply omits it. */
+            /** @description Deworming only (maintainer decision 2026-09-03, at round grain 2026-09-05): tablets given in feed need feed & water removed the evening before. When true the same write also creates ONE round-grain feed_water_removal card for the evening before, assigned to removal_operator_user_ids, carrying one feed video and one water video slot PER PEN. The deworming date must still have a removal evening ahead of it (creating at/after the tenant's configured removal cutoff -- BootstrapResponse.feed_water_removal_cutoff_time -- for tomorrow -> 422 fasting_window_closed; no configured cutoff -> 422 feed_water_removal_cutoff_missing). On any other category -> 422 feed_removal_not_applicable. Injection deworming simply omits it. */
             feed_removal_required?: boolean;
             /** @description Who removes feed & water the evening before. Required (minItems 1) when feed_removal_required is true -> otherwise 422 removal_operators_required. */
             removal_operator_user_ids?: string[];
@@ -8977,7 +8977,7 @@ export interface components {
             /** Format: date */
             planned_business_date: string;
             assignee_user_ids: string[];
-            /** @description Deworming only (maintainer decision 2026-09-03): tablets given in feed need feed & water removed the evening before. When true, the same write also creates the linked feed_water_removal task for the evening before the deworming date, assigned to removal_operator_user_ids, and the deworming date must still have a removal evening ahead of it (creating at/after 20:00 IST for tomorrow -> 422 fasting_window_closed). On any other category -> 422 feed_removal_not_applicable. Injection deworming simply omits it. */
+            /** @description Deworming only (maintainer decision 2026-09-03): tablets given in feed need feed & water removed the evening before. When true, the same write also creates the linked feed_water_removal task for the evening before the deworming date, assigned to removal_operator_user_ids, and the deworming date must still have a removal evening ahead of it (creating at/after the tenant's configured removal cutoff for tomorrow -> 422 fasting_window_closed; no configured cutoff -> 422 feed_water_removal_cutoff_missing). On any other category -> 422 feed_removal_not_applicable. Injection deworming simply omits it. */
             feed_removal_required?: boolean;
             /** @description Who removes feed & water the evening before. Required (minItems 1) when feed_removal_required is true -> otherwise 422 removal_operators_required. */
             removal_operator_user_ids?: string[];
@@ -9791,6 +9791,19 @@ export interface components {
             sync_policy: components["schemas"]["BootstrapSyncPolicy"];
             /** Format: date-time */
             server_time: string;
+            /**
+             * @description The tenant's configured feed & water removal cutoff as HH:MM Asia/Kolkata
+             *     wall-clock (maintainer decision 2026-09-07: config, not code; stored in
+             *     feed_water_removal_config). The removal evening opens at this time: strictly
+             *     before it a weighing / feed-removal deworming may still be planned for
+             *     TOMORROW, at or after it the earliest plannable day is the DAY AFTER
+             *     TOMORROW, and the removal card surfaces on the operator's list from it. The
+             *     phone mirrors the date-picker rule from this value; the server enforces it on
+             *     every write (422 fasting_window_closed). Absent when the tenant has no
+             *     configured cutoff, in which case the phone offers only the rule's invariant
+             *     floor (tomorrow) and the server's refusal decides.
+             */
+            feed_water_removal_cutoff_time?: string;
             trace_id: string;
         };
         AdminWebBootstrapResponse: {
@@ -12843,7 +12856,7 @@ export interface components {
             operator_user_id: string;
             /**
              * Format: uuid
-             * @description The feed & water removal operator (maintainer decision 2026-09-03): the person who removes feed and water from the selected sheds the evening before the weigh date and submits two live-camera videos before midnight IST. Same park as the task; mandatory. Missing -> 422 fasting_operator_required; a weigh date whose removal evening has already begun (creating at/after 20:00 IST for tomorrow) -> 422 fasting_window_closed.
+             * @description The feed & water removal operator (maintainer decision 2026-09-03): the person who removes feed and water from the selected sheds the evening before the weigh date and submits two live-camera videos before midnight IST. Same park as the task; mandatory. Missing -> 422 fasting_operator_required; a weigh date whose removal evening has already begun (creating at/after the tenant's configured removal cutoff -- BootstrapResponse.feed_water_removal_cutoff_time -- for tomorrow) -> 422 fasting_window_closed; no configured cutoff -> 422 feed_water_removal_cutoff_missing.
              */
             fasting_operator_user_id: string;
             sheds: components["schemas"]["CreateWeighingCampaignShed"][];

@@ -281,7 +281,7 @@ private fun WeighingTaskCard(row: WeighingTaskUiRow, onOpen: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (row.shedNames.isNotEmpty()) {
+        if (row.shedNames.isNotEmpty() && row.bucketCount != 1) {
             Text(
                 // The overflow count is another ITEM in the list, so it takes the same
                 // separator. Appending it bare rendered "Gandhi 2+2 more", which reads as a

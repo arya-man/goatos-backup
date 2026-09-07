@@ -20,6 +20,7 @@ type Service struct {
 	repo   ports.Repository
 	now    func() time.Time
 	badges ModuleBadgeSource
+	logger *slog.Logger
 	// cutoffs serves the tenant's feed & water removal cutoff on /app/bootstrap
 	// (maintainer decision 2026-09-07: config, not code) so the phone's plan
 	// wizards mirror the farm's evening instead of a compiled-in hour.
@@ -45,6 +46,13 @@ func (s *Service) WithFeedWaterRemovalCutoff(reader fwrports.CutoffReader) *Serv
 	return s
 }
 
+// WithLogger wires the service logger. Optional: nil keeps non-critical bootstrap
+// hint warnings quiet in tests and lightweight callers.
+func (s *Service) WithLogger(logger *slog.Logger) *Service {
+	s.logger = logger
+	return s
+}
+
 // feedWaterRemovalCutoffTime resolves the bootstrap's cutoff hint. A missing
 // config row is a legitimate blank; any other read error is logged and also
 // left blank, because the bootstrap is the phone's whole workspace and a
@@ -56,8 +64,8 @@ func (s *Service) feedWaterRemovalCutoffTime(ctx context.Context, tenantID strin
 	}
 	cutoff, err := s.cutoffs.FeedWaterRemovalCutoff(ctx, tenantID)
 	if err != nil {
-		if !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
-			slog.WarnContext(ctx, "bootstrap: feed & water removal cutoff unavailable", "tenant_id", tenantID, "error", err)
+		if !errors.Is(err, fwrports.ErrCutoffNotConfigured) && s.logger != nil {
+			s.logger.WarnContext(ctx, "bootstrap: feed & water removal cutoff unavailable", "tenant_id", tenantID, "error", err)
 		}
 		return ""
 	}
