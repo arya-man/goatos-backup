@@ -192,9 +192,14 @@ internal class FakePcCareRepository : PcCareRepository {
     }
 
     var removalPens: List<PcCareRemovalPenDto> = emptyList()
+    var removalPenRefreshCalls = 0
     private val removalPensFlow = MutableStateFlow<List<PcCareRemovalPenDto>>(emptyList())
     override fun observeRemovalPens(taskId: String): Flow<List<PcCareRemovalPenDto>> = removalPensFlow
+    fun emitRemovalPens(pens: List<PcCareRemovalPenDto>) {
+        removalPensFlow.value = pens
+    }
     override suspend fun refreshRemovalPens(taskId: String) {
+        removalPenRefreshCalls += 1
         removalPensFlow.value = removalPens
     }
 

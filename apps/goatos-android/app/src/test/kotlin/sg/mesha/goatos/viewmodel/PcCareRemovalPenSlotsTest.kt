@@ -95,6 +95,47 @@ class PcCareRemovalPenSlotsTest {
     }
 
     @Test
+    fun `a partial cached round removal refreshes and renders still missing pens on reopen`() = runTest(dispatcher) {
+        val gandhi = PcCareRemovalPenDto(
+            removalPenId = "pen-a",
+            gatedTaskId = "task-a",
+            penLabel = "Gandhi 1 - Part 1",
+            feedProofRef = "server-feed-a",
+            waterProofRef = "server-water-a",
+        )
+        val godel = PcCareRemovalPenDto(removalPenId = "pen-b", gatedTaskId = "task-b", penLabel = "Godel 1 - Part 1")
+        val yashoda = PcCareRemovalPenDto(removalPenId = "pen-c", gatedTaskId = "task-c", penLabel = "Yashoda 1 - Part 2")
+        val repo = removalRepo(listOf(gandhi, godel, yashoda))
+        repo.emitRemovalPens(listOf(gandhi))
+
+        val vm = buildPcCareTaskViewModel(repo)
+        val collectJob = launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("feed/water detail should repair a partial cached pen list", 1, repo.removalPenRefreshCalls)
+        val slots = vm.state.value.taskProofSlots
+        assertEquals("three pens x two videos", 6, slots.size)
+        assertEquals(
+            listOf(
+                "task-a::feed_video",
+                "task-a::water_video",
+                "task-b::feed_video",
+                "task-b::water_video",
+                "task-c::feed_video",
+                "task-c::water_video",
+            ),
+            slots.map { it.fieldKey },
+        )
+        assertEquals(sg.mesha.goatos.feature.pccare.PcCareSlotState.SYNCED, slots[0].state)
+        assertEquals(sg.mesha.goatos.feature.pccare.PcCareSlotState.SYNCED, slots[1].state)
+        assertEquals(sg.mesha.goatos.feature.pccare.PcCareSlotState.EMPTY, slots[2].state)
+        assertEquals(sg.mesha.goatos.feature.pccare.PcCareSlotState.EMPTY, slots[3].state)
+        assertEquals(sg.mesha.goatos.feature.pccare.PcCareSlotState.EMPTY, slots[4].state)
+        assertEquals(sg.mesha.goatos.feature.pccare.PcCareSlotState.EMPTY, slots[5].state)
+        collectJob.cancel()
+    }
+
+    @Test
     fun `a legacy single-pen removal keeps the flat two-slot face`() = runTest(dispatcher) {
         val repo = removalRepo(emptyList())
         val vm = buildPcCareTaskViewModel(repo)

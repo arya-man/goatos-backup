@@ -159,6 +159,7 @@ class PcCareTaskViewModel @Inject constructor(
     private var latestProofs: List<ProofCaptureRow> = emptyList()
     private var latestRoster: List<String> = emptyList()
     private var rosterRefreshRequested = false
+    private var removalPensRefreshRequested = false
     private var submitObserveJob: Job? = null
     private val proofUploadObserveJobs = mutableMapOf<String, Job>() // mobile-guard:ignore ViewModel-lifetime jobs bounded by proof rows on one PC Care task screen
     private val animalSlotProofTerminalEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded by proof rows on one PC Care task screen
@@ -207,9 +208,11 @@ class PcCareTaskViewModel @Inject constructor(
                 }
                 hydrateAnimalProofPreviews(detail, latestAnimals)
                 // The pen list rides the card's own contract, so it may arrive after screen
-                // entry; refresh it once the category is known and only once it is a removal.
-                // The RENDER comes from Room below, so a cached card shows its pens at once.
-                if (pcCareIsFeedWaterRemoval(detail) && local.value.removalPens.isEmpty()) {
+                // entry; refresh it once the category is known. Do this even when Room already
+                // has a partial cached list: one completed pen must not hide the still-missing
+                // pens on reopen.
+                if (pcCareIsFeedWaterRemoval(detail) && !removalPensRefreshRequested) {
+                    removalPensRefreshRequested = true
                     refreshRemovalPens()
                 }
                 // The roster tap list exists only for roster_pick work — fetch it once the mode is
@@ -1973,20 +1976,26 @@ class PcCareTaskViewModel @Inject constructor(
         return raw.ifBlank { detail?.category.orEmpty() }
     }
 
-    private fun pcCareEffectiveExpectedSlots(detail: PcCareTaskDto?): List<PcCareSlotDto> {
+    private fun pcCareEffectiveExpectedSlots(
+        detail: PcCareTaskDto?,
+        removalPens: List<PcCareRemovalPenDto>,
+    ): List<PcCareSlotDto> {
         if (detail == null) return emptyList()
         if (!pcCareIsTaskProofMode(detail)) return detail.expectedSlots
-        return pcCareTaskProofExpectedSlots(detail)
+        return pcCareTaskProofExpectedSlots(detail, removalPens)
     }
 
-    private fun pcCareTaskProofExpectedSlots(detail: PcCareTaskDto): List<PcCareSlotDto> {
+    private fun pcCareTaskProofExpectedSlots(
+        detail: PcCareTaskDto,
+        removalPens: List<PcCareRemovalPenDto> = local.value.removalPens,
+    ): List<PcCareSlotDto> {
         val byKey = detail.expectedSlots.associateBy { it.fieldKey }
         if (pcCareIsFeedWaterRemoval(detail)) {
             // A ROUND's removal is proved PEN BY PEN: the backend's two slots repeat once per
             // pen, each keyed and labelled by the pen so the operator (and later the verifier)
             // can tell which pen a clip proves. A legacy single-pen removal has no pens and
             // keeps the flat two-slot face byte for byte.
-            val pens = local.value.removalPens
+            val pens = removalPens
             if (pens.isNotEmpty()) {
                 val slots = if (detail.expectedSlots.isNotEmpty()) {
                     detail.expectedSlots
@@ -2237,7 +2246,7 @@ class PcCareTaskViewModel @Inject constructor(
         bits: LocalBits,
     ): PcCareTaskUiState {
         val locked = isLifecycleLocked(detail) || bits.submitQueued || monitorView
-        val expectedSlots = pcCareEffectiveExpectedSlots(detail)
+        val expectedSlots = pcCareEffectiveExpectedSlots(detail, bits.removalPens)
         val rosterMode = detail?.captureMode == PC_CARE_CAPTURE_MODE_ROSTER
         val taskProofMode = pcCareIsTaskProofMode(detail)
         val effectiveTaskProofs = pcCareEffectiveTaskProofs(detail, bits.removalPens)
