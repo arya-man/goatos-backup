@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose NO TRANSACTION
 -- SALE -> FEED DIRECTOR NOTICE (maintainer decision 2026-09-07).
 --
 -- When animals are tagged to a sale they leave the register, so the pens they stood in need less
@@ -52,15 +53,16 @@ ALTER TABLE notification_requests
 -- The feed-day reminder rides the shared 5-minute cadence and reads the last few days of confirms
 -- each tick. That read is keyed on (tenant, allocated_at) over live rows; without this index it is a
 -- per-tick scan of every tagging ever recorded, which grows with every sale the farm makes.
-CREATE INDEX IF NOT EXISTS goat_sale_allocations_recent_tagged_idx
+CREATE INDEX CONCURRENTLY IF NOT EXISTS goat_sale_allocations_recent_tagged_idx
     ON goat_sale_allocations (tenant_id, allocated_at DESC)
     WHERE status = 'tagged';
 
 -- +goose Down
+-- +goose NO TRANSACTION
 
 SET lock_timeout = '5s';
 
-DROP INDEX IF EXISTS goat_sale_allocations_recent_tagged_idx;
+DROP INDEX CONCURRENTLY IF EXISTS goat_sale_allocations_recent_tagged_idx;
 
 -- Rows written under the two added types would violate the narrowed enum; a queued notification is
 -- transient work, not history (delivery is logged separately), so they are removed first.
