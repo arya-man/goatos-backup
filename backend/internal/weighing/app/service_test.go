@@ -53,7 +53,7 @@ const (
 )
 
 func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
-	service := NewService(&fakeRepo{}).WithClock(beforeCutoffClock("2026-07-29"))
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithClock(beforeCutoffClock("2026-07-29"))
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 	pcDirector := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RolePCDirector}}
 	growthDirector := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
@@ -127,7 +127,7 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 			},
 		}}},
 	}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 	page, err := service.ListCampaigns(context.Background(), operator, domain.CampaignListScopeMine, "", "", 20)
@@ -173,7 +173,7 @@ func TestListCampaignsMineIsAssigneeScopedForEveryExecutor(t *testing.T) {
 				operatorPage: domain.CampaignPage{Items: []domain.Campaign{{CampaignID: "00000000-0000-4000-8000-000000000501", TenantID: testTenant}}},
 				monitorPage:  domain.CampaignPage{Items: []domain.Campaign{{CampaignID: "00000000-0000-4000-8000-000000000501", TenantID: testTenant}}},
 			}
-			service := NewService(repo)
+			service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 			actor := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{tc.role}}
 
 			if _, err := service.ListCampaigns(context.Background(), actor, domain.CampaignListScopeMine, "", "", 20); err != nil {
@@ -215,7 +215,7 @@ func TestListCampaignsScopeAuthority(t *testing.T) {
 		{name: "operator may not oversee operators", actor: operator, scope: domain.CampaignListScopeOperators, wantAllow: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := NewService(&campaignListRepo{})
+			service := NewService(&campaignListRepo{}).WithFeedWaterRemovalCutoff(eightPM)
 			_, err := service.ListCampaigns(context.Background(), tc.actor, tc.scope, "", "", 20)
 			if tc.wantAllow && err != nil {
 				t.Fatalf("scope %q: %v, want allowed", tc.scope, err)
@@ -230,7 +230,7 @@ func TestListCampaignsScopeAuthority(t *testing.T) {
 // TestListCampaignsRejectsUnknownScope keeps an unrecognised surface from silently falling back
 // to a wider listing than the caller asked for.
 func TestListCampaignsRejectsUnknownScope(t *testing.T) {
-	service := NewService(&campaignListRepo{})
+	service := NewService(&campaignListRepo{}).WithFeedWaterRemovalCutoff(eightPM)
 	actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 	if _, err := service.ListCampaigns(context.Background(), actor, domain.CampaignListScope("everything"), "", "", 20); err == nil {
 		t.Fatal("unknown scope was accepted; want rejected")
@@ -239,7 +239,7 @@ func TestListCampaignsRejectsUnknownScope(t *testing.T) {
 
 func TestCreateCampaignDefaultsPlannedCapBeforeRepository(t *testing.T) {
 	repo := &capDefaultRepo{}
-	service := NewService(repo).WithClock(beforeCutoffClock("2026-07-29"))
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).WithClock(beforeCutoffClock("2026-07-29"))
 	cmd := validCreate()
 	cmd.PlannedCapPerDay = 0
 	actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
@@ -255,7 +255,7 @@ func TestCreateCampaignDefaultsPlannedCapBeforeRepository(t *testing.T) {
 func TestRecordAnimalObservationEnqueuesVerifierItem(t *testing.T) {
 	repo := &animalObservationRepo{}
 	enqueuer := &captureVerificationEnqueuer{}
-	service := NewService(repo).WithVerificationEnqueuer(enqueuer)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).WithVerificationEnqueuer(enqueuer)
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 
 	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
@@ -290,7 +290,7 @@ func TestRecordAnimalObservationFirstCaptureNeverWithdraws(t *testing.T) {
 	repo := &animalObservationRepo{acceptedAt: time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)}
 	enqueuer := &captureVerificationEnqueuer{}
 	withdrawer := &captureVerificationWithdrawer{}
-	service := NewService(repo).WithVerificationEnqueuer(enqueuer).WithVerificationWithdrawer(withdrawer)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).WithVerificationEnqueuer(enqueuer).WithVerificationWithdrawer(withdrawer)
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 
 	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
@@ -342,7 +342,7 @@ func TestRecordAnimalObservationEditWithdrawsStaleVerificationBeforeRaisingNewOn
 	}
 	enqueuer := &captureVerificationEnqueuer{}
 	withdrawer := &captureVerificationWithdrawer{}
-	service := NewService(repo).WithVerificationEnqueuer(enqueuer).WithVerificationWithdrawer(withdrawer)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).WithVerificationEnqueuer(enqueuer).WithVerificationWithdrawer(withdrawer)
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 
 	cmd := domain.RecordAnimalObservation{
@@ -396,7 +396,7 @@ func TestRecordAnimalObservationEditWithdrawsStaleVerificationBeforeRaisingNewOn
 func TestRecordShedObservationEnqueuesVerifierItemWithAllProofs(t *testing.T) {
 	repo := &shedObservationRepo{}
 	enqueuer := &captureVerificationEnqueuer{}
-	service := NewService(repo).WithVerificationEnqueuer(enqueuer)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).WithVerificationEnqueuer(enqueuer)
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 
 	if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
@@ -424,7 +424,7 @@ func TestRecordShedObservationEnqueuesVerifierItemWithAllProofs(t *testing.T) {
 
 func TestPerShedCategoryRoutesToShedObservationOnly(t *testing.T) {
 	repo := &fakeRepo{}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 	if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
 		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", WeightKg: 450, AnimalCount: 30, ProofArtifactID: "00000000-0000-4000-8000-000000000701", IdempotencyKey: "shed-1",
@@ -441,7 +441,7 @@ func TestPerShedCategoryRoutesToShedObservationOnly(t *testing.T) {
 
 func TestLumpSumObservationAcceptsTotalWeightAndOneToFiveVideos(t *testing.T) {
 	repo := &shedCaptureRepo{}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 	proofIDs := []string{
 		proofOne,
@@ -495,7 +495,7 @@ func TestRecordAnimalObservationRejectsInvalidWeight(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			repo := &fakeRepo{}
-			_, err := NewService(repo).RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
+			_, err := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
 				CampaignID:        "00000000-0000-4000-8000-000000000501",
 				CampaignShedID:    perShedScope,
 				ScannedIdentifier: "RFID-1",
@@ -532,7 +532,7 @@ func TestLumpSumObservationRejectsInvalidWeightButNeverValidatesClientCount(t *t
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &shedCaptureRepo{}
-			_, err := NewService(repo).RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+			_, err := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
 				CampaignID:      "00000000-0000-4000-8000-000000000501",
 				CampaignShedID:  perShedScope,
 				WeightKg:        tt.weight,
@@ -554,7 +554,7 @@ func TestLumpSumObservationRejectsInvalidWeightButNeverValidatesClientCount(t *t
 	for name, count := range map[string]int{"missing count": 0, "negative count": -2} {
 		t.Run(name, func(t *testing.T) {
 			repo := &shedCaptureRepo{}
-			if _, err := NewService(repo).RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+			if _, err := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
 				CampaignID:      "00000000-0000-4000-8000-000000000501",
 				CampaignShedID:  perShedScope,
 				WeightKg:        100,
@@ -573,7 +573,7 @@ func TestLumpSumObservationRejectsInvalidWeightButNeverValidatesClientCount(t *t
 
 func TestLumpSumObservationAcceptsSingleProofFromLegacyClient(t *testing.T) {
 	repo := &shedCaptureRepo{}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 
 	if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
@@ -595,7 +595,7 @@ func TestLumpSumObservationAcceptsSingleProofFromLegacyClient(t *testing.T) {
 }
 
 func TestRecordAnimalObservationRejectsMalformedActualLocation(t *testing.T) {
-	service := NewService(&fakeRepo{})
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM)
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 
 	_, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
@@ -614,7 +614,7 @@ func TestRecordAnimalObservationRejectsMalformedActualLocation(t *testing.T) {
 
 func TestSubmitIndividualScopeRequiresIdempotencyKey(t *testing.T) {
 	repo := &fakeRepo{}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 
 	err := service.SubmitIndividualScope(
@@ -631,7 +631,7 @@ func TestSubmitIndividualScopeRequiresIdempotencyKey(t *testing.T) {
 }
 
 func TestReopenScopeRequiresMonitorRole(t *testing.T) {
-	service := NewService(&fakeRepo{})
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM)
 	for _, tc := range []struct {
 		name string
 		role string
@@ -669,7 +669,7 @@ func TestReopenScopeRequiresMonitorRole(t *testing.T) {
 
 func TestCreateCampaignDefaultsPlannedCapBeforeRepositoryInsert(t *testing.T) {
 	repo := &captureCreateRepo{}
-	service := NewService(repo).WithClock(beforeCutoffClock("2026-07-29"))
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).WithClock(beforeCutoffClock("2026-07-29"))
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 	cmd := validCreate()
 	cmd.PlannedCapPerDay = 0
@@ -684,7 +684,7 @@ func TestCreateCampaignDefaultsPlannedCapBeforeRepositoryInsert(t *testing.T) {
 
 func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	repo := newScenarioRepo()
-	service := NewService(repo).WithClock(beforeCutoffClock("2026-07-29"))
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).WithClock(beforeCutoffClock("2026-07-29"))
 	ctx := context.Background()
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 	director := domain.Actor{TenantID: testTenant, UserID: "00000000-0000-4000-8000-000000000102", Roles: []string{permissions.RoleGrowthDirector}}
@@ -869,7 +869,7 @@ func (r *campaignListRepo) ListCampaignsForOperator(_ context.Context, _, operat
 // a dropped filter would show the planner another park's tasks under this park's chip.
 func TestListCampaignsPassesParkFilterThroughAndRejectsAMalformedOne(t *testing.T) {
 	repo := &campaignListRepo{}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
 
 	const park = "00000000-0000-4000-8000-000000003001"
@@ -887,7 +887,7 @@ func TestListCampaignsPassesParkFilterThroughAndRejectsAMalformedOne(t *testing.
 
 // The existing-task decoration is date-scoped, so the park read needs a real business DATE.
 func TestPlannerCatalogRejectsANonBusinessDate(t *testing.T) {
-	service := NewService(&campaignListRepo{})
+	service := NewService(&campaignListRepo{}).WithFeedWaterRemovalCutoff(eightPM)
 	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
 
 	for _, date := range []string{"", "next week", "2026-7-4", "2026-07-04T00:00:00Z"} {
@@ -903,7 +903,7 @@ func TestPlannerCatalogRejectsANonBusinessDate(t *testing.T) {
 // The bucket page is park-scoped and date-scoped, so it needs a real park id, a real
 // business DATE, and a real "exclude the task being edited" id when one is sent.
 func TestPlannerParkBucketsRejectsAMalformedParkDateOrExcludeID(t *testing.T) {
-	service := NewService(&campaignListRepo{})
+	service := NewService(&campaignListRepo{}).WithFeedWaterRemovalCutoff(eightPM)
 	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
 	park := "00000000-0000-4000-8000-000000003001"
 

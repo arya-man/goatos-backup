@@ -64,7 +64,7 @@ func (f *fakeRoundStore) BounceRemovalPenForRework(_ context.Context, _ ports.Ap
 
 func roundSvc(now time.Time) (*Service, *fakeRoundStore) {
 	rounds := &fakeRoundStore{}
-	svc := NewService(&fakeCreateStore{}).WithRoundStore(rounds).WithNow(func() time.Time { return now })
+	svc := NewService(&fakeCreateStore{}).WithFeedWaterRemovalCutoff(eightPM).WithRoundStore(rounds).WithNow(func() time.Time { return now })
 	return svc, rounds
 }
 
@@ -257,7 +257,7 @@ func TestCreateRoundWithoutFeedRemovalIgnoresTheEveningCutoff(t *testing.T) {
 
 // A service with no round store refuses the write rather than pretending to plan one.
 func TestCreateRoundWithoutAStoreIsUnavailableNotSilent(t *testing.T) {
-	svc := NewService(&fakeCreateStore{}).WithNow(func() time.Time { return pinnedIST(10, 9, 0) })
+	svc := NewService(&fakeCreateStore{}).WithFeedWaterRemovalCutoff(eightPM).WithNow(func() time.Time { return pinnedIST(10, 9, 0) })
 	if _, err := svc.CreateRound(plannerCtx(), plannerActor(), dewormingRoundInput("2026-09-11")); !errors.Is(err, ports.ErrStoreUnavailable) {
 		t.Fatalf("err = %v, want ErrStoreUnavailable", err)
 	}

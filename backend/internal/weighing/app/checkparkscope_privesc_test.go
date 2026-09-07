@@ -31,7 +31,7 @@ func TestCheckParkScopePrivilegeEscalation_TenantGrantWrongRole(t *testing.T) {
 	repo := &parkScopeCheckRepo{
 		campaignParkID: parkB, // Campaign is in park B
 	}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	// Actor has:
 	// 1. A tenant-wide grant for health_director (an UNRELATED role)
@@ -85,7 +85,7 @@ func TestCheckParkScopeTenantWideWeighingRole(t *testing.T) {
 	repo := &parkScopeCheckRepo{
 		campaignParkID: parkB,
 	}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	// Actor has a tenant-wide growth_director grant (which includes weighing permissions)
 	growthDirectorTenantGrant := permissions.ActiveGrant{
@@ -126,7 +126,7 @@ func TestCheckParkScopeParkScopedGrant_AccessGrantedForMatchingPark(t *testing.T
 	repo := &parkScopeCheckRepo{
 		campaignParkID: parkA,
 	}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	weighingParkAGrant := permissions.ActiveGrant{
 		Role:      permissions.RoleGrowthDirector,
@@ -165,7 +165,7 @@ func TestCheckParkScopeParkScopedGrant_AccessDeniedForOtherPark(t *testing.T) {
 	repo := &parkScopeCheckRepo{
 		campaignParkID: parkB,
 	}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	weighingParkAGrant := permissions.ActiveGrant{
 		Role:      permissions.RoleGrowthDirector,

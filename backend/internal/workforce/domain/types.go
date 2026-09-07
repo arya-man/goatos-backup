@@ -254,7 +254,14 @@ type BootstrapResponse struct {
 	OptionSourceDescriptors []BootstrapOptionSource   `json:"option_source_descriptors"`
 	SyncPolicy              BootstrapSyncPolicy       `json:"sync_policy"`
 	ServerTime              string                    `json:"server_time"`
-	TraceID                 string                    `json:"trace_id"`
+	// FeedWaterRemovalCutoffTime is the tenant's configured feed & water removal
+	// cutoff as "HH:MM" Asia/Kolkata wall-clock (maintainer decision 2026-09-07:
+	// config, not code). The phone's plan wizards mirror the date-picker rule
+	// from it; the server still enforces the rule on every write. Blank when
+	// the tenant has no configured cutoff, in which case the phone offers only
+	// the rule's invariant floor (tomorrow) and the server's refusal decides.
+	FeedWaterRemovalCutoffTime string `json:"feed_water_removal_cutoff_time,omitempty"`
+	TraceID                    string `json:"trace_id"`
 }
 
 type BootstrapActor struct {

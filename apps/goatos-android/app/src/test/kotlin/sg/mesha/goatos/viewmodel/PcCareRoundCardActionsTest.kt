@@ -42,6 +42,7 @@ class PcCareRoundCardActionsTest {
         submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) },
         analytics = NoopAnalytics(),
         crashReporter = NoopCrashReporter(),
+        bootstrapRepository = FakeCutoffBootstrapRepository(),
     )
 
     private fun card(

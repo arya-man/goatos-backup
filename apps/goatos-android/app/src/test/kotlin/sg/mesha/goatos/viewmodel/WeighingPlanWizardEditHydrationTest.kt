@@ -115,6 +115,7 @@ class WeighingPlanWizardEditHydrationTest {
                 repeatSeedStore = seedStore,
                 analytics = NoopAnalytics(),
                 crashReporter = NoopCrashReporter(),
+                bootstrapRepository = FakeCutoffBootstrapRepository(),
                 savedStateHandle = SavedStateHandle(
                     mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
                 ),
@@ -189,6 +190,7 @@ class WeighingPlanWizardEditHydrationTest {
                 repeatSeedStore = seedStore,
                 analytics = NoopAnalytics(),
                 crashReporter = NoopCrashReporter(),
+                bootstrapRepository = FakeCutoffBootstrapRepository(),
                 savedStateHandle = SavedStateHandle(
                     mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
                 ),
@@ -267,6 +269,7 @@ class WeighingPlanWizardEditHydrationTest {
                 repeatSeedStore = seedStore,
                 analytics = NoopAnalytics(),
                 crashReporter = NoopCrashReporter(),
+                bootstrapRepository = FakeCutoffBootstrapRepository(),
                 savedStateHandle = SavedStateHandle(
                     mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
                 ),
@@ -360,6 +363,8 @@ class WeighingPlanWizardEditHydrationTest {
 
         var catalogRefreshStarted = false
             private set
+        var catalogRefreshCount = 0
+            private set
         val catalogRefreshGate = CompletableDeferred<Unit>()
 
         override fun observePlannerCatalog(periodStartDate: String): Flow<WeighingPlannerCatalogCache> =
@@ -367,6 +372,7 @@ class WeighingPlanWizardEditHydrationTest {
 
         override suspend fun refreshPlannerCatalog(periodStartDate: String): AppResult<Int> {
             catalogRefreshStarted = true
+            catalogRefreshCount += 1
             // Held open until the test releases it -- this is what keeps the shared `loading`
             // flag up across the window where the bucket refresh must still succeed.
             catalogRefreshGate.await()

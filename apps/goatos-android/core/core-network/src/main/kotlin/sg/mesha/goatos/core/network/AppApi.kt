@@ -280,6 +280,13 @@ data class BootstrapDto(
     @SerialName("feature_flags") val featureFlags: Map<String, Boolean> = emptyMap(),
     @SerialName("app_min_supported_version") val appMinSupportedVersion: String = "",
     @SerialName("server_time") val serverTime: String = "",
+    /**
+     * The farm's feed & water removal cutoff as "HH:MM" Asia/Kolkata wall-clock (maintainer
+     * decision 2026-09-07: config, not code). The plan wizards mirror their date-picker rule
+     * from it; the server enforces the rule on every write. Defaults blank so an older cached
+     * bootstrap still decodes and the wizards fall back to the rule's invariant floor.
+     */
+    @SerialName("feed_water_removal_cutoff_time") val feedWaterRemovalCutoffTime: String = "",
     @SerialName("trace_id") val traceId: String = "",
 )
 

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
+	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
@@ -43,7 +45,7 @@ func TestWeighingReworkResubmitRaisesFreshVerificationItemThroughRealVerificatio
 	weighingRepo := NewRepository(pool, 5*time.Second)
 	verificationRepo := verificationpg.NewRepository(pool, 5*time.Second)
 	bridge := verificationbridge.New(verificationRepo)
-	service := weighingapp.NewService(weighingRepo).
+	service := weighingapp.NewService(weighingRepo).WithFeedWaterRemovalCutoff(fwrports.StaticCutoff{Cutoff: fwrdomain.MustCutoff(20, 0)}).
 		WithVerificationEnqueuer(bridge).
 		WithVerificationWithdrawer(bridge)
 	operator := domain.Actor{TenantID: repoTenant, UserID: repoOperator, Roles: []string{permissions.RoleOperator}}

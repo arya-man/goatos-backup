@@ -98,7 +98,7 @@ func createInput(category string) CreateTaskInput {
 // all four.
 func TestCreateTaskHonoursTheTrimmingPlannerCarveOut(t *testing.T) {
 	store := &plannerFakeStore{}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	ctx := context.Background()
 
 	for _, category := range domain.TrimmingCategories {
@@ -140,7 +140,7 @@ func TestCreateTaskHonoursTheTrimmingPlannerCarveOut(t *testing.T) {
 // may act.
 func TestCloseTaskHonoursTheTrimmingPlannerCarveOut(t *testing.T) {
 	store := &plannerFakeStore{}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	ctx := context.Background()
 
 	if err := svc.CloseTask(ctx, breedingDirectorActor(), trimmingTask, "pen empty", "trace"); err != nil {
@@ -172,7 +172,7 @@ func TestCloseTaskHonoursTheTrimmingPlannerCarveOut(t *testing.T) {
 // pen's work never happened is owed an answer in the closer's own words.
 func TestCloseTaskRequiresAReason(t *testing.T) {
 	store := &plannerFakeStore{}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 
 	if err := svc.CloseTask(context.Background(), ceoActor(), dewormingTask, "   ", "trace"); !errors.Is(err, domain.ErrCloseReasonRequired) {
 		t.Fatalf("blank reason err=%v, want ErrCloseReasonRequired", err)
@@ -187,7 +187,7 @@ func TestCloseTaskRequiresAReason(t *testing.T) {
 // plans nothing, keeps the look at every category it had before.
 func TestPlannerParkShedsHonoursTheTrimmingPlannerCarveOut(t *testing.T) {
 	store := &plannerFakeStore{}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	ctx := context.Background()
 
 	if _, err := svc.PlannerParkSheds(ctx, breedingDirectorActor(), trimmingPark, domain.CategoryHairTrimming, "2026-09-10", "", 25); err != nil {
@@ -211,7 +211,7 @@ func TestPlannerParkShedsHonoursTheTrimmingPlannerCarveOut(t *testing.T) {
 // planner list (the wizard is not offered to them; the list still labels the board's filter).
 func TestPlannerCatalogNarrowsCategoriesToWhatTheCallerMayPlan(t *testing.T) {
 	store := &plannerFakeStore{catalogParks: []ports.PlannerPark{{ParkID: trimmingPark, ParkName: "CPT"}}}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	ctx := context.Background()
 
 	got, err := svc.PlannerCatalog(ctx, breedingDirectorActor())
@@ -246,7 +246,7 @@ func TestPlannerCatalogNarrowsCategoriesToWhatTheCallerMayPlan(t *testing.T) {
 // against the capabilities that authorize THIS category.
 func TestTrimmingPlannerIsParkScopedByItsOwnGrant(t *testing.T) {
 	store := &plannerFakeStore{}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{{
 		Role:      permissions.RoleBreedingDirector,
 		ScopeType: "park",
@@ -276,7 +276,7 @@ func TestTrimmingPlannerIsParkScopedByItsOwnGrant(t *testing.T) {
 //     role-only re-check would restore the authority the ticks took away).
 func TestPerPersonTicksDecideTheServiceCheckExactlyAsTheyDecidedTheRoute(t *testing.T) {
 	store := &plannerFakeStore{catalogParks: []ports.PlannerPark{{ParkID: trimmingPark, ParkName: "CPT"}}}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	ctx := context.Background()
 
 	tickedOnly := domain.Actor{
@@ -325,7 +325,7 @@ func TestPerPersonTicksDecideTheServiceCheckExactlyAsTheyDecidedTheRoute(t *test
 // scope clamps the write, and grant roles are not consulted for parks at all.
 func TestPerPersonParkScopeClampsThePlannerWrite(t *testing.T) {
 	store := &plannerFakeStore{}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	// Grants would say tenant-wide; the person's own scope says one park.
 	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{{Role: permissions.RoleBreedingDirector, ScopeType: "tenant", ScopeID: testTenant}})
 	ctx = httpmiddleware.WithPersonParkScope(ctx, httpmiddleware.PersonParkScope{ParkIDs: []string{otherPark}})

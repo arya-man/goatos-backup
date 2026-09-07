@@ -75,6 +75,14 @@ class DefaultBootstrapRepository(
                     .getOrNull()
         )?.actor?.tenantId?.ifBlank { null }
 
+    override suspend fun feedWaterRemovalCutoffTime(): String? =
+        (
+            cache?.load()
+                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }
+                    .onFailure { android.util.Log.e("DefaultBootstrapRepository", "fetch bootstrap for feedWaterRemovalCutoffTime failed", it) }
+                    .getOrNull()
+        )?.feedWaterRemovalCutoffTime?.ifBlank { null }
+
     /** Remember a known device id, or register this install when the backend needs it. */
     private suspend fun reconcileDevice(dto: BootstrapDto) {
         val store = deviceStore ?: return

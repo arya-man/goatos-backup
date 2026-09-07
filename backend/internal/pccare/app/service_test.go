@@ -128,7 +128,7 @@ func operatorActor(userID string) domain.Actor {
 
 func TestCreateTaskRejectsKernelOwnedInventoryVaccineCategory(t *testing.T) {
 	store := &fakeStore{}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{{
 		Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: testTenant,
 	}})
@@ -151,7 +151,7 @@ func TestCreateTaskRejectsKernelOwnedInventoryVaccineCategory(t *testing.T) {
 
 func TestPlannerParkShedsRejectsKernelOwnedInventoryVaccineCategory(t *testing.T) {
 	store := &fakeStore{}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{{
 		Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: testTenant,
 	}})
@@ -176,7 +176,7 @@ func TestCEOCanMonitorInventoryVaccineTasksTenantWide(t *testing.T) {
 		TaskID: testTask, Category: domain.CategoryInventoryVaccine, Status: domain.StatusPendingVerification,
 		InventoryRequirements: []ports.InventoryRequirement{{VaccineLabel: "PPR", RequiredDoses: 4}},
 	}}}}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{{
 		Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: testTenant,
 	}})
@@ -201,7 +201,7 @@ func TestCEOCanMonitorInventoryVaccineTasksTenantWide(t *testing.T) {
 // holder is refused with the typed error, and no store write runs.
 func TestExecuteWritesRequireAssigneeMembership(t *testing.T) {
 	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
-	svc := NewService(store).WithVerificationEnqueuer(&fakeEnqueuer{})
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithVerificationEnqueuer(&fakeEnqueuer{})
 
 	_, err := svc.ScanAnimal(context.Background(), operatorActor(testOutsider), ScanAnimalInput{
 		TaskID: testTask, ScannedIdentifier: "RFID-1", IdempotencyKey: "scan-key-1",
@@ -235,7 +235,7 @@ func TestExecuteWritesRequireAssigneeMembership(t *testing.T) {
 // A role without pc_care.execute is refused before the membership check.
 func TestExecuteWritesRequireThePermission(t *testing.T) {
 	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
-	svc := NewService(store).WithVerificationEnqueuer(&fakeEnqueuer{})
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithVerificationEnqueuer(&fakeEnqueuer{})
 	verifier := domain.Actor{TenantID: testTenant, UserID: testAssignee, Roles: []string{permissions.RoleVerifier}}
 	if _, err := svc.ScanAnimal(context.Background(), verifier, ScanAnimalInput{
 		TaskID: testTask, ScannedIdentifier: "RFID-1", IdempotencyKey: "scan-key-3",
@@ -247,7 +247,7 @@ func TestExecuteWritesRequireThePermission(t *testing.T) {
 func TestRegisterTaskProofRequiresAssigneeAndValidatesLiveCameraMedia(t *testing.T) {
 	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
 	proofs := &fakeProofValidator{}
-	svc := NewService(store).WithProofValidator(proofs)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithProofValidator(proofs)
 
 	err := svc.RegisterTaskProof(context.Background(), operatorActor(testOutsider), RegisterTaskProofInput{
 		TaskID:         testTask,
@@ -298,7 +298,7 @@ func TestRegisterTaskProofRequiresAssigneeAndValidatesLiveCameraMedia(t *testing
 func TestRegisterTaskProofRejectsWrongLiveCameraProofKind(t *testing.T) {
 	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
 	proofs := &fakeProofValidator{err: ports.ErrInvalidProof}
-	svc := NewService(store).WithProofValidator(proofs)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithProofValidator(proofs)
 
 	err := svc.RegisterTaskProof(context.Background(), operatorActor(testAssignee), RegisterTaskProofInput{
 		TaskID:         testTask,

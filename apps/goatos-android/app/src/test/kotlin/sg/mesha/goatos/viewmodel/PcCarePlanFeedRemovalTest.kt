@@ -2,6 +2,7 @@ package sg.mesha.goatos.viewmodel
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -22,6 +23,9 @@ import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
 import sg.mesha.goatos.feature.pccare.PcCarePlanEvent
 import sg.mesha.goatos.feature.pccare.PcCarePlanStep
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 /**
  * The deworming wizard's feed & water removal half (maintainer decision 2026-09-03):
@@ -74,16 +78,21 @@ class PcCarePlanFeedRemovalTest {
         )
     }
 
-    private fun viewModel(repository: FakePcCareRepository) = PcCarePlanViewModel(
+    private fun viewModel(
+        repository: FakePcCareRepository,
+        bootstrapRepository: sg.mesha.goatos.core.data.BootstrapRepository = FakeCutoffBootstrapRepository(),
+    ) = PcCarePlanViewModel(
         repository = repository,
         submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) },
         analytics = NoopAnalytics(),
         crashReporter = NoopCrashReporter(),
+        bootstrapRepository = bootstrapRepository,
     )
 
     /** Walks the wizard through DATE -> PARK -> PEN -> OPERATORS with one of everything picked. */
     private suspend fun kotlinx.coroutines.test.TestScope.walkToOperators(vm: PcCarePlanViewModel) {
-        vm.onEvent(PcCarePlanEvent.NextStep) // DATE -> PARK (today preselected)
+        vm.onEvent(PcCarePlanEvent.SelectDate(defaultCutoffEarliestDate()))
+        vm.onEvent(PcCarePlanEvent.NextStep) // DATE -> PARK
         vm.onEvent(PcCarePlanEvent.SelectPark("park-1"))
         vm.onEvent(PcCarePlanEvent.NextStep) // PARK -> PEN (loads pens)
         advanceUntilIdle()
@@ -92,6 +101,12 @@ class PcCarePlanFeedRemovalTest {
         vm.onEvent(PcCarePlanEvent.ToggleOperator("op-1"))
         assertEquals(PcCarePlanStep.OPERATORS, vm.state.value.step)
     }
+
+    private fun defaultCutoffEarliestDate(): LocalDate =
+        earliestPlannableDateWithFeedRemoval(
+            ZonedDateTime.now(ZoneId.of("Asia/Kolkata")),
+            LocalTime.of(20, 0),
+        )
 
     @Test
     fun `toggle is offered only on the deworming wizard`() = runTest(dispatcher) {
@@ -143,6 +158,7 @@ class PcCarePlanFeedRemovalTest {
         val repository = repositoryWithTwoPens()
         val vm = viewModel(repository)
         vm.bindWizard("deworming", "Deworming")
+        vm.onEvent(PcCarePlanEvent.SelectDate(defaultCutoffEarliestDate()))
         vm.onEvent(PcCarePlanEvent.NextStep)
         vm.onEvent(PcCarePlanEvent.SelectPark("park-1"))
         vm.onEvent(PcCarePlanEvent.NextStep)
@@ -229,6 +245,55 @@ class PcCarePlanFeedRemovalTest {
         // And a later attempt to reselect a too-early day is refused.
         vm.onEvent(PcCarePlanEvent.SelectDate(LocalDate.parse(before)))
         assertEquals(after, vm.state.value.selectedDate)
+    }
+
+    @Test
+    fun `toggle on clears and reloads pens when it bumps a picked date`() = runTest(dispatcher) {
+        val repository = repositoryWithOnePen()
+        val vm = viewModel(repository)
+        vm.bindWizard("deworming", "Deworming")
+        vm.onEvent(PcCarePlanEvent.NextStep)
+        vm.onEvent(PcCarePlanEvent.SelectPark("park-1"))
+        vm.onEvent(PcCarePlanEvent.NextStep)
+        advanceUntilIdle()
+        vm.onEvent(PcCarePlanEvent.TogglePen("shed-1", "Part 1"))
+        vm.onEvent(PcCarePlanEvent.NextStep)
+        assertEquals(PcCarePlanStep.OPERATORS, vm.state.value.step)
+
+        vm.onEvent(PcCarePlanEvent.ToggleFeedRemoval)
+        advanceUntilIdle()
+
+        val bumpedDate = vm.state.value.selectedDate
+        assertEquals(PcCarePlanStep.PEN, vm.state.value.step)
+        assertTrue(vm.state.value.selectedPenKeys.isEmpty())
+        assertEquals(bumpedDate, repository.plannerShedQueries.last()[2])
+    }
+
+    @Test
+    fun `late cutoff load revalidates selected removal date`() = runTest(dispatcher) {
+        val cutoff = CompletableDeferred<String?>()
+        val repository = repositoryWithOnePen()
+        val vm = viewModel(repository, DelayedCutoffBootstrapRepository(cutoff))
+        vm.bindWizard("deworming", "Deworming")
+        val tomorrow = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).plusDays(1).toString()
+
+        vm.onEvent(PcCarePlanEvent.ToggleFeedRemoval)
+        vm.onEvent(PcCarePlanEvent.NextStep)
+        vm.onEvent(PcCarePlanEvent.SelectPark("park-1"))
+        vm.onEvent(PcCarePlanEvent.NextStep)
+        advanceUntilIdle()
+        assertEquals(tomorrow, vm.state.value.selectedDate)
+        assertEquals(tomorrow, repository.plannerShedQueries.single()[2])
+
+        cutoff.complete("00:00")
+        advanceUntilIdle()
+
+        val dayAfterTomorrow = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).plusDays(2).toString()
+        assertEquals(dayAfterTomorrow, vm.state.value.selectedDate)
+        assertEquals(dayAfterTomorrow, vm.state.value.minSelectableDateIso)
+        assertTrue(vm.state.value.selectedPenKeys.isEmpty())
+        assertTrue(vm.state.value.message.orEmpty().isNotBlank())
+        assertEquals(dayAfterTomorrow, repository.plannerShedQueries.last()[2])
     }
 
     @Test

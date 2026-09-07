@@ -224,13 +224,17 @@ internal class FakePcCareRepository : PcCareRepository {
     override suspend fun plannerCatalog(): PcCarePlannerCatalogDto = PcCarePlannerCatalogDto()
 
     var plannerSheds: PcCarePlannerShedsDto = PcCarePlannerShedsDto()
+    val plannerShedQueries = mutableListOf<List<String>>()
 
     override suspend fun plannerParkSheds(
         parkId: String,
         category: String,
         date: String,
         cursor: String?,
-    ): PcCarePlannerShedsDto = plannerSheds
+    ): PcCarePlannerShedsDto {
+        plannerShedQueries += listOf(parkId, category, date, cursor.orEmpty())
+        return plannerSheds
+    }
 
     val createRequests = mutableListOf<Pair<String, PcCareCreateTaskRequestDto>>()
 

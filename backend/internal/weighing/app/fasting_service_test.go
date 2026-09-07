@@ -6,10 +6,18 @@ import (
 	"testing"
 	"time"
 
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
+	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
+
+// eightPM is the CONFIGURED removal cutoff every service under test reads
+// through the feedwaterremoval seam (maintainer decision 2026-09-07: config,
+// not code). No test — and no production path — carries a literal hour of its
+// own; a service built without a reader refuses fasting-gated work.
+var eightPM = fwrports.StaticCutoff{Cutoff: fwrdomain.MustCutoff(20, 0)}
 
 // fakeFastingStore records calls; behavior is table-driven per test.
 type fakeFastingStore struct {
@@ -19,14 +27,16 @@ type fakeFastingStore struct {
 	submitErr     error
 	listCalls     int
 	listNow       time.Time
+	listCutoff    fwrdomain.Cutoff
 	startDate     string
 	fastingSubbed bool
 	hasFasting    bool
 }
 
-func (f *fakeFastingStore) ListFastingShedCardsForOperator(_ context.Context, _, _ string, now time.Time, _ string, _ int) (domain.FastingShedCardPage, error) {
+func (f *fakeFastingStore) ListFastingShedCardsForOperator(_ context.Context, _, _ string, now time.Time, cutoff fwrdomain.Cutoff, _ string, _ int) (domain.FastingShedCardPage, error) {
 	f.listCalls++
 	f.listNow = now
+	f.listCutoff = cutoff
 	return domain.FastingShedCardPage{Items: []domain.FastingShedCard{}}, nil
 }
 
@@ -64,14 +74,50 @@ func TestCreateCampaignEnforcesTheFastingEveningCutoff(t *testing.T) {
 	cmd := validCreate() // weigh date 2026-07-29
 
 	evening := beforeCutoffClock("2026-07-29")().Add(10*time.Hour + 30*time.Minute) // 20:30 IST on the 28th
-	service := NewService(&fakeRepo{}).WithClock(func() time.Time { return evening })
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithClock(func() time.Time { return evening })
 	if _, err := service.CreateCampaign(context.Background(), ceo, cmd); !errors.Is(err, ports.ErrFastingWindowClosed) {
 		t.Fatalf("evening create err = %v, want ErrFastingWindowClosed", err)
 	}
 
-	morning := NewService(&fakeRepo{}).WithClock(beforeCutoffClock("2026-07-29"))
+	morning := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithClock(beforeCutoffClock("2026-07-29"))
 	if _, err := morning.CreateCampaign(context.Background(), ceo, cmd); err != nil {
 		t.Fatalf("morning create err = %v, want allowed", err)
+	}
+
+	// THE HOUR IS CONFIG: the same 20:30 instant is still BEFORE a farm whose
+	// evening opens at 21:00, so tomorrow stays plannable there. Mutation-tested
+	// by hardcoding 20 in the domain rule (this case goes red).
+	ninePM := fwrports.StaticCutoff{Cutoff: fwrdomain.MustCutoff(21, 0)}
+	later := NewService(&fakeRepo{}).WithClock(func() time.Time { return evening }).WithFeedWaterRemovalCutoff(ninePM)
+	if _, err := later.CreateCampaign(context.Background(), ceo, cmd); err != nil {
+		t.Fatalf("20:30 create under a 21:00 cutoff err = %v, want allowed", err)
+	}
+}
+
+// NO LITERAL FALLBACK: a tenant with no configured cutoff cannot have its
+// weigh date judged, so the create is refused with the config error — never
+// silently planned against an hour the code invented. Both the unwired and
+// the wired-but-unset readers refuse, and the card list refuses before the
+// store is asked.
+func TestCreateCampaignRefusesWhenTheRemovalCutoffIsNotConfigured(t *testing.T) {
+	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
+	cmd := validCreate()
+	unwired := NewService(&fakeRepo{}).WithClock(beforeCutoffClock("2026-07-29"))
+	if _, err := unwired.CreateCampaign(context.Background(), ceo, cmd); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
+		t.Fatalf("unwired reader create err = %v, want ErrCutoffNotConfigured", err)
+	}
+	unset := NewService(&fakeRepo{}).WithClock(beforeCutoffClock("2026-07-29")).WithFeedWaterRemovalCutoff(fwrports.StaticCutoff{})
+	if _, err := unset.CreateCampaign(context.Background(), ceo, cmd); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
+		t.Fatalf("unset reader create err = %v, want ErrCutoffNotConfigured", err)
+	}
+	store := &fakeFastingStore{}
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+	list := NewService(&fakeRepo{}).WithFastingStore(store).WithClock(beforeCutoffClock("2026-07-29"))
+	if _, err := list.ListMyFastingShedCards(context.Background(), operator, "", 20); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
+		t.Fatalf("unwired reader list err = %v, want ErrCutoffNotConfigured", err)
+	}
+	if store.listCalls != 0 {
+		t.Fatal("the store must not be asked to list under an unknown cutoff")
 	}
 }
 
@@ -79,7 +125,7 @@ func TestCreateCampaignEnforcesTheFastingEveningCutoff(t *testing.T) {
 // malformed id stays the generic invalid-argument.
 func TestCreateCampaignRequiresTheFastingOperator(t *testing.T) {
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
-	service := NewService(&fakeRepo{}).WithClock(beforeCutoffClock("2026-07-29"))
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithClock(beforeCutoffClock("2026-07-29"))
 
 	cmd := validCreate()
 	cmd.FastingOperatorUserID = ""
@@ -101,7 +147,7 @@ func TestUpdateCampaignFastingDateRules(t *testing.T) {
 	// Same date, evening clock: allowed (the date was valid when planned).
 	keep := &fakeFastingStore{startDate: "2026-07-29", hasFasting: true}
 	evening := beforeCutoffClock("2026-07-29")().Add(11 * time.Hour) // 21:00 IST on the 28th
-	service := NewService(&fakeRepo{}).WithFastingStore(keep).WithClock(func() time.Time { return evening })
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(keep).WithClock(func() time.Time { return evening })
 	cmd := validCreate()
 	if _, err := service.UpdateCampaign(context.Background(), ceo, campaignID, cmd); err != nil {
 		t.Fatalf("same-date evening edit err = %v, want allowed", err)
@@ -109,14 +155,14 @@ func TestUpdateCampaignFastingDateRules(t *testing.T) {
 
 	// Moved date past the cutoff: refused.
 	move := &fakeFastingStore{startDate: "2026-07-30", hasFasting: true}
-	service = NewService(&fakeRepo{}).WithFastingStore(move).WithClock(func() time.Time { return evening })
+	service = NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(move).WithClock(func() time.Time { return evening })
 	if _, err := service.UpdateCampaign(context.Background(), ceo, campaignID, cmd); !errors.Is(err, ports.ErrFastingWindowClosed) {
 		t.Fatalf("moved-date evening edit err = %v, want ErrFastingWindowClosed", err)
 	}
 
 	// Submitted removal locks the date entirely.
 	locked := &fakeFastingStore{startDate: "2026-07-30", hasFasting: true, fastingSubbed: true}
-	service = NewService(&fakeRepo{}).WithFastingStore(locked).WithClock(beforeCutoffClock("2026-07-29"))
+	service = NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(locked).WithClock(beforeCutoffClock("2026-07-29"))
 	if _, err := service.UpdateCampaign(context.Background(), ceo, campaignID, cmd); !errors.Is(err, ports.ErrFastingSubmittedDateLocked) {
 		t.Fatalf("date move after submitted removal err = %v, want ErrFastingSubmittedDateLocked", err)
 	}
@@ -145,7 +191,7 @@ func TestSubmitFastingShedRequiresBothVideosAndEnqueuesThatShed(t *testing.T) {
 		},
 	}
 	enqueuer := &captureVerificationEnqueuer{}
-	service := NewService(&fakeRepo{}).WithFastingStore(store).WithVerificationEnqueuer(enqueuer)
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(store).WithVerificationEnqueuer(enqueuer)
 
 	// A missing water video is refused before the store is reached.
 	cmd := domain.SubmitFastingShed{FastingTaskID: fastingTaskID, CampaignShedID: shedB,
@@ -205,7 +251,7 @@ func TestSubmitFastingShedRequiresBothVideosAndEnqueuesThatShed(t *testing.T) {
 // permission gate holds.
 func TestSubmitFastingShedAuthorization(t *testing.T) {
 	store := &fakeFastingStore{}
-	service := NewService(&fakeRepo{}).WithFastingStore(store)
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(store)
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 	cmd := domain.SubmitFastingShed{FastingTaskID: fastingTaskID, CampaignShedID: "00000000-0000-4000-8000-000000000801",
 		FeedProofRef: proofOne, WaterProofRef: proofTwo, IdempotencyKey: "fast-2"}
@@ -223,11 +269,16 @@ func TestListMyFastingShedCardsThreadsThePinnedClock(t *testing.T) {
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 	store := &fakeFastingStore{}
 	pinned := time.Date(2026, 9, 3, 20, 30, 0, 0, time.UTC)
-	service := NewService(&fakeRepo{}).WithFastingStore(store).WithClock(func() time.Time { return pinned })
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(store).WithClock(func() time.Time { return pinned })
 	if _, err := service.ListMyFastingShedCards(context.Background(), operator, "", 20); err != nil {
 		t.Fatalf("list err = %v", err)
 	}
 	if store.listCalls != 1 || !store.listNow.Equal(pinned) {
 		t.Fatalf("store now = %s calls=%d, want the pinned service clock once", store.listNow, store.listCalls)
+	}
+	// ...and the CONFIGURED cutoff rides beside it, so the SQL binds the
+	// farm's evening rather than a literal.
+	if store.listCutoff != eightPM.Cutoff {
+		t.Fatalf("store cutoff = %s, want the configured %s", store.listCutoff, eightPM.Cutoff)
 	}
 }

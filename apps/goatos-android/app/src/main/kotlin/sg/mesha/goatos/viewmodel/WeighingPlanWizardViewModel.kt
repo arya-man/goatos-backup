@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +19,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerPark
@@ -63,6 +65,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
     repeatSeedStore: WeighingRepeatSeedStore,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
+    private val bootstrapRepository: BootstrapRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -147,6 +150,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
      */
     private var catalogRefreshInFlight = false
     private var bucketsRefreshInFlight = false
+    private var pendingCatalogRefreshDate: String? = null
 
     val state: StateFlow<WeighingWizardUiState> = raw
         .map { it.toUiState() }
@@ -168,6 +172,14 @@ class WeighingPlanWizardViewModel @Inject constructor(
     init {
         analytics.track(AnalyticsEvents.WEIGHING_PLAN_VIEWED)
         trackStepReached(raw.value.step)
+        // The removal cutoff hint is the FARM's configured evening, served on the bootstrap
+        // (maintainer decision 2026-09-07: config, not code). Until it lands the date step offers
+        // only the rule's invariant floor (never today); once it lands the offered days recompute.
+        // The backend remains the source of truth for accepting or rejecting the save.
+        viewModelScope.launch {
+            val cutoff = parseFeedWaterRemovalCutoff(bootstrapRepository.feedWaterRemovalCutoffTime())
+            applyRemovalCutoff(cutoff)
+        }
         // Editing pre-selects its date (see [raw]'s init above), so the catalog for it starts
         // loading now rather than waiting for a DATE-step tap this flow never asks for.
         raw.value.date?.takeIf { editCampaignId != null }?.let { loadCatalog(it) }
@@ -261,10 +273,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
         // that reaches straight into the ViewModel bypassing the screen.
         if (current.editCampaignId != null) return
         // Weighing always needs feed & water removed the evening before (maintainer decision
-        // 2026-09-03), so the earliest plannable date follows the 20:00 IST removal-evening rule —
-        // today is never offerable, and past dates never were. Client mirror only; the server
-        // still refuses with its own farm copy (422 fasting_window_closed).
-        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE))
+        // 2026-09-03), so the earliest plannable date follows the farm's CONFIGURED removal-evening
+        // cutoff — today is never offerable, and past dates never were. Client picker hint only; the
+        // server still refuses with its own farm copy (422 fasting_window_closed).
+        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), current.removalCutoff)
         val parsed = runCatching {
             // exception:exempt date validation; unparseable date rejects state change
             LocalDate.parse(isoDate, ISO_DATE)
@@ -284,6 +296,38 @@ class WeighingPlanWizardViewModel @Inject constructor(
             repeatDropped = 0,
         )
         loadCatalog(isoDate)
+    }
+
+    private fun applyRemovalCutoff(cutoff: java.time.LocalTime?) {
+        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), cutoff)
+        var reloadDate: String? = null
+        raw.update { current ->
+            val selectedDate = current.date
+            if (current.editCampaignId != null || selectedDate == null) {
+                current.copy(removalCutoff = cutoff)
+            } else {
+                val selected = runCatching { LocalDate.parse(selectedDate, ISO_DATE) }.getOrNull()
+                if (selected == null || !selected.isBefore(earliest)) {
+                    current.copy(removalCutoff = cutoff)
+                } else {
+                    val bumpedIso = earliest.toString()
+                    reloadDate = bumpedIso
+                    current.copy(
+                        removalCutoff = cutoff,
+                        date = bumpedIso,
+                        catalog = null,
+                        parkId = null,
+                        buckets = emptyList(),
+                        bucketsParkId = null,
+                        selections = emptyMap(),
+                        picked = emptySet(),
+                        repeatDropped = 0,
+                        message = "Feed & water must be removed the evening before, so the day moved to the earliest possible one.",
+                    )
+                }
+            }
+        }
+        reloadDate?.let { loadCatalog(it) }
     }
 
     // ---- step 2: park --------------------------------------------------------------------
@@ -639,7 +683,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
     private fun refreshCatalog(isoDate: String) {
         // Deduped against its OWN in-flight flag, not [WizardRaw.loading] -- see
         // [catalogRefreshInFlight]'s doc for why the two must never share one guard.
-        if (catalogRefreshInFlight) return
+        if (catalogRefreshInFlight) {
+            pendingCatalogRefreshDate = isoDate
+            return
+        }
         catalogRefreshInFlight = true
         raw.value = raw.value.copy(loading = true)
         viewModelScope.launch {
@@ -658,6 +705,12 @@ class WeighingPlanWizardViewModel @Inject constructor(
                 }
             } finally {
                 catalogRefreshInFlight = false
+                pendingCatalogRefreshDate?.let { pending ->
+                    pendingCatalogRefreshDate = null
+                    if (pending != isoDate) {
+                        refreshCatalog(pending)
+                    }
+                }
             }
         }
     }
@@ -801,6 +854,12 @@ private data class WizardRaw(
     val savedCampaignId: String? = null,
     /** Answers carried over from an existing task, applied once the chosen date's catalog lands. */
     val repeat: WeighingRepeatSeed? = null,
+    /**
+     * The farm's feed & water removal cutoff from the bootstrap (maintainer decision 2026-09-07:
+     * config, not code); null until it lands or when the farm has none, in which case the date
+     * picker offers only the rule's invariant floor.
+     */
+    val removalCutoff: java.time.LocalTime? = null,
     val repeatDropped: Int = 0,
     /** Carried-over buckets are applied ONCE, so a later page never overwrites the planner's edits. */
     val repeatApplied: Boolean = false,
@@ -1013,8 +1072,8 @@ private fun WizardRaw.filteredSelections(): List<Pair<String, WizardSelection>> 
 
 private fun WizardRaw.toUiState(): WeighingWizardUiState {
     // Weighing needs the removal evening before every weigh date, so the offered days start at
-    // the 20:00 IST rule's earliest — today disappears entirely (its evening was yesterday).
-    val firstOfferedDate = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE))
+    // the configured cutoff rule's earliest — today disappears entirely (its evening was yesterday).
+    val firstOfferedDate = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), removalCutoff)
     val sheds = shedsInPark()
     val shedsById = sheds.associateBy { it.operationalKey() }
     val ordered = orderedSelections()

@@ -61,7 +61,7 @@ func (r *plannerCatalogRepo) PlannerParkBuckets(_ context.Context, _, parkID, _,
 
 func TestPlannerCatalogHidesParksTheActorHasNoAuthorityIn(t *testing.T) {
 	repo := &plannerCatalogRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	catalog, err := svc.PlannerCatalog(plannerScopedContext(), plannerScopedActor(), "2026-08-10")
 	if err != nil {
@@ -76,7 +76,7 @@ func TestPlannerCatalogHidesParksTheActorHasNoAuthorityIn(t *testing.T) {
 
 func TestPlannerParkBucketsRefusesAnotherParksSheds(t *testing.T) {
 	repo := &plannerCatalogRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	_, err := svc.PlannerParkBuckets(plannerScopedContext(), plannerScopedActor(),
 		plannerScopeParkOthers, "2026-08-10", "", "", 20)
@@ -94,7 +94,7 @@ func TestPlannerParkBucketsRefusesAnotherParksSheds(t *testing.T) {
 }
 
 func TestCreateCampaignRefusesAnotherParksCampaign(t *testing.T) {
-	svc := NewService(&plannerCatalogRepo{}).WithClock(beforeCutoffClock("2026-08-10"))
+	svc := NewService(&plannerCatalogRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithClock(beforeCutoffClock("2026-08-10"))
 
 	// WeighingPlan is CEO-only (see permissions.rolePermissions), so the create/update/publish
 	// surfaces need a CEO actor to get PAST the flat role gate and reach the park check that is
@@ -147,7 +147,7 @@ func (r *listScopeRepo) ListCampaigns(_ context.Context, _, parkID, _ string, _ 
 func TestListCampaignsClampsTheParkFilterToTheActorsAuthority(t *testing.T) {
 	t.Run("another park is refused", func(t *testing.T) {
 		repo := &listScopeRepo{}
-		svc := NewService(repo)
+		svc := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 		_, err := svc.ListCampaigns(plannerScopedContext(), plannerScopedActor(),
 			domain.CampaignListScopeAll, plannerScopeParkOthers, "", 20)
 		if !errors.Is(err, ports.ErrForbidden) {
@@ -160,7 +160,7 @@ func TestListCampaignsClampsTheParkFilterToTheActorsAuthority(t *testing.T) {
 
 	t.Run("an omitted park defaults to the actor's own park, not all parks", func(t *testing.T) {
 		repo := &listScopeRepo{}
-		svc := NewService(repo)
+		svc := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 		if _, err := svc.ListCampaigns(plannerScopedContext(), plannerScopedActor(),
 			domain.CampaignListScopeAll, "", "", 20); err != nil {
 			t.Fatalf("list with no park: %v", err)
@@ -198,7 +198,7 @@ type campaignShedsRepo struct {
 // thing naming what they see -- and the role check is park-blind.
 func TestListCampaignShedsRefusesAnotherParksCampaign(t *testing.T) {
 	repo := newCampaignShedsRepo()
-	svc := NewService(repo)
+	svc := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	_, err := svc.ListCampaignSheds(plannerScopedContext(), plannerScopedActor(), securityCampaignB, "", 20)
 	if !errors.Is(err, ports.ErrNotFound) {
@@ -224,7 +224,7 @@ func TestListCampaignShedsRefusesAnotherParksCampaign(t *testing.T) {
 // assignable person in the tenant -- and admin-web pre-selects operators[0].
 func TestPlannerCatalogFiltersOperatorsNotJustParks(t *testing.T) {
 	repo := &plannerOperatorRepo{}
-	catalog, err := NewService(repo).PlannerCatalog(plannerScopedContext(), plannerScopedActor(), "2026-08-10")
+	catalog, err := NewService(repo).WithFeedWaterRemovalCutoff(eightPM).PlannerCatalog(plannerScopedContext(), plannerScopedActor(), "2026-08-10")
 	if err != nil {
 		t.Fatalf("planner catalog: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestListCampaignsAsksMultiParkActorToChooseWithAnActionableError(t *testing
 		{Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: plannerScopeParkMine},
 		{Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: plannerScopeParkOthers},
 	})
-	_, err := NewService(&listScopeRepo{}).ListCampaigns(ctx, plannerScopedActor(),
+	_, err := NewService(&listScopeRepo{}).WithFeedWaterRemovalCutoff(eightPM).ListCampaigns(ctx, plannerScopedActor(),
 		domain.CampaignListScopeAll, "", "", 20)
 	if !errors.Is(err, ports.ErrParkSelectionRequired) {
 		t.Fatalf("multi-park list err = %v, want ErrParkSelectionRequired", err)

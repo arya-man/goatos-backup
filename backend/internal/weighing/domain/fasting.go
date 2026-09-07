@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
@@ -18,13 +19,21 @@ import (
 //
 // The three clocks, all Asia/Kolkata BUSINESS-DAY anchored (never now±N hours):
 //
-//	create cutoff — a weigh date D is plannable only strictly BEFORE 20:00 IST
-//	                on D-1. At or after 20:00 the earliest offerable date is
-//	                D+1, because tonight's removal window is already open and
-//	                the removal operator cannot be assigned into it.
-//	visibility    — the fasting card is served to its operator from 20:00 IST
+//	create cutoff — a weigh date D is plannable only strictly BEFORE the farm's
+//	                removal cutoff on D-1. At or after it the earliest offerable
+//	                date is D+1, because tonight's removal window is already
+//	                open and the removal operator cannot be assigned into it.
+//	visibility    — the fasting card is served to its operator from the cutoff
 //	                on (weigh date - 1). Before that instant the card is
 //	                withheld from the list; the record itself stays readable.
+//
+// THE CUTOFF IS CONFIG, NOT CODE (maintainer decision 2026-09-07): it is read
+// per tenant from feed_water_removal_config through feedwaterremoval/ports
+// .CutoffReader and threaded into every rule below as a value. Weighing never
+// names that table (it is isolated from every non-weighing table) and carries
+// no literal hour of its own; a missing config row refuses the plan
+// (ports.ErrCutoffNotConfigured) rather than inventing an evening.
+//
 //	deadline      — 00:00 IST of the weigh date. The kernel's midnight gate
 //	                rolls an UNSUBMITTED fasting task and its campaign's work
 //	                items forward one day together.
@@ -47,10 +56,6 @@ const (
 	// evidence row (weighing_fasting_shed_proofs.fasting_shed_id): the review
 	// grain follows the evidence, one item per shed.
 	VerificationRefTypeFasting = "weighing_fasting_shed"
-
-	// FastingCutoffHourIST is the shared 20:00 IST wall-clock boundary used by
-	// BOTH the create cutoff and card visibility.
-	FastingCutoffHourIST = 20
 )
 
 // FastingShedProof is ONE SHED's removal evidence on a fasting card
@@ -193,35 +198,28 @@ type SubmitFastingShed struct {
 }
 
 // EarliestPlannableWeighDate answers the create cutoff: the first weigh date a
-// planner may still choose at instant now. Strictly before 20:00 IST that is
-// TOMORROW (tonight's removal window has not opened, so tonight's operator can
-// still be assigned); at or after 20:00 it is the DAY AFTER TOMORROW.
+// planner may still choose at instant now under the farm's configured cutoff.
+// Strictly before the cutoff that is TOMORROW (tonight's removal window has
+// not opened, so tonight's operator can still be assigned); at or after it,
+// the DAY AFTER TOMORROW.
 //
-// now is the caller's clock, passed in so tests are deterministic; the IST
-// conversion happens here and nowhere else.
-func EarliestPlannableWeighDate(now time.Time) string {
-	ist := now.In(biztime.DefaultLocation())
-	days := 1
-	if ist.Hour() >= FastingCutoffHourIST {
-		days = 2
-	}
-	return ist.AddDate(0, 0, days).Format("2006-01-02")
+// now is the caller's clock, passed in so tests are deterministic; cutoff is
+// the tenant's configured value, never a literal. The arithmetic lives in
+// feedwaterremoval/domain so PC Care answers the identical question.
+func EarliestPlannableWeighDate(now time.Time, cutoff fwrdomain.Cutoff) string {
+	return fwrdomain.EarliestPlannableBusinessDate(now, cutoff)
 }
 
 // WeighDateAllowsFastingCreate reports whether weighDate (a validated
 // YYYY-MM-DD business date) is still plannable at instant now.
-func WeighDateAllowsFastingCreate(weighDate string, now time.Time) bool {
-	return weighDate >= EarliestPlannableWeighDate(now)
+func WeighDateAllowsFastingCreate(weighDate string, now time.Time, cutoff fwrdomain.Cutoff) bool {
+	return fwrdomain.DateAllowsPlanning(weighDate, now, cutoff)
 }
 
-// FastingCardVisibleFrom is the instant the operator's card appears: 20:00 IST
-// on the evening before the (current) weigh date.
-func FastingCardVisibleFrom(weighBusinessDate string) (time.Time, error) {
-	day, err := time.ParseInLocation("2006-01-02", weighBusinessDate, biztime.DefaultLocation())
-	if err != nil {
-		return time.Time{}, err
-	}
-	return day.AddDate(0, 0, -1).Add(time.Duration(FastingCutoffHourIST) * time.Hour), nil
+// FastingCardVisibleFrom is the instant the operator's card appears: the
+// configured cutoff on the evening before the (current) weigh date.
+func FastingCardVisibleFrom(weighBusinessDate string, cutoff fwrdomain.Cutoff) (time.Time, error) {
+	return fwrdomain.VisibleFrom(weighBusinessDate, cutoff)
 }
 
 // FastingDeadline is the submit deadline: 00:00 IST of the weigh date. A

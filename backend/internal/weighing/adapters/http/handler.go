@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -808,6 +809,10 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		// 422: the request is well-formed; the chosen date's removal evening has
 		// already begun (or passed), so the remedy is picking a later date.
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_window_closed", Message: "Feed and water must be removed the evening before, and that evening is no longer available for this date. Pick a later date.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, fwrports.ErrCutoffNotConfigured):
+		// 422: the farm has no removal cutoff configured, so no fasting-gated
+		// date can be judged. The remedy is a config fix, never a retry.
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "feed_water_removal_cutoff_missing", Message: "The feed and water removal cutoff time is not set up for this farm yet. Ask an admin to set it, then try again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingOperatorRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_operator_required", Message: "Choose who will remove feed and water the evening before this weighing.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingNotAssigned):

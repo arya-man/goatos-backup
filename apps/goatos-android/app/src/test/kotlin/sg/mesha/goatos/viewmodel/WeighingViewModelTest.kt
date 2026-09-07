@@ -1547,6 +1547,7 @@ class WeighingViewModelTest {
                 repeatSeedStore = sharedSeedStore,
                 analytics = NoopAnalytics(),
                 crashReporter = NoopCrashReporter(),
+                bootstrapRepository = FakeCutoffBootstrapRepository(),
                 savedStateHandle = SavedStateHandle(
                     mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
                 ),
@@ -1642,6 +1643,7 @@ class WeighingViewModelTest {
                 repeatSeedStore = freshSeedStore,
                 analytics = NoopAnalytics(),
                 crashReporter = NoopCrashReporter(),
+                bootstrapRepository = FakeCutoffBootstrapRepository(),
                 savedStateHandle = SavedStateHandle(
                     // The route arg SURVIVES process death; the seed it should have paired with does
                     // not.
@@ -1708,6 +1710,7 @@ class WeighingViewModelTest {
             repeatSeedStore = WeighingRepeatSeedStore(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
+            bootstrapRepository = FakeCutoffBootstrapRepository(),
             savedStateHandle = SavedStateHandle(),
         )
         backgroundScope.launch(dispatcher) { wizardVm.state.collect {} }
@@ -2468,6 +2471,7 @@ class WeighingViewModelTest {
             repeatSeedStore = WeighingRepeatSeedStore(),
             analytics = analytics,
             crashReporter = NoopCrashReporter(),
+            bootstrapRepository = FakeCutoffBootstrapRepository(),
             savedStateHandle = SavedStateHandle(emptyMap()),
         )
         backgroundScope.launch(dispatcher) { wizardVm.state.collect {} }
@@ -2511,6 +2515,7 @@ class WeighingViewModelTest {
                     repeatSeedStore = WeighingRepeatSeedStore(),
                     analytics = analytics,
                     crashReporter = NoopCrashReporter(),
+                    bootstrapRepository = FakeCutoffBootstrapRepository(),
                     savedStateHandle = SavedStateHandle(emptyMap()),
                 ) as T
             }
@@ -2545,6 +2550,7 @@ class WeighingViewModelTest {
                     repeatSeedStore = WeighingRepeatSeedStore(),
                     analytics = analytics,
                     crashReporter = NoopCrashReporter(),
+                    bootstrapRepository = FakeCutoffBootstrapRepository(),
                     savedStateHandle = SavedStateHandle(emptyMap()),
                 ) as T
             }

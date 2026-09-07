@@ -27,7 +27,13 @@ func (s *Service) ListMyFastingShedCards(ctx context.Context, actor domain.Actor
 	if s.fasting == nil {
 		return domain.FastingShedCardPage{}, ports.ErrNotFound
 	}
-	return s.fasting.ListFastingShedCardsForOperator(ctx, actor.TenantID, actor.UserID, s.clock(), cursor, limit)
+	// The visibility window opens at the tenant's CONFIGURED cutoff; resolved
+	// here and bound into the store's SQL so the read names no config table.
+	cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+	if err != nil {
+		return domain.FastingShedCardPage{}, err
+	}
+	return s.fasting.ListFastingShedCardsForOperator(ctx, actor.TenantID, actor.UserID, s.clock(), cutoff, cursor, limit)
 }
 
 // SubmitFastingShed records ONE shed's removal videos. The round's midnight

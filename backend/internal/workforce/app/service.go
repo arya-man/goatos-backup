@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
+	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/localization"
@@ -18,6 +20,10 @@ type Service struct {
 	repo   ports.Repository
 	now    func() time.Time
 	badges ModuleBadgeSource
+	// cutoffs serves the tenant's feed & water removal cutoff on /app/bootstrap
+	// (maintainer decision 2026-09-07: config, not code) so the phone's plan
+	// wizards mirror the farm's evening instead of a compiled-in hour.
+	cutoffs fwrports.CutoffReader
 }
 
 func NewService(repo ports.Repository) *Service {
@@ -29,6 +35,36 @@ func NewService(repo ports.Repository) *Service {
 // assigned tasks. Keyed by module so a second module can join without touching bootstrap.
 type ModuleBadgeSource interface {
 	ModuleBadgeCounts(ctx context.Context, tenantID, userID string, moduleKeys []string) (map[string]int, error)
+}
+
+// WithFeedWaterRemovalCutoff wires the cutoff reader. Optional: without it the
+// bootstrap carries no cutoff and the phone falls back to the rule's invariant
+// floor; every write path still resolves its own cutoff and fails closed.
+func (s *Service) WithFeedWaterRemovalCutoff(reader fwrports.CutoffReader) *Service {
+	s.cutoffs = reader
+	return s
+}
+
+// feedWaterRemovalCutoffTime resolves the bootstrap's cutoff hint. A missing
+// config row is a legitimate blank; any other read error is logged and also
+// left blank, because the bootstrap is the phone's whole workspace and a
+// display hint must not take it down — the writes behind it fail closed on
+// their own.
+func (s *Service) feedWaterRemovalCutoffTime(ctx context.Context, tenantID string) string {
+	if s.cutoffs == nil {
+		return ""
+	}
+	cutoff, err := s.cutoffs.FeedWaterRemovalCutoff(ctx, tenantID)
+	if err != nil {
+		if !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
+			slog.WarnContext(ctx, "bootstrap: feed & water removal cutoff unavailable", "tenant_id", tenantID, "error", err)
+		}
+		return ""
+	}
+	if !cutoff.Valid() {
+		return ""
+	}
+	return cutoff.String()
 }
 
 // WithModuleBadges wires the badge source. Optional: without it every badge is 0.
@@ -538,12 +574,13 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
 	s.applyModuleBadges(ctx, tenantID, actorID, bootstrapModules)
 	return &domain.BootstrapResponse{
-		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
-		OperatorProfile:        profile,
-		RolesAndScopes:         grants,
-		Capabilities:           caps,
-		DeviceState:            deviceState,
-		AppMinSupportedVersion: "0.1.0",
+		Actor:                      domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
+		OperatorProfile:            profile,
+		RolesAndScopes:             grants,
+		Capabilities:               caps,
+		DeviceState:                deviceState,
+		AppMinSupportedVersion:     "0.1.0",
+		FeedWaterRemovalCutoffTime: s.feedWaterRemovalCutoffTime(ctx, tenantID),
 		FeatureFlags: map[string]bool{
 			"tasks":                       true,
 			"sop_runner":                  true,

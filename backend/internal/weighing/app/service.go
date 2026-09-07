@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
+	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -23,9 +25,14 @@ type Service struct {
 	verificationWithdrawer VerificationWithdrawer
 	processState           ports.WeighingProcessStateReader
 	fasting                ports.FastingStore
+	// cutoffs reads the tenant's feed & water removal cutoff (maintainer
+	// decision 2026-09-07: config, not code). Every fasting rule — create
+	// cutoff, edit cutoff, card visibility — resolves it through this seam and
+	// refuses with ErrCutoffNotConfigured when it is unwired or unset.
+	cutoffs fwrports.CutoffReader
 	// now is the service clock behind the fasting create cutoff and the
-	// fasting card's 20:00 IST visibility window. Injectable so tests pin it;
-	// defaults to time.Now.
+	// fasting card's visibility window. Injectable so tests pin it; defaults
+	// to time.Now.
 	now func() time.Time
 }
 
@@ -43,6 +50,29 @@ func NewService(repo ports.Repository) *Service {
 func (s *Service) WithFastingStore(store ports.FastingStore) *Service {
 	s.fasting = store
 	return s
+}
+
+// WithFeedWaterRemovalCutoff wires the tenant cutoff reader. Without it every
+// fasting-gated write and the card list refuse with
+// fwrports.ErrCutoffNotConfigured — there is deliberately no literal fallback.
+func (s *Service) WithFeedWaterRemovalCutoff(reader fwrports.CutoffReader) *Service {
+	s.cutoffs = reader
+	return s
+}
+
+// removalCutoff resolves the tenant's configured cutoff or fails closed.
+func (s *Service) removalCutoff(ctx context.Context, tenantID string) (fwrdomain.Cutoff, error) {
+	if s.cutoffs == nil {
+		return fwrdomain.Cutoff{}, fwrports.ErrCutoffNotConfigured
+	}
+	cutoff, err := s.cutoffs.FeedWaterRemovalCutoff(ctx, tenantID)
+	if err != nil {
+		return fwrdomain.Cutoff{}, err
+	}
+	if !cutoff.Valid() {
+		return fwrdomain.Cutoff{}, fwrports.ErrCutoffNotConfigured
+	}
+	return cutoff, nil
 }
 
 // WithClock pins the service clock; tests only.
@@ -253,11 +283,16 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 		return domain.Campaign{}, err
 	}
 	// FASTING CREATE CUTOFF (maintainer decision 2026-09-03): the weigh date
-	// must still have a fastable evening ahead of it. Strictly before 20:00 IST
-	// the earliest weigh date is tomorrow; at or after 20:00 it is the day
-	// after. Checked here, on the service clock, so the repository and its
-	// tests never read time.Now themselves.
-	if !domain.WeighDateAllowsFastingCreate(cmd.StartBusinessDate, s.clock()) {
+	// must still have a fastable evening ahead of it. Strictly before the
+	// tenant's configured cutoff the earliest weigh date is tomorrow; at or
+	// after it, the day after. Checked here, on the service clock and the
+	// configured cutoff, so the repository and its tests never read time.Now
+	// or a literal hour themselves.
+	cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	if !domain.WeighDateAllowsFastingCreate(cmd.StartBusinessDate, s.clock(), cutoff) {
 		return domain.Campaign{}, ports.ErrFastingWindowClosed
 	}
 	// The WeighingPlan role check is park-blind. The campaign names its own park, so a planner
@@ -312,7 +347,11 @@ func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campai
 			if fastingSubmitted {
 				return domain.Campaign{}, ports.ErrFastingSubmittedDateLocked
 			}
-			if !domain.WeighDateAllowsFastingCreate(cmd.StartBusinessDate, s.clock()) {
+			cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+			if err != nil {
+				return domain.Campaign{}, err
+			}
+			if !domain.WeighDateAllowsFastingCreate(cmd.StartBusinessDate, s.clock(), cutoff) {
 				return domain.Campaign{}, ports.ErrFastingWindowClosed
 			}
 		}

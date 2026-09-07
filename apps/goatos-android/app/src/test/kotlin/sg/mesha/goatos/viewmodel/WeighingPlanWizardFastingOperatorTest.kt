@@ -1,6 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -17,7 +18,9 @@ import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeedStore
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -44,11 +47,13 @@ class WeighingPlanWizardFastingOperatorTest {
 
     private fun buildViewModel(
         repository: WeighingPlanWizardEditHydrationTest.RaceReproducingWeighingRepository,
+        bootstrapRepository: BootstrapRepository = FakeCutoffBootstrapRepository(),
     ) = WeighingPlanWizardViewModel(
         repository = repository,
         repeatSeedStore = WeighingRepeatSeedStore(),
         analytics = NoopAnalytics(),
         crashReporter = NoopCrashReporter(),
+        bootstrapRepository = bootstrapRepository,
         savedStateHandle = SavedStateHandle(),
     )
 
@@ -60,6 +65,7 @@ class WeighingPlanWizardFastingOperatorTest {
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
         val earliest = earliestPlannableDateWithFeedRemoval(
             ZonedDateTime.now(ZoneId.of("Asia/Kolkata")),
+            java.time.LocalTime.of(20, 0),
         ).toString()
         vm.selectDate(earliest)
         repository.catalogRefreshGate.complete(Unit)
@@ -146,6 +152,7 @@ class WeighingPlanWizardFastingOperatorTest {
             repeatSeedStore = seedStore,
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
+            bootstrapRepository = FakeCutoffBootstrapRepository(),
             savedStateHandle = SavedStateHandle(
                 mapOf(sg.mesha.goatos.ui.Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
             ),
@@ -182,6 +189,7 @@ class WeighingPlanWizardFastingOperatorTest {
             repeatSeedStore = seedStore,
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
+            bootstrapRepository = FakeCutoffBootstrapRepository(),
             savedStateHandle = SavedStateHandle(
                 mapOf(sg.mesha.goatos.ui.Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
             ),
@@ -203,6 +211,7 @@ class WeighingPlanWizardFastingOperatorTest {
         val todayIst = java.time.LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
         val earliest = earliestPlannableDateWithFeedRemoval(
             ZonedDateTime.now(ZoneId.of("Asia/Kolkata")),
+            java.time.LocalTime.of(20, 0),
         ).toString()
         val offered = vm.state.value.dateOptions.map { it.isoDate }
         assertTrue("the wizard must offer days", offered.isNotEmpty())
@@ -210,7 +219,7 @@ class WeighingPlanWizardFastingOperatorTest {
             "today's removal evening was yesterday, so today can never be weighed: offered=$offered",
             todayIst !in offered,
         )
-        assertEquals("the first offered day is the 20:00 IST rule's earliest", earliest, offered.first())
+        assertEquals("the first offered day is the configured cutoff rule's earliest", earliest, offered.first())
     }
 
     @Test
@@ -225,5 +234,32 @@ class WeighingPlanWizardFastingOperatorTest {
         advanceUntilIdle()
 
         assertNull("today has no removal evening ahead of it", vm.state.value.selectedDate)
+    }
+
+    @Test
+    fun `late cutoff load revalidates an already selected date`() = runTest(dispatcher) {
+        val cutoff = CompletableDeferred<String?>()
+        val repository = WeighingPlanWizardEditHydrationTest.RaceReproducingWeighingRepository()
+        val vm = buildViewModel(repository, DelayedCutoffBootstrapRepository(cutoff))
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        val tomorrow = LocalDate.now(ZoneId.of("Asia/Kolkata")).plusDays(1).toString()
+
+        vm.selectDate(tomorrow)
+        advanceUntilIdle()
+        assertEquals(tomorrow, vm.state.value.selectedDate)
+
+        cutoff.complete("00:00")
+        advanceUntilIdle()
+
+        val dayAfterTomorrow = LocalDate.now(ZoneId.of("Asia/Kolkata")).plusDays(2).toString()
+        assertEquals(dayAfterTomorrow, vm.state.value.selectedDate)
+        assertNull(vm.state.value.selectedParkId)
+        assertEquals(0, vm.state.value.addedCount)
+        assertTrue(vm.state.value.message.orEmpty().isNotBlank())
+
+        repository.catalogRefreshGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("the bumped date must refresh after the first date's in-flight refresh finishes", 2, repository.catalogRefreshCount)
     }
 }
