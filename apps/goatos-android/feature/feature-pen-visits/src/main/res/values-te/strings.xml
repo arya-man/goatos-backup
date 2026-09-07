@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pen_visits_action_refresh">రిఫ్రెష్ చేయండి</string>
+    <string name="pen_visits_action_record">వీడియో రికార్డ్ చేయండి</string>
+    <string name="pen_visits_action_record_again">మళ్లీ రికార్డ్ చేయండి</string>
+    <string name="pen_visits_video_label">పెన్ వీడియో</string>
+    <string name="pen_visits_state_sending">పంపుతోంది…</string>
+    <string name="pen_visits_state_submitted">సమర్పించబడింది</string>
+</resources>

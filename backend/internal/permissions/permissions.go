@@ -433,6 +433,15 @@ const (
 	LeadershipTasksRead  = "leadership_tasks.read"
 	LeadershipTasksRaise = "leadership_tasks.raise"
 	LeadershipTasksAct   = "leadership_tasks.act"
+	// PenVisitsExecute gates the Tasks module's "For me" tab (maintainer decision 2026-09-07):
+	// the pen visits the kernel raises the day after vaccination or PC Care work in a pen, owed
+	// to the park's configured head (CBE -> Dinakar, CPT -> Chandrakant). The permission opens
+	// the tab and the routes; WHICH visits a person sees is decided per row by
+	// pen_visit_tasks.assignee_user_id, and a director with no park configured against them
+	// simply sees an empty tab. Held by the director roles (the raise side of the module),
+	// never by ceo_internal: the CXO desk answers asks, it does not walk pens. ORed into the
+	// /app/proofs upload routes so the visit video can finish uploading.
+	PenVisitsExecute = "pen_visits.execute"
 	// ClockPresenceRead gates the CROSS-PERSON attendance reads of the Clock
 	// In / Out module (docs/features/clock-in-out/plan.md): the phone Team
 	// presence board (GET /app/clock/presence*) and the admin-web People/HRMS
@@ -867,7 +876,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	},
 	RolePCDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
 		GoatRead: {}, GoatWriteHealth: {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
@@ -941,7 +950,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	// oversight) are merged in below so nothing that worked before is narrowed.
 	RoleGrowthDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		// NOT WeighingPlan: planning a weighing task is CEO-only (maintainer decision
@@ -987,7 +996,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	//     what TestDirectorModuleSegregation pins in both directions.
 	RoleFeedDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
@@ -1036,7 +1045,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	//     permission, precisely because health_director is NOT pc_director.
 	RoleHealthDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
@@ -1141,7 +1150,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	// (maintainer decision 2026-09-03): the Procurement phone module is offered on VendorRead.
 	RoleProcurementDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
 		AdminWebBootstrap: {}, AppBootstrap: {},
 		LocationsRead: {},
 		SalesRead:     {}, SalesWrite: {}, SalesAllocateAnimals: {},
@@ -1157,7 +1166,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	// terms); LocationsRead labels the pens it plans against.
 	RoleBreedingDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {}, RosterRead: {},
 		PCCareMonitor:      {},

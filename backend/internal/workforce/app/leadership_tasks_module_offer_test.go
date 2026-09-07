@@ -49,12 +49,25 @@ func TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO(t *testing.T) {
 			if found == nil {
 				t.Fatal("Tasks module did not render for a principal holding leadership_tasks.read")
 			}
-			// NavItems is EMPTY on purpose (maintainer decision 2026-09-05): the module is one
-			// list, so it serves NO bar destinations and the phone draws no bar. The drawer row
-			// and the landing href are what keep it reachable, so both are still asserted --
-			// this must not decay into "the module vanished".
-			if found.Label != "Tasks" || found.Href != "/leadership-tasks" || len(found.NavItems) != 0 {
+			// The bar is served ONLY when there is something to switch to (maintainer decisions
+			// 2026-09-05 and 2026-09-07): a director carries "Raised by me" and the pen-visit
+			// "For me" tab, so the bar has two destinations; a CXO's module is one list, so it
+			// serves NO bar destinations and the phone draws no bar. The drawer row and the
+			// landing href keep both reachable -- this must not decay into "the module vanished".
+			if found.Label != "Tasks" || found.Href != "/leadership-tasks" {
 				t.Fatalf("Tasks module rendered wrong: %+v", *found)
+			}
+			if role == permissions.RoleCEOInternal {
+				if len(found.NavItems) != 0 {
+					t.Fatalf("a CXO's Tasks module must serve no bar destinations, got %+v", found.NavItems)
+				}
+			} else {
+				if len(found.NavItems) != 2 || found.NavItems[0].Href != "/leadership-tasks" || found.NavItems[1].Href != "/pen-visits" {
+					t.Fatalf("a director's Tasks module must serve Raised by me + For me, got %+v", found.NavItems)
+				}
+				if found.NavItems[0].Label != "Raised by me" || found.NavItems[1].Label != "For me" {
+					t.Fatalf("director Tasks tab labels = %q / %q, want Raised by me / For me", found.NavItems[0].Label, found.NavItems[1].Label)
+				}
 			}
 		})
 	}

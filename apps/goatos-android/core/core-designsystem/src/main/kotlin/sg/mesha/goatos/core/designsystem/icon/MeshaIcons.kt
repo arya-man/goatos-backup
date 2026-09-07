@@ -340,6 +340,17 @@ object MeshaIcons {
         "M8.5 11.5h7M8.5 15.5h4.5",
     )
 
+    /**
+     * Pen visits (maintainer decision 2026-09-07): a map pin — GO to that pen. It shares the
+     * Tasks bar with [Tasks] (the clipboard), so the two tabs never wear one mark, and it is
+     * deliberately not [Goat] or [Video]: the job is the walk to the pen, not the herd or the clip.
+     */
+    val PenVisit: ImageVector = strokeIcon(
+        "penvisit",
+        "M12 21s-6.5-5.7-6.5-11a6.5 6.5 0 0 1 13 0c0 5.3-6.5 11-6.5 11z",
+        "M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
+    )
+
     /** Pencil — edit what is on this screen. */
     val Edit: ImageVector = strokeIcon(
         "edit",
@@ -477,6 +488,9 @@ object MeshaIcons {
         // Leadership Tasks (maintainer request 2026-09-04): its own glyph, shared with nothing —
         // it sits in the CEO/director drawer beside every other module.
         "leadership_tasks" -> Tasks
+        // Pen visits (maintainer decision 2026-09-07): the Tasks module's second tab, on the SAME
+        // bar as leadership_tasks, so it needs its own glyph — the map pin.
+        "pen_visits" -> PenVisit
         else -> Module
     }
 }

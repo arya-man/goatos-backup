@@ -1677,3 +1677,45 @@ val MIGRATION_60_61: Migration = object : Migration(60, 61) {
         db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `latestProofDownloadUrl` TEXT")
     }
 }
+
+/**
+ * v61 -> v62: the three pen-visit read-model tables (maintainer decision 2026-09-07) — the paged
+ * "For me" visit rows (`pen_visit_items`) with their per-filter cursor (`pen_visit_remote_keys`),
+ * the exact Leadership Tasks trio shape of [MIGRATION_56_57], and the visit-detail JSON blob cache
+ * (`pen_visit_detail_cache`).
+ *
+ * CREATE, not ALTER: an @Entity added to the @Database with no migration to create its table works
+ * on a fresh install and crashes every upgrade on open. Purely additive -- no existing table
+ * changes, so an installed phone carrying an unsynced write outbox upgrades in place with no data
+ * loss. Each CREATE spells its table name out as a literal so `make room-migration-guard` can
+ * statically match every new v62 @Entity table against a CREATE here
+ * (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_61_62: Migration = object : Migration(61, 62) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pen_visit_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pen_visit_items_queryKey_sortIndex` " +
+                "ON `pen_visit_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pen_visit_items_grainKey` " +
+                "ON `pen_visit_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pen_visit_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pen_visit_detail_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

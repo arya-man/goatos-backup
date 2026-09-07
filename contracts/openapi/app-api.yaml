@@ -36,6 +36,7 @@ tags:
   - name: Sales
   - name: Herd Signals
   - name: Leadership Tasks
+  - name: Pen Visits
 paths:
   /herd-signals/packets:
     post:
@@ -8052,6 +8053,122 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/pen-visits:
+    get:
+      tags:
+        - Pen Visits
+      operationId: listPenVisits
+      summary: One page of the caller's own pen visits (the Tasks module's "For me" tab).
+      description: >-
+        Pen visits (maintainer decision 2026-09-07): the day after any vaccination or PC Care work
+        is submitted in a pen, the park's configured head owes that pen a visit and ONE live-camera
+        video. The kernel raises the task; the head lists, opens and submits it here. The caller
+        sees ONLY the visits assigned to them, newest due first, keyset-paged. `filters` are
+        whole-list counts over the same assignee predicate, never page sums. Every visible word
+        (title, reason line, state chip, instruction, empty messages) is backend-owned and rendered
+        verbatim; the pen label is the operational location display.
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          schema: { type: string, enum: [todo, done], default: todo }
+          description: The chip KEY. Absent or unknown resolves to `todo` (scheduled + delayed).
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor from a previous page's next_cursor.
+      responses:
+        "200":
+          description: One page plus whole-list chip counts and the open count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenVisitPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/pen-visits/{task_id}:
+    get:
+      tags:
+        - Pen Visits
+      operationId: getPenVisit
+      summary: One pen visit the caller owns.
+      description: A visit assigned to someone else reads as 404, exactly like one that does not exist.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The visit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenVisitDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/pen-visits/{task_id}/submit:
+    post:
+      tags:
+        - Pen Visits
+      operationId: submitPenVisit
+      summary: Submit the visit's live-camera video and complete the task.
+      description: >-
+        The proof must be a FINISHED upload in this tenant, declared `video`, stored as video/*, and
+        captured by the in-app camera (a gallery pick is refused). Only the assignee may submit, only
+        while the visit is still owed, and only on the row_version the screen loaded with (0 skips
+        the fence). Submit IS completion: there is no verifier. Idempotent on the Idempotency-Key
+        header: an exact replay returns the same completed visit.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PenVisitSubmitRequest"
+      responses:
+        "200":
+          description: The completed visit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenVisitDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/ServerError"
   /app/leadership-tasks:
@@ -17300,6 +17417,90 @@ components:
           type: integer
           format: int64
           description: The row_version the reviewer loaded; a stale value answers 409 version_conflict.
+    PenVisit:
+      type: object
+      description: >-
+        One pen visit as the phone renders it. Every string is backend-composed; the client maps
+        state_tone to a colour and renders the rest verbatim.
+      required: [task_id, title, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, reasons, reason_labels, reason_line, source_business_date, planned_business_date, due_business_date, work_state, state_chip, state_tone, instruction, done_line, can_submit, row_version]
+      properties:
+        task_id: { type: string, format: uuid }
+        title:
+          type: string
+          description: 'Backend-composed card title, e.g. "Visit Castro 2 · Coimbatore".'
+
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        shed_id: { type: string, format: uuid }
+        shed_name: { type: string }
+        partition_label: { type: string, description: The pen label; empty for an undivided shed. }
+        operational_location_display:
+          type: string
+          description: 'The canonical pen display ("Castro 2", "Godel 1 - Part 3").'
+
+        reasons:
+          type: array
+          items: { type: string, enum: [vaccination, deworming, anti_protozoan, ticks_removal, hoof_trimming, hair_trimming] }
+        reason_labels:
+          type: array
+          items: { type: string }
+        reason_line:
+          type: string
+          description: 'Backend-composed, e.g. "Vaccination, deworming yesterday".'
+
+        source_business_date: { type: string, format: date, description: The IST day the work was submitted. }
+        planned_business_date: { type: string, format: date, description: Immutable; the day the visit was first owed. }
+        due_business_date: { type: string, format: date, description: Rolls forward only, as the visit is carried. }
+        work_state: { type: string, enum: [scheduled, delayed, completed, canceled] }
+        state_chip:
+          type: string
+          description: 'Backend-composed, e.g. "Due today", "Delayed since 05/09/2026", "Done".'
+
+        state_tone: { type: string, enum: [info, danger, success, muted] }
+        instruction: { type: string }
+        done_line: { type: string, description: Empty until submitted. }
+        can_submit: { type: boolean, description: The caller is the assignee and the visit is still owed. }
+        proof_ref: { type: string, format: uuid, nullable: true }
+        submitted_at: { type: string, format: date-time, nullable: true }
+        row_version: { type: integer }
+    PenVisitDetail:
+      type: object
+      required: [task, trace_id]
+      properties:
+        task:
+          $ref: "#/components/schemas/PenVisit"
+        trace_id: { type: string }
+    PenVisitFilter:
+      type: object
+      required: [key, label, count, selected, empty_message]
+      properties:
+        key: { type: string, enum: [todo, done] }
+        label: { type: string }
+        count: { type: integer, description: Whole-list count over the caller's assignee predicate, never a page sum. }
+        selected: { type: boolean }
+        empty_message: { type: string }
+    PenVisitPage:
+      type: object
+      required: [title, rows, filters, open_count, trace_id]
+      properties:
+        title: { type: string, description: The L0 header title; mirrors the nav label. }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenVisit"
+        next_cursor: { type: string, nullable: true }
+        filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenVisitFilter"
+        open_count: { type: integer, description: Visits still owed to the caller (the To do count). }
+        trace_id: { type: string }
+    PenVisitSubmitRequest:
+      type: object
+      required: [proof_ref]
+      properties:
+        proof_ref: { type: string, format: uuid, description: The finished in-app-camera video proof. }
+        row_version: { type: integer, description: The version the screen loaded with; 0 skips the fence. }
     LeadershipTaskAttachment:
       type: object
       required: [attachment_id, proof_id, kind, mime_type, file_name, size_bytes, position]
@@ -23142,6 +23343,14 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        badge_count:
+          type: integer
+          minimum: 0
+          description: >-
+            Backend-owned attention count THIS bar item shows (maintainer decision 2026-09-07).
+            A module with two tabs carries two numbers -- unseen asks on Raised by me, pens still
+            owed on For me -- so the module badge alone could sit on only one of them. Absent or 0
+            renders nothing; the module's badge_count stays the drawer's number.
     BootstrapModule:
       type: object
       description: >-

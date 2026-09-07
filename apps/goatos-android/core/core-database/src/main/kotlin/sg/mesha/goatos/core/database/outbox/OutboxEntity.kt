@@ -310,6 +310,19 @@ enum class OutboxOpType {
     TOXIN_SUBMIT,
 
     /**
+     * Pen visit submit (`POST /app/pen-visits/{task_id}/submit`, maintainer decision
+     * 2026-09-07): the park head's one live-camera video for a pen visited the day after
+     * vaccination / PC Care work. The video rides by REFERENCE to its coupled PROOF_UPLOAD row on
+     * the SAME task group (`pen-visit:task:<taskId>`), which drains first (mirroring
+     * [TOXIN_STEP_COMPLETE]); the dispatcher resolves the uploaded server proof id into
+     * `proof_ref`. The idempotency key is STABLE per (task, row_version) — a retry replays for
+     * free. `409 already_submitted` is read as success (the detail is re-fetched); `422
+     * invalid_proof` / `proof_required` is terminal and surfaces as "Record again"; `409
+     * stale_task` re-reads the task and retries ONCE under the fresh row version.
+     */
+    PEN_VISIT_SUBMIT,
+
+    /**
      * Clock In / Clock Out punches (`POST /app/clock/in` / `/app/clock/out`, module clock,
      * maintainer decision 2026-08-27 — docs/features/clock-in-out/plan.md). Adding an op type
      * needs NO Room migration: [OutboxEntity.opType] is a plain TEXT column holding this enum's

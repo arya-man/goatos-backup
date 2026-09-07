@@ -89,6 +89,9 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskPageDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
+import sg.mesha.goatos.core.network.dto.PenVisitDetailDto
+import sg.mesha.goatos.core.network.dto.PenVisitPageDto
+import sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
@@ -1260,6 +1263,26 @@ interface AppApiService {
         @Path("proof_id") proofId: String,
     ): ProofDownloadUrlResponseDto
 
+    // Pen visits (maintainer decision 2026-09-07)
+    @GET("app/pen-visits")
+    suspend fun getPenVisits(
+        @Query("filter") filter: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): PenVisitPageDto
+
+    @GET("app/pen-visits/{task_id}")
+    suspend fun getPenVisit(
+        @Path("task_id") taskId: String,
+    ): PenVisitDetailDto
+
+    @POST("app/pen-visits/{task_id}/submit")
+    suspend fun submitPenVisit(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Path("task_id") taskId: String,
+        @Body request: PenVisitSubmitRequestDto,
+    ): PenVisitDetailDto
+
     @GET("feed-direction/distribution/captures")
     suspend fun getFeedDistributionCaptures(
         @Query("park_id") parkId: String?,
@@ -2351,6 +2374,20 @@ class RetrofitAppApi(
         val url = service.getLeadershipTaskAttachmentDownloadUrl(taskId, proofId).downloadUrl
         return if (url.startsWith("/")) baseUrl.trimEnd('/') + url else url
     }
+
+    override suspend fun getPenVisits(
+        filter: String?,
+        limit: Int?,
+        cursor: String?,
+    ): PenVisitPageDto = service.getPenVisits(filter, limit, cursor)
+
+    override suspend fun getPenVisit(taskId: String): PenVisitDetailDto = service.getPenVisit(taskId)
+
+    override suspend fun submitPenVisit(
+        idempotencyKey: String,
+        taskId: String,
+        request: PenVisitSubmitRequestDto,
+    ): PenVisitDetailDto = service.submitPenVisit(idempotencyKey, taskId, request)
 
     override suspend fun getFeedDistributionCaptures(
         parkId: String?,

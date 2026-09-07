@@ -9,9 +9,11 @@ import (
 )
 
 // TestTasksServesNoBottomBarWhileKeepingItsDrawerRow pins the 2026-09-05 maintainer decision:
-// the Tasks module (director -> CXO ask desk) shows NO bottom bar on the phone. Its bar held a
-// single "Tasks" tab under a screen already titled Tasks -- a switcher with nothing to switch
-// to, spending a permanent strip of a phone screen on where the reader already is.
+// the Tasks module (director -> CXO ask desk) shows NO bottom bar on a CXO's phone. Its bar held
+// a single "Tasks" tab under a screen already titled Tasks -- a switcher with nothing to switch
+// to, spending a permanent strip of a phone screen on where the reader already is. (A director,
+// who also carries the pen-visit "For me" tab since 2026-09-07, gets the two-tab bar; that is
+// pinned in leadership_tasks_module_offer_test.go.)
 //
 // The two halves are asserted TOGETHER because the obvious implementation breaks the second:
 // a module with no permitted contribution is dropped from the drawer entirely by
@@ -55,12 +57,13 @@ func TestTasksServesNoBottomBarWhileKeepingItsDrawerRow(t *testing.T) {
 }
 
 // TestOnlyTasksLosesItsBottomBar is the maintainer's own question, asserted rather than promised:
-// across every principal the app serves, EXACTLY ONE module is served with no bar destinations,
-// and it is Tasks. Every other module a principal can open still gets its bar.
+// across every principal the app serves, at most ONE module is served with no bar destinations,
+// and it is Tasks (for the CXO, whose Tasks module is one list). Every other module a principal
+// can open still gets its bar, and a director's Tasks module gets its two-tab bar.
 //
 // This is the leak test for the rule. The bar is drawn by the client whenever the backend sends
 // destinations, so "which modules lose their bar" is decided here and nowhere else -- a second
-// noBottomBar: true, or a client rule keyed on the NUMBER of tabs, would turn this red.
+// barOnlyWhenSwitching: true, or a client rule keyed on the NUMBER of tabs, would turn this red.
 func TestOnlyTasksLosesItsBottomBar(t *testing.T) {
 	const en = localization.DefaultTag
 	roles := map[string]string{

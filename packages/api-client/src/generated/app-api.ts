@@ -3074,6 +3074,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/pen-visits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the caller's own pen visits (the Tasks module's "For me" tab).
+         * @description Pen visits (maintainer decision 2026-09-07): the day after any vaccination or PC Care work is submitted in a pen, the park's configured head owes that pen a visit and ONE live-camera video. The kernel raises the task; the head lists, opens and submits it here. The caller sees ONLY the visits assigned to them, newest due first, keyset-paged. `filters` are whole-list counts over the same assignee predicate, never page sums. Every visible word (title, reason line, state chip, instruction, empty messages) is backend-owned and rendered verbatim; the pen label is the operational location display.
+         */
+        get: operations["listPenVisits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pen-visits/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One pen visit the caller owns.
+         * @description A visit assigned to someone else reads as 404, exactly like one that does not exist.
+         */
+        get: operations["getPenVisit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pen-visits/{task_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit the visit's live-camera video and complete the task.
+         * @description The proof must be a FINISHED upload in this tenant, declared `video`, stored as video/*, and captured by the in-app camera (a gallery pick is refused). Only the assignee may submit, only while the visit is still owed, and only on the row_version the screen loaded with (0 skips the fence). Submit IS completion: there is no verifier. Idempotent on the Idempotency-Key header: an exact replay returns the same completed visit.
+         */
+        post: operations["submitPenVisit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/leadership-tasks": {
         parameters: {
             query?: never;
@@ -7200,6 +7260,90 @@ export interface components {
              */
             row_version: number;
         };
+        /** @description One pen visit as the phone renders it. Every string is backend-composed; the client maps state_tone to a colour and renders the rest verbatim. */
+        PenVisit: {
+            /** Format: uuid */
+            task_id: string;
+            /** @description Backend-composed card title, e.g. "Visit Castro 2 · Coimbatore". */
+            title: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            /** @description The pen label; empty for an undivided shed. */
+            partition_label: string;
+            /** @description The canonical pen display ("Castro 2", "Godel 1 - Part 3"). */
+            operational_location_display: string;
+            reasons: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming")[];
+            reason_labels: string[];
+            /** @description Backend-composed, e.g. "Vaccination, deworming yesterday". */
+            reason_line: string;
+            /**
+             * Format: date
+             * @description The IST day the work was submitted.
+             */
+            source_business_date: string;
+            /**
+             * Format: date
+             * @description Immutable; the day the visit was first owed.
+             */
+            planned_business_date: string;
+            /**
+             * Format: date
+             * @description Rolls forward only
+             */
+            due_business_date: string;
+            /** @enum {string} */
+            work_state: "scheduled" | "delayed" | "completed" | "canceled";
+            /** @description Backend-composed, e.g. "Due today", "Delayed since 05/09/2026", "Done". */
+            state_chip: string;
+            /** @enum {string} */
+            state_tone: "info" | "danger" | "success" | "muted";
+            instruction: string;
+            /** @description Empty until submitted. */
+            done_line: string;
+            /** @description The caller is the assignee and the visit is still owed. */
+            can_submit: boolean;
+            /** Format: uuid */
+            proof_ref?: string | null;
+            /** Format: date-time */
+            submitted_at?: string | null;
+            row_version: number;
+        };
+        PenVisitDetail: {
+            task: components["schemas"]["PenVisit"];
+            trace_id: string;
+        };
+        PenVisitFilter: {
+            /** @enum {string} */
+            key: "todo" | "done";
+            label: string;
+            /** @description Whole-list count over the caller's assignee predicate */
+            count: number;
+            selected: boolean;
+            empty_message: string;
+        };
+        PenVisitPage: {
+            /** @description The L0 header title; mirrors the nav label. */
+            title: string;
+            rows: components["schemas"]["PenVisit"][];
+            next_cursor?: string | null;
+            filters: components["schemas"]["PenVisitFilter"][];
+            /** @description Visits still owed to the caller (the To do count). */
+            open_count: number;
+            trace_id: string;
+        };
+        PenVisitSubmitRequest: {
+            /**
+             * Format: uuid
+             * @description The finished in-app-camera video proof.
+             */
+            proof_ref: string;
+            /** @description The version the screen loaded with; 0 skips the fence. */
+            row_version?: number;
+        };
         LeadershipTaskAttachment: {
             /** Format: uuid */
             attachment_id: string;
@@ -9858,6 +10002,8 @@ export interface components {
             key: string;
             label: string;
             href: string;
+            /** @description Backend-owned attention count THIS bar item shows (maintainer decision 2026-09-07). A module with two tabs carries two numbers -- unseen asks on Raised by me, pens still owed on For me -- so the module badge alone could sit on only one of them. Absent or 0 renders nothing; the module's badge_count stays the drawer's number. */
+            badge_count?: number;
         };
         /** @description A drawer entry: the module's identity plus the bottom-bar items it contributes. `status` is `available` (built, tappable) or `soon` (declared roadmap, disabled row). */
         BootstrapModule: {
@@ -21834,6 +21980,97 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listPenVisits: {
+        parameters: {
+            query?: {
+                /** @description The chip KEY. Absent or unknown resolves to `todo` (scheduled + delayed). */
+                filter?: "todo" | "done";
+                limit?: number;
+                /** @description Keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page plus whole-list chip counts and the open count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenVisitPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getPenVisit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The visit. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenVisitDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    submitPenVisit: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PenVisitSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description The completed visit. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenVisitDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

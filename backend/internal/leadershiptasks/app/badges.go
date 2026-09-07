@@ -24,3 +24,29 @@ func (s *Service) ModuleBadgeCounts(ctx context.Context, tenantID, userID string
 	}
 	return map[string]int{ModuleKey: n}, nil
 }
+
+// TabHref is the bar item the unseen count belongs to (bootstrap_copy.go's contribution).
+const TabHref = "/leadership-tasks"
+
+// NavItemBadgeCounts implements workforce/app.NavItemBadgeSource: the CXO's unseen assigned
+// tasks, on this module's own tab only.
+func (s *Service) NavItemBadgeCounts(ctx context.Context, tenantID, userID string, hrefs []string) (map[string]int, error) {
+	wanted := false
+	for _, h := range hrefs {
+		if h == TabHref {
+			wanted = true
+			break
+		}
+	}
+	if !wanted {
+		return map[string]int{}, nil
+	}
+	n, err := s.repo.UnseenCount(ctx, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return map[string]int{}, nil
+	}
+	return map[string]int{TabHref: n}, nil
+}

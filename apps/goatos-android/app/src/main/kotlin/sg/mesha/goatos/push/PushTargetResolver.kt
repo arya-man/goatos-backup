@@ -62,6 +62,9 @@ fun resolvePushRoute(payload: Map<String, String>): String? {
         screen == "leadership_task" || screen == "leadership_tasks" ||
             type == "leadership_task_raised" || type == "leadership_task_done" ->
             Routes.LEADERSHIP_TASKS
+        // Pen visits (maintainer decision 2026-09-07): the due-visit push names the "For me" list
+        // (`screen: pen_visits`, `href: /pen-visits`) — the park head lands on their own visits.
+        screen == "pen_visit" || screen == "pen_visits" || type == "pen_visit_due" -> Routes.PEN_VISITS
         // This tree has no /counts census root: Counts is reached through its module-scoped
         // sub-routes, and /counts/birth is the landing href the backend registry serves.
         screen == "counts_overview" -> Routes.COUNTS_BIRTH

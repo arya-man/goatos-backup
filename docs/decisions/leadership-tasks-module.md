@@ -110,3 +110,13 @@ takes a number.
   siblings.
 - `leadershiptasks/adapters/postgres.TestLeadershipTaskLifecyclePostgresPaths` (numbering
   under contention, idempotent replay, version fence, seen-once, badge count, outbox rows).
+
+## Amendment 2026-09-07: the "For me" tab
+
+The module gained a second bar item for the director roles: **For me**, the pen visits the
+kernel owes a park head (`docs/decisions/pen-visit-tasks.md`). The 2026-09-05 no-bottom-bar
+rule is kept for the CXO and restated as "a bar only when there is something to switch to"
+(`barOnlyWhenSwitching` in the module registry): a CXO's Tasks module is still one list with no
+bar; a director's now carries **Raised by me** (this module's list) and **For me**. The list
+screen title stays "Tasks"; the two nav labels are backend copy in four locales.
+

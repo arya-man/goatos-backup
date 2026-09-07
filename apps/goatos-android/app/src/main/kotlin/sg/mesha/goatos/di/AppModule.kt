@@ -555,6 +555,19 @@ object AppModule {
         sg.mesha.goatos.core.data.DefaultToxinRepository(api = api, database = database)
 
     /**
+     * Pen visits (maintainer decision 2026-09-07). Room-backed offline-first READS; the WRITE
+     * (the one video's submit) rides the outbox, so like Toxin this repository takes no
+     * SyncRepository and creates no Dagger cycle.
+     */
+    @Provides
+    @Singleton
+    fun providePenVisitsRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): sg.mesha.goatos.core.data.PenVisitsRepository =
+        sg.mesha.goatos.core.data.DefaultPenVisitsRepository(api = api, database = database)
+
+    /**
      * Vendors module reads (maintainer decision 2026-09-03). Room-backed and offline-first; the
      * WRITES ride the outbox, so like Toxin this repository takes no SyncRepository.
      */
@@ -930,6 +943,9 @@ object AppModule {
         // step write would land on the server while the phone kept rendering the PREVIOUS step
         // states until the next manual refresh. Same defect class as feedRepository above.
         toxinRepository: sg.mesha.goatos.core.data.ToxinRepository,
+        // Pen visits (2026-09-07): same defect class -- without it a submitted visit keeps
+        // rendering "Sending" until the next manual refresh.
+        penVisitsRepository: sg.mesha.goatos.core.data.PenVisitsRepository,
         // Vendors (2026-09-03): same defect class -- without it a recorded vendor/purchase never
         // reconciles into Room after its write lands.
         vendorsRepository: sg.mesha.goatos.core.data.VendorsRepository,
@@ -960,6 +976,7 @@ object AppModule {
         pcCareAnimalRowDao = database.pcCareAnimalRowDao(),
         pcCareRepository = pcCareRepository,
         toxinRepository = toxinRepository,
+        penVisitsRepository = penVisitsRepository,
         vendorsRepository = vendorsRepository,
         salesRepository = salesRepository,
         telemetry = outboxTelemetry,
@@ -1003,6 +1020,9 @@ object AppModule {
         ),
         postTerminalFailureHooks = mapOf(
             OutboxOpType.HEALTH_TREATMENT_COMPLETE to healthTreatmentCompleteFailureHook(healthRepository),
+            // Pen visits: a definitively refused submit (invalid proof, a cancelled task) re-reads
+            // the task so the card shows the server's own chip and can_submit beside the reason.
+            OutboxOpType.PEN_VISIT_SUBMIT to sg.mesha.goatos.core.data.sync.penVisitSubmitFailureHook(penVisitsRepository),
             OutboxOpType.WORKFLOW_ACTION_ANSWER to workflowActionAnswerFailureHook(workflowsRepository),
             OutboxOpType.WORKFLOW_ACTION_COMPLETE to workflowActionCompleteFailureHook(workflowsRepository),
         ),

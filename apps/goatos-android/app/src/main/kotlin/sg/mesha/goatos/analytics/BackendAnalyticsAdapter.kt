@@ -6,6 +6,7 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsPenVisits
 import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
@@ -201,6 +202,16 @@ class BackendAnalyticsAdapter(
             AnalyticsEvents.PC_CARE_SUBMIT_CONFIRMED,
             AnalyticsEvents.PC_CARE_SLOT_SUBMIT,
             AnalyticsEvents.PC_CARE_FAILURE,
+            AnalyticsEventsPenVisits.LIST_VIEWED,
+            AnalyticsEventsPenVisits.TASK_OPENED,
+            AnalyticsEventsPenVisits.CAPTURE_STARTED,
+            AnalyticsEventsPenVisits.CAPTURE_RESULT,
+            AnalyticsEventsPenVisits.ROOM_WRITTEN,
+            AnalyticsEventsPenVisits.UPLOAD_ENQUEUED,
+            AnalyticsEventsPenVisits.SUBMITTED,
+            AnalyticsEventsPenVisits.SUBMIT_RECOVERED,
+            AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION,
+            AnalyticsEventsPenVisits.FAILURE,
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_PREVIEW_ACTION,
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION,
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_ATTEMPTED,

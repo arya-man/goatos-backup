@@ -27,6 +27,8 @@ data class NavItem(
     val key: String,
     val label: String,
     val href: String,
+    /** Backend-owned attention count for THIS bar item; 0 renders nothing. */
+    val badgeCount: Int = 0,
 )
 
 /** Whether a module is built and enterable, or advertised roadmap (mirrors BootstrapModule.Status). */

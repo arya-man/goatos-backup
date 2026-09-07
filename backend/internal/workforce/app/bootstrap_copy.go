@@ -63,17 +63,19 @@ type moduleDefinition struct {
 	status              string // moduleStatusAvailable | moduleStatusSoon
 	priority            int    // drawer ordering; lower first
 	contributions       []moduleNavContribution
-	// noBottomBar declares that this module's screens carry NO bottom bar (maintainer
-	// decision 2026-09-05, Tasks). A bar is a SWITCHER; a module whose whole content is one
-	// list has nothing to switch to, so the bar spends a permanent strip of a phone screen
-	// saying only where the reader already is.
+	// barOnlyWhenSwitching declares that this module's screens carry a bottom bar ONLY when
+	// the principal has two or more destinations to switch between (maintainer decision
+	// 2026-09-05, Tasks; widened 2026-09-07 when the "For me" tab joined). A bar is a
+	// SWITCHER; a CXO whose whole Tasks module is one list has nothing to switch to, so the bar
+	// would spend a permanent strip of a phone screen saying only where the reader already is.
+	// A director, who also carries the pen-visit tab, gets the two-tab bar.
 	//
 	// The contributions stay declared, and that is deliberate rather than tidy-able: a
 	// module with no permitted contribution is dropped from the drawer entirely by
 	// modulesForScope, so deleting the item would delete the module. It keeps composing the
-	// landing href and the drawer row; only NavItems is served empty, and the client draws
-	// no bar for an empty list.
-	noBottomBar bool
+	// landing href and the drawer row; only NavItems is served empty for the single-item
+	// principal, and the client draws no bar for an empty list.
+	barOnlyWhenSwitching bool
 }
 
 const (
@@ -456,12 +458,19 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		landingHref: "/leadership-tasks", //nav-composition:ignore: registry entry
 		status:      moduleStatusAvailable,
 		priority:    9,
-		// NO bottom bar (maintainer decision 2026-09-05): the module is one list, so its bar
-		// held a single "Tasks" tab under a screen already titled Tasks. The drawer is how
-		// this principal leaves the module.
-		noBottomBar: true,
+		// NO bottom bar for a CXO (maintainer decision 2026-09-05): their module is one list, so
+		// its bar held a single "Tasks" tab under a screen already titled Tasks. The drawer is
+		// how that principal leaves the module. A director carries TWO tabs (2026-09-07):
+		// "Raised by me" (the asks they raised) and "For me" (the pen visits the kernel owes
+		// them), so the bar is served to them.
+		barOnlyWhenSwitching: true,
 		contributions: []moduleNavContribution{
 			{key: "leadership_tasks", labelKey: "nav.leadership_tasks", href: "/leadership-tasks", shared_key: "", priority: 1, requiredPermission: permissions.LeadershipTasksRead}, //nav-composition:ignore: registry entry
+			// Pen visits (maintainer decision 2026-09-07): gated on PenVisitsExecute, the SAME
+			// permission its routes (/app/pen-visits*) require. Held by the director roles
+			// through the module's Do tick; a CXO holds it nowhere, so this tab and the bar
+			// never reach the CXO desk.
+			{key: "pen_visits", labelKey: "nav.pen_visits", href: "/pen-visits", shared_key: "", priority: 2, requiredPermission: permissions.PenVisitsExecute}, //nav-composition:ignore: registry entry
 		},
 	},
 	// PC Care (module_key pc_care, maintainer decision 2026-08-21; anti protozoan added
@@ -1516,10 +1525,11 @@ func modulesForScope(scope navScope, grantedModules []string, localeTag string, 
 	out := make([]domain.BootstrapModule, 0, len(available)+len(soonModuleKeys))
 	for _, def := range available {
 		items := composeNavigationFromModulesScope([]string{def.key}, scope, localeTag)
-		// A no-bar module still composes its items (they resolve the landing href below and
-		// keep the module in the drawer); they are simply not served as bar destinations.
+		// A switch-only module still composes its items (they resolve the landing href below
+		// and keep the module in the drawer); they are served as bar destinations only when
+		// there are two or more of them for this principal.
 		barItems := items
-		if def.noBottomBar {
+		if def.barOnlyWhenSwitching && len(items) < 2 {
 			barItems = []domain.BootstrapNavigationItem{}
 		}
 		// Land on the first page this principal may actually open. The declared
@@ -1709,7 +1719,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "Shifting",
 		"queue.proof_review":      "Proof review",
 		"module.leadership_tasks": "Tasks",
-		"nav.leadership_tasks":    "Tasks",
+		"nav.leadership_tasks":    "Raised by me",
+		"nav.pen_visits":          "For me",
 	},
 	"hi": {
 		"nav.overview":          "अवलोकन",
@@ -1769,7 +1780,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "शिफ्टिंग",
 		"queue.proof_review":      "प्रूफ समीक्षा",
 		"module.leadership_tasks": "कार्य",
-		"nav.leadership_tasks":    "कार्य",
+		"nav.leadership_tasks":    "मेरे द्वारा उठाए",
+		"nav.pen_visits":          "मेरे लिए",
 	},
 	"kn": {
 		"nav.overview":          "ಅವಲೋಕನ",
@@ -1829,7 +1841,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "ಸ್ಥಳಾಂತರ",
 		"queue.proof_review":      "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
 		"module.leadership_tasks": "ಕಾರ್ಯಗಳು",
-		"nav.leadership_tasks":    "ಕಾರ್ಯಗಳು",
+		"nav.leadership_tasks":    "ನಾನು ಎತ್ತಿದವು",
+		"nav.pen_visits":          "ನನಗಾಗಿ",
 	},
 	"te": {
 		"nav.overview":          "అవలోకనం",
@@ -1889,7 +1902,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "షిఫ్టింగ్",
 		"queue.proof_review":      "ప్రూఫ్ సమీక్ష",
 		"module.leadership_tasks": "పనులు",
-		"nav.leadership_tasks":    "పనులు",
+		"nav.leadership_tasks":    "నేను లేవనెత్తినవి",
+		"nav.pen_visits":          "నా కోసం",
 	},
 }
 

@@ -146,6 +146,11 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // Step 7's reading submit, same shape: overlay "In review" at once, then the server's
         // returned detail (status chip, outcome label) reconciles the Room task rows directly.
         OutboxOpType.TOXIN_SUBMIT -> overlayDirectReconcileLifecycle()
+        // Pen visit submit (maintainer decision 2026-09-07): the durable proof row plus the queued
+        // submit drive the card's "Sending" overlay at once, and the sync pass writes the server's
+        // RETURNED task (its `Done` chip, done line, row_version) straight into the Room detail
+        // and list caches — the toxin shape.
+        OutboxOpType.PEN_VISIT_SUBMIT -> overlayDirectReconcileLifecycle()
         // Vendors module (maintainer decision 2026-09-03): the add form shows a "queued" banner at
         // once (the record is durable in the outbox), and the sync pass writes the server's
         // RETURNED row straight into the Room detail/list caches -- the toxin/packing shape.

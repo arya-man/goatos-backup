@@ -388,6 +388,31 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
+    fun `migration 61 to 62 creates the pen visit tables while preserving existing rows`() {
+        helper.createDatabase(DB_NAME, 61).apply {
+            execSQL(
+                "INSERT INTO `leadership_task_detail_cache` (`cacheKey`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('task-keep', '{}', 7)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB_NAME, 62, true, MIGRATION_61_62)
+        try {
+            listOf("pen_visit_items", "pen_visit_remote_keys", "pen_visit_detail_cache").forEach { table ->
+                db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
+                    assertEquals("table $table must exist after v62", true, cursor.moveToFirst())
+                }
+            }
+            db.query("SELECT COUNT(*) FROM `leadership_task_detail_cache` WHERE cacheKey = 'task-keep'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("existing rows survive the additive migration", 1, cursor.getInt(0))
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `migration 58 to 59 creates death cause and sales lead tables while preserving existing rows`() {
         helper.createDatabase(DB_NAME, 58).apply {
             // Pre-upgrade rows prove the additive migration touches nothing existing and that a
@@ -517,6 +542,9 @@ class GoatDatabaseMigrationTest {
         MIGRATION_56_57.migrate(db)
         MIGRATION_57_58.migrate(db)
         MIGRATION_58_59.migrate(db)
+        MIGRATION_59_60.migrate(db)
+        MIGRATION_60_61.migrate(db)
+        MIGRATION_61_62.migrate(db)
         return db
     }
 
@@ -535,7 +563,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 59
+        const val CURRENT_VERSION = 62
     }
 }
 

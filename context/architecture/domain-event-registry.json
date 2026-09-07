@@ -1623,6 +1623,46 @@
         "frontend",
         "mobile"
       ]
+    },
+    {
+      "eventType": "pen_visit.created",
+      "producer": "penvisits Materialize (kernel stage pen-visit-kernel): one task per pen that had vaccination or PC Care work submitted on the source business date, inserted with its audit row and this outbox emit in ONE transaction, idempotent on (tenant, park, shed, pen, source date). Maintainer decision 2026-09-07.",
+      "producerFiles": [
+        "backend/internal/penvisits/adapters/postgres/outbox.go",
+        "backend/internal/penvisits/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "consumerNote": "Produced for the audit/event spine; the morning push is NOT event-driven. It is one digest per park per business date queued by the kernel stage from the tasks that pass created (notificationbridge.PenVisitDueNotifier, event key pen_visit.due:<date>:<park>:<assignee>), because one push per pen would be ten pushes for one morning's round.",
+      "owningDoc": "docs/decisions/pen-visit-tasks.md",
+      "e2eProof": [
+        "backend/internal/penvisits/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "surfaceNotes": "frontend: no admin-web surface by decision (phone-only, like the Tasks module); mobile: the For me tab renders the backend-owned card and submits through the outbox."
+    },
+    {
+      "eventType": "pen_visit.submitted",
+      "producer": "penvisits Submit write transaction: the park head's live-camera video is validated against the proof store, the row is locked, the assignee/state rule re-run, work_state flips to completed, audit and this outbox emit ride the same transaction under the request's idempotency key.",
+      "producerFiles": [
+        "backend/internal/penvisits/adapters/postgres/outbox.go",
+        "backend/internal/penvisits/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "consumerNote": "No consumer by decision: a visit has no verifier and no downstream state (the pc_care.task.completed precedent). Emitted so the spine records the completion and a future reporting consumer can subscribe without a producer change.",
+      "owningDoc": "docs/decisions/pen-visit-tasks.md",
+      "e2eProof": [
+        "backend/internal/penvisits/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "surfaceNotes": "frontend: no admin-web surface by decision (phone-only, like the Tasks module); mobile: the For me tab renders the backend-owned card and submits through the outbox."
     }
   ],
   "allowedHerdMutationWriters": [

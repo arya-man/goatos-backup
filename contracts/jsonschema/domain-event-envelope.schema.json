@@ -125,7 +125,9 @@
         "vaccination.leave.changed",
         "procurement.feed_purchase.reached",
         "leadership_task.raised",
-        "leadership_task.status_changed"
+        "leadership_task.status_changed",
+        "pen_visit.created",
+        "pen_visit.submitted"
       ]
     },
     "schema_version": {
@@ -169,7 +171,8 @@
         "feed_direction_session_completion",
         "feed_purchase",
         "leadership_task",
-        "sales_deal"
+        "sales_deal",
+        "pen_visit_task"
       ]
     },
     "aggregate_id": {
@@ -202,7 +205,8 @@
         "health_protocol_version",
         "feed_purchase",
         "leadership_task",
-        "sales_deal"
+        "sales_deal",
+        "pen_visit_task"
       ]
     },
     "subject_id": {

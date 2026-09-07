@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pen_visits_action_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
+    <string name="pen_visits_action_record">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="pen_visits_action_record_again">ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="pen_visits_video_label">ಪೆನ್ ವೀಡಿಯೊ</string>
+    <string name="pen_visits_state_sending">ಕಳುಹಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="pen_visits_state_submitted">ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
+</resources>

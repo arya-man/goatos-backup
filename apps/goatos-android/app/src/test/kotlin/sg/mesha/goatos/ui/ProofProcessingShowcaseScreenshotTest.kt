@@ -169,6 +169,17 @@ class ProofProcessingShowcaseScreenshotTest {
         }
     }
 
+    @Test
+    fun penVisitFeature() = shot("proof_processing_22_pen_visit") {
+        FeatureShowcase("Pen visit", "One pen video from the assigned task detail") {
+            ProofStepCard("Pen visit", "Pen video", ProofUiPhase.PREPARING)
+            ProofStepCard("Pen visit", "Pen video", ProofUiPhase.COMPRESSING)
+            ProofStepCard("Pen visit", "Pen video", ProofUiPhase.UPLOADING)
+            ProofStepCard("Pen visit", "Proof preview submitted", ProofUiPhase.UPLOADED)
+            ProofStepCard("Pen visit", "Record fresh evidence", ProofUiPhase.RECORD_AGAIN)
+        }
+    }
+
     private fun shot(name: String, content: @Composable () -> Unit) {
         paparazzi.snapshot(name = name) {
             GoatOsTheme {
@@ -196,6 +207,7 @@ private val RequiredProofVideoSurfaceIds = listOf(
     "feed_transport",
     "milk_preparation",
     "milk_feeding",
+    "pen_visit",
 )
 
 private enum class ProofUiPhase(

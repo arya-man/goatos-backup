@@ -138,6 +138,26 @@ revaccination every 6 months. If the maintainer says "all kids and adults Oct
 15", that means anchor all selected live animals on October 15 and let the
 kernel apply compatibility and future scheduling from there.
 
+## Pen Visit Tasks: the day-after check (maintainer decision 2026-09-07)
+
+The day after ANY vaccination shed proof or PC Care task (deworming, anti protozoan, ticks
+removal, hoof trimming, hair trimming) is SUBMITTED in a pen, the park's head owes that pen a
+visit and ONE live in-app-camera video. It is the phone Tasks module's **For me** tab beside a
+director's **Raised by me**; a CXO's Tasks module is unchanged (one list, no bar). Read
+`docs/decisions/pen-visit-tasks.md` before touching `backend/internal/penvisits`, the
+`pen-visit-kernel` stage, the Tasks module's nav, or the phone's `/pen-visits` screens.
+
+Rules that must survive any edit: the task is SYSTEM-RAISED by the kernel from
+`verification_items` (one source for both triggers; `created_at` is the submit instant), never
+typed; one pen + one day = ONE task (natural key; a second submit only widens `reasons`); WHO
+visits is `pen_visit_park_assignees` per park (CBE -> Dinakar, CPT -> Chandrakant, seeded by
+email) and a park with no row gets NO task plus a loud log, never a fallback person; the
+permission `pen_visits.execute` is the director roles / the Tasks module's Do tick and NEVER
+`ceo_internal`; submit IS completion (no verifier), validated as a finished in-app-camera video;
+unvisited pens roll FORWARD as delayed and keep their planned date; the morning push is ONE
+digest per park per date (stage-queued, business-date key), not one per pen; and every word on
+the card is backend copy. Hemant/procurement is deliberately not configured against any park.
+
 ## Ravi Laptop Default: OCI DB, Not Local Docker Postgres
 
 On Ravi's laptop, default local Goat OS backend/admin-web development to the OCI

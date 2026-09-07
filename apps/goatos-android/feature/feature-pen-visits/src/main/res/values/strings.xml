@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt static string resources, not a user-facing surface — a resource file has no
+  user action and no error path. The tab's telemetry is wired in the @HiltViewModels in :app
+  (PenVisitListViewModel / PenVisitDetailViewModel).
+
+  Pen visit CHROME strings only: button labels, progress lines and accessibility text the client
+  owns. Every business sentence (title, pen label, reason line, state chip, instruction, done
+  line, filter labels and empty copy, page title) is backend-owned and rendered verbatim.
+-->
+<resources>
+    <string name="pen_visits_action_refresh">Refresh</string>
+    <string name="pen_visits_action_record">Record video</string>
+    <string name="pen_visits_action_record_again">Record again</string>
+    <string name="pen_visits_video_label">Pen video</string>
+    <string name="pen_visits_state_sending">Sending…</string>
+    <string name="pen_visits_state_submitted">Submitted</string>
+</resources>

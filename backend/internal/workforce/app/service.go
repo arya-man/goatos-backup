@@ -67,6 +67,14 @@ func (s *Service) feedWaterRemovalCutoffTime(ctx context.Context, tenantID strin
 	return cutoff.String()
 }
 
+// NavItemBadgeSource is the optional second half of a badge source (maintainer decision
+// 2026-09-07): counts keyed by bar-item HREF, for a module whose tabs carry different numbers
+// (Tasks: unseen asks on /leadership-tasks, pens owed on /pen-visits). A source that does not
+// implement it badges the module only, and the phone puts that number on the module's landing tab.
+type NavItemBadgeSource interface {
+	NavItemBadgeCounts(ctx context.Context, tenantID, userID string, hrefs []string) (map[string]int, error)
+}
+
 // WithModuleBadges wires the badge source. Optional: without it every badge is 0.
 func (s *Service) WithModuleBadges(src ModuleBadgeSource) *Service {
 	s.badges = src
@@ -999,5 +1007,30 @@ func (s *Service) applyModuleBadges(ctx context.Context, tenantID, userID string
 	}
 	for i := range modules {
 		modules[i].BadgeCount = counts[modules[i].Key]
+	}
+	itemSource, ok := s.badges.(NavItemBadgeSource)
+	if !ok {
+		return
+	}
+	hrefs := make([]string, 0, 8)
+	for _, m := range modules {
+		if m.BadgeCount == 0 {
+			continue
+		}
+		for _, item := range m.NavItems {
+			hrefs = append(hrefs, item.Href)
+		}
+	}
+	if len(hrefs) == 0 {
+		return
+	}
+	itemCounts, err := itemSource.NavItemBadgeCounts(ctx, tenantID, userID, hrefs)
+	if err != nil || len(itemCounts) == 0 {
+		return
+	}
+	for i := range modules {
+		for j := range modules[i].NavItems {
+			modules[i].NavItems[j].BadgeCount = itemCounts[modules[i].NavItems[j].Href]
+		}
 	}
 }

@@ -559,6 +559,19 @@ interface SyncRepository {
     ): AppResult<String> = AppResult.Err("pc care submit sync is not configured")
 
     /**
+     * Enqueues a pen-visit submit (`POST /app/pen-visits/{task_id}/submit`, maintainer decision
+     * 2026-09-07). The mandatory video is passed by REFERENCE to its PROOF_UPLOAD outbox row
+     * ([proofOutboxItemId]); both writes MUST share the task group ([penVisitTaskGroupKey]) so
+     * the upload drains first. The idempotency key is [penVisitSubmitIdempotencyKey] — STABLE
+     * per (task, row version), never a timestamp.
+     */
+    suspend fun enqueuePenVisitSubmit(
+        taskId: String,
+        rowVersion: Int,
+        proofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("pen visit submit sync is not configured")
+
+    /**
      * Enqueues one Toxin step completion
      * (`POST /app/toxin/tasks/{task_id}/steps/{step_no}/complete`, module toxin). The mandatory
      * proof (video, or step 7's strip photo) is passed by REFERENCE to its PROOF_UPLOAD outbox
@@ -1593,6 +1606,23 @@ class DefaultSyncRepository(
         idempotencyKey = pcCareSubmitIdempotencyKey(taskId.trim(), rowVersion),
         payloadJson = syncJson.encodeToString(
             PcCareTaskSubmitPayload(taskId = taskId.trim(), rowVersion = rowVersion),
+        ),
+    )
+
+    override suspend fun enqueuePenVisitSubmit(
+        taskId: String,
+        rowVersion: Int,
+        proofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.PEN_VISIT_SUBMIT,
+        groupKey = penVisitTaskGroupKey(taskId.trim()),
+        idempotencyKey = penVisitSubmitIdempotencyKey(taskId.trim(), rowVersion),
+        payloadJson = syncJson.encodeToString(
+            PenVisitSubmitPayload(
+                taskId = taskId.trim(),
+                rowVersion = rowVersion,
+                proofOutboxItemId = proofOutboxItemId,
+            ),
         ),
     )
 
