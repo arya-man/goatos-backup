@@ -2293,8 +2293,8 @@ private data class PcCareCapturedTaskProof(
 // ---------------------------------------------------------------------------
 
 internal fun isSuspiciousShortNumericRfid(tagVerbatim: String): Boolean {
-    val normalized = normalizePcCareTag(tagVerbatim)
-    return normalized.all { it.isDigit() } && normalized.length in 1 until MIN_NUMERIC_RFID_LENGTH
+    val digitsOnly = tagVerbatim.filter { it.isDigit() }
+    return digitsOnly.length == tagVerbatim.trim().length && digitsOnly.length in 1 until MIN_NUMERIC_RFID_LENGTH
 }
 
 private const val MIN_NUMERIC_RFID_LENGTH = 12
