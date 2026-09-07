@@ -3,15 +3,50 @@ package postgres
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/penvisits/domain"
 	"github.com/vgoats/goatos/backend/internal/penvisits/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
+
+// assertEnvelopesValid validates every pen_visit.* outbox envelope against the SAME schema the
+// relay validates against before publish. A rejected envelope is a SILENT drop (status failed,
+// no consumer ever sees it) -- exactly what shipped on the first live run, where actor_type
+// "system" and two top-level park/shed keys were refused -- so the shape is pinned here.
+func assertEnvelopesValid(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string) int {
+	t.Helper()
+	_, here, _, _ := runtime.Caller(0)
+	schema := filepath.Join(filepath.Dir(here), "..", "..", "..", "..", "..", "contracts", "jsonschema", "domain-event-envelope.schema.json")
+	validator, err := outboxapp.NewEnvelopeValidator(schema)
+	if err != nil {
+		t.Fatalf("envelope validator: %v", err)
+	}
+	rows, err := pool.Query(ctx, `SELECT event_type, payload FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type LIKE 'pen_visit.%'`, tenantID)
+	if err != nil {
+		t.Fatalf("read outbox: %v", err)
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var eventType string
+		var payload []byte
+		if err := rows.Scan(&eventType, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if err := validator.Validate(payload); err != nil {
+			t.Fatalf("%s envelope rejected by the relay schema: %v\n%s", eventType, err, payload)
+		}
+		n++
+	}
+	return n
+}
 
 const (
 	pvTenant     = "00000000-0000-4000-8000-0000000e0001"
@@ -179,10 +214,13 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 		t.Fatalf("godel after widen = %+v err %v", godelAfter, err)
 	}
 
-	// Every created task announced itself exactly once.
+	// Every created task announced itself exactly once, with an envelope the relay will accept.
 	var created int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type = 'pen_visit.created'`, pvTenant).Scan(&created); err != nil || created != 2 {
 		t.Fatalf("pen_visit.created outbox rows = %d err %v", created, err)
+	}
+	if n := assertEnvelopesValid(t, ctx, pool, pvTenant); n != 2 {
+		t.Fatalf("validated %d envelopes, want 2", n)
 	}
 
 	// Submit: the wrong person is refused, the right one completes it, an exact replay returns
@@ -217,6 +255,9 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 	}
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1::uuid AND resource_type = 'pen_visit_task' AND action = 'pen_visit.submitted'`, pvTenant).Scan(&audits); err != nil || audits != 1 {
 		t.Fatalf("submit audit rows = %d err %v", audits, err)
+	}
+	if n := assertEnvelopesValid(t, ctx, pool, pvTenant); n != 3 {
+		t.Fatalf("validated %d envelopes after submit, want 3", n)
 	}
 	donePage, err := repo.ListMine(ctx, ports.ListParams{TenantID: pvTenant, UserID: pvDinakar, States: domain.StatesForFilter(domain.FilterDone), Limit: 20})
 	if err != nil || len(donePage.Rows) != 1 || donePage.StateCounts[domain.WorkStateCompleted] != 1 || donePage.StateCounts[domain.WorkStateScheduled] != 1 {

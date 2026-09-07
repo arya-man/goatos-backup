@@ -476,7 +476,7 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 		}); err != nil {
 			return result, nil, fmt.Errorf("pen visit: audit created: %w", err)
 		}
-		if err := emitEvent(ctx, tx, EventVisitCreated, task, "", "system", "pen-visit:created:"+taskID, now); err != nil {
+		if err := emitEvent(ctx, tx, EventVisitCreated, task, "", "system_rule", "pen-visit:created:"+taskID, now); err != nil {
 			return result, nil, err
 		}
 		d, ok := digests[task.ParkID]

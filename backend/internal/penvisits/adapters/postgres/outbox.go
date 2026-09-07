@@ -50,6 +50,11 @@ type EventPayload struct {
 
 // emitEvent writes one visit event into outbox_messages inside tx. The event id is
 // deterministic on (type, tenant, idempotency key) so a retried write never double-announces.
+// actorType is one of the envelope's closed actor vocabulary: "human" for the park head's
+// submit, "system_rule" for the materializer. The envelope is validated by the relay against
+// contracts/jsonschema/domain-event-envelope.schema.json before publish, and a rejected
+// envelope is a SILENT drop (status failed, no consumer ever sees it), so the integration
+// test validates every emitted envelope against the same schema.
 func emitEvent(ctx context.Context, tx pgx.Tx, eventType string, t domain.Task, actorID, actorType, idempotencyKey string, now time.Time) error {
 	now = now.UTC()
 	eventID := platformoutbox.DeterministicUUID(eventType + ":" + t.TenantID + ":" + idempotencyKey)
@@ -99,10 +104,10 @@ func emitEvent(ctx context.Context, tx pgx.Tx, eventType string, t domain.Task, 
 		},
 		"subject_type": aggregateType,
 		"subject_id":   t.TaskID,
-		"park_id":      t.ParkID,
-		"shed_id":      t.ShedID,
 		"visibility_scope": map[string]any{
 			"tenant_id": t.TenantID,
+			"park_id":   t.ParkID,
+			"shed_id":   t.ShedID,
 		},
 		"evidence_refs": []map[string]string{{
 			"evidence_type": "source_record",
