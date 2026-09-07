@@ -309,13 +309,13 @@ class AppProofMediaProcessor @Inject constructor(
         val density = context.resources.displayMetrics.density
         val widthBound = mediaWidth.coerceAtLeast(1)
         val heightBound = mediaHeight.coerceAtLeast(1)
-        val minWidth = minOf((180 * textScale).toInt().coerceAtLeast(1), widthBound)
-        val minHeight = minOf((72 * textScale).toInt().coerceAtLeast(1), heightBound)
+        val minWidth = minOf((144 * textScale).toInt().coerceAtLeast(1), widthBound)
+        val minHeight = minOf((54 * textScale).toInt().coerceAtLeast(1), heightBound)
         val maxWidth = (mediaWidth * maxWidthFraction).toInt().coerceIn(minWidth, widthBound)
         val maxHeight = (mediaHeight * maxHeightFraction).toInt().coerceIn(minHeight, heightBound)
-        val baseTextSize = ((14f * density).coerceIn(18f, 30f) * textScale).coerceAtMost(72f)
-        val basePadding = ((10f * density).coerceIn(12f, 22f) * textScale).coerceAtMost(54f)
-        val baseGap = ((4f * density).coerceIn(4f, 8f) * textScale).coerceAtMost(18f)
+        val baseTextSize = ((11f * density).coerceIn(14f, 22f) * textScale).coerceAtMost(32f)
+        val basePadding = ((6f * density).coerceIn(8f, 14f) * textScale).coerceAtMost(20f)
+        val baseGap = ((2f * density).coerceIn(2f, 5f) * textScale).coerceAtMost(8f)
         listOf(1f, 0.92f, 0.84f, 0.76f, 0.68f, 0.60f, 0.52f, 0.46f).forEach { shrink ->
             val textSize = baseTextSize * shrink
             val padding = basePadding * shrink
@@ -458,12 +458,12 @@ class AppProofMediaProcessor @Inject constructor(
 
     private fun photoOverlayScale(width: Int, height: Int): Float {
         val longSide = max(width, height).coerceAtLeast(1)
-        return (longSide / 1280f).coerceIn(1.25f, 2.4f)
+        return (longSide / 1920f).coerceIn(0.75f, 1.15f)
     }
 
     private fun videoOverlayScale(width: Int, height: Int): Float {
-        val longSide = max(width, height).coerceAtLeast(1)
-        return (longSide / 1280f).coerceIn(0.62f, 1.0f)
+        val shortSide = min(width, height).coerceAtLeast(1)
+        return (shortSide / 1080f).coerceIn(0.46f, 0.75f)
     }
 
     private fun selectVideoBitrate(width: Int, height: Int, originalBitrate: Int?): Int {
@@ -532,7 +532,7 @@ class AppProofMediaProcessor @Inject constructor(
         private const val PHOTO_MAX_LONG_SIDE_PX = 1920
         private const val DEFAULT_OVERLAY_MAX_WIDTH_FRACTION = 0.86f
         private const val DEFAULT_OVERLAY_MAX_HEIGHT_FRACTION = 0.92f
-        private const val VIDEO_OVERLAY_MAX_WIDTH_FRACTION = 0.56f
-        private const val VIDEO_OVERLAY_MAX_HEIGHT_FRACTION = 0.34f
+        private const val VIDEO_OVERLAY_MAX_WIDTH_FRACTION = 0.46f
+        private const val VIDEO_OVERLAY_MAX_HEIGHT_FRACTION = 0.24f
     }
 }
