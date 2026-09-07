@@ -181,6 +181,38 @@ func TestSingleTaggedAndUnknownTagsAreUntouched(t *testing.T) {
 	}
 }
 
+// A temporary tag is a birth/provisional identity, not the second RFID slot this resolver exists for.
+// A genuine re-tag still splits history: weighing only knew the string scanned that day, and merging a
+// temporary-tag weigh into the later permanent RFID would rewrite old capture history into an ADG the
+// operator never observed under two permanent identifiers.
+func TestTemporaryTagDoesNotMergeWithPermanentRFID(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	start, end := growthWindow()
+
+	seedDoubleTaggedGoat(t, ctx, pool, idScopeGoat, "G-970001", idScopePrimary, "", "")
+	seedGoatIdentifier(t, ctx, pool, idScopeGoat, "temporary_tag", "temp-birth-001", "active")
+
+	first := time.Date(2026, 8, 5, 4, 0, 0, 0, time.UTC)
+	seedGrowthObservation(t, ctx, pool, "temp-birth-001", 20.0, first)
+	seedGrowthObservation(t, ctx, pool, idScopePrimary, 22.1, first.AddDate(0, 0, 7))
+
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG: %v", err)
+	}
+	if adg.Headline.PairCount != 0 {
+		t.Fatalf("PairCount=%d, want 0: temporary_tag is not a second RFID and must not merge into the permanent tag's ADG history", adg.Headline.PairCount)
+	}
+	if adg.Eligibility.TotalAnimalsWeighed != 2 {
+		t.Fatalf("TotalAnimalsWeighed=%d, want 2: a temporary-tag scan and a permanent-RFID scan remain raw weighing identities", adg.Eligibility.TotalAnimalsWeighed)
+	}
+}
+
 // A SECOND IDENTIFIER THE REGISTER DOES NOT TRUST MUST NOT MERGE TWO ANIMALS.
 //
 // This is the safety narrowing, and it is the whole reason only status='active' rows are read.

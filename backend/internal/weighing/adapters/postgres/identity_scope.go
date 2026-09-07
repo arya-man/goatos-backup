@@ -48,10 +48,11 @@ import (
 //     identity-aware would gate a scan on the herd register, which is banned outright.
 //   - NO scan is gated on identity. A tag that resolves to nothing is still recorded, still
 //     counted, and simply keeps its own raw string as its key — exactly today's behaviour.
-//   - AN ANIMAL WITH ONE TAG IS NEVER REMAPPED. The map carries rows ONLY for animals holding two
-//     or more active identifiers, so a farm (or a window, or a test) with no double-tagged animal
-//     gets an EMPTY map and every read runs the query it ran before this file existed, key for
-//     key. That is what bounds the blast radius of the exception to the animals it is about.
+//   - AN ANIMAL WITH ONE PERMANENT RFID IS NEVER REMAPPED. The map carries rows ONLY for animals
+//     holding two or more active permanent RFIDs, so a farm (or a window, or a test) with no
+//     double-RFID animal gets an EMPTY map and every read runs the query it ran before this file
+//     existed, key for key. That is what bounds the blast radius of the exception to the animals it
+//     is about.
 //   - THE CANONICAL KEY IS ONE OF THE ANIMAL'S OWN TAGS, never a goat_id. `animal_key` is rendered
 //     to a reader verbatim as `ScannedIdentifier` in the losing-animals list, so a uuid there would
 //     put a database key on a farm screen. It is the animal's `animal_identifier_1` where one
@@ -64,8 +65,10 @@ import (
 // growth that never happened. Two narrowings hold that down and both are load-bearing: only
 // `status = 'active'` identifiers are read (`disputed`, `duplicate` and `invalid` are precisely
 // the rows that would merge two animals, and they are the register's own way of saying "do not
-// trust this"), and a tag is remapped only when the SAME goat carries another one. The exposure is
-// therefore limited to double-tagged animals with an active, undisputed, wrong second tag.
+// trust this"), and a tag is remapped only when the SAME goat carries another permanent RFID. A
+// temporary_tag is a birth/provisional identity, not a second RFID slot, so a genuine re-tag still
+// splits history. The exposure is therefore limited to double-tagged animals with an active,
+// undisputed, wrong second RFID.
 //
 // Widening this exemption — another file, another table, or ANY write path — is a MAINTAINER
 // decision, never a developer convenience.
@@ -109,16 +112,16 @@ func (m AnimalIdentityMap) Empty() bool { return len(m.Tags) == 0 }
 // Callers pass lookbackStart, not periodStart.
 //
 // projection-review: membership=one row per active identifier of every animal that carries two or
-// more active identifiers AND was weighed in scope through at least one of them; group_key=the
-// normalized identifier value; join_cardinality=ident is 0..1 per tag because DISTINCT ON collapses
-// re-issued rows for one tag string to the newest, weighed_goats is 1 row per goat_id (DISTINCT),
-// and the final join is ident 1:1 back to its own goat; pagination=NONE, bounded by the tags
-// actually weighed in the window and the (at most two) identifiers each of their animals carries;
-// scope=tenant_id + park_id = ANY($2) + the window.
+// more active permanent RFID identifiers AND was weighed in scope through at least one of them;
+// group_key=the normalized identifier value; join_cardinality=ident is 0..1 per tag because
+// DISTINCT ON collapses re-issued rows for one tag string to the newest, weighed_goats is 1 row per
+// goat_id (DISTINCT), and the final join is ident 1:1 back to its own goat; pagination=NONE,
+// bounded by the tags actually weighed in the window and the two RFID slots each of their animals
+// can carry; scope=tenant_id + park_id = ANY($2) + the window.
 //
 // Ratio key sets: none — this returns membership, not a ratio. `tag_count > 1` is a cap check over
 // the SAME partition the canonical tag is chosen from, so a tag is remapped only when that very
-// animal provably carries another one.
+// animal provably carries another permanent RFID.
 func (r *Repository) resolveAnimalIdentityMap(ctx context.Context, tenantID string, parkIDs []string, from, to time.Time) (AnimalIdentityMap, error) {
 	return ResolveAnimalIdentityMap(ctx, r.pool, tenantID, parkIDs, from, to)
 }
@@ -182,6 +185,7 @@ ident AS (
   FROM goat_identifiers gi
   WHERE gi.tenant_id = $1::uuid
     AND gi.status = 'active'
+    AND gi.identifier_type IN ('animal_identifier_1', 'animal_identifier_2')
     AND btrim(gi.identifier_value) <> ''
   ORDER BY lower(btrim(gi.identifier_value)), gi.created_at DESC
 ),
