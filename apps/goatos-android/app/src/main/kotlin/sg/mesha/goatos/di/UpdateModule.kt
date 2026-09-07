@@ -8,7 +8,6 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.update.RemoteConfigUpdateGate
-import sg.mesha.goatos.update.UpdateDecision
 import sg.mesha.goatos.update.UpdateGate
 import javax.inject.Singleton
 
@@ -20,11 +19,8 @@ object UpdateModule {
     @Provides
     @Singleton
     fun provideUpdateGate(@ApplicationContext context: Context): UpdateGate =
-        if (BuildConfig.DEBUG) {
-            object : UpdateGate {
-                override suspend fun check(forceRefresh: Boolean): UpdateDecision = UpdateDecision.Allowed
-            }
-        } else {
-            RemoteConfigUpdateGate(context)
-        }
+        RemoteConfigUpdateGate(
+            context = context,
+            skipRemoteConfig = BuildConfig.DEBUG,
+        )
 }

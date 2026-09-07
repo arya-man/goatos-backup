@@ -7,6 +7,7 @@ import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.BuildConfig
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
@@ -18,9 +19,9 @@ import java.util.concurrent.TimeUnit
  *  - `update_url` (String) — the install link the force-update CTA opens (a Firebase
  *    App Distribution tester link, since this app is not on the Play Store).
  *
- * The dev flavor always skips Remote Config and resolves to [UpdateDecision.Allowed].
- * Internal throwaway and laptop-backed QA builds must not be stopped by a stale Firebase
- * value or a local debug override from a previous session.
+ * Internal throwaway and laptop-backed QA builds can skip Remote Config while still
+ * honoring a local debug override, so testers can exercise the force-update surface
+ * without being stopped by a stale Firebase value from another session.
  *
  * Stg/prod fail-open by construction: the default FirebaseApp auto-inits from the
  * per-flavor `firebase.xml`. Any SDK/network failure is caught and resolves to
@@ -37,11 +38,13 @@ class RemoteConfigUpdateGate(
     private val currentVersionCode: Long = BuildConfig.VERSION_CODE.toLong(),
     private val minFetchIntervalSeconds: Long = DEFAULT_MIN_FETCH_INTERVAL_SECONDS,
     private val skipRemoteConfig: Boolean = BuildConfig.FLAVOR == "dev",
+    private val enableDebugOverride: Boolean = BuildConfig.DEBUG,
+    private val debugOverrideFile: File? = context?.filesDir?.resolve(DEBUG_OVERRIDE_FILE),
 ) : UpdateGate {
 
     override suspend fun check(forceRefresh: Boolean): UpdateDecision = withContext(Dispatchers.IO) {
-        if (skipRemoteConfig) return@withContext UpdateDecision.Allowed
         debugOverrideDecision()?.let { return@withContext it }
+        if (skipRemoteConfig) return@withContext UpdateDecision.Allowed
         runCatching {
             val rc = FirebaseRemoteConfig.getInstance()
             val fetchIntervalSeconds = if (forceRefresh) 0L else minFetchIntervalSeconds
@@ -75,8 +78,8 @@ class RemoteConfigUpdateGate(
     }
 
     private fun debugOverrideDecision(): UpdateDecision? {
-        if (!BuildConfig.DEBUG) return null
-        val file = context?.filesDir?.resolve(DEBUG_OVERRIDE_FILE) ?: return null
+        if (!enableDebugOverride) return null
+        val file = debugOverrideFile ?: return null
         if (!file.exists()) return null
         val values = file.readLines()
             .mapNotNull { line ->
