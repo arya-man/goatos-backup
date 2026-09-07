@@ -4740,6 +4740,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.per_head.sub":               "g per head per day, whole herd",
 			"kpi.adherence.label":            "Execution verified",
 			"kpi.adherence.sub":              "Packing + distribution approved by the verifier",
+			"kpi.cost_per_animal.label":      "Feed cost per animal yesterday",
+			"kpi.cost_per_animal.sub":        "₹ per animal per day — yesterday's feed spend over the animals fed",
 			"chart.daily.title":              "Daily directed feed",
 			"chart.daily.hint":               "Total kg fed per day, stacked by feed item — the issued sheet plus the milk the crew prepared",
 			"chart.spend_share.title":        "Feed spend share",

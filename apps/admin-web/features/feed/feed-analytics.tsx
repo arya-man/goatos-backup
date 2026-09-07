@@ -654,6 +654,17 @@ function DirectedTabs({
     }
     adherence = all > 0 ? `${Math.round((verified / all) * 100)}%` : null;
   }
+  // Feed cost per animal per day (maintainer ask 2026-09-07): yesterday's feed expenditure
+  // over the animals fed yesterday. Both halves are backend numbers already on this page —
+  // the priced expenditure day and the sheet's head count — matched on the SAME settled
+  // business day the other tiles describe, and divided for display only, the way the
+  // adherence share above is. A day with no priced expenditure or no animals reads "—"
+  // rather than ₹0: an unpriced sheet is not a free one.
+  let costPerAnimal: string | null = null;
+  if (latest && stock && latest.head_days > 0) {
+    const spentDay = stock.expenditure.find((d) => d.feed_day === latest.feed_day);
+    if (spentDay) costPerAnimal = `₹${rate(num(spentDay.rupees) / latest.head_days)}`;
+  }
 
   return (
     <>
@@ -661,7 +672,7 @@ function DirectedTabs({
         <RangeCoverageNote key={`${range}-${coveredDays}`} message={coverageNote} />
       ) : null}
       {tab === "overview" ? (
-        <section className="grid g4 kpi-row feed-analytics-kpis" aria-label={fa(pageContract, "chart.daily.title")}>
+        <section className="grid kpi-row feed-analytics-kpis" aria-label={fa(pageContract, "chart.daily.title")}>
           <div className="kpi card">
             <div className="val">{latest ? `${nf(num(latest.directed_kg))} ${fa(pageContract, "unit.kg")}` : "—"}</div>
             <div className="dl">{fa(pageContract, "kpi.directed.label")}</div>
@@ -683,6 +694,11 @@ function DirectedTabs({
             <div className="val">{adherence ?? "—"}</div>
             <div className="dl">{fa(pageContract, "kpi.adherence.label")}</div>
             <div className="muted small">{fa(pageContract, "kpi.adherence.sub")}</div>
+          </div>
+          <div className="kpi card">
+            <div className="val">{costPerAnimal ?? "—"}</div>
+            <div className="dl">{fa(pageContract, "kpi.cost_per_animal.label")}</div>
+            <div className="muted small">{fa(pageContract, "kpi.cost_per_animal.sub")}</div>
           </div>
         </section>
       ) : null}

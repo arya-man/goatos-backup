@@ -123,6 +123,18 @@ test("the KPI tiles name the settled day rather than the last day drawn", () => 
   assert.match(source, /buildDirectedView\(data, fa\(pageContract, "series\.other"\), istDayPlus\(todayIso\(\), -1\)\)/);
 });
 
+test("the cost-per-animal tile divides yesterday's spend by yesterday's animals, same settled day", () => {
+  // ₹ per animal per day = the priced expenditure of the SETTLED day over the sheet's head
+  // count for that same day. Matching on feed_day is what keeps the two halves on one day;
+  // a positional last element would price today's half-issued sheet against yesterday's herd.
+  assert.match(source, /stock\.expenditure\.find\(\(d\) => d\.feed_day === latest\.feed_day\)/);
+  assert.match(source, /latest\.head_days > 0/);
+  assert.match(source, /rate\(num\(spentDay\.rupees\) \/ latest\.head_days\)/);
+  // No priced day or no animals reads "—", never ₹0.
+  assert.match(source, /\{costPerAnimal \?\? "—"\}/);
+  assert.match(source, /"kpi\.cost_per_animal\.label"/);
+});
+
 test("milk-only item days stay on the chart axis", () => {
   // Day totals are sheet-only by design, but item rows now include UHT Milk. A
   // milk-only day must still get an x-axis slot instead of being dropped by
