@@ -400,6 +400,15 @@ class PcCareTaskViewModel @Inject constructor(
     private fun handleScan(raw: String, fromTypedEntry: Boolean = false) {
         val verbatim = raw.trim()
         if (verbatim.isEmpty()) return
+        if (isSuspiciousShortNumericRfid(verbatim)) {
+            analytics.track(
+                AnalyticsEvents.PC_CARE_FAILURE,
+                mapOf(AnalyticsEvents.Params.REASON to "short_numeric_rfid"),
+            )
+            local.update { it.copy(message = "RFID was incomplete. Scan the full tag again.") }
+            if (fromTypedEntry) local.update { it.copy(scanInput = "") }
+            return
+        }
         if (isLifecycleLocked(latestDetail)) {
             showScanNotice("This task is locked — no more scans.")
             return
@@ -2282,6 +2291,13 @@ private data class PcCareCapturedTaskProof(
 // ---------------------------------------------------------------------------
 // Pure derivation helpers (unit-tested directly — no ViewModel needed).
 // ---------------------------------------------------------------------------
+
+internal fun isSuspiciousShortNumericRfid(tagVerbatim: String): Boolean {
+    val normalized = normalizePcCareTag(tagVerbatim)
+    return normalized.all { it.isDigit() } && normalized.length in 1 until MIN_NUMERIC_RFID_LENGTH
+}
+
+private const val MIN_NUMERIC_RFID_LENGTH = 12
 
 /** The ONE builder of a slot's local proof field key: `<normalizedTag>:<slotFieldKey>`. */
 internal fun pcCareSlotProofFieldKey(normalizedTag: String, slotFieldKey: String): String =

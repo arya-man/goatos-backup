@@ -735,8 +735,9 @@ class DefaultPcCareRepository(
     }
 }
 
-/** trim + lowercase — the ONE normalization the duplicate check and the scan idempotency key share. */
-fun normalizePcCareTag(tagVerbatim: String): String = tagVerbatim.trim().lowercase()
+/** Alphanumeric + lowercase — the ONE normalization the duplicate check and the scan idempotency key share. */
+fun normalizePcCareTag(tagVerbatim: String): String =
+    tagVerbatim.filter { it.isLetterOrDigit() }.lowercase()
 
 	/** Fills Room from `GET /app/pc-care/worklist` page-by-page. The backend pages TASKS directly
 	 *  with an opaque keyset cursor, so inserts/cancels between pages cannot shift an offset under

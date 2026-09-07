@@ -84,6 +84,41 @@ class PcCareScanWhileRecordingTest {
     }
 
     @Test
+    fun `short numeric RFID burst is refused before it becomes a deworming animal row`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        repo.detailFlow.value = detail
+        val reader = PcCareFakeReaderPort()
+        val vm = buildPcCareTaskViewModel(repo, reader = reader)
+        val collectJob = launch { vm.state.collect { } }
+        runCurrent()
+
+        reader.emitRead("90504462")
+        runCurrent()
+
+        assertEquals("short numeric RFID must never enqueue a scan row", 0, repo.scanEnqueues)
+        assertTrue(repo.animalsFlow.value.none { it.tagVerbatim == "90504462" })
+        assertEquals("RFID was incomplete. Scan the full tag again.", vm.state.value.message)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `full numeric RFID burst is accepted into deworming rows`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        repo.detailFlow.value = detail
+        val reader = PcCareFakeReaderPort()
+        val vm = buildPcCareTaskViewModel(repo, reader = reader)
+        val collectJob = launch { vm.state.collect { } }
+        runCurrent()
+
+        reader.emitRead("901007000504297")
+        runCurrent()
+
+        assertEquals(1, repo.scanEnqueues)
+        assertTrue(repo.animalsFlow.value.any { it.tagVerbatim == "901007000504297" })
+        collectJob.cancel()
+    }
+
+    @Test
     fun `a second Record tap while a capture is in flight is refused`() = runTest(dispatcher) {
         val repo = FakePcCareRepository()
         repo.detailFlow.value = detail
