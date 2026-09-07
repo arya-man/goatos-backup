@@ -45,6 +45,16 @@ class AnalyticsContractTest {
         assertEquals("pc_care_plan_wizard_interaction", AnalyticsEvents.PC_CARE_PLAN_WIZARD_INTERACTION)
         assertEquals("pc_care_plan_create_attempted", AnalyticsEvents.PC_CARE_PLAN_CREATE_ATTEMPTED)
         assertEquals("pc_care_plan_task_created", AnalyticsEvents.PC_CARE_PLAN_TASK_CREATED)
+        assertEquals("pen_visit_list_viewed", AnalyticsEventsPenVisits.LIST_VIEWED)
+        assertEquals("pen_visit_task_opened", AnalyticsEventsPenVisits.TASK_OPENED)
+        assertEquals("pen_visit_capture_started", AnalyticsEventsPenVisits.CAPTURE_STARTED)
+        assertEquals("pen_visit_capture_result", AnalyticsEventsPenVisits.CAPTURE_RESULT)
+        assertEquals("pen_visit_room_written", AnalyticsEventsPenVisits.ROOM_WRITTEN)
+        assertEquals("pen_visit_upload_enqueued", AnalyticsEventsPenVisits.UPLOAD_ENQUEUED)
+        assertEquals("pen_visit_submitted", AnalyticsEventsPenVisits.SUBMITTED)
+        assertEquals("pen_visit_submit_recovered", AnalyticsEventsPenVisits.SUBMIT_RECOVERED)
+        assertEquals("pen_visit_proof_preview_action", AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION)
+        assertEquals("pen_visit_failure", AnalyticsEventsPenVisits.FAILURE)
     }
 
     @Test

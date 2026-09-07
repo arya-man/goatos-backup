@@ -34,6 +34,9 @@ object AnalyticsEventsPenVisits {
     /** The submit was queued behind the upload — the visit is on its way. */
     const val SUBMITTED = "pen_visit_submitted"
 
+    /** A durable video was found after process death and its missing submit row was re-enqueued. */
+    const val SUBMIT_RECOVERED = "pen_visit_submit_recovered"
+
     /** The park head played, paused, expanded or shared the recorded clip, or its playback failed. */
     const val PROOF_PREVIEW_ACTION = "pen_visit_proof_preview_action"
 

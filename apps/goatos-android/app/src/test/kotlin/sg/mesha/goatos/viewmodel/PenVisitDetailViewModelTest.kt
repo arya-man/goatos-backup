@@ -26,6 +26,10 @@ import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsPenVisits
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
+import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.sync.PEN_VISIT_VIDEO_FIELD_KEY
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.penVisitGrainKey
@@ -226,6 +230,57 @@ class PenVisitDetailViewModelTest {
         sync.emitAliveGrains(setOf(penVisitGrainKey(PEN_VISIT_TEST_TASK_ID)))
         advanceUntilIdle()
         assertEquals(PenVisitVideoState.WORKING, vm.state.value.videoState)
+    }
+
+    @Test
+    fun `reopening with a durable uploaded proof but no submit row re-enqueues submit`() = runTest(dispatcher) {
+        val repository = FakePenVisitsRepository(penVisit(rowVersion = 11))
+        val proofs = FakeProofCaptureRepository().apply {
+            seedProofs(
+                ProofCaptureRow(
+                    id = "proof-recovered",
+                    fieldKey = PEN_VISIT_VIDEO_FIELD_KEY,
+                    proofSubject = ProofSubject.OTHER,
+                    subjectId = PEN_VISIT_TEST_TASK_ID,
+                    localUri = "file:///recovered-pen-visit.mp4",
+                    processedUri = "file:///processed-recovered-pen-visit.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Visit Castro 2 · Coimbatore",
+                    capturedAtMs = 1_000L,
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 9_000L,
+                    capturedByPrincipalId = null,
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-proof-1",
+                    outboxItemId = "proof-outbox-recovered",
+                    lastError = null,
+                    featureSurface = "pen_visits",
+                    featureCategory = "pen_visit",
+                    proofMode = "pen_visit_video",
+                    processingState = "ATTACHED_TO_SUBMISSION",
+                ),
+            )
+        }
+        val sync = RecordingPenVisitSyncRepository()
+        val analytics = RecordingAnalytics()
+        val vm = viewModel(repository, sync = sync, proofs = proofs, analytics = analytics)
+        advanceUntilIdle()
+
+        val recovered = sync.submits.single()
+        assertEquals(PEN_VISIT_TEST_TASK_ID, recovered.taskId)
+        assertEquals(11, recovered.rowVersion)
+        assertEquals("proof-outbox-recovered", recovered.proofOutboxItemId)
+        assertEquals(PenVisitVideoState.WORKING, vm.state.value.videoState)
+        assertEquals("file:///processed-recovered-pen-visit.mp4", vm.state.value.previewPath)
+
+        val event = analytics.events.single { it.name == AnalyticsEventsPenVisits.SUBMIT_RECOVERED }
+        assertEquals(PEN_VISIT_TEST_TASK_ID, event.props["task_id"])
+        assertEquals(PEN_VISIT_VIDEO_FIELD_KEY, event.props[AnalyticsEvents.Params.FIELD])
+        assertEquals("proof-recovered", event.props[AnalyticsEvents.Params.PROOF_ID])
+        assertEquals("proof-outbox-recovered", event.props[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("pen-visit-submit-1", event.props[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+        assertEquals("11", event.props["row_version"])
+        assertEquals("refresh", event.props[AnalyticsEvents.Params.SOURCE])
     }
 
     private fun queueItem(

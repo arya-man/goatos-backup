@@ -62,7 +62,13 @@ class PenVisitListViewModel @Inject constructor(
     fun bind(title: String) {
         if (scope.value.fallbackTitle == title) return
         scope.value = scope.value.copy(fallbackTitle = title)
-        analytics.track(AnalyticsEventsPenVisits.LIST_VIEWED)
+        analytics.track(
+            AnalyticsEventsPenVisits.LIST_VIEWED,
+            mapOf(
+                AnalyticsEvents.Params.SOURCE to "for_me_tab",
+                AnalyticsEvents.Params.COUNT to repository.pageMeta.value.openCount.toString(),
+            ),
+        )
     }
 
     val state: StateFlow<PenVisitListUiState> = combine(
@@ -104,7 +110,10 @@ class PenVisitListViewModel @Inject constructor(
         when (event) {
             PenVisitListEvent.Refresh -> refresh()
             is PenVisitListEvent.SelectFilter -> selectFilter(event.key)
-            is PenVisitListEvent.OpenTask -> analytics.track(AnalyticsEventsPenVisits.TASK_OPENED)
+            is PenVisitListEvent.OpenTask -> analytics.track(
+                AnalyticsEventsPenVisits.TASK_OPENED,
+                mapOf("task_id" to event.taskId, AnalyticsEvents.Params.SOURCE to "list_card"),
+            )
         }
     }
 

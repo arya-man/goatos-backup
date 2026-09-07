@@ -143,8 +143,62 @@ class PenVisitDetailViewModel @Inject constructor(
             local.update { it.copy(isRefreshing = true) }
             try {
                 repository.refreshVisit(taskId)
+                reconcileSubmitFromDurableProof(source = "refresh")
             } finally {
                 local.update { it.copy(isRefreshing = false) }
+            }
+        }
+    }
+
+    /**
+     * Repairs the one process-death gap between "the video is durable" and "the submit row is
+     * durable". PC Care does the same repair for slot registrations: if the app dies after the
+     * proof upload row exists but before the downstream write is enqueued, re-opening the screen
+     * replays that downstream write from Room truth instead of asking the park head to record again.
+     */
+    private suspend fun reconcileSubmitFromDurableProof(source: String) {
+        if (local.value.submitOutboxItemId.isNotBlank()) return
+        val detail = repository.observeVisit(taskId).first() ?: return
+        if (!detail.canSubmit || detail.workState == PEN_VISIT_WORK_STATE_COMPLETED) return
+        if (penVisitGrainKey(taskId) in syncRepository.observeSubmittedForReviewGrains().first()) return
+        val proof = proofCaptureRepository.observeLatest(videoSlot).first() ?: return
+        val proofOutboxId = proof.outboxItemId?.takeIf { it.isNotBlank() } ?: return
+        if (proof.syncStatus == CaptureSyncStatus.FAILED || proof.processingStatus == ProofProcessingStatus.RECORD_AGAIN) return
+
+        when (
+            val queued = syncRepository.enqueuePenVisitSubmit(
+                taskId = taskId,
+                rowVersion = detail.rowVersion,
+                proofOutboxItemId = proofOutboxId,
+            )
+        ) {
+            is AppResult.Ok -> {
+                local.update { it.copy(submitOutboxItemId = queued.value, message = null) }
+                analytics.track(
+                    AnalyticsEventsPenVisits.SUBMIT_RECOVERED,
+                    penVisitAnalyticsProps(
+                        detail = detail,
+                        proof = proof,
+                        proofOutboxItemId = proofOutboxId,
+                        submitOutboxItemId = queued.value,
+                        source = source,
+                        outcome = "queued",
+                    ),
+                )
+            }
+            is AppResult.Err -> {
+                queued.cause?.let { crashReporter.recordException(it, "pen visit submit recovery failed") }
+                analytics.track(
+                    AnalyticsEventsPenVisits.FAILURE,
+                    penVisitAnalyticsProps(
+                        detail = detail,
+                        proof = proof,
+                        proofOutboxItemId = proofOutboxId,
+                        source = source,
+                        outcome = "failure",
+                        reason = queued.message,
+                    ),
+                )
             }
         }
     }
@@ -168,7 +222,7 @@ class PenVisitDetailViewModel @Inject constructor(
             }
             local.update { it.copy(capturing = true, message = null) }
             try {
-                analytics.track(AnalyticsEventsPenVisits.CAPTURE_STARTED)
+                analytics.track(AnalyticsEventsPenVisits.CAPTURE_STARTED, penVisitAnalyticsProps(detail = detail, source = "record_tap"))
                 val captured = try {
                     proofCaptureSource.captureVideo(
                         ProofCaptureContext(
@@ -187,13 +241,13 @@ class PenVisitDetailViewModel @Inject constructor(
                 if (captured == null) {
                     analytics.track(
                         AnalyticsEventsPenVisits.CAPTURE_RESULT,
-                        mapOf(AnalyticsEvents.Params.RESULT to CAPTURE_RESULT_CANCELLED),
+                        penVisitAnalyticsProps(detail = detail, source = "camera", outcome = CAPTURE_RESULT_CANCELLED),
                     )
                     return@launch
                 }
                 analytics.track(
                     AnalyticsEventsPenVisits.CAPTURE_RESULT,
-                    mapOf(AnalyticsEvents.Params.RESULT to CAPTURE_RESULT_RECORDED),
+                    penVisitAnalyticsProps(detail = detail, source = captured.captureSource, outcome = CAPTURE_RESULT_RECORDED),
                 )
 
                 // Everything after a REAL recording is durable bookkeeping. NonCancellable so
@@ -201,6 +255,7 @@ class PenVisitDetailViewModel @Inject constructor(
                 // park head actually shot.
                 withContext(NonCancellable) {
                     val proofOutboxId = captureProof(
+                        detail = detail,
                         localUri = captured.localUri,
                         mimeType = captured.mimeType,
                         caption = detail.title,
@@ -208,7 +263,10 @@ class PenVisitDetailViewModel @Inject constructor(
                         startMs = captured.startedAtMs,
                         endMs = captured.endedAtMs,
                     ) ?: return@withContext
-                    analytics.track(AnalyticsEventsPenVisits.UPLOAD_ENQUEUED)
+                    analytics.track(
+                        AnalyticsEventsPenVisits.UPLOAD_ENQUEUED,
+                        penVisitAnalyticsProps(detail = detail, proofOutboxItemId = proofOutboxId, source = captured.captureSource),
+                    )
                     when (
                         val queued = syncRepository.enqueuePenVisitSubmit(
                             taskId = taskId,
@@ -218,13 +276,28 @@ class PenVisitDetailViewModel @Inject constructor(
                     ) {
                         is AppResult.Ok -> {
                             local.update { it.copy(submitOutboxItemId = queued.value) }
-                            analytics.track(AnalyticsEventsPenVisits.SUBMITTED)
+                            analytics.track(
+                                AnalyticsEventsPenVisits.SUBMITTED,
+                                penVisitAnalyticsProps(
+                                    detail = detail,
+                                    proofOutboxItemId = proofOutboxId,
+                                    submitOutboxItemId = queued.value,
+                                    source = captured.captureSource,
+                                    outcome = "queued",
+                                ),
+                            )
                         }
                         is AppResult.Err -> {
                             queued.cause?.let { crashReporter.recordException(it, "pen visit submit enqueue failed") }
                             analytics.track(
                                 AnalyticsEventsPenVisits.FAILURE,
-                                mapOf(AnalyticsEvents.Params.REASON to queued.message.take(MAX_REASON_CHARS)),
+                                penVisitAnalyticsProps(
+                                    detail = detail,
+                                    proofOutboxItemId = proofOutboxId,
+                                    source = captured.captureSource,
+                                    outcome = "failure",
+                                    reason = queued.message,
+                                ),
                             )
                             local.update { it.copy(message = appContext.getString(R.string.pen_visits_msg_not_sent)) }
                         }
@@ -245,6 +318,7 @@ class PenVisitDetailViewModel @Inject constructor(
      * lost clip. Only a row still without an upload id after the wait is a genuine failure.
      */
     private suspend fun captureProof(
+        detail: PenVisitDto,
         localUri: String,
         mimeType: String,
         caption: String,
@@ -277,12 +351,25 @@ class PenVisitDetailViewModel @Inject constructor(
                 result.cause?.let { crashReporter.recordException(it, "pen visit capture write failed") }
                 analytics.track(
                     AnalyticsEventsPenVisits.FAILURE,
-                    mapOf(AnalyticsEvents.Params.REASON to result.message.take(MAX_REASON_CHARS)),
+                    penVisitAnalyticsProps(
+                        detail = detail,
+                        source = captureSource,
+                        outcome = "failure",
+                        reason = result.message,
+                    ),
                 )
                 local.update { it.copy(message = appContext.getString(R.string.pen_visits_msg_capture_not_saved)) }
                 return null
             }
-            is AppResult.Ok -> analytics.track(AnalyticsEventsPenVisits.ROOM_WRITTEN)
+            is AppResult.Ok -> analytics.track(
+                AnalyticsEventsPenVisits.ROOM_WRITTEN,
+                penVisitAnalyticsProps(
+                    detail = detail,
+                    proof = result.value,
+                    proofOutboxItemId = result.value.outboxItemId.orEmpty(),
+                    source = captureSource,
+                ),
+            )
         }
         var proofOutboxId = result.value.outboxItemId
         var waited = 0L
@@ -298,7 +385,16 @@ class PenVisitDetailViewModel @Inject constructor(
                 IllegalStateException("pen visit clip ${result.value.id} has no upload row after ${waited}ms"),
                 "pen visit video never enqueued its upload",
             )
-            analytics.track(AnalyticsEventsPenVisits.FAILURE, mapOf(AnalyticsEvents.Params.REASON to "upload_row_missing"))
+            analytics.track(
+                AnalyticsEventsPenVisits.FAILURE,
+                penVisitAnalyticsProps(
+                    detail = detail,
+                    proof = result.value,
+                    source = captureSource,
+                    outcome = "failure",
+                    reason = "upload_row_missing",
+                ),
+            )
             local.update { it.copy(message = appContext.getString(R.string.pen_visits_msg_capture_not_saved)) }
             return null
         }
@@ -308,14 +404,20 @@ class PenVisitDetailViewModel @Inject constructor(
     /** The clip preview's play/pause/fullscreen/share/failure, traced like every other proof surface. */
     private fun trackPreviewAction(raw: String) {
         val trace = ProofPreviewActionTrace.from(raw)
-        analytics.track(
-            AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION,
-            buildMap {
-                put(AnalyticsEvents.Params.ACTION, trace.action)
-                put(AnalyticsEvents.Params.OUTCOME, trace.outcome)
-                trace.reason?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
-            },
-        )
+        viewModelScope.launch {
+            val detail = repository.observeVisit(taskId).first()
+            val proof = proofCaptureRepository.observeLatest(videoSlot).first()
+            analytics.track(
+                AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION,
+                penVisitAnalyticsProps(
+                    detail = detail,
+                    proof = proof,
+                    source = "preview",
+                    outcome = trace.outcome,
+                    reason = trace.reason,
+                ) + mapOf(AnalyticsEvents.Params.ACTION to trace.action),
+            )
+        }
     }
 
     private fun reportFailure(error: Throwable, context: String) {
@@ -323,8 +425,42 @@ class PenVisitDetailViewModel @Inject constructor(
         crashReporter.recordException(error, context)
         analytics.track(
             AnalyticsEventsPenVisits.FAILURE,
-            mapOf(AnalyticsEvents.Params.REASON to (error.message ?: "unknown").take(MAX_REASON_CHARS)),
+            penVisitAnalyticsProps(outcome = "failure", reason = error.message ?: "unknown"),
         )
+    }
+
+    private fun penVisitAnalyticsProps(
+        detail: PenVisitDto? = null,
+        proof: ProofCaptureRow? = null,
+        proofOutboxItemId: String = proof?.outboxItemId.orEmpty(),
+        submitOutboxItemId: String = "",
+        source: String? = null,
+        outcome: String? = null,
+        reason: String? = null,
+        stage: String? = null,
+    ): Map<String, String> = buildMap {
+        put(PARAM_TASK_ID, detail?.taskId ?: taskId)
+        put(AnalyticsEvents.Params.FIELD, PEN_VISIT_VIDEO_FIELD_KEY)
+        put(AnalyticsEvents.Params.GROUP_KEY, penVisitTaskGroupKey(taskId))
+        detail?.let {
+            put(AnalyticsEvents.Params.IDEMPOTENCY_KEY, sg.mesha.goatos.core.data.sync.penVisitSubmitIdempotencyKey(it.taskId, it.rowVersion))
+            put("row_version", it.rowVersion.toString())
+            put("work_state", it.workState)
+        }
+        proof?.let {
+            put(AnalyticsEvents.Params.PROOF_ID, it.id)
+            put(AnalyticsEvents.Params.PROOF_STATE, it.processingStatus.wireValue)
+            it.serverProofId?.takeIf { id -> id.isNotBlank() }?.let { id -> put("server_proof_id", id) }
+        }
+        if (proofOutboxItemId.isNotBlank()) put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, proofOutboxItemId)
+        if (submitOutboxItemId.isNotBlank()) put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, submitOutboxItemId)
+        source?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.SOURCE, it.take(MAX_REASON_CHARS)) }
+        stage?.takeIf { it.isNotBlank() }?.let { put("stage", it.take(MAX_REASON_CHARS)) }
+        outcome?.let {
+            put(AnalyticsEvents.Params.OUTCOME, it.take(MAX_REASON_CHARS))
+            put(AnalyticsEvents.Params.RESULT, it.take(MAX_REASON_CHARS))
+        }
+        reason?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
     }
 
     private fun toUiState(
@@ -368,6 +504,7 @@ class PenVisitDetailViewModel @Inject constructor(
         const val PROOF_ROW_SETTLE_MAX_MS = 3_000L
         const val PROOF_ROW_SETTLE_STEP_MS = 100L
         const val MAX_REASON_CHARS = 120
+        const val PARAM_TASK_ID = "task_id"
     }
 }
 
@@ -389,9 +526,9 @@ internal data class PenVisitVideoUi(
  *     sentence (the server's farm copy when it gave one).
  *  3. A submit still alive in the outbox from a previous process -> WORKING.
  *  4. Otherwise the proof row: none is EMPTY; a dead-lettered or terminally failed upload is
- *     FAILED; an uploaded clip with NO live submit and NO completion is FAILED too — the submit
- *     is gone and the honest offer is to record again; anything else is WORKING with the
- *     pipeline's own progress line.
+ *     FAILED; an uploaded clip with NO live submit and NO completion stays WORKING while the
+ *     ViewModel re-enqueues the missing submit; anything else is WORKING with the pipeline's own
+ *     progress line.
  */
 internal fun penVisitVideoState(
     detail: PenVisitDto,
@@ -413,7 +550,7 @@ internal fun penVisitVideoState(
         ProofProcessingStatus.RECORD_AGAIN ->
             PenVisitVideoUi(PenVisitVideoState.FAILED, failureReason = proof.lastError.orEmpty())
         ProofProcessingStatus.UPLOADED ->
-            PenVisitVideoUi(PenVisitVideoState.FAILED, failureReason = proof.lastError.orEmpty())
+            PenVisitVideoUi(PenVisitVideoState.WORKING, progressLabel = proof.processingStatus.operatorLabel)
         else -> if (proof.syncStatus == CaptureSyncStatus.FAILED) {
             PenVisitVideoUi(PenVisitVideoState.FAILED, failureReason = proof.lastError.orEmpty())
         } else {

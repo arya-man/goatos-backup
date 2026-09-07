@@ -14,6 +14,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsPenVisits
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.network.AppAnalyticsEventRequestDto
 import sg.mesha.goatos.core.network.AppAnalyticsEventResponseDto
@@ -223,6 +224,16 @@ class BackendAnalyticsAdapterTest {
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_SUBMIT_CONFIRMED))
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_SLOT_SUBMIT))
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_FAILURE))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.LIST_VIEWED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.TASK_OPENED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.CAPTURE_STARTED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.CAPTURE_RESULT))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.ROOM_WRITTEN))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.UPLOAD_ENQUEUED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.SUBMITTED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.SUBMIT_RECOVERED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.VACCINATION_PROOF_CAPTURE_CANCELLED))
         assertTrue(allowlist.contains(AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED))
@@ -264,6 +275,14 @@ class BackendAnalyticsAdapterTest {
         assertTrue(allowlist.contains(AnalyticsEventsWeighing.WEIGHING_INDIVIDUAL_PROOF_RETRY_ATTEMPTED))
         assertTrue(allowlist.contains(AnalyticsEventsWeighing.WEIGHING_INDIVIDUAL_PROOF_RETRY_SUCCEEDED))
         assertTrue(allowlist.contains(AnalyticsEventsWeighing.WEIGHING_INDIVIDUAL_PROOF_RETRY_FAILED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.CAPTURE_STARTED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.CAPTURE_RESULT))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.ROOM_WRITTEN))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.UPLOAD_ENQUEUED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.SUBMITTED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.SUBMIT_RECOVERED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION))
+        assertTrue(allowlist.contains(AnalyticsEventsPenVisits.FAILURE))
     }
 
     /** External review 2026-08-16: FEED_DISTRIBUTION_SUBMIT_SOURCES is the ONLY event carrying
