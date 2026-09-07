@@ -84,6 +84,10 @@ type Repository interface {
 	// is idempotent on the natural key. It returns the digests of tasks CREATED by this call so
 	// the caller can push once per park; a replay returns none.
 	Materialize(ctx context.Context, tenantID string, sourceDate, today string, now time.Time) (MaterializeResult, []CreatedDigest, error)
+	// DueDigestsForSourceDate rebuilds the bounded notification digest from existing open tasks
+	// for sourceDate. Kernel ticks use it after a materialize replay so a transient notification
+	// queue failure after the original commit can still be retried.
+	DueDigestsForSourceDate(ctx context.Context, tenantID, sourceDate string) ([]CreatedDigest, error)
 	// SweepRollForward moves unfinished visits whose due date has passed to today as delayed.
 	SweepRollForward(ctx context.Context, tenantID string, asOf time.Time, chunkSize, maxChunks int) (SweepResult, error)
 }

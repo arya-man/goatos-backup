@@ -191,13 +191,22 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 		t.Fatalf("open count = %d err %v", n, err)
 	}
 
-	// A replay of the same day creates nothing and pushes nothing.
+	// A replay of the same day creates nothing. The digest can still be rebuilt from the open
+	// tasks, so a transient push-queue failure after the first commit is retried on the next kernel
+	// tick instead of being lost forever.
 	replay, replayDigests, err := repo.Materialize(ctx, pvTenant, source, today, now.Add(5*time.Minute))
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if replay.Created != 0 || replay.Widened != 0 || len(replayDigests) != 0 {
 		t.Fatalf("replay must be a no-op, got %+v %+v", replay, replayDigests)
+	}
+	retryDigests, err := repo.DueDigestsForSourceDate(ctx, pvTenant, source)
+	if err != nil {
+		t.Fatalf("retry digests: %v", err)
+	}
+	if len(retryDigests) != 1 || retryDigests[0].ParkID != pvParkCBE || retryDigests[0].AssigneeID != pvDinakar || retryDigests[0].DueDate != today || len(retryDigests[0].Tasks) != 2 {
+		t.Fatalf("retry digests = %+v", retryDigests)
 	}
 	// A late item for the same pen and day (an offline phone syncing after the tick) only
 	// widens the open visit's reasons -- never a second task.

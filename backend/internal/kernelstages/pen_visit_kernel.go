@@ -95,6 +95,12 @@ func (s *PenVisitKernelStage) Run(ctx context.Context) error {
 			return err
 		}
 		s.logResult(ctx, result)
+		if len(digests) == 0 {
+			digests, err = s.store.DueDigestsForSourceDate(ctx, s.tenantID, sourceDate)
+			if err != nil {
+				return err
+			}
+		}
 		if len(digests) > 0 {
 			if err := s.notifier.NotifyCreated(ctx, s.tenantID, digests); err != nil {
 				return err

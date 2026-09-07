@@ -497,6 +497,53 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 	return result, out, nil
 }
 
+// DueDigestsForSourceDate rebuilds the same per-park notification digest from existing open
+// tasks. It is the retry path for "materialize committed, queueing the push failed": the next tick
+// no longer inserts rows, but the calendar notification queue is idempotent by event key/device, so
+// re-offering the digest is safe and bounded by that source day's open pen visits.
+func (r *Repository) DueDigestsForSourceDate(ctx context.Context, tenantID, sourceDate string) ([]ports.CreatedDigest, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, sqlRepository10, tenantID, sourceDate)
+	if err != nil {
+		return nil, fmt.Errorf("pen visit: due digests: %w", err)
+	}
+	defer rows.Close()
+	return scanDigests(rows)
+}
+
+func scanDigests(rows pgx.Rows) ([]ports.CreatedDigest, error) {
+	digests := map[string]*ports.CreatedDigest{}
+	order := []string{}
+	for rows.Next() {
+		task, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("pen visit: due digest scan: %w", err)
+		}
+		key := task.ParkID + "|" + task.AssigneeID + "|" + task.DueDate
+		d, ok := digests[key]
+		if !ok {
+			d = &ports.CreatedDigest{
+				ParkID:     task.ParkID,
+				ParkName:   task.ParkName,
+				AssigneeID: task.AssigneeID,
+				DueDate:    task.DueDate,
+			}
+			digests[key] = d
+			order = append(order, key)
+		}
+		d.Tasks = append(d.Tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]ports.CreatedDigest, 0, len(order))
+	for _, key := range order {
+		out = append(out, *digests[key])
+	}
+	return out, nil
+}
+
 // SweepRollForward moves unfinished visits whose due date has passed to today as 'delayed' --
 // the PC Care kernel shape: chunked, FOR UPDATE SKIP LOCKED, capped.
 func (r *Repository) SweepRollForward(ctx context.Context, tenantID string, asOf time.Time, chunkSize, maxChunks int) (ports.SweepResult, error) {
@@ -596,7 +643,7 @@ WHERE pen_visit_tasks.work_state IN ('scheduled', 'delayed')
   AND NOT (pen_visit_tasks.reasons @> EXCLUDED.reasons)
 RETURNING task_id::text, (xmax = 0) AS inserted`
 	sqlRepository9 = `
-UPDATE pen_visit_tasks t
+	UPDATE pen_visit_tasks t
 SET work_state = 'delayed',
     delayed_since_business_date = COALESCE(t.delayed_since_business_date, t.due_business_date),
     due_business_date = $2::date,
@@ -612,6 +659,12 @@ FROM (
   ORDER BY due_business_date, task_id
   LIMIT $3
   FOR UPDATE SKIP LOCKED
-) claim
-WHERE t.tenant_id = $1::uuid AND t.task_id = claim.task_id`
+	) claim
+	WHERE t.tenant_id = $1::uuid AND t.task_id = claim.task_id`
+	sqlRepository10 = `
+	SELECT ` + taskColumns + ` ` + taskFrom + `
+	WHERE t.tenant_id = $1::uuid
+	  AND t.source_business_date = $2::date
+	  AND t.work_state IN ('scheduled', 'delayed')
+	ORDER BY t.park_id, t.assignee_user_id, t.due_business_date, t.shed_id, t.partition_key, t.task_id`
 )
