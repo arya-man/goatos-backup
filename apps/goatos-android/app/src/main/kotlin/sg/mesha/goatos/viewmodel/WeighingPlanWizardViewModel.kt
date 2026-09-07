@@ -171,9 +171,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
     init {
         analytics.track(AnalyticsEvents.WEIGHING_PLAN_VIEWED)
         trackStepReached(raw.value.step)
-        // The removal cutoff is the FARM's configured evening, served on the bootstrap
+        // The removal cutoff hint is the FARM's configured evening, served on the bootstrap
         // (maintainer decision 2026-09-07: config, not code). Until it lands the date step offers
         // only the rule's invariant floor (never today); once it lands the offered days recompute.
+        // The backend remains the source of truth for accepting or rejecting the save.
         viewModelScope.launch {
             val cutoff = parseFeedWaterRemovalCutoff(bootstrapRepository.feedWaterRemovalCutoffTime())
             raw.update { it.copy(removalCutoff = cutoff) }
@@ -272,7 +273,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
         if (current.editCampaignId != null) return
         // Weighing always needs feed & water removed the evening before (maintainer decision
         // 2026-09-03), so the earliest plannable date follows the farm's CONFIGURED removal-evening
-        // cutoff — today is never offerable, and past dates never were. Client mirror only; the
+        // cutoff — today is never offerable, and past dates never were. Client picker hint only; the
         // server still refuses with its own farm copy (422 fasting_window_closed).
         val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), current.removalCutoff)
         val parsed = runCatching {

@@ -763,16 +763,22 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 		// fills Now from its injectable clock.
 		now = time.Now()
 	}
-	// No such fallback for the cutoff: it is the farm's configured evening, and a literal
-	// here would be a second copy of the rule. The service fills it from the config reader.
-	if !q.RemovalCutoff.Valid() {
+	// No such fallback for the cutoff when this list can include feed & water removal cards:
+	// it is the farm's configured evening, and a literal here would be a second copy of the
+	// rule. Lists for unrelated categories do not need the bind because the SQL predicate
+	// short-circuits on t.category <> 'feed_water_removal'.
+	if pcCareListQueryMayIncludeFeedRemoval(q.Category) && !q.RemovalCutoff.Valid() {
 		return ports.TaskPage{}, fwrports.ErrCutoffNotConfigured
+	}
+	removalCutoffSQLTime := "00:00:00"
+	if q.RemovalCutoff.Valid() {
+		removalCutoffSQLTime = q.RemovalCutoff.SQLTime()
 	}
 	rows, err := r.pool.Query(ctx, "SELECT"+taskSelectColumns+taskFromJoins+listTasksPageSQL,
 		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
 		q.ParkID, q.Category, q.AssigneeUserID, limit+1,
 		afterPark, afterShed, afterPartition, afterCategory, afterTask, q.CurrentOrCarry,
-		now, q.RemovalCutoff.SQLTime())
+		now, removalCutoffSQLTime)
 	if err != nil {
 		return ports.TaskPage{}, fmt.Errorf("pccare: list tasks: %w", err)
 	}
@@ -801,6 +807,15 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 		nextCursor = encodeTaskCursor(last)
 	}
 	return ports.TaskPage{Items: items, NextCursor: nextCursor}, nil
+}
+
+func pcCareListQueryMayIncludeFeedRemoval(category string) bool {
+	switch strings.TrimSpace(category) {
+	case "", domain.CategoryDeworming, domain.CategoryFeedWaterRemoval:
+		return true
+	default:
+		return false
+	}
 }
 
 type taskCursor struct {

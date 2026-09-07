@@ -115,6 +115,22 @@ func (s *Service) removalCutoff(ctx context.Context, tenantID string) (fwrdomain
 	return cutoff, nil
 }
 
+func pcCareListMayIncludeFeedRemoval(category string) bool {
+	switch strings.TrimSpace(category) {
+	case "", domain.CategoryDeworming, domain.CategoryFeedWaterRemoval:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) removalCutoffForList(ctx context.Context, tenantID, category string) (fwrdomain.Cutoff, error) {
+	if !pcCareListMayIncludeFeedRemoval(category) {
+		return fwrdomain.Cutoff{}, nil
+	}
+	return s.removalCutoff(ctx, tenantID)
+}
+
 // WithNow overrides the clock (tests).
 func (s *Service) WithNow(now func() time.Time) *Service {
 	s.now = now
@@ -568,8 +584,9 @@ func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, cat
 		}
 	}
 	// The removal card's visibility window opens at the tenant's CONFIGURED cutoff; read
-	// once per list and bound into the SQL beside the caller's clock.
-	cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+	// once per list only when this list shape can include feed & water removal cards. Other
+	// PC Care categories must keep listing even if the farm's removal cutoff is not set up.
+	cutoff, err := s.removalCutoffForList(ctx, actor.TenantID, category)
 	if err != nil {
 		return ports.TaskPage{}, err
 	}
@@ -601,7 +618,7 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 		return ports.TaskPage{}, ports.ErrInvalidArgument
 	}
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.PCCareExecute)
-	cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+	cutoff, err := s.removalCutoffForList(ctx, actor.TenantID, category)
 	if err != nil {
 		return ports.TaskPage{}, err
 	}

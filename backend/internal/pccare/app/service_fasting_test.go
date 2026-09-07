@@ -192,8 +192,11 @@ func TestCreateTaskFeedRemovalCutoffComesFromConfig(t *testing.T) {
 		if store.createCalls != 0 {
 			t.Fatalf("%s reader: store.CreateTask must not run without a configured cutoff", name)
 		}
-		if _, err := svc.ListTasks(plannerCtx(), plannerActor(), "", "", "2026-09-10", "", 25, false); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
-			t.Fatalf("%s reader list err = %v, want ErrCutoffNotConfigured", name, err)
+		if _, err := svc.ListTasks(plannerCtx(), plannerActor(), "", domain.CategoryDeworming, "2026-09-10", "", 25, false); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
+			t.Fatalf("%s reader deworming/removal-capable list err = %v, want ErrCutoffNotConfigured", name, err)
+		}
+		if _, err := svc.ListTasks(plannerCtx(), plannerActor(), "", domain.CategoryTicksRemoval, "2026-09-10", "", 25, false); err != nil {
+			t.Fatalf("%s reader ticks list err = %v, want nil because no feed-removal card can appear", name, err)
 		}
 	}
 }

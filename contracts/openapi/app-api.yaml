@@ -22562,7 +22562,7 @@ components:
           format: date-time
         feed_water_removal_cutoff_time:
           type: string
-          pattern: "^[0-2][0-9]:[0-5][0-9]$"
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
           description: |
             The tenant's configured feed & water removal cutoff as HH:MM Asia/Kolkata
             wall-clock (maintainer decision 2026-09-07: config, not code; stored in

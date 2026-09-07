@@ -91,9 +91,10 @@ class PcCarePlanViewModel @Inject constructor(
     private var catalog: PcCarePlannerCatalogDto? = null
 
     /**
-     * The farm's feed & water removal cutoff from the bootstrap (maintainer decision 2026-09-07:
-     * config, not code); null until it lands or when the farm has none, in which case the removal
-     * toggle narrows the picker only to the rule's invariant floor (never today).
+     * The farm's feed & water removal cutoff hint from the bootstrap (maintainer decision
+     * 2026-09-07: config, not code); null until it lands or when the farm has none, in which case
+     * the removal toggle narrows the picker only to the rule's invariant floor (never today). The
+     * backend remains the source of truth for accepting or rejecting the save.
      */
     private var removalCutoff: java.time.LocalTime? = null
     private var pensCursor: String? = null
@@ -436,7 +437,7 @@ class PcCarePlanViewModel @Inject constructor(
         val today = LocalDate.now(ZoneId.of(INDIA_ZONE))
         if (date < today || date > today.plusDays(FUTURE_WINDOW_DAYS)) return
         // With the removal toggle ON, the chosen day must still have a removal evening ahead of
-        // it (client mirror of the server's configured-cutoff rule; the server still refuses
+        // it (client picker hint for the server's configured-cutoff rule; the server still refuses
         // with its own farm copy).
         val minIso = _state.value.minSelectableDateIso
         if (_state.value.feedRemovalRequired && minIso.isNotBlank() && date.toString() < minIso) return
@@ -507,7 +508,7 @@ class PcCarePlanViewModel @Inject constructor(
 
     /**
      * Flips "Feed removed before deworming?" (maintainer decision 2026-09-03). Turning it ON
-     * applies the configured-cutoff picker rule: a selected day whose removal evening has already begun
+     * applies the configured-cutoff picker hint: a selected day whose removal evening has already begun
      * is MOVED to the earliest allowed day, and the move is said out loud rather than silently
      * applied — the server would refuse the old day anyway (422, its own farm copy).
      */

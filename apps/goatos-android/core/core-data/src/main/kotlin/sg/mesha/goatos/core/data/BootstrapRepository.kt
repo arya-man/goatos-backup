@@ -23,9 +23,9 @@ interface BootstrapRepository {
      *  overrides it with the real cache/network read. */
     suspend fun actorTenantId(): String? = null
 
-    /** The farm's feed & water removal cutoff ("HH:MM" IST) from the (cached or fresh)
+    /** The farm's feed & water removal cutoff hint ("HH:MM" IST) from the (cached or fresh)
      *  bootstrap (maintainer decision 2026-09-07: config, not code), read by the weighing and
-     *  PC Care plan wizards to mirror the backend's date-picker rule. Null when the bootstrap
+     *  PC Care plan wizards to mirror the backend's date-picker rule for UX only. Null when the bootstrap
      *  carries none (older cache, unconfigured farm) — the wizards then offer only the rule's
      *  invariant floor and the server's own refusal decides. Defaulted so existing fakes and
      *  implementers compile unchanged; only [DefaultBootstrapRepository] overrides it. */
