@@ -272,6 +272,7 @@
     <string name="weighing_wizard_fasting_subtitle">ಹಿಂದಿನ ಸಂಜೆ ಈ ಶೆಡ್‌ಗಳಿಂದ ಮೇವು ಮತ್ತು ನೀರು ಯಾರು ತೆಗೆಯುತ್ತಾರೆ?</string>
     <string name="weighing_wizard_fasting_prompt">ಒಬ್ಬ ವ್ಯಕ್ತಿಯನ್ನು ಆರಿಸಿ…</string>
     <string name="weighing_removal_section_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯುವಿಕೆ</string>
+    <string name="weighing_removal_card_type">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆದುಹಾಕಿ</string>
     <string name="weighing_removal_screen_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯಿರಿ</string>
     <string name="weighing_removal_status_open">ಇಂದು ರಾತ್ರಿಯ ತೆಗೆಯುವಿಕೆಯನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="weighing_removal_status_in_review">ಸಲ್ಲಿಸಲಾಗಿದೆ — ವೀಡಿಯೊ ಪರಿಶೀಲನೆಯಲ್ಲಿದೆ</string>

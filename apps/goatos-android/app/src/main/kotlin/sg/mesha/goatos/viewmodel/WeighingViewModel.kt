@@ -92,6 +92,7 @@ import sg.mesha.goatos.core.network.MAX_SCOPE_HYDRATION_ROWS
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_MINE
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
 import sg.mesha.goatos.feature.scan.ScanReaderConnection
@@ -4206,7 +4207,7 @@ private fun WeighingTaskShed.toTaskShedUiRow(task: WeighingTask, operatorLabel: 
         campaignShedId = campaignShedId,
         tenantId = task.tenantId,
         locationId = locationId,
-        shedName = displayName.ifBlank { locationId },
+        shedName = operationalLocationLabel(displayName.ifBlank { locationId }, partitionLabel),
         category = category,
         operatorLabel = operatorLabel,
         status = status,
@@ -4250,7 +4251,9 @@ private fun WeighingTask.toTaskUiRow(): WeighingTaskUiRow {
         dateLabel = date?.format(weighingTodayFormatter) ?: weighDate,
         monthLabel = date?.format(weighingMonthFormatter).orEmpty(),
         bucketCount = bucketCount,
-        shedNames = sheds.take(2).map { it.displayName }.filter { it.isNotBlank() },
+        shedNames = sheds.take(2)
+            .map { operationalLocationLabel(it.displayName.ifBlank { it.locationId }, it.partitionLabel) }
+            .filter { it.isNotBlank() },
         moreShedCount = (bucketCount - 2).coerceAtLeast(0),
         individualCount = sheds.count { !it.category.equals("per_shed_partition", ignoreCase = true) },
         lumpSumCount = sheds.count { it.category.equals("per_shed_partition", ignoreCase = true) },

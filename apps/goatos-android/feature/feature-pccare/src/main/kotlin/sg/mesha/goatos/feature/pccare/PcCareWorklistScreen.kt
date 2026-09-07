@@ -136,7 +136,12 @@ internal fun PcCareTaskCard(
                 style = MeshaType.cardTitle,
                 modifier = Modifier.weight(1f),
             )
-            PcCareStatusChip(label = card.statusLabel, tone = card.statusTone)
+            PcCareWorkTypeChip(label = card.workTypeLabel, modifier = Modifier.padding(start = 8.dp))
+            PcCareStatusChip(
+                label = card.statusLabel,
+                tone = card.statusTone,
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
         val subtitle = buildList {
             if (card.parkLabel.isNotBlank()) add(card.parkLabel)

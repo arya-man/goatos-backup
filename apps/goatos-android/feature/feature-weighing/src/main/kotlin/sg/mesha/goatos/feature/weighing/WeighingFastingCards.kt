@@ -123,7 +123,10 @@ private fun WeighingFastingCardRow(card: WeighingFastingCardUiRow, onOpen: () ->
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            FastingPill(label = card.statusLabel, fg = fg, bg = bg)
+            FeedWaterPill()
+            if (card.tone != WeighingFastingTone.ACTION) {
+                FastingPill(label = card.statusLabel, fg = fg, bg = bg)
+            }
             Spacer(Modifier.weight(1f))
             FastingPill(label = card.dateLabel, fg = MeshaColors.Muted, bg = MeshaColors.Surf3)
         }
@@ -145,6 +148,37 @@ private fun WeighingFastingCardRow(card: WeighingFastingCardUiRow, onOpen: () ->
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@Composable
+private fun FeedWaterPill() {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(MeshaColors.BrandTint)
+            .padding(horizontal = 9.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = MeshaIcons.Feed,
+            contentDescription = null,
+            tint = MeshaColors.BrandD,
+            modifier = Modifier.size(15.dp),
+        )
+        Icon(
+            imageVector = MeshaIcons.Water,
+            contentDescription = null,
+            tint = MeshaColors.BrandD,
+            modifier = Modifier.size(15.dp),
+        )
+        Text(
+            text = stringResource(R.string.weighing_removal_card_type),
+            color = MeshaColors.BrandD,
+            style = MeshaType.pillStrong,
+            maxLines = 1,
+        )
     }
 }
 

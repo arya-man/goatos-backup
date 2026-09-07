@@ -6,6 +6,12 @@ The current phone-QA throwaway database (port **15544**) is the role/device
 fixture used by `tools/local/phone-qa-throwaway-run.sh` and
 `tools/local/phone-qa-throwaway-seed.sh`.
 
+Feature-testing fixtures must use operational partition identity on every
+operator-visible card: shed + concrete partition label, such as
+`Godel 1 - Part 1`. Bare shed cards such as `Godel 1`, or visible `whole`
+partition labels, are not valid phone evidence unless the maintainer explicitly
+asks for a whole-shed case.
+
 OCI phone QA must use only disposable `goatos_e2e_*` databases exposed through
 the local tunnel; the seed script refuses shared OCI `goatos`, staging, or prod.
 For PC Care proof-link testing, this backend seed creates the visible tasks,

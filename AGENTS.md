@@ -35,6 +35,13 @@ backend added a new key.
 For phone E2E, test only the Android user profile and app package visible to
 the maintainer unless they explicitly authorize switching.
 
+For any local/OCI throwaway feature-testing seed, always seed and verify
+operator-visible work at operational partition identity: shed + concrete
+partition label, for example `Godel 1 - Part 1`. Do not seed feature-test cards
+that render as a bare shed name such as `Godel 1`, and do not use `whole` as the
+visible partition label in phone evidence unless the maintainer explicitly asks
+for a whole-shed case.
+
 ## PR Review + Land Main Rule
 
 When the maintainer asks to review a GitHub PR and land main, the task is not

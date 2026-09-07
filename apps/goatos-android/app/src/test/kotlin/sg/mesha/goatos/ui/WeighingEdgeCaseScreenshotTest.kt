@@ -12,6 +12,9 @@ import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
+import sg.mesha.goatos.feature.weighing.WeighingFastingCardUiRow
+import sg.mesha.goatos.feature.weighing.WeighingFastingTone
+import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingScreen
 import sg.mesha.goatos.feature.weighing.WeighingUiState
@@ -91,6 +94,57 @@ class WeighingEdgeCaseScreenshotTest {
         )
     }
 
+    @Test
+    fun weighingFeedWaterRemovalOnlyActionableCards() = shot("weighing_case_06_feed_water_removal_clean") {
+        WeighingScreen(
+            state = WeighingUiState(
+                title = "My work",
+                scopeLabel = "WEIGHING",
+                hasScope = false,
+                hasLoadedOnce = true,
+                assignments = listOf(
+                    weighingAssignment(
+                        campaignShedId = "actual-gandhi-1",
+                        expectedLocationLabel = "Gandhi 1",
+                        category = "individual_animal",
+                        periodLabel = "Today",
+                    ),
+                    weighingAssignment(
+                        campaignShedId = "actual-mandela-2",
+                        expectedLocationLabel = "Mandela 2 - Part 1",
+                        category = "per_shed_partition",
+                        periodLabel = "Today",
+                    ),
+                ),
+            ),
+            fastingCards = listOf(
+                WeighingFastingCardUiRow(
+                    uiKey = "removal|fasting-1|shed-yashoda-10",
+                    fastingTaskId = "fasting-1",
+                    campaignShedId = "shed-yashoda-10",
+                    title = "Yashoda 10",
+                    dateLabel = "Tonight",
+                    status = "open",
+                    statusLabel = "Open",
+                    tone = WeighingFastingTone.ACTION,
+                    openable = true,
+                ),
+                WeighingFastingCardUiRow(
+                    uiKey = "removal|fasting-1|shed-godel-2-part-1",
+                    fastingTaskId = "fasting-1",
+                    campaignShedId = "shed-godel-2-part-1",
+                    title = "Godel 2 - Part 1",
+                    dateLabel = "Tonight",
+                    status = "rework",
+                    statusLabel = "Needs another video",
+                    tone = WeighingFastingTone.SENT_BACK,
+                    reworkReason = "Water video is too dark. Record again.",
+                    openable = true,
+                ),
+            ),
+        )
+    }
+
     private fun shot(name: String, content: @androidx.compose.runtime.Composable () -> Unit) {
         paparazzi.snapshot(name = name) {
             GoatOsTheme {
@@ -133,4 +187,28 @@ private fun weighingRows(duplicate: Boolean): List<WeighingRosterUiRow> = listOf
         displayAnimalId = "901007000504418",
         status = "Pending",
     ),
+)
+
+private fun weighingAssignment(
+    campaignShedId: String,
+    expectedLocationLabel: String,
+    category: String,
+    periodLabel: String,
+) = WeighingAssignmentUiRow(
+    campaignId = "campaign-1",
+    tenantId = "tenant-1",
+    parkId = "park-1",
+    parkLabel = "CBE",
+    workGroupId = "week-37",
+    campaignShedId = campaignShedId,
+    expectedLocationId = campaignShedId,
+    expectedLocationLabel = expectedLocationLabel,
+    label = expectedLocationLabel,
+    category = category,
+    operatorName = "Kumar Sharath",
+    backendStatus = "open",
+    status = "open",
+    periodLabel = periodLabel,
+    plannedBusinessDate = "2026-09-08",
+    dueBusinessDate = "2026-09-08",
 )

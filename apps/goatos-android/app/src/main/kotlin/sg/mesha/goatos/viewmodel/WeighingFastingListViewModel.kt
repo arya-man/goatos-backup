@@ -53,7 +53,7 @@ class WeighingFastingListViewModel @Inject constructor(
     val state: StateFlow<WeighingFastingSectionUiState> =
         combine(repository.observeCards(), syncing.asStateFlow()) { cache, busy ->
             WeighingFastingSectionUiState(
-                cards = cache.cards.map { it.toUiRow(appContext) },
+                cards = cache.cards.mapNotNull { it.toVisibleUiRow(appContext) },
                 isSyncing = busy,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFastingSectionUiState())
@@ -100,13 +100,16 @@ class WeighingFastingListViewModel @Inject constructor(
 /** Maps one backend PER-SHED card to its list row (maintainer correction #2, 2026-09-03). Every
  *  composed string is fixed farm chrome or verbatim backend copy; the "Tonight" reading is
  *  display-only convenience, never a gate. */
-internal fun WeighingFastingCard.toUiRow(context: Context): WeighingFastingCardUiRow {
+internal fun WeighingFastingCard.toVisibleUiRow(context: Context): WeighingFastingCardUiRow? {
     val status = dto.status.trim().lowercase()
     val tone = when (status) {
         "pending_verification" -> WeighingFastingTone.IN_REVIEW
         "rework" -> WeighingFastingTone.SENT_BACK
         "completed" -> WeighingFastingTone.DONE
         else -> WeighingFastingTone.ACTION
+    }
+    if (tone == WeighingFastingTone.IN_REVIEW || tone == WeighingFastingTone.DONE) {
+        return null
     }
     val statusLabel = when (tone) {
         WeighingFastingTone.ACTION -> context.getString(WeighingR.string.weighing_removal_status_open)
@@ -120,7 +123,7 @@ internal fun WeighingFastingCard.toUiRow(context: Context): WeighingFastingCardU
         uiKey = "removal|${dto.fastingTaskId}|${dto.campaignShedId}",
         fastingTaskId = dto.fastingTaskId,
         campaignShedId = dto.campaignShedId,
-        title = dto.subjectLabel,
+        title = displayTitle(),
         dateLabel = if (dto.removalBusinessDate == todayIst) {
             context.getString(WeighingR.string.weighing_removal_date_tonight)
         } else {
@@ -133,6 +136,19 @@ internal fun WeighingFastingCard.toUiRow(context: Context): WeighingFastingCardU
         openable = tone == WeighingFastingTone.ACTION || tone == WeighingFastingTone.SENT_BACK,
     )
 }
+
+private fun WeighingFastingCard.displayTitle(): String =
+    dto.subjectLabel.stripRemovalPrefix()
+        .ifBlank { dto.shedLabel.stripRemovalPrefix() }
+        .ifBlank { dto.subjectLabel }
+
+internal fun String.stripRemovalPrefix(): String =
+    trim()
+        .removePrefix("Remove feed & water ·")
+        .removePrefix("Remove feed & water -")
+        .removePrefix("Remove feed and water ·")
+        .removePrefix("Remove feed and water -")
+        .trim()
 
 /** Farm-readable removal-evening label ("Wed 2 Sep"); a value that fails to
  *  parse renders verbatim rather than crashing a card over a date string. */

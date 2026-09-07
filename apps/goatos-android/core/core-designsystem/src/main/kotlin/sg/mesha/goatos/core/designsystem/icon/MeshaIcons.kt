@@ -151,6 +151,11 @@ object MeshaIcons {
         "feed",
         "M3.5 11h17a8.5 8.5 0 0 1 -17 0zM8 11c0-2 1-2.5 0-4.5M12 11c0-2 1-2.5 0-4.5M16 11c0-2 1-2.5 0-4.5",
     )
+    val Water: ImageVector = strokeIcon(
+        "water",
+        "M12 3.5c3.8 4.5 5.5 7.4 5.5 10a5.5 5.5 0 0 1 -11 0c0-2.6 1.7-5.5 5.5-10z",
+        "M9.5 14.5a2.8 2.8 0 0 0 4 2.5",
+    )
     val Package: ImageVector = strokeIcon(
         "package",
         "M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z",
