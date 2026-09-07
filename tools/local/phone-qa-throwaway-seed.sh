@@ -425,12 +425,13 @@ SET period_start_date = EXCLUDED.period_start_date,
     operator_user_id = EXCLUDED.operator_user_id,
     updated_at = now();
 
-INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, expected_animal_count, weighing_category, operator_user_id, status, park_id, start_business_date, updated_at)
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, partition_label, expected_animal_count, weighing_category, operator_user_id, status, park_id, start_business_date, updated_at)
 VALUES
-  ('92000000-0000-4000-8000-000000000801', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000201', 'shed', 'CBE - Godel 1 Parts 1-3', 0, 'individual_animal', '90000000-0000-4000-8000-000000000202', 'pending', '91000000-0000-4000-8000-000000000101', ${today_sql}, now()),
-  ('92000000-0000-4000-8000-000000000802', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000202', 'shed', 'CPT - Mandela 2 Parts 3-5', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', '92000000-0000-4000-8000-000000000101', ${today_sql}, now())
+  ('92000000-0000-4000-8000-000000000801', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000201', 'shed', 'Godel 1', 'Part 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000202', 'pending', '91000000-0000-4000-8000-000000000101', ${today_sql}, now()),
+  ('92000000-0000-4000-8000-000000000802', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000202', 'shed', 'Mandela 2', 'Part 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', '92000000-0000-4000-8000-000000000101', ${today_sql}, now())
 ON CONFLICT (tenant_id, campaign_id, location_id, COALESCE(partition_label, ''::text)) DO UPDATE
 SET display_name = EXCLUDED.display_name,
+    partition_label = EXCLUDED.partition_label,
     expected_animal_count = 0,
     weighing_category = 'individual_animal',
     operator_user_id = EXCLUDED.operator_user_id,
@@ -894,19 +895,20 @@ SET pen_label = EXCLUDED.pen_label,
     row_version = pc_care_removal_pen_proofs.row_version + 1,
     updated_at = now();
 
-INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, expected_animal_count, weighing_category, operator_user_id, status, park_id, start_business_date, updated_at)
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, partition_label, expected_animal_count, weighing_category, operator_user_id, status, park_id, start_business_date, updated_at)
 VALUES
   -- ONE weighing task per park, sheds SPLIT between its assignees (the CEO decides the split).
   -- A shed carries exactly one assignee (1:1); the task carries many. Here the CBE task is shared
   -- by the CBE operator and the Growth Director, so the operator/director split can be exercised
   -- side by side: only the director may reopen a submitted scope, and only he closes it.
-  ('92000000-0000-4000-8000-000000000801', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000201', 'shed', 'Godel 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000202', 'pending', '91000000-0000-4000-8000-000000000101', ${today_sql}, now()),
-  ('92000000-0000-4000-8000-000000000803', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000203', 'shed', 'Yashoda 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000103', 'pending', '91000000-0000-4000-8000-000000000101', ${today_sql}, now()),
-  ('92000000-0000-4000-8000-000000000802', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000202', 'shed', 'Mandela 2', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', '92000000-0000-4000-8000-000000000101', ${today_sql}, now()),
-  ('92000000-0000-4000-8000-000000000804', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000203', 'shed', 'Castro 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', '92000000-0000-4000-8000-000000000101', ${today_sql}, now())
+  ('92000000-0000-4000-8000-000000000801', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000201', 'shed', 'Godel 1', 'Part 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000202', 'pending', '91000000-0000-4000-8000-000000000101', ${today_sql}, now()),
+  ('92000000-0000-4000-8000-000000000803', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000203', 'shed', 'Yashoda 1', 'Part 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000103', 'pending', '91000000-0000-4000-8000-000000000101', ${today_sql}, now()),
+  ('92000000-0000-4000-8000-000000000802', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000202', 'shed', 'Mandela 2', 'Part 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', '92000000-0000-4000-8000-000000000101', ${today_sql}, now()),
+  ('92000000-0000-4000-8000-000000000804', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000203', 'shed', 'Castro 1', 'Part 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', '92000000-0000-4000-8000-000000000101', ${today_sql}, now())
 ON CONFLICT (tenant_id, campaign_id, location_id, COALESCE(partition_label, ''::text)) DO UPDATE
 SET location_id = EXCLUDED.location_id,
     display_name = EXCLUDED.display_name,
+    partition_label = EXCLUDED.partition_label,
     expected_animal_count = 0,
     weighing_category = 'individual_animal',
     operator_user_id = EXCLUDED.operator_user_id,
@@ -922,10 +924,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
 BEGIN;
 
 -- Final phone-test matrix:
---   CBE/Godel 1:     plain shed, 2 goats, real physical RFIDs.
---   CBE/Yashoda 1:   partition Parts 1-3, 3 goats, real physical RFIDs.
---   CPT/Mandela 2:   plain shed, 2 goats, transformed CPT-<RFID> identifiers.
---   CPT/Castro 1:    partition Parts 1-3, 3 goats, transformed CPT-<RFID> identifiers.
+--   CBE/Godel 1 - Part 1:     2 goats, real physical RFIDs.
+--   CBE/Yashoda 1 - Part 1:   3 goats, real physical RFIDs.
+--   CPT/Mandela 2 - Part 1:   2 goats, transformed CPT-<RFID> identifiers.
+--   CPT/Castro 1 - Part 1:    3 goats, transformed CPT-<RFID> identifiers.
 -- The Android dev build rewrites vaccination reads for CPT shed IDs only. Weighing keeps raw RFID.
 UPDATE locations
 SET location_code = CASE location_id
@@ -1084,11 +1086,12 @@ WHERE tenant_id = '${tenant_id}'::uuid
 UPDATE weighing_campaign_sheds
 SET display_name = CASE campaign_shed_id
       WHEN '92000000-0000-4000-8000-000000000801' THEN 'Godel 1'
-      WHEN '92000000-0000-4000-8000-000000000803' THEN 'Yashoda 1 · Parts 1-3'
+      WHEN '92000000-0000-4000-8000-000000000803' THEN 'Yashoda 1'
       WHEN '92000000-0000-4000-8000-000000000802' THEN 'Mandela 2'
-      WHEN '92000000-0000-4000-8000-000000000804' THEN 'Castro 1 · Parts 1-3'
+      WHEN '92000000-0000-4000-8000-000000000804' THEN 'Castro 1'
       ELSE display_name
     END,
+    partition_label = 'Part 1',
     updated_at = now()
 WHERE tenant_id = '${tenant_id}'::uuid
   AND campaign_shed_id IN (
@@ -1112,16 +1115,16 @@ Use these GOATOS_LOCAL_USER_ID values with tools/dev/android-dev-run.sh:
   Jyothi            90000000-0000-4000-8000-000000000104  verifier           Video review only
   Hemang            90000000-0000-4000-8000-000000000105  feed_director      Feed read/status across CBE+CPT, no execute
   Amit              90000000-0000-4000-8000-000000000201  operator/CPT       CPT Mandela 2 Parts 3-5
-  Pramod            90000000-0000-4000-8000-000000000202  operator/CBE       CBE Godel 1 Parts 1-3
+  Pramod            90000000-0000-4000-8000-000000000202  operator/CBE       CBE Godel 1 - Part 1
   Kumar Sharath     90000000-0000-4000-8000-000000000203  operator/CBE       spare CBE operator
 
 Physical RFIDs:
   CBE vaccination:
-    Godel 1 / whole: 901007000504418, 901007000504332
-    Yashoda 1 / Parts 1-3: 901007000504407, 901007000504419, 901007000504392
+    Godel 1 - Part 1: 901007000504418, 901007000504332
+    Yashoda 1 - Part 1: 901007000504407, 901007000504419, 901007000504392
   CPT vaccination:
-    Mandela 2 / whole: CPT-901007000504418, CPT-901007000504332
-    Castro 1 / Parts 1-3: CPT-901007000504407, CPT-901007000504419, CPT-901007000504392
+    Mandela 2 - Part 1: CPT-901007000504418, CPT-901007000504332
+    Castro 1 - Part 1: CPT-901007000504407, CPT-901007000504419, CPT-901007000504392
   Weighing free-flow can scan these same five physical RFIDs in any CBE/CPT shed bucket.
 
 Weighing stays free-flow: expected_animal_count=0 and no weighing_expected_animals rows are seeded.
@@ -1151,6 +1154,7 @@ CREATE TEMP TABLE qa_sheds (
   shed_id uuid NOT NULL,
   park_id uuid NOT NULL,
   shed_name text NOT NULL,
+  partition_label text NOT NULL,
   prefix text NOT NULL,
   animal_count int NOT NULL,
   weighing_operator uuid NOT NULL,
@@ -1164,14 +1168,14 @@ CREATE TEMP TABLE qa_sheds (
 -- Amit's and Dinakar's, so Dinakar owns sheds in BOTH parks and every other
 -- shed on his Operators list belongs to somebody else.
 INSERT INTO qa_sheds VALUES
-  (1, '91000000-0000-4000-8000-000000000201', '91000000-0000-4000-8000-000000000101', 'Godel 1',   '',    2, '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
-  (2, '91000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000101', 'Yashoda 1', 'Y1-', 6, '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
-  (3, '9c000000-0000-4000-8000-000000000301', '91000000-0000-4000-8000-000000000101', 'Gandhi 1',  'G1-', 2, '90000000-0000-4000-8000-000000000103', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', true),
-  (4, '9c000000-0000-4000-8000-000000000302', '91000000-0000-4000-8000-000000000101', 'Gandhi 2',  'G2-', 3, '90000000-0000-4000-8000-000000000103', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', true),
-  (5, '91000000-0000-4000-8000-000000000202', '92000000-0000-4000-8000-000000000101', 'Mandela 2', 'M2-', 2, '90000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', false),
-  (6, '92000000-0000-4000-8000-000000000203', '92000000-0000-4000-8000-000000000101', 'Castro 1',  'C1-', 3, '90000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', false),
-  (7, '9c000000-0000-4000-8000-000000000303', '92000000-0000-4000-8000-000000000101', 'Castro 2',  'C2-', 2, '90000000-0000-4000-8000-000000000103', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', true),
-  (8, '9c000000-0000-4000-8000-000000000304', '92000000-0000-4000-8000-000000000101', 'Castro 3',  'C3-', 3, '90000000-0000-4000-8000-000000000103', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', true);
+  (1, '91000000-0000-4000-8000-000000000201', '91000000-0000-4000-8000-000000000101', 'Godel 1',   'Part 1', '',    2, '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
+  (2, '91000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000101', 'Yashoda 1', 'Part 1', 'Y1-', 6, '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
+  (3, '9c000000-0000-4000-8000-000000000301', '91000000-0000-4000-8000-000000000101', 'Gandhi 1',  'Part 1', 'G1-', 2, '90000000-0000-4000-8000-000000000103', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', true),
+  (4, '9c000000-0000-4000-8000-000000000302', '91000000-0000-4000-8000-000000000101', 'Gandhi 2',  'Part 1', 'G2-', 3, '90000000-0000-4000-8000-000000000103', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', true),
+  (5, '91000000-0000-4000-8000-000000000202', '92000000-0000-4000-8000-000000000101', 'Mandela 2', 'Part 1', 'M2-', 2, '90000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', false),
+  (6, '92000000-0000-4000-8000-000000000203', '92000000-0000-4000-8000-000000000101', 'Castro 1',  'Part 1', 'C1-', 3, '90000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', false),
+  (7, '9c000000-0000-4000-8000-000000000303', '92000000-0000-4000-8000-000000000101', 'Castro 2',  'Part 1', 'C2-', 2, '90000000-0000-4000-8000-000000000103', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', true),
+  (8, '9c000000-0000-4000-8000-000000000304', '92000000-0000-4000-8000-000000000101', 'Castro 3',  'Part 1', 'C3-', 3, '90000000-0000-4000-8000-000000000103', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', true);
 
 -- qa_tags has ${animals_per_shed} rows per shed. Only the maintainer's 5 physical
 -- RFIDs exist, so slots 1-5 map to them (scannable = true) and slots 6..N get a
@@ -1573,13 +1577,13 @@ WHERE tenant_id = '${tenant_id}'::uuid
     '92000000-0000-4000-8000-000000000804'
   );
 
--- Weighing: every shed gets a bucket on its park's campaign, with ONE assignee.
-INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, expected_animal_count, weighing_category, operator_user_id, status, park_id, start_business_date, updated_at)
+-- Weighing: every shed gets a partitioned bucket on its park's campaign, with ONE assignee.
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, partition_label, expected_animal_count, weighing_category, operator_user_id, status, park_id, start_business_date, updated_at)
 SELECT ('9f000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
        CASE WHEN s.park_id = '91000000-0000-4000-8000-000000000101'
             THEN '92000000-0000-4000-8000-000000000701'::uuid
             ELSE '92000000-0000-4000-8000-000000000702'::uuid END,
-       '${tenant_id}'::uuid, s.shed_id, 'shed', s.shed_name, 0,
+       '${tenant_id}'::uuid, s.shed_id, 'shed', s.shed_name, s.partition_label, 0,
       -- Yashoda 1 and Castro 3 are deliberately LUMP-SUM so both weighing categories are
       -- testable on each park's visible operator phone:
       -- a lump-sum bucket takes one shed-level weight and video instead of per-animal capture.
@@ -1590,7 +1594,9 @@ ON CONFLICT (tenant_id, campaign_id, location_id, COALESCE(partition_label, ''::
 SET location_id = EXCLUDED.location_id, display_name = EXCLUDED.display_name,
     expected_animal_count = 0, weighing_category = EXCLUDED.weighing_category,
     operator_user_id = EXCLUDED.operator_user_id, park_id = EXCLUDED.park_id,
-    start_business_date = EXCLUDED.start_business_date, updated_at = now();
+    start_business_date = EXCLUDED.start_business_date,
+    partition_label = EXCLUDED.partition_label,
+    updated_at = now();
 
 DELETE FROM weighing_fasting_shed_proofs
 WHERE tenant_id = '${tenant_id}'::uuid
@@ -2234,6 +2240,19 @@ BEGIN
   IF bad <> 3 THEN
     RAISE EXCEPTION 'phone-qa seed: % experiment feed wastage rows, want 3', bad;
   END IF;
+
+  SELECT count(*) INTO bad
+  FROM weighing_campaign_sheds
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND campaign_shed_id::text LIKE '9f000000-0000-4000-8000-%'
+    AND (
+      partition_label IS NULL
+      OR partition_label = ''
+      OR lower(partition_label) = 'whole'
+    );
+  IF bad <> 0 THEN
+    RAISE EXCEPTION 'phone-qa seed: % operator-visible weighing buckets lack shed + partition display', bad;
+  END IF;
 END
 \$check\$;
 SQL
@@ -2244,15 +2263,15 @@ Widened phone-QA fixture: 8 weighing sheds, vaccination due roster is 2,6,2,3,2,
 Yashoda 1 and Castro 1 have TWO due vaccines per animal: ET+TT and PPR.
 Each shed still has up to ${animals_per_shed} seeded RFID identities; only due obligations show in the scan roster.
 
-  Shed        Park  Due animals  Vaccines       Weighing assignee
-  Godel 1     CBE   2            ET+TT          Pramod
-  Yashoda 1   CBE   6            ET+TT, PPR     Pramod (LUMP-SUM, over-five proof-cap test)
-  Gandhi 1    CBE   2            ET+TT          Dinakar
-  Gandhi 2    CBE   3            ET+TT          Dinakar
-  Mandela 2   CPT   2            ET+TT          Amit
-  Castro 1    CPT   3            ET+TT, PPR     Amit
-  Castro 2    CPT   2            ET+TT          Dinakar
-  Castro 3    CPT   3            ET+TT          Dinakar (LUMP-SUM)
+  Shed partition        Park  Due animals  Vaccines       Weighing assignee
+  Godel 1 - Part 1      CBE   2            ET+TT          Pramod
+  Yashoda 1 - Part 1    CBE   6            ET+TT, PPR     Pramod (LUMP-SUM, over-five proof-cap test)
+  Gandhi 1 - Part 1     CBE   2            ET+TT          Dinakar
+  Gandhi 2 - Part 1     CBE   3            ET+TT          Dinakar
+  Mandela 2 - Part 1    CPT   2            ET+TT          Amit
+  Castro 1 - Part 1     CPT   3            ET+TT, PPR     Amit
+  Castro 2 - Part 1     CPT   2            ET+TT          Dinakar
+  Castro 3 - Part 1     CPT   3            ET+TT          Dinakar (LUMP-SUM)
 
 The five physical tags are 901007000504418, 901007000504332, 901007000504407,
 901007000504419 and 901007000504392. Vaccination applies the shed prefix in the

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import androidx.paging.filter
 import androidx.paging.map
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -97,7 +98,11 @@ class PcCareWorklistViewModel @Inject constructor(
             .filter { (sel, _) -> sel.category.isNotBlank() }
             .flatMapLatest { (sel, submitted) ->
                 repository.worklistRows(PcCareWorklistQuery(category = sel.category, date = sel.date))
-                    .map { page -> page.map { dto -> dto.toCardUi(submitted) } }
+                    .map { page ->
+                        page
+                            .filter { dto -> dto.visibleOnOperatorWorklist(submitted) }
+                            .map { dto -> dto.toCardUi(submitted) }
+                    }
             }
             .cachedIn(viewModelScope)
 
@@ -186,9 +191,10 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
         category = category,
         statusLabel = label,
         statusTone = tone,
+        workTypeLabel = if (category == PC_CARE_CATEGORY_FEED_WATER_REMOVAL) "Remove feed & water" else "",
         // Backend-composed pen display, verbatim; degrade to the bare shed label only when the
         // backend sent no composed display at all.
-        locationDisplay = taskLabel.ifBlank { operationalLocationDisplay.ifBlank { shedLabel } },
+        locationDisplay = displayLocationLabel(),
         parkLabel = parkLabel,
         dueDateLabel = dueBusinessDate,
         assigneeLine = assigneeNames.joinToString(", "),
@@ -208,6 +214,28 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
         openable = true,
     )
 }
+
+internal fun PcCareTaskDto.visibleOnOperatorWorklist(locallySubmittedForReview: Set<String>): Boolean {
+    if (category != PC_CARE_CATEGORY_FEED_WATER_REMOVAL) return true
+    val isLocallySubmitted = locallySubmittedForReview.contains(submittedGrainKey())
+    val effectiveStatus = if (status == PC_CARE_STATUS_OPEN && isLocallySubmitted) {
+        PC_CARE_STATUS_PENDING_VERIFICATION
+    } else {
+        status
+    }
+    return effectiveStatus != PC_CARE_STATUS_PENDING_VERIFICATION &&
+        effectiveStatus != PC_CARE_STATUS_COMPLETED
+}
+
+private fun PcCareTaskDto.displayLocationLabel(): String {
+    val backendLabel = taskLabel.ifBlank { operationalLocationDisplay.ifBlank { shedLabel } }
+    if (category != PC_CARE_CATEGORY_FEED_WATER_REMOVAL) return backendLabel
+    return backendLabel.stripRemovalPrefix()
+        .ifBlank { operationalLocationDisplay.stripRemovalPrefix() }
+        .ifBlank { shedLabel }
+}
+
+internal const val PC_CARE_CATEGORY_FEED_WATER_REMOVAL = "feed_water_removal"
 
 internal const val PC_CARE_WORK_STATE_CLOSED = "closed"
 internal const val PC_CARE_STATUS_OPEN = "open"

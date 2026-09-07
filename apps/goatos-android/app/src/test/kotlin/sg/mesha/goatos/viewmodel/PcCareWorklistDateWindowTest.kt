@@ -12,10 +12,12 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
+import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.feature.pccare.PcCareWorklistEvent
 import java.time.LocalDate
 import java.time.ZoneId
@@ -106,6 +108,50 @@ class PcCareWorklistDateWindowTest {
 
         assertEquals("In review", card.statusLabel)
         assertEquals(true, card.openable)
+    }
+
+    @Test
+    fun `feed water removal card title shows only the pen work label`() {
+        val card = pcCareTaskDtoFixture(
+            taskId = "removal-open",
+            category = PC_CARE_CATEGORY_FEED_WATER_REMOVAL,
+        ).copy(taskLabel = "Remove feed & water · Yashoda 10")
+            .toCardUi(emptySet())
+
+        assertEquals("Yashoda 10", card.locationDisplay)
+        assertEquals("Remove feed & water", card.workTypeLabel)
+        assertEquals("Open", card.statusLabel)
+    }
+
+    @Test
+    fun `submitted feed water removal cards are hidden from operator worklist`() {
+        val submitted = pcCareTaskDtoFixture(
+            taskId = "removal-submitted",
+            category = PC_CARE_CATEGORY_FEED_WATER_REMOVAL,
+            status = PC_CARE_STATUS_PENDING_VERIFICATION,
+        )
+        val completed = submitted.copy(taskId = "removal-complete", status = PC_CARE_STATUS_COMPLETED)
+        val locallySubmitted = submitted.copy(taskId = "removal-local", status = PC_CARE_STATUS_OPEN)
+
+        assertFalse(submitted.visibleOnOperatorWorklist(emptySet()))
+        assertFalse(completed.visibleOnOperatorWorklist(emptySet()))
+        assertFalse(locallySubmitted.visibleOnOperatorWorklist(setOf(locallySubmitted.submittedGrainKey())))
+    }
+
+    @Test
+    fun `sent back feed water removal card stays visible even with local submit grain`() {
+        val rework = pcCareTaskDtoFixture(
+            taskId = "removal-rework",
+            category = PC_CARE_CATEGORY_FEED_WATER_REMOVAL,
+            status = PC_CARE_STATUS_REWORK,
+            reworkReason = "Feed proof is missing",
+        )
+
+        val card = rework.toCardUi(setOf(rework.submittedGrainKey()))
+
+        assertEquals(true, rework.visibleOnOperatorWorklist(setOf(rework.submittedGrainKey())))
+        assertEquals("Needs another video", card.statusLabel)
+        assertEquals("Feed proof is missing", card.reworkReason)
     }
 
     @Test

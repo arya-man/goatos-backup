@@ -56,6 +56,33 @@ internal fun PcCareStatusChip(label: String, tone: PcCareStatusTone, modifier: M
     }
 }
 
+@Composable
+internal fun PcCareWorkTypeChip(label: String, modifier: Modifier = Modifier) {
+    if (label.isBlank()) return
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MeshaColors.BrandTint)
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = MeshaIcons.Feed,
+            contentDescription = null,
+            tint = MeshaColors.BrandD,
+            modifier = Modifier.size(14.dp),
+        )
+        Icon(
+            imageVector = MeshaIcons.Water,
+            contentDescription = null,
+            tint = MeshaColors.BrandD,
+            modifier = Modifier.size(14.dp),
+        )
+        Text(text = label, color = MeshaColors.BrandD, style = MeshaType.pillStrong)
+    }
+}
+
 /** "Today · 21 Aug"-style label for an ISO business date; null when the string is malformed. */
 internal fun pcCareFriendlyDate(iso: String): String? {
     // exception:exempt a malformed date string renders no label; the ViewModel owns the value

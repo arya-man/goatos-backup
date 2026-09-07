@@ -35,6 +35,8 @@ data class PcCareTaskCardUi(
     val assigneeLine: String,
     /** "12 animals", or blank before any scan. */
     val animalCountLabel: String,
+    /** Optional compact job identity; used when the visible pen title deliberately omits prefixes. */
+    val workTypeLabel: String = "",
     /** Compact dose requirements shown on inventory-stock task cards. */
     val inventoryRequirements: List<PcCareInventoryRequirementUi> = emptyList(),
     /** The verifier's rejection sentence, backend-owned, rendered VERBATIM; blank unless rework. */

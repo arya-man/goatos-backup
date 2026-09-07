@@ -272,6 +272,7 @@
     <string name="weighing_wizard_fasting_subtitle">ముందు రోజు సాయంత్రం ఈ షెడ్ల నుండి మేత, నీరు ఎవరు తీసేస్తారు?</string>
     <string name="weighing_wizard_fasting_prompt">ఒక వ్యక్తిని ఎంచుకోండి…</string>
     <string name="weighing_removal_section_title">మేత మరియు నీరు తీసివేత</string>
+    <string name="weighing_removal_card_type">మేత మరియు నీరు తొలగించండి</string>
     <string name="weighing_removal_screen_title">మేత మరియు నీరు తీసేయండి</string>
     <string name="weighing_removal_status_open">ఈ రాత్రి తీసివేతను రికార్డ్ చేయండి</string>
     <string name="weighing_removal_status_in_review">సమర్పించారు — వీడియో పరిశీలనలో ఉంది</string>

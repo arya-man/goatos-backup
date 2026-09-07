@@ -271,7 +271,11 @@ private fun WeighingTaskCard(row: WeighingTaskUiRow, onOpen: () -> Unit) {
             TaskPill(label = row.dateLabel, fg = MeshaColors.Muted, bg = MeshaColors.Surf3)
         }
         Text(
-            text = stringResource(R.string.weighing_tasks_park_buckets_fmt, row.parkName, bucketWord(row.bucketCount)),
+            text = if (row.bucketCount == 1 && row.shedNames.isNotEmpty()) {
+                row.shedNames.first()
+            } else {
+                stringResource(R.string.weighing_tasks_park_buckets_fmt, row.parkName, bucketWord(row.bucketCount))
+            },
             color = MeshaColors.Ink,
             style = MeshaType.cardTitle,
             maxLines = 1,

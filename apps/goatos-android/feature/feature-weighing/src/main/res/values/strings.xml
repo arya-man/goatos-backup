@@ -320,9 +320,10 @@
     <string name="weighing_wizard_field_buckets">Shed buckets</string>
     <string name="weighing_wizard_field_operators">Operators</string>
     <string name="weighing_wizard_field_fasting">Feed &amp; water removal</string>
-    <string name="weighing_removal_section_title">Feed &amp; water removal</string>
+    <string name="weighing_removal_section_title">Removal of feed and water</string>
+    <string name="weighing_removal_card_type">Remove feed &amp; water</string>
     <string name="weighing_removal_screen_title">Remove feed &amp; water</string>
-    <string name="weighing_removal_status_open">Record tonight\'s removal</string>
+    <string name="weighing_removal_status_open">Record videos</string>
     <string name="weighing_removal_status_in_review">Submitted — video in review</string>
     <string name="weighing_removal_status_sent_back">Sent back — record again</string>
     <string name="weighing_removal_status_done">Approved</string>
