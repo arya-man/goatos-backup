@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -175,6 +176,9 @@ func decodeCursor(c string) (string, string, bool) {
 		return "", "", false
 	}
 	if _, err := time.Parse("2006-01-02", parts[0]); err != nil {
+		return "", "", false
+	}
+	if _, err := uuid.Parse(parts[1]); err != nil {
 		return "", "", false
 	}
 	return parts[0], parts[1], true
