@@ -20,6 +20,7 @@ const surfaces = [
   "feed_transport",
   "milk_preparation",
   "milk_feeding",
+  "pen_visit",
 ];
 
 const states = [
@@ -46,6 +47,7 @@ const snapshots = {
   feed_transport: "sg.mesha.goatos.ui_ProofProcessingShowcaseScreenshotTest_feedTransportFeature_proof_processing_19_feed_transport.png",
   milk_preparation: "sg.mesha.goatos.ui_ProofProcessingShowcaseScreenshotTest_milkPreparationFeature_proof_processing_20_milk_preparation.png",
   milk_feeding: "sg.mesha.goatos.ui_ProofProcessingShowcaseScreenshotTest_milkFeedingFeature_proof_processing_21_milk_feeding.png",
+  pen_visit: "sg.mesha.goatos.ui_ProofProcessingShowcaseScreenshotTest_penVisitFeature_proof_processing_22_pen_visit.png",
 };
 
 const snapshotDir = "apps/goatos-android/app/src/test/snapshots/images";
