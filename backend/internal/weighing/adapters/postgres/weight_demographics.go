@@ -112,6 +112,14 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	if purchasedErr != nil {
 		return domain.WeightDemographics{}, purchasedErr
 	}
+	// The same-animal map (identity_scope.go), widened by the SAME 90-day lookback the gain arm below
+	// reads, so a pair whose earlier weigh sits before the window still merges. This file resolves
+	// herd facts itself, but it must not resolve THIS one a second way: two answers to "which tags
+	// are one animal" on one page is the drift the single-resolver rule exists to stop.
+	idMap, idErr := r.resolveAnimalIdentityMap(ctx, tenantID, parkIDs, periodStart.AddDate(0, 0, -90), periodEnd)
+	if idErr != nil {
+		return out, idErr
+	}
 
 	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
 WITH scoped AS (
@@ -122,11 +130,18 @@ WITH scoped AS (
     AND ($16::text = '' OR cs.weighing_category = $16::text)
 ),
 latest AS (
-  SELECT DISTINCT ON (lower(btrim(o.scanned_identifier)))
-         lower(btrim(o.scanned_identifier)) AS tag, o.weight_kg,
+  -- Same-animal key ($17/$18, identity_scope.go). A double-tagged animal keyed by the raw string was
+  -- TWO tags here: counted twice in the resolved-animals count, and averaged at two different
+  -- "latest" weights inside its breed/sex/stage bucket. The canonical tag is one of that same
+  -- animal's identifiers, so it still resolves through the ident CTE below to the same facts.
+  SELECT DISTINCT ON (COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))))
+         COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) AS tag, o.weight_kg,
          s.location_id, s.partition_label
   FROM weighing_observations o
   JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id AND s.tenant_id = o.tenant_id
+  -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan an animal's weighs out under the aggregates below; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
+  LEFT JOIN unnest($17::text[], $18::text[]) AS akmap(tag, canonical_tag)
+    ON akmap.tag = lower(btrim(o.scanned_identifier))
   WHERE o.tenant_id = $1::uuid
     AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected'
@@ -135,17 +150,22 @@ latest AS (
     -- Origin filter, individual half. $6 is FALSE for the unfiltered page, which therefore runs
     -- this query exactly as it ran before the filter existed.
     AND (NOT $6::bool OR lower(btrim(o.scanned_identifier)) = ANY($7::text[]))
-  ORDER BY lower(btrim(o.scanned_identifier)), o.accepted_at DESC, o.observation_id DESC
+  ORDER BY COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))), o.accepted_at DESC, o.observation_id DESC
 ),
 -- Consecutive-weigh pairs per tag, for the gain dimensions. A same-business-day
 -- pair is excluded: an animal cannot meaningfully gain inside one day, so that is
 -- a re-weigh or a double scan, and dividing by a fraction of a day manufactures
 -- enormous numbers (the -3,108,762 g/day headline this rule exists to prevent).
 raw_obs AS (
-  SELECT lower(btrim(o.scanned_identifier)) AS tag, o.observation_id, o.weight_kg, o.accepted_at,
+  -- The gain dimensions pair on this key, so it decides whether an animal weighed on its primary
+  -- tag then its secondary is compared at all. Keyed raw, that interval was never compared.
+  SELECT COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) AS tag, o.observation_id, o.weight_kg, o.accepted_at,
          (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
   FROM weighing_observations o
   JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id AND s.tenant_id = o.tenant_id
+  -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan an animal's weighs out under the aggregates below; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
+  LEFT JOIN unnest($17::text[], $18::text[]) AS akmap(tag, canonical_tag)
+    ON akmap.tag = lower(btrim(o.scanned_identifier))
   WHERE o.tenant_id = $1::uuid
     AND o.accepted_at >= ($3::timestamptz - interval '90 days') AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected' AND btrim(o.scanned_identifier) <> ''
@@ -905,7 +925,8 @@ SELECT
 		farmBornScope.Tags, purchasedScope.Tags,
 		farmBornScope.LocationIDs, farmBornScope.PartitionLabels,
 		purchasedScope.LocationIDs, purchasedScope.PartitionLabels,
-		weighingCategory).Scan(
+		weighingCategory,
+		idMap.Tags, idMap.CanonicalTags).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,

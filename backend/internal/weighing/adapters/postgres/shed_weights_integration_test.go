@@ -954,11 +954,11 @@ ON CONFLICT DO NOTHING`, repoTenant, oldGoat)
 	}
 
 	// And the loud failure: sale readiness handed a window-only scope must refuse, not report zero.
-	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, true, windowOnly, ""); err == nil {
+	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, true, windowOnly, EmptyAnimalIdentityMap(), ""); err == nil {
 		t.Fatal("sale readiness must refuse a window-only scope rather than silently filtering every animal out")
 	}
 	// An UNFILTERED read needs no all-time list at all, and must still work.
-	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, false, SexScope{}, ""); err != nil {
+	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, false, SexScope{}, EmptyAnimalIdentityMap(), ""); err != nil {
 		t.Fatalf("an unfiltered sale-readiness read needs no sex scope: %v", err)
 	}
 }

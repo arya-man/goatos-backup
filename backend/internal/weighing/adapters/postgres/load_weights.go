@@ -46,7 +46,7 @@ import (
 //	HAVING count(*) = 1 excludes it, and it is counted in the unattributed scalar
 //	instead. One shed average cannot be divided between two suppliers; apportioning
 //	it by head count would invent a distribution nobody measured.
-func (r *Repository) loadWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) ([]domain.LoadGainBucket, int, error) {
+func (r *Repository) loadWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, idMap AnimalIdentityMap, weighingCategory string) ([]domain.LoadGainBucket, int, error) {
 	out := []domain.LoadGainBucket{}
 	if len(parkIDs) == 0 {
 		return out, 0, nil
@@ -104,13 +104,20 @@ ind_daily AS (
          count(*)::int    AS animals
   FROM scoped s
   JOIN (
+    -- Same-animal key ($10/$11, identity_scope.go). Keyed on the raw string, an animal carrying two
+    -- RFIDs and scanned on both in one day was counted as two animals in this load's daily average;
+    -- the page's shed table and headline already merge it, and a load chart that does not would put
+    -- a different animal count on the same screen.
     SELECT DISTINCT ON (o.campaign_shed_id,
-                        COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''), o.observation_id::text),
+                        COALESCE(NULLIF(COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))), ''), o.observation_id::text),
                         (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date)
            o.campaign_shed_id,
            (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
            o.weight_kg
     FROM weighing_observations o
+    -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan an animal's weighs out under the aggregates below; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
+    LEFT JOIN unnest($10::text[], $11::text[]) AS akmap(tag, canonical_tag)
+      ON akmap.tag = lower(btrim(o.scanned_identifier))
     WHERE o.tenant_id = $1::uuid
       AND o.accepted_at >= $3::timestamptz
       AND o.accepted_at <  $4::timestamptz
@@ -122,7 +129,7 @@ ind_daily AS (
       -- the rest of the Weights page reports the selected sex/origin.
       AND (NOT $5::bool OR lower(btrim(o.scanned_identifier)) = ANY($8::text[]))
     ORDER BY o.campaign_shed_id,
-             COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''), o.observation_id::text),
+             COALESCE(NULLIF(COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))), ''), o.observation_id::text),
              (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date,
              o.accepted_at DESC, o.observation_id DESC
   ) x ON x.campaign_shed_id = s.campaign_shed_id
@@ -233,7 +240,8 @@ GROUP BY t.load_ref, t.owner_name
 ORDER BY 6 DESC NULLS LAST, t.load_ref`
 
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFiltered,
-		scope.LocationIDs, scope.PartitionLabels, scope.Tags, weighingCategory)
+		scope.LocationIDs, scope.PartitionLabels, scope.Tags, weighingCategory,
+		idMap.Tags, idMap.CanonicalTags)
 	if err != nil {
 		return nil, 0, err
 	}
