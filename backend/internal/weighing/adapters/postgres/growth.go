@@ -885,7 +885,8 @@ inperiod AS (
     AND ($10::text = '' OR weighing_category = $10::text)
 ),
 period_weights AS (
-  SELECT wcs.location_id, wcs.display_name AS shed_name,
+  SELECT DISTINCT ON (wcs.location_id, COALESCE(wcs.partition_label, ''), COALESCE(akmap.canonical_tag, lower(btrim(wo.scanned_identifier))))
+         wcs.location_id, wcs.display_name AS shed_name,
          COALESCE(wcs.partition_label, '') AS partition_label,
          -- The park's SHORT CODE (CBE, CPT) falling back to its full name, which is the
          -- convention the shed-weights rows on this same page already use -- so both series
@@ -893,7 +894,11 @@ period_weights AS (
          -- an unqualified row on this chart is genuinely ambiguous.
          COALESCE(NULLIF(pk.location_code, ''), pk.name, '') AS park_name,
          wo.weight_kg::float8 AS weight_kg,
-         lower(btrim(wo.scanned_identifier)) AS animal_key
+         -- Same-animal key ($8/$9). The ADG half of this row already keys through
+         -- growthPairsCTE, so the period weight/count half must collapse the same
+         -- animal too; otherwise a double-RFID animal shows as one ADG animal and
+         -- two animals in the count beside it.
+         COALESCE(akmap.canonical_tag, lower(btrim(wo.scanned_identifier))) AS animal_key
   FROM weighing_observations wo
   JOIN weighing_campaign_sheds wcs
     ON wcs.campaign_shed_id = wo.campaign_shed_id AND wcs.tenant_id = wo.tenant_id
@@ -901,6 +906,9 @@ period_weights AS (
     ON wc.campaign_id = wcs.campaign_id AND wc.tenant_id = wo.tenant_id
   LEFT JOIN locations pk
     ON pk.tenant_id = wc.tenant_id AND pk.location_id = wc.park_id
+  -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan the shed leaderboard period weights out; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
+  LEFT JOIN unnest($8::text[], $9::text[]) AS akmap(tag, canonical_tag)
+    ON akmap.tag = lower(btrim(wo.scanned_identifier))
   WHERE wo.tenant_id = $1::uuid
     AND wc.park_id = ANY($2::uuid[])
     AND wo.verification_status <> 'rejected'
@@ -912,6 +920,8 @@ period_weights AS (
     -- so one row showed a male-only gain sitting beside an all-kids count -- two populations, one
     -- line, nothing saying so. Same predicate, same population, one row.
     AND (NOT $6::bool OR lower(btrim(wo.scanned_identifier)) = ANY($7::text[]))
+  ORDER BY wcs.location_id, COALESCE(wcs.partition_label, ''), COALESCE(akmap.canonical_tag, lower(btrim(wo.scanned_identifier))),
+           wo.accepted_at DESC, wo.observation_id DESC
 ),
 shed_weight AS (
   SELECT location_id, partition_label, MAX(shed_name) AS shed_name, MAX(park_name) AS park_name,
