@@ -329,7 +329,7 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 	result := ports.MaterializeResult{SourceDate: sourceDate}
 	src, err := time.Parse("2006-01-02", sourceDate)
 	if err != nil {
-		return result, nil, fmt.Errorf("pen visit: materialize: bad source date %q", sourceDate)
+		return result, nil, fmt.Errorf("pen visit: materialize: bad source date %q: %w", sourceDate, err)
 	}
 	dueDate := src.AddDate(0, 0, 1).Format("2006-01-02")
 	if today > dueDate {
