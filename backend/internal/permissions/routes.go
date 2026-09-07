@@ -212,11 +212,11 @@ var protectedRoutes = []Route{
 	// state weighing hit above. Adding health.execute here keeps each role scoped to the one
 	// module it owns; handing it task.execute instead would carry vaccination SOP submission with
 	// it, which is the privilege escalation this route shape exists to avoid.
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise}},
-	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise}},
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute}},
+	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute}},
 	// downloadProof stays on task.read ALONE, and that is correct for every module whose
 	// evidence it serves -- including toxin, where it reads like a gap and is not. A reviewer
 	// checking the toxin block in RoleCEOInternal sees ToxinRead/ToxinVerdict and concludes the
@@ -334,6 +334,15 @@ var protectedRoutes = []Route{
 	{OperationID: "setLeadershipTaskComment", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/comment", Permissions: []string{LeadershipTasksAct}},
 	{OperationID: "markLeadershipTaskSeen", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/seen", Permissions: []string{LeadershipTasksRead}},
 	{OperationID: "downloadLeadershipTaskAttachment", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}/attachments/{proof_id}/download", Permissions: []string{LeadershipTasksRead}},
+
+	// PEN VISITS (maintainer decision 2026-09-07): the Tasks module's "For me" tab. The kernel
+	// raises one visit per pen the day after vaccination or PC Care work; the park's head records
+	// one live video and submits. All three routes ride PenVisitsExecute; ownership of a visit is
+	// checked against the stored row. Patterns must stay byte-identical to
+	// penvisits/adapters/http.Register.
+	{OperationID: "listPenVisits", Method: "GET", Pattern: "/app/pen-visits", Permissions: []string{PenVisitsExecute}},
+	{OperationID: "getPenVisit", Method: "GET", Pattern: "/app/pen-visits/{task_id}", Permissions: []string{PenVisitsExecute}},
+	{OperationID: "submitPenVisit", Method: "POST", Pattern: "/app/pen-visits/{task_id}/submit", Permissions: []string{PenVisitsExecute}},
 
 	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --

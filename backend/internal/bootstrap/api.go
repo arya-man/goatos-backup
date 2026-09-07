@@ -68,6 +68,10 @@ import (
 	leadershiptaskspg "github.com/vgoats/goatos/backend/internal/leadershiptasks/adapters/postgres"
 	leadershiptasksproof "github.com/vgoats/goatos/backend/internal/leadershiptasks/adapters/proof"
 	leadershiptasksapp "github.com/vgoats/goatos/backend/internal/leadershiptasks/app"
+	penvisitshttp "github.com/vgoats/goatos/backend/internal/penvisits/adapters/http"
+	penvisitspg "github.com/vgoats/goatos/backend/internal/penvisits/adapters/postgres"
+	penvisitsproof "github.com/vgoats/goatos/backend/internal/penvisits/adapters/proof"
+	penvisitsapp "github.com/vgoats/goatos/backend/internal/penvisits/app"
 	locationshttp "github.com/vgoats/goatos/backend/internal/locations/adapters/http"
 	locationspg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
 	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
@@ -730,7 +734,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		leadershiptaskspg.NewRepository(pool, cfg.Postgres.QueryTimeout), leadershiptasksproof.NewResolver(proofRepo)).
 		WithAttachmentDownloader(proofService)
 	leadershipTasksHandler := leadershiptaskshttp.NewHandler(leadershipTasksService, log)
-	workforceService.WithModuleBadges(leadershipTasksService)
+	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" tab. The kernel
+	// raises them; this serves the park head's list and the submit that carries the live video.
+	// The module badge is the SUM of both halves of Tasks: unseen asks plus visits still owed.
+	penVisitsService := penvisitsapp.NewService(penvisitspg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
+		WithProofValidator(penvisitsproof.NewValidator(proofRepo))
+	penVisitsHandler := penvisitshttp.NewHandler(penVisitsService, log)
+	workforceService.WithModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService))
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
 	salesHandler := saleshttp.NewSalesHandler(
@@ -1198,6 +1208,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
 	toxinhttp.Register(protectedMux, toxinHandler)
 	leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
+	penvisitshttp.Register(protectedMux, penVisitsHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
