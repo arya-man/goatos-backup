@@ -124,6 +124,41 @@ WHERE tenant_id = '${tenant_id}'::uuid
     '91000000-0000-4000-8000-000000001005'
   );
 
+UPDATE workforce_members
+SET status = 'inactive',
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND user_id = '90000000-0000-4000-8000-000000000001'
+  AND display_code = 'AMIT-QA-VAX';
+
+UPDATE workforce_members
+SET status = 'inactive',
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND status = 'active'
+  AND user_id IN (
+    '90000000-0000-4000-8000-000000000101',
+    '90000000-0000-4000-8000-000000000102',
+    '90000000-0000-4000-8000-000000000103',
+    '90000000-0000-4000-8000-000000000104',
+    '90000000-0000-4000-8000-000000000105',
+    '90000000-0000-4000-8000-000000000201',
+    '90000000-0000-4000-8000-000000000202',
+    '90000000-0000-4000-8000-000000000203',
+    '90000000-0000-4000-8000-000000000204'
+  )
+  AND display_code NOT IN (
+    'CEO-QA',
+    'CHANDRAKANT-QA',
+    'DINAKAR-QA',
+    'JYOTHI-QA',
+    'HEMANG-QA',
+    'AMIT-QA',
+    'PRAMOD-QA',
+    'KUMAR-SHARATH-QA',
+    'SAGAR-QA'
+  );
+
 INSERT INTO workforce_members (workforce_member_id, tenant_id, user_id, display_code, display_name, status, primary_role_hint, primary_location_id, department_id, metadata, updated_at)
 SELECT
   seed.workforce_member_id,
@@ -163,13 +198,6 @@ SET user_id = EXCLUDED.user_id,
     department_id = EXCLUDED.department_id,
     metadata = EXCLUDED.metadata,
     updated_at = now();
-
-UPDATE workforce_members
-SET status = 'inactive',
-    updated_at = now()
-WHERE tenant_id = '${tenant_id}'::uuid
-  AND user_id = '90000000-0000-4000-8000-000000000001'
-  AND display_code = 'AMIT-QA-VAX';
 
 DELETE FROM user_scope_grants
 WHERE tenant_id = '${tenant_id}'::uuid
@@ -1296,6 +1324,79 @@ SET identifier_value = 'M2-' || substring(identifier_value from 5),
 WHERE tenant_id = '${tenant_id}'::uuid
   AND normalized_value LIKE 'CPT-%';
 
+WITH generated AS (
+  SELECT ('9a000000-0000-4000-8000-' || lpad(s.seq::text, 6, '0') || lpad(t.idx::text, 6, '0'))::uuid AS goat_id,
+         'G-' || lpad(s.seq::text, 3, '0') || lpad(t.idx::text, 3, '0') AS display_id
+  FROM qa_sheds s
+  CROSS JOIN qa_tags t
+  WHERE (s.seq NOT IN (1, 5)) OR (t.idx > 5)
+),
+stale_goats AS (
+  SELECT g.goat_id
+  FROM goats g
+  JOIN generated q ON q.goat_id = g.goat_id OR q.display_id = g.display_id
+  WHERE g.tenant_id = '${tenant_id}'::uuid
+)
+DELETE FROM goat_identifiers gi
+USING stale_goats sg
+WHERE gi.tenant_id = '${tenant_id}'::uuid
+  AND gi.goat_id = sg.goat_id;
+
+WITH generated AS (
+  SELECT ('9a000000-0000-4000-8000-' || lpad(s.seq::text, 6, '0') || lpad(t.idx::text, 6, '0'))::uuid AS goat_id,
+         'G-' || lpad(s.seq::text, 3, '0') || lpad(t.idx::text, 3, '0') AS display_id
+  FROM qa_sheds s
+  CROSS JOIN qa_tags t
+  WHERE (s.seq NOT IN (1, 5)) OR (t.idx > 5)
+),
+stale_goats AS (
+  SELECT g.goat_id
+  FROM goats g
+  JOIN generated q ON q.goat_id = g.goat_id OR q.display_id = g.display_id
+  WHERE g.tenant_id = '${tenant_id}'::uuid
+)
+DELETE FROM goat_shed_partitions gsp
+USING stale_goats sg
+WHERE gsp.tenant_id = '${tenant_id}'::uuid
+  AND gsp.goat_id = sg.goat_id;
+
+WITH generated AS (
+  SELECT ('9a000000-0000-4000-8000-' || lpad(s.seq::text, 6, '0') || lpad(t.idx::text, 6, '0'))::uuid AS goat_id,
+         'G-' || lpad(s.seq::text, 3, '0') || lpad(t.idx::text, 3, '0') AS display_id
+  FROM qa_sheds s
+  CROSS JOIN qa_tags t
+  WHERE (s.seq NOT IN (1, 5)) OR (t.idx > 5)
+)
+DELETE FROM herd_register_goat_projection hrgp
+USING generated q
+WHERE hrgp.tenant_id = '${tenant_id}'::uuid
+  AND (hrgp.goat_id = q.goat_id OR hrgp.display_id = q.display_id);
+
+ALTER TABLE goats DISABLE TRIGGER USER;
+
+WITH generated AS (
+  SELECT ('9a000000-0000-4000-8000-' || lpad(s.seq::text, 6, '0') || lpad(t.idx::text, 6, '0'))::uuid AS goat_id,
+         'G-' || lpad(s.seq::text, 3, '0') || lpad(t.idx::text, 3, '0') AS display_id
+  FROM qa_sheds s
+  CROSS JOIN qa_tags t
+  WHERE (s.seq NOT IN (1, 5)) OR (t.idx > 5)
+),
+stale_display_ids AS (
+  SELECT g.goat_id,
+         'G-98' || lpad(row_number() OVER (ORDER BY g.goat_id)::text, 4, '0') AS replacement_display_id
+  FROM goats g
+  JOIN generated q ON q.display_id = g.display_id AND q.goat_id <> g.goat_id
+  WHERE g.tenant_id = '${tenant_id}'::uuid
+)
+UPDATE goats g
+SET display_id = s.replacement_display_id,
+    updated_at = now()
+FROM stale_display_ids s
+WHERE g.goat_id = s.goat_id
+  AND g.tenant_id = '${tenant_id}'::uuid;
+
+ALTER TABLE goats ENABLE TRIGGER USER;
+
 -- Sheds 2,3,4,6,7,8 get thirty freshly minted goats: one per (shed, tag).
 INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, health_status, custodian_party_id, current_location_id, farm_id, park_id, shed_id, dob, origin_type, entry_date)
 SELECT ('9a000000-0000-4000-8000-' || lpad(s.seq::text, 6, '0') || lpad(t.idx::text, 6, '0'))::uuid,
@@ -1817,6 +1918,38 @@ SET proof_ref = 'phone-qa-counts-rework-proof-4',
     rework_reason = 'Phone QA seeded counts retry state'
 WHERE tenant_id = '${tenant_id}'::uuid
   AND card_id = '8c000000-0000-4000-8000-000000000004';
+
+INSERT INTO goat_identifiers (
+  identifier_id, tenant_id, goat_id, identifier_type, identifier_value,
+  normalized_value, scope_key, is_primary_for_goat, status, valid_from,
+  source_system, source_record_id, normalizer_version, confidence
+)
+SELECT gen_random_uuid(),
+       g.tenant_id,
+       g.goat_id,
+       'animal_identifier_1',
+       'QA-MISSING-' || g.display_id,
+       'QA-MISSING-' || g.display_id,
+       'tenant:${tenant_id}',
+       true,
+       'active',
+       now(),
+       'phone-qa-throwaway-seed',
+       'missing-primary-' || g.goat_id::text,
+       'seed-v1',
+       1.0
+FROM goats g
+WHERE g.tenant_id = '${tenant_id}'::uuid
+  AND g.lifecycle_status = 'alive'
+  AND NOT EXISTS (
+    SELECT 1 FROM goat_identifiers i
+    WHERE i.tenant_id = g.tenant_id
+      AND i.goat_id = g.goat_id
+      AND i.identifier_type = 'animal_identifier_1'
+      AND i.is_primary_for_goat
+      AND i.status = 'active'
+  )
+ON CONFLICT (tenant_id, normalized_value) DO NOTHING;
 
 COMMIT;
 SQL
