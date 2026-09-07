@@ -73,6 +73,11 @@ const TABS = ["overview", "items", "peranimal", "experiment", "execution"] as co
 type Tab = (typeof TABS)[number];
 const RANGES = ["30", "61", "92"] as const;
 type Range = (typeof RANGES)[number];
+// The expenditure chart's two readings (maintainer ask 2026-09-07): the day's ₹ as it is, or
+// that ₹ over the animals on the SAME day's sheet. A URL param like the range, so a pasted
+// link opens on the reading the reader was looking at; absent means overall.
+const SPEND_MODES = ["overall", "per_animal"] as const;
+type SpendMode = (typeof SPEND_MODES)[number];
 
 const nf = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
 const money = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -96,6 +101,11 @@ function readTab(sp: RouteSearchParams, allowedTabs: readonly Tab[] = TABS): Tab
 function readRange(sp: RouteSearchParams): Range {
   const raw = one(sp, "range");
   return (RANGES as readonly string[]).includes(raw ?? "") ? (raw as Range) : "30";
+}
+
+function readSpendMode(sp: RouteSearchParams): SpendMode {
+  const raw = one(sp, "spend");
+  return (SPEND_MODES as readonly string[]).includes(raw ?? "") ? (raw as SpendMode) : "overall";
 }
 
 /**
@@ -278,6 +288,7 @@ export async function FeedAnalyticsPage({
   const stockOnly = allowedTabs.length === 1 && allowedTabs[0] === "items";
   const tab = readTab(searchParams, allowedTabs);
   const range = stockOnly ? "30" : readRange(searchParams);
+  const spendMode = readSpendMode(searchParams);
   const { parkId } = backendScope(parseScope(searchParams));
   const window = rangeDates(range);
   const params = { park_id: parkId, ...window };
@@ -464,6 +475,8 @@ export async function FeedAnalyticsPage({
           execution={execution?.ok ? execution.data : null}
           stock={stock?.ok ? stock.data : null}
           stockOnly={stockOnly}
+          spendMode={spendMode}
+          searchParams={searchParams}
           pageContract={pageContract}
         />
       ) : null}
@@ -591,6 +604,8 @@ function rankItemCards(
 function DirectedTabs({
   tab,
   range,
+  spendMode,
+  searchParams,
   data,
   execution,
   stock,
@@ -599,6 +614,8 @@ function DirectedTabs({
 }: {
   tab: Tab;
   range: Range;
+  spendMode: SpendMode;
+  searchParams: RouteSearchParams;
   data: FeedAnalyticsDirectedResponse;
   execution: FeedAnalyticsExecutionResponse | null;
   stock: FeedAnalyticsStockResponse | null;
@@ -749,18 +766,50 @@ function DirectedTabs({
       ) : null}
 
       {tab === "overview" && stock && stock.expenditure.length > 0 ? (
+        // One chart, two readings, chosen top-right (maintainer ask 2026-09-07). "Overall" is
+        // the day's priced ₹ as served. "Per animal" divides EACH day's ₹ by the animals on
+        // THAT day's sheet, matched on feed_day — never by position, since the expenditure
+        // series and the directed days can start on different dates. A day whose sheet has
+        // no animals has no per-animal figure and breaks the line rather than reading ₹0;
+        // the tile above divides the same two halves for yesterday alone.
         <section className="card wchart" aria-label={fa(pageContract, "chart.spend.title")}>
-          <h2 className="h">{fa(pageContract, "chart.spend.title")}</h2>
-          <p className="muted small">{fa(pageContract, "chart.spend.hint")}</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-start", justifyContent: "space-between" }}>
+            <div>
+              <h2 className="h">{fa(pageContract, "chart.spend.title")}</h2>
+              <p className="muted small">
+                {fa(pageContract, spendMode === "per_animal" ? "chart.spend.per_animal.hint" : "chart.spend.hint")}
+              </p>
+            </div>
+            <SegmentedLinks
+              current={spendMode}
+              ariaLabel={fa(pageContract, "chart.spend.mode.aria")}
+              options={SPEND_MODES.map((m) => ({
+                value: m,
+                label: fa(pageContract, `chart.spend.mode.${m}`),
+                href: hrefWith(searchParams, { spend: m === "overall" ? undefined : m }),
+              }))}
+            />
+          </div>
           <ChartHover>
             <FeedLines
-              series={[{
-                label: fa(pageContract, "chart.spend.title"),
-                colorVar: FEED_SERIES_VARS[2],
-                points: stock.expenditure.map((d) => num(d.rupees)),
-              }]}
+              series={[
+                spendMode === "per_animal"
+                  ? {
+                      label: fa(pageContract, "chart.spend.per_animal.label"),
+                      colorVar: FEED_SERIES_VARS[2],
+                      points: stock.expenditure.map((d) => {
+                        const day = data.days.find((x) => x.feed_day === d.feed_day);
+                        return day && day.head_days > 0 ? num(d.rupees) / day.head_days : null;
+                      }),
+                    }
+                  : {
+                      label: fa(pageContract, "chart.spend.title"),
+                      colorVar: FEED_SERIES_VARS[2],
+                      points: stock.expenditure.map((d) => num(d.rupees)),
+                    },
+              ]}
               dayLabels={stock.expenditure.map((d) => d.feed_day)}
-              valueNoun={fa(pageContract, "unit.rupees")}
+              valueNoun={fa(pageContract, spendMode === "per_animal" ? "unit.rupees_per_animal" : "unit.rupees")}
               chartLabel={fa(pageContract, "chart.spend.title")}
               emptyLabel={fa(pageContract, "stock.empty")}
             />

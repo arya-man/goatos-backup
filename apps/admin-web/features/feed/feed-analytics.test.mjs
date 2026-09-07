@@ -135,6 +135,23 @@ test("the cost-per-animal tile divides yesterday's spend by yesterday's animals,
   assert.match(source, /"kpi\.cost_per_animal\.label"/);
 });
 
+test("the expenditure chart's per-animal reading divides each day by that day's own animals", () => {
+  // The toggle is a URL param read like the range (absent = overall), and its labels come
+  // from the page contract, never a local literal.
+  assert.match(source, /const SPEND_MODES = \["overall", "per_animal"\] as const/);
+  assert.match(source, /const spendMode = readSpendMode\(searchParams\)/);
+  assert.match(source, /href: hrefWith\(searchParams, \{ spend: m === "overall" \? undefined : m \}\)/);
+  assert.match(source, /`chart\.spend\.mode\.\$\{m\}`/);
+  // Per animal = that day's ₹ over that day's head count, matched on feed_day — a positional
+  // zip would pair the wrong days whenever the two series start on different dates. No
+  // animals on the sheet means no figure (a broken line), never ₹0.
+  assert.match(source, /data\.days\.find\(\(x\) => x\.feed_day === d\.feed_day\)/);
+  assert.match(source, /day && day\.head_days > 0 \? num\(d\.rupees\) \/ day\.head_days : null/);
+  // Overall stays exactly the series it was.
+  assert.match(source, /points: stock\.expenditure\.map\(\(d\) => num\(d\.rupees\)\)/);
+  assert.match(source, /spendMode === "per_animal" \? "unit\.rupees_per_animal" : "unit\.rupees"/);
+});
+
 test("milk-only item days stay on the chart axis", () => {
   // Day totals are sheet-only by design, but item rows now include UHT Milk. A
   // milk-only day must still get an x-axis slot instead of being dropped by
