@@ -175,3 +175,48 @@ func contains(s, substr string) bool {
 	}
 	return false
 }
+
+// TestShiftingCompletionCarriesTheSourcePen proves the REPOSITORY half of the verifier's
+// from/to label: the service composes "Pen move · <to> · from <from>" from this result, so a
+// result that names only the destination silently drops the source no matter how the service
+// composes it. Declaring the fields is not the same as populating them, which is why this asserts
+// against a real DB round trip rather than a hand-built struct.
+//
+// The shared fixture moves the animal out of countsShedA ("CPT Shed 1") into countsShedB.
+func TestShiftingCompletionCarriesTheSourcePen(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	goatA := "00000000-0000-4000-8000-00000000d001"
+	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "comp-source", []string{goatA})
+	if _, _, err := approveShifting(repo, ctx, "comp-source", approvalRequestID, shiftingEventID, []string{goatA}); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+
+	result, _, err := repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
+		TenantID:           countsTenant,
+		ShiftingEventID:    shiftingEventID,
+		CompletedByUserID:  countsOperator,
+		CompletedAt:        time.Now().In(biztime.DefaultLocation()),
+		ProofRef:           "proof-source",
+		IdempotencyKey:     "complete-source",
+		RequestFingerprint: "fp-source",
+	})
+	if err != nil {
+		t.Fatalf("complete shifting: %v", err)
+	}
+
+	if result.SourceShedName != "CPT Shed 1" {
+		t.Fatalf("SourceShedName = %q, want %q -- the verifier's \"from\" pen never left the DB",
+			result.SourceShedName, "CPT Shed 1")
+	}
+	if result.DestinationShedName == "" {
+		t.Fatalf("DestinationShedName empty: the \"to\" half regressed")
+	}
+	if result.SourceShedName == result.DestinationShedName {
+		t.Fatalf("source and destination both = %q; a movement between one pen and itself is not a movement",
+			result.SourceShedName)
+	}
+}

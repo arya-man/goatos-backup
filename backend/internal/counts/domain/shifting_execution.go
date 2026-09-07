@@ -162,6 +162,13 @@ type ShiftingExecutionResult struct {
 	// Left empty on cancellation (nothing moved) and on an idempotent replay echo.
 	SourceParkID string
 	SourceShedID string
+	// SourceShedName and SourcePartitionLabel name the pen the animals LEFT. Carried for the same
+	// reason the destination pair is: the verifier judges a movement video, and a label naming only
+	// where the animals arrived cannot be checked against a clip that shows them walk out of
+	// somewhere. Read under the SAME row lock as the destination, so both halves describe one
+	// movement rather than two reads that could straddle a change. Empty when the row records no
+	// source (initial placement, and legacy rows predating the source columns).
+	SourceShedName, SourcePartitionLabel string
 
 	// MovedGoatIDs is the animal set the completion relocated. Empty for a cancellation, which
 	// moves nobody.

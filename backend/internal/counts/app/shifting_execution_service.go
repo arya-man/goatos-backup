@@ -72,9 +72,24 @@ type ShiftingVerificationEnqueueRequest struct {
 	SubjectLabel    string
 	// SubjectNote is the raiser's note on why the animals are moving, passed through to the
 	// verification item so the verifier reads the operator's reason beside the video.
-	SubjectNote    string
+	SubjectNote string
+	// PartitionLabel is the DESTINATION pen's partition. Carried so the verification item composes
+	// its operational location as "Mandela 1 - Part 2" rather than the bare shed "Mandela 1" -- two
+	// different places, and a verifier judging a movement video has to know which one.
+	PartitionLabel string
+	// ContextRows are the backend-composed "what this movement was" facts the verifier reads beside
+	// the video: which pen the animals left, which they arrived in. Rendered verbatim.
+	ContextRows    []VerificationContextRow
 	CapturedAt     time.Time
 	IdempotencyKey string
+}
+
+// VerificationContextRow is one label/value fact handed to the verifier queue. It mirrors the
+// verification module's ContextRow without counts importing that package: both surfaces render it
+// verbatim, in this order, and neither parses it back into business logic.
+type VerificationContextRow struct {
+	Label string
+	Value string
 }
 
 // WithVerificationEnqueuer wires the evidence-review enqueue seam. Without it, Complete fails
@@ -161,9 +176,38 @@ func (s *ShiftingExecutionService) Complete(
 	if result.EventStatus == domain.ShiftingEventStatusPending ||
 		result.EventStatus == domain.ShiftingEventStatusPendingVerification ||
 		result.EventStatus == domain.ShiftingEventStatusApplied {
-		loc := oploc.OperationalLocation{ShedName: result.DestinationShedName, PartitionLabel: result.DestinationPartitionLabel}
-		locDisplay := loc.Display()
-		subject := "Pen move · " + locDisplay + " · " + strconv.Itoa(len(result.MovedGoatIDs)) + " animals"
+		destination := oploc.OperationalLocation{
+			ShedName: result.DestinationShedName, PartitionLabel: result.DestinationPartitionLabel,
+		}.Display()
+		source := oploc.OperationalLocation{
+			ShedName: result.SourceShedName, PartitionLabel: result.SourcePartitionLabel,
+		}.Display()
+		// A movement is a FROM and a TO, and the verifier is judging a clip of animals walking
+		// between them. Naming only the destination left her checking half the claim: a video of a
+		// pen she cannot place against a label that says where they ended up.
+		//
+		// The destination stays the segment right after "Pen move" because both queue lists lead
+		// with it -- admin-web promotes the segment matching the item's own resolved location to
+		// the headline, and Android drops its appended pen label when the subject already carries
+		// it. Putting the source first would demote the destination on both. The source follows as
+		// its own "from …" segment, which lands on the meta line beneath.
+		subject := "Pen move · " + destination
+		if source != "" {
+			subject += " · from " + source
+		}
+		subject += " · " + strconv.Itoa(len(result.MovedGoatIDs)) + " animals"
+		// The same two facts, unambiguously labelled, for the detail screen beside the video --
+		// where the reviewer is actually deciding. The label above has to stay one scannable line
+		// in a list; these do not, so they name each half instead of relying on segment order.
+		// A movement with no recorded source states the destination alone rather than an empty row:
+		// a label with no value reads as a bug.
+		contextRows := []VerificationContextRow{}
+		if source != "" {
+			contextRows = append(contextRows, VerificationContextRow{Label: "Moved from", Value: source})
+		}
+		if destination != "" {
+			contextRows = append(contextRows, VerificationContextRow{Label: "Moved to", Value: destination})
+		}
 		mediaRefs := []string{strings.TrimSpace(in.ProofRef)}
 		if ref := strings.TrimSpace(in.FeedPackingProofRef); ref != "" {
 			mediaRefs = append(mediaRefs, ref)
@@ -180,6 +224,8 @@ func (s *ShiftingExecutionService) Complete(
 			MediaRefs:       mediaRefs,
 			SubjectLabel:    subject,
 			SubjectNote:     derefString(result.RaiseComment),
+			PartitionLabel:  result.DestinationPartitionLabel,
+			ContextRows:     contextRows,
 			CapturedAt:      s.now().UTC(),
 			// Keyed to the EVENT + complete proof set so a retry collapses onto one queue item.
 			IdempotencyKey: "counts-shifting-verification:" + in.ShiftingEventID + ":" + strings.Join(mediaRefs, ":"),

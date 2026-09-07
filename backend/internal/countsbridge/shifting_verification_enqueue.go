@@ -45,14 +45,30 @@ func (e *ShiftingVerificationEnqueuer) EnqueueShiftingMoveVerification(ctx conte
 			RefType: countsdomain.VerificationRefTypeShifting,
 			RefID:   in.ShiftingEventID,
 		},
+		ContextRows:    shiftingContextRows(in.ContextRows),
 		MediaRefs:      in.MediaRefs,
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
+		PartitionLabel: ptrIfSet(in.PartitionLabel),
 		ParkID:         ptrIfSet(in.ParkID),
 		CapturedAt:     in.CapturedAt,
 		IdempotencyKey: in.IdempotencyKey,
 	})
 	return err
+}
+
+// shiftingContextRows translates the counts-side rows without reinterpreting them: counts composed
+// the farm wording, this only crosses the module boundary. Order is preserved because the verifier
+// reads "Moved from" above "Moved to", which is the direction the animals walked.
+func shiftingContextRows(rows []countsapp.VerificationContextRow) []verificationdomain.ContextRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]verificationdomain.ContextRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, verificationdomain.ContextRow{Label: row.Label, Value: row.Value})
+	}
+	return out
 }
 
 func ptrIfSet(s string) *string {

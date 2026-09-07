@@ -131,6 +131,9 @@ func (r *Repository) CompleteShiftingEvent(
 			DestinationShedID:         destShedID,
 			DestinationShedName:       destShedName,
 			DestinationPartitionLabel: derefOrEmpty(current.DestinationPartitionLabel),
+			SourceShedID:              derefOrEmpty(current.SourceShedID),
+			SourceShedName:            r.sourcePenName(ctx, r.pool, in.TenantID, current.SourceShedID),
+			SourcePartitionLabel:      derefOrEmpty(current.SourcePartitionLabel),
 			MovedGoatIDs:              goatIDs,
 			RaiseComment:              current.RaiseComment,
 			AppliedAt:                 current.AppliedAt,
@@ -272,6 +275,9 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 		DestinationShedID:         destShedID,
 		DestinationShedName:       destShedName,
 		DestinationPartitionLabel: derefOrEmpty(updated.DestinationPartitionLabel),
+		SourceShedID:              derefOrEmpty(updated.SourceShedID),
+		SourceShedName:            r.sourcePenName(ctx, r.pool, in.TenantID, updated.SourceShedID),
+		SourcePartitionLabel:      derefOrEmpty(updated.SourcePartitionLabel),
 		MovedGoatIDs:              goatIDs,
 		RaiseComment:              current.RaiseComment,
 	}, false, nil
@@ -530,6 +536,13 @@ type lockedShiftingEvent struct {
 	DestinationShedID         string
 	DestinationPartitionLabel *string
 
+	// SourceShedID / SourcePartitionLabel name the pen the animals leave. Read here, under the same
+	// row lock as the destination, so the verification label composed from this result describes one
+	// movement rather than a destination read here and a source read separately. NULL on rows that
+	// record no source (initial placement, and rows predating the source columns).
+	SourceShedID         *string
+	SourcePartitionLabel *string
+
 	AppliedAt                *time.Time
 	AppliedBy                *string
 	CompletedAt              *time.Time
@@ -561,6 +574,7 @@ func lockShiftingEvent(ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID
 	err := tx.QueryRow(ctx, `
 SELECT event_status, authorization_state, verification_state, priority, category,
        destination_park_id::text, destination_shed_id::text, destination_partition_label,
+       source_shed_id::text, source_partition_label,
        applied_at, applied_by::text, completed_at, completed_by::text,
        completion_destination_tag, management_stage_mode, target_management_stage, adopt_pen_tag,
        raise_comment,
@@ -572,6 +586,7 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 FOR UPDATE`, tenantID, shiftingEventID).Scan(
 		&out.EventStatus, &out.AuthorizationState, &out.VerificationState, &out.Priority, &out.Category,
 		&out.DestinationParkID, &out.DestinationShedID, &out.DestinationPartitionLabel,
+		&out.SourceShedID, &out.SourcePartitionLabel,
 		&out.AppliedAt, &out.AppliedBy, &out.CompletedAt, &out.CompletedBy,
 		&out.CompletionDestinationTag, &out.ManagementStageMode, &out.TargetManagementStage, &out.AdoptPenTag,
 		&out.RaiseComment,
@@ -713,6 +728,8 @@ RETURNING applied_at, applied_by::text`, tenantID, shiftingEventID, appliedAt.UT
 		EventStatus:               domain.ShiftingEventStatusApplied,
 		SourceParkID:              srcPark,
 		SourceShedID:              srcShed,
+		SourceShedName:            r.sourcePenName(ctx, tx, tenantID, sourceShedID),
+		SourcePartitionLabel:      derefOrEmpty(sourcePartitionLabel),
 		DestinationParkID:         destParkID,
 		DestinationShedID:         destShedID,
 		DestinationShedName:       destShedName,
@@ -1300,6 +1317,38 @@ func derefOrEmpty(s *string) string {
 }
 
 // fetchShedName reads the display name of a shed location.
+// sourcePenName resolves the display name of the pen a movement LEFT, for the verification label.
+//
+// It DEGRADES to "" rather than failing: the source is decoration on an evidence label, and a
+// movement that really happened must not be refused because the pen it came from could not be
+// named. A row with no source (initial placement, legacy rows) resolves to "" the same way, so the
+// caller drops the "from" half instead of rendering a dangling separator.
+//
+// The name is read through the same catalog query fetchShedName uses; the PARTITION half is the
+// label stored ON THE MOVEMENT, never a re-derived resident cohort, because the movement records
+// which pen these animals actually stood in.
+func (r *Repository) sourcePenName(ctx context.Context, q shedNameQuerier, tenantID string, sourceShedID *string) string {
+	if sourceShedID == nil || strings.TrimSpace(*sourceShedID) == "" {
+		return ""
+	}
+	var shedName string
+	if err := q.QueryRow(ctx, shedNameSQL, tenantID, *sourceShedID).Scan(&shedName); err != nil {
+		return ""
+	}
+	return shedName
+}
+
+// shedNameQuerier is the one method both a pool and an open transaction offer, so the apply path
+// can resolve the source pen on the connection already holding the movement's row lock.
+type shedNameQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+const shedNameSQL = `
+SELECT COALESCE(NULLIF(shed.name, ''), shed.location_code, '')
+FROM locations shed
+WHERE shed.tenant_id = $1::uuid AND shed.location_id = $2::uuid`
+
 func (r *Repository) fetchShedName(ctx context.Context, tenantID, shedID string) (string, error) {
 	var shedName string
 	err := r.pool.QueryRow(ctx, `
