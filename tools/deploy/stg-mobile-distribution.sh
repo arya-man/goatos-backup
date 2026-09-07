@@ -29,6 +29,7 @@ firebase_uploaded=false
 play_uploaded=false
 apk_mirrored=false
 force_update_published=false
+force_update_push_sent=false
 
 slack_webhook_url() {
   gcloud secrets versions access latest \
@@ -272,6 +273,88 @@ publish_force_update_floor() {
   echo "FORCE_UPDATE_FLOOR_PUBLISHED ${version_code} ${update_url}"
 }
 
+write_force_update_recheck_body() {
+  local body_file="$1"
+  local version_code="$2"
+  local update_url="$3"
+  local validate_only="$4"
+  jq -n \
+    --arg topic "goatos_force_update_prod" \
+    --arg versionCode "$version_code" \
+    --arg updateUrl "$update_url" \
+    --argjson validateOnly "$validate_only" \
+    '{
+      validate_only: $validateOnly,
+      message: {
+        topic: $topic,
+        data: {
+          type: "force_update_recheck",
+          min_supported_version_code: $versionCode,
+          update_url: $updateUrl
+        },
+        android: {
+          priority: "HIGH"
+        }
+      }
+    }' > "$body_file"
+}
+
+send_force_update_recheck_push() {
+  local version_code="$1"
+  local update_url="$2"
+  local token body_file response_file status
+
+  token="$(gcloud auth print-access-token)"
+  body_file=".local/android-signing/firebase-force-update-recheck.json"
+  response_file=".local/android-signing/firebase-force-update-recheck-response.json"
+
+  write_force_update_recheck_body "$body_file" "$version_code" "$update_url" "false"
+
+  status="$(
+    curl -sS -X POST -o "$response_file" -w '%{http_code}' \
+      -H "Authorization: Bearer ${token}" \
+      -H "Content-Type: application/json; UTF-8" \
+      --data-binary @"$body_file" \
+      "https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send"
+  )"
+  if [[ ! "$status" =~ ^2 ]]; then
+    echo "Force-update silent FCM push failed after HTTP $status; refusing to mark mobile distribution complete." >&2
+    sed 's/^/force-update-push-response: /' "$response_file" >&2 || true
+    return 1
+  fi
+
+  force_update_push_sent=true
+  echo "FORCE_UPDATE_RECHECK_PUSH_SENT ${version_code} ${update_url}"
+}
+
+require_force_update_push_access() {
+  local version_code="$1"
+  local update_url="$2"
+  local token body_file response_file status
+
+  token="$(gcloud auth print-access-token)"
+  body_file=".local/android-signing/firebase-force-update-recheck-preflight.json"
+  response_file=".local/android-signing/firebase-force-update-recheck-preflight-response.json"
+
+  mkdir -p .local/android-signing
+  write_force_update_recheck_body "$body_file" "$version_code" "$update_url" "true"
+
+  status="$(
+    curl -sS -X POST -o "$response_file" -w '%{http_code}' \
+      -H "Authorization: Bearer ${token}" \
+      -H "Content-Type: application/json; UTF-8" \
+      --data-binary @"$body_file" \
+      "https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send"
+  )"
+  if [[ ! "$status" =~ ^2 ]]; then
+    echo "Force-update silent FCM push preflight failed after HTTP $status; refusing to start Android distribution." >&2
+    sed 's/^/force-update-push-preflight-response: /' "$response_file" >&2 || true
+    return 1
+  fi
+
+  echo "FORCE_UPDATE_RECHECK_PUSH_PREFLIGHT_OK"
+}
+
 require_force_update_config_access() {
   local token template_file response_file status etag if_match
 
@@ -328,6 +411,8 @@ on_exit() {
       notify_slack "FAILED" "${prefix} Firebase App Distribution uploaded, but mesha.sg/app.apk did not update."
     elif [[ "$firebase_uploaded" == "true" && "$apk_mirrored" == "true" && "$force_update_published" != "true" ]]; then
       notify_slack "FAILED" "${prefix} Firebase App Distribution and mesha.sg/app.apk updated, but the force-update Remote Config floor did not publish."
+    elif [[ "$firebase_uploaded" == "true" && "$apk_mirrored" == "true" && "$force_update_published" == "true" && "$force_update_push_sent" != "true" ]]; then
+      notify_slack "FAILED" "${prefix} Firebase App Distribution, mesha.sg/app.apk, and force-update Remote Config updated, but the silent force-update recheck push did not send."
     else
       notify_slack "FAILED" "${prefix} Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk did NOT all complete."
     fi
@@ -513,6 +598,7 @@ if [[ "$DEPLOY_VERSION_NAME" != "$expected_version_name" ]]; then
   echo "versionName ${DEPLOY_VERSION_NAME} does not match versionCode ${DEPLOY_VERSION_CODE}; expected ${expected_version_name}" >&2
   exit 1
 fi
+require_force_update_push_access "$DEPLOY_VERSION_CODE" "https://mesha.sg/app.apk"
 echo "Building Android release identity ${DEPLOY_VERSION_NAME} (${DEPLOY_VERSION_CODE})."
 
 cd apps/goatos-android
@@ -664,7 +750,9 @@ if [[ "$play_uploaded" != "true" ]]; then
   exit 1
 fi
 
-notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, mesha.sg/app.apk now serves ${DOWNLOAD_NAME}, and force update blocks older builds below ${ANDROID_VERSION_CODE}."
+send_force_update_recheck_push "$ANDROID_VERSION_CODE" "https://mesha.sg/app.apk"
+
+notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, mesha.sg/app.apk now serves ${DOWNLOAD_NAME}, force update blocks older builds below ${ANDROID_VERSION_CODE}, and subscribed prod apps were asked to re-check silently."
 post_deploy_panel
 trap - EXIT
 

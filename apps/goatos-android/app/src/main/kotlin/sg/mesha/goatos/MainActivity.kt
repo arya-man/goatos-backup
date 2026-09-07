@@ -56,6 +56,7 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.feature.auth.LoginScreen
 import sg.mesha.goatos.push.PendingNavigation
 import sg.mesha.goatos.push.PushExtras
+import sg.mesha.goatos.push.ForceUpdateRecheckSignal
 import sg.mesha.goatos.push.resolvePushRoute
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.ui.ForceUpdateScreen
@@ -120,6 +121,23 @@ class MainActivity : ComponentActivity() {
                 // blocked whether or not anyone is signed in. Fails open, so an
                 // unconfigured environment (e.g. the dev flavor) renders the app normally.
                 val updateGate by updateGateViewModel.state.collectAsStateWithLifecycle()
+                LaunchedEffect(Unit) {
+                    if (ForceUpdateRecheckSignal.consumePending(this@MainActivity)) {
+                        analytics.track(
+                            AnalyticsEventsSession.FORCE_UPDATE_RECHECK_FROM_PUSH,
+                            mapOf(AnalyticsEventsSession.Params.SOURCE to "silent_push"),
+                        )
+                        updateGateViewModel.refresh(forceRefresh = true)
+                    }
+                    ForceUpdateRecheckSignal.flow.collect {
+                        ForceUpdateRecheckSignal.consumePending(this@MainActivity)
+                        analytics.track(
+                            AnalyticsEventsSession.FORCE_UPDATE_RECHECK_FROM_PUSH,
+                            mapOf(AnalyticsEventsSession.Params.SOURCE to "silent_push"),
+                        )
+                        updateGateViewModel.refresh(forceRefresh = true)
+                    }
+                }
                 when (val gate = updateGate) {
                     UpdateGateUiState.Checking -> BootstrapLoading()
 

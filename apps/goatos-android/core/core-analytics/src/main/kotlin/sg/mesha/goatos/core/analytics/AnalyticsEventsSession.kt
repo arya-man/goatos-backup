@@ -80,6 +80,12 @@ object AnalyticsEventsSession {
      */
     const val FORCE_UPDATE_GATE_BLOCKING = "force_update_gate_blocking"
 
+    /** A silent FCM release-control message asked this running app to re-check the update floor. */
+    const val FORCE_UPDATE_RECHECK_PUSH_RECEIVED = "force_update_recheck_push_received"
+
+    /** The running app started a force-update recheck because of a silent FCM release-control push. */
+    const val FORCE_UPDATE_RECHECK_FROM_PUSH = "force_update_recheck_from_push"
+
     /**
      * A navigation destination became current: a drawer module switch, a bottom-bar tab tap,
      * or a top-level route entered any other way. [Params.NAV_ROUTE] is the bounded-cardinality
@@ -153,5 +159,8 @@ object AnalyticsEventsSession {
 
         /** Download/install URL host only, never the full URL. */
         const val UPDATE_HOST = "update_host"
+
+        /** Bounded origin for a force-update check: `launch`, `resume`, or `silent_push`. */
+        const val SOURCE = "source"
     }
 }

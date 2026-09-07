@@ -302,6 +302,8 @@ class BackendAnalyticsAdapter(
             AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED,
             AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED,
             AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING,
+            AnalyticsEventsSession.FORCE_UPDATE_RECHECK_PUSH_RECEIVED,
+            AnalyticsEventsSession.FORCE_UPDATE_RECHECK_FROM_PUSH,
         )
 
         private const val TAG = "GoatAnalytics"

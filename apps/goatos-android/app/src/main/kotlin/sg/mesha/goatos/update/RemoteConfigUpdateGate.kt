@@ -39,14 +39,15 @@ class RemoteConfigUpdateGate(
     private val skipRemoteConfig: Boolean = BuildConfig.FLAVOR == "dev",
 ) : UpdateGate {
 
-    override suspend fun check(): UpdateDecision = withContext(Dispatchers.IO) {
+    override suspend fun check(forceRefresh: Boolean): UpdateDecision = withContext(Dispatchers.IO) {
         if (skipRemoteConfig) return@withContext UpdateDecision.Allowed
         debugOverrideDecision()?.let { return@withContext it }
         runCatching {
             val rc = FirebaseRemoteConfig.getInstance()
+            val fetchIntervalSeconds = if (forceRefresh) 0L else minFetchIntervalSeconds
 
             val settings = FirebaseRemoteConfigSettings.Builder()
-                .setMinimumFetchIntervalInSeconds(minFetchIntervalSeconds)
+                .setMinimumFetchIntervalInSeconds(fetchIntervalSeconds)
                 .build()
             Tasks.await(rc.setConfigSettingsAsync(settings), CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             Tasks.await(

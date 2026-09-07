@@ -4,6 +4,8 @@ import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dagger.hilt.android.AndroidEntryPoint
+import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.notifications.NotificationsPort
 import javax.inject.Inject
@@ -36,6 +38,7 @@ class GoatOsMessagingService : FirebaseMessagingService() {
 
     @Inject lateinit var notificationsPort: NotificationsPort
     @Inject lateinit var pushNotifications: PushNotifications
+    @Inject lateinit var analytics: AnalyticsPort
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
@@ -50,6 +53,14 @@ class GoatOsMessagingService : FirebaseMessagingService() {
         super.onMessageReceived(message)
         runCatching {
             val data = message.data
+            if (data[PushExtras.TYPE] == PushExtras.FORCE_UPDATE_RECHECK_TYPE) {
+                analytics.track(
+                    AnalyticsEventsSession.FORCE_UPDATE_RECHECK_PUSH_RECEIVED,
+                    mapOf(AnalyticsEventsSession.Params.SOURCE to "silent_push"),
+                )
+                ForceUpdateRecheckSignal.emit(applicationContext)
+                return@runCatching
+            }
             val display = pushDisplayText(
                 data = data,
                 notificationTitle = message.notification?.title,

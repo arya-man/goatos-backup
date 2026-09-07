@@ -45,9 +45,9 @@ class UpdateGateViewModel @Inject constructor(
         refresh()
     }
 
-    fun refresh() {
+    fun refresh(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            when (val decision = gate.check()) {
+            when (val decision = gate.check(forceRefresh = forceRefresh)) {
                 is UpdateDecision.ForceUpdate ->
                     _state.value = UpdateGateUiState.Blocked(updateUrl = decision.updateUrl)
 

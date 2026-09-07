@@ -29,6 +29,7 @@ object PushExtras {
     const val ROLE = "role"
     const val TITLE = "title"
     const val BODY = "body"
+    const val FORCE_UPDATE_RECHECK_TYPE = "force_update_recheck"
 
     /** The subset carried through to the tap intent / route resolver — [TITLE]/[BODY] are
      *  display-only and never affect routing. */

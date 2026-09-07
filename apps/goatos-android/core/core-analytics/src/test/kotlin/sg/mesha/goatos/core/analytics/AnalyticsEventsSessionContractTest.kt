@@ -44,6 +44,8 @@ class AnalyticsEventsSessionContractTest {
         assertEquals("force_update_installer_opened", AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED)
         assertEquals("force_update_install_completed", AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED)
         assertEquals("force_update_gate_blocking", AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING)
+        assertEquals("force_update_recheck_push_received", AnalyticsEventsSession.FORCE_UPDATE_RECHECK_PUSH_RECEIVED)
+        assertEquals("force_update_recheck_from_push", AnalyticsEventsSession.FORCE_UPDATE_RECHECK_FROM_PUSH)
         assertEquals("route_entered", AnalyticsEventsSession.ROUTE_ENTERED)
         assertEquals("route_exited_via_back", AnalyticsEventsSession.ROUTE_EXITED_VIA_BACK)
         assertEquals("navigation_blocked", AnalyticsEventsSession.NAVIGATION_BLOCKED)
@@ -61,6 +63,7 @@ class AnalyticsEventsSessionContractTest {
         assertEquals("offline", AnalyticsEventsSession.Params.OFFLINE)
         assertEquals("shell_action", AnalyticsEventsSession.Params.SHELL_ACTION)
         assertEquals("update_host", AnalyticsEventsSession.Params.UPDATE_HOST)
+        assertEquals("source", AnalyticsEventsSession.Params.SOURCE)
     }
 
     @Test
@@ -78,6 +81,8 @@ class AnalyticsEventsSessionContractTest {
             AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED,
             AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED,
             AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING,
+            AnalyticsEventsSession.FORCE_UPDATE_RECHECK_PUSH_RECEIVED,
+            AnalyticsEventsSession.FORCE_UPDATE_RECHECK_FROM_PUSH,
             AnalyticsEventsSession.ROUTE_ENTERED,
             AnalyticsEventsSession.ROUTE_EXITED_VIA_BACK,
             AnalyticsEventsSession.NAVIGATION_BLOCKED,

@@ -1,11 +1,13 @@
 package sg.mesha.goatos.push
 
+import android.util.Log
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.notifications.NotificationsPort
 import javax.inject.Inject
 
@@ -41,9 +43,24 @@ class AndroidPushTokenSync(
             val token = runCatching {
                 withContext(Dispatchers.IO) { Tasks.await(FirebaseMessaging.getInstance().token) }
             }.getOrNull()
+            runCatching {
+                if (forceUpdateTopicEnabled(BuildConfig.FLAVOR)) {
+                    withContext(Dispatchers.IO) {
+                        Tasks.await(FirebaseMessaging.getInstance().subscribeToTopic(FORCE_UPDATE_TOPIC))
+                    }
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Force-update topic subscription failed", error)
+            }
             if (!token.isNullOrBlank()) {
                 notificationsPort.registerToken(token)
             }
         }
     }
 }
+
+private const val TAG = "PushTokenSync"
+
+const val FORCE_UPDATE_TOPIC = "goatos_force_update_prod"
+
+fun forceUpdateTopicEnabled(flavor: String): Boolean = flavor == "prod"

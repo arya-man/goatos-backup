@@ -27,7 +27,7 @@ sealed interface UpdateDecision {
  * so a network blip or an unconfigured environment never bricks an internal build.
  */
 interface UpdateGate {
-    suspend fun check(): UpdateDecision
+    suspend fun check(forceRefresh: Boolean = false): UpdateDecision
 }
 
 /**

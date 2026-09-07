@@ -91,8 +91,15 @@ func TestMobileDistributionRequiresForceUpdateRemoteConfig(t *testing.T) {
 	for _, want := range []string{
 		"require_force_update_config_access",
 		"FORCE_UPDATE_REMOTE_CONFIG_UPDATE_PREFLIGHT_OK",
+		"require_force_update_push_access \"$DEPLOY_VERSION_CODE\" \"https://mesha.sg/app.apk\"",
+		"FORCE_UPDATE_RECHECK_PUSH_PREFLIGHT_OK",
 		"validate_only=true",
 		"publish_force_update_floor \"$ANDROID_VERSION_CODE\" \"https://mesha.sg/app.apk\"",
+		"send_force_update_recheck_push \"$ANDROID_VERSION_CODE\" \"https://mesha.sg/app.apk\"",
+		"FORCE_UPDATE_RECHECK_PUSH_SENT",
+		"force_update_recheck",
+		"goatos_force_update_prod",
+		"https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send",
 		"FORCE_UPDATE_FLOOR_PUBLISHED",
 		"min_supported_version_code",
 		"update_url",
@@ -108,11 +115,22 @@ func TestMobileDistributionRequiresForceUpdateRemoteConfig(t *testing.T) {
 	if success < 0 || publish < 0 || publish > success {
 		t.Fatalf("force-update floor must publish before the success notification")
 	}
+	push := strings.Index(text, "send_force_update_recheck_push \"$ANDROID_VERSION_CODE\" \"https://mesha.sg/app.apk\"")
+	if push < 0 || push > success {
+		t.Fatalf("force-update recheck push must send before the success notification")
+	}
+	if publish > push {
+		t.Fatalf("force-update floor must publish before the recheck push")
+	}
 
 	preflight := strings.Index(text, "\nrequire_force_update_config_access\n")
 	firebaseUpload := strings.Index(text, ":app:appDistributionUploadProdRelease")
 	if preflight < 0 || firebaseUpload < 0 || preflight > firebaseUpload {
 		t.Fatalf("Remote Config update preflight must run before Firebase/App APK distribution")
+	}
+	pushPreflight := strings.Index(text, "require_force_update_push_access \"$DEPLOY_VERSION_CODE\" \"https://mesha.sg/app.apk\"")
+	if pushPreflight < 0 || firebaseUpload < 0 || pushPreflight > firebaseUpload {
+		t.Fatalf("silent force-update push preflight must run before Firebase/App APK distribution")
 	}
 }
 

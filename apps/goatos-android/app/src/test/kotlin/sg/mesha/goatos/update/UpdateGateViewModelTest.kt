@@ -27,9 +27,11 @@ class UpdateGateViewModelTest {
     private class FakeUpdateGate(private val decisions: MutableList<UpdateDecision>) : UpdateGate {
         var checks = 0
             private set
+        val forceRefreshCalls = mutableListOf<Boolean>()
 
-        override suspend fun check(): UpdateDecision {
+        override suspend fun check(forceRefresh: Boolean): UpdateDecision {
             checks++
+            forceRefreshCalls += forceRefresh
             return if (decisions.isEmpty()) UpdateDecision.Allowed else decisions.removeAt(0)
         }
     }
@@ -85,5 +87,17 @@ class UpdateGateViewModelTest {
         vm.refresh()
         advanceUntilIdle()
         assertEquals(UpdateGateUiState.Blocked("u"), vm.state.value)
+    }
+
+    @Test
+    fun `force refresh forwards cache bypass to the gate`() = runTest {
+        val gate = FakeUpdateGate(mutableListOf(UpdateDecision.Allowed, UpdateDecision.Allowed))
+        val vm = UpdateGateViewModel(gate)
+        advanceUntilIdle()
+
+        vm.refresh(forceRefresh = true)
+        advanceUntilIdle()
+
+        assertEquals(listOf(false, true), gate.forceRefreshCalls)
     }
 }
