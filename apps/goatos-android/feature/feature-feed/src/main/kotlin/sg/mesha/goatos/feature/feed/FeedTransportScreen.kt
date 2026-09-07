@@ -358,6 +358,7 @@ sealed interface FeedTransportCaptureEvent {
     data object Submit : FeedTransportCaptureEvent
     data object SyncNow : FeedTransportCaptureEvent
     data object Back : FeedTransportCaptureEvent
+    data class PreviewAction(val action: String) : FeedTransportCaptureEvent
 }
 
 @Composable
@@ -428,6 +429,7 @@ fun FeedTransportCaptureScreen(
                         }
                     },
                     showAction = !state.alreadySubmitted,
+                    onPreviewAction = { onEvent(FeedTransportCaptureEvent.PreviewAction(it)) },
                 )
             }
         }

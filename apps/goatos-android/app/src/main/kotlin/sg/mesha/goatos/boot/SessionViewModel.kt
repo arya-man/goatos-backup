@@ -90,6 +90,13 @@ internal fun sessionIsAuthedForMode(mode: AuthMode, persisted: String?): Boolean
         AuthMode.FIREBASE -> persisted == FIREBASE_SESSION_MARKER
     }
 
+internal fun effectiveSessionTokenForMode(mode: AuthMode, persisted: String?, bakedDevToken: String): String? =
+    when (mode) {
+        AuthMode.DEV_BEARER -> persisted?.takeIf { it.isNotBlank() }
+            ?: bakedDevToken.takeIf { it.isNotBlank() }
+        AuthMode.FIREBASE -> persisted
+    }
+
 internal data class LoginUiState(
     val isLoading: Boolean = false,
     val errorReason: LoginError? = null,
@@ -136,7 +143,14 @@ class SessionViewModel @Inject constructor(
         // Not-ready is UNKNOWN, not "signed out". Returning false here published a confident
         // "show the login card" before the dev session had been read, so a dev build flashed a
         // sign-in screen at an already-signed-in operator -- the same defect one layer down.
-        if (!ready) null else sessionIsAuthedForMode(authMode, token)
+        if (!ready) {
+            null
+        } else {
+            sessionIsAuthedForMode(
+                authMode,
+                effectiveSessionTokenForMode(authMode, token, BuildConfig.DEV_BEARER_TOKEN),
+            )
+        }
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 

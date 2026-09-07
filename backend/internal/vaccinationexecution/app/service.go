@@ -21,8 +21,13 @@ type Service struct {
 	repo             ports.Repository
 	ownership        ports.ShedOwnershipReader
 	bus              eventbus.Bus
+	proofURLs        proofURLResolver
 	shedSummaryCache map[string]shedSummaryCacheEntry
 	shedSummaryMu    sync.Mutex
+}
+
+type proofURLResolver interface {
+	ResolveProofDownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
 }
 
 type plannedDriveReassigner interface {
@@ -35,6 +40,11 @@ type plannedDriveReassigner interface {
 // Optional: a nil/unset bus makes config writes a no-op for the cascade (never blocks the write itself).
 func (s *Service) WithBus(bus eventbus.Bus) *Service {
 	s.bus = bus
+	return s
+}
+
+func (s *Service) WithProofURLResolver(resolver proofURLResolver) *Service {
+	s.proofURLs = resolver
 	return s
 }
 
@@ -994,7 +1004,22 @@ func primaryActionKey(p domain.ExecutionProjection, workState domain.WorkState, 
 // ScanRoster returns per-animal vaccination obligations for a shed with RFID tags and vaccine labels.
 // Used by the mobile scan screen to match keyboard-wedge tag captures.
 func (s *Service) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
-	return s.repo.ScanRoster(ctx, q)
+	result, err := s.repo.ScanRoster(ctx, q)
+	if err != nil || s.proofURLs == nil {
+		return result, err
+	}
+	for i := range result.Rows {
+		row := &result.Rows[i]
+		if row.LatestProofID == nil || strings.TrimSpace(*row.LatestProofID) == "" {
+			continue
+		}
+		url, err := s.proofURLs.ResolveProofDownloadURL(ctx, q.TenantID, strings.TrimSpace(*row.LatestProofID))
+		if err != nil || strings.TrimSpace(url) == "" {
+			continue
+		}
+		row.LatestProofDownloadURL = &url
+	}
+	return result, nil
 }
 
 func (s *Service) TaskOptionValues(ctx context.Context, tenantID, taskID string) (domain.TaskOptionValuesResponse, error) {

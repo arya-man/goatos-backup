@@ -26,6 +26,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -495,6 +496,14 @@ class SubmitViewModel @Inject constructor(
             }
         if (currentProofPolicy.maximumCount?.let { activeProofCount >= it } == true) return
         captureInFlightKey = key
+        trackSopProofEvent(
+            event = AnalyticsEvents.SOP_PROOF_CAPTURE_ATTEMPT,
+            task = task,
+            fieldKey = key,
+            source = source,
+            outcome = "attempt",
+            subject = subject,
+        )
         viewModelScope.launch {
             try {
                 val caption = submitProofCaption(task, key)
@@ -530,9 +539,27 @@ class SubmitViewModel @Inject constructor(
                         partitionLabel = activePartitionLabel(),
                     )) {
                         is AppResult.Ok -> {
+                            trackSopProofEvent(
+                                event = AnalyticsEvents.SOP_PROOF_CAPTURE_SUCCESS,
+                                task = task,
+                                fieldKey = key,
+                                source = captured.captureSource,
+                                outcome = "success",
+                                subject = subject,
+                                proof = captureResult.value,
+                            )
                             _state.update { it.copy(lastError = null) }
                         }
                         is AppResult.Err -> {
+                            trackSopProofEvent(
+                                event = AnalyticsEvents.SOP_PROOF_CAPTURE_FAILURE,
+                                task = task,
+                                fieldKey = key,
+                                source = captured.captureSource,
+                                outcome = "failure",
+                                reason = captureResult.message.ifBlank { "persist_failed" },
+                                subject = subject,
+                            )
                             // Gate-3 backstop: surface proof capture error via screen's existing error channel
                             crashReporter.recordException(
                                 captureResult.cause ?: IllegalStateException(captureResult.message),
@@ -546,6 +573,16 @@ class SubmitViewModel @Inject constructor(
                             }
                         }
                     }
+                } else {
+                    trackSopProofEvent(
+                        event = AnalyticsEvents.SOP_PROOF_CAPTURE_CANCELLED,
+                        task = task,
+                        fieldKey = key,
+                        source = source,
+                        outcome = "cancelled",
+                        reason = "user_cancelled",
+                        subject = subject,
+                    )
                 }
             } finally {
                 captureInFlightKey = null
@@ -586,7 +623,39 @@ class SubmitViewModel @Inject constructor(
     private fun retryProofUpload(proofId: String) {
         val task = currentTask ?: return
         if (outboxItemId != null) return
-        viewModelScope.launch { proofCaptureRepository.retryUpload(task.taskId, proofId) }
+        val proof = currentProofs.firstOrNull { it.id == proofId }
+        trackSopProofEvent(
+            event = AnalyticsEvents.SOP_PROOF_RETRY_ATTEMPT,
+            task = task,
+            fieldKey = proof?.fieldKey ?: "unknown",
+            source = "retry",
+            outcome = "attempt",
+            proof = proof,
+        )
+        viewModelScope.launch {
+            when (val result = proofCaptureRepository.retryUpload(task.taskId, proofId)) {
+                is AppResult.Ok -> trackSopProofEvent(
+                    event = AnalyticsEvents.SOP_PROOF_RETRY_SUCCESS,
+                    task = task,
+                    fieldKey = proof?.fieldKey ?: "unknown",
+                    source = "retry",
+                    outcome = "success",
+                    proof = proof,
+                )
+                is AppResult.Err -> {
+                    trackSopProofEvent(
+                        event = AnalyticsEvents.SOP_PROOF_RETRY_FAILURE,
+                        task = task,
+                        fieldKey = proof?.fieldKey ?: "unknown",
+                        source = "retry",
+                        outcome = "failure",
+                        reason = result.message.ifBlank { "retry_failed" },
+                        proof = proof,
+                    )
+                    result.cause?.let { crashReporter.recordException(it, "SubmitViewModel.retryProofUpload failed") }
+                }
+            }
+        }
     }
 
     private fun renderDraft() {
@@ -695,6 +764,10 @@ class SubmitViewModel @Inject constructor(
         // Answers: did the operator actually attempt the final submit (vs. leaving the shed
         // with a fully-scanned roster but never confirming) — the funnel's last-mile event.
         AnalyticsFunnels.trackSubmitAttempted(analytics, current.taskId)
+        analytics.track(
+            AnalyticsEvents.SOP_SUBMIT_ATTEMPT,
+            submitAnalyticsProps(current, "attempt", null),
+        )
         statusJob?.cancel()
         viewModelScope.launch {
             // State update clears snackbar before enqueuing; snackbar will be shown when
@@ -742,6 +815,10 @@ class SubmitViewModel @Inject constructor(
             ) {
                 is AppResult.Ok -> {
                     outboxItemId = result.value
+                    analytics.track(
+                        AnalyticsEvents.SOP_SUBMIT_ATTEMPT,
+                        submitAnalyticsProps(current, "queued", result.value),
+                    )
                     observeOutboxItem(result.value)
                 }
                 is AppResult.Err -> {
@@ -757,6 +834,10 @@ class SubmitViewModel @Inject constructor(
                         analytics,
                         current.taskId,
                         result.message.ifBlank { "enqueue_failed" },
+                    )
+                    analytics.track(
+                        AnalyticsEvents.SOP_SUBMIT_FAILURE,
+                        submitAnalyticsProps(current, "failure", null, result.message.ifBlank { "enqueue_failed" }),
                     )
                     _state.update {
                         it.copy(
@@ -924,6 +1005,10 @@ class SubmitViewModel @Inject constructor(
             attemptCount = item.attemptCount,
             maxAttempts = item.maxAttempts,
         )
+        analytics.track(
+            if (item.status == SyncItemStatus.SUCCEEDED) AnalyticsEvents.SOP_SUBMIT_SUCCESS else AnalyticsEvents.SOP_SUBMIT_ATTEMPT,
+            submitAnalyticsProps(currentTask, submitStatus, item.id, item.lastError),
+        )
         if (item.status == SyncItemStatus.SUCCEEDED) scopeSubmissionAcked = true
         when {
             item.status == SyncItemStatus.QUEUED -> _state.update {
@@ -938,6 +1023,10 @@ class SubmitViewModel @Inject constructor(
                 // Answers: did the enqueued submit actually reach and get accepted by the
                 // backend — closes the funnel's last stage, previously invisible.
                 AnalyticsFunnels.trackSubmitSucceeded(analytics, analyticsTaskId)
+                analytics.track(
+                    AnalyticsEvents.SOP_SUBMIT_SUCCESS,
+                    submitAnalyticsProps(task, "success", item.id),
+                )
                 if (task != null) {
                     _state.value = terminalAckState(task, currentForm).copy(snackbarMessage = SubmitSnackbarMessage.SUCCEEDED)
                 } else {
@@ -954,6 +1043,10 @@ class SubmitViewModel @Inject constructor(
                     "SubmitViewModel submit rejected (conflict)",
                 )
                 AnalyticsFunnels.trackSubmitFailed(analytics, analyticsTaskId, item.lastError?.ifBlank { "conflict" } ?: "conflict")
+                analytics.track(
+                    AnalyticsEvents.SOP_SUBMIT_FAILURE,
+                    submitAnalyticsProps(currentTask, "conflict", item.id, item.lastError?.ifBlank { "conflict" } ?: "conflict"),
+                )
                 _state.update {
                     it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0, isQueueFailed = false, isRetryFailed = false, snackbarMessage = SubmitSnackbarMessage.CONFLICT)
                 }
@@ -967,6 +1060,10 @@ class SubmitViewModel @Inject constructor(
                     "SubmitViewModel submit dead-lettered",
                 )
                 AnalyticsFunnels.trackSubmitFailed(analytics, analyticsTaskId, item.lastError?.ifBlank { "dead_letter" } ?: "dead_letter")
+                analytics.track(
+                    AnalyticsEvents.SOP_SUBMIT_FAILURE,
+                    submitAnalyticsProps(currentTask, "dead_letter", item.id, item.lastError?.ifBlank { "dead_letter" } ?: "dead_letter"),
+                )
                 _state.update {
                     it.copy(
                         syncState = SyncState.DEAD_LETTER,
@@ -1621,6 +1718,64 @@ class SubmitViewModel @Inject constructor(
         retryable = syncStatus == CaptureSyncStatus.FAILED,
         syncStatus = syncStatus.name,
     )
+
+    private fun trackSopProofEvent(
+        event: String,
+        task: TaskSummaryDto,
+        fieldKey: String,
+        source: String,
+        outcome: String,
+        reason: String? = null,
+        subject: ProofSubject? = null,
+        proof: ProofCaptureRow? = null,
+    ) {
+        analytics.track(
+            event,
+            buildMap {
+                put(AnalyticsFunnels.Params.TASK_ID, task.taskId)
+                put(AnalyticsEvents.Params.FIELD, fieldKey)
+                put(AnalyticsEvents.Params.SOURCE, source)
+                put(AnalyticsEvents.Params.OUTCOME, outcome)
+                put(AnalyticsEvents.Params.SHED_ID, activeShedScopeId(task).orEmpty())
+                put(AnalyticsEvents.Params.PARTITION_LABEL, activePartitionLabel().orEmpty())
+                put(AnalyticsEvents.Params.SUBJECT_TYPE, subject?.wireValue ?: proof?.proofSubject?.wireValue.orEmpty())
+                reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(120)) }
+                proof?.let {
+                    put("local_proof_row_id", it.id)
+                    put(AnalyticsEvents.Params.PROOF_ID, it.id)
+                    put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it.outboxItemId.orEmpty())
+                    put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, it.outboxItemId.orEmpty())
+                    put("server_proof_id", it.serverProofId.orEmpty())
+                    put(AnalyticsEvents.Params.PROOF_STATE, it.syncStatus.name.lowercase())
+                    it.featureSurface?.let { surface -> put(AnalyticsEvents.Params.PROOF_SURFACE, surface) }
+                    it.featureCategory?.let { category -> put(AnalyticsEvents.Params.CATEGORY, category) }
+                }
+            },
+        )
+    }
+
+    private fun submitAnalyticsProps(
+        task: TaskSummaryDto?,
+        outcome: String,
+        submitOutboxId: String?,
+        reason: String? = null,
+    ): Map<String, String> = buildMap {
+        put(AnalyticsFunnels.Params.TASK_ID, task?.taskId ?: "unknown")
+        put(AnalyticsEvents.Params.SOURCE, "submit_screen")
+        put(AnalyticsEvents.Params.OUTCOME, outcome)
+        put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, submitOutboxId.orEmpty())
+        put("submit_outbox_id", submitOutboxId.orEmpty())
+        task?.let {
+            put(AnalyticsEvents.Params.SHED_ID, activeShedScopeId(it).orEmpty())
+            put(AnalyticsEvents.Params.PARTITION_LABEL, activePartitionLabel().orEmpty())
+        }
+        reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(120)) }
+        val proofRows = currentProofs.filter { it.isCompletedProofRef() || !it.outboxItemId.isNullOrBlank() }
+        put("local_proof_row_ids", proofRows.joinToString(",") { it.id }.take(500))
+        put("proof_outbox_item_ids", proofRows.mapNotNull { it.outboxItemId?.takeIf(String::isNotBlank) }.joinToString(",").take(500))
+        put("server_proof_ids", proofRows.mapNotNull { it.serverProofId?.takeIf(String::isNotBlank) }.joinToString(",").take(500))
+        put("proof_count", proofRows.size.toString())
+    }
 
     internal companion object {
         // SavedStateHandle keys — survive process death so the idempotency key + enqueued row id

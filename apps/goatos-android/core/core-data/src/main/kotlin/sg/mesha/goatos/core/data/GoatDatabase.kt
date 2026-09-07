@@ -383,7 +383,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // death form's "due to disease" dropdown searches, and the sales LEAD board pair
     // (`sales_lead_items` + `sales_lead_remote_keys`) so buyer/FPO leads page by side/search/status.
     // v60 (see [MIGRATION_59_60]) adds proof_capture.featureCategory for common proof diagnostics.
-    version = 60,
+    // v61 (see [MIGRATION_60_61]) caches backend vaccination proof preview refs on scan_roster_row.
+    version = 61,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema

@@ -20,6 +20,7 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
@@ -94,6 +95,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
         feedCaptureGroupKey("feed-wastage", shedId, partitionLabel, 0, WASTAGE_WORKFLOW, targetDate)
 
     private var videoProofRowId: String? = null
+    private val proofTerminalEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded to one feed-wastage proof outbox id
 
     /** Durable per pen-day; see the shared store's kdoc for why SavedStateHandle lost the clip. */
     private var draft = CaptureDraft()
@@ -177,7 +179,23 @@ class FeedWastageCompleteViewModel @Inject constructor(
             FeedWastageCompleteEvent.MarkDone -> markDone()
             FeedWastageCompleteEvent.SyncNow -> syncNow()
             FeedWastageCompleteEvent.Back -> Unit // navigation — handled by the nav host.
+            is FeedWastageCompleteEvent.PreviewAction -> trackPreviewAction(event.action)
         }
+    }
+
+    private fun trackPreviewAction(action: String) {
+        val previewAction = ProofPreviewActionTrace.from(action)
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_PROOF_PREVIEW_ACTION,
+            wastageEventProps(previewAction.action) + buildMap {
+                put(AnalyticsEvents.Params.OUTCOME, previewAction.outcome)
+                previewAction.reason?.let { put(AnalyticsEvents.Params.REASON, it) }
+                videoProofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
+                draft.proofs[STEP_VIDEO]?.takeIf { it.isNotBlank() }?.let {
+                    put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it)
+                }
+            },
+        )
     }
 
     /** MANDATORY leftover-feed video — a LIVE in-app camera clip, enqueued as a PROOF_UPLOAD on
@@ -316,6 +334,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
             SyncItemStatus.SUCCEEDED -> FeedDistributionProofStatus.SYNCED
             SyncItemStatus.FAILED -> FeedDistributionProofStatus.FAILED
         }
+        trackProofUploadTerminal(item)
         val message = when (proofStatus) {
             FeedDistributionProofStatus.QUEUED -> VIDEO_QUEUED
             FeedDistributionProofStatus.UPLOADING -> PROOF_UPLOADING
@@ -415,6 +434,27 @@ class FeedWastageCompleteViewModel @Inject constructor(
         }
     }
 
+    private fun trackProofUploadTerminal(item: SyncQueueItem) {
+        val outcome = when (item.status) {
+            SyncItemStatus.SUCCEEDED -> "success"
+            SyncItemStatus.FAILED -> "failure"
+            else -> return
+        }
+        if (!proofTerminalEventsTracked.add(item.id)) return
+        analytics.track(
+            AnalyticsEvents.FEED_WASTAGE_PROOF_UPLOAD_SYNCED,
+            wastageEventProps(ACTION_PROOF_UPLOAD_SYNC) + buildMap {
+                put(AnalyticsEvents.Params.OUTCOME, outcome)
+                put(PARAM_PROOF_OUTBOX_ITEM_ID, item.id)
+                videoProofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
+                if (item.status == SyncItemStatus.FAILED) {
+                    put(AnalyticsEvents.Params.REASON, item.lastError?.takeIf { it.isNotBlank() }
+                        ?: if (item.conflict) "conflict" else "attempts_exhausted")
+                }
+            },
+        )
+    }
+
     private fun recomputeCanComplete() {
         _state.update {
             val committed = it.result?.let { r -> r.status == FeedWastageCompleteStatus.SYNCED || r.status == FeedWastageCompleteStatus.QUEUED } ?: false
@@ -497,6 +537,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
         private const val ACTION_RE_RECORD_VIDEO = "re_record_video"
         private const val ACTION_CAPTURED = "captured"
         private const val ACTION_CAPTURE_FAILED = "capture_failed"
+        private const val ACTION_PROOF_UPLOAD_SYNC = "proof_upload_sync"
         private const val ACTION_SUBMIT = "submit"
         private const val ACTION_SUBMIT_FAILED = "submit_failed"
         private const val PARAM_GROUP_KEY = "group_key"

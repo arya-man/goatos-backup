@@ -164,7 +164,7 @@ private fun TaskDetailResponseDto.toDomain(): TaskDetail = TaskDetail(
     ),
     form = (sopVersion?.toFormSpec() ?: FormSpec.Empty).withOptionValues(optionValues),
     submissions = submissions,
-    proofPolicy = requireNotNull(sopVersion) { "Task detail ${task.taskId} missing SOP version proof policy" }.toProofPolicy(),
+    proofPolicy = sopVersion?.toProofPolicy() ?: MissingSopProofPolicy,
 )
 
 private fun FormSpec.withOptionValues(values: TaskOptionValuesResponseDto?): FormSpec {
@@ -186,3 +186,17 @@ private fun FormSpec.withOptionValues(values: TaskOptionValuesResponseDto?): For
         )
     })
 }
+
+private val MissingSopProofPolicy = ProofPolicy(
+    required = false,
+    proofMode = "none",
+    featureSurface = "task_detail_cache",
+    featureCategory = "missing_sop",
+    subjectScope = "task",
+    expectedSubjects = emptyList(),
+    minimumCount = 0,
+    maximumCount = null,
+    minimumCountPerSubject = 0,
+    maximumCountPerSubject = null,
+    maximumCountPerField = null,
+)

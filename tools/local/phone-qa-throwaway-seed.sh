@@ -8,10 +8,10 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 today_sql="(now() AT TIME ZONE 'Asia/Kolkata')::date"
-# Upper bound for the tag pool. The widened QA roster itself uses a 2,3,2,3...
-# per-shed pattern below, but the base seeder still needs the five physical RFID
-# identities to exist.
-animals_per_shed="${GOATOS_ANIMALS_PER_SHED:-5}"
+# Upper bound for the tag pool. The widened QA roster includes one Pramod-visible
+# six-animal vaccination shed to prove feature-owned caps do not become a shared
+# five-proof client rule.
+animals_per_shed="${GOATOS_ANIMALS_PER_SHED:-6}"
 database_target="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[^:/@]+://([^@]+@)?##; s#[?].*$##')"
 
 die() { echo "phone-qa-throwaway-seed: $*" >&2; exit 1; }
@@ -21,7 +21,7 @@ die() { echo "phone-qa-throwaway-seed: $*" >&2; exit 1; }
 case "$animals_per_shed" in
   ''|*[!0-9]*) die "GOATOS_ANIMALS_PER_SHED must be a positive integer, got '${animals_per_shed}'" ;;
 esac
-[ "$animals_per_shed" -ge 5 ] || die "GOATOS_ANIMALS_PER_SHED must be >= 5 (the fixture always seeds the 5 physical-RFID identities first), got ${animals_per_shed}"
+[ "$animals_per_shed" -ge 6 ] || die "GOATOS_ANIMALS_PER_SHED must be >= 6 (the fixture needs a phone-testable over-five proof path), got ${animals_per_shed}"
 
 case "$DATABASE_URL" in
   *127.0.0.1:15544/*|*localhost:15544/*) ;;
@@ -383,18 +383,17 @@ WHERE tenant_id = '${tenant_id}'::uuid
 
 INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_type, period_start_date, period_end_date, cadence_type, start_business_date, status, planned_cap_per_day, operator_user_id, published_at, created_by, updated_at)
 VALUES
-  -- Seeded as DRAFT on purpose. weighing_work_items -- the per-shed task rows that surface on an
-  -- assignee's landing page -- are created ONLY by the publish path
-  -- (createWorkItemsForPublishTx). Inserting these campaigns already-published skipped that
-  -- kernel step, which is why the work-item table stayed empty and nobody saw weighing work.
-  -- tools/local/phone-qa-throwaway-run.sh publishes them through the real service afterwards.
-  ('92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', 'week', ${today_sql}, ${today_sql} + 6, 'weekly_kids', ${today_sql}, 'draft', 100, '90000000-0000-4000-8000-000000000202', NULL, '90000000-0000-4000-8000-000000000103', now()),
-  ('92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', 'week', ${today_sql}, ${today_sql} + 6, 'weekly_kids', ${today_sql}, 'draft', 100, '90000000-0000-4000-8000-000000000201', NULL, '90000000-0000-4000-8000-000000000103', now())
+  -- Phone-QA writes directly through the operator app, so the parent campaign must already be
+  -- live. The fixture inserts the per-shed rows below explicitly; keeping the parent draft makes
+  -- backend observation writes reject as immutable during E2E.
+  ('92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', 'week', ${today_sql}, ${today_sql} + 6, 'weekly_kids', ${today_sql}, 'published', 100, '90000000-0000-4000-8000-000000000202', now(), '90000000-0000-4000-8000-000000000103', now()),
+  ('92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', 'week', ${today_sql}, ${today_sql} + 6, 'weekly_kids', ${today_sql}, 'published', 100, '90000000-0000-4000-8000-000000000201', now(), '90000000-0000-4000-8000-000000000103', now())
 ON CONFLICT (campaign_id) DO UPDATE
 SET period_start_date = EXCLUDED.period_start_date,
     period_end_date = EXCLUDED.period_end_date,
     start_business_date = EXCLUDED.start_business_date,
-    status = CASE WHEN weighing_campaigns.status = 'completed' THEN 'published' ELSE weighing_campaigns.status END,
+    status = 'published',
+    published_at = COALESCE(weighing_campaigns.published_at, now()),
     operator_user_id = EXCLUDED.operator_user_id,
     updated_at = now();
 
@@ -828,7 +827,7 @@ VALUES
 ON CONFLICT (tenant_id, task_id, operator_user_id) DO NOTHING;
 
 INSERT INTO pc_care_removal_pen_proofs (
-  removal_pen_id, tenant_id, removal_task_id, gated_task_id, pen_label, status
+  removal_pen_id, tenant_id, removal_task_id, gated_task_id, pen_label, status, rework_reason
 )
 VALUES
   (
@@ -837,7 +836,8 @@ VALUES
     '94000000-0000-4000-8000-000000000800',
     '94000000-0000-4000-8000-000000000801',
     'Godel 1 - Part 1',
-    'open'
+    'open',
+    NULL
   ),
   (
     '94000000-0000-4000-8000-000000000812',
@@ -845,14 +845,24 @@ VALUES
     '94000000-0000-4000-8000-000000000800',
     '94000000-0000-4000-8000-000000000802',
     'Yashoda 1 - Part 2',
-    'open'
+    'open',
+    NULL
+  ),
+  (
+    '94000000-0000-4000-8000-000000000813',
+    '${tenant_id}'::uuid,
+    '94000000-0000-4000-8000-000000000800',
+    '94000000-0000-4000-8000-000000000803',
+    'Gandhi 1 - Part 1',
+    'rework',
+    'Phone QA seeded retry state'
   )
 ON CONFLICT (tenant_id, removal_task_id, gated_task_id) DO UPDATE
 SET pen_label = EXCLUDED.pen_label,
-    status = 'open',
+    status = EXCLUDED.status,
     feed_proof_ref = NULL,
     water_proof_ref = NULL,
-    rework_reason = NULL,
+    rework_reason = CASE WHEN EXCLUDED.status = 'rework' THEN 'Phone QA seeded retry state' ELSE NULL END,
     row_version = pc_care_removal_pen_proofs.row_version + 1,
     updated_at = now();
 
@@ -1127,7 +1137,7 @@ CREATE TEMP TABLE qa_sheds (
 -- shed on his Operators list belongs to somebody else.
 INSERT INTO qa_sheds VALUES
   (1, '91000000-0000-4000-8000-000000000201', '91000000-0000-4000-8000-000000000101', 'Godel 1',   '',    2, '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
-  (2, '91000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000101', 'Yashoda 1', 'Y1-', 3, '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
+  (2, '91000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000101', 'Yashoda 1', 'Y1-', 6, '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
   (3, '9c000000-0000-4000-8000-000000000301', '91000000-0000-4000-8000-000000000101', 'Gandhi 1',  'G1-', 2, '90000000-0000-4000-8000-000000000103', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', true),
   (4, '9c000000-0000-4000-8000-000000000302', '91000000-0000-4000-8000-000000000101', 'Gandhi 2',  'G2-', 3, '90000000-0000-4000-8000-000000000103', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', true),
   (5, '91000000-0000-4000-8000-000000000202', '92000000-0000-4000-8000-000000000101', 'Mandela 2', 'M2-', 2, '90000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', false),
@@ -1139,8 +1149,9 @@ INSERT INTO qa_sheds VALUES
 -- RFIDs exist, so slots 1-5 map to them (scannable = true) and slots 6..N get a
 -- synthetic, non-RFID identifier (SYN###) so the shed can hold N distinct animal
 -- identities without inventing fake physical tags or colliding with a real one.
--- Vaccination still resolves 1 identifier -> 1 goat either way; only the 5
--- scannable slots per shed can actually be walked with a phone.
+-- The dev-only DebugSampleTagAliaser keeps each physical card stable while its
+-- animal is open, then reuses it for the next open animal after completion; that
+-- makes a 6+ animal shed phone-walkable while preserving double-scan behavior.
 CREATE TEMP TABLE qa_tags (idx int PRIMARY KEY, tag text NOT NULL, scannable boolean NOT NULL) ON COMMIT DROP;
 INSERT INTO qa_tags
 SELECT s.idx,
@@ -1579,6 +1590,14 @@ DELETE FROM feed_packing_completions
 WHERE tenant_id = '${tenant_id}'::uuid
   AND idempotency_key LIKE 'phone-qa-feed-%';
 
+DELETE FROM feed_distribution_completions
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND idempotency_key LIKE 'phone-qa-feed-%';
+
+DELETE FROM feed_wastage_completions
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND idempotency_key LIKE 'phone-qa-feed-%';
+
 UPDATE feed_transport_tasks
 SET current_attempt_id = NULL,
     updated_at = now()
@@ -1612,7 +1631,10 @@ DELETE FROM feed_direction_issues
 WHERE tenant_id = '${tenant_id}'::uuid
   AND feed_direction_issue_id IN (
     '8d000000-0000-4000-8000-000000000001',
-    '8d000000-0000-4000-8000-000000000002'
+    '8d000000-0000-4000-8000-000000000002',
+    '8d000000-0000-4000-8000-000000000003',
+    '8d000000-0000-4000-8000-000000000004',
+    '8d000000-0000-4000-8000-000000000005'
   );
 
 INSERT INTO feed_direction_issues (
@@ -1621,7 +1643,16 @@ INSERT INTO feed_direction_issues (
   source_contract, source_contract_version, generated_by
 ) VALUES
   ('8d000000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', current_date, 'normal', 'issued', now(), 'phone-qa-cbe', 'phone-qa-feed-cbe', 'phone-qa-cbe', 'phone-qa', '1', 'phone-qa-seed'),
-  ('8d000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', current_date, 'normal', 'issued', now(), 'phone-qa-cpt', 'phone-qa-feed-cpt', 'phone-qa-cpt', 'phone-qa', '1', 'phone-qa-seed');
+  ('8d000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', current_date, 'normal', 'issued', now(), 'phone-qa-cpt', 'phone-qa-feed-cpt', 'phone-qa-cpt', 'phone-qa', '1', 'phone-qa-seed'),
+  ('8d000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', current_date, 'experiment', 'issued', now(), 'phone-qa-cbe-experiment', 'phone-qa-feed-cbe-experiment', 'phone-qa-cbe-experiment', 'phone-qa', '1', 'phone-qa-seed');
+
+INSERT INTO feed_direction_issues (
+  feed_direction_issue_id, tenant_id, park_id, feed_day, workflow, state, issued_at,
+  generation_input_fingerprint, idempotency_key, request_fingerprint,
+  source_contract, source_contract_version, generated_by
+) VALUES
+  ('8d000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', current_date + 1, 'normal', 'issued', now(), 'phone-qa-cbe-pack', 'phone-qa-feed-cbe-pack', 'phone-qa-cbe-pack', 'phone-qa', '1', 'phone-qa-seed'),
+  ('8d000000-0000-4000-8000-000000000005', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', current_date + 1, 'normal', 'issued', now(), 'phone-qa-cpt-pack', 'phone-qa-feed-cpt-pack', 'phone-qa-cpt-pack', 'phone-qa', '1', 'phone-qa-seed');
 
 INSERT INTO feed_direction_issue_rows (
   tenant_id, feed_direction_issue_id, park_id, park_label, shed_id, shed_label, shed_tag,
@@ -1632,22 +1663,83 @@ INSERT INTO feed_direction_issue_rows (
   ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000001', '91000000-0000-4000-8000-000000000101', 'CBE', '91000000-0000-4000-8000-000000000201', 'Godel 1', 'CBE-GODEL-1', 'Boer', 'grower', '', 1, 'Morning', 5, false, 'normal', 'Dry Feed', 12.500, 2500.000, 1.0000, 12.500, false, 1, 1, NULL),
   ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000001', '91000000-0000-4000-8000-000000000101', 'CBE', '91000000-0000-4000-8000-000000000203', 'Yashoda 1', 'CBE-YASHODA-1', 'Boer', 'grower', '', 1, 'Morning', 5, false, 'normal', 'Dry Feed', 8.750, 1750.000, 1.0000, 8.750, false, 2, 1, NULL),
   ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000002', '92000000-0000-4000-8000-000000000101', 'CPT', '91000000-0000-4000-8000-000000000202', 'Mandela 2', 'CPT-MANDELA-2', 'Boer', 'grower', '', 1, 'Morning', 5, false, 'normal', 'Dry Feed', 12.500, 2500.000, 1.0000, 12.500, false, 3, 1, NULL),
-  ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000002', '92000000-0000-4000-8000-000000000101', 'CPT', '92000000-0000-4000-8000-000000000203', 'Castro 1', 'CPT-CASTRO-1', 'Boer', 'grower', '', 1, 'Morning', 5, false, 'normal', 'Dry Feed', 8.750, 1750.000, 1.0000, 8.750, false, 4, 1, NULL);
+  ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000002', '92000000-0000-4000-8000-000000000101', 'CPT', '92000000-0000-4000-8000-000000000203', 'Castro 1', 'CPT-CASTRO-1', 'Boer', 'grower', '', 1, 'Morning', 5, false, 'normal', 'Dry Feed', 8.750, 1750.000, 1.0000, 8.750, false, 4, 1, NULL),
+  ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000003', '91000000-0000-4000-8000-000000000101', 'CBE', '91000000-0000-4000-8000-000000000201', 'Godel 1', 'CBE-GODEL-1', 'Boer', 'experiment', 'A', 1, 'Morning', 5, false, 'experiment', 'Trial Feed', 11.250, 2250.000, 1.0000, 11.250, false, 5, 1, 'Part 1'),
+  ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000003', '91000000-0000-4000-8000-000000000101', 'CBE', '91000000-0000-4000-8000-000000000201', 'Godel 1', 'CBE-GODEL-1', 'Boer', 'experiment', 'A', 1, 'Morning', 5, false, 'experiment', 'Trial Feed', 10.750, 2150.000, 1.0000, 10.750, false, 6, 1, 'Part 2'),
+  ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000003', '91000000-0000-4000-8000-000000000101', 'CBE', '91000000-0000-4000-8000-000000000203', 'Yashoda 1', 'CBE-YASHODA-1', 'Boer', 'experiment', 'B', 1, 'Morning', 5, false, 'experiment', 'Trial Feed', 7.500, 1500.000, 1.0000, 7.500, false, 7, 1, 'Part 1');
+
+INSERT INTO feed_direction_issue_rows (
+  tenant_id, feed_direction_issue_id, park_id, park_label, shed_id, shed_label, shed_tag,
+  breed, ration_group, experiment_arm, session_no, session_label, head_count,
+  head_count_informational, workflow, feed_item_label, quantity_kg, grams_per_head,
+  shed_factor, session_total_kg, overdue_pending, row_seq, item_seq, partition_label
+)
+SELECT
+  tenant_id,
+  CASE
+    WHEN feed_direction_issue_id = '8d000000-0000-4000-8000-000000000001'::uuid
+      THEN '8d000000-0000-4000-8000-000000000004'::uuid
+    ELSE '8d000000-0000-4000-8000-000000000005'::uuid
+  END,
+  park_id, park_label, shed_id, shed_label, shed_tag,
+  breed, ration_group, experiment_arm, session_no, session_label, head_count,
+  head_count_informational, workflow, feed_item_label, quantity_kg, grams_per_head,
+  shed_factor, session_total_kg, overdue_pending, row_seq, item_seq, partition_label
+FROM feed_direction_issue_rows
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND feed_direction_issue_id IN (
+    '8d000000-0000-4000-8000-000000000001',
+    '8d000000-0000-4000-8000-000000000002'
+  );
+
+INSERT INTO feed_distribution_completions (
+  completion_id, tenant_id, park_id, shed_id, partition_label, session_no,
+  target_date, workflow, status, distribution_proof_ref, water_proof_ref,
+  feed_weight_proof_ref, completed_by, idempotency_key
+) VALUES
+  ('8d100000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', NULL, 1, current_date, 'normal', 'pending_verification', 'phone-qa-feed-video-pending-1', 'phone-qa-water-video-pending-1', 'phone-qa-weight-photo-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-distribution-1'),
+  ('8d100000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', NULL, 1, current_date, 'normal', 'rework', NULL, NULL, NULL, '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-distribution-2'),
+  ('8d100000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', NULL, 1, current_date, 'normal', 'pending_verification', 'phone-qa-feed-video-pending-3', 'phone-qa-water-video-pending-3', 'phone-qa-weight-photo-pending-3', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-distribution-3'),
+  ('8d100000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', NULL, 1, current_date, 'normal', 'completed', 'phone-qa-feed-video-completed-4', 'phone-qa-water-video-completed-4', 'phone-qa-weight-photo-completed-4', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-distribution-4');
+
+UPDATE feed_distribution_completions
+SET rework_reason = 'Phone QA seeded feed distribution retry state'
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND completion_id = '8d100000-0000-4000-8000-000000000002';
+
+INSERT INTO feed_wastage_completions (
+  completion_id, tenant_id, park_id, shed_id, partition_label, target_date,
+  workflow, status, wastage_proof_ref, completed_by, idempotency_key,
+  wastage_kg, wastage_recorded_by, wastage_recorded_at
+) VALUES
+  ('8d200000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 'Part 1', current_date, 'experiment', 'pending_verification', 'phone-qa-wastage-video-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-wastage-1', 0.750, '90000000-0000-4000-8000-000000000202', now()),
+  ('8d200000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 'Part 2', current_date, 'experiment', 'rework', NULL, '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-wastage-2', NULL, NULL, NULL),
+  ('8d200000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', 'Part 1', current_date, 'experiment', 'completed', 'phone-qa-wastage-video-completed-3', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-wastage-3', 0.000, '90000000-0000-4000-8000-000000000202', now());
+
+UPDATE feed_wastage_completions
+SET rework_reason = 'Phone QA seeded feed wastage retry state'
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND completion_id = '8d200000-0000-4000-8000-000000000002';
 
 INSERT INTO feed_packing_completions (
   completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status,
   packing_proof_ref, completed_by, idempotency_key
-) VALUES
-  ('8e000000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 1, current_date, 'normal', 'pending_verification', 'phone-qa-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-pack-1'),
-  ('8e000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', 1, current_date, 'normal', 'completed', 'phone-qa-proof-2', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-pack-2'),
-  ('8e000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', 1, current_date, 'normal', 'pending_verification', 'phone-qa-pending-3', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-pack-3'),
-  ('8e000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', 1, current_date, 'normal', 'completed', 'phone-qa-proof-4', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-pack-4');
+  ) VALUES
+  ('8e000000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 1, current_date + 1, 'normal', 'pending_verification', 'phone-qa-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-pack-1'),
+  ('8e000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', 1, current_date + 1, 'normal', 'rework', NULL, '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-pack-2'),
+  ('8e000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', 1, current_date + 1, 'normal', 'pending_verification', 'phone-qa-pending-3', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-pack-3'),
+  ('8e000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', 1, current_date + 1, 'normal', 'completed', 'phone-qa-proof-4', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-pack-4');
+
+UPDATE feed_packing_completions
+SET rework_reason = 'Phone QA seeded feed packing retry state'
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND completion_id = '8e000000-0000-4000-8000-000000000002';
 
 INSERT INTO feed_transport_tasks (
   task_id, tenant_id, park_id, shed_id, business_date, scheduled_at, status, operator_id
 ) VALUES
   ('8f000000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', current_date, current_date + time '15:30', 'due', '90000000-0000-4000-8000-000000000202'),
-  ('8f000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', current_date, current_date + time '15:30', 'completed', '90000000-0000-4000-8000-000000000202'),
+  ('8f000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', current_date, current_date + time '15:30', 'rework', '90000000-0000-4000-8000-000000000202'),
   ('8f000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', current_date, current_date + time '15:30', 'due', '90000000-0000-4000-8000-000000000201'),
   ('8f000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', current_date, current_date + time '15:30', 'completed', '90000000-0000-4000-8000-000000000201');
 
@@ -1655,7 +1747,9 @@ DELETE FROM pen_reconciliation_cards
 WHERE tenant_id = '${tenant_id}'::uuid
   AND card_id IN (
     '8c000000-0000-4000-8000-000000000001',
-    '8c000000-0000-4000-8000-000000000002'
+    '8c000000-0000-4000-8000-000000000002',
+    '8c000000-0000-4000-8000-000000000003',
+    '8c000000-0000-4000-8000-000000000004'
   );
 
 INSERT INTO pen_reconciliation_cards (
@@ -1683,7 +1777,46 @@ INSERT INTO pen_reconciliation_cards (
     '92000000-0000-4000-8000-000000000701',
     '9f000000-0000-4000-8000-000000000002',
     'open', now(), 1
+  ),
+  (
+    '8c000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid,
+    '91000000-0000-4000-8000-000000001003', '901007000504407',
+    '91000000-0000-4000-8000-000000000203', 'Part 3', 'Yashoda 1 - Part 3',
+    '91000000-0000-4000-8000-000000000201', 'Part 1',
+    '91000000-0000-4000-8000-000000000101',
+    '92000000-0000-4000-8000-000000000701',
+    '9f000000-0000-4000-8000-000000000002',
+    'completed', now() - interval '1 hour', 1
+  ),
+  (
+    '8c000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid,
+    '91000000-0000-4000-8000-000000001004', '901007000504419',
+    '91000000-0000-4000-8000-000000000201', 'Part 1', 'Godel 1 - Part 1',
+    '91000000-0000-4000-8000-000000000203', 'Part 1',
+    '91000000-0000-4000-8000-000000000101',
+    '92000000-0000-4000-8000-000000000701',
+    '9f000000-0000-4000-8000-000000000001',
+    'rework', now() - interval '30 minutes', 2
   );
+
+UPDATE pen_reconciliation_cards
+SET proof_ref = 'phone-qa-counts-proof-3',
+    completed_by = '90000000-0000-4000-8000-000000000202',
+    completed_at = now() - interval '55 minutes',
+    verified_by = '90000000-0000-4000-8000-000000000301',
+    verified_at = now() - interval '45 minutes'
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND card_id = '8c000000-0000-4000-8000-000000000003';
+
+UPDATE pen_reconciliation_cards
+SET proof_ref = 'phone-qa-counts-rework-proof-4',
+    completed_by = '90000000-0000-4000-8000-000000000202',
+    completed_at = now() - interval '25 minutes',
+    verified_by = '90000000-0000-4000-8000-000000000301',
+    verified_at = now() - interval '20 minutes',
+    rework_reason = 'Phone QA seeded counts retry state'
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND card_id = '8c000000-0000-4000-8000-000000000004';
 
 COMMIT;
 SQL
@@ -1771,6 +1904,16 @@ BEGIN
   END IF;
 
   SELECT count(*) INTO bad
+  FROM pc_care_removal_pen_proofs p
+  WHERE p.tenant_id = '${tenant_id}'::uuid
+    AND p.removal_task_id = '94000000-0000-4000-8000-000000000800'
+    AND p.status = 'rework'
+    AND p.rework_reason IS NOT NULL;
+  IF bad < 1 THEN
+    RAISE EXCEPTION 'phone-qa seed: missing PC Care removal rework row for retry-state E2E';
+  END IF;
+
+  SELECT count(*) INTO bad
   FROM weighing_campaign_sheds
   WHERE tenant_id = '${tenant_id}'::uuid
     AND start_business_date = ${today_sql}
@@ -1789,6 +1932,19 @@ BEGIN
   END IF;
 
   SELECT count(*) INTO bad
+  FROM weighing_campaigns
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND campaign_id IN (
+      '92000000-0000-4000-8000-000000000701',
+      '92000000-0000-4000-8000-000000000702'
+    )
+    AND status = 'published'
+    AND published_at IS NOT NULL;
+  IF bad <> 2 THEN
+    RAISE EXCEPTION 'phone-qa seed: % live weighing campaigns, want 2 published parents for app writes', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
   FROM vaccination_drive_assignments
   WHERE tenant_id = '${tenant_id}'::uuid
     AND planned_date = ${today_sql};
@@ -1796,11 +1952,20 @@ BEGIN
     RAISE EXCEPTION 'phone-qa seed: % vaccination assignments today, want 8 shed-scoped assignments', bad;
   END IF;
 
+  SELECT max(animal_count) INTO bad
+  FROM vaccination_drive_assignments
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND planned_date = ${today_sql}
+    AND operator_id = '93000000-0000-4000-8000-000000000202';
+  IF bad < 6 THEN
+    RAISE EXCEPTION 'phone-qa seed: Pramod max vaccination animal_count is %, want at least 6 to catch shared five-proof caps', bad;
+  END IF;
+
   SELECT count(*) INTO bad
   FROM vaccination_drive_assignment_members
   WHERE tenant_id = '${tenant_id}'::uuid;
-  IF bad <> 26 THEN
-    RAISE EXCEPTION 'phone-qa seed: % vaccination assignment members, want 26 vaccine obligations across sheds', bad;
+  IF bad <> 32 THEN
+    RAISE EXCEPTION 'phone-qa seed: % vaccination assignment members, want 32 vaccine obligations across sheds', bad;
   END IF;
 
   SELECT count(*) INTO bad
@@ -1853,9 +2018,66 @@ BEGIN
   SELECT count(*) INTO bad
   FROM pen_reconciliation_cards
   WHERE tenant_id = '${tenant_id}'::uuid
-    AND status = 'open';
-  IF bad <> 2 THEN
-    RAISE EXCEPTION 'phone-qa seed: % open counts reconciliation cards, want 2', bad;
+    AND status IN ('open', 'completed', 'rework');
+  IF bad <> 4 THEN
+    RAISE EXCEPTION 'phone-qa seed: % counts reconciliation cards across open/completed/rework, want 4', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM pen_reconciliation_cards
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND status = 'rework'
+    AND rework_reason IS NOT NULL;
+  IF bad < 1 THEN
+    RAISE EXCEPTION 'phone-qa seed: missing counts reconciliation rework card';
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM feed_packing_completions
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND completed_by = '90000000-0000-4000-8000-000000000202'
+    AND target_date = current_date + 1
+    AND status IN ('pending_verification', 'rework');
+  IF bad < 2 THEN
+    RAISE EXCEPTION 'phone-qa seed: missing Pramod feed packing pending/rework states for tomorrow feed date';
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM feed_direction_issue_rows r
+  JOIN feed_direction_issues i ON i.feed_direction_issue_id = r.feed_direction_issue_id
+  WHERE r.tenant_id = '${tenant_id}'::uuid
+    AND i.feed_day = current_date + 1
+    AND r.park_id = '91000000-0000-4000-8000-000000000101'
+    AND r.workflow = 'normal';
+  IF bad < 2 THEN
+    RAISE EXCEPTION 'phone-qa seed: missing tomorrow CBE source feed rows for feed packing worklist';
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM feed_transport_tasks
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND operator_id = '90000000-0000-4000-8000-000000000202'
+    AND status IN ('due', 'rework');
+  IF bad < 2 THEN
+    RAISE EXCEPTION 'phone-qa seed: missing Pramod feed transport due/rework states';
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM feed_distribution_completions
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND completed_by = '90000000-0000-4000-8000-000000000202'
+    AND status IN ('pending_verification', 'rework');
+  IF bad < 2 THEN
+    RAISE EXCEPTION 'phone-qa seed: missing Pramod feed distribution pending/rework states';
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM feed_wastage_completions
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND completed_by = '90000000-0000-4000-8000-000000000202'
+    AND status IN ('pending_verification', 'rework', 'completed');
+  IF bad < 3 THEN
+    RAISE EXCEPTION 'phone-qa seed: missing Pramod feed wastage pending/rework/completed states';
   END IF;
 
   SELECT count(*) INTO bad
@@ -1863,10 +2085,21 @@ BEGIN
   WHERE tenant_id = '${tenant_id}'::uuid
     AND feed_direction_issue_id IN (
       '8d000000-0000-4000-8000-000000000001',
-      '8d000000-0000-4000-8000-000000000002'
+      '8d000000-0000-4000-8000-000000000002',
+      '8d000000-0000-4000-8000-000000000003'
     );
-  IF bad <> 4 THEN
-    RAISE EXCEPTION 'phone-qa seed: % feed direction rows, want 4', bad;
+  IF bad <> 7 THEN
+    RAISE EXCEPTION 'phone-qa seed: % feed direction rows, want 7', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM feed_direction_issue_rows
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND feed_direction_issue_id = '8d000000-0000-4000-8000-000000000003'
+    AND workflow = 'experiment'
+    AND partition_label IS NOT NULL;
+  IF bad <> 3 THEN
+    RAISE EXCEPTION 'phone-qa seed: % experiment feed wastage rows, want 3', bad;
   END IF;
 END
 \$check\$;
@@ -1874,13 +2107,13 @@ SQL
 
 cat <<EOF
 
-Widened phone-QA fixture: 8 weighing sheds, vaccination due roster is 2,3,2,3,2,3,2,3 animals.
+Widened phone-QA fixture: 8 weighing sheds, vaccination due roster is 2,6,2,3,2,3,2,3 animals.
 Yashoda 1 and Castro 1 have TWO due vaccines per animal: ET+TT and PPR.
 Each shed still has up to ${animals_per_shed} seeded RFID identities; only due obligations show in the scan roster.
 
   Shed        Park  Due animals  Vaccines       Weighing assignee
   Godel 1     CBE   2            ET+TT          Pramod
-  Yashoda 1   CBE   3            ET+TT, PPR     Pramod (LUMP-SUM)
+  Yashoda 1   CBE   6            ET+TT, PPR     Pramod (LUMP-SUM, over-five proof-cap test)
   Gandhi 1    CBE   2            ET+TT          Dinakar
   Gandhi 2    CBE   3            ET+TT          Dinakar
   Mandela 2   CPT   2            ET+TT          Amit

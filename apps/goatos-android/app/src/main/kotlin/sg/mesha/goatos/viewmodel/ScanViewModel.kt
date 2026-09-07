@@ -26,9 +26,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.TaskDetail
@@ -73,7 +75,9 @@ import sg.mesha.goatos.rfid.PassthroughScannedTagResolver
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.core.common.AppResult
+import java.net.URI
 import java.time.Instant
+import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
@@ -472,11 +476,17 @@ class ScanViewModel @Inject constructor(
             effectiveProofSyncingStartedAt,
         )
         val proofActionGoatIds = gate.proofActionNeeded.mapTo(mutableSetOf()) { it.goatId }
+        val latestProofByGoat = proofs.orEmpty()
+            .asSequence()
+            .filter { it.proofSubject == ProofSubject.GOAT && !it.subjectId.isNullOrBlank() }
+            .groupBy { it.subjectId.orEmpty() }
+            .mapValues { (_, rows) -> rows.maxByOrNull { it.capturedAtMs } }
         val serverFeed = gate.roster
             .asSequence()
             .filter { it.status == ScanStatus.DONE && !it.scannedAtLabel.isNullOrBlank() }
             .filterNot { it.goatId in proofActionGoatIds }
             .map {
+                val latestProof = latestProofByGoat[it.goatId]
                 ScanFeedEntry(
                     primaryTag = it.primaryTag,
                     secondaryTag = it.secondaryTag,
@@ -490,6 +500,14 @@ class ScanViewModel @Inject constructor(
                     evidenceSyncedCount = it.evidenceSyncedCount,
                     evidenceUploading = it.evidenceUploading,
                     evidenceFailed = it.evidenceFailed,
+                    proofPreviewPath = (
+                        it.proofPreviewPath
+                        ?: latestProof?.processedUri?.takeIf { path -> path.isNotBlank() }
+                        ?: latestProof?.localUri?.takeIf { path -> path.isNotBlank() }
+                    ),
+                    proofPreviewId = it.proofPreviewId ?: latestProof?.id,
+                    proofPreviewOutboxItemId = it.proofPreviewOutboxItemId ?: latestProof?.outboxItemId,
+                    proofPreviewServerId = it.proofPreviewServerId ?: latestProof?.serverProofId,
                     tone = if (
                         policy?.isPerGoatVideo == true &&
                         it.proofUploadStatus != ProofUploadStatus.SYNCED &&
@@ -675,7 +693,7 @@ class ScanViewModel @Inject constructor(
                 trackProofActionTapped(event.goatId, "replace")
                 armProofReplacement(event.goatId)
             }
-            is ScanEvent.ProofPreviewAction -> trackProofPreviewAction(event.goatId, event.action)
+            is ScanEvent.ProofPreviewAction -> handleProofPreviewAction(event.goatId, event.action)
             ScanEvent.OpenShedSwitcher,
             ScanEvent.DismissShedSwitcher,
             is ScanEvent.SwitchShed -> Unit
@@ -703,6 +721,7 @@ class ScanViewModel @Inject constructor(
         analytics.track(
             AnalyticsEvents.VACCINATION_AUTO_SUBMIT_QUEUED,
             vaccinationJourneyProps(state.value) +
+                vaccinationSubmitProofTraceProps() +
                 mapOf(
                     "task_id" to selectedTaskId,
                     AnalyticsEvents.Params.ACTION to "auto_submit",
@@ -731,6 +750,7 @@ class ScanViewModel @Inject constructor(
                     analytics.track(
                         AnalyticsEvents.VACCINATION_AUTO_SUBMIT_QUEUED,
                         vaccinationJourneyProps(state.value) +
+                            vaccinationSubmitProofTraceProps() +
                             mapOf(
                                 "task_id" to selectedTaskId,
                                 AnalyticsEvents.Params.ACTION to "auto_submit",
@@ -754,6 +774,7 @@ class ScanViewModel @Inject constructor(
                     analytics.track(
                         AnalyticsEvents.VACCINATION_AUTO_SUBMIT_FAILED,
                         vaccinationJourneyProps(state.value) +
+                            vaccinationSubmitProofTraceProps() +
                             mapOf(
                                 "task_id" to selectedTaskId,
                                 AnalyticsEvents.Params.ACTION to "auto_submit",
@@ -1205,6 +1226,10 @@ class ScanViewModel @Inject constructor(
                     evidenceSyncedCount = row.evidenceSyncedCount,
                     evidenceUploading = proofUploading || row.evidenceUploading,
                     evidenceFailed = if (proofUploading) false else row.evidenceFailed,
+                    proofPreviewPath = row.proofPreviewPath,
+                    proofPreviewId = row.proofPreviewId,
+                    proofPreviewOutboxItemId = row.proofPreviewOutboxItemId,
+                    proofPreviewServerId = row.proofPreviewServerId,
                     tone = if (proofUploading) ScanFeedTone.DUPLICATE else ScanFeedTone.ACCEPTED,
                 ),
                 it,
@@ -1470,7 +1495,8 @@ class ScanViewModel @Inject constructor(
         val latestSyncedProof = goatProofs
             .filter { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
             .maxByOrNull { it.capturedAtMs }
-        val hasSyncedProof = latestSyncedProof != null || serverProofReady
+        val hasServerSyncedProof = serverProofReady || !latestProofId.isNullOrBlank()
+        val hasSyncedProof = latestSyncedProof != null || hasServerSyncedProof
         // A completed proof is terminal for this goat: a stale optimistic "uploading" marker (its
         // clearing coroutine was cancelled by navigation/recreation) and older retry rows must never
         // outrank a clip that already reached the backend, or the row shows "Proof uploading" forever
@@ -1514,16 +1540,17 @@ class ScanViewModel @Inject constructor(
             obligationId = obligationId,
             proofRequired = requireGoatProof,
             proofClipCount = if (hasSyncedProof || latestUploadingProof != null) 1 else 0,
-            proofUploadStatus = if (serverProofReady) ProofUploadStatus.SYNCED else proofStatus(goatProofs, effectiveOptimisticUploadingAtMs),
+            proofUploadStatus = if (hasServerSyncedProof) ProofUploadStatus.SYNCED else proofStatus(goatProofs, effectiveOptimisticUploadingAtMs),
             evidenceCount = if (hasSyncedProof || goatProofs.isNotEmpty()) 1 else 0,
             evidenceSyncedCount = if (hasSyncedProof) 1 else 0,
             evidenceUploading = uploadingProofs,
             evidenceFailed = failedProofs,
             proofPreviewPath = latestPreviewProof?.processedUri?.takeIf { it.isNotBlank() }
-                ?: latestPreviewProof?.localUri?.takeIf { it.isNotBlank() },
-            proofPreviewId = latestPreviewProof?.id,
+                ?: latestPreviewProof?.localUri?.takeIf { it.isNotBlank() }
+                ?: latestProofDownloadUrl?.takeIf(::isUsableSignedProofUrl)?.let(::absoluteProofUrl),
+            proofPreviewId = latestPreviewProof?.id ?: latestProofId,
             proofPreviewOutboxItemId = latestPreviewProof?.outboxItemId,
-            proofPreviewServerId = latestPreviewProof?.serverProofId,
+            proofPreviewServerId = latestPreviewProof?.serverProofId ?: latestProofId,
         )
     }
 
@@ -2093,19 +2120,29 @@ class ScanViewModel @Inject constructor(
         )
     }
 
-    private fun trackProofPreviewAction(goatId: String, action: String) {
+    private fun handleProofPreviewAction(goatId: String, action: String) {
+        val previewAction = ProofPreviewActionTrace.from(action)
+        trackProofPreviewAction(goatId, previewAction)
+        if (previewAction.action == "playback_failed") {
+            refresh()
+        }
+    }
+
+    private fun trackProofPreviewAction(goatId: String, previewAction: ProofPreviewActionTrace) {
         val row = (state.value.roster + state.value.proofActionNeeded)
             .firstOrNull { it.goatId == goatId }
         analytics.track(
             AnalyticsEvents.VACCINATION_PROOF_PREVIEW_ACTION,
             vaccinationActionProps(row, row?.primaryTag.orEmpty()) +
                 mapOf(
-                    AnalyticsEvents.Params.ACTION to action,
+                    AnalyticsEvents.Params.ACTION to previewAction.action,
                     AnalyticsEvents.Params.GOAT_ID to goatId,
                     AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
                     AnalyticsEvents.Params.SOURCE to "proof_preview",
-                    AnalyticsEvents.Params.OUTCOME to "preview_action",
-                ) +
+                    AnalyticsEvents.Params.OUTCOME to previewAction.outcome,
+                ) + buildMap {
+                    previewAction.reason?.let { put(AnalyticsEvents.Params.REASON, it) }
+                } +
                 vaccinationProofTraceProps(row),
         )
     }
@@ -2118,6 +2155,7 @@ class ScanViewModel @Inject constructor(
         reason: String? = null,
     ): Map<String, String> =
         vaccinationJourneyProps(state.value) +
+            vaccinationSubmitProofTraceProps() +
             buildMap {
                 put("task_id", selectedTaskId)
                 put(AnalyticsEvents.Params.CAMPAIGN_ID, selectedTaskId)
@@ -2133,6 +2171,33 @@ class ScanViewModel @Inject constructor(
                     put(AnalyticsEvents.Params.REASON, it.take(MAX_ANALYTICS_REASON_CHARS))
                 }
             }
+
+    private fun vaccinationSubmitProofTraceProps(): Map<String, String> {
+        val rows = (state.value.roster + state.value.proofActionNeeded)
+            .distinctBy { it.goatId }
+            .filter { !it.proofPreviewId.isNullOrBlank() }
+        return buildMap {
+            rows.firstNotNullOfOrNull { it.proofPreviewId?.takeIf(String::isNotBlank) }?.let {
+                put(PARAM_LOCAL_PROOF_ROW_ID, it)
+                put(AnalyticsEvents.Params.PROOF_ID, it)
+            }
+            rows.firstNotNullOfOrNull { it.proofPreviewOutboxItemId?.takeIf(String::isNotBlank) }?.let {
+                put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it)
+            }
+            rows.firstNotNullOfOrNull { it.proofPreviewServerId?.takeIf(String::isNotBlank) }?.let {
+                put(PARAM_SERVER_PROOF_ID, it)
+            }
+            rows.mapNotNull { it.proofPreviewId?.takeIf(String::isNotBlank) }.takeIf { it.isNotEmpty() }?.let {
+                put("local_proof_row_ids", it.joinToString(","))
+            }
+            rows.mapNotNull { it.proofPreviewOutboxItemId?.takeIf(String::isNotBlank) }.takeIf { it.isNotEmpty() }?.let {
+                put("proof_outbox_item_ids", it.joinToString(","))
+            }
+            rows.mapNotNull { it.proofPreviewServerId?.takeIf(String::isNotBlank) }.takeIf { it.isNotEmpty() }?.let {
+                put("server_proof_ids", it.joinToString(","))
+            }
+        }
+    }
 
     private fun vaccinationProofTraceProps(row: RosterRow?): Map<String, String> =
         buildMap {
@@ -2242,6 +2307,49 @@ private fun vaccinationLocationLabel(screenTitle: String, detail: TaskDetail?): 
 private fun sg.mesha.goatos.core.network.dto.TaskSummaryDto.contextString(key: String): String? =
     (context[key] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
 
+private fun absoluteProofUrl(url: String): String {
+    val trimmed = url.trim()
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed
+    if (!trimmed.startsWith("/")) return trimmed
+    return BuildConfig.API_BASE_URL.trimEnd('/') + trimmed
+}
+
+private fun isUsableSignedProofUrl(url: String): Boolean {
+    val trimmed = url.trim()
+    if (trimmed.isBlank()) return false
+    val expires = signedProofUrlExpiresAtEpochSeconds(trimmed)
+    // Server proof identity is durable via latestProofId; the signed URL is only a preview hint.
+    // Drop it before expiry so a warm Room cache never feeds stale credentials to the player.
+    return expires == null || expires - SIGNED_PROOF_URL_EXPIRY_SKEW_SECONDS > Instant.now().epochSecond
+}
+
+// exception:exempt malformed signed URL falls back to a non-expiring preview hint
+private fun signedProofUrlExpiresAtEpochSeconds(url: String): Long? = runCatching {
+    val query = URI(url).rawQuery ?: return@runCatching null
+    val params = query.split('&')
+        .mapNotNull { part ->
+            val pieces = part.split('=', limit = 2)
+            val key = pieces.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            key to pieces.getOrNull(1).orEmpty()
+        }
+        .toMap()
+    params["expires"]?.toLongOrNull()?.let { return@runCatching it }
+    val gcsDate = params["X-Goog-Date"] ?: params["x-goog-date"]
+    val gcsExpires = params["X-Goog-Expires"]?.toLongOrNull()
+        ?: params["x-goog-expires"]?.toLongOrNull()
+    if (gcsDate != null && gcsExpires != null) {
+        gcsSignedUrlStartSeconds(gcsDate)?.plus(gcsExpires)
+    } else {
+        null
+    }
+}.getOrNull()
+
+private fun gcsSignedUrlStartSeconds(raw: String): Long? =
+    // exception:exempt invalid GCS timestamp only disables expiry extraction
+    runCatching {
+        OffsetDateTime.parse(raw, DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssX")).toEpochSecond()
+    }.getOrNull()
+
 private const val VACCINE_LABEL_SEPARATOR = " · "
 private const val SCAN_PAGE_SIZE = 20
 private const val MAX_SCAN_FEED_ENTRIES = 100
@@ -2250,6 +2358,7 @@ private const val MIN_VISIBLE_PROOF_SYNCING_MS = 1_500L
 /** Backend-compiled execution grant for vaccination; see workforce bootstrap feature flags. */
 private const val VACCINATION_EXECUTE_FLAG = "vaccination_execute"
 private const val GOAT_PROOF_FIELD_KEY = "vaccination_goat_proof"
+private const val SIGNED_PROOF_URL_EXPIRY_SKEW_SECONDS = 60L
 /** Operator-facing copy for [ScanViewModel.requestGoatProof]'s busy guard — plain farm language,
  *  never internal terms like "in-flight" or "capture session". */
 private const val PROOF_CAPTURE_BUSY_MESSAGE = "Finish the current animal's video first."

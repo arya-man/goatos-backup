@@ -22,6 +22,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.boot.RecordingAnalytics
 import sg.mesha.goatos.capture.FakeProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CaptureDraft
@@ -32,6 +33,7 @@ import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteEvent
@@ -271,6 +273,73 @@ class FeedPackingCompleteSubmitGuardTest {
         assertEquals(listOf(submitOutboxId), sync.retryItemIds)
         assertEquals(1, sync.triggerDrainCalls)
     }
+
+    @Test
+    fun `proof upload terminal state emits analytics with proof and outbox ids`() = runTest(dispatcher) {
+        val sync = CountingFeedPackingCompleteSyncRepository()
+        val proofs = FakeProofCaptureRepository()
+        val drafts = InMemoryCaptureDraftRepository()
+        val analytics = RecordingAnalytics()
+        val proofRowId = "proof-local-1"
+        val proofOutboxId = "proof-outbox-1"
+        val groupKey = "feed-pack:2026-08-13:shed-1:a:1:feed"
+        proofs.seedProofs(
+            ProofCaptureRow(
+                id = proofRowId,
+                fieldKey = "feed_packing_video",
+                proofSubject = sg.mesha.goatos.core.data.capture.ProofSubject.SHED,
+                subjectId = "shed-1",
+                localUri = "/proof/packing.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                rfidTag = null,
+                capturedAtMs = 1L,
+                capturedStartMs = 1L,
+                capturedEndMs = 2L,
+                capturedByPrincipalId = null,
+                syncStatus = CaptureSyncStatus.PENDING,
+                serverProofId = null,
+                outboxItemId = proofOutboxId,
+                lastError = null,
+                partitionKey = "whole",
+            ),
+        )
+        drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, "video", proofOutboxId)
+
+        FeedPackingCompleteViewModel(
+            syncRepository = sync,
+            proofCaptureSource = FakeProofCaptureSource(),
+            proofCaptureRepository = proofs,
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            drafts = drafts,
+            feedRepository = FakeFeedRepository(),
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    "shed_id" to "shed-1",
+                    "session_no" to "1",
+                    "workflow" to "feed",
+                    "target_date" to "2026-08-13",
+                    "shed_label" to "Shed 1",
+                    "session_label" to "Session 1",
+                    "park_label" to "Farm 1",
+                    "partition_label" to "A",
+                    "lifecycle_status" to "open",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        sync.markProofTerminal(proofOutboxId, SyncItemStatus.SUCCEEDED)
+        advanceUntilIdle()
+
+        val event = analytics.events.last { it.name == AnalyticsEvents.FEED_PACKING_PROOF_UPLOAD_SYNCED }
+        assertEquals("proof_upload_sync", event.props[AnalyticsEvents.Params.ACTION])
+        assertEquals("success", event.props[AnalyticsEvents.Params.OUTCOME])
+        assertEquals(proofRowId, event.props["local_proof_row_id"])
+        assertEquals(proofOutboxId, event.props[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+    }
 }
 
 /** Counts [SyncRepository.enqueueFeedPackingComplete] calls; everything else is unused/no-op. */
@@ -291,18 +360,22 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
     private var pendingGate: CompletableDeferred<Unit>? = null
 
     fun markProofReady(proofId: String) {
+        markProofTerminal(proofId, SyncItemStatus.QUEUED)
+    }
+
+    fun markProofTerminal(proofId: String, itemStatus: SyncItemStatus, error: String? = null) {
         items.getOrPut(proofId) { MutableStateFlow(null) }.value = SyncQueueItem(
             id = proofId,
             opType = "test",
             idempotencyKey = "test-key",
             groupKey = "test-group",
-            status = sg.mesha.goatos.core.data.sync.SyncItemStatus.QUEUED,
+            status = itemStatus,
             attemptCount = 0,
             maxAttempts = 3,
             conflict = false,
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis(),
-            lastError = null,
+            lastError = error,
         )
     }
 

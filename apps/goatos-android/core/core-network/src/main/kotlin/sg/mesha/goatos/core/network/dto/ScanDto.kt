@@ -12,6 +12,8 @@ data class ScanRosterRowDto(
     @SerialName("status") val status: String = "",
     @SerialName("scannedAt") val scannedAt: String? = null,
     @SerialName("obligationId") val obligationId: String = "",
+    @SerialName("latestProofId") val latestProofId: String? = null,
+    @SerialName("latestProofDownloadUrl") val latestProofDownloadUrl: String? = null,
     /** `obligation_instances.row_version` for this row's obligation — bumps on every
      *  transition, including a verifier rejection reopening it for re-capture. The
      *  scan-capture idempotency-key discriminator (see

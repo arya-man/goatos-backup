@@ -54,6 +54,14 @@ class SessionViewModelAuthTest {
     }
 
     @Test
+    fun `dev auth gate can use baked bearer while datastore warms`() {
+        assertEquals("baked-token", effectiveSessionTokenForMode(AuthMode.DEV_BEARER, null, "baked-token"))
+        assertEquals("persisted-token", effectiveSessionTokenForMode(AuthMode.DEV_BEARER, "persisted-token", "baked-token"))
+        assertNull(effectiveSessionTokenForMode(AuthMode.DEV_BEARER, null, ""))
+        assertNull(effectiveSessionTokenForMode(AuthMode.FIREBASE, null, "baked-token"))
+    }
+
+    @Test
     fun `stg flavor routes to Firebase`() {
         assertEquals(AuthMode.FIREBASE, authModeForFlavor("stg"))
     }

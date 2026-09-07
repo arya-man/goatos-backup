@@ -96,6 +96,39 @@ class FailureReportingOutboxTelemetryReporterTest {
             ),
             logs,
         )
+        assertEquals(
+            listOf(
+                AnalyticsEvents.SYNC_WRITE_ENQUEUED,
+                AnalyticsEvents.SYNC_WRITE_ATTEMPT_STARTED,
+                AnalyticsEvents.SYNC_WRITE_ATTEMPT_FAILED,
+                AnalyticsEvents.SYNC_WRITE_RETRY_SCHEDULED,
+            ),
+            analytics.events.map { it.first },
+        )
+    }
+
+    @Test
+    fun `outbox lifecycle analytics carries durable row and dependency ids`() {
+        reporter().onOutboxWrite(
+            event(
+                OutboxWritePhase.SUCCEEDED,
+                attempt = 3,
+                groupKey = "weighing:shed:godel-1",
+                idempotencyKey = "weighing-submit:task-1",
+                referencedProofOutboxItemId = "proof-outbox-1",
+            ),
+        )
+
+        val (name, props) = analytics.events.single()
+        assertEquals(AnalyticsEvents.SYNC_WRITE_SUCCEEDED, name)
+        assertEquals("WEIGHING_ANIMAL_OBSERVATION", props[AnalyticsEvents.Params.OP_TYPE])
+        assertEquals("row-1", props[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+        assertEquals("weighing:shed:godel-1", props[AnalyticsEvents.Params.GROUP_KEY])
+        assertEquals("weighing-submit:task-1", props[AnalyticsEvents.Params.IDEMPOTENCY_KEY])
+        assertEquals("proof-outbox-1", props[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("3", props[AnalyticsEvents.Params.ATTEMPT])
+        assertEquals("5", props[AnalyticsEvents.Params.MAX_ATTEMPTS])
+        assertTrue("a successful write is not a non-fatal", crash.exceptions.isEmpty())
     }
 
     @Test
@@ -104,9 +137,6 @@ class FailureReportingOutboxTelemetryReporterTest {
 
         val (name, props) = analytics.events.single()
         assertEquals(AnalyticsEvents.SYNC_WRITE_ATTEMPT_FAILED, name)
-        assertEquals("WEIGHING_ANIMAL_OBSERVATION", props[AnalyticsEvents.Params.OP_TYPE])
-        assertEquals("3", props[AnalyticsEvents.Params.ATTEMPT])
-        assertEquals("5", props[AnalyticsEvents.Params.MAX_ATTEMPTS])
         assertEquals("IOException", props[AnalyticsEvents.Params.REASON])
         assertTrue("a retryable attempt is not a non-fatal", crash.exceptions.isEmpty())
     }

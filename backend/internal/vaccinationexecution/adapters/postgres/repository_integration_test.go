@@ -180,9 +180,12 @@ func TestVaccinationExecutionGoatProofArtifactsOneToManyPageBoundaryExecutionDat
 		t.Fatalf("card summary SQL regressed to protocol-name chips instead of vaccine labels")
 	}
 	scanRosterFragments := map[string]string{
-		"roster goat proof lateral": "FROM proof_artifacts proof",
-		"roster goat proof done":    "WHEN sc.capture_id IS NOT NULL OR goat_proof.proofed_at IS NOT NULL THEN 'done'",
-		"roster proof timestamp":    "COALESCE(sc.captured_at, goat_proof.proofed_at, vcm.administered_at)",
+		// Projection lenses for the changed scan-roster proof lateral: OneToMany, PageBoundary, ExecutionDate, ParkScope, StatusMatrix.
+		"roster goat proof lateral":          "FROM proof_artifacts proof",
+		"roster goat proof done":             "WHEN sc.capture_id IS NOT NULL OR goat_proof.proofed_at IS NOT NULL THEN 'done'",
+		"roster proof timestamp":             "COALESCE(sc.captured_at, goat_proof.proofed_at, vcm.administered_at)",
+		"rejected rows hide latest proof id": "CASE WHEN vc.completion_status = 'rejected' THEN NULL ELSE goat_proof.proof_id::text END AS latest_proof_id",
+		"rejected rows hide proof url":       "WHEN vc.completion_status = 'rejected' OR goat_proof.proof_id IS NULL THEN NULL",
 	}
 	for name, fragment := range scanRosterFragments {
 		if !strings.Contains(scanRosterSQL, fragment) {

@@ -564,6 +564,8 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     seq = seq,
     updatedAt = now,
     obligationRowVersion = obligationRowVersion,
+    latestProofId = latestProofId?.takeIf { it.isNotBlank() },
+    latestProofDownloadUrl = latestProofDownloadUrl?.takeIf { it.isNotBlank() },
 )
 
 private fun ScanRosterRowEntity.isServerDone(): Boolean {

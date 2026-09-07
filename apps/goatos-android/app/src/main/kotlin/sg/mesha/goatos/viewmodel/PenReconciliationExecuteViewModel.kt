@@ -21,6 +21,7 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
@@ -85,7 +86,8 @@ class PenReconciliationExecuteViewModel @Inject constructor(
      */
     private var draft = CaptureDraft()
     private var returnProofTrace = CountsProofTrace()
-    private val submitTerminalEventsTracked = mutableSetOf<String>()
+    private val submitTerminalEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded to one counts card submit outbox id
+    private val proofTerminalEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded to one counts card proof outbox id
 
     private val _state = MutableStateFlow(PenReconciliationExecuteUiState(cardId = cardId))
     val state: StateFlow<PenReconciliationExecuteUiState> = _state.asStateFlow()
@@ -112,12 +114,14 @@ class PenReconciliationExecuteViewModel @Inject constructor(
     }
 
     private fun trackPreviewAction(action: String) {
+        val previewAction = ProofPreviewActionTrace.from(action)
         analytics.track(
             AnalyticsEvents.COUNTS_PEN_RECONCILIATION_PROOF_PREVIEW_ACTION,
             countsJourneyProps(
-                action = action,
-                outcome = "preview_action",
+                action = previewAction.action,
+                outcome = previewAction.outcome,
                 source = SOURCE_PROOF_PREVIEW,
+                reason = previewAction.reason,
             ),
         )
     }
@@ -424,6 +428,29 @@ class PenReconciliationExecuteViewModel @Inject constructor(
                         SyncItemStatus.SUCCEEDED -> VIDEO_SYNCED
                         else -> VIDEO_QUEUED
                     }
+                    if (item.status == SyncItemStatus.SUCCEEDED && proofTerminalEventsTracked.add(item.id)) {
+                        analytics.track(
+                            AnalyticsEvents.COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED,
+                            countsJourneyProps(
+                                action = ACTION_PROOF_UPLOAD_SYNC,
+                                outcome = "success",
+                                source = SOURCE_OUTBOX_OBSERVER,
+                                proofTrace = returnProofTrace.copy(proofOutboxItemId = item.id),
+                            ),
+                        )
+                    } else if (item.isTerminalFailure && proofTerminalEventsTracked.add(item.id)) {
+                        analytics.track(
+                            AnalyticsEvents.COUNTS_PEN_RECONCILIATION_VIDEO_CAPTURED,
+                            countsJourneyProps(
+                                action = ACTION_PROOF_UPLOAD_SYNC,
+                                outcome = "failure",
+                                source = SOURCE_OUTBOX_OBSERVER,
+                                reason = item.lastError?.takeIf { it.isNotBlank() }
+                                    ?: if (item.conflict) "conflict" else "attempts_exhausted",
+                                proofTrace = returnProofTrace.copy(proofOutboxItemId = item.id),
+                            ),
+                        )
+                    }
                     _state.update { current ->
                         if (current.result.isCommitted) {
                             current
@@ -516,6 +543,7 @@ class PenReconciliationExecuteViewModel @Inject constructor(
         const val ACTION_RETRY = "retry"
         const val ACTION_SUBMIT_ENQUEUE = "submit_enqueue"
         const val ACTION_SUBMIT_SYNC = "submit_sync"
+        const val ACTION_PROOF_UPLOAD_SYNC = "proof_upload_sync"
         const val PARAM_TASK_ID = "task_id"
         const val PARAM_LOCAL_PROOF_ROW_ID = "local_proof_row_id"
         const val PARAM_SERVER_PROOF_ID = "server_proof_id"

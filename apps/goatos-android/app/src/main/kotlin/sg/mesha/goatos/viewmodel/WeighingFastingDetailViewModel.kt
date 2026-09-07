@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -122,13 +123,16 @@ class WeighingFastingDetailViewModel @Inject constructor(
     }
 
     private fun trackPreviewAction(kind: WeighingFastingSlotKind, action: String) {
+        val previewAction = ProofPreviewActionTrace.from(action)
         val slot = _state.value.slotOf(kind)
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION,
             weighingFastingAnalyticsProps(
                 kind,
-                action = action,
+                action = previewAction.action,
                 source = "proof_preview",
+                outcome = previewAction.outcome,
+                reason = previewAction.reason,
                 proofRowId = slot.localProofRowId,
                 serverProofId = slot.serverProofId,
             ),

@@ -265,10 +265,13 @@ log "building :app:assembleDevDebug ..."
 apk="$android_dir/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
 [ -f "$apk" ] || die "APK not found at $apk"
 
-log "installing on $dev ..."
-adb -s "$dev" install -r "$apk" >/dev/null
 device_user="$(adb -s "$dev" shell am get-current-user 2>/dev/null | tr -d '\r' | head -1)"
 [[ "$device_user" =~ ^[0-9]+$ ]] || die "could not resolve the foreground Android user on $dev"
+install_user="${GOATOS_ANDROID_INSTALL_USER:-$device_user}"
+[[ "$install_user" =~ ^[0-9]+$ ]] || die "invalid GOATOS_ANDROID_INSTALL_USER '$install_user'"
+[ "$install_user" = "$device_user" ] || die "refusing to install for Android user $install_user while foreground user is $device_user on $dev"
+log "installing on $dev for Android user $install_user ..."
+adb -s "$dev" install --user "$install_user" -r "$apk" >/dev/null
 [ "$do_clear" = "1" ] && {
   adb -s "$dev" shell pm clear --user "$device_user" sg.mesha.goatos.dev >/dev/null 2>&1 || true
   log "cleared app data for foreground Android user $device_user (fresh token will be used)"

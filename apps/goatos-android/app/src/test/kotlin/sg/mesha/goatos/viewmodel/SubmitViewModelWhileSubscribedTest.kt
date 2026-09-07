@@ -261,6 +261,25 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
         awaitUploadEnqueue: Boolean,
         uploadGroupKey: String?,
     ): AppResult<ProofCaptureRow> = error("unused")
+
+    override suspend fun captureReplacingProof(
+        slot: sg.mesha.goatos.core.data.capture.EvidenceSlot,
+        replacingProofId: String,
+        subject: ProofSubject,
+        subjectId: String?,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String?,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
+    ): AppResult<ProofCaptureRow> = error("unused")
 }
 
 private class WhileSubNoopSyncRepository : SyncRepository {

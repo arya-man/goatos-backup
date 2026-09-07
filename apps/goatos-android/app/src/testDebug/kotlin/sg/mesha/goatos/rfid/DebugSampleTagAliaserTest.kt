@@ -152,6 +152,42 @@ class DebugSampleTagAliaserTest {
     }
 
     @Test
+    fun `sample card can be reused for sixth animal after cached animal is no longer open`() = runTest {
+        val repo = FakeExecutionRepository(
+            activeOpen = listOf(
+                row("goat-1", "TAG-001"),
+                row("goat-2", "TAG-002"),
+                row("goat-3", "TAG-003"),
+                row("goat-4", "TAG-004"),
+                row("goat-5", "TAG-005"),
+                row("goat-6", "TAG-006"),
+            ),
+            siblingOpen = emptyList(),
+            otherShedOpen = emptyList(),
+        )
+        val resolver = DebugSampleTagAliaser(repo)
+
+        val first = resolver.resolve(
+            rawTag = "TEMP-CPT-CASTRO1-001",
+            normalizedTag = DebugSampleTagAliaser.SAMPLE_NORMALIZED_TAGS[0],
+            shedId = activeShedId,
+            taskId = activeTaskId,
+            partitionLabel = activePartitionLabel,
+        )
+        repo.activeOpen = listOf(row("goat-6", "TAG-006"))
+        val afterFirstFiveDone = resolver.resolve(
+            rawTag = "TEMP-CPT-CASTRO1-001",
+            normalizedTag = DebugSampleTagAliaser.SAMPLE_NORMALIZED_TAGS[0],
+            shedId = activeShedId,
+            taskId = activeTaskId,
+            partitionLabel = activePartitionLabel,
+        )
+
+        assertEquals("tag001", first)
+        assertEquals("tag006", afterFirstFiveDone)
+    }
+
+    @Test
     fun `a non-sample tag passes through untouched`() = runTest {
         val resolver = aliaser(activeOpen = listOf(row("goat-a", "TAG-A")))
 
@@ -185,7 +221,7 @@ class DebugSampleTagAliaserTest {
 /** Minimal [ExecutionRepository] fake exercising only the debug-fixture surface; everything else
  *  is `error("unused")` so an accidental call from DebugSampleTagAliaser is loud, not silent. */
 private class FakeExecutionRepository(
-    private val activeOpen: List<ScanRosterRowEntity>,
+    var activeOpen: List<ScanRosterRowEntity>,
     private val siblingOpen: List<ScanRosterRowEntity>,
     private val otherShedOpen: List<ScanRosterRowEntity>,
 ) : ExecutionRepository {

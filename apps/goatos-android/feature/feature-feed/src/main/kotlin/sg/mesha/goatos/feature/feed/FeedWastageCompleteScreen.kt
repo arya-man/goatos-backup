@@ -82,6 +82,7 @@ sealed interface FeedWastageCompleteEvent {
     data object MarkDone : FeedWastageCompleteEvent
     data object SyncNow : FeedWastageCompleteEvent
     data object Back : FeedWastageCompleteEvent
+    data class PreviewAction(val action: String) : FeedWastageCompleteEvent
 }
 
 @Composable
@@ -154,6 +155,7 @@ fun FeedWastageCompleteScreen(
                         }
                     },
                     showAction = !state.alreadySubmitted,
+                    onPreviewAction = { onEvent(FeedWastageCompleteEvent.PreviewAction(it)) },
                 )
             }
         }

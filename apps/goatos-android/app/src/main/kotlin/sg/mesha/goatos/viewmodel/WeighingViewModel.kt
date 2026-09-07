@@ -30,13 +30,17 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofPreRecordBriefing
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
@@ -2400,15 +2404,17 @@ class WeighingViewModel @Inject constructor(
 
     fun trackShedVideoPreviewAction(proofId: String, action: String) {
         if (category != PER_SHED_PARTITION_CATEGORY) return
+        val previewAction = ProofPreviewActionTrace.from(action)
         val proof = proofById(proofId)
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_PREVIEW_ACTION,
             shedVideoActionProps(
-                action = action,
+                action = previewAction.action,
                 proofId = proofId,
                 proof = proof,
                 source = "shed_video_preview",
-                outcome = "action",
+                outcome = previewAction.outcome,
+                reason = previewAction.reason,
                 kind = "video",
             ),
         )
@@ -2529,8 +2535,43 @@ class WeighingViewModel @Inject constructor(
                         ?.takeIf { it.isNotBlank() }
                         ?.also { currentPrincipalId = it }
                     ?: return@launch
-                when (
-                    val proof = proofCaptureRepository.capture(
+                val proofPolicy = ProofPolicy.Default.copy(
+                    proofMode = "shed_level_video",
+                    featureSurface = "weighing",
+                    featureCategory = PER_SHED_PARTITION_CATEGORY,
+                    subjectScope = "shed",
+                    expectedSubjects = listOf("shed"),
+                    minimumCount = 1,
+                    maximumCount = MAX_SHED_GROUP_VIDEOS,
+                    maximumCountPerSubject = MAX_SHED_GROUP_VIDEOS,
+                )
+                val proof = if (replacingProofId != null) {
+                    proofCaptureRepository.captureReplacingProof(
+                        slot = EvidenceSlot(
+                            identity = ProofIdentity(
+                                flow = ProofFlow.WEIGHING_SHED,
+                                taskId = key,
+                                shedId = expectedLocationId,
+                                subjectKey = expectedLocationId,
+                            ),
+                            fieldKey = SHED_PARTITION_PROOF_FIELD_KEY,
+                        ),
+                        replacingProofId = replacingProofId,
+                        subject = ProofSubject.SHED,
+                        subjectId = expectedLocationId,
+                        localUri = captured.localUri,
+                        mimeType = captured.mimeType,
+                        caption = weighingLumpSumProofCaption(slotNumber),
+                        rfidTag = null,
+                        scopeType = "shed",
+                        scopeId = expectedLocationId,
+                        capturedStartMs = captured.startedAtMs,
+                        capturedEndMs = captured.endedAtMs,
+                        capturedByPrincipalId = principalId,
+                        proofPolicy = proofPolicy,
+                    )
+                } else {
+                    proofCaptureRepository.capture(
                         taskId = key,
                         fieldKey = SHED_PARTITION_PROOF_FIELD_KEY,
                         subject = ProofSubject.SHED,
@@ -2544,42 +2585,12 @@ class WeighingViewModel @Inject constructor(
                         capturedStartMs = captured.startedAtMs,
                         capturedEndMs = captured.endedAtMs,
                         capturedByPrincipalId = principalId,
-                        proofPolicy = ProofPolicy.Default.copy(
-                            proofMode = "shed_level_video",
-                            featureSurface = "weighing",
-                            featureCategory = PER_SHED_PARTITION_CATEGORY,
-                            subjectScope = "shed",
-                            expectedSubjects = listOf("shed"),
-                            minimumCount = 1,
-                            maximumCount = MAX_SHED_GROUP_VIDEOS,
-                            maximumCountPerSubject = MAX_SHED_GROUP_VIDEOS,
-                        ),
+                        proofPolicy = proofPolicy,
                     )
-                ) {
+                }
+                when (proof) {
                     is AppResult.Ok -> {
                         sessionProofIds.value = sessionProofIds.value + proof.value.id
-                        if (replacingProofId != null) {
-                            when (val removed = proofCaptureRepository.remove(key, replacingProofId)) {
-                                is AppResult.Ok -> Unit
-                                is AppResult.Err -> {
-                                    message.value = removed.message
-                                    analytics.track(
-                                        AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_FAILED,
-                                        shedVideoActionProps(
-                                            action = shedVideoAction,
-                                            proofId = proof.value.id,
-                                            proof = proof.value,
-                                            replacedProofId = replacingProofId,
-                                            replacedProof = proofById(replacingProofId),
-                                            source = "replace_remove_old",
-                                            outcome = "failure",
-                                            reason = removed.message,
-                                        ),
-                                    )
-                                    return@launch
-                                }
-                            }
-                        }
                         message.value = if (replacingProofId == null) {
                             "Group video saved locally."
                         } else {

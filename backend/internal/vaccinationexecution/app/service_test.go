@@ -25,6 +25,18 @@ type fakeRepo struct {
 	err         error
 }
 
+type fakeProofURLResolver struct {
+	urls map[string]string
+	err  error
+}
+
+func (r fakeProofURLResolver) ResolveProofDownloadURL(_ context.Context, _, proofID string) (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	return r.urls[proofID], nil
+}
+
 func (r fakeRepo) VaccinationCommandBoard(_ context.Context, _ domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
 	return domain.CommandBoardResponse{}, nil
 }
@@ -132,6 +144,34 @@ func (r fakeRepo) ScanRoster(_ context.Context, _ domain.ScanRosterQuery) (domai
 
 func (r fakeRepo) TaskOptionValues(_ context.Context, _, _ string) (domain.TaskOptionValuesResponse, error) {
 	return domain.TaskOptionValuesResponse{}, r.err
+}
+
+func TestScanRosterResolvesLatestProofDownloadURL(t *testing.T) {
+	t.Parallel()
+
+	proofID := "10000000-0000-4000-8000-000000000001"
+	placeholder := "/app/proofs/" + proofID + "/download"
+	signedURL := "http://127.0.0.1:8080/app/proofs/" + proofID + "/download/signed?tenant_id=tenant&expires=1&sig=ok"
+	svc := NewService(fakeRepo{roster: []domain.ScanRosterRow{{
+		GoatID:                 "goat-1",
+		PrimaryTag:             "901007000504418",
+		VaccineLabel:           "ET+TT",
+		Status:                 "completed",
+		ObligationID:           "obligation-1",
+		LatestProofID:          &proofID,
+		LatestProofDownloadURL: &placeholder,
+	}}}).WithProofURLResolver(fakeProofURLResolver{urls: map[string]string{proofID: signedURL}})
+
+	got, err := svc.ScanRoster(context.Background(), domain.ScanRosterQuery{TenantID: "tenant", ShedID: "shed-1"})
+	if err != nil {
+		t.Fatalf("ScanRoster() error = %v", err)
+	}
+	if len(got.Rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(got.Rows))
+	}
+	if got.Rows[0].LatestProofDownloadURL == nil || *got.Rows[0].LatestProofDownloadURL != signedURL {
+		t.Fatalf("LatestProofDownloadURL = %v, want signed stream URL", got.Rows[0].LatestProofDownloadURL)
+	}
 }
 
 func (r fakeRepo) VaccinationOperations(_ context.Context, _ domain.OperationsQuery) ([]domain.OperationsRow, error) {

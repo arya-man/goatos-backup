@@ -323,6 +323,18 @@ class SyncEngine(
             val resultJson = dispatch(claimedItem)
             val preSuccessRefreshApplied = reconcileFeatureBeforeSuccess(claimedItem)
             if (store.markSucceeded(claimedItem.id, resultJson, clock())) {
+                report(
+                    OutboxTelemetryEvent(
+                        phase = OutboxWritePhase.SUCCEEDED,
+                        opType = claimedItem.opType,
+                        itemId = claimedItem.id,
+                        groupKey = claimedItem.groupKey,
+                        idempotencyKey = claimedItem.idempotencyKey,
+                        referencedProofOutboxItemId = claimedItem.referencedProofOutboxItemId(),
+                        attempt = claimedItem.attemptCount + 1,
+                        maxAttempts = claimedItem.maxAttempts,
+                    ),
+                )
                 // Reconcile with the response from this successful dispatch. The original
                 // in-memory item predates markSucceeded and therefore has resultJson=null.
                 reconcileFeatureSuccess(
@@ -467,9 +479,6 @@ class SyncEngine(
     private fun report(event: OutboxTelemetryEvent) {
         runCatching { telemetry.onOutboxWrite(event) }
     }
-
-    private fun OutboxEntity.referencedProofOutboxItemId(): String =
-        PROOF_OUTBOX_ITEM_ID_REGEX.find(payloadJson)?.groupValues?.getOrNull(1).orEmpty()
 
     /** Logs a post-success local-cache reconcile failure (e.g. the Room mirror write in
      *  [reconcileFeatureSuccess] threw) without ever rethrowing: the golden rule is "never
@@ -1906,8 +1915,6 @@ class SyncEngine(
         const val DRAIN_BATCH_SIZE = 200
         const val NO_RETRY_DUE = Long.MAX_VALUE
         const val PROOF_DEPENDENCY_WAIT_RETRY_MS = 1_000L
-        val PROOF_OUTBOX_ITEM_ID_REGEX = Regex(""""proof_outbox_item_id"\s*:\s*"([^"]+)"""")
-
         // The phone keeps the recent assessments a manager might re-open, not a history. The
         // server owns the record; without a cap this table only ever grows.
         // A RETENTION cap for deleteOldestBeyond, not a page fetch: nothing reads 50 rows;

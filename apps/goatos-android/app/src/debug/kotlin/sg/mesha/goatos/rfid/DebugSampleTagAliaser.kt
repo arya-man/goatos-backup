@@ -20,9 +20,10 @@ import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
  *  - Cards 4-5 -> first 2 open animals of a NEIGHBORING partition of the same shed (exercises the
  *    neighbor-yellow flow); falls back to a different shed's open animals (cross-shed reject case)
  *    if no sibling partition with open animals is locally cached.
- *  - Stable within a scan session: once card N resolves to animal X for a given taskId, repeated
- *    scans of card N return X again (keeps double-scan detection testable). Cached per taskId, for
- *    the process lifetime of this singleton.
+ *  - Stable while that animal is still open: once card N resolves to animal X for a given taskId,
+ *    repeated scans of card N return X again (keeps double-scan detection testable). After X is no
+ *    longer open, the card can resolve to the next open row, letting 5 physical cards walk a
+ *    6+ animal phone-QA shed without inventing fake RFID cards.
  *  - No roster/task context (e.g. free-flow weighing, which has no roster) -> passthrough, raw tag
  *    unchanged.
  *
@@ -49,7 +50,10 @@ class DebugSampleTagAliaser @Inject constructor(
         if (taskId == null) return normalizedTag // no roster context (e.g. free-flow weighing): passthrough
 
         val taskCache = sessionCache.getOrPut(taskId) { ConcurrentHashMap() }
-        taskCache[cardIndex]?.let { return it }
+        taskCache[cardIndex]?.let { cached ->
+            if (cachedStillOpen(cached, shedId, taskId, partitionLabel)) return cached
+            taskCache.remove(cardIndex, cached)
+        }
 
         val resolved = resolveForCard(cardIndex, shedId, taskId, partitionLabel) ?: normalizedTag
         // Only cache a real remap; if resolution failed (no open animals found) let a later scan
@@ -71,6 +75,16 @@ class DebugSampleTagAliaser @Inject constructor(
                 ?: repo.otherShedOpenRows(shedId, taskId).dedupedOpenOrder().getOrNull(neighborIndex)
             chosen?.normalizedPrimaryTag
         }
+
+    private suspend fun cachedStillOpen(
+        cached: String,
+        shedId: String,
+        taskId: String,
+        partitionLabel: String?,
+    ): Boolean =
+        repo.openScanRosterRows(shedId, taskId, partitionLabel).any { it.normalizedPrimaryTag == cached } ||
+            repo.siblingPartitionOpenRows(shedId, taskId, partitionLabel).any { it.normalizedPrimaryTag == cached } ||
+            repo.otherShedOpenRows(shedId, taskId).any { it.normalizedPrimaryTag == cached }
 
     /** One row per goat (a goat may have several vaccine-obligation rows), deterministic order. */
     private fun List<ScanRosterRowEntity>.dedupedOpenOrder(): List<ScanRosterRowEntity> =

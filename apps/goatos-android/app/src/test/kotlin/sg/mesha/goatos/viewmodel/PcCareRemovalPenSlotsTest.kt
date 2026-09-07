@@ -149,7 +149,8 @@ class PcCareRemovalPenSlotsTest {
 
         val event = analytics.events.last()
         assertEquals(AnalyticsEvents.PC_CARE_FEED_WATER_PROOF_PREVIEW, event.first)
-        assertEquals("fullscreen_open", event.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("fullscreen_open", event.second[AnalyticsEvents.Params.ACTION])
+        assertEquals("preview_action", event.second[AnalyticsEvents.Params.OUTCOME])
         assertEquals("proof-pen-feed", event.second["local_proof_row_id"])
         assertEquals("proof-outbox-feed", event.second[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
         assertEquals("server-proof-feed", event.second["server_proof_id"])

@@ -46,7 +46,10 @@ class ProofMediaPreviewContractTest {
         assertTrue(source.contains("Video unavailable"))
         assertTrue(source.contains("Photo unavailable"))
         assertTrue(source.contains("override fun onIsPlayingChanged(isPlaying: Boolean)"))
-        assertTrue(source.contains("onPreviewAction(ProofMediaPreviewActions.PLAYBACK_FAILED)"))
+        assertTrue(source.contains("onPreviewAction(proofPlaybackFailureAction(error))"))
+        assertTrue(source.contains("\"${'$'}{ProofMediaPreviewActions.PLAYBACK_FAILED}:failure:${'$'}{playbackFailureReason(error)}\""))
+        assertTrue(source.contains("PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS"))
+        assertTrue(source.contains("\"player_error\""))
         assertFalse(
             "Shared proof preview must use the instrumented proof player factory, not a direct Media3 player.",
             source.contains("ExoPlayer.Builder(context).build()"),

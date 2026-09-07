@@ -40,17 +40,18 @@ class SyncEngineTelemetryTest {
         id: String = "row-1",
         maxAttempts: Int = 3,
         attemptCount: Int = 0,
-    ) = OutboxEntity(
-        id = id,
-        opType = OutboxOpType.SHED_SUBMIT.name,
-        groupKey = "shed-1",
-        idempotencyKey = "key-$id",
-        payloadJson = syncJson.encodeToString(
+        payloadJson: String = syncJson.encodeToString(
             ShedSubmitPayload(
                 taskId = "task-1",
                 request = SubmitTaskRequestDto(sopVersionId = "sop-1", idempotencyKey = "key-$id"),
             ),
         ),
+    ) = OutboxEntity(
+        id = id,
+        opType = OutboxOpType.SHED_SUBMIT.name,
+        groupKey = "shed-1",
+        idempotencyKey = "key-$id",
+        payloadJson = payloadJson,
         requestFingerprint = "",
         status = OutboxStatus.QUEUED.name,
         attemptCount = attemptCount,
@@ -67,18 +68,47 @@ class SyncEngineTelemetryTest {
         SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }, telemetry = telemetry)
 
     @Test
-    fun `a successful drain announces the attempt it started`() = runBlocking {
+    fun `a successful drain announces attempt and backend success`() = runBlocking {
         val store = FakeOutboxStore()
         store.insert(queuedShedSubmit())
         val telemetry = RecordingTelemetry()
 
         engine(store, ScriptedAppApi(), telemetry).drainOnce()
 
-        assertEquals(listOf(OutboxWritePhase.ATTEMPT_STARTED), telemetry.phases())
+        assertEquals(listOf(OutboxWritePhase.ATTEMPT_STARTED, OutboxWritePhase.SUCCEEDED), telemetry.phases())
         val started = telemetry.first(OutboxWritePhase.ATTEMPT_STARTED)
         assertEquals(OutboxOpType.SHED_SUBMIT.name, started.opType)
         assertEquals(1, started.attempt)
         assertEquals(3, started.maxAttempts)
+        val succeeded = telemetry.first(OutboxWritePhase.SUCCEEDED)
+        assertEquals("row-1", succeeded.itemId)
+        assertEquals("shed-1", succeeded.groupKey)
+        assertEquals("key-row-1", succeeded.idempotencyKey)
+        assertEquals(1, succeeded.attempt)
+    }
+
+    @Test
+    fun `attempt telemetry extracts proof upload dependency ids from all payload key shapes`() = runBlocking {
+        val cases = mapOf(
+            """{"proof_outbox_item_id":"generic-id"}""" to "generic-id",
+            """{"feed_proof_outbox_item_id":"feed-id"}""" to "feed-id",
+            """{"strip_photo_outbox_item_id":"photo-id"}""" to "photo-id",
+            """{"cleanBottlesProofOutboxItemId":"camel-id"}""" to "camel-id",
+            """{"proof_outbox_item_ids":{"boil":"map-id","cool":"map2"}}""" to "map-id",
+        )
+
+        cases.forEach { (payload, expectedProofOutboxId) ->
+            val store = FakeOutboxStore()
+            store.insert(queuedShedSubmit(id = expectedProofOutboxId, payloadJson = payload))
+            val telemetry = RecordingTelemetry()
+
+            engine(store, ScriptedAppApi(), telemetry).drainOnce()
+
+            assertEquals(
+                expectedProofOutboxId,
+                telemetry.first(OutboxWritePhase.ATTEMPT_STARTED).referencedProofOutboxItemId,
+            )
+        }
     }
 
     @Test
@@ -229,7 +259,37 @@ class SyncEngineTelemetryTest {
 
         val enqueued = telemetry.first(OutboxWritePhase.ENQUEUED)
         assertEquals(OutboxOpType.SHED_SUBMIT.name, enqueued.opType)
+        assertEquals("shed-1", enqueued.groupKey)
+        assertEquals("key-1", enqueued.idempotencyKey)
         assertEquals(0, enqueued.attempt)
+    }
+
+    @Test
+    fun `enqueue telemetry extracts proof dependency from latest payload`() = runBlocking {
+        val store = FakeOutboxStore()
+        val telemetry = RecordingTelemetry()
+        val repository = DefaultSyncRepository(
+            store = store,
+            engine = SyncEngine(store, ScriptedAppApi(), connectivityGate = { false }, clock = { 0L }),
+            connectivityGate = { false },
+            appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined),
+            clock = { 0L },
+            telemetry = telemetry,
+        )
+
+        repository.enqueueWeighingFastingSubmit(
+            groupKey = "weighing:fasting:shed-1",
+            idempotencyKey = "weighing-fasting-submit:shed-1",
+            fastingTaskId = "fasting-1",
+            campaignShedId = "campaign-shed-1",
+            feedProofOutboxItemId = "feed-proof-outbox-1",
+            waterProofOutboxItemId = "water-proof-outbox-1",
+        )
+
+        val enqueued = telemetry.first(OutboxWritePhase.ENQUEUED)
+        assertEquals("weighing:fasting:shed-1", enqueued.groupKey)
+        assertEquals("weighing-fasting-submit:shed-1", enqueued.idempotencyKey)
+        assertEquals("feed-proof-outbox-1", enqueued.referencedProofOutboxItemId)
     }
 
     @Test

@@ -26,6 +26,7 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
@@ -43,8 +44,9 @@ import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofProcessingStatus
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
-import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
+import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.pcCareTaskGroupKey
 import sg.mesha.goatos.core.network.dto.PcCareAnimalSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareRemovalPenDto
@@ -157,6 +159,8 @@ class PcCareTaskViewModel @Inject constructor(
     private var latestRoster: List<String> = emptyList()
     private var rosterRefreshRequested = false
     private var submitObserveJob: Job? = null
+    private val animalSlotProofObserveJobs = mutableMapOf<String, Job>() // mobile-guard:ignore ViewModel-lifetime jobs bounded by proof rows on one PC Care task screen
+    private val animalSlotProofTerminalEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded by proof rows on one PC Care task screen
     private val pcCareTaskProofSlotKeys = setOf(
         PC_CARE_SLOT_STOCK_FRIDGE_PHOTO,
         PC_CARE_SLOT_STOCK_FRIDGE_VIDEO,
@@ -252,7 +256,12 @@ class PcCareTaskViewModel @Inject constructor(
                 hydrateAnimalProofPreviews(latestDetail, animals)
             }
         }
-        viewModelScope.launch { proofCaptureRepository.observeProofs(taskId).collect { latestProofs = it } }
+        viewModelScope.launch {
+            proofCaptureRepository.observeProofs(taskId).collect { proofs ->
+                latestProofs = proofs
+                observeAnimalSlotProofUploads(proofs)
+            }
+        }
         // Reader free-flow: every hardware read lands here while this screen's VM is alive. A scan
         // during an in-flight recording still records the ANIMAL — it must never retarget the
         // pending capture (that identity is fixed at Record-tap time, see [onRecordSlot]).
@@ -1166,6 +1175,58 @@ class PcCareTaskViewModel @Inject constructor(
         }
     }
 
+    private fun observeAnimalSlotProofUploads(proofs: List<ProofCaptureRow>) {
+        proofs
+            .filter { row ->
+                row.outboxItemId?.isNotBlank() == true &&
+                    row.fieldKey.contains(':') &&
+                    row.syncStatus != CaptureSyncStatus.FAILED
+            }
+            .forEach { row ->
+                val itemId = row.outboxItemId.orEmpty()
+                if (animalSlotProofObserveJobs.containsKey(itemId)) return@forEach
+                animalSlotProofObserveJobs[itemId] = viewModelScope.launch {
+                    syncRepository.observeItem(itemId).collect { item ->
+                        if (item != null) trackAnimalSlotProofUploadTerminal(row, item)
+                    }
+                }
+            }
+    }
+
+    private fun trackAnimalSlotProofUploadTerminal(row: ProofCaptureRow, item: SyncQueueItem) {
+        val outcome = when {
+            item.status == SyncItemStatus.SUCCEEDED -> "success"
+            item.isTerminalFailure -> "failure"
+            else -> return
+        }
+        if (!animalSlotProofTerminalEventsTracked.add(item.id)) return
+        val latestRow = latestProofs.firstOrNull { it.id == row.id } ?: row
+        val tag = latestRow.fieldKey.substringBefore(':')
+        val slot = latestRow.fieldKey.substringAfter(':')
+        val animal = latestAnimals.firstOrNull { it.normalizedTag == tag }
+        analytics.track(
+            AnalyticsEvents.PC_CARE_SLOT_UPLOAD_SYNCED,
+            pcCareAnimalSlotAnalyticsProps(
+                tagKey = tag,
+                tagVerbatim = animal?.tagVerbatim ?: latestRow.rfidTag ?: tag,
+                slotFieldKey = slot,
+                slotKey = latestRow.fieldKey,
+                outcome = outcome,
+                action = "proof_upload_sync",
+                reason = if (item.isTerminalFailure) {
+                    item.lastError?.takeIf { it.isNotBlank() } ?: if (item.conflict) "conflict" else "attempts_exhausted"
+                } else {
+                    null
+                },
+                source = "proof_upload_outbox",
+                mediaKind = pcCareMediaKindFromMime(latestRow.mimeType),
+                proofRowId = latestRow.id,
+                proofOutboxItemId = item.id,
+                serverProofId = latestRow.serverProofId,
+            ),
+        )
+    }
+
     private fun armSubmit() {
         val bits = local.value
         if (bits.submitInFlight || bits.submitQueued) return
@@ -1272,7 +1333,17 @@ class PcCareTaskViewModel @Inject constructor(
                         analytics.track(
                             AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED,
                             pcCareStockProofAnalyticsProps(status = detail.status, outcome = "success", source = "submit_dialog") +
+                                pcCareTaskProofTraceProps() +
                                 mapOf(AnalyticsEvents.Params.OUTBOX_ITEM_ID to result.value),
+                        )
+                    } else {
+                        analytics.track(
+                            AnalyticsEvents.PC_CARE_SLOT_SUBMIT,
+                            pcCareAnimalSlotSubmitTraceProps(
+                                outcome = "enqueued",
+                                source = "submit_dialog",
+                                outboxItemId = result.value,
+                            ),
                         )
                     }
                     local.update { it.copy(submitInFlight = false, submitQueued = true, submitOutboxItemId = result.value) }
@@ -1294,6 +1365,15 @@ class PcCareTaskViewModel @Inject constructor(
                                 outcome = "failure",
                                 reason = result.message,
                                 source = "submit_dialog",
+                            ) + pcCareTaskProofTraceProps(),
+                        )
+                    } else {
+                        analytics.track(
+                            AnalyticsEvents.PC_CARE_SLOT_SUBMIT,
+                            pcCareAnimalSlotSubmitTraceProps(
+                                outcome = "failure",
+                                reason = result.message,
+                                source = "submit_dialog",
                             ),
                         )
                     }
@@ -1310,14 +1390,25 @@ class PcCareTaskViewModel @Inject constructor(
                 when {
                     item == null -> Unit
                     item.status == SyncItemStatus.SUCCEEDED -> {
-                        analytics.track(
-                            AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT,
-                            pcCareStockProofAnalyticsProps(
-                                status = latestDetail?.status.orEmpty(),
-                                outcome = "sync_success",
-                                source = "outbox_observer",
-                            ) + mapOf(AnalyticsEvents.Params.OUTBOX_ITEM_ID to outboxItemId),
-                        )
+                        if (pcCareIsTaskProofMode(latestDetail)) {
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT,
+                                pcCareStockProofAnalyticsProps(
+                                    status = latestDetail?.status.orEmpty(),
+                                    outcome = "sync_success",
+                                    source = "outbox_observer",
+                                ) + pcCareTaskProofTraceProps() + mapOf(AnalyticsEvents.Params.OUTBOX_ITEM_ID to outboxItemId),
+                            )
+                        } else {
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_SLOT_SUBMIT,
+                                pcCareAnimalSlotSubmitTraceProps(
+                                    outcome = "sync_success",
+                                    source = "outbox_observer",
+                                    outboxItemId = outboxItemId,
+                                ),
+                            )
+                        }
                         local.update { current ->
                             if (current.submitOutboxItemId == outboxItemId) {
                                 current.copy(submitQueued = false, submitOutboxItemId = null)
@@ -1328,15 +1419,27 @@ class PcCareTaskViewModel @Inject constructor(
                         refresh()
                     }
                     item.isTerminalFailure -> {
-                        analytics.track(
-                            AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT,
-                            pcCareStockProofAnalyticsProps(
-                                status = latestDetail?.status.orEmpty(),
-                                outcome = "sync_terminal_failure",
-                                reason = item.lastError.orEmpty(),
-                                source = "outbox_observer",
-                            ) + mapOf(AnalyticsEvents.Params.OUTBOX_ITEM_ID to outboxItemId),
-                        )
+                        if (pcCareIsTaskProofMode(latestDetail)) {
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT,
+                                pcCareStockProofAnalyticsProps(
+                                    status = latestDetail?.status.orEmpty(),
+                                    outcome = "sync_terminal_failure",
+                                    reason = item.lastError.orEmpty(),
+                                    source = "outbox_observer",
+                                ) + pcCareTaskProofTraceProps() + mapOf(AnalyticsEvents.Params.OUTBOX_ITEM_ID to outboxItemId),
+                            )
+                        } else {
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_SLOT_SUBMIT,
+                                pcCareAnimalSlotSubmitTraceProps(
+                                    outcome = "sync_terminal_failure",
+                                    reason = item.lastError.orEmpty(),
+                                    source = "outbox_observer",
+                                    outboxItemId = outboxItemId,
+                                ),
+                            )
+                        }
                         local.update { current ->
                             if (current.submitOutboxItemId == outboxItemId) {
                                 current.copy(
@@ -1438,8 +1541,8 @@ class PcCareTaskViewModel @Inject constructor(
                     pcCareAnimalSlotAnalyticsProps(
                         tagKey = tag,
                         tagVerbatim = tag,
-                        slotFieldKey = row.fieldKey,
-                        slotKey = slot,
+                        slotFieldKey = slot,
+                        slotKey = row.fieldKey,
                         outcome = if (result is AppResult.Ok) "success" else "failure",
                         reason = (result as? AppResult.Err)?.message,
                         mediaKind = pcCareMediaKindFromMime(row.mimeType),
@@ -1499,6 +1602,7 @@ class PcCareTaskViewModel @Inject constructor(
         status: String = latestDetail?.status.orEmpty(),
         category: String = latestDetail?.category.orEmpty(),
         captureMode: String = latestDetail?.captureMode.orEmpty(),
+        action: String? = null,
         outcome: String? = null,
         reason: String? = null,
         source: String? = null,
@@ -1514,6 +1618,7 @@ class PcCareTaskViewModel @Inject constructor(
         category.takeIf { it.isNotBlank() }?.let { put("category", it) }
         captureMode.takeIf { it.isNotBlank() }?.let { put("capture_mode", it) }
         status.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.STATUS, it) }
+        action?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.ACTION, it) }
         outcome?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTCOME, it) }
         reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
         source?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.SOURCE, it) }
@@ -1530,7 +1635,9 @@ class PcCareTaskViewModel @Inject constructor(
         outcome: String,
         mediaKind: String = "video",
         legacyKind: String? = null,
+        action: String? = null,
         reason: String? = null,
+        source: String? = null,
         proofRowId: String? = null,
         proofOutboxItemId: String? = null,
         serverProofId: String? = null,
@@ -1547,13 +1654,84 @@ class PcCareTaskViewModel @Inject constructor(
         put("feature_surface", "pc_care_animal_slot")
         latestDetail?.category?.takeIf { it.isNotBlank() }?.let { put("category", it) }
         latestDetail?.captureMode?.takeIf { it.isNotBlank() }?.let { put("capture_mode", it) }
+        action?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.ACTION, it) }
         put(AnalyticsEvents.Params.OUTCOME, outcome)
         latestDetail?.status?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.STATUS, it) }
         reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
+        source?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.SOURCE, it) }
         proofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
         proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
         serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
         outboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, it) }
+    }
+
+    private fun pcCareTaskProofTraceProps(): Map<String, String> {
+        val ui = state.value
+        val slots = (ui.taskProofSlots + listOfNotNull(ui.taskProofSlot, ui.taskProofPhotoSlot, ui.taskProofVideoSlot))
+            .distinctBy { it.fieldKey }
+        return buildMap {
+            slots.firstNotNullOfOrNull { it.localProofRowId?.takeIf(String::isNotBlank) }?.let {
+                put("local_proof_row_id", it)
+                put(AnalyticsEvents.Params.PROOF_ID, it)
+            }
+            slots.firstNotNullOfOrNull { it.proofOutboxItemId?.takeIf(String::isNotBlank) }?.let {
+                put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it)
+            }
+            slots.firstNotNullOfOrNull { it.serverProofId?.takeIf(String::isNotBlank) }?.let {
+                put("server_proof_id", it)
+            }
+            slots.mapNotNull { it.localProofRowId?.takeIf(String::isNotBlank) }.takeIf { it.isNotEmpty() }?.let {
+                put("local_proof_row_ids", it.joinToString(","))
+            }
+            slots.mapNotNull { it.proofOutboxItemId?.takeIf(String::isNotBlank) }.takeIf { it.isNotEmpty() }?.let {
+                put("proof_outbox_item_ids", it.joinToString(","))
+            }
+            slots.mapNotNull { it.serverProofId?.takeIf(String::isNotBlank) }.takeIf { it.isNotEmpty() }?.let {
+                put("server_proof_ids", it.joinToString(","))
+            }
+        }
+    }
+
+    private fun pcCareAnimalSlotSubmitTraceProps(
+        outcome: String,
+        source: String,
+        reason: String? = null,
+        outboxItemId: String? = null,
+    ): Map<String, String> = buildMap {
+        val animalProofs = latestProofs.filter { it.fieldKey.contains(':') && it.syncStatus != CaptureSyncStatus.FAILED }
+        put("task_id", taskId)
+        put("feature_surface", "pc_care_animal_slot")
+        latestDetail?.category?.takeIf { it.isNotBlank() }?.let { put("category", it) }
+        latestDetail?.captureMode?.takeIf { it.isNotBlank() }?.let { put("capture_mode", it) }
+        latestDetail?.status?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.STATUS, it) }
+        put(AnalyticsEvents.Params.ACTION, "submit")
+        put(AnalyticsEvents.Params.OUTCOME, outcome)
+        put(AnalyticsEvents.Params.SOURCE, source)
+        reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
+        outboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, it) }
+        latestAnimals.mapNotNull { it.normalizedTag.takeIf(String::isNotBlank) }.takeIf { it.isNotEmpty() }?.let {
+            put("normalized_rfids", it.joinToString(","))
+        }
+        latestAnimals.mapNotNull { it.tagVerbatim.takeIf(String::isNotBlank) }.takeIf { it.isNotEmpty() }?.let {
+            put(AnalyticsEvents.Params.RFID, it.first())
+            put("rfids", it.joinToString(","))
+        }
+        animalProofs.map { it.fieldKey }.takeIf { it.isNotEmpty() }?.let { put("field_keys", it.joinToString(",")) }
+        animalProofs.map { it.fieldKey.substringAfter(':') }.distinct().takeIf { it.isNotEmpty() }?.let {
+            put(AnalyticsEvents.Params.FIELD, it.joinToString(","))
+        }
+        animalProofs.map { it.id }.takeIf { it.isNotEmpty() }?.let {
+            put("local_proof_row_id", it.first())
+            put("local_proof_row_ids", it.joinToString(","))
+        }
+        animalProofs.mapNotNull { it.outboxItemId?.takeIf(String::isNotBlank) }.takeIf { it.isNotEmpty() }?.let {
+            put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it.first())
+            put("proof_outbox_item_ids", it.joinToString(","))
+        }
+        animalProofs.mapNotNull { it.serverProofId?.takeIf(String::isNotBlank) }.takeIf { it.isNotEmpty() }?.let {
+            put("server_proof_id", it.first())
+            put("server_proof_ids", it.joinToString(","))
+        }
     }
 
     private fun pcCareMediaKindFromMime(mimeType: String): String =
@@ -1796,6 +1974,7 @@ class PcCareTaskViewModel @Inject constructor(
         action: String,
         tagKey: String?,
     ) {
+        val previewAction = ProofPreviewActionTrace.from(action)
         val animal = tagKey?.let { key -> latestAnimals.firstOrNull { it.normalizedTag == key } }
         if (animal != null) {
             val previewSlot = state.value.animals
@@ -1809,8 +1988,10 @@ class PcCareTaskViewModel @Inject constructor(
                     tagVerbatim = animal.tagVerbatim,
                     slotFieldKey = slotFieldKey,
                     slotKey = pcCareSlotProofFieldKey(animal.normalizedTag, slotFieldKey),
-                    outcome = action,
+                    outcome = previewAction.outcome,
                     mediaKind = mediaKind,
+                    action = previewAction.action,
+                    reason = previewAction.reason,
                     proofRowId = previewSlot?.localProofRowId,
                     proofOutboxItemId = previewSlot?.proofOutboxItemId,
                     serverProofId = previewSlot?.serverProofId,
@@ -1834,7 +2015,9 @@ class PcCareTaskViewModel @Inject constructor(
                 status = detail?.status.orEmpty(),
                 category = detail?.category.orEmpty(),
                 captureMode = detail?.captureMode.orEmpty(),
-                outcome = action,
+                action = previewAction.action,
+                outcome = previewAction.outcome,
+                reason = previewAction.reason,
                 source = "proof_preview",
                 proofRowId = previewSlot?.localProofRowId,
                 proofOutboxItemId = previewSlot?.proofOutboxItemId,

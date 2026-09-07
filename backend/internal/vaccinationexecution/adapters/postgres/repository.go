@@ -2579,6 +2579,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 		var row domain.ScanRosterRow
 		var secondaryTag pgtype.Text
 		var scannedAt pgtype.Timestamptz
+		var latestProofID, latestProofDownloadURL pgtype.Text
 		var protocolName, doseCode string
 		if err := rows.Scan(
 			&row.GoatID,
@@ -2590,10 +2591,14 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 			&scannedAt,
 			&row.ObligationID,
 			&row.ObligationRowVersion,
+			&latestProofID,
+			&latestProofDownloadURL,
 		); err != nil {
 			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster scan: %w", err)
 		}
 		row.SecondaryTag = textPtr(secondaryTag)
+		row.LatestProofID = textPtr(latestProofID)
+		row.LatestProofDownloadURL = textPtr(latestProofDownloadURL)
 		if scannedAt.Valid {
 			value := scannedAt.Time.UTC().Format(time.RFC3339Nano)
 			row.ScannedAt = &value
@@ -2692,7 +2697,12 @@ SELECT
   -- "Proof synced" tick and the client's own done/pending split puts it back in pending.
   CASE WHEN vc.completion_status = 'rejected' THEN NULL ELSE COALESCE(sc.captured_at, goat_proof.proofed_at, vcm.administered_at) END AS scanned_at,
   oi.obligation_id::text,
-  oi.row_version
+  oi.row_version,
+  CASE WHEN vc.completion_status = 'rejected' THEN NULL ELSE goat_proof.proof_id::text END AS latest_proof_id,
+  CASE
+    WHEN vc.completion_status = 'rejected' OR goat_proof.proof_id IS NULL THEN NULL
+    ELSE '/app/proofs/' || goat_proof.proof_id::text || '/download'
+  END AS latest_proof_download_url
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
   ON ob.tenant_id = oi.tenant_id
@@ -2769,7 +2779,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) sc ON $3 <> ''
 LEFT JOIN LATERAL (
-  SELECT proof.created_at AS proofed_at
+  SELECT proof.proof_id, proof.created_at AS proofed_at
   FROM proof_artifacts proof
   WHERE proof.tenant_id = oi.tenant_id
     AND proof.scope_type = 'task'
@@ -2779,6 +2789,15 @@ LEFT JOIN LATERAL (
 	    AND proof.upload_state = 'completed'
 	    AND proof.proof_type = 'video'
 	    AND proof.created_at >= COALESCE(sc.captured_at, '-infinity'::timestamptz)
+	    AND EXISTS (
+	      SELECT 1
+	      FROM vaccination_completions vcx
+	      WHERE vcx.tenant_id = oi.tenant_id
+	        AND vcx.obligation_id = oi.obligation_id
+	        AND vcx.goat_id = g.goat_id
+	        AND vcx.status IN ('recorded', 'accepted')
+	        AND proof.created_at <= vcx.updated_at + interval '5 minutes'
+	    )
 	  ORDER BY proof.created_at DESC, proof.proof_id DESC
 	  LIMIT 1
 	) goat_proof ON st.task_id IS NOT NULL

@@ -150,13 +150,80 @@ class PcCareSubmitGateTest {
 
         val event = analytics.events.last()
         assertEquals(AnalyticsEvents.PC_CARE_SLOT_PROOF_PREVIEW, event.first)
-        assertEquals("share", event.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("share", event.second[AnalyticsEvents.Params.ACTION])
+        assertEquals("preview_action", event.second[AnalyticsEvents.Params.OUTCOME])
         assertEquals("proof-$fieldKey", event.second["local_proof_row_id"])
         assertEquals("outbox-$fieldKey", event.second[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
         assertEquals("server-proof-t1-video", event.second["server_proof_id"])
         assertEquals("deworming", event.second["category"])
         assertEquals("per_animal", event.second["capture_mode"])
         assertEquals("t1", event.second["normalized_rfid"])
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `animal slot proof upload terminal analytics include proof and outbox ids`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val analytics = FakeAnalyticsPort()
+        val sync = MinimalPcCareSyncRepository()
+        val fieldKey = pcCareSlotProofFieldKey("t1", "video")
+        repo.detailFlow.value = singleSlotDetail.copy(captureMode = "per_animal")
+        repo.animalsFlow.value = listOf(pcCareAnimalEntity(tag = "t1", scannedByName = "Amit Kumar"))
+        proofRepo.seedProofs(localProof(fieldKey = fieldKey, syncStatus = CaptureSyncStatus.PENDING))
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, analytics = analytics, syncRepository = sync)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        proofRepo.markSynced("proof-$fieldKey", serverProofId = "server-proof-t1-video")
+        runCurrent()
+        sync.emit(itemId = "outbox-$fieldKey", status = SyncItemStatus.SUCCEEDED)
+        runCurrent()
+
+        val event = analytics.events.last { it.first == AnalyticsEvents.PC_CARE_SLOT_UPLOAD_SYNCED }
+        assertEquals("proof_upload_sync", event.second[AnalyticsEvents.Params.ACTION])
+        assertEquals("success", event.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("proof_upload_outbox", event.second[AnalyticsEvents.Params.SOURCE])
+        assertEquals("proof-$fieldKey", event.second["local_proof_row_id"])
+        assertEquals("outbox-$fieldKey", event.second[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("server-proof-t1-video", event.second["server_proof_id"])
+        assertEquals("video", event.second[AnalyticsEvents.Params.FIELD])
+        assertEquals(fieldKey, event.second["field_key"])
+        assertEquals("t1", event.second["normalized_rfid"])
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `animal slot submit analytics include proof row outbox and terminal status`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val analytics = FakeAnalyticsPort()
+        val sync = MinimalPcCareSyncRepository()
+        val fieldKey = pcCareSlotProofFieldKey("t1", "video")
+        repo.detailFlow.value = singleSlotDetail.copy(rowVersion = 7, captureMode = "per_animal")
+        repo.animalsFlow.value = listOf(pcCareAnimalEntity(tag = "t1"))
+        proofRepo.seedProofs(localProof(fieldKey = fieldKey, syncStatus = CaptureSyncStatus.PENDING))
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, analytics = analytics, syncRepository = sync)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        vm.onEvent(PcCareTaskEvent.Submit)
+        runCurrent()
+        vm.onEvent(PcCareTaskEvent.ConfirmSubmit)
+        runCurrent()
+        sync.emit(itemId = "submit-outbox-1", status = SyncItemStatus.SUCCEEDED)
+        runCurrent()
+
+        val enqueued = analytics.events.first { it.first == AnalyticsEvents.PC_CARE_SLOT_SUBMIT }
+        assertEquals("enqueued", enqueued.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("submit-outbox-1", enqueued.second[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+        assertEquals("proof-$fieldKey", enqueued.second["local_proof_row_id"])
+        assertEquals("outbox-$fieldKey", enqueued.second[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals(fieldKey, enqueued.second["field_keys"])
+        val synced = analytics.events.last { it.first == AnalyticsEvents.PC_CARE_SLOT_SUBMIT }
+        assertEquals("sync_success", synced.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("submit-outbox-1", synced.second[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+        assertEquals("proof-$fieldKey", synced.second["local_proof_row_id"])
         collectJob.cancel()
     }
 

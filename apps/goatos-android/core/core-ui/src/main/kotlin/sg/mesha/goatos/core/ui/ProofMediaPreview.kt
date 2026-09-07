@@ -84,40 +84,67 @@ private sealed interface ProofPreviewLoad {
     data object Failed : ProofPreviewLoad
 }
 
-private fun android.content.Context.startProofShare(path: String, kind: ProofMediaPreviewKind) {
-    val mimeType = when (kind) {
-        ProofMediaPreviewKind.Photo -> "image/*"
-        ProofMediaPreviewKind.Video -> "video/mp4"
-    }
-    val parsed = Uri.parse(path)
-    val shareUri = when (parsed.scheme) {
-        "content" -> parsed
-        "file" -> parsed.path?.let { filePath ->
-            FileProvider.getUriForFile(this, "$packageName.fileprovider", File(filePath))
-        }
-        null, "" -> FileProvider.getUriForFile(this, "$packageName.fileprovider", File(path))
-        else -> null
-    }
-    val shareIntent = if (shareUri != null) {
-        Intent(Intent.ACTION_SEND).apply {
-            type = mimeType
-            putExtra(Intent.EXTRA_STREAM, shareUri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-    } else {
-        Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, path)
-        }
-    }
+private fun android.content.Context.startProofShare(path: String, kind: ProofMediaPreviewKind): String? {
     try {
+        val mimeType = when (kind) {
+            ProofMediaPreviewKind.Photo -> "image/*"
+            ProofMediaPreviewKind.Video -> "video/mp4"
+        }
+        val parsed = Uri.parse(path)
+        val shareUri = when (parsed.scheme) {
+            "content" -> parsed
+            "file" -> parsed.path?.let { filePath ->
+                FileProvider.getUriForFile(this, "$packageName.fileprovider", File(filePath))
+            }
+            null, "" -> FileProvider.getUriForFile(this, "$packageName.fileprovider", File(path))
+            else -> null
+        }
+        val shareIntent = if (shareUri != null) {
+            Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, shareUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        } else {
+            Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, path)
+            }
+        }
         startActivity(Intent.createChooser(shareIntent, null))
+        return null
     } catch (_: ActivityNotFoundException) {
         // exception:exempt no installed share target; preview playback remains available
+        return "no_share_target"
     } catch (_: IllegalArgumentException) {
         // exception:exempt FileProvider rejected this path; preview playback remains available
+        return "fileprovider_rejected"
     }
 }
+
+private fun proofShareAction(failureReason: String?): String =
+    if (failureReason == null) {
+        "${ProofMediaPreviewActions.SHARE}:success"
+    } else {
+        "${ProofMediaPreviewActions.SHARE}:failure:$failureReason"
+    }
+
+private fun proofPlaybackFailureAction(error: PlaybackException): String =
+    "${ProofMediaPreviewActions.PLAYBACK_FAILED}:failure:${playbackFailureReason(error)}"
+
+private fun playbackFailureReason(error: PlaybackException): String =
+    when (error.errorCode) {
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+        -> "network"
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+        -> "unavailable"
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+        PlaybackException.ERROR_CODE_DECODING_FAILED,
+        -> "decode"
+        else -> "player_error"
+    }
 
 @Composable
 private fun ProofPreviewActionButton(
@@ -170,8 +197,7 @@ private fun ProofPreviewActions(
             icon = MeshaIcons.Share,
             contentDescription = "Share proof",
             onClick = {
-                onAction(ProofMediaPreviewActions.SHARE)
-                context.startProofShare(path, kind)
+                onAction(proofShareAction(context.startProofShare(path, kind)))
             },
         )
     }
@@ -358,7 +384,7 @@ private fun ProofVideoPreview(
                 isPlaying = false
                 armed = false
                 firstFrameRendered = false
-                onPreviewAction(ProofMediaPreviewActions.PLAYBACK_FAILED)
+                onPreviewAction(proofPlaybackFailureAction(error))
                 onPlaybackFailure()
             }
         }
@@ -673,8 +699,7 @@ private fun ProofMediaFullscreenDialog(
             ) {
                 IconButton(
                     onClick = {
-                        onPreviewAction(ProofMediaPreviewActions.SHARE)
-                        context.startProofShare(path, kind)
+                        onPreviewAction(proofShareAction(context.startProofShare(path, kind)))
                     },
                     modifier = Modifier.size(40.dp),
                 ) {
@@ -764,7 +789,7 @@ private fun ProofMediaFullscreenDialog(
                                 }
 
                                 override fun onPlayerError(error: PlaybackException) {
-                                    onPreviewAction(ProofMediaPreviewActions.PLAYBACK_FAILED)
+                                    onPreviewAction(proofPlaybackFailureAction(error))
                                     onDismiss()
                                 }
                             }

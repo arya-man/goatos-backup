@@ -50,6 +50,9 @@ enum class OutboxWritePhase {
     /** This attempt did not go through. Retryable unless followed by [TERMINAL]. */
     ATTEMPT_FAILED,
 
+    /** The backend accepted the write and local reconciliation can now apply the returned result. */
+    SUCCEEDED,
+
     /** Another attempt is booked; [OutboxTelemetryEvent.retryInMs] says how far out. */
     RETRY_SCHEDULED,
 

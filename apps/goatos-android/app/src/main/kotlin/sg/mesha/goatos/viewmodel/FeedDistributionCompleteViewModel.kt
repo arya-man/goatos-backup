@@ -27,6 +27,7 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
@@ -260,6 +261,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
 
     private fun trackPreviewAction(fieldKey: String, action: String) {
         val slot = ProofSlot.fromFieldKey(fieldKey) ?: return
+        val previewAction = ProofPreviewActionTrace.from(action)
         val proofRowId = when (slot) {
             ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofRowId.value
             ProofSlot.FEED_VIDEO -> videoProofRowId.value
@@ -279,9 +281,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             AnalyticsEvents.FEED_DISTRIBUTION_PROOF_PREVIEW_ACTION,
             distributionEventProps(
                 slot = slot,
-                action = action,
+                action = previewAction.action,
                 extra = buildMap {
                     put(AnalyticsEvents.Params.FIELD, fieldKey)
+                    put(AnalyticsEvents.Params.OUTCOME, previewAction.outcome)
+                    previewAction.reason?.let { put(AnalyticsEvents.Params.REASON, it) }
                     proofRowId?.takeIf { it.isNotBlank() }?.let {
                         put(PARAM_PROOF_ID, it)
                         put("local_proof_row_id", it)
@@ -306,7 +310,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 isCapturingFeedWeightPhoto = true,
                 feedWeightPhotoMessage = null,
                 feedWeightPhotoStatus = FeedDistributionProofStatus.QUEUED,
-                feedWeightPhotoPreviewPath = if (replacing) null else it.feedWeightPhotoPreviewPath,
             )
         }
         viewModelScope.launch {
@@ -380,7 +383,13 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                         distributionEventProps(
                             ProofSlot.FEED_WEIGHT_PHOTO,
                             ACTION_CAPTURED,
-                            mapOf(PARAM_PROOF_ID to result.value.id, PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                            mapOf(
+                                PARAM_PROOF_ID to result.value.id,
+                                "local_proof_row_id" to result.value.id,
+                                PARAM_OUTBOX_ITEM_ID to proofOutboxId,
+                                AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID to proofOutboxId,
+                                AnalyticsEvents.Params.OUTCOME to "success",
+                            ),
                         ),
                     )
                     _state.update {
@@ -428,7 +437,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 isCapturingVideo = true,
                 videoMessage = null,
                 videoStatus = FeedDistributionProofStatus.QUEUED,
-                videoPreviewPath = if (replacing) null else it.videoPreviewPath,
             )
         }
         viewModelScope.launch {
@@ -497,7 +505,13 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                         distributionEventProps(
                             ProofSlot.FEED_VIDEO,
                             ACTION_CAPTURED,
-                            mapOf(PARAM_PROOF_ID to result.value.id, PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                            mapOf(
+                                PARAM_PROOF_ID to result.value.id,
+                                "local_proof_row_id" to result.value.id,
+                                PARAM_OUTBOX_ITEM_ID to proofOutboxId,
+                                AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID to proofOutboxId,
+                                AnalyticsEvents.Params.OUTCOME to "success",
+                            ),
                         ),
                     )
                     _state.update {
@@ -544,7 +558,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 isCapturingWaterVideo = true,
                 waterVideoMessage = null,
                 waterVideoStatus = FeedDistributionProofStatus.QUEUED,
-                waterVideoPreviewPath = if (replacing) null else it.waterVideoPreviewPath,
             )
         }
         viewModelScope.launch {
@@ -613,7 +626,13 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                         distributionEventProps(
                             ProofSlot.WATER_VIDEO,
                             ACTION_CAPTURED,
-                            mapOf(PARAM_PROOF_ID to result.value.id, PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                            mapOf(
+                                PARAM_PROOF_ID to result.value.id,
+                                "local_proof_row_id" to result.value.id,
+                                PARAM_OUTBOX_ITEM_ID to proofOutboxId,
+                                AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID to proofOutboxId,
+                                AnalyticsEvents.Params.OUTCOME to "success",
+                            ),
                         ),
                     )
                     _state.update {
@@ -849,6 +868,17 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 .collect { item ->
                     _state.update {
                         val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
+                        if (item.status == SyncItemStatus.SUCCEEDED) {
+                            analytics.track(
+                                AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED,
+                                distributionEventProps(action = "sync_success", extra = submitTerminalProps(item, "success")),
+                            )
+                        } else if (item.conflict || item.isDeadLetter) {
+                            analytics.track(
+                                AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
+                                distributionEventProps(action = "sync_failure", extra = submitTerminalProps(item, "failure")),
+                            )
+                        }
                         it.copy(
                             result = FeedDistributionResultUi(writeResult.status.toDistributionStatus(), writeResult.message.orEmpty()),
                             canComplete = !writeResult.isCommitted && it.feedWeightPhotoCaptured && it.videoCaptured && it.waterVideoCaptured,
@@ -1355,6 +1385,35 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             put("local_proof_row_id", it)
         }
         serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
+    }
+
+    private fun submitTerminalProps(item: SyncQueueItem, outcome: String): Map<String, String> = buildMap {
+        put(AnalyticsEvents.Params.OUTCOME, outcome)
+        put(PARAM_OUTBOX_ITEM_ID, item.id)
+        put("submit_outbox_id", item.id)
+        put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, item.id)
+        item.lastError?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(96)) }
+        put(PARAM_FEED_WEIGHT_PROOF_OUTBOX_ITEM_ID, feedWeightPhotoProofItemId.value.orEmpty())
+        put(PARAM_FEED_VIDEO_PROOF_OUTBOX_ITEM_ID, videoProofItemId.value.orEmpty())
+        put(PARAM_WATER_VIDEO_PROOF_OUTBOX_ITEM_ID, waterVideoProofItemId.value.orEmpty())
+        put(PARAM_FEED_WEIGHT_PROOF_REF, feedWeightRemoteRef.value.orEmpty())
+        put(PARAM_FEED_VIDEO_PROOF_REF, videoRemoteRef.value.orEmpty())
+        put(PARAM_WATER_VIDEO_PROOF_REF, waterVideoRemoteRef.value.orEmpty())
+        put("feed_weight_local_proof_row_id", feedWeightPhotoProofRowId.value.orEmpty())
+        put("feed_video_local_proof_row_id", videoProofRowId.value.orEmpty())
+        put("water_video_local_proof_row_id", waterVideoProofRowId.value.orEmpty())
+        val proofOutboxIds = listOf(feedWeightPhotoProofItemId.value, videoProofItemId.value, waterVideoProofItemId.value)
+            .filter { !it.isNullOrBlank() }
+        val localProofRowIds = listOf(feedWeightPhotoProofRowId.value, videoProofRowId.value, waterVideoProofRowId.value)
+            .filter { !it.isNullOrBlank() }
+        val serverProofIds = listOf(feedWeightRemoteRef.value, videoRemoteRef.value, waterVideoRemoteRef.value)
+            .filter { !it.isNullOrBlank() }
+        put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, proofOutboxIds.firstOrNull().orEmpty())
+        put("local_proof_row_id", localProofRowIds.firstOrNull().orEmpty())
+        put("server_proof_id", serverProofIds.firstOrNull().orEmpty())
+        put("proof_outbox_item_ids", proofOutboxIds.joinToString(","))
+        put("local_proof_row_ids", localProofRowIds.joinToString(","))
+        put("server_proof_ids", serverProofIds.joinToString(","))
     }
 
     private fun trackCaptureFailure(kind: String, reason: String) {

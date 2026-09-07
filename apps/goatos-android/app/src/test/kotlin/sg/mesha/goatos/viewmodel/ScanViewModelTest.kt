@@ -64,6 +64,7 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanError
+import sg.mesha.goatos.feature.scan.ProofUploadStatus
 import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.submit.SubmitEvent
 import sg.mesha.goatos.rfid.FakeScanSource
@@ -1709,6 +1710,135 @@ class ScanViewModelTest {
         assertTrue("proof is satisfied ⇒ submit allowed", vm.state.value.canSubmit)
     }
 
+    @Test
+    fun `backend latest proof id satisfies the panel even while sibling goats still need proof`() = runTest(dispatcher) {
+        val vm = ScanViewModel(
+            repo = rosterRepo(
+                listOf(
+                    scanRow("goat-1", "TAG-100", "obl-1").copy(
+                        status = "done",
+                        latestProofId = "server-proof-1",
+                        latestProofDownloadUrl = "/app/proofs/server-proof-1/download/signed?expires=4102444800&sig=ok",
+                    ),
+                    scanRow("goat-2", "TAG-200", "obl-2").copy(status = "pending"),
+                ),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val goatOne = vm.state.value.roster.single { it.goatId == "goat-1" }
+        assertEquals(ProofUploadStatus.SYNCED, goatOne.proofUploadStatus)
+        assertEquals(1, goatOne.evidenceSyncedCount)
+        assertEquals("server-proof-1", goatOne.proofPreviewServerId)
+        assertTrue("server-synced goat must not reappear in proof-needed panel", vm.state.value.proofActionNeeded.none { it.goatId == "goat-1" })
+    }
+
+    @Test
+    fun `expired cached signed proof url is not replayed as preview`() = runTest(dispatcher) {
+        val vm = ScanViewModel(
+            repo = rosterRepo(
+                listOf(
+                    scanRow("goat-1", "TAG-100", "obl-1").copy(
+                        status = "done",
+                        latestProofId = "server-proof-1",
+                        latestProofDownloadUrl = "/app/proofs/server-proof-1/download/signed?expires=1&sig=expired",
+                    ),
+                ),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val goatOne = vm.state.value.roster.single()
+        assertEquals(ProofUploadStatus.SYNCED, goatOne.proofUploadStatus)
+        assertEquals("server-proof-1", goatOne.proofPreviewServerId)
+        assertNull("expired signed URLs are not durable preview state", goatOne.proofPreviewPath)
+    }
+
+    @Test
+    fun `expired cached GCS signed proof url is not replayed as preview`() = runTest(dispatcher) {
+        val vm = ScanViewModel(
+            repo = rosterRepo(
+                listOf(
+                    scanRow("goat-1", "TAG-100", "obl-1").copy(
+                        status = "done",
+                        latestProofId = "server-proof-1",
+                        latestProofDownloadUrl = "https://storage.googleapis.com/bucket/object?X-Goog-Date=20200101T000000Z&X-Goog-Expires=3600&X-Goog-Signature=expired",
+                    ),
+                ),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertNull("expired GCS signed URLs are not durable preview state", vm.state.value.roster.single().proofPreviewPath)
+    }
+
+    @Test
+    fun `playback failure on remote vaccination preview refreshes signed proof url`() = runTest(dispatcher) {
+        val repo = rosterRepo(
+            listOf(
+                scanRow("goat-1", "TAG-100", "obl-1").copy(
+                    status = "done",
+                    latestProofId = "server-proof-1",
+                    latestProofDownloadUrl = "/app/proofs/server-proof-1/download/signed?expires=4102444800&sig=old",
+                ),
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = repo,
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        val refreshesBeforePlaybackFailure = repo.refreshCount
+
+        vm.onEvent(ScanEvent.ProofPreviewAction("goat-1", "playback_failed:failure:expired_signed_url"))
+        advanceUntilIdle()
+
+        assertEquals(refreshesBeforePlaybackFailure + 1, repo.refreshCount)
+    }
+
     /**
      * The other half of the same invariant: a goat the panel still lists as needing proof (because
      * no synced proof exists yet at all) must remain scannable via RFID -- a rescan must route into
@@ -2078,6 +2208,8 @@ private fun scanRow(
     rowVersion: Int = 1,
     status: String = "pending",
     secondaryTag: String? = null,
+    latestProofId: String? = null,
+    latestProofDownloadUrl: String? = null,
 ): ScanRosterRowDto =
     ScanRosterRowDto(
         goatId = goatId,
@@ -2087,6 +2219,8 @@ private fun scanRow(
         status = status,
         obligationId = obligationId,
         obligationRowVersion = rowVersion,
+        latestProofId = latestProofId,
+        latestProofDownloadUrl = latestProofDownloadUrl,
     )
 
 private class FakeRfidReaderPort : RfidReaderPort {
@@ -2121,6 +2255,8 @@ private class FakeScanExecutionRepository(
     private val rows = MutableStateFlow<List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>>(emptyList())
     var lastRefreshPartitionLabel: String? = null
         private set
+    var refreshCount: Int = 0
+        private set
 
     fun updateResponse(newPage: ScanRosterResponseDto, newRosterUpdatedAtMs: Long = 10_001L) {
         rosterUpdatedAtMs = newRosterUpdatedAtMs
@@ -2144,6 +2280,8 @@ private class FakeScanExecutionRepository(
             status = status,
             obligationId = obligationId,
             obligationRowVersion = obligationRowVersion,
+            latestProofId = latestProofId,
+            latestProofDownloadUrl = latestProofDownloadUrl,
             seq = seq,
             // When the roster page was FETCHED. Defaults to "just now" (a real fetch stamps the
             // clock); tests that model a STALE cache pass an older value than the capture's time.
@@ -2250,6 +2388,7 @@ private class FakeScanExecutionRepository(
         }
 
     override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?, partitionLabel: String?): Result<Unit> = runCatching {
+        refreshCount += 1
         lastRefreshPartitionLabel = partitionLabel
         refreshStarted?.complete(Unit)
         refreshGate?.await()

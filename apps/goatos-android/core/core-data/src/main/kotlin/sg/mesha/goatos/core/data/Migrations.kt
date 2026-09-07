@@ -1665,3 +1665,15 @@ val MIGRATION_59_60: Migration = object : Migration(59, 60) {
         db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `featureCategory` TEXT")
     }
 }
+
+/**
+ * v60 -> v61: cache backend vaccination proof preview refs on scan_roster_row.
+ * Additive/re-fetchable: old rows keep nulls and refresh fills them when the backend has a
+ * completed goat proof.
+ */
+val MIGRATION_60_61: Migration = object : Migration(60, 61) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `latestProofId` TEXT")
+        db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `latestProofDownloadUrl` TEXT")
+    }
+}

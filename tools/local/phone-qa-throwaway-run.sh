@@ -15,7 +15,11 @@ plist="$HOME/Library/LaunchAgents/$label.plist"
 launch_domain="gui/$(id -u)"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000202}"
+allowed_user_id="90000000-0000-4000-8000-000000000202"
 adb_serial=""
+allowed_serial="${GOATOS_PHONE_QA_ALLOWED_SERIAL:-143382555G111292}"
+allowed_android_user="${GOATOS_PHONE_QA_ALLOWED_ANDROID_USER:-10}"
+public_base_url="${GOATOS_API_PUBLIC_BASE_URL:-http://127.0.0.1:8080}"
 
 args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do
@@ -32,6 +36,10 @@ die() { echo "phone-qa-throwaway-run: $*" >&2; exit 1; }
 log() { printf '[phone-qa] %s\n' "$*"; }
 
 [ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL is required"
+[ "$user_id" = "$allowed_user_id" ] || die "refusing phone E2E app user '$user_id'; expected Pramod $allowed_user_id"
+[ "$adb_serial" = "$allowed_serial" ] || die "refusing phone E2E serial '${adb_serial:-<missing>}'; expected $allowed_serial"
+foreground_user="$(adb -s "$adb_serial" shell am get-current-user 2>/dev/null | tr -d '\r' | head -1 || true)"
+[ "$foreground_user" = "$allowed_android_user" ] || die "refusing Android user '${foreground_user:-<unknown>}' on $adb_serial; expected $allowed_android_user"
 database_target="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[^:/@]+://([^@]+@)?##; s#[?].*$##')"
 case "$DATABASE_URL" in
   *127.0.0.1:15544/*|*localhost:15544/*) ;;
@@ -61,9 +69,11 @@ log "building backend API"
 # Restart ONLY when the API is absent, unhealthy, or pointed at a different database.
 api_healthy=0
 if [ "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${GOATOS_PHONE_QA_PORT:-8081}/readyz" 2>/dev/null)" = "204" ]; then
-  running_db="$(ps -eo command= 2>/dev/null | grep -m1 'goatos-api-phone-qa' >/dev/null && launchctl print "gui/$(id -u)/sg.mesha.goatos.phone-qa-api" 2>/dev/null | grep -o 'DATABASE_URL => [^ ]*' | cut -d' ' -f3 || true)"
-  case "$running_db" in
-    ""|*15544*) api_healthy=1 ;;
+  running_env="$(ps -eo command= 2>/dev/null | grep -m1 'goatos-api-phone-qa' >/dev/null && launchctl print "gui/$(id -u)/sg.mesha.goatos.phone-qa-api" 2>/dev/null || true)"
+  running_db="$(printf '%s\n' "$running_env" | grep -o 'DATABASE_URL => [^ ]*' | cut -d' ' -f3 || true)"
+  running_public_base="$(printf '%s\n' "$running_env" | grep -o 'GOATOS_API_PUBLIC_BASE_URL => [^ ]*' | cut -d' ' -f3 || true)"
+  case "$running_db:$running_public_base" in
+    *15544*:"$public_base_url") api_healthy=1 ;;
   esac
 fi
 
@@ -140,6 +150,8 @@ cat >"$plist" <<EOF
     <string>${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}</string>
     <key>GOATOS_HTTP_ADDR</key>
     <string>127.0.0.1:$host_port</string>
+    <key>GOATOS_API_PUBLIC_BASE_URL</key>
+    <string>$public_base_url</string>
     <key>GOATOS_ALLOW_STALE_LOCAL_STACK</key>
     <string>1</string>
     <key>GOATOS_LOCAL_MEDIA_SIGNING_SECRET</key>
@@ -239,4 +251,5 @@ GOATOS_LOCAL_USER_ID="$user_id" \
 GOATOS_TENANT_ID="$tenant_id" \
 DATABASE_URL="$DATABASE_URL" \
 GOATOS_ENV="${GOATOS_ENV:-local}" \
+GOATOS_ANDROID_INSTALL_USER="$allowed_android_user" \
 "$repo_root/tools/dev/android-dev-run.sh" "$@"

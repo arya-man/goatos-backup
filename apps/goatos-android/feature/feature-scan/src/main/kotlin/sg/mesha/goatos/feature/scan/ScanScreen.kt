@@ -173,6 +173,10 @@ data class ScanFeedEntry(
     val evidenceSyncedCount: Int = 0,
     val evidenceUploading: Boolean = false,
     val evidenceFailed: Boolean = false,
+    val proofPreviewPath: String? = null,
+    val proofPreviewId: String? = null,
+    val proofPreviewOutboxItemId: String? = null,
+    val proofPreviewServerId: String? = null,
     val tone: ScanFeedTone = when (status) {
         ScanStatus.SKIPPED -> ScanFeedTone.REJECTED
         else -> ScanFeedTone.ACCEPTED
@@ -476,7 +480,11 @@ fun ScanScreen(
                         ) {
                             if (row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed) {
                                 onEvent(ScanEvent.RetryProof(row.goatId))
-                            } else if (row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0) {
+                            } else if (
+                                row.proofUploadStatus == ProofUploadStatus.SYNCED ||
+                                row.evidenceSyncedCount > 0 ||
+                                !row.proofPreviewPath.isNullOrBlank()
+                            ) {
                                 onEvent(ScanEvent.ArmProofReplacement(row.goatId))
                             }
                         }
@@ -503,6 +511,7 @@ fun ScanScreen(
                         FeedRow(
                             entry = entry,
                             armedForReplacement = state.proofReplacementGoatId == entry.goatId,
+                            onPreviewAction = { action -> onEvent(ScanEvent.ProofPreviewAction(entry.goatId, action)) },
                             onReplace = { onEvent(ScanEvent.ArmProofReplacement(entry.goatId)) },
                         )
                     }
@@ -1124,6 +1133,7 @@ private fun CountTile(
 private fun FeedRow(
     entry: ScanFeedEntry,
     armedForReplacement: Boolean = false,
+    onPreviewAction: (String) -> Unit = {},
     onReplace: () -> Unit = {},
 ) {
     val toneColor = when (entry.tone) {
@@ -1155,47 +1165,73 @@ private fun FeedRow(
     val replaceable = entry.status == ScanStatus.DONE &&
         entry.proofRequired &&
         (entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        StatusGlyph(entry.status, tone = entry.tone)
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            TagLine(primaryTag = entry.primaryTag, secondaryTag = entry.secondaryTag, color = tagColor)
-            if (!secondary.isNullOrBlank()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusGlyph(entry.status, tone = entry.tone)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                TagLine(primaryTag = entry.primaryTag, secondaryTag = entry.secondaryTag, color = tagColor)
+                if (!secondary.isNullOrBlank()) {
+                    Text(
+                        secondary,
+                        color = secondaryColor,
+                        fontSize = 10.sp,
+                        lineHeight = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 2.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
-                    secondary,
-                    color = secondaryColor,
-                    fontSize = 10.sp,
+                    entry.vaccineLabel,
+                    color = toneColor,
+                    fontSize = 11.sp,
                     lineHeight = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 2.dp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            Text(
-                entry.vaccineLabel,
-                color = toneColor,
-                fontSize = 11.sp,
-                lineHeight = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
+            if (replaceable) {
+                Spacer(Modifier.width(10.dp))
+                ProofRowActionPill(
+                    label = stringResource(R.string.scan_proof_replace_action),
+                    toneColor = toneColor,
+                    onClick = onReplace,
+                )
+            }
         }
-        if (replaceable) {
-            Spacer(Modifier.width(10.dp))
-            ProofRowActionPill(
-                label = stringResource(R.string.scan_proof_replace_action),
-                toneColor = toneColor,
-                onClick = onReplace,
-            )
+        if (entry.status == ScanStatus.DONE) {
+            entry.proofPreviewPath?.takeIf { it.isNotBlank() }?.let { path ->
+                ProofMediaPreview(
+                    path = path,
+                    kind = ProofMediaPreviewKind.Video,
+                    modifier = Modifier.fillMaxWidth(),
+                    onPreviewAction = onPreviewAction,
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun VaccinationProofPreview(row: RosterRow, onPreviewAction: (String) -> Unit) {
+    row.proofPreviewPath?.takeIf { it.isNotBlank() }?.let { path ->
+        ProofMediaPreview(
+            path = path,
+            kind = ProofMediaPreviewKind.Video,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+            onPreviewAction = onPreviewAction,
+        )
     }
 }
 
@@ -1229,7 +1265,9 @@ private fun ProofNeededFeedRow(
 ) {
     val (line, tone) = proofLineAndTone(row)
     val retryable = row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed
-    val replaceable = row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0
+    val replaceable = row.proofUploadStatus == ProofUploadStatus.SYNCED ||
+        row.evidenceSyncedCount > 0 ||
+        !row.proofPreviewPath.isNullOrBlank()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ScanRosterFlatRow(
             primaryTag = row.primaryTag,
@@ -1727,6 +1765,9 @@ private fun InlineScannedGoatCard(row: RosterRow, onEvent: (ScanEvent) -> Unit) 
             ) {
                 Text(proofText, color = proofColor, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
             }
+        }
+        VaccinationProofPreview(row) { action ->
+            onEvent(ScanEvent.ProofPreviewAction(row.goatId, action))
         }
     }
 }

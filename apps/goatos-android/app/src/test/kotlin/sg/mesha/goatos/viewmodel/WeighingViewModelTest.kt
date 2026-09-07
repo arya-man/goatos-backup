@@ -812,6 +812,46 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `replacing a full set of shed videos bypasses cap and preserves old proof until synced`() = runTest(dispatcher) {
+        val proofSource = FakeProofCaptureSource()
+        proofSource.queue(CapturedVideo(localUri = "file://replacement.mp4", startedAtMs = 9_000, endedAtMs = 10_000))
+        val proofs = FakeProofCaptureRepository(maxProofs = 5).also { repo ->
+            repo.seedProofs(
+                *(1..5).map { index ->
+                    proofRow(
+                        id = "shed-proof-$index",
+                        fieldKey = "weighing_shed_partition_video",
+                        proofSubject = ProofSubject.SHED,
+                        subjectId = "shed-1",
+                        caption = "Weighing lump-sum · Shed 1 · video $index",
+                        syncStatus = CaptureSyncStatus.PENDING,
+                        serverProofId = null,
+                        capturedAtMs = index.toLong(),
+                    )
+                }.toTypedArray(),
+            )
+        }
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            scoped = true,
+            proofCaptureRepository = proofs,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+            weighingCategory = "per_shed_partition",
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.replaceShedVideo("shed-proof-3")
+        advanceUntilIdle()
+
+        assertEquals("Group video replaced.", vm.state.value.message)
+        assertEquals(6, proofs.allRows().count { it.fieldKey == "weighing_shed_partition_video" })
+        assertTrue("old proof must survive until replacement upload syncs", proofs.allRows().any { it.id == "shed-proof-3" })
+        assertTrue("replacement must not synchronously delete the old proof", proofs.removedProofIds.isEmpty())
+    }
+
+    @Test
     fun `latest synced shed proof survives reopen before shed draft exists`() = runTest(dispatcher) {
         val proofs = FakeProofCaptureRepository(maxProofs = 10).also { repo ->
             repo.seedProofs(

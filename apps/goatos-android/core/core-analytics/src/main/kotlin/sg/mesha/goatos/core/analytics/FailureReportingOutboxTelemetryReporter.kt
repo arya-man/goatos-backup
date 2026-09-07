@@ -22,17 +22,18 @@ import sg.mesha.goatos.core.common.OutboxWritePhase
  *
  * | phase             | logcat | breadcrumb | analytics event               | non-fatal |
  * |-------------------|:------:|:----------:|-------------------------------|:---------:|
- * | `ENQUEUED`        |   yes  |    yes     | —                             |     —     |
- * | `ATTEMPT_STARTED` |   yes  |    yes     | —                             |     —     |
+ * | `ENQUEUED`        |   yes  |    yes     | `sync_write_enqueued`          |     —     |
+ * | `ATTEMPT_STARTED` |   yes  |    yes     | `sync_write_attempt_started`   |     —     |
  * | `ATTEMPT_FAILED`  |   yes  |    yes     | `sync_write_attempt_failed`   |     —     |
- * | `RETRY_SCHEDULED` |   yes  |    yes     | —                             |     —     |
+ * | `SUCCEEDED`       |   yes  |    yes     | `sync_write_succeeded`        |     —     |
+ * | `RETRY_SCHEDULED` |   yes  |    yes     | `sync_write_retry_scheduled`  |     —     |
  * | `DEPENDENCY_WAIT` |   yes  |    yes     | `sync_write_dependency_wait`  |     —     |
  * | `TERMINAL`        |   yes  |    yes     | `sync_write_dead`             | scoped    |
  *
  * Non-terminal phases stay logcat + breadcrumb deliberately: they are what makes a stalled queue
  * READABLE live on a phone (`adb logcat -s GoatOsOutbox` shows enqueue → attempt → retry, over
- * and over, which IS the diagnosis), and they attach that same history to whatever Crashlytics
- * report lands next — but they are not worth an analytics event per attempt.
+     * and over, which IS the diagnosis), and they attach that same history to analytics and to
+     * whatever Crashlytics report lands next.
  *
  * `TERMINAL` also emits `sync_write_dead`, because it is the one phase describing data that will
  * never be sent. Expected transport failures stay out of Crashlytics; unexpected client defects
@@ -65,9 +66,27 @@ class FailureReportingOutboxTelemetryReporter(
         logLine(summary)
         crashReporter.log(summary)
         when (event.phase) {
+            OutboxWritePhase.ENQUEUED -> analytics.track(
+                AnalyticsEvents.SYNC_WRITE_ENQUEUED,
+                baseParams(event),
+            )
+            OutboxWritePhase.ATTEMPT_STARTED -> analytics.track(
+                AnalyticsEvents.SYNC_WRITE_ATTEMPT_STARTED,
+                baseParams(event),
+            )
             OutboxWritePhase.ATTEMPT_FAILED -> analytics.track(
                 AnalyticsEvents.SYNC_WRITE_ATTEMPT_FAILED,
                 baseParams(event),
+            )
+            OutboxWritePhase.SUCCEEDED -> analytics.track(
+                AnalyticsEvents.SYNC_WRITE_SUCCEEDED,
+                baseParams(event),
+            )
+            OutboxWritePhase.RETRY_SCHEDULED -> analytics.track(
+                AnalyticsEvents.SYNC_WRITE_RETRY_SCHEDULED,
+                baseParams(event) + mapOf(
+                    AnalyticsEvents.Params.DURATION_MS to event.retryInMs?.toString().orEmpty(),
+                ),
             )
             OutboxWritePhase.TERMINAL -> {
                 analytics.track(
@@ -84,10 +103,6 @@ class FailureReportingOutboxTelemetryReporter(
                 AnalyticsEvents.SYNC_WRITE_DEPENDENCY_WAIT,
                 baseParams(event),
             )
-            OutboxWritePhase.ENQUEUED,
-            OutboxWritePhase.ATTEMPT_STARTED,
-            OutboxWritePhase.RETRY_SCHEDULED,
-            -> Unit
         }
     }
 

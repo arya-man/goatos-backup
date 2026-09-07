@@ -88,6 +88,7 @@ sealed interface FeedPackingCompleteEvent {
     data object MarkDone : FeedPackingCompleteEvent
     data object SyncNow : FeedPackingCompleteEvent
     data object Back : FeedPackingCompleteEvent
+    data class PreviewAction(val action: String) : FeedPackingCompleteEvent
 }
 
 @Composable
@@ -161,6 +162,7 @@ fun FeedPackingCompleteScreen(
                         }
                     },
                     showAction = !state.alreadySubmitted,
+                    onPreviewAction = { onEvent(FeedPackingCompleteEvent.PreviewAction(it)) },
                 )
             }
         }

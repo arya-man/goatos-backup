@@ -610,6 +610,25 @@ interface ProofCaptureRepository {
         awaitUploadEnqueue: Boolean = false,
         uploadGroupKey: String? = null,
     ): AppResult<ProofCaptureRow>
+
+    suspend fun captureReplacingProof(
+        slot: EvidenceSlot,
+        replacingProofId: String,
+        subject: ProofSubject,
+        subjectId: String? = null,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String? = null,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
+        awaitUploadEnqueue: Boolean = false,
+        uploadGroupKey: String? = null,
+    ): AppResult<ProofCaptureRow>
 }
 
 class DefaultProofCaptureRepository(
@@ -845,7 +864,7 @@ class DefaultProofCaptureRepository(
                 dao.activeCountForSubjectType(taskId, partitionKey, subject.wireValue)
             else -> 0
         }
-        if (maxPerSubject != null && existing >= maxPerSubject) {
+        if (maxPerSubject != null && !allowReplacementOverCap && existing >= maxPerSubject) {
             val subjectLabel = when (subject) {
                 ProofSubject.GOAT -> "goat"
                 ProofSubject.SHED -> "shed"
@@ -1187,6 +1206,65 @@ class DefaultProofCaptureRepository(
                     !current.serverProofId.isNullOrBlank()
                 ) {
                     fireSlotRetirementIfPending(newId)
+                }
+            }
+            result
+        }
+    }
+
+    override suspend fun captureReplacingProof(
+        slot: EvidenceSlot,
+        replacingProofId: String,
+        subject: ProofSubject,
+        subjectId: String?,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String?,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
+    ): AppResult<ProofCaptureRow> {
+        val effectiveSubjectId = subjectId?.takeIf { it.isNotBlank() }
+        val slotKey = "${slot.identity.taskId}|${slot.fieldKey}|${effectiveSubjectId ?: "shed"}|$replacingProofId"
+        val mutex = slotReplaceLocks.getOrPut(slotKey) { Mutex() }
+
+        return mutex.withLock {
+            val taskId = slot.identity.taskId
+            val partitionLabel = slot.identity.partitionKey.takeUnless { it == "whole" }
+            val result = captureInternal(
+                taskId = taskId,
+                fieldKey = slot.fieldKey,
+                subject = subject,
+                subjectId = subjectId,
+                localUri = localUri,
+                mimeType = mimeType,
+                caption = caption,
+                rfidTag = rfidTag,
+                scopeType = scopeType,
+                scopeId = scopeId,
+                capturedStartMs = capturedStartMs,
+                capturedEndMs = capturedEndMs,
+                capturedByPrincipalId = capturedByPrincipalId,
+                proofPolicy = proofPolicy,
+                partitionLabel = partitionLabel,
+                awaitUploadEnqueue = awaitUploadEnqueue,
+                uploadGroupKey = uploadGroupKey,
+                allowReplacementOverCap = true,
+                supersedesRowId = replacingProofId,
+            )
+            if (result is AppResult.Ok) {
+                val current = dao.findById(result.value.id)
+                if (current != null &&
+                    current.syncStatus == EntitySyncStatus.SYNCED.name &&
+                    !current.serverProofId.isNullOrBlank()
+                ) {
+                    retireSupersededRowIfAny(current)
                 }
             }
             result

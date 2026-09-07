@@ -211,6 +211,81 @@ class FeedTransportSequenceTest {
         assertEquals(listOf(originalProof.id), proofCaptureRepository.observeProofs("feed-transport:transport-task-1", null).first().map { it.id })
         assertTrue(viewModel.state.value.videoCaptured)
     }
+
+    @Test
+    fun `transport preview actions emit proof preview analytics`() = runTest(dispatcher) {
+        val analytics = RecordingAnalytics()
+        val viewModel = FeedTransportCaptureViewModel(
+            sync = TransportSyncRepository(),
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = TransportDraftRepository(),
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            feedTransportRepository = FakeFeedTransportStatusSource(),
+            saved = SavedStateHandle(
+                mapOf(
+                    FeedTransportCaptureViewModel.ARG_TASK_ID to "transport-task-1",
+                    FeedTransportCaptureViewModel.ARG_SHED_ID to "shed-1",
+                    FeedTransportCaptureViewModel.ARG_SHED_LABEL to "Shed 1",
+                    FeedTransportCaptureViewModel.ARG_PARK_LABEL to "Farm 1",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        viewModel.onEvent(FeedTransportCaptureEvent.PreviewAction("share:failure:fileprovider_rejected"))
+        advanceUntilIdle()
+
+        val event = analytics.events.last { it.name == AnalyticsEvents.FEED_DISTRIBUTION_PROOF_PREVIEW_ACTION }
+        assertEquals("share", event.props[AnalyticsEvents.Params.ACTION])
+        assertEquals("failure", event.props[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("fileprovider_rejected", event.props[AnalyticsEvents.Params.REASON])
+        assertEquals("transport", event.props[AnalyticsEvents.Params.KIND])
+        assertEquals("feed_transport_video", event.props[AnalyticsEvents.Params.FIELD])
+        assertEquals("feed_transport_complete", event.props[AnalyticsEvents.Params.SOURCE])
+    }
+
+    @Test
+    fun `transport proof upload terminal state emits analytics with proof and outbox ids`() = runTest(dispatcher) {
+        val analytics = RecordingAnalytics()
+        val sync = TransportSyncRepository()
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val proofCaptureSource = FakeProofCaptureSource()
+        val viewModel = FeedTransportCaptureViewModel(
+            sync = sync,
+            capture = proofCaptureSource,
+            proofCaptureRepository = proofCaptureRepository,
+            drafts = TransportDraftRepository(),
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            feedTransportRepository = FakeFeedTransportStatusSource(),
+            saved = SavedStateHandle(
+                mapOf(
+                    FeedTransportCaptureViewModel.ARG_TASK_ID to "transport-task-1",
+                    FeedTransportCaptureViewModel.ARG_SHED_ID to "shed-1",
+                    FeedTransportCaptureViewModel.ARG_SHED_LABEL to "Shed 1",
+                    FeedTransportCaptureViewModel.ARG_PARK_LABEL to "Farm 1",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://transport.mp4", startedAtMs = 1L, endedAtMs = 2L))
+        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        advanceUntilIdle()
+        val proof = proofCaptureRepository.observeProofs("feed-transport:transport-task-1", null).first().single()
+        val proofOutboxId = proof.outboxItemId.orEmpty()
+
+        sync.markProofTerminal(proofOutboxId, SyncItemStatus.SUCCEEDED)
+        advanceUntilIdle()
+
+        val event = analytics.events.last { it.name == AnalyticsEvents.FEED_TRANSPORT_PROOF_UPLOAD_SYNCED }
+        assertEquals("proof_upload_sync", event.props[AnalyticsEvents.Params.ACTION])
+        assertEquals("success", event.props[AnalyticsEvents.Params.OUTCOME])
+        assertEquals(proof.id, event.props["local_proof_row_id"])
+        assertEquals(proofOutboxId, event.props[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+    }
 }
 
 private class TransportDraftRepository : CaptureDraftRepository {
@@ -262,6 +337,23 @@ private class TransportSyncRepository : SyncRepository {
 
     override fun observeStatus(): MutableStateFlow<SyncStatus> = status
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> = items.getOrPut(itemId) { MutableStateFlow(null) }
+
+    fun markProofTerminal(itemId: String, itemStatus: SyncItemStatus, error: String? = null) {
+        val current = items.getOrPut(itemId) { MutableStateFlow(null) }.value
+        items.getOrPut(itemId) { MutableStateFlow(null) }.value = (current ?: SyncQueueItem(
+            id = itemId,
+            opType = "PROOF_UPLOAD",
+            idempotencyKey = "test-key",
+            groupKey = "test-group",
+            status = SyncItemStatus.QUEUED,
+            attemptCount = 0,
+            maxAttempts = 3,
+            conflict = false,
+            createdAt = 1L,
+            updatedAt = 1L,
+            lastError = null,
+        )).copy(status = itemStatus, lastError = error, updatedAt = 2L)
+    }
 
     override suspend fun enqueueProofUpload(
         groupKey: String,

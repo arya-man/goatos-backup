@@ -249,6 +249,36 @@ object AnalyticsEvents {
     const val WEIGHING_SUBMIT_SUCCESS = "weighing_submit_success"
     const val WEIGHING_SUBMIT_FAILURE = "weighing_submit_failure"
 
+    /** Generic SOP/task proof capture started from SubmitViewModel. */
+    const val SOP_PROOF_CAPTURE_ATTEMPT = "sop_proof_capture_attempt"
+
+    /** Generic SOP/task proof capture persisted locally and queued for upload. */
+    const val SOP_PROOF_CAPTURE_SUCCESS = "sop_proof_capture_success"
+
+    /** Generic SOP/task proof capture was cancelled before persistence. */
+    const val SOP_PROOF_CAPTURE_CANCELLED = "sop_proof_capture_cancelled"
+
+    /** Generic SOP/task proof capture or upload retry failed before it could be queued. */
+    const val SOP_PROOF_CAPTURE_FAILURE = "sop_proof_capture_failure"
+
+    /** Generic SOP/task proof upload retry was tapped. */
+    const val SOP_PROOF_RETRY_ATTEMPT = "sop_proof_retry_attempt"
+
+    /** Generic SOP/task proof upload retry was accepted by Room/outbox. */
+    const val SOP_PROOF_RETRY_SUCCESS = "sop_proof_retry_success"
+
+    /** Generic SOP/task proof upload retry failed. */
+    const val SOP_PROOF_RETRY_FAILURE = "sop_proof_retry_failure"
+
+    /** Generic SOP/task submit was attempted or queued, with proof refs attached when present. */
+    const val SOP_SUBMIT_ATTEMPT = "sop_submit_attempt"
+
+    /** Generic SOP/task submit reached backend success. */
+    const val SOP_SUBMIT_SUCCESS = "sop_submit_success"
+
+    /** Generic SOP/task submit failed at enqueue, conflict, or terminal outbox state. */
+    const val SOP_SUBMIT_FAILURE = "sop_submit_failure"
+
     /** A weight write was rejected by the server (409 conflict), indicating the weight was
      *  silently discarded and the operator must re-capture the animal. */
     const val WEIGHING_CAPTURE_CONFLICT = "weighing_capture_conflict"
@@ -545,6 +575,7 @@ object AnalyticsEvents {
 
     /** The MANDATORY leftover-feed video was captured on the wastage capture detail. */
     const val FEED_WASTAGE_VIDEO_CAPTURED = "feed_wastage_video_captured"
+    const val FEED_WASTAGE_PROOF_UPLOAD_SYNCED = "feed_wastage_proof_upload_synced"
 
     /** A feed-wastage completion was submitted for verification (proof queued, completion enqueued
      *  -> the pen-day moves to pending_verification). */
@@ -633,6 +664,9 @@ object AnalyticsEvents {
     /** A per-animal PC Care proof upload outbox row became visible in Room. */
     const val PC_CARE_SLOT_UPLOAD_ENQUEUED = "pc_care_slot_upload_enqueued"
 
+    /** A per-animal PC Care proof upload reached a terminal sync state. */
+    const val PC_CARE_SLOT_UPLOAD_SYNCED = "pc_care_slot_upload_synced"
+
     /** A per-animal PC Care slot registration write was enqueued or failed. */
     const val PC_CARE_SLOT_REGISTRATION = "pc_care_slot_registration"
 
@@ -647,6 +681,9 @@ object AnalyticsEvents {
 
     /** The operator confirmed the whole-task submit (write enqueued). */
     const val PC_CARE_SUBMIT_CONFIRMED = "pc_care_submit_confirmed"
+
+    /** Per-animal PC Care task submit enqueue or terminal sync state. */
+    const val PC_CARE_SLOT_SUBMIT = "pc_care_slot_submit"
 
     /** A task in rework was opened (the verifier's reason is on screen). */
     const val PC_CARE_REWORK_VIEWED = "pc_care_rework_viewed"
@@ -931,7 +968,11 @@ object AnalyticsEvents {
      * Carries [Params.OP_TYPE], [Params.ATTEMPT], [Params.MAX_ATTEMPTS] and [Params.REASON] (the
      * failure's exception CLASS name). Never a payload, a server error string, or a credential.
      */
+    const val SYNC_WRITE_ENQUEUED = "sync_write_enqueued"
+    const val SYNC_WRITE_ATTEMPT_STARTED = "sync_write_attempt_started"
     const val SYNC_WRITE_ATTEMPT_FAILED = "sync_write_attempt_failed"
+    const val SYNC_WRITE_RETRY_SCHEDULED = "sync_write_retry_scheduled"
+    const val SYNC_WRITE_SUCCEEDED = "sync_write_succeeded"
 
     /**
      * A queued submit/completion write is waiting for one or more referenced proof-upload rows to

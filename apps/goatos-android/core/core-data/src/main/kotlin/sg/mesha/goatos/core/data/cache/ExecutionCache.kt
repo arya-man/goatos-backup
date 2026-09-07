@@ -134,6 +134,10 @@ data class ScanRosterRowEntity(
      *  after a verifier-rejection reopen is not deduped away as a replay of the prior cycle's
      *  already-synced capture. Defaults to 0 for rows written before this column existed. */
     val obligationRowVersion: Int = 0,
+    /** Latest completed vaccination proof from the backend roster projection, if any. */
+    val latestProofId: String? = null,
+    /** Server-relative or absolute download URL for [latestProofId]. */
+    val latestProofDownloadUrl: String? = null,
 )
 
 @Dao

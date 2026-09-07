@@ -223,6 +223,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     private val flow = MutableStateFlow<List<TrackedRow>>(emptyList())
     val captureCalls = mutableListOf<CaptureCall>()
     val retryUploadIds = mutableListOf<String>()
+    val removedProofIds = mutableListOf<String>()
     private var nextId = 0
 
     /** When true, the NEXT [capture] call returns [AppResult.Err] instead of writing a row, then
@@ -336,7 +337,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
                 it.row.subjectId == subjectId &&
                 it.row.syncStatus != CaptureSyncStatus.FAILED
         }
-        if (effectiveMaxProofs != null && activeRows >= effectiveMaxProofs) {
+        if (effectiveMaxProofs != null && !allowReplacementOverCap && activeRows >= effectiveMaxProofs) {
             val subjectLabel = when (subject) {
                 ProofSubject.GOAT -> "goat"
                 ProofSubject.SHED -> "shed"
@@ -385,6 +386,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     }
 
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> {
+        removedProofIds += id
         rows.removeAll { it.row.id == id }
         flow.value = rows.toList()
         return AppResult.Ok(Unit)
@@ -541,6 +543,54 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
                 pendingSlotRetirement[newId] = {
                     toRemoveIds.forEach { remove(taskId, it) }
                 }
+            }
+        }
+        return result
+    }
+
+    override suspend fun captureReplacingProof(
+        slot: EvidenceSlot,
+        replacingProofId: String,
+        subject: ProofSubject,
+        subjectId: String?,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String?,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
+    ): AppResult<ProofCaptureRow> {
+        val taskId = slot.identity.taskId
+        val partitionLabel = slot.identity.partitionKey.takeUnless { it == "whole" }
+        val result = capture(
+            taskId = taskId,
+            fieldKey = slot.fieldKey,
+            subject = subject,
+            subjectId = subjectId,
+            localUri = localUri,
+            mimeType = mimeType,
+            caption = caption,
+            rfidTag = rfidTag,
+            scopeType = scopeType,
+            scopeId = scopeId,
+            capturedStartMs = capturedStartMs,
+            capturedEndMs = capturedEndMs,
+            capturedByPrincipalId = capturedByPrincipalId,
+            proofPolicy = proofPolicy,
+            partitionLabel = partitionLabel,
+            awaitUploadEnqueue = awaitUploadEnqueue,
+            uploadGroupKey = uploadGroupKey,
+            allowReplacementOverCap = true,
+        )
+        if (result is AppResult.Ok) {
+            pendingSlotRetirement[result.value.id] = {
+                remove(taskId, replacingProofId)
             }
         }
         return result
