@@ -16,6 +16,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   Edit3,
+  Gavel,
   HeartPulse,
   Menu,
   MapPin,
@@ -67,6 +68,7 @@ const iconByToken: Record<string, ElementType> = {
   "calendar-days": CalendarDays,
   "clipboard-check": ClipboardCheck,
   "edit-3": Edit3,
+  gavel: Gavel,
   "heart-pulse": HeartPulse,
   // Milk is its own vertical in the backend nav contract; without this token the group would
   // silently fall back to the Control Tower icon (the same defect `wheat` hit below).
