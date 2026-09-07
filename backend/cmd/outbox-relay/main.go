@@ -208,6 +208,9 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
 		// 2026-08-29).
 		notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
+		// Sale -> Feed Director notice (maintainer decision 2026-09-07): goat.sale_allocated, emitted once
+		// per confirm with the pen-by-pen breakdown, pushes the pens and the feed day to reduce from.
+		notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithFeedClocks(feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)).Register(bus)
 		notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)
 		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and

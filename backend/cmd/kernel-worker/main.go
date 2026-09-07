@@ -177,6 +177,12 @@ func run(ctx context.Context, args []string) error {
 			// once-per-day mechanism as the low-stock alert above -- a business-date idempotency
 			// key, not a cron expression.
 			kernelstages.NewLoadAgeAlertStage(deps, tenantID, logger),
+			// Feed-day reminder after a sale (maintainer decision 2026-09-07): once animals are
+			// tagged to a sale, the Feed Director is asked on the feed day the reduction lands on
+			// whether those pens' feed did reduce. Same lane and the same once-only mechanism --
+			// a per-confirm idempotency key gated to 07:00 IST on the feed day, not a cron
+			// expression. The confirm-time notice is the goat.sale_allocated bus consumer.
+			kernelstages.NewSaleFeedReduceReminderStage(deps, tenantID, logger),
 			// Daily 17:30 IST feed-proof-times post to Slack, one message per park (maintainer
 			// decision 2026-09-05): when each pen's feed weight, feed distribution and water
 			// captures reached the backend. Same lane and the same once-per-day mechanism as the

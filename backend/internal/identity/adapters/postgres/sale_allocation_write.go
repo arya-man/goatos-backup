@@ -132,6 +132,16 @@ func (r *Repository) RecordSaleAllocations(ctx context.Context, cmd ports.Record
 		return nil, err
 	}
 
+	// ONE goat.sale_allocated event for the whole confirm, pen by pen, in this same transaction:
+	// the Feed Director's notice that these pens now hold fewer mouths (see sale_allocation_event.go).
+	batch, err := r.readSaleAllocationBatch(ctx, tx, cmd.TenantID, cmd.SalesDealID, cmd.OccurredAt)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.insertSaleAllocatedOutbox(ctx, qtx, cmd, tenantUUID, dealUUID, batch); err != nil {
+		return nil, err
+	}
+
 	groups, err := r.listSaleAllocationsInTx(ctx, tx, cmd.TenantID, cmd.SalesDealID)
 	if err != nil {
 		return nil, err

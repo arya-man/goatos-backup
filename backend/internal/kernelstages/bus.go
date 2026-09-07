@@ -98,6 +98,9 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
 	// 2026-08-29).
 	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
+	// Sale -> Feed Director notice (maintainer decision 2026-09-07): goat.sale_allocated, emitted once
+	// per confirm with the pen-by-pen breakdown, pushes the pens and the feed day to reduce from.
+	notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithFeedClocks(feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)).Register(bus)
 	// Leadership Tasks (maintainer decision 2026-09-04): a raised task pushes to the CXO it is
 	// addressed to; a task marked done pushes back to the director who asked.
 	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, logger).Register(bus)

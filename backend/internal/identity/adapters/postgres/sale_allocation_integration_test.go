@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -558,5 +559,255 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', '901007000504830', '901007000
 	// matching everything and the operator cannot trust it.
 	if len(find("777777")) != 0 {
 		t.Fatal("search matched an identifier the animal does not carry")
+	}
+}
+
+// THE FEED DIRECTOR'S EVENT, proved on the real confirm path: ONE goat.sale_allocated per confirm
+// (not one per animal), committed in the same transaction as the exits, whose payload already
+// carries the pen-by-pen breakdown with the canonical pen display -- and the batch reader the
+// feed-day reminder uses groups the same rows the same way, bounded by its trailing window.
+func TestConfirmingASaleEmitsOneEventWithOneToManyPenGroupsAndTheBatchReaderMatchesIt(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool, repo := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+	f := seedShedStageFixture(t, ctx, pool)
+
+	one := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
+	two := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
+	three := seedStageGoat(t, ctx, pool, f.castroShed, "2", "F2", "adult")
+	seedSaleAllocationDeal(t, ctx, pool, saleDealA, 3)
+
+	cmd := saleAllocCmd(saleDealA, []ports.SaleAllocationRow{
+		{GoatID: one, RowVersion: goatRowVersion(t, pool, one)},
+		{GoatID: two, RowVersion: goatRowVersion(t, pool, two)},
+		{GoatID: three, RowVersion: goatRowVersion(t, pool, three)},
+	}, "confirm-feed")
+	if _, err := repo.RecordSaleAllocations(ctx, cmd); err != nil {
+		t.Fatalf("RecordSaleAllocations: %v", err)
+	}
+
+	// One event per CONFIRM. Three animals, three goat.exited, exactly one goat.sale_allocated.
+	var payloadRaw []byte
+	var events int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)::int, min(payload::text)
+FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'goat.sale_allocated' AND aggregate_id = $2::uuid`,
+		ssTenant, saleDealA).Scan(&events, &payloadRaw); err != nil {
+		t.Fatalf("count sale events: %v", err)
+	}
+	if events != 1 {
+		t.Fatalf("goat.sale_allocated events = %d, want exactly one per confirm", events)
+	}
+	var envelope struct {
+		AggregateType   string `json:"aggregate_type"`
+		SubjectType     string `json:"subject_type"`
+		IdempotencyKey  string `json:"idempotency_key"`
+		TraceID         string `json:"trace_id"`
+		VisibilityScope struct {
+			TenantID string  `json:"tenant_id"`
+			ParkID   *string `json:"park_id"`
+		} `json:"visibility_scope"`
+		Payload struct {
+			SalesDealID string `json:"sales_deal_id"`
+			AllocatedAt string `json:"allocated_at"`
+			Animals     int    `json:"animals"`
+			Pens        []struct {
+				Display  string `json:"operational_location_display"`
+				ParkName string `json:"park_name"`
+				Animals  int    `json:"animals"`
+			} `json:"pens"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(payloadRaw, &envelope); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if envelope.AggregateType != "sales_deal" || envelope.SubjectType != "sales_deal" {
+		t.Fatalf("aggregate/subject = %q/%q, want sales_deal", envelope.AggregateType, envelope.SubjectType)
+	}
+	if envelope.VisibilityScope.TenantID != ssTenant || envelope.VisibilityScope.ParkID == nil {
+		t.Fatalf("visibility scope = %+v, want tenant and the single park", envelope.VisibilityScope)
+	}
+	if envelope.TraceID == "" {
+		t.Fatal("trace_id must never be blank: the relay rejects the envelope and the push silently never fires")
+	}
+	if envelope.IdempotencyKey != saleAllocatedIdempotencyKey(saleDealA, cmd.OccurredAt) {
+		t.Fatalf("idempotency key = %q", envelope.IdempotencyKey)
+	}
+	p := envelope.Payload
+	if p.SalesDealID != saleDealA || p.Animals != 3 || len(p.Pens) != 2 {
+		t.Fatalf("payload = %+v, want deal %s, 3 animals across 2 pens", p, saleDealA)
+	}
+	// Pen display is the canonical composition (space for a numeric pen), and the counts are
+	// ANIMALS per pen: two in Castro 1, one in Castro 2.
+	if p.Pens[0].Display != "Castro 1" || p.Pens[0].Animals != 2 || p.Pens[1].Display != "Castro 2" || p.Pens[1].Animals != 1 {
+		t.Fatalf("pens = %+v", p.Pens)
+	}
+	if p.Pens[0].ParkName == "" {
+		t.Fatal("park_name must be resolved in the payload; the push has no lookup at consume time")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, p.AllocatedAt); err != nil {
+		t.Fatalf("allocated_at %q: %v", p.AllocatedAt, err)
+	}
+
+	// The reminder's read groups the same rows the same way...
+	batches, err := repo.ListRecentSaleAllocationBatches(ctx, ssTenant, cmd.OccurredAt.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ListRecentSaleAllocationBatches: %v", err)
+	}
+	if len(batches) != 1 || batches[0].SalesDealID != saleDealA || batches[0].Animals != 3 || len(batches[0].Pens) != 2 {
+		t.Fatalf("batches = %+v", batches)
+	}
+	if batches[0].Pens[0].OperationalLocationDisplay != "Castro 1" || batches[0].Pens[0].Animals != 2 {
+		t.Fatalf("batch pens = %+v", batches[0].Pens)
+	}
+	// ...keyed on the SAME instant the event was keyed on, so the reminder key derived from the
+	// stored allocated_at equals the notice's batch identity.
+	if saleAllocatedIdempotencyKey(saleDealA, batches[0].AllocatedAt) != envelope.IdempotencyKey {
+		t.Fatalf("stored allocated_at %s does not reproduce the event key %q", batches[0].AllocatedAt, envelope.IdempotencyKey)
+	}
+}
+
+// STATUS MATRIX for the batch reader: goat_sale_allocations carries 'tagged' and 'released', and a
+// released tagging is HISTORY -- it must leave the batch's animal count and drop its pen when the
+// pen is empty, exactly as the gather list already does. A reader that counted every row would tell
+// the Feed Director to reduce feed for an animal that is still standing in the pen.
+func TestSaleAllocationBatchReaderStatusMatrixExcludesReleasedRows(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool, repo := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+	f := seedShedStageFixture(t, ctx, pool)
+
+	one := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
+	two := seedStageGoat(t, ctx, pool, f.castroShed, "2", "F2", "adult")
+	seedSaleAllocationDeal(t, ctx, pool, saleDealA, 2)
+	cmd := saleAllocCmd(saleDealA, []ports.SaleAllocationRow{
+		{GoatID: one, RowVersion: goatRowVersion(t, pool, one)},
+		{GoatID: two, RowVersion: goatRowVersion(t, pool, two)},
+	}, "confirm-status")
+	if _, err := repo.RecordSaleAllocations(ctx, cmd); err != nil {
+		t.Fatalf("RecordSaleAllocations: %v", err)
+	}
+	// Release the Castro 2 tagging the way the release path does: status + released_at, row kept.
+	if _, err := pool.Exec(ctx, `
+UPDATE goat_sale_allocations
+SET status = 'released', released_at = now(), release_reason = 'test'
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, ssTenant, two); err != nil {
+		t.Fatalf("release allocation: %v", err)
+	}
+
+	batches, err := repo.ListRecentSaleAllocationBatches(ctx, ssTenant, cmd.OccurredAt.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ListRecentSaleAllocationBatches: %v", err)
+	}
+	if len(batches) != 1 || batches[0].Animals != 1 || len(batches[0].Pens) != 1 {
+		t.Fatalf("batches = %+v, want one batch of 1 animal in 1 pen after the release", batches)
+	}
+	if batches[0].Pens[0].OperationalLocationDisplay != "Castro 1" || batches[0].Pens[0].Animals != 1 {
+		t.Fatalf("pen = %+v, want Castro 1 with 1 animal", batches[0].Pens[0])
+	}
+}
+
+// PARK SCOPE: every pen of a batch carries the park the animal stood in when it was TAGGED -- the
+// snapshot on the allocation row, not the goat's current row (which the exit has already rewritten)
+// -- and the event's visibility scope names that same park. The reminder reads the park's clock
+// off this id, so a blank or wrong park here silently moves the feed day.
+func TestSaleAllocationBatchReaderParkScopeIsTheSnapshotPark(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool, repo := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+	f := seedShedStageFixture(t, ctx, pool)
+
+	one := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
+	var parkID string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(park_id::text, '') FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		ssTenant, one).Scan(&parkID); err != nil {
+		t.Fatalf("read goat park: %v", err)
+	}
+	seedSaleAllocationDeal(t, ctx, pool, saleDealA, 1)
+	cmd := saleAllocCmd(saleDealA, []ports.SaleAllocationRow{{GoatID: one, RowVersion: goatRowVersion(t, pool, one)}}, "confirm-park")
+	if _, err := repo.RecordSaleAllocations(ctx, cmd); err != nil {
+		t.Fatalf("RecordSaleAllocations: %v", err)
+	}
+
+	batches, err := repo.ListRecentSaleAllocationBatches(ctx, ssTenant, cmd.OccurredAt.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ListRecentSaleAllocationBatches: %v", err)
+	}
+	if len(batches) != 1 || len(batches[0].Pens) != 1 {
+		t.Fatalf("batches = %+v", batches)
+	}
+	var snapshotPark string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(park_id::text, '') FROM goat_sale_allocations WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		ssTenant, one).Scan(&snapshotPark); err != nil {
+		t.Fatalf("read allocation park: %v", err)
+	}
+	if snapshotPark != parkID || batches[0].Pens[0].ParkID != snapshotPark {
+		t.Fatalf("pen park = %q, allocation snapshot = %q, goat park = %q: all three must agree", batches[0].Pens[0].ParkID, snapshotPark, parkID)
+	}
+	var scopePark string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(payload->'visibility_scope'->>'park_id', '')
+FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'goat.sale_allocated' AND aggregate_id = $2::uuid`,
+		ssTenant, saleDealA).Scan(&scopePark); err != nil {
+		t.Fatalf("read event scope: %v", err)
+	}
+	if scopePark != parkID {
+		t.Fatalf("event visibility_scope.park_id = %q, want the snapshot park %q", scopePark, parkID)
+	}
+}
+
+// The reminder's read is a TRAILING WINDOW, not a paged list: `since` is a hard lower bound and the
+// batches come back oldest first, one per confirm, so a second confirm of a different sale is a
+// second batch and a since past the first confirm returns only the second. No cursor exists to
+// advance, and none is needed -- the window is bounded by time and served by the 000274 index.
+func TestSaleAllocationBatchReaderTrailingWindowNeedsNoPagination(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool, repo := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+	f := seedShedStageFixture(t, ctx, pool)
+
+	one := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
+	two := seedStageGoat(t, ctx, pool, f.yashodaShed, "", "F2", "adult")
+	seedSaleAllocationDeal(t, ctx, pool, saleDealA, 1)
+	seedSaleAllocationDeal(t, ctx, pool, saleDealB, 1)
+	first := saleAllocCmd(saleDealA, []ports.SaleAllocationRow{{GoatID: one, RowVersion: goatRowVersion(t, pool, one)}}, "confirm-w1")
+	if _, err := repo.RecordSaleAllocations(ctx, first); err != nil {
+		t.Fatalf("first confirm: %v", err)
+	}
+	second := saleAllocCmd(saleDealB, []ports.SaleAllocationRow{{GoatID: two, RowVersion: goatRowVersion(t, pool, two)}}, "confirm-w2")
+	second.OccurredAt = first.OccurredAt.Add(2 * time.Hour)
+	if _, err := repo.RecordSaleAllocations(ctx, second); err != nil {
+		t.Fatalf("second confirm: %v", err)
+	}
+
+	both, err := repo.ListRecentSaleAllocationBatches(ctx, ssTenant, first.OccurredAt.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ListRecentSaleAllocationBatches(both): %v", err)
+	}
+	if len(both) != 2 || both[0].SalesDealID != saleDealA || both[1].SalesDealID != saleDealB {
+		t.Fatalf("both = %+v, want deal A then deal B oldest first", both)
+	}
+	if !both[1].AllocatedAt.After(both[0].AllocatedAt) {
+		t.Fatalf("batches must come back oldest first: %v then %v", both[0].AllocatedAt, both[1].AllocatedAt)
+	}
+	onlySecond, err := repo.ListRecentSaleAllocationBatches(ctx, ssTenant, first.OccurredAt.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ListRecentSaleAllocationBatches(later): %v", err)
+	}
+	if len(onlySecond) != 1 || onlySecond[0].SalesDealID != saleDealB {
+		t.Fatalf("a since after the first confirm must read only the second, got %+v", onlySecond)
+	}
+	none, err := repo.ListRecentSaleAllocationBatches(ctx, ssTenant, second.OccurredAt.Add(time.Second))
+	if err != nil {
+		t.Fatalf("ListRecentSaleAllocationBatches(none): %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("a since after every confirm must read nothing, got %+v", none)
 	}
 }

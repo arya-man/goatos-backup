@@ -1430,6 +1430,20 @@ grow this into a general substitution model -- that belongs on
 `feed_item_catalog` as a maintainer decision. Canonical prose and the revert
 recipe: `docs/decisions/feed-stock-transitional-concentrate-merge.md`.
 
+Confirmed SALE -> FEED DIRECTOR NOTICE rule (maintainer decision 2026-09-07): when animals are
+TAGGED to a sale (the sale-allocation confirm, the moment they leave the register), the Feed
+Director -- and ONLY the Feed Director; park heads and the CEO were offered and declined -- gets a
+push naming every pen, how many animals left it, the sale date and the FEED DAY the reduction lands
+on. On that feed day, from 07:00 IST, a second push asks whether feed did reduce for those pens. The
+reminder carries NO VALUES ("just a reminder is enough"): no kilograms, no sheet head counts. The
+feed day is the park's own correction clock's answer, never a constant: before the normal-workflow
+correction cutoff -> D+1, at or after it -> D+2, no clock -> D+1 (`feeddirection/domain.SaleFeedReductionDay`).
+The confirm emits ONE `goat.sale_allocated` event per batch beside the per-animal `goat.exited`
+(the Feed Director's grain is the pen; do not rebuild it from a hundred goat events); the reminder
+is a stage on the shared cadence keyed per confirm, not a cron. The commercial sale row on
+`/sales/config` fires nothing -- it knows no pens. Canonical prose:
+`docs/decisions/sale-feed-reduce-notification.md`.
+
 Confirmed FEED PURCHASE ENTRY rule (maintainer decision 2026-08-24, SUPERSEDING the READ-ONLY
 half — and only that half — of the 2026-08-17 lock recorded in migration `000174`): feed bought
 for CBE and CPT is now RECORDED IN THE APP on `/procurement/feed-purchases`, carrying the same

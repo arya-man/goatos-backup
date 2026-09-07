@@ -308,3 +308,34 @@ func (d SaleDeal) Remaining() int {
 type SaleDealReader interface {
 	ReadSaleDeal(ctx context.Context, tenantID, salesDealID string) (*SaleDeal, error)
 }
+
+// SaleAllocationPen is ONE pen's share of one sale confirm: where the animals stood when they
+// were tagged, and how many of them. It is what the Feed Director's push names pen by pen.
+type SaleAllocationPen struct {
+	ParkID                     string
+	ParkName                   string
+	ShedID                     string
+	ShedName                   string
+	PartitionLabel             string
+	OperationalLocationDisplay string
+	Animals                    int
+}
+
+// SaleAllocationBatch is ONE confirm of a sale -- every animal tagged in the same
+// RecordSaleAllocations transaction, which all share allocated_at -- grouped by pen. A sale
+// confirmed in two halves (a deal larger than MaxSaleAllocationGoatsPerCommand, or a later
+// addition) is two batches, because each is a separate moment the register changed and each
+// deserves its own feed notice.
+type SaleAllocationBatch struct {
+	SalesDealID string
+	AllocatedAt time.Time
+	Animals     int
+	Pens        []SaleAllocationPen
+}
+
+// SaleAllocationBatchReader lists recent confirms for the feed-reduction reminder. `since` bounds
+// the read to a short trailing window; the reminder's own idempotency key is what keeps a batch
+// from being reminded twice.
+type SaleAllocationBatchReader interface {
+	ListRecentSaleAllocationBatches(ctx context.Context, tenantID string, since time.Time) ([]SaleAllocationBatch, error)
+}

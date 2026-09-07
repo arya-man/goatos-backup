@@ -43,6 +43,7 @@
         "goat.identity.merge_approved",
         "goat.identity.merge_rejected",
         "goat.exited",
+        "goat.sale_allocated",
         "goat.location.changed",
         "goat.stage_changed",
         "goat.health.changed",
@@ -167,7 +168,8 @@
         "feed_distribution_completion",
         "feed_direction_session_completion",
         "feed_purchase",
-        "leadership_task"
+        "leadership_task",
+        "sales_deal"
       ]
     },
     "aggregate_id": {
@@ -199,7 +201,8 @@
         "notification_request",
         "health_protocol_version",
         "feed_purchase",
-        "leadership_task"
+        "leadership_task",
+        "sales_deal"
       ]
     },
     "subject_id": {

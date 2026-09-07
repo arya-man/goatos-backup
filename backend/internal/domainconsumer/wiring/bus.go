@@ -106,6 +106,9 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	// cmd/outbox-relay -- this builder is also the bus the kernel E2E fixture relays through, so a
 	// consumer missing here is invisible to the story suite.
 	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
+	// Sale -> Feed Director notice (maintainer decision 2026-09-07): goat.sale_allocated, emitted once
+	// per confirm with the pen-by-pen breakdown, pushes the pens and the feed day to reduce from.
+	notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithFeedClocks(feeddirectionpg.NewRepository(pool, queryTimeout)).Register(bus)
 	// Verifier-verdict appliers: the ONE shared registration (internal/eventwiring), the same call
 	// bootstrap/api.go and cmd/outbox-relay make. This builder previously hand-listed consumers and
 	// carried ONLY the weighing applier, so every shifting / feed-distribution / feed-packing /

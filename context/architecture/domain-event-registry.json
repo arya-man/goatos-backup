@@ -58,7 +58,8 @@
     "weighing.work_item.day_start",
     "weighing.work_item.rolled_forward",
     "weighing.work_item.delayed",
-    "procurement.feed_purchase.reached"
+    "procurement.feed_purchase.reached",
+    "goat.sale_allocated"
   ],
   "events": [
     {
@@ -1592,6 +1593,30 @@
       "e2eProof": [
         "backend/internal/notificationbridge/leadership_task_notify_consumer_test.go",
         "backend/internal/leadershiptasks/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "goat.sale_allocated",
+      "producer": "sale allocation confirm (maintainer decision 2026-09-07): identity.Repository.RecordSaleAllocations emits ONE event per confirm, in the SAME transaction that inserts goat_sale_allocations and exits each animal as sold (goat.exited stays per animal for obligation/tasks/health). The payload carries the sale, the confirm instant (allocated_at), the animal total and the pen-by-pen breakdown (park/shed/partition ids + names, canonical operational_location_display, animals per pen) so the Feed Director's push needs no lookup at consume time. Aggregate/subject is the sales_deal (an opaque reference, never an FK). Idempotency key = deal + allocated_at microseconds: a sale confirmed in two halves is two batches and two events; an exact replay of one confirm short-circuits on the confirm's own idempotency row before this insert.",
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/sale_allocation_event.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/sale_feed_reduce_notify.go",
+          "notes": "Feed Director notice (feed_sale_reduce): names the park, every pen with how many animals left it, the sale date, and the feed day the reduction lands on -- resolved from the park's normal-workflow correction clock via feeddirection/domain.SaleFeedReductionDay (before the cutoff -> D+1, after -> D+2, no clock -> D+1). Feed Director ALONE (ResolvePositionRecipients tenant/feed_director); CEO and park heads deliberately not addressed. The feed-day REMINDER (feed_sale_reduce_reminder) is not an event consumer: kernelstages.SaleFeedReduceReminderStage reads goat_sale_allocations over a 4-day trailing window on the shared operational cadence and is keyed per confirm, gated to 07:00 IST on the feed day."
+        }
+      ],
+      "owningDoc": "docs/decisions/sale-feed-reduce-notification.md",
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/sale_allocation_integration_test.go",
+        "backend/internal/notificationbridge/sale_feed_reduce_notify_test.go"
       ],
       "surfaces": [
         "backend",
