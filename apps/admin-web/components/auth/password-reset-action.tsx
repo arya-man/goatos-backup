@@ -136,8 +136,8 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
           value={password}
           onChange={(event) => setPassword(event.currentTarget.value)}
           disabled={status === "submitting"}
-          className="h-11 rounded-[10px] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
-          style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
+          className="h-11 rounded-[var(--r)] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
+          style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--panel)" }}
         />
       </label>
       <label className="grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
@@ -148,8 +148,8 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
           value={confirmation}
           onChange={(event) => setConfirmation(event.currentTarget.value)}
           disabled={status === "submitting"}
-          className="h-11 rounded-[10px] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
-          style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
+          className="h-11 rounded-[var(--r)] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
+          style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--panel)" }}
         />
       </label>
 

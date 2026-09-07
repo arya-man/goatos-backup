@@ -33,7 +33,7 @@ const SERIES_PALETTE = [
   "var(--purple)",
   "var(--teal)",
   "var(--danger)",
-  "var(--ok)",
+  "var(--value)",
 ] as const;
 
 // Mock geometry: 20px rows on a 6px gap, with a label gutter and a value gutter either side.

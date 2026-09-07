@@ -26,7 +26,7 @@ const SERIES_PALETTE = [
   "var(--purple)",
   "var(--teal)",
   "var(--danger)",
-  "var(--ok)",
+  "var(--value)",
 ] as const;
 
 export function HBarList({

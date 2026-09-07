@@ -272,7 +272,7 @@ export async function VaccinationDriveDetail({
                   </tbody>
                 </table>
               </div>
-              <div style={{ padding: 12, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid var(--border)" }}>
+              <div style={{ padding: 12, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid var(--line2)" }}>
                 {prevHref ? (
                   <Link href={prevHref} className="btn">
                     <ChevronLeft className="ic" /> {copy(pageContract, "calendar.drive.previous_page")}

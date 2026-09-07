@@ -20,3 +20,22 @@ body{margin:0;background:#070706;color:#ece8dd;font-family:"Instrument Sans",sys
 .ge-btn:focus-visible{outline:2px solid #7ac943;outline-offset:2px}
 .ge-digest{margin:18px 0 0;font-family:"Spline Sans Mono",ui-monospace,monospace;font-size:11px;color:rgba(236,232,221,.38);word-break:break-all}
 @media (prefers-reduced-motion:reduce){.ge-btn{transition:none}}
+
+/* This boundary renders when the app's own CSS is unavailable, so it cannot read a
+   theme class or a token. prefers-color-scheme is the only signal it has. */
+@media (prefers-color-scheme: light){
+  html{color-scheme:light}
+  body{background:#ece8dd;color:#141410}
+  .ge-card{background:#f5f2ea;border-color:rgba(20,20,16,.14)}
+  .ge-eyebrow{color:#6b6759}
+  .ge-body{color:#57544b}
+  .ge-btn{border-color:rgba(61,111,25,.4);color:#3d6f19}
+  .ge-btn:hover{background:#3d6f19;border-color:#3d6f19;color:#f5f2ea}
+  .ge-btn:focus-visible{outline-color:#3d6f19}
+  .ge-digest{color:#6b6759}
+}
+@media print{
+  body{background:#fff;color:#141410}
+  .ge-card{background:#fff;border-color:#c9c5b8}
+  .ge-btn{display:none}
+}

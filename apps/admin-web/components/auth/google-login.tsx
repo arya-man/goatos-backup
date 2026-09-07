@@ -340,8 +340,8 @@ export function GoogleLogin({
             />
             {status === "loading" ? (
               <div
-                className="flex h-11 w-full items-center justify-center rounded-[10px] border"
-                style={{ borderColor: "var(--line)", background: "var(--card)", color: "var(--muted)" }}
+                className="flex h-11 w-full items-center justify-center rounded-[var(--r)] border"
+                style={{ borderColor: "var(--line)", background: "var(--panel)", color: "var(--muted)" }}
               >
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               </div>
@@ -350,18 +350,18 @@ export function GoogleLogin({
         ) : null}
         {showAuthProgress ? (
           <div
-            className="flex min-h-[66px] w-full items-center gap-3 rounded-[10px] border px-4"
+            className="flex min-h-[66px] w-full items-center gap-3 rounded-[var(--r)] border px-4"
             role="status"
             style={{
               borderColor: "color-mix(in srgb, var(--brand) 44%, var(--line))",
-              background: "color-mix(in srgb, var(--brand-soft) 58%, var(--card))",
+              background: "color-mix(in srgb, var(--brand-soft) 58%, var(--panel))",
               color: "var(--ink)",
               boxShadow: "0 0 0 3px color-mix(in srgb, var(--brand-soft) 52%, transparent)",
             }}
           >
             <span
-              className="grid h-9 w-9 place-items-center rounded-[9px]"
-              style={{ background: "var(--card)", color: "var(--brand-d)" }}
+              className="grid h-9 w-9 place-items-center rounded-[var(--r)]"
+              style={{ background: "var(--panel-2)", color: "var(--brand-d)" }}
             >
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             </span>
@@ -399,8 +399,8 @@ export function GoogleLogin({
             value={email}
             onChange={(event) => setEmail(event.currentTarget.value)}
             disabled={isBusy}
-            className="h-11 rounded-[10px] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
-            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
+            className="h-11 rounded-[var(--r)] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
+            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--panel)" }}
           />
         </label>
         <div className="grid gap-1.5">
@@ -423,8 +423,8 @@ export function GoogleLogin({
             value={password}
             onChange={(event) => setPassword(event.currentTarget.value)}
             disabled={isBusy}
-            className="h-11 rounded-[10px] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
-            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
+            className="h-11 rounded-[var(--r)] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
+            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--panel)" }}
           />
         </div>
         <button

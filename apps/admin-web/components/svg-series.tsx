@@ -17,7 +17,7 @@
 export const SERIES_VARS = [
   "var(--brand)",
   "var(--info)",
-  "var(--amber)",
+  "var(--value)",
   "var(--purple)",
   "var(--teal)",
   "var(--danger)",

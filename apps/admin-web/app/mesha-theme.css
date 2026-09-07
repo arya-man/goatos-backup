@@ -59,7 +59,7 @@
     --bg:#ece8dd; --panel:#f5f2ea; --panel-2:#e3dfd2; --ink:#141410; --muted:#57544b; --faint:#6b6759;
     --line:rgba(20,20,16,.14); --line2:rgba(20,20,16,.07);
     --brand:#3d6f19; --brand-d:#2f5613; --brand-soft:rgba(76,138,31,.12);
-    --sidebar:#e3dfd2; --sidebar-2:#d7d2c2; --sidebar-ink:#57544b; --sidebar-ink2:#141410;
+    --brand-l:#638d2c; --sidebar:#e3dfd2; --sidebar-2:#d7d2c2; --sidebar-ink:#57544b; --sidebar-ink2:#141410;
     --value:#6f5715; --value-soft:rgba(111,87,21,.12);
     --ok:#3d6f19; --okx:rgba(61,111,25,.12); --warn:#7a5510; --warnx:rgba(122,85,16,.12); --danger:#b03a35; --dangerx:rgba(176,58,53,.12);
     --info:#3c5f85; --infox:rgba(60,95,133,.12); --purple:#5f4f96; --purplex:rgba(95,79,150,.12); --teal:#2c7264; --tealx:rgba(44,114,100,.12);
@@ -176,7 +176,7 @@
   .tipwrap{position:relative;display:inline-flex;align-items:center;justify-content:center;margin-left:5px;vertical-align:middle}
   .tipwrap .ihelp{display:inline-grid;place-items:center;width:18px;height:18px;margin-left:0;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:11px;font-weight:800;line-height:1;text-transform:none;letter-spacing:0;cursor:help}
   .tipwrap .ihelp:hover{border-color:var(--line);background:var(--bg);color:var(--ink)}
-  .tipwrap .ihelp:focus-visible{outline:2px solid var(--ring);outline-offset:2px;border-color:var(--brand);color:var(--brand)}
+  .tipwrap .ihelp:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-color:var(--brand);color:var(--brand)}
   .tipwrap .tip{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:230px;max-width:300px;background:var(--panel);border:1px solid var(--line);border-radius:2px;box-shadow:var(--shadow);padding:9px 11px;font-size:12px;line-height:1.5;font-weight:500;color:var(--ink);text-transform:none;letter-spacing:normal;white-space:normal;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-4px);transition:opacity .14s,transform .14s,visibility .14s}
   .tipwrap:hover .tip,.tipwrap:focus-within .tip{opacity:1;visibility:visible;transform:translateY(0)}
   th .tipwrap .tip{right:0;left:auto}
@@ -277,7 +277,7 @@
   /* Interior days of a selected span. Deliberately weaker than .on so the two ENDS stay the thing
      the eye lands on — those are the dates the verifier actually chose. */
   .top-date-day.in-range{border-color:transparent;background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand-d);border-radius:2px}
-  .top-date-day:disabled{opacity:.32;cursor:not-allowed}
+  .top-date-day:disabled{opacity:.55;color:var(--muted);cursor:not-allowed;cursor:not-allowed}
   .top-date-day:disabled:hover{border-color:transparent;background:transparent;color:var(--ink)}
   .top-date-hint{margin-right:auto;color:var(--muted);font-size:11px;font-weight:650}
   .scope-reset{display:inline-flex;align-items:center;min-height:24px;margin-left:4px;padding:1px 7px;border-radius:2px;border:1px solid var(--line);background:var(--panel);color:var(--info);font-weight:800;font-size:11px;text-decoration:none}
@@ -527,7 +527,7 @@
   .cfgjson{background:var(--bg);border:1px solid var(--line);border-radius:2px;padding:11px;font:11px/1.5 ui-monospace,Menlo,monospace;color:var(--muted);white-space:pre-wrap;max-height:430px;overflow:auto}
   .cfgdsl-label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0;margin-bottom:5px}
   .cfgmf{display:flex;gap:8px;align-items:center;padding:13px 18px;border-top:1px solid var(--line2);position:sticky;bottom:0;background:var(--panel);z-index:1}
-  #cfgToastEl{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--brand);color:var(--on-brand);font-weight:700;padding:10px 16px;border-radius:2px;z-index:130;box-shadow:var(--shadow);opacity:0;transition:opacity .2s;pointer-events:none}
+  #cfgToastEl{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--brand);color:var(--on-brand);font-weight:700;padding:10px 16px;border-radius:var(--r-pill);z-index:230;box-shadow:var(--pop);opacity:0;transition:opacity .2s;pointer-events:none}
   /* layout + sidebar */
   .layout{display:flex;height:calc(100dvh - 58px);min-height:0;overflow:hidden}
   .layout.rail .main{min-width:0}
@@ -580,7 +580,7 @@
   .metric-help summary{list-style:none;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:11px;font-weight:800;line-height:1;cursor:help}
   .metric-help summary::-webkit-details-marker{display:none}
   .metric-help summary:hover,.metric-help[open] summary{background:var(--bg);color:var(--ink)}
-  .metric-help summary:focus-visible{outline:2px solid var(--ring);outline-offset:2px;border-color:var(--brand);color:var(--brand)}
+  .metric-help summary:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-color:var(--brand);color:var(--brand)}
   .metric-help-panel{position:absolute;z-index:80;top:calc(100% + 8px);left:0;width:min(360px,calc(100vw - 40px));display:grid;gap:7px;padding:11px 12px;border:1px solid var(--line);border-radius:2px;background:var(--panel);box-shadow:var(--shadow);color:var(--ink);font-size:12px;line-height:1.45}
   .metric-help-panel span{color:var(--muted)}
   /* breadcrumb microcopy — --muted (not --faint) to clear WCAG AA contrast on --panel (a11y gate). */
@@ -1024,7 +1024,7 @@
   .pcard.off{opacity:.5}
   .phead{display:flex;align-items:center;gap:12px;padding:13px 14px;cursor:pointer}.phead:hover{background:var(--panel-2)}
   .tog{width:40px;height:23px;border-radius:999px;background:var(--line);position:relative;cursor:pointer;flex:none;transition:background .15s;border:0;padding:0}
-  .tog.on{background:var(--ok)}.tog.on::after{background:var(--on-brand)}.tog::after{content:"";position:absolute;top:2.5px;left:2.5px;width:18px;height:18px;border-radius:50%;background:var(--ink);transition:left .15s}.tog.on::after{left:19.5px}.tog:disabled{opacity:.5;cursor:not-allowed}
+  .tog.on{background:var(--ok)}.tog.on::after{background:var(--on-brand)}.tog::after{content:"";position:absolute;top:2.5px;left:2.5px;width:18px;height:18px;border-radius:50%;background:var(--ink);transition:left .15s}.tog.on::after{left:19.5px}.tog:disabled{opacity:.55;color:var(--muted);cursor:not-allowed;cursor:not-allowed}
   .pv{flex:1;min-width:0}.pv .nm{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}.pv .sent{color:var(--muted);font-size:13px;margin-top:3px}
   .dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}.dot.l{background:var(--warn)}.dot.k{background:var(--info)}
   .sptag{font-size:10.5px;padding:2px 8px;border-radius:2px;border:1px solid var(--line);color:var(--muted);background:var(--panel-2)}
@@ -1054,7 +1054,7 @@
   .pbtn{min-width:30px;height:30px;border:1px solid var(--line);background:var(--panel);border-radius:var(--r-pill);color:var(--muted);font:inherit;font-weight:600;cursor:pointer;display:grid;place-items:center;padding:0 8px}
   .pbtn:hover:not([disabled]){border-color:var(--brand);color:var(--brand)}
   .pbtn.on{background:var(--brand);border-color:var(--brand);color:var(--on-brand)}
-  .pbtn[disabled]{opacity:.4;cursor:default}
+  .pbtn[disabled]{opacity:.55;color:var(--muted);cursor:not-allowed;cursor:default}
   .alert{display:flex;align-items:center;gap:13px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 32%,transparent);border-left:4px solid var(--danger);border-radius:2px;padding:13px 16px;margin-bottom:16px}
   .alert .ic{color:var(--danger)} .alert b{color:var(--danger)}
   .alert.ok{background:var(--okx);border-color:color-mix(in srgb,var(--ok) 32%,transparent);border-left-color:var(--ok)}
@@ -1187,7 +1187,7 @@
   /* Portaled to <body> with fixed coordinates from the anchor cell, so the table's scroll
      container can never clip it. Above the sticky topbar (100) and routebar (101), below
      modals/drawers (219+). */
-  .tagedit-pop{position:fixed;z-index:150;width:250px;display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:2px;background:var(--panel);box-shadow:var(--shadow);white-space:normal}
+  .tagedit-pop{position:fixed;z-index:225;width:250px;display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:2px;background:var(--panel);box-shadow:var(--shadow);white-space:normal}
   .tagedit-pop input{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:2px;background:var(--bg);color:var(--ink);font:inherit;font-size:13px}
   .tagedit-list{display:grid;gap:2px;max-height:210px;overflow-y:auto}
   .tagedit-option{display:block;width:100%;text-align:left;padding:7px 9px;border:0;border-radius:2px;background:none;color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
@@ -1707,7 +1707,7 @@
   .schedule-vaccine-toggle .ic{width:12px;height:12px;flex:0 0 auto;stroke-width:2.2;opacity:.85}
   .schedule-vaccine-toggle:hover{border-color:color-mix(in srgb,var(--info) 55%,var(--line2));color:var(--info)}
   .schedule-vaccine-toggle.is-expanded{border-style:dashed;color:var(--muted)}
-  .schedule-vaccine-toggle:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+  .schedule-vaccine-toggle:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   .vaccine-chip{color:var(--ink);border-color:color-mix(in srgb,var(--info) 32%,var(--line));background:var(--infox)}
   .schedule-animals-link{justify-content:center;text-align:left}
   .schedule-load-card{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;max-width:250px}
@@ -1730,7 +1730,7 @@
   .schedule-load-item.tone-done .schedule-load-dot{background:var(--faint)}
   .schedule-load-count{font-weight:850;color:var(--ink)}
   .schedule-load-name{color:var(--muted)}
-  .schedule-drawer-backdrop{position:fixed;inset:0;z-index:219;background:linear-gradient(90deg,transparent 0%,transparent 55%,color-mix(in srgb,var(--bg) 58%,transparent));}
+  .schedule-drawer-backdrop{position:fixed;inset:0;z-index:219;background:linear-gradient(90deg,transparent 0%,transparent 55%,var(--scrim));}
   .schedule-drawer-backdrop[aria-hidden="true"]{pointer-events:none;visibility:hidden}
   .schedule-drawer-close-layer{position:fixed;inset:0;z-index:219;display:block;border:0;background:transparent;padding:0;text-align:left;cursor:default}
   .schedule-side-drawer{position:fixed;top:0;right:0;width:min(460px,calc(100vw - 28px));height:100vh;display:flex;flex-direction:column;pointer-events:auto;background:color-mix(in srgb,var(--panel) 96%,var(--bg));border-left:1px solid var(--line);box-shadow:var(--pop);z-index:220}
@@ -1795,7 +1795,7 @@
   .main table.shed-animal-roster-table .shed-animal-roster-row{position:relative;cursor:pointer}
   .main table.shed-animal-roster-table .shed-animal-roster-row:hover td{background:var(--bg)}
   .main table.shed-animal-roster-table .shed-animal-roster-row-link{position:absolute;inset:0;z-index:1;display:block;color:inherit;text-decoration:none}
-  .main table.shed-animal-roster-table .shed-animal-roster-row-link:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:2px}
+  .main table.shed-animal-roster-table .shed-animal-roster-row-link:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:2px}
   .main table.shed-animal-roster-table .shed-animal-roster-cell-content{position:relative;z-index:2;pointer-events:none;display:block;min-width:0}
   .main table.shed-animal-roster-table .shed-animal-roster-cell-content :is(a,button,input,select,textarea,[role="button"]){position:relative;z-index:3;pointer-events:auto}
   /* Animal roster values scroll horizontally as a table and never break into characters
@@ -2098,7 +2098,7 @@
   .sw{width:11px;height:11px;border-radius:2px;display:inline-block}
   hr.sep{border:0;border-top:1px solid var(--line);margin:22px 0}
   .muted{color:var(--muted)} .small{font-size:12px} .b700{font-weight:700}
-  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--brand);color:var(--on-brand);padding:11px 18px;border-radius:2px;font-weight:700;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:90;box-shadow:0 10px 30px var(--scrim)}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--brand);color:var(--on-brand);padding:11px 18px;border-radius:2px;font-weight:700;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:230;box-shadow:var(--pop)}
   .toast.on{opacity:1;transform:translateX(-50%)}
   /* ---------- orchestration tree ---------- */
   .ostages{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:16px}
@@ -2606,7 +2606,7 @@ th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: 
 .wc.off b { color: var(--info); }
 .dscrim { position: fixed; inset: 0; background: var(--scrim); display: none; z-index: 140; }
 .dscrim.on { display: block; }
-.drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(380px, 92vw); background: var(--panel); border-left: 1px solid var(--line); box-shadow: var(--shadow); transform: translateX(100%); transition: .22s; display: flex; flex-direction: column; z-index: 141; }
+.drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(380px, 92vw); background: var(--panel); border-left: 1px solid var(--line); box-shadow: var(--shadow); transform: translateX(100%); transition: .22s; display: flex; flex-direction: column; z-index:220; }
 .dscrim.on .drawer { transform: translateX(0); }
 .drawer .dh { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
 .drawer .dh .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-weight: 800; border: 1px solid var(--brand); font-size: 12px; }
@@ -2733,7 +2733,7 @@ select:disabled { opacity: .45; }
 .banner.warn b { color: var(--warn); }
 .uline { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 14px 0 6px; }
 .why { color: var(--muted); font-size: 12px; }
-#toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--panel); border: 1px solid var(--brand); border-left: 3px solid var(--brand); color: var(--ink); padding: 12px 16px; border-radius: 2px; box-shadow: var(--shadow); font-size: 12.5px; opacity: 0; pointer-events: none; transition: .2s; max-width: 460px; z-index: 200; }
+#toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--panel); border: 1px solid var(--brand); border-left: 3px solid var(--brand); color: var(--ink); padding: 12px 16px; border-radius: 2px; box-shadow: var(--shadow); font-size: 12.5px; opacity: 0; pointer-events: none; transition: .2s; max-width: 460px; z-index:230; }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 #toast.err { border-color: var(--danger); border-left-color: var(--danger); }
 /* Command Board */
@@ -4954,7 +4954,7 @@ select:disabled { opacity: .45; }
     color-scheme:light;
     --bg:#fff; --panel:#fff; --panel-2:#f4f2ec; --ink:#141410; --muted:#45433c; --faint:#6b6759;
     --line:#c9c5b8; --line2:#e2ded2;
-    --brand:#2f5613; --brand-d:#24420e; --brand-l:#2f5613; --brand-soft:transparent;
+    --brand:#2f5613; --brand-d:#24420e; --brand-l:#5d8f33; --brand-soft:transparent;
     --value:#6f5715; --ok:#2f5613; --warn:#7a4910; --danger:#962f2a;
     --okx:transparent; --warnx:transparent; --dangerx:transparent; --infox:transparent;
     --purplex:transparent; --tealx:transparent;
@@ -4979,4 +4979,68 @@ select:disabled { opacity: .45; }
      the hairline has to carry it. */
   :where(:root) .tag,:where(:root) .chip{border:1px solid currentColor;print-color-adjust:exact}
   :where(:root) table{break-inside:auto}:where(:root) tr{break-inside:avoid}:where(:root) thead{display:table-header-group}
+}
+
+/* ===== CLASSES REFERENCED BY COMPONENTS BUT NEVER DEFINED =====
+   Each of these is the SOLE class on the element that uses it, so until now the
+   element rendered with no styling at all -- unstyled body text where a muted
+   empty state, a warning box, a link or a primary button was intended. Found by
+   a route-by-route audit against the running app, not by reading CSS. */
+
+/* The page-root wrapper on the three analytics screens (feed, counts, health).
+   Undefined, so it was `display:block` with no gap and the KPI rows, cards and
+   chart sections butted straight against each other. */
+:where(:root) .pagegrid{display:grid;gap:14px;align-content:start}
+
+/* The reviewer's blocking notice on /verification ("no evidence, verdict
+   disabled"). It read as a plain caption. */
+:where(:root) .warnbox{display:flex;gap:9px;align-items:flex-start;padding:11px 13px;border:1px solid color-mix(in srgb,var(--warn) 38%,var(--line));background:var(--warnx);color:var(--warn);border-radius:var(--r);font-size:12.5px;line-height:1.5}
+
+/* Evidence links in the video log. The global `a{color:inherit;text-decoration:none}`
+   made them visually identical to surrounding text -- nothing said "clickable". */
+:where(:root) .lnk{color:var(--brand);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--brand) 40%,transparent);cursor:pointer}
+:where(:root) .lnk:hover{border-bottom-color:var(--brand)}
+:where(:root) .lnk:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+/* Loading / empty / error states in the vaccination command board's shed-dose and
+   pending-sheds sections. The error variant was not even red. */
+:where(:root) .cbm-section-state,:where(:root) .cbm-empty{padding:14px 12px;color:var(--muted);font-family:var(--fm);font-size:11px;letter-spacing:.14em;text-transform:uppercase;text-align:center}
+:where(:root) .cbm-section-state-error{color:var(--danger)}
+
+/* The stock ledger's kg figure. Every other figure in that table is tabular; this
+   column rendered in body sans and looked unformatted. */
+:where(:root) .feed-stock-qty{font-family:var(--fm);color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* The calendar drive detail's submit action fell back to the plain outline .btn, so
+   the primary action was indistinguishable from the "Clear" beside it. Aliased to
+   the real primary button rather than duplicating its rules. */
+:where(:root) .btn-primary{background:transparent;border:1px solid color-mix(in srgb,var(--brand) 40%,transparent);color:var(--brand)}
+:where(:root) .btn-primary:hover{background:var(--brand);border-color:var(--brand);color:var(--on-brand)}
+
+/* Event-kind pills in the herd-signals fullscreen history used a tag variant that
+   does not exist, so every event kind rendered the same hue. */
+:where(:root) .tag.t-event{color:var(--info);border-color:color-mix(in srgb,var(--info) 55%,transparent);background:var(--infox)}
+
+/* ===== STATES THE SYSTEM HAD NOT COVERED ===== */
+
+/* Native form controls were painting in the OS accent (macOS blue) -- a colour in
+   neither theme -- on 16 checkbox/radio sites. */
+:where(:root) input[type="checkbox"],:where(:root) input[type="radio"]{accent-color:var(--brand)}
+
+/* There was no invalid state anywhere in the stylesheet: a field that failed
+   validation looked exactly like one that passed. */
+:where(:root) input[aria-invalid="true"],:where(:root) select[aria-invalid="true"],:where(:root) textarea[aria-invalid="true"]{border-color:var(--danger);background:var(--dangerx)}
+
+/* The file button inside an upload field kept OS chrome -- a light-grey button on a
+   near-black drawer in the bulk-import flows. */
+:where(:root) input[type="file"]::file-selector-button{font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;padding:7px 12px;margin-right:10px;border-radius:var(--r-pill);border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+:where(:root) input[type="file"]::file-selector-button:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+
+/* Reduced motion: the existing blocks covered roughly half of the 14 named
+   animations in this file. A vestibular user was still shown pulsing rings and
+   spinners. Everything that moves is stilled here. */
+@media (prefers-reduced-motion:reduce){
+  :where(:root) .wfspin,:where(:root) .skel,:where(:root) .skelrow,
+  :where(:root) .routebar.on span,:where(:root) a[data-route-pending="true"]::after{animation:none!important}
+  :where(:root) *{scroll-behavior:auto!important}
 }
