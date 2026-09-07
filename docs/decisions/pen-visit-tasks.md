@@ -115,11 +115,47 @@ downstream state; the push is a stage-queued digest, above. Registered in
 `pen_visits.execute` is also ORed into the `/app/proofs/*` upload routes, the `toxin.execute`
 lever, so the visit video can finish uploading.
 
-## Module badge
+## Module badge, and each tab's own
 
 The Tasks drawer badge is the SUM of both halves: the CXO's unseen asks plus the park head's
 visits still owed (`penvisits/app.ModuleBadges` wraps the leadership tasks source). One person
 carries one of the two today, so nothing double-counts.
+
+**Each bar tab carries ITS OWN number** (2026-09-07, found on the first phone run): the module
+badge alone landed on the first tab, so a park head with two pens owed saw a "2" on *Raised by
+me*, the tab with nothing in it. `BootstrapNavigationItem.badge_count` now carries the per-tab
+count -- unseen asks on `/leadership-tasks`, pens owed on `/pen-visits` -- through
+`workforce/app.NavItemBadgeSource`, an OPTIONAL second half a badge source may implement. A
+source that answers only the module half keeps the old behaviour (the module's number on its
+landing tab), so no other module changed. The phone renders whichever the backend sent and
+counts nothing itself. Pinned by `workforce/app.TestTasksBarItemsCarryTheirOwnBadges`.
+
+## What the phone run found in the outbox engine (2026-09-07)
+
+With the API stopped, a fresh recording sat retrying its upload while the detail read
+**Submitted** and the card read **Done**. Root cause was GENERIC, not pen-visit specific:
+`SyncEngine.drainOnce()` replays every recent SUCCEEDED outbox row's stored response into Room
+on EVERY drain pass (the process-death repair), so the earlier submit's completed payload kept
+overwriting the fresher detail. Two fixes, both pinned: the replay is now once per process
+(`replayedTerminals`, a bounded id:status set -- a restart still repairs once), and
+`persistServerDetail` is monotonic on the server's `row_version`, so a stale payload never
+wins over a newer one. `SyncEngineTerminalReplayTest` holds the engine half.
+
+Also proven on the Realme: recording with the server down shows "Sending…" on both the detail
+and the card, killing the app mid-queue loses nothing, and the visit completes by itself within
+seconds of the server returning -- register, upload, complete, submit, all under the visit's one
+FIFO lane.
+
+## The screens, as landed on the phone
+
+List card: the pen label leads (the one line that names where to go), the backend's reason line
+under it ("Vaccination yesterday"), the park name faint beneath, the state chip on the right;
+a card whose video or submit is still on the wire wears a quiet "Sending" mark instead of the
+chip. Detail: the pen label is the header with the park as its subtitle (the backend's full
+title, "Visit Gandhi 3 · Coimbatore", is what the recorder chrome and the burned-in overlay
+carry, where the whole sentence has room), then one card with the chip, the reason line and
+the instruction, then the video card. Submit is implicit -- a finished recording is written
+down and queued in one act, so nothing asks the park head to press anything twice.
 
 ## Pinned by
 

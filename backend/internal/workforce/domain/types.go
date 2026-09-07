@@ -289,6 +289,11 @@ type BootstrapNavigationItem struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
 	Href  string `json:"href"`
+	// BadgeCount is a backend-owned number THIS bar item shows (maintainer decision 2026-09-07):
+	// a module with two tabs carries two counts -- the CXO's unseen asks on "Raised by me", the
+	// park head's pens still owed on "For me" -- and a single module badge could only sit on one
+	// of them. Zero renders nothing. The module's own BadgeCount stays the drawer's number.
+	BadgeCount int `json:"badge_count,omitempty"`
 }
 
 // Nav chrome states shared by both bootstraps (see contract schema NavChrome).

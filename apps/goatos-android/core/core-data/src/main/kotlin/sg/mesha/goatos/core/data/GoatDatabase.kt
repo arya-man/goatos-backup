@@ -127,6 +127,12 @@ import sg.mesha.goatos.core.data.cache.LeadershipTaskItemDao
 import sg.mesha.goatos.core.data.cache.LeadershipTaskItemEntity
 import sg.mesha.goatos.core.data.cache.LeadershipTaskRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.LeadershipTaskRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.PenVisitDetailCacheDao
+import sg.mesha.goatos.core.data.cache.PenVisitDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.PenVisitItemDao
+import sg.mesha.goatos.core.data.cache.PenVisitItemEntity
+import sg.mesha.goatos.core.data.cache.PenVisitRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.PenVisitRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.ToxinTaskItemDao
@@ -352,6 +358,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         LeadershipTaskRemoteKeyEntity::class,
         LeadershipTaskDetailCacheEntity::class,
         DeathCauseCatalogEntity::class,
+        PenVisitItemEntity::class,
+        PenVisitRemoteKeyEntity::class,
+        PenVisitDetailCacheEntity::class,
     ],
     // v52 (see [MIGRATION_51_52]) adds the three diagnosis tables. `health_diagnosis_runs` is the
     // DETAIL cache — one animal's whole assessment, read in a shed with no signal, so a manager who
@@ -384,7 +393,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // (`sales_lead_items` + `sales_lead_remote_keys`) so buyer/FPO leads page by side/search/status.
     // v60 (see [MIGRATION_59_60]) adds proof_capture.featureCategory for common proof diagnostics.
     // v61 (see [MIGRATION_60_61]) caches backend vaccination proof preview refs on scan_roster_row.
-    version = 61,
+    // v62 (see [MIGRATION_61_62]) adds the three pen-visit read-model tables (maintainer decision
+    // 2026-09-07): the paged "For me" visit rows + their per-filter remote keys (the Leadership
+    // Tasks trio shape) and the visit-detail JSON blob cache.
+    version = 62,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -594,6 +606,9 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun leadershipTaskItemDao(): LeadershipTaskItemDao
     abstract fun leadershipTaskRemoteKeyDao(): LeadershipTaskRemoteKeyDao
     abstract fun leadershipTaskDetailCacheDao(): LeadershipTaskDetailCacheDao
+    abstract fun penVisitItemDao(): PenVisitItemDao
+    abstract fun penVisitRemoteKeyDao(): PenVisitRemoteKeyDao
+    abstract fun penVisitDetailCacheDao(): PenVisitDetailCacheDao
 
     abstract fun deathCauseCatalogDao(): DeathCauseCatalogDao
 

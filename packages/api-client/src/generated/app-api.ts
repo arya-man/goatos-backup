@@ -10002,6 +10002,8 @@ export interface components {
             key: string;
             label: string;
             href: string;
+            /** @description Backend-owned attention count THIS bar item shows (maintainer decision 2026-09-07). A module with two tabs carries two numbers -- unseen asks on Raised by me, pens still owed on For me -- so the module badge alone could sit on only one of them. Absent or 0 renders nothing; the module's badge_count stays the drawer's number. */
+            badge_count?: number;
         };
         /** @description A drawer entry: the module's identity plus the bottom-bar items it contributes. `status` is `available` (built, tappable) or `soon` (declared roadmap, disabled row). */
         BootstrapModule: {

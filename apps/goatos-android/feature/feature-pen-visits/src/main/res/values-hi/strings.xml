@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pen_visits_action_refresh">ताज़ा करें</string>
+    <string name="pen_visits_action_record">वीडियो रिकॉर्ड करें</string>
+    <string name="pen_visits_action_record_again">फिर से रिकॉर्ड करें</string>
+    <string name="pen_visits_video_label">बाड़े का वीडियो</string>
+    <string name="pen_visits_state_sending">भेजा जा रहा है…</string>
+    <string name="pen_visits_state_submitted">जमा हो गया</string>
+</resources>

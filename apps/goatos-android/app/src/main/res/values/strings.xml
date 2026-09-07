@@ -89,4 +89,8 @@
     <string name="proof_camera_scale_zero_cancel">Cancel</string>
     <string name="proof_camera_scale_zero_image_description">Weighing scale with an empty pan reading 0 kg</string>
     <string name="proof_camera_scale_zero_reading" translatable="false">0.0 kg</string>
+    <!-- Pen visits (maintainer decision 2026-09-07): recorder header and the two queue notices. -->
+    <string name="proof_video_pen_visit_header">Pen visit</string>
+    <string name="pen_visits_msg_capture_not_saved">That didn\'t save. Record it again.</string>
+    <string name="pen_visits_msg_not_sent">Saved, but couldn\'t be sent. Tap refresh and try again.</string>
 </resources>

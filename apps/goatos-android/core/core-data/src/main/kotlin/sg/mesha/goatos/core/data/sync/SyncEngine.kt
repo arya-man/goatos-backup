@@ -158,6 +158,11 @@ class SyncEngine(
     // re-renders server truth the moment the write drains — and refreshes it after a terminal
     // wait_not_elapsed / step_already_done refusal so the screen shows why.
     private val toxinRepository: sg.mesha.goatos.core.data.ToxinRepository? = null,
+    // Pen visits (maintainer decision 2026-09-07): a successful submit RETURNS the visit's fresh
+    // task (its `Done` chip, done line, row_version); this repository writes it through Room so
+    // the card and detail flip to done the moment the write drains. Same defect class as
+    // toxinRepository above: null here silently no-ops the reconcile in production.
+    private val penVisitsRepository: sg.mesha.goatos.core.data.PenVisitsRepository? = null,
     // Vendors module (maintainer decision 2026-09-03): without this the VENDOR_CREATE /
     // FEED_PURCHASE_CREATE reconciliation silently no-ops and the phone keeps showing the
     // register without the vendor it just recorded until the next refresh. Same defect class as
@@ -193,6 +198,15 @@ class SyncEngine(
     // eligibility fresh (so a just-enqueued item is never missed).
     private val drainMutex = Mutex()
 
+    /**
+     * Terminal rows (id:status) whose stored response has already been applied to Room in THIS
+     * process. Bounded to a small multiple of [SUCCESS_RECONCILE_LIMIT]: the replay only ever
+     * looks at the most recent terminals, so older keys can be forgotten without ever replaying
+     * again (a forgotten row is also outside the window). Process-scoped by design -- a restart
+     * replays each recent terminal exactly once, which is the process-death repair this exists for.
+     */
+    private val replayedTerminals = BoundedKeySet(capacity = SUCCESS_RECONCILE_LIMIT * 8)
+
     suspend fun deleteProof(proofId: String) = withContext(dispatchers.io) {
         api.deleteProof(proofId)
     }
@@ -215,18 +229,34 @@ class SyncEngine(
     suspend fun drainOnce(): Boolean {
         // Repair already-accepted feature state even while offline. A process can die after
         // markSucceeded and before Room reconciliation; replaying that durable response is local.
+        //
+        // ONCE PER PROCESS, never once per drain (defect found on the phone 2026-09-07): a
+        // terminal's stored response is the server's truth AT THE TIME IT LANDED. Replaying it on
+        // every pass re-wrote a pen visit's detail cache with an OLD completed payload while a newer
+        // attempt for the same task was still uploading, so the screen read "Submitted" over a video
+        // that had not gone through. The repair a process death needs is the FIRST replay after the
+        // restart; every later pass in the same process is a regression of fresher state.
         withContext(dispatchers.io) {
             store.observeRecentTerminals(SUCCESS_RECONCILE_LIMIT).forEach { terminal ->
+                val replayKey = terminal.id + ":" + terminal.status
+                if (!replayedTerminals.add(replayKey)) return@forEach
                 runCatching {
                     when {
                         terminal.status == OutboxStatus.SUCCEEDED.name -> reconcileFeatureSuccess(terminal)
                         terminal.status == OutboxStatus.FAILED.name &&
                             (terminal.conflict || terminal.attemptCount >= terminal.maxAttempts) ->
                             reconcileFeatureTerminalFailure(terminal)
+                        // Not terminal after all (a FAILED row still due a retry): let a later pass
+                        // decide once it truly settles.
+                        else -> replayedTerminals.remove(replayKey)
                     }
-                }.onFailure { reportCacheReconcileFailure(terminal, it) }
+                }.onFailure {
+                    // A failed local write may be retried by the next pass; the bounded set forgets it.
+                    replayedTerminals.remove(replayKey)
+                    reportCacheReconcileFailure(terminal, it)
                 }
             }
+        }
         if (!connectivityGate.isOnline()) return false
         val earliestRetryAt = AtomicLong(NO_RETRY_DUE)
         fun rememberRetryDue(epochMillis: Long) {
@@ -341,6 +371,9 @@ class SyncEngine(
                     claimedItem.copy(resultJson = resultJson),
                     skipPostSuccessRefresh = preSuccessRefreshApplied,
                 )
+                // Applied now, from this dispatch's own response; the next drain pass must not
+                // replay the stored copy over whatever the screen has learned since.
+                replayedTerminals.add(claimedItem.id + ":" + OutboxStatus.SUCCEEDED.name)
             }
             true
         } catch (cancellation: CancellationException) {
@@ -550,6 +583,7 @@ class SyncEngine(
         OutboxOpType.PC_CARE_TASK_SUBMIT -> dispatchPcCareTaskSubmit(item)
         OutboxOpType.TOXIN_STEP_COMPLETE -> dispatchToxinStepComplete(item)
         OutboxOpType.TOXIN_SUBMIT -> dispatchToxinSubmit(item)
+        OutboxOpType.PEN_VISIT_SUBMIT -> dispatchPenVisitSubmit(item)
         OutboxOpType.CLOCK_IN -> dispatchClockPunch(item, clockIn = true)
         OutboxOpType.CLOCK_OUT -> dispatchClockPunch(item, clockIn = false)
         OutboxOpType.VENDOR_CREATE -> dispatchVendorCreate(item)
@@ -799,6 +833,18 @@ class SyncEngine(
                         salesRepository?.persistServerDeal(
                             syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.SalesDealDto>(resultJson),
                         )
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            OutboxOpType.PEN_VISIT_SUBMIT -> {
+                item.resultJson?.let { resultJson ->
+                    // POST-dispatch result: the server returns the visit's FRESH task from the
+                    // very transaction this submit landed in (or, after a 409 already_submitted,
+                    // the re-fetched one). A local cache-write failure is reported, never allowed
+                    // to look like a dispatch failure — the FEED_PACKING_COMPLETE rationale.
+                    runCatching {
+                        val detail = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.PenVisitDetailDto>(resultJson)
+                        penVisitsRepository?.persistServerDetail(detail)
                     }.onFailure { reportCacheReconcileFailure(item, it) }
                 }
             }
@@ -1591,6 +1637,59 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    /**
+     * The pen-visit submit (maintainer decision 2026-09-07): the visit's one video, resolved
+     * through its coupled PROOF_UPLOAD row on the same task group exactly like
+     * [dispatchToxinStepComplete]'s clip. The row's STORED key is passed verbatim on a retry.
+     *
+     * Three server answers are handled here rather than left to [recordFailure]:
+     *  - `409 already_submitted` — the visit is already done (an earlier attempt landed but the
+     *    phone never heard back, or a second phone submitted). That is SUCCESS: the fresh task is
+     *    re-fetched and returned as this row's result so the reconcile flips the card to done.
+     *  - `409 stale_task` — the task moved under the row version the screen rendered. The task
+     *    is re-read; a visit already completed is success as above, otherwise the submit is
+     *    retried ONCE under the FRESH row version and its own (task, row_version) key from
+     *    PenVisitPayloads.kt — a genuinely new act, never the stored key with a different body.
+     *    A second refusal propagates and is terminal.
+     *  - `422 invalid_proof` / `proof_required` — terminal by [recordFailure]'s
+     *    `isTerminalAppApiError` check, carrying the server's own sentence; the card reads
+     *    "Record again" and the terminal hook re-reads the task.
+     */
+    private suspend fun dispatchPenVisitSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PenVisitSubmitPayload>(item.payloadJson)
+        val proofRef = resolveUploadedProofRef(payload.proofOutboxItemId)
+        val response = try {
+            api.submitPenVisit(
+                item.idempotencyKey,
+                payload.taskId,
+                sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto(proofRef = proofRef, rowVersion = payload.rowVersion),
+            )
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            when {
+                error.appApiStatusCode() == 409 && error.serverErrorText()?.code == PEN_VISIT_ALREADY_SUBMITTED ->
+                    api.getPenVisit(payload.taskId)
+                error.appApiStatusCode() == 409 && error.serverErrorText()?.code == PEN_VISIT_STALE_TASK -> {
+                    val fresh = api.getPenVisit(payload.taskId)
+                    if (fresh.task.workState == PEN_VISIT_STATE_COMPLETED || !fresh.task.canSubmit) {
+                        fresh
+                    } else {
+                        api.submitPenVisit(
+                            penVisitSubmitIdempotencyKey(payload.taskId, fresh.task.rowVersion),
+                            payload.taskId,
+                            sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto(
+                                proofRef = proofRef,
+                                rowVersion = fresh.task.rowVersion,
+                            ),
+                        )
+                    }
+                }
+                else -> throw error
+            }
+        }
+        return syncJson.encodeToString(response)
+    }
+
     private suspend fun dispatchMilkPreparationSubmit(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<MilkPreparationSubmitPayload>(item.payloadJson)
         suspend fun proof(step: String): String? = payload.proofOutboxItemIds[step]?.let { resolveUploadedProofRef(it) }
@@ -1915,6 +2014,10 @@ class SyncEngine(
         const val DRAIN_BATCH_SIZE = 200
         const val NO_RETRY_DUE = Long.MAX_VALUE
         const val PROOF_DEPENDENCY_WAIT_RETRY_MS = 1_000L
+        /** Pen-visit wire codes this engine reads (backend/internal/penvisits/app/errors.go). */
+        private const val PEN_VISIT_ALREADY_SUBMITTED = "already_submitted"
+        private const val PEN_VISIT_STALE_TASK = "stale_task"
+        private const val PEN_VISIT_STATE_COMPLETED = "completed"
         // The phone keeps the recent assessments a manager might re-open, not a history. The
         // server owns the record; without a cap this table only ever grows.
         // A RETENTION cap for deleteOldestBeyond, not a page fetch: nothing reads 50 rows;
@@ -1928,4 +2031,33 @@ class SyncEngine(
         // grain key mirrors it so the reconcile addresses the exact cached row the worklist wrote.
         const val FEED_WASTAGE_WORKFLOW = "experiment"
     }
+}
+
+/**
+ * A tiny insertion-ordered set with a hard capacity: the oldest key is evicted when a new one
+ * would exceed [capacity]. Synchronized because the drain and the per-item success path can run
+ * on different IO threads.
+ */
+internal class BoundedKeySet(private val capacity: Int) {
+    private val keys = LinkedHashSet<String>()
+
+    /** Adds [key]; returns false when it was already present. */
+    @Synchronized
+    fun add(key: String): Boolean {
+        if (!keys.add(key)) return false
+        if (keys.size > capacity) {
+            val oldest = keys.iterator()
+            oldest.next()
+            oldest.remove()
+        }
+        return true
+    }
+
+    @Synchronized
+    fun remove(key: String) {
+        keys.remove(key)
+    }
+
+    @Synchronized
+    fun contains(key: String): Boolean = key in keys
 }

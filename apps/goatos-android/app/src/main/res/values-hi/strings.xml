@@ -82,4 +82,7 @@
     <string name="proof_camera_scale_zero_confirm">ठीक है, वीडियो शुरू करें</string>
     <string name="proof_camera_scale_zero_cancel">रद्द करें</string>
     <string name="proof_camera_scale_zero_image_description">खाली तराज़ू जिस पर 0 किग्रा दिख रहा है</string>
+    <string name="proof_video_pen_visit_header">बाड़े का दौरा</string>
+    <string name="pen_visits_msg_capture_not_saved">यह सेव नहीं हुआ। फिर से रिकॉर्ड करें।</string>
+    <string name="pen_visits_msg_not_sent">सेव हुआ, पर भेजा नहीं जा सका। रिफ्रेश करके फिर कोशिश करें।</string>
 </resources>

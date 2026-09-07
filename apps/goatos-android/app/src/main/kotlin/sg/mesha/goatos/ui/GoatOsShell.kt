@@ -966,11 +966,24 @@ internal fun badgeLabel(count: Int): String = if (count > MAX_BADGE_COUNT) "$MAX
 
 private const val MAX_BADGE_COUNT = 99
 
-/** Module href -> backend badge count, for the bar item that is the module's own landing. */
-internal fun NavState.moduleBadgesByHref(): Map<String, Int> =
-    availableModules()
-        .filter { it.badgeCount > 0 }
-        .associate { it.href.routeBase() to it.badgeCount }
+/**
+ * Bar-item href -> backend badge count. A module whose items carry their OWN counts (Tasks:
+ * unseen asks on Raised by me, pens owed on For me) badges each tab with its number; a module
+ * that badges only itself puts that number on the bar item that is its landing. Never counted
+ * client-side.
+ */
+internal fun NavState.moduleBadgesByHref(): Map<String, Int> {
+    val out = mutableMapOf<String, Int>()
+    availableModules().forEach { module ->
+        val itemBadges = module.navItems.filter { it.badgeCount > 0 }
+        if (itemBadges.isNotEmpty()) {
+            itemBadges.forEach { out[it.href.routeBase()] = it.badgeCount }
+        } else if (module.badgeCount > 0) {
+            out[module.href.routeBase()] = module.badgeCount
+        }
+    }
+    return out
+}
 
 @Composable
 private fun DrawerBadge(text: String, brand: Boolean) {

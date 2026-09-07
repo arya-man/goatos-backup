@@ -249,7 +249,8 @@ func DoneLine(t Task) string {
 	if t.SubmittedAt == nil {
 		return ""
 	}
-	return "Visited " + biztime.FarmDate(*t.SubmittedAt)
+	at := t.SubmittedAt.In(biztime.DefaultLocation())
+	return "Visited " + biztime.FarmDate(at) + " · " + strings.ToLower(at.Format("3:04 PM"))
 }
 
 // Filters. The client names a KEY; the backend owns which states that means.

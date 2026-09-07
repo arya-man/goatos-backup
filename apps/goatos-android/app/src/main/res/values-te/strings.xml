@@ -82,4 +82,7 @@
     <string name="proof_camera_scale_zero_confirm">సరే, వీడియో ప్రారంభించండి</string>
     <string name="proof_camera_scale_zero_cancel">రద్దు చేయండి</string>
     <string name="proof_camera_scale_zero_image_description">0 కేజీ చూపిస్తున్న ఖాళీ తూకం యంత్రం</string>
+    <string name="proof_video_pen_visit_header">పెన్ సందర్శన</string>
+    <string name="pen_visits_msg_capture_not_saved">అది సేవ్ కాలేదు. మళ్లీ రికార్డ్ చేయండి.</string>
+    <string name="pen_visits_msg_not_sent">సేవ్ అయింది, కానీ పంపలేకపోయాం. రిఫ్రెష్ చేసి మళ్లీ ప్రయత్నించండి.</string>
 </resources>

@@ -72,6 +72,9 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskPageDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
+import sg.mesha.goatos.core.network.dto.PenVisitDetailDto
+import sg.mesha.goatos.core.network.dto.PenVisitPageDto
+import sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
@@ -400,6 +403,11 @@ data class NavItemDto(
     val key: String = "",
     val label: String = "",
     val href: String = "",
+    /**
+     * A backend-owned attention count THIS bar item shows (0 when nothing): the Tasks module's
+     * two tabs carry two numbers -- unseen asks on Raised by me, pens still owed on For me.
+     */
+    @SerialName("badge_count") val badgeCount: Int = 0,
 )
 
 /** Identity of the bootstrapped principal (BootstrapActor). */
@@ -1740,6 +1748,32 @@ interface AppApi {
 
     /** GET /app/leadership-tasks/{task_id}/attachments/{proof_id}/download. */
     suspend fun getLeadershipTaskAttachmentDownloadUrl(taskId: String, proofId: String): String
+
+    // Pen visits (maintainer decision 2026-09-07) — the Tasks module's "For me" tab
+    // ------------------------------------------------------------------
+
+    /**
+     * GET /app/pen-visits — the caller's own pen visits, keyset-paged. [filter] is a backend
+     * filter KEY (`todo` | `done`); blank means the backend default.
+     */
+    suspend fun getPenVisits(
+        filter: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): PenVisitPageDto
+
+    /** GET /app/pen-visits/{task_id}. */
+    suspend fun getPenVisit(taskId: String): PenVisitDetailDto
+
+    /**
+     * POST /app/pen-visits/{task_id}/submit — the visit's one video, fenced on row_version.
+     * Idempotent on [idempotencyKey]; 409 `already_submitted` means the visit is already done.
+     */
+    suspend fun submitPenVisit(
+        idempotencyKey: String,
+        taskId: String,
+        request: PenVisitSubmitRequestDto,
+    ): PenVisitDetailDto
 
     suspend fun getFeedDistributionCaptures(
         parkId: String?,
@@ -3176,6 +3210,28 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getLeadershipTaskAttachmentDownloadUrl(taskId: String, proofId: String): String =
         getProofDownloadUrl(proofId)
 
+    override suspend fun getPenVisits(
+        filter: String?,
+        limit: Int?,
+        cursor: String?,
+    ): PenVisitPageDto = PenVisitPageDto(title = "For me")
+
+    override suspend fun getPenVisit(taskId: String): PenVisitDetailDto =
+        PenVisitDetailDto(task = sg.mesha.goatos.core.network.dto.PenVisitDto(taskId = taskId))
+
+    override suspend fun submitPenVisit(
+        idempotencyKey: String,
+        taskId: String,
+        request: PenVisitSubmitRequestDto,
+    ): PenVisitDetailDto = PenVisitDetailDto(
+        task = sg.mesha.goatos.core.network.dto.PenVisitDto(
+            taskId = taskId,
+            workState = "completed",
+            proofRef = request.proofRef,
+            rowVersion = request.rowVersion + 1,
+        ),
+    )
+
     override suspend fun recordClockIn(
         idempotencyKey: String,
         request: ClockPunchRequestDto,
@@ -3249,4 +3305,4 @@ fun BootstrapDto.toNavState(): NavState {
     )
 }
 
-private fun NavItemDto.toNavItem(): NavItem = NavItem(key = key, label = label, href = href)
+private fun NavItemDto.toNavItem(): NavItem = NavItem(key = key, label = label, href = href, badgeCount = badgeCount)

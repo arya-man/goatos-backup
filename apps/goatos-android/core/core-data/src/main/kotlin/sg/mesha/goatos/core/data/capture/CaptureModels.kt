@@ -183,6 +183,15 @@ enum class ProofFlow(val wireValue: String) {
      * one slot of one card is one capture identity and a re-shoot replaces it.
      */
     WEIGHING_FASTING("weighing_fasting"),
+
+    /**
+     * Pen visit video (maintainer decision 2026-09-07): the ONE mandatory live-camera clip the
+     * park head records at a pen the day after vaccination / PC Care work. Like [TOXIN] it
+     * deliberately rides the GENERIC storage/idempotency branches — `proof:$taskId:pen_visit:$subjectKey`
+     * — with the caller passing `taskId = the visit task id` and `subjectKey = "visit-video"`, so
+     * one visit is one capture identity and a re-record replaces it rather than accumulating.
+     */
+    PEN_VISIT("pen_visit"),
     ;
 
     companion object {

@@ -82,6 +82,11 @@ private fun decodeGrainKey(type: OutboxOpTypeName, payloadJson: String, json: Js
             // Task grain: a PC Care submit covers the whole task, and the id is already unique.
             taskGrainKey("pc-care", p.taskId)
         }
+        OutboxOpTypeName.PEN_VISIT_SUBMIT -> {
+            val p = json.decodeFromString<PenVisitSubmitPayload>(payloadJson)
+            // Task grain: one video per visit, and the visit task id is already unique.
+            penVisitGrainKey(p.taskId)
+        }
     }
 }
 
@@ -96,7 +101,12 @@ internal enum class OutboxOpTypeName {
     MILK_FEEDING_SUBMIT,
     MILK_PREPARATION_SUBMIT,
     PC_CARE_TASK_SUBMIT,
+    PEN_VISIT_SUBMIT,
 }
+
+/** The pen-visit list badge grain: the ONE place both the outbox projection and the list
+ *  ViewModel derive "which card is still sending" from. */
+fun penVisitGrainKey(taskId: String): String = taskGrainKey("pen-visit", taskId)
 
 /** 0 means "queued by the pen-day build" and is dispatched as session 1 — normalise it ONCE. */
 private fun normalizeSession(sessionNo: Int): Int = if (sessionNo < 1) 1 else sessionNo
