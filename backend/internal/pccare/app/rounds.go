@@ -121,11 +121,16 @@ func (s *Service) CreateRound(ctx context.Context, actor domain.Actor, in Create
 		if len(removalOperators) == 0 {
 			return ports.RoundRow{}, domain.ErrRemovalOperatorsRequired
 		}
-		// 20:00 IST planning cutoff: the removal happens the EVENING BEFORE, so the earliest
-		// deworming date is tomorrow before 20:00 IST and the day after tomorrow from 20:00
-		// on. Business-DAY comparison on the service's injectable clock — never now±N hours.
-		// The cutoff is a property of the ROUND, not of a pen: one evening, one crew.
-		if planned.Before(domain.EarliestFeedRemovalDewormingDate(s.now())) {
+		// Configured planning cutoff: the removal happens the EVENING BEFORE, so the earliest
+		// deworming date is tomorrow before the tenant's cutoff and the day after tomorrow from
+		// the cutoff on. Business-DAY comparison on the service's injectable clock — never
+		// now±N hours. The cutoff is a property of the FARM's evening, not of a pen or a
+		// module: one evening, one crew, read from config.
+		cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+		if err != nil {
+			return ports.RoundRow{}, err
+		}
+		if planned.Before(domain.EarliestFeedRemovalDewormingDate(s.now(), cutoff)) {
 			return ports.RoundRow{}, domain.ErrFastingWindowClosed
 		}
 	}

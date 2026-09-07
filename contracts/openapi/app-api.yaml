@@ -20325,8 +20325,10 @@ components:
             the same write also creates ONE round-grain feed_water_removal card for the
             evening before, assigned to removal_operator_user_ids, carrying one feed video
             and one water video slot PER PEN. The deworming date must still have a removal
-            evening ahead of it (creating at/after 20:00 IST for tomorrow -> 422
-            fasting_window_closed). On any other category -> 422
+            evening ahead of it (creating at/after the tenant's configured removal cutoff
+            -- BootstrapResponse.feed_water_removal_cutoff_time -- for tomorrow -> 422
+            fasting_window_closed; no configured cutoff -> 422
+            feed_water_removal_cutoff_missing). On any other category -> 422
             feed_removal_not_applicable. Injection deworming simply omits it.
         removal_operator_user_ids:
           type: array
@@ -20415,8 +20417,9 @@ components:
             feed & water removed the evening before. When true, the same write also
             creates the linked feed_water_removal task for the evening before the
             deworming date, assigned to removal_operator_user_ids, and the deworming
-            date must still have a removal evening ahead of it (creating at/after
-            20:00 IST for tomorrow -> 422 fasting_window_closed). On any other
+            date must still have a removal evening ahead of it (creating at/after the
+            tenant's configured removal cutoff for tomorrow -> 422 fasting_window_closed;
+            no configured cutoff -> 422 feed_water_removal_cutoff_missing). On any other
             category -> 422 feed_removal_not_applicable. Injection deworming simply
             omits it.
         removal_operator_user_ids:
@@ -22557,6 +22560,20 @@ components:
         server_time:
           type: string
           format: date-time
+        feed_water_removal_cutoff_time:
+          type: string
+          pattern: "^[0-2][0-9]:[0-5][0-9]$"
+          description: |
+            The tenant's configured feed & water removal cutoff as HH:MM Asia/Kolkata
+            wall-clock (maintainer decision 2026-09-07: config, not code; stored in
+            feed_water_removal_config). The removal evening opens at this time: strictly
+            before it a weighing / feed-removal deworming may still be planned for
+            TOMORROW, at or after it the earliest plannable day is the DAY AFTER
+            TOMORROW, and the removal card surfaces on the operator's list from it. The
+            phone mirrors the date-picker rule from this value; the server enforces it on
+            every write (422 fasting_window_closed). Absent when the tenant has no
+            configured cutoff, in which case the phone offers only the rule's invariant
+            floor (tomorrow) and the server's refusal decides.
         trace_id:
           type: string
           minLength: 1
@@ -30647,8 +30664,10 @@ components:
             before the weigh date and submits two live-camera videos before midnight
             IST. Same park as the task; mandatory. Missing -> 422
             fasting_operator_required; a weigh date whose removal evening has already
-            begun (creating at/after 20:00 IST for tomorrow) -> 422
-            fasting_window_closed.
+            begun (creating at/after the tenant's configured removal cutoff --
+            BootstrapResponse.feed_water_removal_cutoff_time -- for tomorrow) -> 422
+            fasting_window_closed; no configured cutoff -> 422
+            feed_water_removal_cutoff_missing.
         sheds:
           type: array
           minItems: 1

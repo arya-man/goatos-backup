@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 )
 
 // PartitionMatchKey normalizes a pen label to the value the pc_care_tasks.partition_key
@@ -316,25 +316,23 @@ func VerificationCategoryFor(category string) string {
 // Feed & water removal precondition (maintainer decision 2026-09-03)
 // ---------------------------------------------------------------------------
 
-// FeedRemovalEveningHourIST is the IST wall-clock hour that closes the planning window and
-// opens the removal card: a deworming that needs feed & water removal can be planned for
-// tomorrow only until 20:00 IST (the crew removing feed tonight must still have tonight), and
-// the removal card surfaces on the operator's worklist from 20:00 IST of its due day.
-const FeedRemovalEveningHourIST = 20
+// The removal evening's opening time is the TENANT's configured cutoff (maintainer decision
+// 2026-09-07: config, not code), read from feed_water_removal_config through
+// feedwaterremoval/ports.CutoffReader and shared with weighing so both modules open the same
+// evening. It closes the planning window (a deworming that needs feed & water removal can be
+// planned for tomorrow only until the cutoff -- the crew removing feed tonight must still have
+// tonight) and opens the removal card on the operator's worklist. This package carries no
+// literal hour.
 
 // EarliestFeedRemovalDewormingDate returns the earliest planned business date (00:00 IST) a
-// deworming that requires feed & water removal may take, given the caller's clock: TOMORROW
-// while the IST wall clock is before 20:00, the DAY AFTER TOMORROW from 20:00 on — because the
-// removal happens the evening before, and by 20:00 tonight's removal can no longer be staffed.
-// The clock is the CALLER's (counts/domain.ShiftingActionsDueFrom shape), never read here, so
-// the rule is deterministic in tests.
-func EarliestFeedRemovalDewormingDate(now time.Time) time.Time {
-	local := now.In(biztime.DefaultLocation())
-	leadDays := 1
-	if local.Hour() >= FeedRemovalEveningHourIST {
-		leadDays = 2
-	}
-	return biztime.BusinessDayStart(local).AddDate(0, 0, leadDays)
+// deworming that requires feed & water removal may take, given the caller's clock and the
+// tenant's cutoff: TOMORROW while the IST wall clock is before the cutoff, the DAY AFTER
+// TOMORROW from the cutoff on -- because the removal happens the evening before, and by then
+// tonight's removal can no longer be staffed. The clock is the CALLER's
+// (counts/domain.ShiftingActionsDueFrom shape), never read here, so the rule is deterministic
+// in tests; the arithmetic lives in feedwaterremoval/domain.
+func EarliestFeedRemovalDewormingDate(now time.Time, cutoff fwrdomain.Cutoff) time.Time {
+	return fwrdomain.EarliestPlannableDate(now, cutoff)
 }
 
 // Task work_state values — the KERNEL dimension (weighing 000059 shape), orthogonal to the
@@ -431,9 +429,9 @@ var (
 	// re-recording the fridge are owed a sentence saying why. Surfaces as 422 reason_required.
 	ErrStockRejectReasonRequired = errors.New("pccare: a reason is required to reject")
 	// ErrFastingWindowClosed is returned when a deworming that requires feed & water removal is
-	// planned for a date whose evening-before removal can no longer be staffed (before 20:00 IST
-	// the earliest date is tomorrow; from 20:00 IST it is the day after tomorrow). Surfaces as
-	// 422 fasting_window_closed.
+	// planned for a date whose evening-before removal can no longer be staffed (before the
+	// tenant's configured cutoff the earliest date is tomorrow; from the cutoff on it is the day
+	// after tomorrow). Surfaces as 422 fasting_window_closed.
 	ErrFastingWindowClosed = errors.New("pccare: too late to remove feed and water the evening before this date")
 	// ErrRemovalOperatorsRequired is returned when feed & water removal is requested with no
 	// operators named for the removal task. Surfaces as 422 removal_operators_required.

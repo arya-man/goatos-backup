@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/pccare/app"
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
@@ -932,6 +933,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "assignees_required", Message: "assign at least one operator"}, nil)
 	case errors.Is(err, domain.ErrFastingWindowClosed):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "fasting_window_closed", Message: "feed & water removal happens the evening before, and there is no evening left before this date — pick a later deworming date"}, nil)
+	case errors.Is(err, fwrports.ErrCutoffNotConfigured):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "feed_water_removal_cutoff_missing", Message: "the feed & water removal cutoff time is not set up for this farm yet — ask an admin to set it, then try again"}, nil)
 	case errors.Is(err, domain.ErrRemovalOperatorsRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "removal_operators_required", Message: "name at least one operator for the feed & water removal"}, nil)
 	case errors.Is(err, domain.ErrFeedRemovalNotApplicable):

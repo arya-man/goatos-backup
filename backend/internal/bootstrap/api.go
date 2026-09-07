@@ -47,6 +47,7 @@ import (
 	feeddirectionverificationbridge "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/verificationbridge"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
+	fwrpg "github.com/vgoats/goatos/backend/internal/feedwaterremoval/adapters/postgres"
 	growthdirectorhttp "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/http"
 	growthdirectorpg "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/postgres"
 	growthdirectorapp "github.com/vgoats/goatos/backend/internal/growthdirector/app"
@@ -464,7 +465,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	locationsService := locationsapp.NewService(locationsRepo)
 	locationsHandler := locationshttp.NewHandler(locationsService, log)
 	workforceRepo := workforcepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	workforceService := workforceapp.NewService(workforceRepo)
+	// The feed & water removal cutoff is CONFIG (maintainer decision 2026-09-07):
+	// one Postgres reader over feed_water_removal_config, handed as an opaque
+	// value to weighing, PC Care and the phone bootstrap. Weighing never names
+	// the table — it is isolated from every non-weighing table.
+	feedWaterRemovalCutoffs := fwrpg.NewReader(pool, cfg.Postgres.QueryTimeout)
+	workforceService := workforceapp.NewService(workforceRepo).
+		WithFeedWaterRemovalCutoff(feedWaterRemovalCutoffs)
 	workforceHandler := workforcehttp.NewHandler(workforceService, log)
 	// People/HRMS directory + in-app onboarding. The Firebase identity adapter
 	// activates only when a Firebase project can be resolved (explicit env or a
@@ -536,7 +543,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithProcessStateReader(weighingRepo).
 		// The fasting (feed & water removal) precondition store rides the same
 		// repository (maintainer decision 2026-09-03, weighing/domain/fasting.go).
-		WithFastingStore(weighingRepo)
+		WithFastingStore(weighingRepo).
+		WithFeedWaterRemovalCutoff(feedWaterRemovalCutoffs)
 	weighingHandler := weighinghttp.NewHandler(weighingService, log).WithMediaResolver(proofService)
 	// Growth Director: read-only reporting over weighing + herd + feed tables.
 	// Deliberately its OWN module, outside backend/internal/weighing, because
@@ -700,6 +708,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	pcCareRepo := pccarepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	pcCareService := pccareapp.NewService(pcCareRepo).
 		WithRoundStore(pcCareRepo).
+		WithFeedWaterRemovalCutoff(feedWaterRemovalCutoffs).
 		WithProofValidator(pccareproof.NewValidator(proofRepo))
 	pcCareHandler := pccarehttp.NewHandler(pcCareService, log)
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)

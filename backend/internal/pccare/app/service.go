@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
+	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -57,7 +59,12 @@ type Service struct {
 	rounds   ports.RoundStore
 	proofs   ports.ProofValidator
 	enqueuer VerificationEnqueuer
-	now      func() time.Time
+	// cutoffs reads the tenant's feed & water removal cutoff (maintainer decision 2026-09-07:
+	// config, not code). The deworming planning cutoff and the removal card's visibility both
+	// resolve it through this seam and refuse with ErrCutoffNotConfigured when it is unwired
+	// or unset -- never a literal hour.
+	cutoffs fwrports.CutoffReader
+	now     func() time.Time
 }
 
 // NewService constructs the service over the task store.
@@ -84,6 +91,28 @@ func (s *Service) WithProofValidator(v ports.ProofValidator) *Service {
 func (s *Service) WithVerificationEnqueuer(e VerificationEnqueuer) *Service {
 	s.enqueuer = e
 	return s
+}
+
+// WithFeedWaterRemovalCutoff wires the tenant cutoff reader (production: the Postgres reader
+// over feed_water_removal_config; tests: fwrports.StaticCutoff).
+func (s *Service) WithFeedWaterRemovalCutoff(reader fwrports.CutoffReader) *Service {
+	s.cutoffs = reader
+	return s
+}
+
+// removalCutoff resolves the tenant's configured cutoff or fails closed.
+func (s *Service) removalCutoff(ctx context.Context, tenantID string) (fwrdomain.Cutoff, error) {
+	if s.cutoffs == nil {
+		return fwrdomain.Cutoff{}, fwrports.ErrCutoffNotConfigured
+	}
+	cutoff, err := s.cutoffs.FeedWaterRemovalCutoff(ctx, tenantID)
+	if err != nil {
+		return fwrdomain.Cutoff{}, err
+	}
+	if !cutoff.Valid() {
+		return fwrdomain.Cutoff{}, fwrports.ErrCutoffNotConfigured
+	}
+	return cutoff, nil
 }
 
 // WithNow overrides the clock (tests).
@@ -415,10 +444,15 @@ func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateT
 		if len(removalOperators) == 0 {
 			return ports.TaskRow{}, domain.ErrRemovalOperatorsRequired
 		}
-		// 20:00 IST planning cutoff: the removal happens the EVENING BEFORE the deworming, so
-		// the earliest deworming date is tomorrow before 20:00 IST and the day after tomorrow
-		// from 20:00 on. Business-DAY comparison on the service's injectable clock.
-		if planned.Before(domain.EarliestFeedRemovalDewormingDate(s.now())) {
+		// Configured planning cutoff: the removal happens the EVENING BEFORE the deworming, so
+		// the earliest deworming date is tomorrow before the tenant's cutoff and the day after
+		// tomorrow from the cutoff on. Business-DAY comparison on the service's injectable
+		// clock and the cutoff read from config.
+		cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+		if err != nil {
+			return ports.TaskRow{}, err
+		}
+		if planned.Before(domain.EarliestFeedRemovalDewormingDate(s.now(), cutoff)) {
 			return ports.TaskRow{}, domain.ErrFastingWindowClosed
 		}
 	}
@@ -533,6 +567,12 @@ func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, cat
 			return ports.TaskPage{}, err
 		}
 	}
+	// The removal card's visibility window opens at the tenant's CONFIGURED cutoff; read
+	// once per list and bound into the SQL beside the caller's clock.
+	cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+	if err != nil {
+		return ports.TaskPage{}, err
+	}
 	return s.store.ListTasks(ctx, ports.ListTasksQuery{
 		TenantID:          actor.TenantID,
 		AuthorizedParkIDs: authorizedParkSlice(parks),
@@ -542,6 +582,7 @@ func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, cat
 		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
 		CurrentOrCarry:    currentOrCarry,
 		Now:               s.now(),
+		RemovalCutoff:     cutoff,
 		Limit:             clampLimit(limit),
 		Cursor:            strings.TrimSpace(cursor),
 	})
@@ -560,6 +601,10 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 		return ports.TaskPage{}, ports.ErrInvalidArgument
 	}
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.PCCareExecute)
+	cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+	if err != nil {
+		return ports.TaskPage{}, err
+	}
 	return s.store.ListTasks(ctx, ports.ListTasksQuery{
 		TenantID:          actor.TenantID,
 		AuthorizedParkIDs: authorizedParkSlice(parks),
@@ -569,6 +614,7 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 		CurrentOrCarry:    true,
 		AssigneeUserID:    actor.UserID,
 		Now:               s.now(),
+		RemovalCutoff:     cutoff,
 		Limit:             clampLimit(limit),
 		Cursor:            strings.TrimSpace(cursor),
 	})

@@ -79,6 +79,7 @@ class PcCarePlanFeedRemovalTest {
         submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) },
         analytics = NoopAnalytics(),
         crashReporter = NoopCrashReporter(),
+        bootstrapRepository = FakeCutoffBootstrapRepository(),
     )
 
     /** Walks the wizard through DATE -> PARK -> PEN -> OPERATORS with one of everything picked. */

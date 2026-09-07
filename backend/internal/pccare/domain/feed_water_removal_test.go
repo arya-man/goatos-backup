@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
@@ -83,7 +84,7 @@ func TestEarliestFeedRemovalDewormingDateCrossesTheEveningCutoff(t *testing.T) {
 		{"morning -> tomorrow", time.Date(2026, time.September, 10, 6, 0, 0, 0, ist), day(11)},
 	}
 	for _, tc := range cases {
-		if got := EarliestFeedRemovalDewormingDate(tc.now); !got.Equal(tc.want) {
+		if got := EarliestFeedRemovalDewormingDate(tc.now, fwrdomain.MustCutoff(20, 0)); !got.Equal(tc.want) {
 			t.Fatalf("%s: got %v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -94,7 +95,20 @@ func TestEarliestFeedRemovalDewormingDateCrossesTheEveningCutoff(t *testing.T) {
 func TestEarliestFeedRemovalDewormingDateUsesISTWallClockNotUTC(t *testing.T) {
 	nowUTC := time.Date(2026, time.September, 10, 15, 0, 0, 0, time.UTC) // 20:30 IST
 	want := time.Date(2026, time.September, 12, 0, 0, 0, 0, biztime.DefaultLocation())
-	if got := EarliestFeedRemovalDewormingDate(nowUTC); !got.Equal(want) {
+	if got := EarliestFeedRemovalDewormingDate(nowUTC, fwrdomain.MustCutoff(20, 0)); !got.Equal(want) {
 		t.Fatalf("got %v, want %v (IST wall clock decides, not UTC)", got, want)
+	}
+}
+
+// The evening is the FARM's configured cutoff, not a literal: at 20:30 IST a 21:00 cutoff
+// still offers tomorrow, and a 19:00 cutoff already offers the day after.
+func TestEarliestFeedRemovalDewormingDateFollowsTheConfiguredCutoff(t *testing.T) {
+	ist := biztime.DefaultLocation()
+	now := time.Date(2026, time.September, 10, 20, 30, 0, 0, ist)
+	if got, want := EarliestFeedRemovalDewormingDate(now, fwrdomain.MustCutoff(21, 0)), time.Date(2026, time.September, 11, 0, 0, 0, 0, ist); !got.Equal(want) {
+		t.Fatalf("21:00 cutoff: got %v, want %v", got, want)
+	}
+	if got, want := EarliestFeedRemovalDewormingDate(now, fwrdomain.MustCutoff(19, 0)), time.Date(2026, time.September, 12, 0, 0, 0, 0, ist); !got.Equal(want) {
+		t.Fatalf("19:00 cutoff: got %v, want %v", got, want)
 	}
 }

@@ -145,7 +145,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', $4::uuid, '2026-08-26', 'planned',
 	if got["ET+TT"] != 2 || got["PPR"] != 3 {
 		t.Fatalf("requirements = %#v, want ET+TT=2 PPR=3", got)
 	}
-	monitorPage, err := repo.ListTasks(ctx, ports.ListTasksQuery{
+	monitorPage, err := repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 		TenantID:        pcTenant,
 		DueBusinessDate: "2026-08-19",
 		TenantWide:      true,
@@ -218,7 +218,7 @@ WHERE tenant_id=$1::uuid AND batch_id=$2::uuid AND rule_id=$3::uuid`,
 	if sweep.RolledForward != 1 || sweep.Truncated {
 		t.Fatalf("sweep result = %+v, want the unfinished 24-hour inventory task carried forward once", sweep)
 	}
-	carry, err := repo.ListTasks(ctx, ports.ListTasksQuery{
+	carry, err := repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 		TenantID:        pcTenant,
 		DueBusinessDate: "2026-08-20",
 		TenantWide:      true,
@@ -252,7 +252,7 @@ WHERE tenant_id=$1::uuid AND batch_id=$2::uuid AND rule_id=$3::uuid`,
 	if empty.TasksCreated != 0 || empty.RequirementsUpserted != 0 {
 		t.Fatalf("all-source-removed result = %+v, want no duplicate task and no surviving requirements", empty)
 	}
-	canceled, err := repo.ListTasks(ctx, ports.ListTasksQuery{
+	canceled, err := repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 		TenantID:        pcTenant,
 		DueBusinessDate: "2026-08-28",
 		TenantWide:      true,
@@ -547,7 +547,7 @@ func TestInventoryVaccineChildTablesRejectTenantTaskMismatch(t *testing.T) {
 }
 
 func portsList(tenantID, dueDate, category, assignee string) ports.ListTasksQuery {
-	return ports.ListTasksQuery{
+	return ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 		TenantID:        tenantID,
 		DueBusinessDate: dueDate,
 		TenantWide:      true,

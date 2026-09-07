@@ -4,15 +4,17 @@ import (
 	"testing"
 	"time"
 
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
-// The create cutoff is a WALL-CLOCK boundary at 20:00 IST, business-day
-// grained. Every anchor here is derived from one fixed IST date — never
-// time.Now, never hour arithmetic against the running clock.
-func TestEarliestPlannableWeighDateFlipsAtEightPMIST(t *testing.T) {
+// The create cutoff is a WALL-CLOCK boundary at the CONFIGURED cutoff (here
+// 20:00 IST), business-day grained. Every anchor is derived from one fixed IST
+// date — never time.Now, never hour arithmetic against the running clock.
+func TestEarliestPlannableWeighDateFlipsAtTheConfiguredCutoff(t *testing.T) {
 	ist := biztime.DefaultLocation()
 	day := time.Date(2026, 9, 3, 0, 0, 0, 0, ist)
+	cutoff := fwrdomain.MustCutoff(20, 0)
 
 	cases := []struct {
 		name string
@@ -26,7 +28,7 @@ func TestEarliestPlannableWeighDateFlipsAtEightPMIST(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := EarliestPlannableWeighDate(tc.now); got != tc.want {
+			if got := EarliestPlannableWeighDate(tc.now, cutoff); got != tc.want {
 				t.Fatalf("EarliestPlannableWeighDate(%s) = %s, want %s", tc.now, got, tc.want)
 			}
 		})
@@ -35,21 +37,26 @@ func TestEarliestPlannableWeighDateFlipsAtEightPMIST(t *testing.T) {
 	// The boundary is IST wall clock, not the server's zone: 20:30 IST
 	// expressed as 15:00 UTC must still flip to the day after.
 	utcEvening := time.Date(2026, 9, 3, 15, 0, 0, 0, time.UTC)
-	if got := EarliestPlannableWeighDate(utcEvening); got != "2026-09-05" {
+	if got := EarliestPlannableWeighDate(utcEvening, cutoff); got != "2026-09-05" {
 		t.Fatalf("UTC-expressed 20:30 IST = %s, want 2026-09-05", got)
 	}
 
-	if WeighDateAllowsFastingCreate("2026-09-04", day.Add(20*time.Hour)) {
+	if WeighDateAllowsFastingCreate("2026-09-04", day.Add(20*time.Hour), cutoff) {
 		t.Fatal("tomorrow must be refused at/after 20:00 IST")
 	}
-	if !WeighDateAllowsFastingCreate("2026-09-05", day.Add(20*time.Hour)) {
+	if !WeighDateAllowsFastingCreate("2026-09-05", day.Add(20*time.Hour), cutoff) {
 		t.Fatal("day after tomorrow must stay allowed at 20:00 IST")
+	}
+	// The hour is the FARM's, not the code's: under a 21:00 cutoff the same
+	// 20:00 instant still offers tomorrow.
+	if !WeighDateAllowsFastingCreate("2026-09-04", day.Add(20*time.Hour), fwrdomain.MustCutoff(21, 0)) {
+		t.Fatal("tomorrow must stay allowed while the configured cutoff is ahead")
 	}
 }
 
 func TestFastingWindowClocksAreBusinessDayAnchored(t *testing.T) {
 	ist := biztime.DefaultLocation()
-	visible, err := FastingCardVisibleFrom("2026-09-04")
+	visible, err := FastingCardVisibleFrom("2026-09-04", fwrdomain.MustCutoff(20, 0))
 	if err != nil {
 		t.Fatal(err)
 	}

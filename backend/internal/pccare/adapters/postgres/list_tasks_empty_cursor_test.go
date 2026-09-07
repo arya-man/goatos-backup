@@ -27,7 +27,7 @@ func TestListTasksFirstPageServesWithEmptyOptionalFilters(t *testing.T) {
 
 	// The exact production first-page read: no cursor, no park filter, no assignee filter —
 	// the CEO monitor's opening request. This is the call that 500'd on STG.
-	page, err := repo.ListTasks(ctx, ports.ListTasksQuery{
+	page, err := repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 		TenantID:        pcTenant,
 		DueBusinessDate: "2026-08-21",
 		TenantWide:      true,
@@ -43,7 +43,7 @@ func TestListTasksFirstPageServesWithEmptyOptionalFilters(t *testing.T) {
 
 	// The optional park + assignee filters POPULATED must still narrow correctly (the nullif
 	// guard must not turn a real filter into a no-op).
-	page, err = repo.ListTasks(ctx, ports.ListTasksQuery{
+	page, err = repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 		TenantID:        pcTenant,
 		DueBusinessDate: "2026-08-21",
 		TenantWide:      true,
@@ -59,7 +59,7 @@ func TestListTasksFirstPageServesWithEmptyOptionalFilters(t *testing.T) {
 	}
 
 	// A non-matching assignee filter excludes the task (proves the EXISTS arm still bites).
-	page, err = repo.ListTasks(ctx, ports.ListTasksQuery{
+	page, err = repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 		TenantID:        pcTenant,
 		DueBusinessDate: "2026-08-21",
 		TenantWide:      true,
@@ -85,7 +85,7 @@ func TestListTasksKeysetCursorResumesAfterFirstPage(t *testing.T) {
 	seen := map[string]bool{}
 	cursor := ""
 	for range [3]int{} {
-		page, err := repo.ListTasks(ctx, ports.ListTasksQuery{
+		page, err := repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 			TenantID:        pcTenant,
 			DueBusinessDate: "2026-08-21",
 			TenantWide:      true,
@@ -142,7 +142,7 @@ WHERE tenant_id = $1::uuid AND task_id IN ($2::uuid, $3::uuid)`,
 		t.Fatalf("mark completed: %v", err)
 	}
 
-	page, err := repo.ListTasks(ctx, ports.ListTasksQuery{
+	page, err := repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 		TenantID:        pcTenant,
 		DueBusinessDate: "2026-08-22",
 		TenantWide:      true,

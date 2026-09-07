@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
+	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -65,6 +67,11 @@ func dewormingCreateInput(planned string) CreateTaskInput {
 	}
 }
 
+// eightPM is the CONFIGURED removal cutoff every service under test reads through the
+// feedwaterremoval seam (maintainer decision 2026-09-07: config, not code). No literal hour
+// lives in the service; one built without a reader refuses removal-gated work.
+var eightPM = fwrports.StaticCutoff{Cutoff: fwrdomain.MustCutoff(20, 0)}
+
 // pinnedIST returns a deterministic wall-clock instant in the Goat OS business calendar.
 func pinnedIST(day, hour, minute int) time.Time {
 	return time.Date(2026, time.September, day, hour, minute, 0, 0, biztime.DefaultLocation())
@@ -72,7 +79,7 @@ func pinnedIST(day, hour, minute int) time.Time {
 
 func TestCreateTaskFeedRemovalRequiresRemovalOperators(t *testing.T) {
 	store := &fakeCreateStore{}
-	svc := NewService(store).WithNow(func() time.Time { return pinnedIST(10, 9, 0) })
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithNow(func() time.Time { return pinnedIST(10, 9, 0) })
 	in := dewormingCreateInput("2026-09-11")
 	in.FeedRemovalRequired = true // and NO removal operators
 
@@ -87,7 +94,7 @@ func TestCreateTaskFeedRemovalRequiresRemovalOperators(t *testing.T) {
 
 func TestCreateTaskFeedRemovalOnNonDewormingIsRejected(t *testing.T) {
 	store := &fakeCreateStore{}
-	svc := NewService(store).WithNow(func() time.Time { return pinnedIST(10, 9, 0) })
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithNow(func() time.Time { return pinnedIST(10, 9, 0) })
 
 	in := dewormingCreateInput("2026-09-11")
 	in.Category = domain.CategoryTicksRemoval
@@ -125,7 +132,7 @@ func TestCreateTaskFeedRemovalEveningCutoff(t *testing.T) {
 	}
 	for _, tc := range cases {
 		store := &fakeCreateStore{}
-		svc := NewService(store).WithNow(func() time.Time { return tc.now })
+		svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithNow(func() time.Time { return tc.now })
 		in := dewormingCreateInput(tc.planned)
 		in.FeedRemovalRequired = true
 		in.RemovalOperatorUserIDs = []string{fastingRemover}
@@ -155,10 +162,46 @@ func TestCreateTaskFeedRemovalEveningCutoff(t *testing.T) {
 	}
 }
 
+// THE HOUR IS CONFIG: at 20:30 a farm whose evening opens at 21:00 still plans tomorrow, and
+// a farm with NO configured cutoff is refused outright rather than judged against an hour the
+// code made up. Mutation-tested by hardcoding 20 in feedwaterremoval/domain (first case red).
+func TestCreateTaskFeedRemovalCutoffComesFromConfig(t *testing.T) {
+	in := dewormingCreateInput("2026-09-11")
+	in.FeedRemovalRequired = true
+	in.RemovalOperatorUserIDs = []string{fastingRemover}
+
+	store := &fakeCreateStore{}
+	ninePM := fwrports.StaticCutoff{Cutoff: fwrdomain.MustCutoff(21, 0)}
+	svc := NewService(store).WithNow(func() time.Time { return pinnedIST(10, 20, 30) }).WithFeedWaterRemovalCutoff(ninePM)
+	if _, err := svc.CreateTask(plannerCtx(), plannerActor(), in); err != nil {
+		t.Fatalf("20:30 create under a 21:00 cutoff err = %v, want allowed", err)
+	}
+	if store.createCalls != 1 {
+		t.Fatalf("store.CreateTask calls = %d, want 1", store.createCalls)
+	}
+
+	for name, reader := range map[string]fwrports.CutoffReader{"unwired": nil, "unset": fwrports.StaticCutoff{}} {
+		store := &fakeCreateStore{}
+		svc := NewService(store).WithNow(func() time.Time { return pinnedIST(10, 9, 0) })
+		if reader != nil {
+			svc = svc.WithFeedWaterRemovalCutoff(reader)
+		}
+		if _, err := svc.CreateTask(plannerCtx(), plannerActor(), in); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
+			t.Fatalf("%s reader create err = %v, want ErrCutoffNotConfigured", name, err)
+		}
+		if store.createCalls != 0 {
+			t.Fatalf("%s reader: store.CreateTask must not run without a configured cutoff", name)
+		}
+		if _, err := svc.ListTasks(plannerCtx(), plannerActor(), "", "", "2026-09-10", "", 25, false); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
+			t.Fatalf("%s reader list err = %v, want ErrCutoffNotConfigured", name, err)
+		}
+	}
+}
+
 // A deworming WITHOUT the toggle is untouched by the cutoff — planning today stays legal.
 func TestCreateTaskWithoutFeedRemovalIgnoresTheEveningCutoff(t *testing.T) {
 	store := &fakeCreateStore{}
-	svc := NewService(store).WithNow(func() time.Time { return pinnedIST(10, 21, 0) })
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithNow(func() time.Time { return pinnedIST(10, 21, 0) })
 	if _, err := svc.CreateTask(plannerCtx(), plannerActor(), dewormingCreateInput("2026-09-10")); err != nil {
 		t.Fatalf("plain deworming create err = %v, want nil", err)
 	}
@@ -170,7 +213,7 @@ func TestCreateTaskWithoutFeedRemovalIgnoresTheEveningCutoff(t *testing.T) {
 // feed_water_removal is system-owned: a planner naming it directly is refused.
 func TestCreateTaskPlannerCannotNameFeedWaterRemoval(t *testing.T) {
 	store := &fakeCreateStore{}
-	svc := NewService(store)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM)
 	in := dewormingCreateInput("2026-09-11")
 	in.Category = domain.CategoryFeedWaterRemoval
 	if _, err := svc.CreateTask(plannerCtx(), plannerActor(), in); !errors.Is(err, domain.ErrKernelOwnedCategory) {
@@ -183,7 +226,7 @@ func TestCreateTaskPlannerCannotNameFeedWaterRemoval(t *testing.T) {
 func TestListReadsCarryTheCallersClock(t *testing.T) {
 	pinned := pinnedIST(10, 20, 30)
 	store := &fakeCreateStore{}
-	svc := NewService(store).WithNow(func() time.Time { return pinned })
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithNow(func() time.Time { return pinned })
 
 	if _, err := svc.ListTasks(plannerCtx(), plannerActor(), "", "", "2026-09-10", "", 25, false); err != nil {
 		t.Fatalf("ListTasks err = %v", err)
@@ -201,13 +244,17 @@ func TestListReadsCarryTheCallersClock(t *testing.T) {
 	if !store.lastList.Now.Equal(pinned) {
 		t.Fatalf("Worklist Now = %v, want the pinned service clock %v", store.lastList.Now, pinned)
 	}
+	// ...and the CONFIGURED cutoff rides beside the clock into the visibility bind.
+	if store.lastList.RemovalCutoff != eightPM.Cutoff {
+		t.Fatalf("Worklist RemovalCutoff = %s, want the configured %s", store.lastList.RemovalCutoff, eightPM.Cutoff)
+	}
 }
 
 // The removal videos are validated as live-camera VIDEOS on the task-proof register path.
 func TestRegisterTaskProofRequiresVideoKindForRemovalSlots(t *testing.T) {
 	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
 	validator := &fakeProofValidator{}
-	svc := NewService(store).WithProofValidator(validator)
+	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithProofValidator(validator)
 
 	err := svc.RegisterTaskProof(context.Background(), operatorActor(testAssignee), RegisterTaskProofInput{
 		TaskID:         testTask,

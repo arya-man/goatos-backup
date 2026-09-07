@@ -5,13 +5,15 @@ import (
 	"errors"
 	"time"
 
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
 var (
 	// ErrFastingWindowClosed refuses a create/edit whose weigh date can no
-	// longer be fasted for: at or after 20:00 IST the removal window for
-	// tomorrow's weighing is already open, so tomorrow is not plannable.
+	// longer be fasted for: at or after the tenant's configured removal cutoff
+	// the removal window for tomorrow's weighing is already open, so tomorrow
+	// is not plannable.
 	ErrFastingWindowClosed = errors.New("weighing: fasting window closed for that date")
 
 	// ErrFastingOperatorRequired refuses a create that names no feed & water
@@ -48,9 +50,11 @@ var (
 type FastingStore interface {
 
 	// ListFastingShedCardsForOperator serves ONE CARD PER SHED (maintainer
-	// correction #2, 2026-09-03) under the same 20:00 IST visibility window and
-	// terminal-campaign withholding as the round list.
-	ListFastingShedCardsForOperator(ctx context.Context, tenantID, operatorUserID string, now time.Time, cursor string, limit int) (domain.FastingShedCardPage, error)
+	// correction #2, 2026-09-03) under the configured-cutoff visibility window
+	// and terminal-campaign withholding. cutoff is the tenant's configured
+	// removal cutoff, resolved by the service and BOUND into the SQL, so the
+	// weighing package names no config table.
+	ListFastingShedCardsForOperator(ctx context.Context, tenantID, operatorUserID string, now time.Time, cutoff fwrdomain.Cutoff, cursor string, limit int) (domain.FastingShedCardPage, error)
 
 	// SubmitFastingShed records ONE shed's pair in one transaction: pair
 	// validated (distinct, completed, live-camera, this tenant, not the shed's

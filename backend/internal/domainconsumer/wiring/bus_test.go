@@ -7,6 +7,7 @@ import (
 
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	feedports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
@@ -154,7 +155,7 @@ func (f *fakeWeighingStore) ApplyFastingVerdict(_ context.Context, v weighingdom
 	return nil
 }
 
-func (f *fakeWeighingStore) ListFastingShedCardsForOperator(_ context.Context, _, _ string, _ time.Time, _ string, _ int) (weighingdomain.FastingShedCardPage, error) {
+func (f *fakeWeighingStore) ListFastingShedCardsForOperator(_ context.Context, _, _ string, _ time.Time, _ fwrdomain.Cutoff, _ string, _ int) (weighingdomain.FastingShedCardPage, error) {
 	return weighingdomain.FastingShedCardPage{}, nil
 }
 

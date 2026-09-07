@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
+	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -162,7 +164,11 @@ func TestRemovalNaturalKeyOnConsecutiveDewormingDates(t *testing.T) {
 // The 20:00 IST evening visibility: the removal card is absent from the list before 20:00 of
 // its due day and present from 20:00, judged by the caller's clock; the deworming card and the
 // removal DETAIL read are untouched.
-func TestFeedWaterRemovalListedOnlyFromEightPMOfItsDueDay(t *testing.T) {
+// pcCutoff is the CONFIGURED removal cutoff bound into the list SQL (maintainer decision
+// 2026-09-07: config, not code); the repository carries no literal hour.
+var pcCutoff = fwrdomain.MustCutoff(20, 0)
+
+func TestFeedWaterRemovalListedOnlyFromTheConfiguredCutoffOfItsDueDay(t *testing.T) {
 	ctx := context.Background()
 	repo, _ := setupPCCareDB(t, ctx)
 	deworming := createDewormingWithRemoval(t, ctx, repo, "pc-fasting-visibility-1")
@@ -171,7 +177,7 @@ func TestFeedWaterRemovalListedOnlyFromEightPMOfItsDueDay(t *testing.T) {
 	ist := biztime.DefaultLocation()
 	listAt := func(now time.Time) map[string]bool {
 		t.Helper()
-		page, err := repo.ListTasks(ctx, ports.ListTasksQuery{
+		page, err := repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 			TenantID: pcTenant, TenantWide: true,
 			DueBusinessDate: "2026-09-10", Now: now, Limit: 50,
 		})
@@ -194,8 +200,43 @@ func TestFeedWaterRemovalListedOnlyFromEightPMOfItsDueDay(t *testing.T) {
 		t.Fatal("removal card must list from 20:00 IST of its due day")
 	}
 
+	// THE HOUR IS THE FARM'S: the same 20:00 instant under a 21:00 cutoff keeps the card
+	// hidden, and an UNSET cutoff is refused rather than defaulted.
+	listUnder := func(now time.Time, cutoff fwrdomain.Cutoff) (map[string]bool, error) {
+		page, err := repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: cutoff,
+			TenantID: pcTenant, TenantWide: true,
+			DueBusinessDate: "2026-09-10", Now: now, Limit: 50,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out := map[string]bool{}
+		for _, item := range page.Items {
+			out[item.TaskID] = true
+		}
+		return out, nil
+	}
+	ninePM := fwrdomain.MustCutoff(21, 0)
+	hidden, err := listUnder(time.Date(2026, time.September, 10, 20, 0, 0, 0, ist), ninePM)
+	if err != nil {
+		t.Fatalf("ListTasks under 21:00 cutoff: %v", err)
+	}
+	if hidden[removal.taskID] {
+		t.Fatal("removal card visible at 20:00 IST under a 21:00 cutoff; the bound cutoff must decide")
+	}
+	shown, err := listUnder(time.Date(2026, time.September, 10, 21, 0, 0, 0, ist), ninePM)
+	if err != nil {
+		t.Fatalf("ListTasks at 21:00 under 21:00 cutoff: %v", err)
+	}
+	if !shown[removal.taskID] {
+		t.Fatal("removal card must list from the configured 21:00 cutoff")
+	}
+	if _, err := listUnder(time.Date(2026, time.September, 10, 21, 0, 0, 0, ist), fwrdomain.Cutoff{}); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
+		t.Fatalf("unset cutoff list err = %v, want ErrCutoffNotConfigured", err)
+	}
+
 	// The deworming (due 09-11) is untouched by the evening rule on ITS day.
-	dewormingPage, err := repo.ListTasks(ctx, ports.ListTasksQuery{
+	dewormingPage, err := repo.ListTasks(ctx, ports.ListTasksQuery{RemovalCutoff: pcCutoff,
 		TenantID: pcTenant, TenantWide: true,
 		DueBusinessDate: "2026-09-11",
 		Now:             time.Date(2026, time.September, 11, 8, 0, 0, 0, ist),

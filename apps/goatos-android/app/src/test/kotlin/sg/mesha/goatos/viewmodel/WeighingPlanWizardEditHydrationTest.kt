@@ -115,6 +115,7 @@ class WeighingPlanWizardEditHydrationTest {
                 repeatSeedStore = seedStore,
                 analytics = NoopAnalytics(),
                 crashReporter = NoopCrashReporter(),
+                bootstrapRepository = FakeCutoffBootstrapRepository(),
                 savedStateHandle = SavedStateHandle(
                     mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
                 ),
@@ -189,6 +190,7 @@ class WeighingPlanWizardEditHydrationTest {
                 repeatSeedStore = seedStore,
                 analytics = NoopAnalytics(),
                 crashReporter = NoopCrashReporter(),
+                bootstrapRepository = FakeCutoffBootstrapRepository(),
                 savedStateHandle = SavedStateHandle(
                     mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
                 ),
@@ -267,6 +269,7 @@ class WeighingPlanWizardEditHydrationTest {
                 repeatSeedStore = seedStore,
                 analytics = NoopAnalytics(),
                 crashReporter = NoopCrashReporter(),
+                bootstrapRepository = FakeCutoffBootstrapRepository(),
                 savedStateHandle = SavedStateHandle(
                     mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
                 ),

@@ -10,7 +10,8 @@ work is wrong (wrong weights; tablets not eaten). The app now owns that
 precondition as a first-class task:
 
 1. A weighing task / a feed-removal deworming for day **D** must be created
-   **strictly before 20:00 IST on D−1**. At or after 20:00, D is no longer
+   **strictly before the farm's removal cutoff on D−1** (20:00 IST as seeded;
+   see "The cutoff is config" below). At or after the cutoff, D is no longer
    offered or accepted as a date (the earliest becomes D+1). For weighing this
    applies to **every** task — weighing can no longer be planned for "today".
    For deworming it applies **only when feed removal is required**; injection
@@ -18,7 +19,7 @@ precondition as a first-class task:
 2. At creation a **second operator** (same park) is assigned for the removal.
    The evening-shift person and the task's own operator are different people,
    which is why this is its own assignment.
-3. The removal cards are **served from 20:00 IST on D−1** (server-side clock;
+3. The removal cards are **served from the removal cutoff on D−1** (server-side clock;
    no client derives the window). Weighing is **one card per shed bucket**:
    every shed/partition bucket owes its own live-camera feed-removal video and
    water-removal video, and the card is submitted on its own. PC Care deworming
@@ -44,7 +45,7 @@ precondition as a first-class task:
    read `submitted_at`, never review state.
 5. Unsubmitted at midnight → the kernel rolls the **whole cycle forward one
    day**: the weighing work items / the deworming task move to D+1 (never
-   "today"), and the removal card re-arms for the next evening's 20:00 window.
+   "today"), and the removal card re-arms for the next evening's cutoff window.
    This repeats daily until the removal is actually submitted.
 6. Weighing and deworming removal cards are **separate cards, each in its own
    module** — even for the same shed on the same night (maintainer's words:
@@ -129,3 +130,47 @@ PC Care: `TestFeedWaterRemovalCategoryContract`,
 Key mutations were run red→green when written (cutoff branch deleted, gate
 invocation removed, `submitted_at IS NULL` dropped, visibility predicate
 deleted, D−1 changed to D).
+
+## The cutoff is config, not code (maintainer decision 2026-09-07)
+
+The removal evening's opening time is stored per tenant in
+`feed_water_removal_config.cutoff_time` (migration `000276`), an Asia/Kolkata
+wall-clock `time` in the `feed_schedule_config` shape, seeded at `20:00` for
+every existing tenant so the deploy changed no offered date. Until this
+decision the literal `20` lived in four backend places (weighing Go + SQL, PC
+Care Go + SQL) and a fifth on the phone, so moving the farm's evening meant a
+release on two surfaces.
+
+- **One rule, one package.** `backend/internal/feedwaterremoval/domain` owns
+  the arithmetic (`EarliestPlannableDate`, `DateAllowsPlanning`,
+  `VisibleFrom`) parameterised by the configured `Cutoff`; weighing and PC
+  Care delegate to it, so the two modules cannot open different evenings.
+- **Read through a seam, bound into SQL.** `feedwaterremoval/ports.CutoffReader`
+  (Postgres adapter in `feedwaterremoval/adapters/postgres`) is wired into the
+  weighing service, the PC Care service and the workforce bootstrap. Each
+  service resolves the cutoff per request and passes it to its repository,
+  which binds it (`$7::time`, `$16::time`) into the visibility predicate.
+  Weighing is isolated from every non-weighing table, so it never names
+  `feed_water_removal_config`; the value is opaque to it.
+- **No literal fallback.** A tenant with no row is refused:
+  `ports.ErrCutoffNotConfigured` → 422 `feed_water_removal_cutoff_missing` on
+  the create/edit routes and the card lists. A service built without the
+  reader refuses the same way. The only place a default exists is the
+  migration's seed row.
+- **The phone mirrors, the server decides.** `/app/bootstrap` carries
+  `feed_water_removal_cutoff_time` (HH:MM). Both plan wizards read it from the
+  cached bootstrap to narrow their date pickers; when it is absent (older
+  cached bootstrap, unconfigured tenant) the picker offers only the rule's
+  invariant floor (tomorrow; today is never plannable) and the server's 422
+  farm copy is rendered verbatim.
+- **Changing it** is a SQL update on `feed_water_removal_config` today; there
+  is no authoring screen yet. The change takes effect on the next request:
+  plans already created keep their dates, and the card visibility of tonight's
+  removal follows the new value immediately.
+
+Pinned by `feedwaterremoval/domain` tests (21:00 and 19:30 cutoffs flip on the
+minute), `TestCreateCampaignRefusesWhenTheRemovalCutoffIsNotConfigured`,
+`TestCreateTaskFeedRemovalCutoffComesFromConfig`, and the Postgres
+round-trips `TestFastingListVisibilityOpensAtTheConfiguredCutoff` and
+`TestFeedWaterRemovalListedOnlyFromTheConfiguredCutoffOfItsDueDay`, each of
+which lists under a 21:00 cutoff at 20:00 and expects nothing.

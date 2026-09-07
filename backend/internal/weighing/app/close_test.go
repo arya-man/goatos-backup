@@ -24,7 +24,7 @@ const (
 // work the operator still owed.
 func TestCloseRequiresMonitorRoleAndNeverAcceptsExecuteOnly(t *testing.T) {
 	repo := newScenarioRepo()
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 
 	if _, err := service.CloseScope(context.Background(), operator, closeCampaign, closeScopeID, "close-1", "monsoon"); !errors.Is(err, ports.ErrForbidden) {
@@ -57,7 +57,7 @@ func TestCloseValidationRejectsMissingReasonKeyOrIDsBeforeRepository(t *testing.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := newScenarioRepo()
-			service := NewService(repo)
+			service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 			ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 			if _, err := service.CloseScope(context.Background(), ceo, tt.campaignID, tt.campaignShedID, tt.idempotencyKey, tt.reason); !errors.Is(err, ports.ErrInvalidArgument) {
 				t.Fatalf("CloseScope err=%v, want ErrInvalidArgument", err)
@@ -74,7 +74,7 @@ func TestCloseValidationRejectsMissingReasonKeyOrIDsBeforeRepository(t *testing.
 // from the client.
 func TestCloseForwardsActorTrimmedReasonAndKeyToRepository(t *testing.T) {
 	repo := newScenarioRepo()
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 
 	// Set up context with tenant-wide ceo_internal grant (needed for park scope check)
@@ -152,7 +152,7 @@ func TestParkScopeEnforcedOnAllFourMutations(t *testing.T) {
 			},
 		},
 	}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	// WeighingMonitor scoped to CBE only
 	// Growth Director has WeighingMonitor permission
@@ -221,7 +221,7 @@ func TestTenantWideParkScopeAllowsAllParks(t *testing.T) {
 			},
 		},
 	}
-	service := NewService(repo)
+	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	// Tenant-wide WeighingMonitor (leadership with no park restriction)
 	// Tenant-scoped grant = can access any park

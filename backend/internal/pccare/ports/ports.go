@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 )
 
 var (
@@ -306,11 +308,17 @@ type ListTasksQuery struct {
 	AssigneeUserID string
 	// Now is the caller's clock, filled by the service from its own injectable clock (the
 	// shiftingActionsVisibleSQL shape). It drives the evening-visibility predicate on
-	// feed_water_removal rows: such a row lists only from 20:00 IST of its due day. Detail
-	// reads by id are NOT gated — visibility narrows the list, never the record.
-	Now    time.Time
-	Limit  int
-	Cursor string
+	// feed_water_removal rows: such a row lists only from the tenant's configured removal
+	// cutoff on its due day. Detail reads by id are NOT gated — visibility narrows the list,
+	// never the record.
+	Now time.Time
+	// RemovalCutoff is the tenant's configured feed & water removal cutoff (maintainer
+	// decision 2026-09-07: config, not code), resolved by the service through
+	// feedwaterremoval/ports.CutoffReader and BOUND into the visibility predicate. The store
+	// refuses an unset cutoff rather than defaulting to a literal hour.
+	RemovalCutoff fwrdomain.Cutoff
+	Limit         int
+	Cursor        string
 }
 
 // TaskPage is one bounded page of tasks.

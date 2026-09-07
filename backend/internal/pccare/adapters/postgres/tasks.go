@@ -14,6 +14,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 
+	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
@@ -722,16 +723,18 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	      )
   AND t.work_state <> 'canceled'
 	  -- Evening visibility (maintainer decision 2026-09-03), the shiftingActionsVisibleSQL shape:
-	  -- a feed & water removal card surfaces on the list only from 20:00 IST of its due day —
-	  -- the work is "tonight, after the animals' last feed", so an all-day card would invite
-	  -- removing feed at 9 AM. $15 carries the CALLER's clock (deterministic in tests); the IST
-	  -- wall-clock comparison mirrors counts' actions lead-time predicate. Other categories pass
-	  -- through untouched, and detail/get-by-id reads never apply this — visibility narrows the
-	  -- LIST, not the record. Computed predicate over a page already narrowed by
+	  -- a feed & water removal card surfaces on the list only from the tenant's CONFIGURED
+	  -- removal cutoff on its due day (maintainer decision 2026-09-07: config, not code) — the
+	  -- work is "tonight, after the animals' last feed", so an all-day card would invite
+	  -- removing feed at 9 AM. $15 carries the CALLER's clock (deterministic in tests) and $16
+	  -- the cutoff the service read from feed_water_removal_config; the IST wall-clock
+	  -- comparison mirrors counts' actions lead-time predicate. Other categories pass through
+	  -- untouched, and detail/get-by-id reads never apply this — visibility narrows the LIST,
+	  -- not the record. Computed predicate over a page already narrowed by
 	  -- pc_care_tasks_serving_idx to one park-day, so the extra work is bounded by that page.
 	  AND (
 	        t.category <> 'feed_water_removal'
-	        OR ($15::timestamptz AT TIME ZONE 'Asia/Kolkata') >= (t.due_business_date + TIME '20:00')
+	        OR ($15::timestamptz AT TIME ZONE 'Asia/Kolkata') >= (t.due_business_date + $16::time)
 	      )
   AND ($3::bool OR t.park_id = ANY($4::uuid[]))
   AND ($5::text = '' OR t.park_id = nullif($5::text, '')::uuid)
@@ -760,11 +763,16 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 		// fills Now from its injectable clock.
 		now = time.Now()
 	}
+	// No such fallback for the cutoff: it is the farm's configured evening, and a literal
+	// here would be a second copy of the rule. The service fills it from the config reader.
+	if !q.RemovalCutoff.Valid() {
+		return ports.TaskPage{}, fwrports.ErrCutoffNotConfigured
+	}
 	rows, err := r.pool.Query(ctx, "SELECT"+taskSelectColumns+taskFromJoins+listTasksPageSQL,
 		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
 		q.ParkID, q.Category, q.AssigneeUserID, limit+1,
 		afterPark, afterShed, afterPartition, afterCategory, afterTask, q.CurrentOrCarry,
-		now)
+		now, q.RemovalCutoff.SQLTime())
 	if err != nil {
 		return ports.TaskPage{}, fmt.Errorf("pccare: list tasks: %w", err)
 	}

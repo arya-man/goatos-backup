@@ -49,6 +49,7 @@ class WeighingPlanWizardFastingOperatorTest {
         repeatSeedStore = WeighingRepeatSeedStore(),
         analytics = NoopAnalytics(),
         crashReporter = NoopCrashReporter(),
+        bootstrapRepository = FakeCutoffBootstrapRepository(),
         savedStateHandle = SavedStateHandle(),
     )
 
@@ -60,6 +61,7 @@ class WeighingPlanWizardFastingOperatorTest {
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
         val earliest = earliestPlannableDateWithFeedRemoval(
             ZonedDateTime.now(ZoneId.of("Asia/Kolkata")),
+            java.time.LocalTime.of(20, 0),
         ).toString()
         vm.selectDate(earliest)
         repository.catalogRefreshGate.complete(Unit)
@@ -146,6 +148,7 @@ class WeighingPlanWizardFastingOperatorTest {
             repeatSeedStore = seedStore,
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
+            bootstrapRepository = FakeCutoffBootstrapRepository(),
             savedStateHandle = SavedStateHandle(
                 mapOf(sg.mesha.goatos.ui.Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
             ),
@@ -182,6 +185,7 @@ class WeighingPlanWizardFastingOperatorTest {
             repeatSeedStore = seedStore,
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
+            bootstrapRepository = FakeCutoffBootstrapRepository(),
             savedStateHandle = SavedStateHandle(
                 mapOf(sg.mesha.goatos.ui.Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
             ),
@@ -203,6 +207,7 @@ class WeighingPlanWizardFastingOperatorTest {
         val todayIst = java.time.LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
         val earliest = earliestPlannableDateWithFeedRemoval(
             ZonedDateTime.now(ZoneId.of("Asia/Kolkata")),
+            java.time.LocalTime.of(20, 0),
         ).toString()
         val offered = vm.state.value.dateOptions.map { it.isoDate }
         assertTrue("the wizard must offer days", offered.isNotEmpty())
@@ -210,7 +215,7 @@ class WeighingPlanWizardFastingOperatorTest {
             "today's removal evening was yesterday, so today can never be weighed: offered=$offered",
             todayIst !in offered,
         )
-        assertEquals("the first offered day is the 20:00 IST rule's earliest", earliest, offered.first())
+        assertEquals("the first offered day is the configured cutoff rule's earliest", earliest, offered.first())
     }
 
     @Test

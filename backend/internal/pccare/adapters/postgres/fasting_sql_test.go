@@ -10,8 +10,9 @@ import (
 // are the pure-Go halves of the proofs; the Postgres integration test in
 // fasting_precondition_integration_test.go exercises the same SQL against the real schema.
 
-// The list read hides a feed_water_removal card until 20:00 IST of its due day, judged by the
-// CALLER's clock bind (the shiftingActionsVisibleSQL shape) — never a DB-side now().
+// The list read hides a feed_water_removal card until the CONFIGURED cutoff of its due day,
+// judged by the CALLER's clock bind (the shiftingActionsVisibleSQL shape) — never a DB-side
+// now() — against the cutoff bind the service read from config, never a literal TIME.
 func TestListTasksHidesFeedWaterRemovalUntilEvening(t *testing.T) {
 	src, err := os.ReadFile("tasks.go")
 	if err != nil {
@@ -30,7 +31,7 @@ func TestListTasksHidesFeedWaterRemovalUntilEvening(t *testing.T) {
 	for _, want := range []string{
 		"t.category <> 'feed_water_removal'",
 		"AT TIME ZONE 'Asia/Kolkata'",
-		"t.due_business_date + TIME '20:00'",
+		"t.due_business_date + $16::time",
 	} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("listTasksPageSQL must carry the evening-visibility predicate piece %q", want)
@@ -41,6 +42,9 @@ func TestListTasksHidesFeedWaterRemovalUntilEvening(t *testing.T) {
 	}
 	if strings.Contains(page, "now()") {
 		t.Fatal("listTasksPageSQL must not read the DB clock for the visibility rule")
+	}
+	if strings.Contains(page, "TIME '") {
+		t.Fatal("listTasksPageSQL must not carry a literal cutoff hour; the cutoff is config (maintainer decision 2026-09-07)")
 	}
 }
 

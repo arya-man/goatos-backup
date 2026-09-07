@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.PcCareRepository
 import sg.mesha.goatos.core.data.PcCareWorklistQuery
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
@@ -60,6 +61,7 @@ class PcCarePlanViewModel @Inject constructor(
     private val submittedGrains: SubmittedGrainsSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
+    private val bootstrapRepository: BootstrapRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -87,6 +89,13 @@ class PcCarePlanViewModel @Inject constructor(
     private var lastTrackedStep: PcCarePlanStep? = null
 
     private var catalog: PcCarePlannerCatalogDto? = null
+
+    /**
+     * The farm's feed & water removal cutoff from the bootstrap (maintainer decision 2026-09-07:
+     * config, not code); null until it lands or when the farm has none, in which case the removal
+     * toggle narrows the picker only to the rule's invariant floor (never today).
+     */
+    private var removalCutoff: java.time.LocalTime? = null
     private var pensCursor: String? = null
     private var pensLoadInFlight = false
 
@@ -103,6 +112,9 @@ class PcCarePlanViewModel @Inject constructor(
     init {
         analytics.track(AnalyticsEvents.PC_CARE_WORKLIST_VIEWED, mapOf(AnalyticsEvents.Params.KIND to "planner"))
         loadCatalog()
+        viewModelScope.launch {
+            removalCutoff = parseFeedWaterRemovalCutoff(bootstrapRepository.feedWaterRemovalCutoffTime())
+        }
         // The planner's list is ROUND-grained (maintainer decision 2026-09-05): one card per
         // round, because the planner ticked those pens as ONE piece of work. Room renders it and
         // the refresh runs behind, so re-entering the screen never shows a blank wall.
@@ -424,8 +436,8 @@ class PcCarePlanViewModel @Inject constructor(
         val today = LocalDate.now(ZoneId.of(INDIA_ZONE))
         if (date < today || date > today.plusDays(FUTURE_WINDOW_DAYS)) return
         // With the removal toggle ON, the chosen day must still have a removal evening ahead of
-        // it (client mirror of the server's 20:00 IST rule; the server still refuses with its
-        // own farm copy).
+        // it (client mirror of the server's configured-cutoff rule; the server still refuses
+        // with its own farm copy).
         val minIso = _state.value.minSelectableDateIso
         if (_state.value.feedRemovalRequired && minIso.isNotBlank() && date.toString() < minIso) return
         trackWizardInteraction("select_date")
@@ -495,7 +507,7 @@ class PcCarePlanViewModel @Inject constructor(
 
     /**
      * Flips "Feed removed before deworming?" (maintainer decision 2026-09-03). Turning it ON
-     * applies the 20:00 IST picker rule: a selected day whose removal evening has already begun
+     * applies the configured-cutoff picker rule: a selected day whose removal evening has already begun
      * is MOVED to the earliest allowed day, and the move is said out loud rather than silently
      * applied — the server would refuse the old day anyway (422, its own farm copy).
      */
@@ -510,7 +522,7 @@ class PcCarePlanViewModel @Inject constructor(
             }
             return
         }
-        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(ZoneId.of(INDIA_ZONE)))
+        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(ZoneId.of(INDIA_ZONE)), removalCutoff)
         val earliestIso = earliest.toString()
         val selected = current.selectedDate
         val bumped = selected.isNotBlank() && selected < earliestIso
