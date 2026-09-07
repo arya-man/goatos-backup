@@ -91,11 +91,7 @@ const iconByToken: Record<string, ElementType> = {
 };
 
 function navIconForToken(token: string): ElementType {
-  const icon = iconByToken[token];
-  if (!icon) {
-    throw new Error(`Admin-web navigation icon token is not mapped: ${token}`);
-  }
-  return icon;
+  return iconByToken[token] ?? TowerControl;
 }
 
 function shellCopy(contract: AdminWebBootstrapResponse, key: string): string {

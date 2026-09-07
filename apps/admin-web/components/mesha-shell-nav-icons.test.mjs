@@ -28,3 +28,10 @@ test("admin-web maps every backend navigation icon token", () => {
   const missing = [...backendTokens].filter((token) => !mappedTokens.has(token)).sort();
   assert.deepEqual(missing, []);
 });
+
+test("unknown navigation icon tokens cannot blank the admin shell", () => {
+  const shell = source("apps/admin-web/components/mesha-shell.tsx");
+
+  assert.doesNotMatch(shell, /Admin-web navigation icon token is not mapped/);
+  assert.match(shell, /function navIconForToken\(token: string\): ElementType \{\s*return iconByToken\[token\] \?\? TowerControl;\s*\}/);
+});
