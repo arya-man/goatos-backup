@@ -37,3 +37,43 @@ func TestProcessIntegrityCountCacheKeyIgnoresPageShape(t *testing.T) {
 		t.Fatalf("count cache key depends on page-only inputs:\n got %s\nwant %s", got, want)
 	}
 }
+
+func TestProcessIntegrityReadCacheReturnsDefensiveCopy(t *testing.T) {
+	r := NewRepository(nil, 0)
+	key := "list|tenant|bucket"
+	result := domain.ListResult{
+		Rows: []domain.Row{{
+			RowID: "row-1",
+			Evidence: domain.Evidence{
+				ProofIDs: []string{"proof-1"},
+			},
+		}},
+		CountsByWorkState: []domain.CountByWorkState{{WorkState: domain.WorkStateDue, Count: 1}},
+	}
+
+	r.setReadCache(key, result)
+	result.Rows[0].Evidence.ProofIDs[0] = "mutated-before-read"
+	result.CountsByWorkState[0].Count = 99
+
+	first, ok := r.getReadCache(key)
+	if !ok {
+		t.Fatal("expected read cache hit")
+	}
+	first.Rows[0].Evidence.ProofIDs[0] = "mutated-after-read"
+	first.Rows[0].Evidence.Media = []domain.MediaItem{{ProofID: "proof-1", DownloadURL: "stale-url"}}
+	first.CountsByWorkState[0].Count = 42
+
+	second, ok := r.getReadCache(key)
+	if !ok {
+		t.Fatal("expected second read cache hit")
+	}
+	if got := second.Rows[0].Evidence.ProofIDs[0]; got != "proof-1" {
+		t.Fatalf("cached proof IDs were mutated through caller-owned slice: got %q", got)
+	}
+	if len(second.Rows[0].Evidence.Media) != 0 {
+		t.Fatalf("cached media was mutated through caller-owned rows: got %+v", second.Rows[0].Evidence.Media)
+	}
+	if got := second.CountsByWorkState[0].Count; got != 1 {
+		t.Fatalf("cached counts were mutated through caller-owned slice: got %d", got)
+	}
+}

@@ -22,10 +22,12 @@ const (
 	defaultQueryTimeout          = 3 * time.Second
 	defaultClosedHistoryAge      = 14 * 24 * time.Hour
 	processIntegrityReadCacheTTL = 60 * time.Second
-	defaultLimit                 = 100
-	maxLimit                     = 500
-	countQueryArgCount           = 16
-	rowsQueryArgCount            = 20
+	// Clock granularity of the read-cache KEY. See processIntegrityReadCacheKey.
+	processIntegrityReadCacheBucket = 30 * time.Second
+	defaultLimit                    = 100
+	maxLimit                        = 500
+	countQueryArgCount              = 16
+	rowsQueryArgCount               = 20
 )
 
 type Repository struct {
@@ -46,11 +48,26 @@ type processIntegrityCountCacheEntry struct {
 	value     []domain.CountByWorkState
 }
 
+// The read cache is keyed on a BUCKETED clock, not the raw one.
+//
+// Failing behaviour this replaces: the handler sets AsOf (and DueBefore =
+// AsOf+30d) from time.Now(), and Protocol Adherence defaults DueAfter from
+// AsOf-30d. This key formatted those times with RFC3339Nano. Two requests a
+// millisecond apart therefore produced two different keys, so the 60s
+// read/count cache below never returned a hit on the default Action Center /
+// Protocol Adherence request -- it was dead code. Every hit paid the full
+// canonical query again (~52ms planning + ~240ms execution, 223k buffer hits to
+// return 36 rows).
+//
+// Bucketing is sound because the cache's own TTL already defines the staleness
+// contract: a hit may serve data up to processIntegrityReadCacheTTL old. The
+// bucket is half the TTL, so a served entry is never staler than the TTL that
+// was already deemed acceptable, and the cache actually hits.
 func processIntegrityReadCacheKey(prefix string, q domain.Query) string {
-	asOf := q.AsOf.UTC().Format(time.RFC3339Nano)
+	asOf := processIntegrityReadCacheKeyTime(q.AsOf, q.HistoricalAsOf)
 	dueAfter := ""
 	if q.DueAfter != nil {
-		dueAfter = q.DueAfter.UTC().Format(time.RFC3339Nano)
+		dueAfter = processIntegrityReadCacheKeyTime(*q.DueAfter, q.HistoricalAsOf)
 	}
 	rowID := ""
 	if q.RowID != nil {
@@ -62,9 +79,17 @@ func processIntegrityReadCacheKey(prefix string, q domain.Query) string {
 	}
 	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%t|%t|%t|%t|%d|%s",
 		prefix, q.TenantID, textValue(q.ParkID), textValue(q.ShedID), dueAfter,
-		q.DueBefore.UTC().Format(time.RFC3339Nano), textEnum(q.WorkState), textEnum(q.Severity),
+		processIntegrityReadCacheKeyTime(q.DueBefore, q.HistoricalAsOf), textEnum(q.WorkState), textEnum(q.Severity),
 		textValue(q.OwnerID), textValue(q.ProtocolVersionID), q.OnlyBrokenOrAtRisk,
 		q.IncludeCompleted, q.ScopeLatestDrive, q.IncludeAdherenceSummary, q.Limit, asOf+"|"+rowID+"|"+cursor+"|"+textValue(q.Category))
+}
+
+func processIntegrityReadCacheKeyTime(t time.Time, exact bool) string {
+	t = t.UTC()
+	if !exact {
+		t = t.Truncate(processIntegrityReadCacheBucket)
+	}
+	return t.Format(time.RFC3339Nano)
 }
 
 func processIntegrityCountCacheKey(q domain.Query) string {
@@ -86,7 +111,7 @@ func (r *Repository) getReadCache(key string) (domain.ListResult, bool) {
 		}
 		return domain.ListResult{}, false
 	}
-	return entry.value, true
+	return cloneProcessIntegrityListResult(entry.value), true
 }
 
 func (r *Repository) getCountCache(key string) ([]domain.CountByWorkState, bool) {
@@ -109,7 +134,7 @@ func (r *Repository) setReadCache(key string, value domain.ListResult) {
 	if len(r.readCache) > 256 {
 		r.readCache = map[string]processIntegrityReadCacheEntry{}
 	}
-	r.readCache[key] = processIntegrityReadCacheEntry{expiresAt: time.Now().Add(processIntegrityReadCacheTTL), value: value}
+	r.readCache[key] = processIntegrityReadCacheEntry{expiresAt: time.Now().Add(processIntegrityReadCacheTTL), value: cloneProcessIntegrityListResult(value)}
 }
 
 func (r *Repository) setCountCache(key string, value []domain.CountByWorkState) {
@@ -122,6 +147,20 @@ func (r *Repository) setCountCache(key string, value []domain.CountByWorkState) 
 		expiresAt: time.Now().Add(processIntegrityReadCacheTTL),
 		value:     append([]domain.CountByWorkState(nil), value...),
 	}
+}
+
+func cloneProcessIntegrityListResult(in domain.ListResult) domain.ListResult {
+	out := in
+	out.CountsByWorkState = append([]domain.CountByWorkState(nil), in.CountsByWorkState...)
+	if in.Rows != nil {
+		out.Rows = make([]domain.Row, len(in.Rows))
+		copy(out.Rows, in.Rows)
+		for i := range out.Rows {
+			out.Rows[i].Evidence.ProofIDs = append([]string(nil), in.Rows[i].Evidence.ProofIDs...)
+			out.Rows[i].Evidence.Media = append([]domain.MediaItem(nil), in.Rows[i].Evidence.Media...)
+		}
+	}
+	return out
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
