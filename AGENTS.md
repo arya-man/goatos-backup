@@ -520,6 +520,49 @@ Pinned by `TestGrowthHeadlineEqualsTheGainChartForTheSameSex`, which filters to 
 chart holds exactly one bucket and the headline must equal it animal for animal; it was
 mutation-tested by restoring the old median-of-pairs headline and confirming it goes red.
 
+FIFTH RECORDED EXCEPTION (maintainer decision 2026-09-07): SAME-ANIMAL KEYING, and it is the
+NARROWEST of the five -- `backend/internal/weighing/adapters/postgres/identity_scope.go` reads
+`goat_identifiers` and NOTHING ELSE, not even `goats`. An animal here can carry TWO RFIDs
+(`identifier_type` is `animal_identifier_1` or `animal_identifier_2`) and the operator scans
+whichever tag they can read. Every reporting read keyed an animal by the RAW SCANNED STRING, so one
+weighed on its primary tag in week 1 and its secondary in week 2 was TWO ANIMALS WITH ONE WEIGH
+EACH.
+
+THE NUMBER WAS NOT WRONG, IT WAS ABSENT, and that is the part worth carrying forward: it produced NO
+ADG at all -- gone from the headline, the gain-by-breed/sex/stage charts, the band board's
+moved-up/held/slipped-back and the losing-animals list -- while counting TWICE in the denominators
+those same averages divide. A wrong number gets questioned; a missing one reads as an animal nobody
+weighed twice. The farm cannot scan its way out of it: both tags are on the animal, and only the
+register knows they are one.
+
+The file answers "which of these strings are the same animal" ONCE and hands `growth.go`,
+`shed_weights.go`, `load_weights.go`, `weight_demographics.go` and the Growth Director reads an
+OPAQUE tag -> canonical-tag map, so those files still name no herd table -- the same shape
+`sex_scope.go` established, for the same reason.
+
+READ-ONLY and REPORTING-ONLY. **THE ONE WEIGHING BUSINESS RULE -- no scanning an animal twice in the
+same bucket before submit -- STILL COMPARES RAW STRINGS AND IS DELIBERATELY UNTOUCHED**; making it
+identity-aware would gate a scan on the herd register, which is banned outright. A SINGLE-TAG animal
+is NEVER remapped (the map holds only animals with two or more active identifiers), an UNRESOLVABLE
+tag keeps its own string and still pairs with itself, and a farm with no double-tagged animal runs
+the query it ran before this file existed, key for key. The canonical key is one of the animal's OWN
+tags -- its `animal_identifier_1` -- never a goat_id, because `animal_key` is rendered verbatim to a
+reader as `ScannedIdentifier` in the losing-animals list.
+
+THE COST IS REAL AND ACCEPTED: weighing now depends on herd identity being right, the exact
+dependency `growth.go` refused in 2026-08-04. If the register wrongly attaches animal B's tag to
+animal A their weights MERGE and the gap reports as growth that never happened. Two narrowings hold
+it down and both are pinned: only `status = 'active'` identifiers are read (`disputed`, `duplicate`,
+`invalid` are the register saying do not trust this row, and are exactly the rows that would fuse
+two animals), and a tag is remapped only when the SAME goat carries another. A genuine RE-TAG still
+splits history, and that stays honest.
+
+SCOPE IS PAGE-WIDE ON PURPOSE: fixing only the ADG read would leave a headline counting an animal
+once beside a shed table counting it twice, which is the cross-surface disagreement about a business
+number this file bans. Canonical prose: `docs/decisions/weighing-same-animal-keying.md`. Pinned by
+`identity_scope_integration_test.go` (five tests, each mutation-tested), and by a guard self-test
+proving `goats` is STILL a finding inside that same exempt file.
+
 ALLOWED besides `weighing_*`: proof / idempotency / audit / outbox plumbing, and
 exactly four ORG tables — `locations`, `workforce_members`, `user_scope_grants`,
 `shed_partitions` (a task belongs to a park, a person, and a physical partition).

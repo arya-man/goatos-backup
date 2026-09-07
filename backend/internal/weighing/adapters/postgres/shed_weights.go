@@ -128,6 +128,14 @@ func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeP
 	sexApplied := strings.TrimSpace(sex) != ""
 	originApplied := strings.TrimSpace(origin) != ""
 	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
+	// The same-animal map (identity_scope.go). Window-bounded and widened by the SAME gain lookback
+	// the pairing arm below reads, or an animal whose previous weigh sits before the window would
+	// merge in the growth read and not in this one -- two numbers on one page disagreeing about how
+	// many animals a shed holds, which is exactly the cross-surface split this fix exists to close.
+	idMap, idErr := r.resolveAnimalIdentityMap(ctx, tenantID, parkIDs, periodStart.AddDate(0, 0, -growthLookbackDays), periodEnd)
+	if idErr != nil {
+		return domain.ShedWeights{}, idErr
+	}
 	sexFiltered := sexApplied || originApplied
 
 	out = domain.ShedWeights{
@@ -189,10 +197,17 @@ ind AS (
          count(*) FILTER (WHERE latest.weight_kg >= $6::numeric)::int AS ge_upper
   FROM scoped s
   JOIN LATERAL (
-    SELECT DISTINCT ON (COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''), o.observation_id::text))
+    -- Same-animal key ($14/$15, identity_scope.go): an animal carrying two RFIDs scanned on a
+    -- different one each round appeared here as TWO animals with two latest weights, inflating the
+    -- shed's animal count and dragging its average toward whichever weigh was older. An unmapped
+    -- tag keeps its raw string, and a blank tag still falls back to the observation id.
+    SELECT DISTINCT ON (COALESCE(NULLIF(COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))), ''), o.observation_id::text))
            o.weight_kg,
            (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS weigh_date
     FROM weighing_observations o
+    -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan an animal's weighs out under the aggregates below; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
+    LEFT JOIN unnest($14::text[], $15::text[]) AS akmap(tag, canonical_tag)
+      ON akmap.tag = lower(btrim(o.scanned_identifier))
     WHERE o.tenant_id = s.tenant_id
       AND o.campaign_shed_id = s.campaign_shed_id
       AND o.accepted_at >= $3::timestamptz
@@ -204,7 +219,7 @@ ind AS (
       -- before the filter existed; when it is on, an EMPTY tag list correctly matches nothing
       -- rather than silently meaning "everyone", which is why the flag is a separate bind.
       AND (NOT $8::bool OR lower(btrim(o.scanned_identifier)) = ANY($9::text[]))
-    ORDER BY COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''), o.observation_id::text),
+    ORDER BY COALESCE(NULLIF(COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))), ''), o.observation_id::text),
              o.accepted_at DESC, o.observation_id DESC
   ) latest ON true
   WHERE s.weighing_category = 'individual_animal'
@@ -330,19 +345,26 @@ summary_individual AS (
       SELECT animal_key, weight_kg, accepted_at, observation_id
       FROM (
         SELECT o.observation_id, o.weight_kg::float8 AS weight_kg, o.accepted_at,
-               lower(btrim(o.scanned_identifier)) AS animal_key,
+               COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) AS animal_key,
                LAG(o.weight_kg::float8) OVER w AS prev_weight,
                LAG(o.accepted_at) OVER w AS prev_accepted_at
         FROM scoped s
         JOIN weighing_observations o
           ON o.tenant_id = s.tenant_id
          AND o.campaign_shed_id = s.campaign_shed_id
+        -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan an animal's weighs out under the aggregates below; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
+        LEFT JOIN unnest($14::text[], $15::text[]) AS akmap(tag, canonical_tag)
+          ON akmap.tag = lower(btrim(o.scanned_identifier))
         WHERE s.weighing_category = 'individual_animal'
           AND o.accepted_at >= ($3::timestamptz - ($12::int * INTERVAL '1 day'))
           AND o.accepted_at <  $4::timestamptz
           AND o.verification_status <> 'rejected'
           AND (NOT $8::bool OR lower(btrim(o.scanned_identifier)) = ANY($9::text[]))
-        WINDOW w AS (PARTITION BY lower(btrim(o.scanned_identifier)) ORDER BY o.accepted_at, o.observation_id)
+        -- PARTITION on the SAME key the SELECT projects. Partitioning on the raw tag while
+        -- projecting the canonical one would pair each tag against itself and then group two
+        -- unpaired halves under one key -- a merge that produces no pair, which is the original
+        -- defect wearing the fix's clothes.
+        WINDOW w AS (PARTITION BY COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) ORDER BY o.accepted_at, o.observation_id)
       ) pairs
       WHERE prev_weight IS NOT NULL
         AND ((accepted_at AT TIME ZONE 'Asia/Kolkata')::date
@@ -445,7 +467,8 @@ LIMIT $7`
 		saleThresholdLowerKg, saleThresholdUpperKg,
 		domain.MaxShedWeightsRows,
 		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels,
-		growthLookbackDays, weighingCategory)
+		growthLookbackDays, weighingCategory,
+		idMap.Tags, idMap.CanonicalTags)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
@@ -588,7 +611,7 @@ ORDER BY display_order, name, location_id`, tenantID, scopeParkIDs)
 		// and folding a different grain into this query is how a shed ends up counted
 		// once per load it touches.
 		var err error
-		byLoad, unattributed, err = r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		byLoad, unattributed, err = r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
 		setFollowErr(err)
 	}()
 

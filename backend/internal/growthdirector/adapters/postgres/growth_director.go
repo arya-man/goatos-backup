@@ -26,10 +26,18 @@ import (
 //	$1 tenant_id uuid, $2 park_ids uuid[],
 //	$3 period start date (inclusive), $4 period end date (EXCLUSIVE)
 //	$9 weighing_category filter, or blank for both modes
+//	$10/$11 the same-animal map: scanned tags, and the canonical tag each one keys under
 const weighingObsCTE = `
 obs AS (
   SELECT o.observation_id,
-         lower(btrim(o.scanned_identifier)) AS tag_key,
+         -- SAME-ANIMAL KEY ($10/$11), not the raw scanned string. An animal here can carry two
+         -- RFIDs, and one weighed on its primary tag one round and its secondary the next was two
+         -- animals with one weigh each: no band movement, two entries on the board, and the
+         -- interval between those weighs never compared. Which strings are one animal is weighing's
+         -- identity_scope.go, resolved ONCE per request there and handed here as an opaque map --
+         -- exactly as the sex tag list is -- so this package still names no herd table and cannot
+         -- disagree with the Weights page about who is who.
+         COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) AS tag_key,
          o.weight_kg, o.accepted_at, o.campaign_id,
          c.period_start_date,
          cs.location_id AS shed_id, cs.display_name AS shed_label,
@@ -42,6 +50,9 @@ obs AS (
     ON cs.tenant_id = o.tenant_id AND cs.campaign_shed_id = o.campaign_shed_id
   LEFT JOIN locations pk
     ON pk.tenant_id = o.tenant_id AND pk.location_id = c.park_id
+  -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan an animal's weighs out under the aggregates below; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
+  LEFT JOIN unnest($10::text[], $11::text[]) AS akmap(tag, canonical_tag)
+    ON akmap.tag = lower(btrim(o.scanned_identifier))
   WHERE o.tenant_id = $1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND c.status <> 'canceled'
@@ -189,6 +200,14 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	originApplied := strings.TrimSpace(origin) != ""
 	scope = weighingpg.IntersectScopes(scope, sexApplied, originScope, originApplied)
 	sexFiltered := sexApplied || originApplied
+	// The same-animal map, from weighing's ONE resolver. The board reads campaign PERIODS rather than
+	// an accepted_at window, so it is resolved unbounded: a kid's previous round can sit arbitrarily
+	// far back, and a windowed map would merge it on the Weights page while leaving it split here --
+	// two screens disagreeing about how many animals moved up a band.
+	idMap, idErr := weighingpg.ResolveAnimalIdentityMap(ctx, r.pool, tenantID, parkIDs, time.Time{}, time.Time{})
+	if idErr != nil {
+		return out, idErr
+	}
 
 	parks, err := r.parks(ctx, tenantID, parkIDs)
 	if err != nil {
@@ -197,19 +216,19 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	}
 	out.Parks = parks
 
-	if out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
+	if out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory); err != nil {
 		flightErr = err
 		return out, err
 	}
-	if out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
+	if out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory); err != nil {
 		flightErr = err
 		return out, err
 	}
-	if out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
+	if out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory); err != nil {
 		flightErr = err
 		return out, err
 	}
-	if out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
+	if out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory); err != nil {
 		flightErr = err
 		return out, err
 	}
@@ -217,7 +236,7 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 		flightErr = err
 		return out, err
 	}
-	if out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, weighingCategory); err != nil {
+	if out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory); err != nil {
 		flightErr = err
 		return out, err
 	}
@@ -264,7 +283,7 @@ func emptyBands() []domain.WeightBand {
 //	  goat_identifiers   0..1 per tag, by the lifetime-unique index
 //
 //	Ratio key sets: none -- every output is a count of animals, not a ratio.
-func (r *Repository) roadToSale(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, weighingCategory string) (domain.RoadToSale, error) {
+func (r *Repository) roadToSale(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string) (domain.RoadToSale, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	out := domain.RoadToSale{Bands: emptyBands()}
@@ -372,7 +391,8 @@ FROM scored
 GROUP BY band_idx
 ORDER BY band_idx`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
-		scope.LocationIDs, scope.PartitionLabels, weighingCategory)
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory,
+		idMap.Tags, idMap.CanonicalTags)
 	if err != nil {
 		return out, err
 	}
@@ -408,17 +428,24 @@ ORDER BY band_idx`
 // count so the two views reconcile. The lump-sum side MUST filter
 // withdrawn_at IS NULL: live-row uniqueness is a PARTIAL index (000067), and
 // dropping the predicate fans out reopened buckets.
-func (r *Repository) trust(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, weighingCategory string) (domain.Trust, error) {
+func (r *Repository) trust(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string) (domain.Trust, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	var out domain.Trust
 	const q = `
 WITH obs AS (
-  SELECT o.observation_id, lower(btrim(o.scanned_identifier)) AS tag_key,
+  -- Same-animal key ($10/$11). identities_total and identities_with_pair below are ANIMAL counts,
+  -- so a double-tagged animal scanned on a different RFID each round counted as two identities and
+  -- as neither one having a pair -- the same defect the band board above carries. is_matched is
+  -- unaffected: the canonical tag is itself one of that animal's identifiers, so it still resolves.
+  SELECT o.observation_id, COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) AS tag_key,
          o.verification_status, o.campaign_id
   FROM weighing_observations o
   JOIN weighing_campaigns c ON c.tenant_id = o.tenant_id AND c.campaign_id = o.campaign_id
   LEFT JOIN weighing_campaign_sheds cs ON cs.tenant_id = o.tenant_id AND cs.campaign_shed_id = o.campaign_shed_id
+  -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan an animal's weighs out under the aggregates below; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
+  LEFT JOIN unnest($10::text[], $11::text[]) AS akmap(tag, canonical_tag)
+    ON akmap.tag = lower(btrim(o.scanned_identifier))
   WHERE o.tenant_id = $1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND c.status <> 'canceled'
@@ -468,7 +495,8 @@ SELECT
   s.live_shed_observations
 FROM shed_obs s`
 	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, startDate, endDate,
-		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels, weighingCategory).Scan(
+		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels, weighingCategory,
+		idMap.Tags, idMap.CanonicalTags).Scan(
 		&out.ScansTotal, &out.ScansMatched, &out.ScansUnmatched,
 		&out.ScansPendingVerification, &out.ScansRework,
 		&out.IdentitiesTotal, &out.IdentitiesWithPair, &out.IdentitiesOnceOnly,

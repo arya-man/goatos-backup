@@ -276,6 +276,31 @@ function stripComments(text) {
 // query it ran before this file existed; and a whole-shed weigh is claimed only
 // when its cohort is provably one sex, never split across a mix.
 //
+// THE FIFTH RECORDED EXCEPTION (maintainer decision 2026-09-07): SAME-ANIMAL
+// KEYING, identity_scope.go. An animal on this farm can carry TWO RFIDs
+// (goat_identifiers.identifier_type is animal_identifier_1 or animal_identifier_2)
+// and operators scan whichever tag they can read. Every reporting read keyed an
+// animal by the RAW SCANNED STRING, so one weighed on its primary tag in week 1
+// and its secondary in week 2 was TWO animals with ONE weigh each: it produced no
+// pair and therefore NO ADG at all -- a silently MISSING number rather than a
+// visibly wrong one -- while counting twice in the denominators those averages
+// divide. The farm cannot scan its way out of it; both tags are on the animal.
+//
+// It is the NARROWEST of the five exemptions: goat_identifiers ONLY, not goats.
+// It never learns an animal's sex, breed, stage, pen or origin -- it answers
+// "which of these scanned strings are the same animal" and hands back an opaque
+// tag -> canonical-tag map, so growth.go, shed_weights.go, load_weights.go and the
+// Growth Director reads still name no herd table.
+//
+// Its boundaries: READ-ONLY and REPORTING-ONLY, no capture/submit/close/verdict
+// path calls it -- in particular the one weighing business rule, no scanning an
+// animal twice in a bucket before submit, still compares RAW STRINGS and is
+// deliberately untouched; only status='active' identifiers are read, because
+// 'disputed'/'duplicate'/'invalid' are exactly the rows that would merge two
+// animals that are not one animal; and a tag is remapped ONLY when the same goat
+// carries another one, so a single-tag animal, an unknown tag, and a farm with no
+// double-tagged animal at all are byte-for-byte what they were before.
+//
 // Adding a file here is a MAINTAINER decision, never a developer convenience.
 // The herd tables the three reporting/census exemptions share. Vaccination, clinical, protocol
 // and obligation tables stay banned everywhere.
@@ -309,6 +334,18 @@ const HERD_JOIN_EXEMPT_FILES = new Map([
       reason:
         "maintainer decision 2026-08-24: lump-sum submit snapshots the bucket's resident head count from the herd register (frozen on the row; operator no longer types it)",
       tables: HERD_JOIN_BASE_TABLES,
+    },
+  ],
+  [
+    "backend/internal/weighing/adapters/postgres/identity_scope.go",
+    {
+      // The narrowest exemption of the five, and deliberately so: it needs ONE table to answer
+      // "which scanned strings are the same animal", and `goats` is not it. Withholding the base
+      // table set here is the point -- a file that cannot read `goats` cannot grow into a second
+      // demographics resolver, which is how a keying helper turns into a herd dependency.
+      reason:
+        "maintainer decision 2026-09-07: resolves which scanned tags are the same animal, so an animal carrying two RFIDs pairs with itself for ADG instead of reporting as two animals with no gain",
+      tables: ["goat_identifiers"],
     },
   ],
   [
@@ -1807,6 +1844,47 @@ func (r *Repository) resolveOriginScope(ctx context.Context) error {
     );
   }
 
+  // Maintainer decision 2026-09-07: identity_scope.go is the FIFTH exemption and is allowlisted for
+  // `goat_identifiers` ALONE -- deliberately WITHOUT the base herd set the other four share. These
+  // two cases pin that narrowing, because "it is already an exempt file" is exactly the reasoning
+  // that would widen it: the tag->animal read is legal there, and reading `goats` in the same file
+  // is still a finding. A shared table list would pass both and quietly turn a keying helper into a
+  // second demographics resolver.
+  const identityRead = `
+func (r *Repository) resolveAnimalIdentityMap(ctx context.Context) error {
+  _, err := r.pool.Exec(ctx, ` + "`" + `
+    SELECT goat_id, identifier_value FROM goat_identifiers WHERE tenant_id=$1
+  ` + "`" + `)
+  return err
+}
+`;
+  const exemptIdentity = anyPathTableFindings(
+    "backend/internal/weighing/adapters/postgres/identity_scope.go",
+    identityRead,
+  );
+  if (exemptIdentity.length) {
+    throw new Error(
+      `self-test failed: mode 16 false positive on the identity-scope exemption (maintainer decision 2026-09-07). got: ${JSON.stringify(exemptIdentity)}`,
+    );
+  }
+  const identityReadingGoats = `
+func (r *Repository) resolveAnimalIdentityMap(ctx context.Context) error {
+  _, err := r.pool.Exec(ctx, ` + "`" + `
+    SELECT g.sex FROM goats g JOIN goat_identifiers gi ON gi.goat_id = g.goat_id
+  ` + "`" + `)
+  return err
+}
+`;
+  const identityOverreach = anyPathTableFindings(
+    "backend/internal/weighing/adapters/postgres/identity_scope.go",
+    identityReadingGoats,
+  );
+  if (!identityOverreach.some((f) => f.rule === "weighing-reads-non-weighing-table")) {
+    throw new Error(
+      "self-test failed: identity_scope.go is allowlisted for goat_identifiers ONLY — reading goats in that same exempt file must still be a finding",
+    );
+  }
+
   const nonExemptCensus = anyPathTableFindings("fake.go", censusRead);
   if (!nonExemptCensus.some((f) => f.rule === "weighing-reads-non-weighing-table")) {
     throw new Error(
@@ -1814,7 +1892,7 @@ func (r *Repository) resolveOriginScope(ctx context.Context) error {
     );
   }
 
-  console.log("weighing-free-flow guard: self-test passed (16/16 failure modes + 4 demonstrated bypasses + shed_partitions distinction)");
+  console.log("weighing-free-flow guard: self-test passed (16/16 failure modes + 4 demonstrated bypasses + shed_partitions distinction + per-file table scoping)");
 }
 
 // Builds a throwaway fixture repo under os.tmpdir(), writes ONE Go file and ONE migration file
