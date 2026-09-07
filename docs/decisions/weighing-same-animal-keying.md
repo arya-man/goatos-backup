@@ -65,10 +65,11 @@ demographics resolver, which is how a keying helper becomes a herd dependency.
    bucket before submit — still compares RAW STRINGS and is deliberately untouched.** Making that
    identity-aware would gate a scan on the herd register, which is banned outright. An operator can
    still scan an animal on both its tags in one bucket; the register does not get a vote.
-2. **A single-tag animal is NEVER remapped.** The map carries rows only for animals holding two or
-   more active identifiers, so a farm, a window, or a test with no double-tagged animal gets an
-   EMPTY map and every read runs the query it ran before this file existed, key for key. That is
-   what bounds the blast radius of the exception to the animals it is about.
+2. **A single-permanent-RFID animal is NEVER remapped.** The map carries rows only for animals
+   holding two or more active permanent RFID identifiers, so a farm, a window, or a test with no
+   double-RFID animal gets an EMPTY map and every read runs the query it ran before this file
+   existed, key for key. That is what bounds the blast radius of the exception to the animals it is
+   about. A `temporary_tag` is a birth/provisional identity, not a second RFID slot.
 3. **An unresolvable tag keeps its own string.** Free-flow accepts a scan the register has never
    heard of; it is still recorded, still counted, and still pairs with itself.
 4. **The canonical key is one of the animal's OWN tags — its `animal_identifier_1` — never a
@@ -88,9 +89,9 @@ Two narrowings hold that down, and both are load-bearing and pinned by tests:
 - Only `status = 'active'` identifiers are read. `disputed`, `duplicate` and `invalid` are the
   register's own way of saying "do not trust this row", and they are precisely the rows that would
   fuse two animals.
-- A tag is remapped only when the SAME goat carries another one.
+- A tag is remapped only when the SAME goat carries another permanent RFID.
 
-The residual exposure is a double-tagged animal with an active, undisputed, wrong second tag. That
+The residual exposure is a double-tagged animal with an active, undisputed, wrong second RFID. That
 was accepted as the price of reporting a number at all, against the status quo of reporting none.
 
 A genuine RE-TAG (old tag retired, new tag issued) still splits an animal's history, and that stays

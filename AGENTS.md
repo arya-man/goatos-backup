@@ -543,19 +543,20 @@ OPAQUE tag -> canonical-tag map, so those files still name no herd table -- the 
 READ-ONLY and REPORTING-ONLY. **THE ONE WEIGHING BUSINESS RULE -- no scanning an animal twice in the
 same bucket before submit -- STILL COMPARES RAW STRINGS AND IS DELIBERATELY UNTOUCHED**; making it
 identity-aware would gate a scan on the herd register, which is banned outright. A SINGLE-TAG animal
-is NEVER remapped (the map holds only animals with two or more active identifiers), an UNRESOLVABLE
-tag keeps its own string and still pairs with itself, and a farm with no double-tagged animal runs
-the query it ran before this file existed, key for key. The canonical key is one of the animal's OWN
-tags -- its `animal_identifier_1` -- never a goat_id, because `animal_key` is rendered verbatim to a
-reader as `ScannedIdentifier` in the losing-animals list.
+is NEVER remapped (the map holds only animals with two or more active permanent RFIDs; a
+`temporary_tag` is not a second RFID slot), an UNRESOLVABLE tag keeps its own string and still pairs
+with itself, and a farm with no double-tagged animal runs the query it ran before this file existed,
+key for key. The canonical key is one of the animal's OWN tags -- its `animal_identifier_1` -- never
+a goat_id, because `animal_key` is rendered verbatim to a reader as `ScannedIdentifier` in the
+losing-animals list.
 
 THE COST IS REAL AND ACCEPTED: weighing now depends on herd identity being right, the exact
 dependency `growth.go` refused in 2026-08-04. If the register wrongly attaches animal B's tag to
 animal A their weights MERGE and the gap reports as growth that never happened. Two narrowings hold
 it down and both are pinned: only `status = 'active'` identifiers are read (`disputed`, `duplicate`,
 `invalid` are the register saying do not trust this row, and are exactly the rows that would fuse
-two animals), and a tag is remapped only when the SAME goat carries another. A genuine RE-TAG still
-splits history, and that stays honest.
+two animals), and a tag is remapped only when the SAME goat carries another permanent RFID. A
+genuine RE-TAG still splits history, and that stays honest.
 
 SCOPE IS PAGE-WIDE ON PURPOSE: fixing only the ADG read would leave a headline counting an animal
 once beside a shed table counting it twice, which is the cross-surface disagreement about a business
