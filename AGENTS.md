@@ -14,6 +14,18 @@ trace screen -> field -> proof row -> outbox -> retry -> backend registration ->
 submit -> success/failure. Do not show raw internal identifiers such as
 `feed_water_removal` as user-facing titles.
 
+For any proof-backed business workflow, proof upload success is not final
+business success. Green/done user-facing states must wait for the feature's
+business write or server read model: scan capture, animal observation, feed
+completion, PC Care slot/task-proof registration, task submit, or equivalent.
+If a link/register/submit fails after a blob upload succeeds, retry that small
+business write with the existing proof id; do not re-upload media just to repair
+the link. See `docs/decisions/proof-business-ack-contract.md`.
+
+When Ravi asks for judge/subagent validation and spawning fails due to agent
+capacity, close completed or old non-critical agents and retry immediately.
+Do not stop on agent-capacity while stale agents can be safely closed.
+
 Any backend-composed navigation key or user-facing category added in the
 backend must have an explicit Android/frontend display mapping before it ships:
 icon, label/copy behavior, and layout fit. Never let mobile or web silently fall

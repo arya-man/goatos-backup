@@ -128,6 +128,108 @@ class PcCareSubmitGateTest {
     }
 
     @Test
+    fun `accepted scan analytics carries scan outbox join keys`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        val analytics = FakeAnalyticsPort()
+        repo.detailFlow.value = singleSlotDetail
+
+        val vm = buildPcCareTaskViewModel(repo, analytics = analytics)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        vm.onEvent(PcCareTaskEvent.ScanInputChanged("RF-042"))
+        vm.onEvent(PcCareTaskEvent.SubmitTypedScan)
+        runCurrent()
+
+        val event = analytics.events.last { it.first == AnalyticsEvents.PC_CARE_SCAN_ACCEPTED }
+        assertEquals("task-1", event.second["task_id"])
+        assertEquals("RF-042", event.second[AnalyticsEvents.Params.RFID])
+        assertEquals("rf-042", event.second["normalized_rfid"])
+        assertEquals("scan-outbox-1", event.second[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+        assertEquals("pc-care:scan:task-1", event.second[AnalyticsEvents.Params.GROUP_KEY])
+        assertEquals("pc-care:scan:task-1:rf-042", event.second[AnalyticsEvents.Params.IDEMPOTENCY_KEY])
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `uploaded local animal slot proof is not green until pc care slot register is visible`() {
+        val fieldKey = pcCareSlotProofFieldKey("t1", "video")
+        val chip = pcCareSlotChip(
+            slot = singleSlotDetail.expectedSlots.single(),
+            normalizedTag = "t1",
+            animalProofs = listOf(
+                localProof(
+                    fieldKey,
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-proof-t1-video",
+                    processingState = "UPLOADED",
+                ),
+            ),
+            serverSlots = emptyList(),
+            capturingSlotKey = null,
+        )
+
+        assertEquals(PcCareSlotState.WORKING, chip.state)
+        assertEquals("Video uploaded, saving to task...", chip.statusLabel)
+        assertFalse(chip.canRecord)
+        assertEquals("server-proof-t1-video", chip.serverProofId)
+    }
+
+    @Test
+    fun `uploaded local animal slot proof turns green only after pc care slot register lands`() {
+        val fieldKey = pcCareSlotProofFieldKey("t1", "video")
+        val chip = pcCareSlotChip(
+            slot = singleSlotDetail.expectedSlots.single(),
+            normalizedTag = "t1",
+            animalProofs = listOf(
+                localProof(
+                    fieldKey,
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-proof-t1-video",
+                    processingState = "UPLOADED",
+                ),
+            ),
+            serverSlots = listOf(
+                sg.mesha.goatos.core.network.dto.PcCareAnimalSlotDto(
+                    fieldKey = "video",
+                    proofRef = "server-proof-t1-video",
+                ),
+            ),
+            capturingSlotKey = null,
+        )
+
+        assertEquals(PcCareSlotState.SYNCED, chip.state)
+        assertEquals("Video sent", chip.statusLabel)
+        assertEquals("server-proof-t1-video", chip.serverProofId)
+    }
+
+    @Test
+    fun `animal slot backend ack analytics fires when pc care slot register is visible`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        val analytics = FakeAnalyticsPort()
+        repo.detailFlow.value = singleSlotDetail.copy(captureMode = "per_animal")
+        repo.animalsFlow.value = listOf(
+            pcCareAnimalEntity(
+                tag = "T1",
+                serverSlotsJson = """[{"field_key":"video","proof_ref":"server-proof-t1-video"}]""",
+            ),
+        )
+
+        val vm = buildPcCareTaskViewModel(repo, analytics = analytics)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        val event = analytics.events.last { it.first == AnalyticsEvents.PC_CARE_SLOT_BUSINESS_ACK }
+        assertEquals("business_ack_visible", event.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("backend_task_detail", event.second[AnalyticsEvents.Params.SOURCE])
+        assertEquals("video", event.second["slot_field_key"])
+        assertEquals("t1:video", event.second["field_key"])
+        assertEquals("server-proof-t1-video", event.second["server_proof_id"])
+        assertEquals("T1", event.second[AnalyticsEvents.Params.RFID])
+        collectJob.cancel()
+    }
+
+    @Test
     fun `animal slot preview actions include proof trace ids and task context`() = runTest(dispatcher) {
         val repo = FakePcCareRepository()
         val proofRepo = FakeProofCaptureRepository()
@@ -224,6 +326,40 @@ class PcCareSubmitGateTest {
         assertEquals("sync_success", synced.second[AnalyticsEvents.Params.OUTCOME])
         assertEquals("submit-outbox-1", synced.second[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
         assertEquals("proof-$fieldKey", synced.second["local_proof_row_id"])
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `confirm recreates missing animal slot register before final submit`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val fieldKey = pcCareSlotProofFieldKey("t1", "video")
+        repo.detailFlow.value = singleSlotDetail.copy(rowVersion = 7, captureMode = "per_animal")
+        repo.animalsFlow.value = listOf(pcCareAnimalEntity(tag = "t1", scanSyncStatus = PcCareScanStatus.SYNCED))
+        proofRepo.seedProofs(
+            localProof(
+                fieldKey = fieldKey,
+                syncStatus = CaptureSyncStatus.SYNCED,
+                serverProofId = "server-proof-t1-video",
+                processingState = "UPLOADED",
+            ),
+        )
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+        repo.slotRegistrations.clear()
+
+        vm.onEvent(PcCareTaskEvent.Submit)
+        runCurrent()
+        vm.onEvent(PcCareTaskEvent.ConfirmSubmit)
+        runCurrent()
+
+        assertEquals(
+            listOf(listOf("task-1", "t1", "video", "outbox-$fieldKey")),
+            repo.slotRegistrations,
+        )
+        assertEquals(listOf("task-1" to 7), repo.submitCalls)
+        assertTrue(vm.state.value.submitQueued)
         collectJob.cancel()
     }
 

@@ -6,6 +6,15 @@ The current phone-QA throwaway database (port **15544**) is the role/device
 fixture used by `tools/local/phone-qa-throwaway-run.sh` and
 `tools/local/phone-qa-throwaway-seed.sh`.
 
+OCI phone QA must use only disposable `goatos_e2e_*` databases exposed through
+the local tunnel; the seed script refuses shared OCI `goatos`, staging, or prod.
+For PC Care proof-link testing, this backend seed creates the visible tasks,
+assignees, pens, and RFIDs. It cannot pre-create Android `proof_capture` or
+`outbox` states such as "video uploaded but slot register failed", because those
+rows live in the phone's Room databases. Create those states by running the
+phone against the throwaway backend, then inspect Android Room/outbox plus
+Postgres together.
+
 The older `15546` scripts are a separate multi-device E2E stack. Do not cite
 `15546` as the phone-QA role-test port.
 

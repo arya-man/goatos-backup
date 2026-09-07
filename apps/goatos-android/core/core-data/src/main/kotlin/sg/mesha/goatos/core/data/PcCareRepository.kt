@@ -30,6 +30,8 @@ import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.pcCareScanGroupKey
+import sg.mesha.goatos.core.data.sync.pcCareScanIdempotencyKey
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.PcCareAnimalRowDto
 import sg.mesha.goatos.core.network.dto.PcCareCloseRequestDto
@@ -112,7 +114,11 @@ data class PcCareWorklistQuery(
 /** Outcome of recording one scan locally. The ViewModel owns the copy; this is typed state. */
 sealed interface PcCareScanOutcome {
     /** The scan is durable in Room and queued for sync. */
-    data object Queued : PcCareScanOutcome
+    data class Queued(
+        val outboxItemId: String,
+        val groupKey: String,
+        val idempotencyKey: String,
+    ) : PcCareScanOutcome
 
     /** This tag is already in the task's Room rows (scanned here or synced from a peer). */
     data class Duplicate(val scannedByName: String) : PcCareScanOutcome
@@ -448,7 +454,11 @@ class DefaultPcCareRepository(
             ),
         )
         return when (val queued = syncRepository.enqueuePcCareScanAdd(taskId, verbatim, normalized)) {
-            is AppResult.Ok -> PcCareScanOutcome.Queued
+            is AppResult.Ok -> PcCareScanOutcome.Queued(
+                outboxItemId = queued.value,
+                groupKey = pcCareScanGroupKey(taskId.trim()),
+                idempotencyKey = pcCareScanIdempotencyKey(taskId.trim(), normalized),
+            )
             is AppResult.Err -> PcCareScanOutcome.Failed(queued.message)
         }
     }

@@ -130,7 +130,8 @@ interface OutboxDao {
             "    OR (older.status = 'FAILED' AND older.conflict = 0 AND older.attemptCount < older.maxAttempts)))" +
             ") " +
             ") " +
-            "ORDER BY candidate.createdAt ASC, candidate.rowid ASC LIMIT :limit",
+            "ORDER BY CASE WHEN candidate.opType = 'PC_CARE_SCAN_ADD' THEN 0 ELSE 1 END, " +
+            "candidate.createdAt ASC, candidate.rowid ASC LIMIT :limit",
     )
     suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
 

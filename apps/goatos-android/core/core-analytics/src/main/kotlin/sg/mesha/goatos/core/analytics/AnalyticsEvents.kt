@@ -625,6 +625,12 @@ object AnalyticsEvents {
     /** Upload outbox id became visible in Room for the Stock proof. */
     const val PC_CARE_STOCK_PROOF_UPLOAD_ENQUEUED = "pc_care_stock_proof_upload_enqueued"
 
+    /** Task-proof upload outbox reached a terminal state before the PC Care business link is final. */
+    const val PC_CARE_TASK_PROOF_UPLOAD_SYNCED = "pc_care_task_proof_upload_synced"
+
+    /** Task-proof backend business row/link is visible in the refreshed PC Care detail. */
+    const val PC_CARE_TASK_PROOF_BUSINESS_ACK = "pc_care_task_proof_business_ack"
+
     /** Stock proof slot registration write was enqueued or failed. */
     const val PC_CARE_STOCK_PROOF_REGISTRATION = "pc_care_stock_proof_registration"
 
@@ -666,6 +672,9 @@ object AnalyticsEvents {
 
     /** A per-animal PC Care proof upload reached a terminal sync state. */
     const val PC_CARE_SLOT_UPLOAD_SYNCED = "pc_care_slot_upload_synced"
+
+    /** A per-animal PC Care backend business slot/link is visible in the refreshed task detail. */
+    const val PC_CARE_SLOT_BUSINESS_ACK = "pc_care_slot_business_ack"
 
     /** A per-animal PC Care slot registration write was enqueued or failed. */
     const val PC_CARE_SLOT_REGISTRATION = "pc_care_slot_registration"

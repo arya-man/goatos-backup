@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.pcCareTaskProofRegisterRefreshHook
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskProofDto
@@ -165,9 +166,9 @@ class PcCareInventoryTaskProofTest {
         assertTrue(empty.canRecord)
 
         val captured = pcCareBuildTaskProofSlot(stockVideoSlot, listOf(proof(syncStatus = CaptureSyncStatus.SYNCED, serverProofId = "server-proof-1")), emptyList(), null)
-        assertEquals(PcCareSlotState.SYNCED, captured.state)
-        assertEquals("Proof sent", captured.statusLabel)
-        assertTrue(captured.canRecord)
+        assertEquals(PcCareSlotState.WORKING, captured.state)
+        assertEquals("Proof uploaded, saving to task...", captured.statusLabel)
+        assertFalse(captured.canRecord)
 
         val serverCaptured = pcCareBuildTaskProofSlot(
             stockVideoSlot,
@@ -216,6 +217,30 @@ class PcCareInventoryTaskProofTest {
         assertEquals(PcCareSlotState.SYNCED, captured.state)
         assertEquals("Proof sent", captured.statusLabel)
         assertTrue(captured.canRecord)
+    }
+
+    @Test
+    fun `fresh failed task proof replacement is not hidden by stale server task proof`() {
+        val failedReplacement = proof(
+            fieldKey = stockVideoSlot.fieldKey,
+            syncStatus = CaptureSyncStatus.FAILED,
+            outboxItemId = "proof-outbox-failed-stock-video",
+            mimeType = "video/mp4",
+            capturedAtMs = 20L,
+            processingState = "RECORD_AGAIN",
+        )
+        val captured = pcCareBuildTaskProofSlot(
+            stockVideoSlot,
+            listOf(failedReplacement),
+            listOf(PcCareTaskProofDto(slotKey = stockVideoSlot.fieldKey, proofRef = "older-server-proof-video")),
+            null,
+        )
+
+        assertEquals(PcCareSlotState.FAILED, captured.state)
+        assertEquals("Retry proof", captured.statusLabel)
+        assertTrue(captured.canRecord)
+        assertEquals("proof-stock-${stockVideoSlot.fieldKey}", captured.localProofRowId)
+        assertEquals("proof-outbox-failed-stock-video", captured.proofOutboxItemId)
     }
 
     @Test
@@ -314,6 +339,45 @@ class PcCareInventoryTaskProofTest {
     }
 
     @Test
+    fun `inventory task proof upload terminal analytics use task proof event`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val analytics = FakeAnalyticsPort()
+        val sync = MinimalPcCareSyncRepository()
+        repo.detailFlow.value = pcCareTaskDtoFixture(
+            category = "inventory_vaccine",
+            expectedSlots = listOf(stockPhotoSlot, stockVideoSlot),
+        ).copy(captureMode = "task_proof")
+        proofRepo.seedProofs(
+            proof(
+                fieldKey = stockVideoSlot.fieldKey,
+                syncStatus = CaptureSyncStatus.PENDING,
+                serverProofId = "server-proof-video",
+                outboxItemId = "proof-outbox-video",
+            ),
+        )
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, analytics = analytics, syncRepository = sync)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        proofRepo.markSynced("proof-stock-${stockVideoSlot.fieldKey}", serverProofId = "server-proof-video")
+        runCurrent()
+        sync.emit(itemId = "proof-outbox-video", status = SyncItemStatus.SUCCEEDED)
+        runCurrent()
+
+        val event = analytics.events.last { it.first == AnalyticsEvents.PC_CARE_TASK_PROOF_UPLOAD_SYNCED }
+        assertEquals("proof_upload_sync", event.second[AnalyticsEvents.Params.ACTION])
+        assertEquals("success", event.second[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("proof_upload_outbox", event.second[AnalyticsEvents.Params.SOURCE])
+        assertEquals(stockVideoSlot.fieldKey, event.second["field_key"])
+        assertEquals("proof-stock-${stockVideoSlot.fieldKey}", event.second["local_proof_row_id"])
+        assertEquals("proof-outbox-video", event.second[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("server-proof-video", event.second["server_proof_id"])
+        assertFalse(analytics.events.any { it.first == AnalyticsEvents.PC_CARE_SLOT_UPLOAD_SYNCED })
+        collectJob.cancel()
+    }
+
+    @Test
     fun `feed water preview URL failures keep feed water event and server proof id`() = runTest(dispatcher) {
         val feedSlot = PcCareSlotDto(
             fieldKey = "feed_video",
@@ -367,7 +431,7 @@ class PcCareInventoryTaskProofTest {
     }
 
     @Test
-    fun `uploaded local task proof preview wins over stale server task proof ref`() {
+    fun `uploaded local task proof waits when server task proof still points at old ref`() {
         val captured = pcCareBuildTaskProofSlot(
             stockVideoSlot,
             listOf(
@@ -383,7 +447,8 @@ class PcCareInventoryTaskProofTest {
             mapOf(stockVideoSlot.fieldKey to TaskProofPreviewUrl("old-server-proof-video", "https://proof.local/old-server-proof-video.mp4", 1L)),
         )
 
-        assertEquals(PcCareSlotState.SYNCED, captured.state)
+        assertEquals(PcCareSlotState.WORKING, captured.state)
+        assertEquals("Proof uploaded, saving to task...", captured.statusLabel)
         assertEquals("file:///stock.mp4", captured.previewPath)
         assertEquals(PcCareProofPreviewKind.VIDEO, captured.previewKind)
     }
@@ -481,6 +546,7 @@ class PcCareInventoryTaskProofTest {
     fun `inventory task proof can be satisfied by live camera video`() = runTest(dispatcher) {
         val repo = FakePcCareRepository()
         val proofRepo = FakeProofCaptureRepository()
+        val analytics = FakeAnalyticsPort()
         val proofSource = FakeProofCaptureSource(
             mutableListOf(
                 CapturedVideo(
@@ -497,7 +563,7 @@ class PcCareInventoryTaskProofTest {
             expectedSlots = listOf(stockPhotoSlot, stockVideoSlot),
         ).copy(captureMode = "task_proof")
 
-        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, proofSource = proofSource)
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, proofSource = proofSource, analytics = analytics)
         runCurrent()
         vm.onEvent(PcCareTaskEvent.RecordTaskProof(stockVideoSlot.fieldKey, "video"))
         runCurrent()
@@ -505,6 +571,9 @@ class PcCareInventoryTaskProofTest {
         assertEquals(1, proofSource.captureCount)
         assertEquals("video/mp4", proofRepo.captureCalls.single().mimeType)
         assertEquals(listOf(listOf("task-1", stockVideoSlot.fieldKey, "proof-outbox-1", "")), repo.taskProofRegistrations)
+        val event = analytics.events.last { it.first == AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION }
+        assertEquals("proof-outbox-1", event.second[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertEquals("task-proof-outbox-1", event.second[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
     }
 
     @Test
@@ -569,6 +638,40 @@ class PcCareInventoryTaskProofTest {
 
         assertEquals(listOf(listOf("task-1", stockVideoSlot.fieldKey, "proof-outbox-orphan", "")), repo.taskProofRegistrations)
         assertEquals(emptyList<List<String>>(), repo.slotRegistrations)
+    }
+
+    @Test
+    fun `confirm recreates missing inventory task proof register before final submit`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        repo.detailFlow.value = pcCareTaskDtoFixture(
+            category = "inventory_vaccine",
+            expectedSlots = listOf(stockPhotoSlot, stockVideoSlot),
+            taskProofs = listOf(PcCareTaskProofDto(slotKey = stockPhotoSlot.fieldKey, proofRef = "server-proof-photo")),
+        ).copy(rowVersion = 9, captureMode = "task_proof")
+        proofRepo.seedProofs(
+            proof(
+                stockVideoSlot.fieldKey,
+                CaptureSyncStatus.SYNCED,
+                serverProofId = "server-proof-video",
+                outboxItemId = "proof-outbox-video",
+                processingState = "UPLOADED",
+            ),
+        )
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+        repo.taskProofRegistrations.clear()
+
+        vm.onEvent(PcCareTaskEvent.Submit)
+        runCurrent()
+        vm.onEvent(PcCareTaskEvent.ConfirmSubmit)
+        runCurrent()
+
+        assertEquals(listOf(listOf("task-1", stockVideoSlot.fieldKey, "proof-outbox-video", "")), repo.taskProofRegistrations)
+        assertEquals(listOf("task-1" to 9), repo.submitCalls)
+        assertTrue(vm.state.value.submitQueued)
+        collectJob.cancel()
     }
 
     @Test

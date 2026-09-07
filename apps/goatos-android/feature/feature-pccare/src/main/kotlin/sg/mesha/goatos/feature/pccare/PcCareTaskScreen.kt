@@ -710,7 +710,7 @@ private fun PcCareSubmitBar(
         // The weighing surfaces' primary-button chrome (Brand fill, dark label).
         PcCarePrimaryButton(
             label = when {
-                state.submitQueued -> "Submitted"
+                state.submitQueued -> "Submitting..."
                 state.submitInFlight -> "Sending…"
                 else -> "Submit task"
             },

@@ -70,8 +70,9 @@ import javax.inject.Inject
  *
  * Room is the single source of truth: the screen renders from three observed flows — the cached
  * task detail, the scanned-animal rows, and this phone's own proof capture rows — merged per slot.
- * MERGE RULE: a LOCAL proof row for this phone's own capture wins (live processing status);
- * otherwise the server-attributed peer slot from the captures poll renders as "Captured by X".
+ * MERGE RULE: a LOCAL proof row for this phone's own capture wins while it is recording or
+ * uploading. Final green is different: it only comes from the PC Care business row carrying the
+ * proof ref, never from the blob upload alone.
  *
  * Slots are PARALLEL: a slot chip's state derives ONLY from its own capture rows + the task
  * lifecycle lock, never from a sibling slot. Peer visibility and the submit lock arrive through
@@ -159,8 +160,11 @@ class PcCareTaskViewModel @Inject constructor(
     private var latestRoster: List<String> = emptyList()
     private var rosterRefreshRequested = false
     private var submitObserveJob: Job? = null
-    private val animalSlotProofObserveJobs = mutableMapOf<String, Job>() // mobile-guard:ignore ViewModel-lifetime jobs bounded by proof rows on one PC Care task screen
+    private val proofUploadObserveJobs = mutableMapOf<String, Job>() // mobile-guard:ignore ViewModel-lifetime jobs bounded by proof rows on one PC Care task screen
     private val animalSlotProofTerminalEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded by proof rows on one PC Care task screen
+    private val taskProofTerminalEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded by proof rows on one PC Care task screen
+    private val animalSlotBusinessAckEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded by backend-visible slot refs on one PC Care task screen
+    private val taskProofBusinessAckEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded by backend-visible task proof refs on one PC Care task screen
     private val pcCareTaskProofSlotKeys = setOf(
         PC_CARE_SLOT_STOCK_FRIDGE_PHOTO,
         PC_CARE_SLOT_STOCK_FRIDGE_VIDEO,
@@ -187,6 +191,10 @@ class PcCareTaskViewModel @Inject constructor(
         viewModelScope.launch {
             repository.observeRemovalPens(taskId).collect { pens ->
                 local.update { it.copy(removalPens = pens) }
+                if (pcCareIsTaskProofMode(latestDetail)) {
+                    hydrateTaskProofPreviews(latestDetail)
+                    observeTaskProofUploads(latestProofs)
+                }
             }
         }
         // Track the durable snapshots the act paths read.
@@ -195,6 +203,7 @@ class PcCareTaskViewModel @Inject constructor(
                 latestDetail = detail
                 if (pcCareIsTaskProofMode(detail)) {
                     hydrateTaskProofPreviews(detail)
+                    observeTaskProofUploads(latestProofs)
                 }
                 hydrateAnimalProofPreviews(detail, latestAnimals)
                 // The pen list rides the card's own contract, so it may arrive after screen
@@ -260,6 +269,7 @@ class PcCareTaskViewModel @Inject constructor(
             proofCaptureRepository.observeProofs(taskId).collect { proofs ->
                 latestProofs = proofs
                 observeAnimalSlotProofUploads(proofs)
+                observeTaskProofUploads(proofs)
             }
         }
         // Reader free-flow: every hardware read lands here while this screen's VM is alive. A scan
@@ -416,14 +426,31 @@ class PcCareTaskViewModel @Inject constructor(
         viewModelScope.launch {
             when (val outcome = repository.recordScan(taskId, verbatim)) {
                 is PcCareScanOutcome.Queued -> {
-                    analytics.track(AnalyticsEvents.PC_CARE_SCAN_ACCEPTED)
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_SCAN_ACCEPTED,
+                        pcCareScanAnalyticsProps(
+                            tagVerbatim = verbatim,
+                            outcome = "queued",
+                            source = if (fromTypedEntry) "typed_entry" else "rfid_reader",
+                            outboxItemId = outcome.outboxItemId,
+                            groupKey = outcome.groupKey,
+                            idempotencyKey = outcome.idempotencyKey,
+                        ),
+                    )
                     if (fromTypedEntry) local.update { it.copy(scanInput = "") }
                     // Scan-and-record (deworming / ticks removal): the recorder opens the moment a
                     // NEW tag lands — the scan IS the start of that animal's video.
                     autoRecordAfterScan(verbatim)
                 }
                 is PcCareScanOutcome.Duplicate -> {
-                    analytics.track(AnalyticsEvents.PC_CARE_SCAN_DUPLICATE)
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_SCAN_DUPLICATE,
+                        pcCareScanAnalyticsProps(
+                            tagVerbatim = verbatim,
+                            outcome = "duplicate",
+                            source = if (fromTypedEntry) "typed_entry" else "rfid_reader",
+                        ),
+                    )
                     showScanNotice("Already scanned · $verbatim")
                     if (fromTypedEntry) local.update { it.copy(scanInput = "") }
                 }
@@ -1066,6 +1093,7 @@ class PcCareTaskViewModel @Inject constructor(
                                             proofRowId = result.value.id,
                                             proofOutboxItemId = proofOutboxId,
                                             serverProofId = result.value.serverProofId,
+                                            outboxItemId = registered.value,
                                         ),
                                     )
                                     analytics.track(
@@ -1189,12 +1217,13 @@ class PcCareTaskViewModel @Inject constructor(
             .filter { row ->
                 row.outboxItemId?.isNotBlank() == true &&
                     row.fieldKey.contains(':') &&
+                    !row.fieldKey.contains("::") &&
                     row.syncStatus != CaptureSyncStatus.FAILED
             }
             .forEach { row ->
                 val itemId = row.outboxItemId.orEmpty()
-                if (animalSlotProofObserveJobs.containsKey(itemId)) return@forEach
-                animalSlotProofObserveJobs[itemId] = viewModelScope.launch {
+                if (proofUploadObserveJobs.containsKey(itemId)) return@forEach
+                proofUploadObserveJobs[itemId] = viewModelScope.launch {
                     syncRepository.observeItem(itemId).collect { item ->
                         if (item != null) trackAnimalSlotProofUploadTerminal(row, item)
                     }
@@ -1236,6 +1265,108 @@ class PcCareTaskViewModel @Inject constructor(
         )
     }
 
+    private fun observeTaskProofUploads(proofs: List<ProofCaptureRow>) {
+        val detail = latestDetail?.takeIf { pcCareIsTaskProofMode(it) } ?: return
+        val expectedSlotKeys = pcCareTaskProofExpectedSlots(detail).mapTo(mutableSetOf()) { it.fieldKey }
+        proofs
+            .filter { row ->
+                row.outboxItemId?.isNotBlank() == true &&
+                    row.fieldKey in expectedSlotKeys &&
+                    row.syncStatus != CaptureSyncStatus.FAILED
+            }
+            .forEach { row ->
+                val itemId = row.outboxItemId.orEmpty()
+                if (proofUploadObserveJobs.containsKey(itemId)) return@forEach
+                proofUploadObserveJobs[itemId] = viewModelScope.launch {
+                    syncRepository.observeItem(itemId).collect { item ->
+                        if (item != null) trackTaskProofUploadTerminal(row, item)
+                    }
+                }
+            }
+    }
+
+    private fun trackTaskProofUploadTerminal(row: ProofCaptureRow, item: SyncQueueItem) {
+        val outcome = when {
+            item.status == SyncItemStatus.SUCCEEDED -> "success"
+            item.isTerminalFailure -> "failure"
+            else -> return
+        }
+        if (!taskProofTerminalEventsTracked.add(item.id)) return
+        val latestRow = latestProofs.firstOrNull { it.id == row.id } ?: row
+        analytics.track(
+            AnalyticsEvents.PC_CARE_TASK_PROOF_UPLOAD_SYNCED,
+            pcCareStockProofAnalyticsProps(
+                fieldKey = latestRow.fieldKey,
+                mediaKind = pcCareMediaKindFromMime(latestRow.mimeType),
+                status = latestDetail?.status.orEmpty(),
+                outcome = outcome,
+                action = "proof_upload_sync",
+                reason = if (item.isTerminalFailure) {
+                    item.lastError?.takeIf { it.isNotBlank() } ?: if (item.conflict) "conflict" else "attempts_exhausted"
+                } else {
+                    null
+                },
+                source = "proof_upload_outbox",
+                proofRowId = latestRow.id,
+                proofOutboxItemId = item.id,
+                serverProofId = latestRow.serverProofId,
+            ),
+        )
+    }
+
+    private fun trackBusinessProofAcks(
+        detail: PcCareTaskDto?,
+        animals: List<PcCareAnimalRowEntity>,
+        taskProofs: List<PcCareTaskProofDto>,
+    ) {
+        if (detail == null) return
+        if (pcCareIsTaskProofMode(detail)) {
+            taskProofs
+                .filter { it.slotKey.isNotBlank() && it.proofRef.isNotBlank() }
+                .forEach { proof ->
+                    val key = proof.slotKey + ":" + proof.proofRef
+                    if (!taskProofBusinessAckEventsTracked.add(key)) return@forEach
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_TASK_PROOF_BUSINESS_ACK,
+                        pcCareStockProofAnalyticsProps(
+                            fieldKey = proof.slotKey,
+                            mediaKind = pcCareTaskProofMediaKind(proof.slotKey),
+                            status = detail.status,
+                            category = detail.category,
+                            captureMode = detail.captureMode,
+                            outcome = "business_ack_visible",
+                            source = if (proof.slotKey.contains("::")) "backend_removal_pen" else "backend_task_detail",
+                            serverProofId = proof.proofRef,
+                        ),
+                    )
+                }
+            return
+        }
+        animals.forEach { animal ->
+            val tagKey = animal.normalizedTag
+            decodeServerSlots(json, animal.serverSlotsJson)
+                .filter { it.fieldKey.isNotBlank() && it.proofRef.isNotBlank() }
+                .forEach { slot ->
+                    val slotKey = pcCareSlotProofFieldKey(tagKey, slot.fieldKey)
+                    val key = slotKey + ":" + slot.proofRef
+                    if (!animalSlotBusinessAckEventsTracked.add(key)) return@forEach
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_SLOT_BUSINESS_ACK,
+                        pcCareAnimalSlotAnalyticsProps(
+                            tagKey = tagKey,
+                            tagVerbatim = animal.tagVerbatim,
+                            slotFieldKey = slot.fieldKey,
+                            slotKey = slotKey,
+                            outcome = "business_ack_visible",
+                            action = "backend_business_link_visible",
+                            source = "backend_task_detail",
+                            serverProofId = slot.proofRef,
+                        ),
+                    )
+                }
+        }
+    }
+
     private fun armSubmit() {
         val bits = local.value
         if (bits.submitInFlight || bits.submitQueued) return
@@ -1252,7 +1383,7 @@ class PcCareTaskViewModel @Inject constructor(
             pcCareEvaluateTaskProofSubmit(
                 pcCareTaskProofExpectedSlots(detail),
                 latestProofs,
-                detail.taskProofs,
+                pcCareEffectiveTaskProofs(detail, local.value.removalPens),
                 local.value.capturingSlotKey,
                 missingCopy = if (pcCareIsFeedWaterRemoval(detail)) {
                     "Record the feed removal and water removal videos first" // mobile-contract:ignore: device-local pre-sync gate copy
@@ -1305,7 +1436,7 @@ class PcCareTaskViewModel @Inject constructor(
             pcCareEvaluateTaskProofSubmit(
                 pcCareTaskProofExpectedSlots(detail),
                 latestProofs,
-                detail.taskProofs,
+                pcCareEffectiveTaskProofs(detail, local.value.removalPens),
                 local.value.capturingSlotKey,
                 missingCopy = if (pcCareIsFeedWaterRemoval(detail)) {
                     "Record the feed removal and water removal videos first" // mobile-contract:ignore: device-local pre-sync gate copy
@@ -1335,6 +1466,8 @@ class PcCareTaskViewModel @Inject constructor(
         }
         local.update { it.copy(showSubmitConfirmation = false, submitInFlight = true) }
         viewModelScope.launch {
+            reconcileSlotRegistrations()
+            syncRepository.triggerDrain()
             when (val result = repository.submitTask(taskId, detail.rowVersion)) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEvents.PC_CARE_SUBMIT_CONFIRMED)
@@ -1536,6 +1669,7 @@ class PcCareTaskViewModel @Inject constructor(
                         proofRowId = row.id,
                         proofOutboxItemId = outboxId,
                         serverProofId = row.serverProofId,
+                        outboxItemId = (result as? AppResult.Ok)?.value,
                     ),
                 )
                 return@forEach
@@ -1599,6 +1733,7 @@ class PcCareTaskViewModel @Inject constructor(
                         proofRowId = row.id,
                         proofOutboxItemId = outboxId,
                         serverProofId = row.serverProofId,
+                        outboxItemId = (result as? AppResult.Ok)?.value,
                     ),
                 )
             }
@@ -1618,6 +1753,7 @@ class PcCareTaskViewModel @Inject constructor(
         proofRowId: String? = null,
         proofOutboxItemId: String? = null,
         serverProofId: String? = null,
+        outboxItemId: String? = null,
     ): Map<String, String> = buildMap {
         put(AnalyticsEvents.Params.KIND, mediaKind)
         put(AnalyticsEvents.Params.FIELD, fieldKey)
@@ -1634,6 +1770,31 @@ class PcCareTaskViewModel @Inject constructor(
         proofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
         proofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
         serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
+        outboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, it) }
+    }
+
+    private fun pcCareScanAnalyticsProps(
+        tagVerbatim: String,
+        outcome: String,
+        source: String,
+        reason: String? = null,
+        outboxItemId: String? = null,
+        groupKey: String? = null,
+        idempotencyKey: String? = null,
+    ): Map<String, String> = buildMap {
+        put("task_id", taskId)
+        put("feature_surface", "pc_care_scan")
+        put(AnalyticsEvents.Params.RFID, tagVerbatim)
+        put("normalized_rfid", tagVerbatim.trim().lowercase())
+        latestDetail?.category?.takeIf { it.isNotBlank() }?.let { put("category", it) }
+        latestDetail?.captureMode?.takeIf { it.isNotBlank() }?.let { put("capture_mode", it) }
+        latestDetail?.status?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.STATUS, it) }
+        put(AnalyticsEvents.Params.OUTCOME, outcome)
+        put(AnalyticsEvents.Params.SOURCE, source)
+        reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
+        outboxItemId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTBOX_ITEM_ID, it) }
+        groupKey?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.GROUP_KEY, it) }
+        idempotencyKey?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.IDEMPOTENCY_KEY, it) }
     }
 
     private fun pcCareAnimalSlotAnalyticsProps(
@@ -1745,6 +1906,9 @@ class PcCareTaskViewModel @Inject constructor(
 
     private fun pcCareMediaKindFromMime(mimeType: String): String =
         if (mimeType.startsWith("image/", ignoreCase = true)) "photo" else "video"
+
+    private fun pcCareTaskProofMediaKind(slotKey: String): String =
+        if (slotKey.endsWith(PC_CARE_SLOT_STOCK_FRIDGE_PHOTO)) "photo" else "video"
 
     private fun pcCareStockSlotMatchesMime(fieldKey: String, mimeType: String): Boolean =
         when (fieldKey) {
@@ -1866,9 +2030,39 @@ class PcCareTaskViewModel @Inject constructor(
         )
     }
 
+    private fun pcCareEffectiveTaskProofs(
+        detail: PcCareTaskDto?,
+        removalPens: List<PcCareRemovalPenDto>,
+    ): List<PcCareTaskProofDto> {
+        if (!pcCareIsFeedWaterRemoval(detail) || removalPens.isEmpty()) {
+            return detail?.taskProofs.orEmpty()
+        }
+        val penProofs = removalPens.flatMap { pen ->
+            listOfNotNull(
+                pen.feedProofRef
+                    .takeIf { it.isNotBlank() }
+                    ?.let {
+                        PcCareTaskProofDto(
+                            slotKey = pcCareRemovalSlotKey(pen.gatedTaskId, PC_CARE_SLOT_FEED_VIDEO),
+                            proofRef = it,
+                        )
+                    },
+                pen.waterProofRef
+                    .takeIf { it.isNotBlank() }
+                    ?.let {
+                        PcCareTaskProofDto(
+                            slotKey = pcCareRemovalSlotKey(pen.gatedTaskId, PC_CARE_SLOT_WATER_VIDEO),
+                            proofRef = it,
+                        )
+                    },
+            )
+        }
+        return detail?.taskProofs.orEmpty() + penProofs
+    }
+
     private fun hydrateTaskProofPreviews(detail: PcCareTaskDto?) {
         val now = System.currentTimeMillis()
-        val missing = detail?.taskProofs.orEmpty()
+        val missing = pcCareEffectiveTaskProofs(detail, local.value.removalPens)
             .filter { it.proofRef.isNotBlank() }
             .filter { proof ->
                 val cached = local.value.taskProofPreviewUrls[proof.slotKey]
@@ -2046,6 +2240,8 @@ class PcCareTaskViewModel @Inject constructor(
         val expectedSlots = pcCareEffectiveExpectedSlots(detail)
         val rosterMode = detail?.captureMode == PC_CARE_CAPTURE_MODE_ROSTER
         val taskProofMode = pcCareIsTaskProofMode(detail)
+        val effectiveTaskProofs = pcCareEffectiveTaskProofs(detail, bits.removalPens)
+        trackBusinessProofAcks(detail, animals, effectiveTaskProofs)
         val rosterRows = if (rosterMode) {
             pcCareBuildRosterRows(
                 expectedSlots,
@@ -2063,7 +2259,7 @@ class PcCareTaskViewModel @Inject constructor(
             pcCareEvaluateTaskProofSubmit(
                 expectedSlots,
                 proofs,
-                detail?.taskProofs.orEmpty(),
+                effectiveTaskProofs,
                 bits.capturingSlotKey,
                 missingCopy = if (pcCareIsFeedWaterRemoval(detail)) {
                     "Record the feed removal and water removal videos first" // mobile-contract:ignore: device-local pre-sync gate copy
@@ -2142,7 +2338,7 @@ class PcCareTaskViewModel @Inject constructor(
                     pcCareBuildTaskProofSlot(
                         slot = slot,
                         proofs = proofs,
-                        taskProofs = detail?.taskProofs.orEmpty(),
+                        taskProofs = effectiveTaskProofs,
                         capturingSlotKey = bits.capturingSlotKey,
                         remotePreviewUrls = bits.taskProofPreviewUrls,
                         category = detail?.category.orEmpty(),
@@ -2156,7 +2352,7 @@ class PcCareTaskViewModel @Inject constructor(
                     pcCareBuildTaskProofSlot(
                         slot,
                         proofs,
-                        detail?.taskProofs.orEmpty(),
+                        effectiveTaskProofs,
                         bits.capturingSlotKey,
                         bits.taskProofPreviewUrls,
                         detail?.category.orEmpty(),
@@ -2170,7 +2366,7 @@ class PcCareTaskViewModel @Inject constructor(
                     pcCareBuildTaskProofSlot(
                         slot = slot,
                         proofs = proofs,
-                        taskProofs = detail?.taskProofs.orEmpty(),
+                        taskProofs = effectiveTaskProofs,
                         capturingSlotKey = bits.capturingSlotKey,
                         remotePreviewUrls = bits.taskProofPreviewUrls,
                         category = detail?.category.orEmpty(),
@@ -2184,7 +2380,7 @@ class PcCareTaskViewModel @Inject constructor(
                     pcCareBuildTaskProofSlot(
                         slot = slot,
                         proofs = proofs,
-                        taskProofs = detail?.taskProofs.orEmpty(),
+                        taskProofs = effectiveTaskProofs,
                         capturingSlotKey = bits.capturingSlotKey,
                         remotePreviewUrls = bits.taskProofPreviewUrls,
                         category = detail?.category.orEmpty(),
@@ -2365,8 +2561,10 @@ internal fun pcCareSlotChip(
             canRecord = false,
         )
     }
-    // MERGE RULE: this phone's own capture wins — its live processing status is what the person
-    // holding the phone needs. Only when no local row exists does the peer attribution render.
+    val serverSlot = serverSlots.firstOrNull { it.fieldKey == slot.fieldKey && it.proofRef.isNotBlank() }
+    // MERGE RULE: this phone's own capture wins while it is still local work. Once the blob has
+    // uploaded, final green waits for the PC Care slot-register business write to be visible in
+    // the server slot. That keeps "Video sent" from meaning only "GCS blob uploaded".
     val localRow = animalProofs
         .filter { it.fieldKey == slotKey }
         .maxByOrNull { it.capturedAtMs }
@@ -2374,20 +2572,39 @@ internal fun pcCareSlotChip(
         val previewPath = localRow.processedUri ?: localRow.localUri
         val previewKind = pcCarePreviewKind(localRow.mimeType)
         return when (localRow.processingStatus) {
-            ProofProcessingStatus.UPLOADED -> PcCareSlotChipUi(
-                fieldKey = slot.fieldKey,
-                label = slot.label,
-                description = slot.description,
-                state = PcCareSlotState.SYNCED,
-                statusLabel = "Video sent",
-                hintLabel = hint,
-                canRecord = false,
-                previewPath = previewPath,
-                previewKind = previewKind,
-                localProofRowId = localRow.id,
-                proofOutboxItemId = localRow.outboxItemId,
-                serverProofId = localRow.serverProofId,
-            )
+            ProofProcessingStatus.UPLOADED -> {
+                if (serverSlot != null && serverSlot.proofRef == localRow.serverProofId) {
+                    PcCareSlotChipUi(
+                        fieldKey = slot.fieldKey,
+                        label = slot.label,
+                        description = slot.description,
+                        state = PcCareSlotState.SYNCED,
+                        statusLabel = "Video sent",
+                        hintLabel = hint,
+                        canRecord = false,
+                        previewPath = previewPath,
+                        previewKind = previewKind,
+                        localProofRowId = localRow.id,
+                        proofOutboxItemId = localRow.outboxItemId,
+                        serverProofId = serverSlot.proofRef,
+                    )
+                } else {
+                    PcCareSlotChipUi(
+                        fieldKey = slot.fieldKey,
+                        label = slot.label,
+                        description = slot.description,
+                        state = PcCareSlotState.WORKING,
+                        statusLabel = "Video uploaded, saving to task...",
+                        hintLabel = hint,
+                        canRecord = false,
+                        previewPath = previewPath,
+                        previewKind = previewKind,
+                        localProofRowId = localRow.id,
+                        proofOutboxItemId = localRow.outboxItemId,
+                        serverProofId = localRow.serverProofId,
+                    )
+                }
+            }
             ProofProcessingStatus.RECORD_AGAIN -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
@@ -2418,7 +2635,6 @@ internal fun pcCareSlotChip(
             )
         }
     }
-    val serverSlot = serverSlots.firstOrNull { it.fieldKey == slot.fieldKey && it.proofRef.isNotBlank() }
     if (serverSlot != null) {
         val remotePreview = remotePreviewUrls[slotKey]?.takeIf { it.proofRef == serverSlot.proofRef }
         return PcCareSlotChipUi(
@@ -2498,7 +2714,46 @@ internal fun pcCareBuildTaskProofSlot(
             serverProofId = localInProgressPreview.serverProofId,
         )
     }
-    if (serverProof != null && localRow?.processingStatus != ProofProcessingStatus.UPLOADED) {
+    if (
+        localRow?.processingStatus == ProofProcessingStatus.UPLOADED &&
+        localRow.serverProofId?.isNotBlank() == true &&
+        serverProof?.proofRef != localRow.serverProofId
+    ) {
+        return PcCareSlotChipUi(
+            fieldKey = slot.fieldKey,
+            label = slot.label,
+            description = slot.description,
+            state = PcCareSlotState.WORKING,
+            statusLabel = "Proof uploaded, saving to task...",
+            hintLabel = hint,
+            canRecord = false,
+            previewPath = localRow.previewUri().orEmpty(),
+            previewKind = pcCarePreviewKind(localRow.mimeType),
+            localProofRowId = localRow.id,
+            proofOutboxItemId = localRow.outboxItemId,
+            serverProofId = localRow.serverProofId,
+        )
+    }
+    if (
+        localRow?.processingStatus == ProofProcessingStatus.RECORD_AGAIN ||
+        (localRow?.syncStatus == CaptureSyncStatus.FAILED && !localRow.outboxItemId.isNullOrBlank())
+    ) {
+        return PcCareSlotChipUi(
+            fieldKey = slot.fieldKey,
+            label = slot.label,
+            description = slot.description,
+            state = PcCareSlotState.FAILED,
+            statusLabel = "Retry proof",
+            hintLabel = hint,
+            canRecord = true,
+            previewPath = localRow.previewUri().orEmpty(),
+            previewKind = pcCarePreviewKind(localRow.mimeType),
+            localProofRowId = localRow.id,
+            proofOutboxItemId = localRow.outboxItemId,
+            serverProofId = localRow.serverProofId,
+        )
+    }
+    if (serverProof != null) {
         val byline = serverProof.capturedByName
             .takeIf { it.isNotBlank() }
             ?.let { "Captured by $it" }
@@ -2531,10 +2786,10 @@ internal fun pcCareBuildTaskProofSlot(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
                 description = slot.description,
-                state = PcCareSlotState.SYNCED,
-                statusLabel = "Proof sent",
+                state = PcCareSlotState.WORKING,
+                statusLabel = "Proof uploaded, saving to task...",
                 hintLabel = hint,
-                canRecord = category.isPcCareRepeatableTaskProofCategory(),
+                canRecord = false,
                 previewPath = remotePreview
                     ?.takeIf { it.proofRef == localRow.serverProofId }
                     ?.url
@@ -2574,24 +2829,6 @@ internal fun pcCareBuildTaskProofSlot(
                 serverProofId = localRow.serverProofId,
             )
         }
-    }
-    if (serverProof != null) {
-        val byline = serverProof.capturedByName
-            .takeIf { it.isNotBlank() }
-            ?.let { "Captured by $it" }
-            ?: "Proof sent"
-        return PcCareSlotChipUi(
-            fieldKey = slot.fieldKey,
-            label = slot.label,
-            description = slot.description,
-            state = PcCareSlotState.PEER,
-            statusLabel = byline,
-            hintLabel = hint,
-            canRecord = true,
-            previewPath = remotePreviewUrls[slot.fieldKey]?.url.orEmpty(),
-            previewKind = expectedKind,
-            serverProofId = serverProof.proofRef,
-        )
     }
     return PcCareSlotChipUi(
         fieldKey = slot.fieldKey,

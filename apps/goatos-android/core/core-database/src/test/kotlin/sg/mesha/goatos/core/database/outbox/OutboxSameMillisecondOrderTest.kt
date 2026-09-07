@@ -405,4 +405,37 @@ class OutboxSameMillisecondOrderTest {
         )
         database.close()
     }
+
+    @Test
+    fun `pc care scans are claimed ahead of older proof work so animal rows exist before slots`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        repeat(50) { index ->
+            dao.insert(
+                row(
+                    id = "proof-$index",
+                    opType = "PROOF_UPLOAD",
+                    group = "pc-care:task:task-1",
+                    createdAt = index.toLong(),
+                ),
+            )
+        }
+        dao.insert(
+            row(
+                id = "scan",
+                opType = "PC_CARE_SCAN_ADD",
+                group = "pc-care:scan:task-1",
+                createdAt = 100L,
+            ),
+        )
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 10).map { it.id }
+
+        assertEquals(
+            "a lightweight PC Care scan must not sit outside the batch while proof uploads fill it",
+            "scan",
+            eligible.first(),
+        )
+        database.close()
+    }
 }

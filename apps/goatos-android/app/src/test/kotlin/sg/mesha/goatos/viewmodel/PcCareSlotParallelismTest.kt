@@ -84,9 +84,10 @@ class PcCareSlotParallelismTest {
             json = json,
         ).single().slots.associateBy { it.fieldKey }
 
-        // The DURING slot reads synced in both worlds.
-        assertEquals(PcCareSlotState.SYNCED, withoutAfter.getValue("during_video").state)
-        assertEquals(PcCareSlotState.SYNCED, withAfter.getValue("during_video").state)
+        // The DURING blob is uploaded in both worlds, but it is not green until the PC Care
+        // business slot link is visible.
+        assertEquals(PcCareSlotState.WORKING, withoutAfter.getValue("during_video").state)
+        assertEquals(PcCareSlotState.WORKING, withAfter.getValue("during_video").state)
         // Adding/removing the AFTER slot's capture changes ONLY the AFTER chip.
         assertEquals(PcCareSlotState.EMPTY, withoutAfter.getValue("after_video").state)
         assertEquals(PcCareSlotState.WORKING, withAfter.getValue("after_video").state)

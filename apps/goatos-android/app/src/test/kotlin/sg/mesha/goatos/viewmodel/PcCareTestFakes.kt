@@ -150,7 +150,11 @@ internal class FakePcCareRepository : PcCareRepository {
             scanSyncStatus = PcCareScanStatus.PENDING,
             scannedByName = "",
         )
-        return PcCareScanOutcome.Queued
+        return PcCareScanOutcome.Queued(
+            outboxItemId = "scan-outbox-$scanEnqueues",
+            groupKey = "pc-care:scan:$taskId",
+            idempotencyKey = "pc-care:scan:$taskId:$normalized",
+        )
     }
 
     override suspend fun registerSlotProof(

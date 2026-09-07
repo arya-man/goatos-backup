@@ -58,7 +58,13 @@ class FakeOutboxStore : OutboxStore {
                             older.blocksLaterCandidate(now, row)
                     }
             }
-            .sortedWith(compareBy({ it.createdAt }, { snapshot.indexOf(it) }))
+            .sortedWith(
+                compareBy<OutboxEntity>(
+                    { if (it.opType == "PC_CARE_SCAN_ADD") 0 else 1 },
+                    { it.createdAt },
+                    { snapshot.indexOf(it) },
+                ),
+            )
             .take(limit)
     }
 

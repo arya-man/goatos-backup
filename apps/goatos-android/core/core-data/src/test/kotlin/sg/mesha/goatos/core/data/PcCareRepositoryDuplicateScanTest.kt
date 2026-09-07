@@ -84,7 +84,11 @@ class PcCareRepositoryDuplicateScanTest {
         val repo = repository(syncRepository(store, engine) { false })
 
         val first = repo.recordScan("task-1", "  RF-042 ")
-        assertEquals(PcCareScanOutcome.Queued, first)
+        assertTrue(first is PcCareScanOutcome.Queued)
+        first as PcCareScanOutcome.Queued
+        assertEquals("pc-care:scan:task-1", first.groupKey)
+        assertEquals("pc-care:scan:task-1:rf-042", first.idempotencyKey)
+        assertTrue(first.outboxItemId.isNotBlank())
 
         // Same physical tag, different whitespace/case — the normalized key catches it in Room.
         val second = repo.recordScan("task-1", "rf-042")
@@ -126,7 +130,7 @@ class PcCareRepositoryDuplicateScanTest {
         )
         val repo = repository(syncRepository(store, engine) { online })
 
-        assertEquals(PcCareScanOutcome.Queued, repo.recordScan("task-1", "RF-042"))
+        assertTrue(repo.recordScan("task-1", "RF-042") is PcCareScanOutcome.Queued)
         online = true
         engine.drainOnce()
 
@@ -144,7 +148,7 @@ class PcCareRepositoryDuplicateScanTest {
 
         // Re-scan after the terminal failure: the SAME stable key re-opens the SAME row —
         // OutboxDao.reopenTerminalForRetry semantics — never a new key and never a second row.
-        assertEquals(PcCareScanOutcome.Queued, repo.recordScan("task-1", "RF-042"))
+        assertTrue(repo.recordScan("task-1", "RF-042") is PcCareScanOutcome.Queued)
         val rowsAfter = store.snapshot().filter { it.opType == OutboxOpType.PC_CARE_SCAN_ADD.name }
         assertEquals(1, rowsAfter.size)
         assertEquals("pc-care:scan:task-1:rf-042", rowsAfter.single().idempotencyKey)
@@ -156,7 +160,7 @@ class PcCareRepositoryDuplicateScanTest {
         val repo = repository(
             syncRepository(FakeOutboxStore(), SyncEngine(FakeOutboxStore(), FakeAppApi(), connectivityGate = { false }, clock = { 1000L })) { false },
         )
-        assertEquals(PcCareScanOutcome.Queued, repo.recordScan("task-1", "RF-042"))
+        assertTrue(repo.recordScan("task-1", "RF-042") is PcCareScanOutcome.Queued)
 
         // The dispatch classified the server body as duplicate_scan …
         dao.markScanDuplicate("task-1", "rf-042", 2000L)

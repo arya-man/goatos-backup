@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -103,6 +104,98 @@ class PcCareRemovalPenSlotsTest {
         val slots = vm.state.value.taskProofSlots
         assertEquals(2, slots.size)
         assertEquals(listOf("feed_video", "water_video"), slots.map { it.fieldKey })
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `feed water removal pen refs from backend turn matching pen slots green`() = runTest(dispatcher) {
+        val gatedTaskId = "eee9fdaa-4bd5-468b-818d-5b7072e24e31"
+        val repo = removalRepo(
+            listOf(
+                PcCareRemovalPenDto(
+                    removalPenId = "pen-a",
+                    gatedTaskId = gatedTaskId,
+                    penLabel = "Castro 1",
+                    feedProofRef = "server-proof-feed",
+                    waterProofRef = "server-proof-water",
+                ),
+            ),
+        )
+        repo.proofDownloadUrls["server-proof-feed"] = "https://proof.local/feed.mp4"
+        repo.proofDownloadUrls["server-proof-water"] = "https://proof.local/water.mp4"
+
+        val vm = buildPcCareTaskViewModel(repo)
+        val collectJob = launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val slots = vm.state.value.taskProofSlots.associateBy { it.fieldKey }
+        val feed = slots.getValue("$gatedTaskId::feed_video")
+        val water = slots.getValue("$gatedTaskId::water_video")
+        assertEquals(sg.mesha.goatos.feature.pccare.PcCareSlotState.SYNCED, feed.state)
+        assertEquals(sg.mesha.goatos.feature.pccare.PcCareSlotState.SYNCED, water.state)
+        assertEquals("Proof sent", feed.statusLabel)
+        assertEquals("https://proof.local/feed.mp4", feed.previewPath)
+        assertEquals("https://proof.local/water.mp4", water.previewPath)
+        assertTrue(vm.state.value.submitEnabled)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `feed water removal pen refs emit backend ack analytics`() = runTest(dispatcher) {
+        val analytics = FakeAnalyticsPort()
+        val gatedTaskId = "eee9fdaa-4bd5-468b-818d-5b7072e24e31"
+        val repo = removalRepo(
+            listOf(
+                PcCareRemovalPenDto(
+                    removalPenId = "pen-a",
+                    gatedTaskId = gatedTaskId,
+                    penLabel = "Castro 1",
+                    feedProofRef = "server-proof-feed",
+                    waterProofRef = "server-proof-water",
+                ),
+            ),
+        )
+
+        val vm = buildPcCareTaskViewModel(repo, analytics = analytics)
+        val collectJob = launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val events = analytics.events.filter { it.first == AnalyticsEvents.PC_CARE_TASK_PROOF_BUSINESS_ACK }
+        assertEquals(2, events.size)
+        assertTrue(events.any { it.second["field_key"] == "$gatedTaskId::feed_video" && it.second["server_proof_id"] == "server-proof-feed" })
+        assertTrue(events.any { it.second["field_key"] == "$gatedTaskId::water_video" && it.second["server_proof_id"] == "server-proof-water" })
+        assertTrue(events.all { it.second[AnalyticsEvents.Params.OUTCOME] == "business_ack_visible" })
+        assertTrue(events.all { it.second[AnalyticsEvents.Params.SOURCE] == "backend_removal_pen" })
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `feed water removal pen refs pass submit tap and confirm gates`() = runTest(dispatcher) {
+        val gatedTaskId = "eee9fdaa-4bd5-468b-818d-5b7072e24e31"
+        val repo = removalRepo(
+            listOf(
+                PcCareRemovalPenDto(
+                    removalPenId = "pen-a",
+                    gatedTaskId = gatedTaskId,
+                    penLabel = "Castro 1",
+                    feedProofRef = "server-proof-feed",
+                    waterProofRef = "server-proof-water",
+                ),
+            ),
+        )
+
+        val vm = buildPcCareTaskViewModel(repo)
+        val collectJob = launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(PcCareTaskEvent.Submit)
+        runCurrent()
+        assertTrue(vm.state.value.showSubmitConfirmation)
+        vm.onEvent(PcCareTaskEvent.ConfirmSubmit)
+        runCurrent()
+
+        assertEquals(listOf("task-1" to 1), repo.submitCalls)
+        assertTrue(vm.state.value.submitQueued)
         collectJob.cancel()
     }
 
