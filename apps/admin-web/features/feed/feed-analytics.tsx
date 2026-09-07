@@ -1402,7 +1402,21 @@ function isHideableConcentrate(feedItemLabel: string): boolean {
   );
 }
 
-function isTemporarilyHiddenStockItem(item: { feed_item_label: string; days_left?: number | null }): boolean {
+// Catalog keys whose stock CARD is dropped outright, days left or not
+// (maintainer instruction 2026-09-07). The farm's plain "Concentrate" is not one
+// of its concentrates -- those are the Mesha Adult / Kids families, which keep
+// their cards -- so its card sat beside them reading a runway nobody uses (CPT
+// still showed 65 days after the zero-days hide above). Keyed on the catalog KEY,
+// never on the numbers, so a not-started or low-stock card can never be hidden
+// by it. Card grid only: the per-farm table and forecast keep the zero-days rule.
+const ALWAYS_HIDDEN_STOCK_CARD_KEYS = new Set<string>(["concentrate"]);
+
+function isTemporarilyHiddenStockItem(item: {
+  feed_item_key: string;
+  feed_item_label: string;
+  days_left?: number | null;
+}): boolean {
+  if (ALWAYS_HIDDEN_STOCK_CARD_KEYS.has(item.feed_item_key)) return true;
   if (!isHideableConcentrate(item.feed_item_label)) return false;
   return item.days_left !== null && item.days_left !== undefined && item.days_left <= 0;
 }

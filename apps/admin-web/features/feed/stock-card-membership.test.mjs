@@ -19,6 +19,15 @@ test("the stock card grid filters only on the temporary label hide", () => {
   assert.doesNotMatch(stockCards, /days_left !== null/);
 });
 
+// The plain "Concentrate" card is dropped outright (maintainer instruction
+// 2026-09-07), keyed on the catalog KEY so no number can hide a card; the Mesha
+// Adult / Kids family cards are never in that set.
+test("the plain Concentrate card is hidden by catalog key, days left or not", () => {
+  assert.match(source, /const ALWAYS_HIDDEN_STOCK_CARD_KEYS = new Set<string>\(\["concentrate"\]\);/);
+  assert.match(source, /if \(ALWAYS_HIDDEN_STOCK_CARD_KEYS\.has\(item\.feed_item_key\)\) return true;/);
+  assert.doesNotMatch(source, /ALWAYS_HIDDEN_STOCK_CARD_KEYS = new Set<string>\(\[[^\]]*mesha/);
+});
+
 // A not-started card must lead with the kg actually in the store; a days-left
 // figure it does not have must never be invented, and it must not read as low
 // stock -- a full untouched load is the opposite of nearly out.
