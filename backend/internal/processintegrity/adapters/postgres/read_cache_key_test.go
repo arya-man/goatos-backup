@@ -31,6 +31,48 @@ func TestReadCacheKeyIsStableAcrossRequestsWithinABucket(t *testing.T) {
 	}
 }
 
+func TestReadCacheKeyIsStableForProtocolAdherenceDefaultWindow(t *testing.T) {
+	base := time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC)
+	q := func(now time.Time) domain.Query {
+		dueAfter := now.Add(-30 * 24 * time.Hour)
+		return domain.Query{
+			TenantID:                "00000000-0000-4000-8000-000000000001",
+			AsOf:                    now,
+			DueAfter:                &dueAfter,
+			DueBefore:               now.Add(30 * 24 * time.Hour),
+			IncludeCompleted:        true,
+			IncludeAdherenceSummary: true,
+			ScopeLatestDrive:        true,
+			Limit:                   100,
+		}
+	}
+
+	first := processIntegrityReadCacheKey("rows", q(base))
+	second := processIntegrityReadCacheKey("rows", q(base.Add(900*time.Millisecond)))
+	if first != second {
+		t.Fatalf("protocol adherence cache key must bucket due_after/as_of/due_before together:\n first=%s\nsecond=%s", first, second)
+	}
+}
+
+func TestReadCacheKeyKeepsHistoricalAsOfExact(t *testing.T) {
+	base := time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC)
+	q := func(now time.Time) domain.Query {
+		return domain.Query{
+			TenantID:       "00000000-0000-4000-8000-000000000001",
+			AsOf:           now,
+			DueBefore:      now.Add(30 * 24 * time.Hour),
+			HistoricalAsOf: true,
+			Limit:          100,
+		}
+	}
+
+	first := processIntegrityReadCacheKey("rows", q(base))
+	second := processIntegrityReadCacheKey("rows", q(base.Add(900*time.Millisecond)))
+	if first == second {
+		t.Fatal("historical as_of queries inside a live bucket must keep exact cache keys")
+	}
+}
+
 // The bucket must not defeat the TTL: two requests far enough apart still get
 // distinct keys, so a stale entry cannot be served indefinitely.
 func TestReadCacheKeySeparatesDistantRequests(t *testing.T) {
