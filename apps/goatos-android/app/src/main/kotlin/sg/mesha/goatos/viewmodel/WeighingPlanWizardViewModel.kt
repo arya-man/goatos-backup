@@ -150,6 +150,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
      */
     private var catalogRefreshInFlight = false
     private var bucketsRefreshInFlight = false
+    private var pendingCatalogRefreshDate: String? = null
 
     val state: StateFlow<WeighingWizardUiState> = raw
         .map { it.toUiState() }
@@ -177,7 +178,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
         // The backend remains the source of truth for accepting or rejecting the save.
         viewModelScope.launch {
             val cutoff = parseFeedWaterRemovalCutoff(bootstrapRepository.feedWaterRemovalCutoffTime())
-            raw.update { it.copy(removalCutoff = cutoff) }
+            applyRemovalCutoff(cutoff)
         }
         // Editing pre-selects its date (see [raw]'s init above), so the catalog for it starts
         // loading now rather than waiting for a DATE-step tap this flow never asks for.
@@ -295,6 +296,38 @@ class WeighingPlanWizardViewModel @Inject constructor(
             repeatDropped = 0,
         )
         loadCatalog(isoDate)
+    }
+
+    private fun applyRemovalCutoff(cutoff: java.time.LocalTime?) {
+        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), cutoff)
+        var reloadDate: String? = null
+        raw.update { current ->
+            val selectedDate = current.date
+            if (current.editCampaignId != null || selectedDate == null) {
+                current.copy(removalCutoff = cutoff)
+            } else {
+                val selected = runCatching { LocalDate.parse(selectedDate, ISO_DATE) }.getOrNull()
+                if (selected == null || !selected.isBefore(earliest)) {
+                    current.copy(removalCutoff = cutoff)
+                } else {
+                    val bumpedIso = earliest.toString()
+                    reloadDate = bumpedIso
+                    current.copy(
+                        removalCutoff = cutoff,
+                        date = bumpedIso,
+                        catalog = null,
+                        parkId = null,
+                        buckets = emptyList(),
+                        bucketsParkId = null,
+                        selections = emptyMap(),
+                        picked = emptySet(),
+                        repeatDropped = 0,
+                        message = "Feed & water must be removed the evening before, so the day moved to the earliest possible one.",
+                    )
+                }
+            }
+        }
+        reloadDate?.let { loadCatalog(it) }
     }
 
     // ---- step 2: park --------------------------------------------------------------------
@@ -650,7 +683,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
     private fun refreshCatalog(isoDate: String) {
         // Deduped against its OWN in-flight flag, not [WizardRaw.loading] -- see
         // [catalogRefreshInFlight]'s doc for why the two must never share one guard.
-        if (catalogRefreshInFlight) return
+        if (catalogRefreshInFlight) {
+            pendingCatalogRefreshDate = isoDate
+            return
+        }
         catalogRefreshInFlight = true
         raw.value = raw.value.copy(loading = true)
         viewModelScope.launch {
@@ -669,6 +705,12 @@ class WeighingPlanWizardViewModel @Inject constructor(
                 }
             } finally {
                 catalogRefreshInFlight = false
+                pendingCatalogRefreshDate?.let { pending ->
+                    pendingCatalogRefreshDate = null
+                    if (pending != isoDate) {
+                        refreshCatalog(pending)
+                    }
+                }
             }
         }
     }

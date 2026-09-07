@@ -99,6 +99,7 @@ class PcCarePlanViewModel @Inject constructor(
     private var removalCutoff: java.time.LocalTime? = null
     private var pensCursor: String? = null
     private var pensLoadInFlight = false
+    private var pendingPensReload = false
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val rows: Flow<PagingData<PcCareTaskCardUi>> =
@@ -114,7 +115,7 @@ class PcCarePlanViewModel @Inject constructor(
         analytics.track(AnalyticsEvents.PC_CARE_WORKLIST_VIEWED, mapOf(AnalyticsEvents.Params.KIND to "planner"))
         loadCatalog()
         viewModelScope.launch {
-            removalCutoff = parseFeedWaterRemovalCutoff(bootstrapRepository.feedWaterRemovalCutoffTime())
+            applyRemovalCutoff(parseFeedWaterRemovalCutoff(bootstrapRepository.feedWaterRemovalCutoffTime()))
         }
         // The planner's list is ROUND-grained (maintainer decision 2026-09-05): one card per
         // round, because the planner ticked those pens as ONE piece of work. Room renders it and
@@ -533,6 +534,13 @@ class PcCarePlanViewModel @Inject constructor(
                 feedRemovalRequired = true,
                 minSelectableDateIso = earliestIso,
                 selectedDate = if (bumped) earliestIso else it.selectedDate,
+                step = if (bumped && it.step.ordinal > PcCarePlanStep.PEN.ordinal) PcCarePlanStep.PEN else it.step,
+                pens = if (bumped) emptyList() else it.pens,
+                pensEndReached = if (bumped) true else it.pensEndReached,
+                selectedShedId = if (bumped) "" else it.selectedShedId,
+                selectedPartitionLabel = if (bumped) "" else it.selectedPartitionLabel,
+                selectedPenLabel = if (bumped) "" else it.selectedPenLabel,
+                selectedPenKeys = if (bumped) emptySet() else it.selectedPenKeys,
                 message = if (bumped) {
                     "Feed & water must be removed the evening before, so the day moved to the earliest possible one."
                 } else {
@@ -540,6 +548,41 @@ class PcCarePlanViewModel @Inject constructor(
                 },
             )
         }
+        if (bumped && current.selectedParkId.isNotBlank() && current.selectedCategoryKey.isNotBlank()) {
+            requestPensReload()
+        }
+    }
+
+    private fun applyRemovalCutoff(cutoff: java.time.LocalTime?) {
+        removalCutoff = cutoff
+        val current = _state.value
+        if (!current.feedRemovalRequired) return
+        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(ZoneId.of(INDIA_ZONE)), cutoff)
+        val earliestIso = earliest.toString()
+        val bumped = current.selectedDate.isNotBlank() && current.selectedDate < earliestIso
+        var reloadPens = false
+        _state.update {
+            it.copy(
+                minSelectableDateIso = earliestIso,
+                selectedDate = if (bumped) earliestIso else it.selectedDate,
+                step = if (bumped && it.step.ordinal > PcCarePlanStep.PEN.ordinal) PcCarePlanStep.PEN else it.step,
+                pens = if (bumped) emptyList() else it.pens,
+                pensEndReached = if (bumped) true else it.pensEndReached,
+                selectedShedId = if (bumped) "" else it.selectedShedId,
+                selectedPartitionLabel = if (bumped) "" else it.selectedPartitionLabel,
+                selectedPenLabel = if (bumped) "" else it.selectedPenLabel,
+                selectedPenKeys = if (bumped) emptySet() else it.selectedPenKeys,
+                message = if (bumped) {
+                    "Feed & water must be removed the evening before, so the day moved to the earliest possible one."
+                } else {
+                    it.message
+                },
+            )
+        }
+        if (bumped && current.selectedParkId.isNotBlank() && current.selectedCategoryKey.isNotBlank()) {
+            reloadPens = true
+        }
+        if (reloadPens) requestPensReload()
     }
 
     private fun toggleRemovalOperator(userId: String) {
@@ -596,7 +639,10 @@ class PcCarePlanViewModel @Inject constructor(
     private fun loadPens(append: Boolean) {
         val current = _state.value
         if (current.selectedParkId.isBlank() || current.selectedCategoryKey.isBlank()) return
-        if (pensLoadInFlight) return
+        if (pensLoadInFlight) {
+            if (!append) pendingPensReload = true
+            return
+        }
         if (append && current.pensEndReached) return
         pensLoadInFlight = true
         if (!append) pensCursor = null
@@ -609,6 +655,14 @@ class PcCarePlanViewModel @Inject constructor(
                     date = current.selectedDate,
                     cursor = if (append) pensCursor else null,
                 )
+                val latest = _state.value
+                if (latest.selectedParkId != current.selectedParkId ||
+                    latest.selectedCategoryKey != current.selectedCategoryKey ||
+                    latest.selectedDate != current.selectedDate
+                ) {
+                    _state.update { it.copy(pensLoading = false) }
+                    return@launch
+                }
                 pensCursor = page.nextCursor.ifBlank { null }
                 val mapped = page.sheds.map { shed ->
                     PcCarePlanPenUi(
@@ -636,7 +690,19 @@ class PcCarePlanViewModel @Inject constructor(
                 _state.update { it.copy(pensLoading = false, message = "Couldn't load the pens. Try again.") }
             } finally {
                 pensLoadInFlight = false
+                if (pendingPensReload) {
+                    pendingPensReload = false
+                    loadPens(append = false)
+                }
             }
+        }
+    }
+
+    private fun requestPensReload() {
+        if (pensLoadInFlight) {
+            pendingPensReload = true
+        } else {
+            loadPens(append = false)
         }
     }
 

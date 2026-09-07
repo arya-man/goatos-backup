@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import kotlinx.coroutines.Deferred
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
@@ -14,4 +15,10 @@ class FakeCutoffBootstrapRepository(private val cutoff: String? = "20:00") : Boo
     override suspend fun loadNavState(): NavState = NavState.Empty
     override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
     override suspend fun feedWaterRemovalCutoffTime(): String? = cutoff
+}
+
+class DelayedCutoffBootstrapRepository(private val cutoff: Deferred<String?>) : BootstrapRepository {
+    override suspend fun loadNavState(): NavState = NavState.Empty
+    override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
+    override suspend fun feedWaterRemovalCutoffTime(): String? = cutoff.await()
 }
