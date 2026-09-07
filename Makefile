@@ -862,6 +862,8 @@ mobile-guard:
 	node tools/agent-hooks/check-android-proof-policy-default.mjs
 	node tools/agent-hooks/check-android-proof-preview-analytics.mjs --self-test
 	node tools/agent-hooks/check-android-proof-preview-analytics.mjs
+	node tools/agent-hooks/check-android-pen-visit-proof-preview.mjs --self-test
+	node tools/agent-hooks/check-android-pen-visit-proof-preview.mjs
 	node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test
 	node tools/agent-hooks/check-android-feed-proof-submit.mjs
 	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test
@@ -891,6 +893,7 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all
 	node tools/agent-hooks/check-android-proof-policy-default.mjs --all
 	node tools/agent-hooks/check-android-proof-preview-analytics.mjs --all
+	node tools/agent-hooks/check-android-pen-visit-proof-preview.mjs
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
 	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --all
 	node tools/agent-hooks/check-android-row-action-scope.mjs
