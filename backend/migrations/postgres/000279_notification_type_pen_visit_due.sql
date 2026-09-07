@@ -1,5 +1,5 @@
 -- +goose Up
--- Notification vocabulary for pen visits (000276): the morning push naming the pens a park
+-- Notification vocabulary for pen visits (000279): the morning push naming the pens a park
 -- head owes today rides notification_type 'pen_visit_due'. Enum widening on a table no seed
 -- path writes; the lock-timeout / NOT VALID / VALIDATE shape is 000252's and 000267's.
 SET lock_timeout = '5s';

@@ -86,11 +86,11 @@ all CBE cards, Chandrakant gets CPT."
 
 ## Data
 
-- Migration `000276_pen_visit_tasks.sql`: `pen_visit_park_assignees` (PK tenant+park, seeded
+- Migration `000277_pen_visit_tasks.sql`: `pen_visit_park_assignees` (PK tenant+park, seeded
   by email), `pen_visit_tasks` (natural key, kernel columns, completed-has-proof check), the
   two serving indexes, `pen_visit_due` in the notification-type check, and the
   `pen_visit_task` branch in `validate_outbox_event_tenant`.
-- Migration `000277_verification_items_created_pen_idx.sql`: the partial index the
+- Migration `000278_verification_items_created_pen_idx.sql`: the partial index the
   materializer's day read uses, built CONCURRENTLY (no transaction) because
   `verification_items` is a populated hot table.
 - Envelope enums: `pen_visit.created`, `pen_visit.submitted`; aggregate/subject

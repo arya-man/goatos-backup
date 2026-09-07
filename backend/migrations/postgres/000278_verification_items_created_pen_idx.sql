@@ -1,6 +1,6 @@
 -- +goose Up
 -- +goose NO TRANSACTION
--- The pen-visit materializer's read (000276): every verification item raised on one business
+-- The pen-visit materializer's read (000278): every verification item raised on one business
 -- date, by park. Existing verification_items indexes lead with status/category or the source
 -- ref; none serves a created_at day window per tenant. verification_items is a populated hot
 -- table on STG, so the index is built CONCURRENTLY outside a transaction and never takes the
