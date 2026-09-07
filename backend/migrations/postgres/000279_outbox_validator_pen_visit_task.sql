@@ -1,6 +1,7 @@
 -- +goose Up
 -- Outbox tenant validation gains the pen_visit_task aggregate (the 000252 shape): an event may
 -- only announce a task row that exists for its tenant.
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.validate_outbox_event_tenant()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -256,14 +257,33 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- sales_deal (maintainer decision 2026-09-07, the sale -> Feed Director notice): confirming which
+  -- animals a sale is made of emits goat.sale_allocated from inside the confirm transaction, keyed
+  -- on the sale. The sale is an opaque reference on the identity side (000177, never an FK), so the
+  -- validator checks the sales ledger directly. Without this branch the insert falls through to the
+  -- goat_identity_events fallback below and is refused 23503 -- caught by
+  -- TestConfirmingASaleEmitsOnePenGroupedFeedEventAndTheBatchReaderMatchesIt.
+  IF NEW.aggregate_type = 'sales_deal' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM sales_deals
+      WHERE tenant_id = NEW.tenant_id AND id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'sales deal outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM goat_identity_events WHERE tenant_id = NEW.tenant_id AND identity_event_id = NEW.event_id) THEN
     RAISE EXCEPTION 'outbox event % does not exist for tenant %', NEW.event_id, NEW.tenant_id USING ERRCODE = '23503';
   END IF;
   RETURN NEW;
 END;
 $$;
+-- +goose StatementEnd
 
 -- +goose Down
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.validate_outbox_event_tenant()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -509,9 +529,27 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- sales_deal (maintainer decision 2026-09-07, the sale -> Feed Director notice): confirming which
+  -- animals a sale is made of emits goat.sale_allocated from inside the confirm transaction, keyed
+  -- on the sale. The sale is an opaque reference on the identity side (000177, never an FK), so the
+  -- validator checks the sales ledger directly. Without this branch the insert falls through to the
+  -- goat_identity_events fallback below and is refused 23503 -- caught by
+  -- TestConfirmingASaleEmitsOnePenGroupedFeedEventAndTheBatchReaderMatchesIt.
+  IF NEW.aggregate_type = 'sales_deal' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM sales_deals
+      WHERE tenant_id = NEW.tenant_id AND id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'sales deal outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM goat_identity_events WHERE tenant_id = NEW.tenant_id AND identity_event_id = NEW.event_id) THEN
     RAISE EXCEPTION 'outbox event % does not exist for tenant %', NEW.event_id, NEW.tenant_id USING ERRCODE = '23503';
   END IF;
   RETURN NEW;
 END;
 $$;
+-- +goose StatementEnd

@@ -1,4 +1,4 @@
-// Package postgres persists pen visit tasks (migration 000274).
+// Package postgres persists pen visit tasks (migration 000276).
 package postgres
 
 import (
