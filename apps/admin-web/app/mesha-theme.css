@@ -1,3 +1,26 @@
+@font-face{font-family:"Instrument Sans";src:url("/fonts/instrument-sans-normal-400-500-600-latin.woff2") format("woff2");font-weight:400 700;font-style:normal;font-display:swap}
+@font-face{font-family:"Instrument Sans";src:url("/fonts/instrument-sans-italic-400-latin.woff2") format("woff2");font-weight:400;font-style:italic;font-display:swap}
+@font-face{font-family:"Instrument Serif";src:url("/fonts/instrument-serif-normal-400-latin.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Instrument Serif";src:url("/fonts/instrument-serif-italic-400-latin.woff2") format("woff2");font-weight:400;font-style:italic;font-display:swap}
+@font-face{font-family:"Spline Sans Mono";src:url("/fonts/spline-sans-mono-normal-400-500-latin.woff2") format("woff2");font-weight:400 700;font-style:normal;font-display:swap}
+
+/* ===== CASCADE ORDER =====
+   Everything below is wrapped in @layer legacy. Unlayered CSS beats ANY layered
+   rule regardless of specificity, so the canonical design-system roles at the end
+   of this file -- which are unlayered -- now win over the page-scoped blocks
+   (.herd-signals-page, .counts-breakdown-kpis, .lt-page, .task-ac, .herd-kpi-grid,
+   .vplan, .vr-okpis) that were silently outranking them at (0,3,0).
+
+   Two independent audits of all 280 states found the same root cause: the
+   canonical layer used :where(:root), which contributes zero specificity, so
+   seven page blocks re-declared roles it already owned. That is why defects
+   survived in a file already carrying a comment saying they were fixed.
+
+   Layers do NOT change how the legacy rules order among themselves, so page
+   layout is untouched; only the canonical roles jump above them. The canonical
+   layer must therefore define the size modifiers too (.btn AND .btn.sm), or it
+   would flatten them -- the regression that bare :root caused earlier. */
+@layer legacy {
   /* ===== MESHA DESIGN SYSTEM =====
      Tokens below are the design system's values (near-black #070706 ground,
      ivory #ece8dd ink, MESHA green #7ac943 as the ONE accent, antique brass
@@ -15,11 +38,11 @@
      - The system has no info/purple/teal. Those are kept as SEMANTIC status
        hues (they encode state, not brand) and desaturated toward the ground so
        green stays the only thing that reads as accent. */
-  @font-face{font-family:"Instrument Sans";src:url("/fonts/instrument-sans-normal-400-500-600-latin.woff2") format("woff2");font-weight:400 700;font-style:normal;font-display:swap}
-  @font-face{font-family:"Instrument Sans";src:url("/fonts/instrument-sans-italic-400-latin.woff2") format("woff2");font-weight:400;font-style:italic;font-display:swap}
-  @font-face{font-family:"Instrument Serif";src:url("/fonts/instrument-serif-normal-400-latin.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
-  @font-face{font-family:"Instrument Serif";src:url("/fonts/instrument-serif-italic-400-latin.woff2") format("woff2");font-weight:400;font-style:italic;font-display:swap}
-  @font-face{font-family:"Spline Sans Mono";src:url("/fonts/spline-sans-mono-normal-400-500-latin.woff2") format("woff2");font-weight:400 700;font-style:normal;font-display:swap}
+  
+  
+  
+  
+  
   :root{
     --logo:#7ac943; --brand-l:#a9d15e;
     /* System radii: 2px on panels, pill on buttons/tags. Nothing in between. */
@@ -5075,6 +5098,9 @@ aside.drawer.on{transform:none}
    which asserts no button/link text is clipped at 1440x1000. */
 :where(:root) .celllink .tag{white-space:normal;text-align:center;line-height:1.25;max-width:100%}
 
+
+}
+
 /* ===== ROLE ASSIGNMENT =====
    A judge pass found the FACES were right everywhere (16,478 text elements, 100%
    on a system face) but some ROLES were not. An earlier revision of this block
@@ -5230,3 +5256,68 @@ aside.drawer.on{transform:none}
    one or two orphans on a second line (/weighing/weights, /workflows pager). */
 :where(:root) select{min-width:0}
 :where(:root) .tbar select,:where(:root) .fld select{min-width:150px}
+
+/* ===== THE SYSTEM'S OWN IDIOMS =====
+   Applying the tokens made the admin use the right hexes and faces, but it did
+   not make it look like Mesha. The kit's voice is carried by three structural
+   idioms that were never ported. Taken from components/data-display/StatBlock.jsx,
+   components/layout/SectionRule.jsx and components/data-display/ProofRow.jsx in
+   the design system, adapted to dashboard density (the kit is editorial scale;
+   an operator screen cannot use its 1.8rem padding verbatim). */
+
+/* StatBlock. The kit's stat is NOT a card -- it has no box, no fill and no
+   surrounding border. It is a single left hairline, generous air, a tiny
+   wide-tracked mono label and a serif figure at real display size. That absence
+   of a box is most of why the kit breathes and the dashboard did not. */
+:where(:root) .kpi{
+  background:transparent;
+  border:0;
+  border-left:1px solid var(--line2);
+  border-radius:0;
+  padding:18px 18px 14px;
+  box-shadow:none;
+}
+:where(:root) .kpi .lab,:where(:root) .kpi .lbl{
+  font-family:var(--fm);font-size:10px;font-weight:500;
+  letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
+:where(:root) .kpi .val{
+  font-family:var(--f-serif);font-weight:400;
+  font-size:clamp(1.9rem,2.4vw,2.6rem);line-height:1.05;
+  margin-top:10px;letter-spacing:0;font-variant-numeric:tabular-nums}
+/* The status rail becomes the left hairline itself, so state is carried by the
+   one line that is already there rather than by a second coloured stripe. */
+:where(:root) .kpi.ok{border-left-color:var(--ok)}
+:where(:root) .kpi.danger{border-left-color:var(--danger)}
+:where(:root) .kpi.warn{border-left-color:var(--warn)}
+:where(:root) .kpi .stripe{display:none}
+
+/* SectionRule. Every chapter in the kit opens on a full-width hairline with an
+   italic serif brass mark at one end and a wide-tracked mono green label at the
+   other. It is the kit's most recognisable device and the admin had no
+   equivalent -- card headers were just a bold line of text. */
+:where(:root) .card > .hd,:where(:root) .cardh{
+  border-top:1px solid var(--line);
+  border-bottom:0;
+  align-items:baseline;
+  padding-top:13px}
+:where(:root) .card > .hd::after,:where(:root) .cardh::after{
+  content:attr(data-rule);
+  font-family:var(--fm);font-size:9.5px;letter-spacing:.26em;
+  text-transform:uppercase;color:var(--brand);margin-left:auto}
+:where(:root) .card > .hd h3,:where(:root) .cardh h3,:where(:root) .cardh b{
+  font-family:var(--f-serif);font-weight:400;font-size:15px;letter-spacing:0}
+
+/* ProofRow. The kit states a fact as a ledger line: mono key on the left, sans
+   value hard right, one hairline between. The admin's label/value grids were a
+   flat two-column stack with no such rhythm. */
+:where(:root) .metagrid > div,:where(:root) .proofrow{
+  display:flex;justify-content:space-between;align-items:baseline;gap:2rem;
+  padding:11px 0;border-bottom:1px solid var(--line2)}
+:where(:root) .metagrid > div > .k,:where(:root) .proofrow > .k{
+  font-family:var(--fm);font-size:10px;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--faint)}
+:where(:root) .metagrid > div > .v,:where(:root) .proofrow > .v{
+  font-family:var(--f);font-weight:500;font-size:13.5px;text-align:right;color:var(--ink)}
+
+/* The kit breathes. Sections are separated by real air, not 14px. */
+:where(:root) .screen > section + section,:where(:root) .main > section + section{margin-top:26px}
