@@ -335,13 +335,17 @@ var ScopeKeys = []string{ScopeAssignedToMe, ScopeAssignedByMe, ScopeTeamProgress
 
 func ScopeKeyOrDefault(key string, actor Actor) string {
 	switch strings.TrimSpace(key) {
-	case ScopeAssignedToMe, ScopeAssignedByMe, ScopeTeamProgress:
-		return strings.TrimSpace(key)
-	}
-	if actor.CanAct {
+	case ScopeAssignedToMe:
 		return ScopeAssignedToMe
+	case ScopeAssignedByMe, ScopeTeamProgress:
+		if actor.CanRaise {
+			return strings.TrimSpace(key)
+		}
 	}
-	return ScopeAssignedByMe
+	if actor.CanRaise {
+		return ScopeAssignedByMe
+	}
+	return ScopeAssignedToMe
 }
 
 func ScopeLabel(key string) string {

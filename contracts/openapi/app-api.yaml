@@ -8184,6 +8184,14 @@ paths:
         the same party predicate, never page sums. Every visible word (chips, meta line, number
         label, status button labels, empty messages) is backend-owned and rendered verbatim.
       parameters:
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string, enum: [assigned_to_me, assigned_by_me, team_progress], default: assigned_to_me }
+          description: >-
+            Monitoring scope key. Callers without leadership_tasks.raise are confined to
+            `assigned_to_me`; `assigned_by_me` and `team_progress` require raise authority.
+            Unknown or unavailable scopes resolve to the caller's default scope.
         - name: filter
           in: query
           required: false
