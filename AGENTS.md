@@ -54,6 +54,13 @@ that render as a bare shed name such as `Godel 1`, and do not use `whole` as the
 visible partition label in phone evidence unless the maintainer explicitly asks
 for a whole-shed case.
 
+Before giving Ravi any screenshot, screen recording, or image as proof of a UI
+state, Codex/Claude must validate the artifact visually first: open the captured
+file, confirm it shows the requested target screen/state and not login,
+loading, an error page, stale content, or the wrong route, and only then present
+it. If the artifact cannot be visually validated, do not present it as proof;
+say exactly what blocked validation and recapture or ask for the missing auth.
+
 ## PR Review + Land Main Rule
 
 When the maintainer asks to review a GitHub PR and land main, the task is not

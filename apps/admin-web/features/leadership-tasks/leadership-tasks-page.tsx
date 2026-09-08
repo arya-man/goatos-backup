@@ -197,6 +197,8 @@ export function LeadershipTasksPage({
       ? fixtureScopes
       : [];
   const selected = tasks.find((task) => task.id === selectedTaskID) ?? tasks[0];
+  const hasTasks = tasks.length > 0;
+  const hasSidePanel = Boolean(page?.can_raise || selected);
   const selectedScope =
     scopes.find((scope) => scope.key === selectedScopeKey) ??
     scopes.find((scope) => scope.selected) ??
@@ -221,44 +223,28 @@ export function LeadershipTasksPage({
         {preview || page?.can_raise ? <Tag tone="ok">Can raise</Tag> : null}
       </div>
 
-      <div className="lt-kpis">
-        {scopes.map((scope) => (
-          <KPI
-            key={scope.key}
-            label={scope.label}
-            value={String(scope.count)}
-            detail={scope.detail}
-            tone={scope.tone}
-          />
-        ))}
-        {!scopes.length ? (
-          <KPI
-            label="Team progress"
-            value="0"
-            detail="Live data unavailable"
-            tone="warn"
-          />
-        ) : null}
+      <div className="lt-scopebar">
+        {scopes.length ? (
+          <div className="subtabs" aria-label="Task scopes">
+            {scopes.map((scope) => (
+              <Link
+                key={scope.key}
+                href={`${preview ? "/tasks-preview" : "/tasks"}?scope=${scope.key}`}
+                className={scope.key === selectedScope?.key ? "on" : ""}
+              >
+                {scope.label}
+                <span className="cbq">{scope.count}</span>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="lt-unavailable">
+            Task scopes are not available from the backend right now.
+          </div>
+        )}
       </div>
 
-      <div
-        className="subtabs"
-        style={{ marginBottom: 14 }}
-        aria-label="Task scopes"
-      >
-        {scopes.map((scope) => (
-          <Link
-            key={scope.key}
-            href={`${preview ? "/tasks-preview" : "/tasks"}?scope=${scope.key}`}
-            className={scope.key === selectedScope?.key ? "on" : ""}
-          >
-            {scope.label}
-            <span className="cbq">{scope.count}</span>
-          </Link>
-        ))}
-      </div>
-
-      <div className="lt-grid">
+      <div className={`lt-grid${hasSidePanel ? "" : " lt-grid-solo"}`}>
         <section className="card lt-card" style={{ minWidth: 0 }}>
           <div className="hd">
             <ClipboardList
@@ -270,13 +256,14 @@ export function LeadershipTasksPage({
             <div className="sp" style={{ flex: 1 }} />
             <Tag tone="info">{selectedScope?.detail || "Live queue"}</Tag>
           </div>
-          <div
-            className="bd lt-tablewrap"
-            tabIndex={0}
-            role="group"
-            aria-label="Leadership task progress"
-          >
-            <table data-enh="1">
+          {hasTasks ? (
+            <div
+              className="bd lt-tablewrap"
+              tabIndex={0}
+              role="group"
+              aria-label="Leadership task progress"
+            >
+              <table data-enh="1">
               <thead>
                 <tr>
                   <th>Task</th>
@@ -288,16 +275,6 @@ export function LeadershipTasksPage({
                 </tr>
               </thead>
               <tbody>
-                {tasks.length === 0 ? (
-                  <tr>
-                    <td colSpan={6}>
-                      <span className="muted small">
-                        {selectedScope?.emptyMessage ||
-                          "No tasks in this scope."}
-                      </span>
-                    </td>
-                  </tr>
-                ) : null}
                 {tasks.map((task) => (
                   <tr
                     key={task.id}
@@ -357,8 +334,21 @@ export function LeadershipTasksPage({
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          ) : (
+            <div className="bd lt-empty-state">
+              <ClipboardList className="ic" aria-hidden="true" />
+              <div>
+                <b>{selectedScope?.emptyMessage || "No tasks in this scope."}</b>
+                <p>
+                  This queue is clear for the current role and park scope. When
+                  work is raised, it will appear here with the owner, evidence,
+                  and next status action.
+                </p>
+              </div>
+            </div>
+          )}
         </section>
 
         {page?.can_raise ? (
@@ -464,7 +454,7 @@ export function LeadershipTasksPage({
         ) : null}
 
         {selected ? (
-          <aside className="card lt-card">
+          <aside className="card lt-card lt-detail-card">
             <div className="hd">
               <UserRoundCheck
                 className="ic"
@@ -481,10 +471,8 @@ export function LeadershipTasksPage({
               <div className="crumb">
                 <b>{selected.number}</b> / {selected.age}
               </div>
-              <h3 style={{ margin: "7px 0 12px", fontSize: 16 }}>
-                {selected.title}
-              </h3>
-              <div className="metagrid" style={{ marginBottom: 14 }}>
+              <h3 className="lt-detail-title">{selected.title}</h3>
+              <div className="metagrid lt-detail-meta">
                 <Meta
                   label="Assignee"
                   value={`${selected.assignee} - ${selected.assigneeRole}`}
@@ -497,26 +485,19 @@ export function LeadershipTasksPage({
                 />
               </div>
               {selected.body ? (
-                <div className="note-box" style={{ marginBottom: 12 }}>
+                <div className="note-box lt-note-box">
                   <b>Brief</b>
                   <p>{selected.body}</p>
                 </div>
               ) : null}
               {selected.comment ? (
-                <div className="note-box" style={{ marginBottom: 12 }}>
+                <div className="note-box lt-note-box">
                   <b>Assignee note</b>
                   <p>{selected.comment}</p>
                 </div>
               ) : null}
               {selected.statusOptions.length ? (
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 8,
-                    marginBottom: 12,
-                  }}
-                >
+                <div className="lt-status-actions">
                   {selected.statusOptions.map((option) => (
                     <form
                       key={option.key}
@@ -550,7 +531,7 @@ export function LeadershipTasksPage({
               {selected.canComment ? (
                 <form
                   action={setLeadershipTaskCommentAction}
-                  style={{ display: "grid", gap: 10, marginBottom: 12 }}
+                  className="lt-comment-form"
                 >
                   <input
                     type="hidden"
@@ -595,7 +576,7 @@ export function LeadershipTasksPage({
                   ))}
                 </div>
               ) : null}
-              <div className="lt-feed" style={{ maxHeight: "none" }}>
+              <div className="lt-feed lt-detail-feed">
                 {selected.notes.length ? (
                   selected.notes.map((note) => (
                     <FeedRow
@@ -762,26 +743,6 @@ function liveFeedRows(task: TaskRow): Array<{
     });
   }
   return rows;
-}
-
-function KPI({
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  tone: Tone;
-}) {
-  return (
-    <div className={`kpi lt-kpi k-${tone === "pur" ? "purple" : tone}`}>
-      <div className="lab">{label}</div>
-      <div className="val">{value}</div>
-      <div className="dl">{detail}</div>
-    </div>
-  );
 }
 
 function FeedRow({
