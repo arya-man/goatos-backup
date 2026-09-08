@@ -32,6 +32,7 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Fixed seventh-cycle Manju-note judge findings: the admin-web attachment proxy now normalizes backend-relative signed URLs before redirecting, and the web shell maps the backend `clipboard-list` nav icon token so Tasks does not silently fall back to the generic icon.
 - Fixed seventh-cycle PR review findings: web raisers are now intentionally seeded with `web:view+configure`, and admin-web create can upload real file/audio/video/photo attachments through the proof upload pipeline before raising the leadership task.
 - Fixed eighth-cycle judge findings: admin-web Leadership Task uploads now always register proof rows as `attachment` while preserving MIME-derived task attachment kind, and proof upload creation sends the stable per-attachment `Idempotency-Key` header instead of metadata-only replay markers.
+- Fixed ninth-cycle PR review findings: CEO/CXO web seed now includes `oversee` with `configure` so Team Progress monitor authority survives person-access shadowing, while director web rows remain raise-only; admin-web create now accepts multiple selected attachments.
 
 ## Acceptance Status
 
@@ -69,3 +70,4 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Seventh-cycle Manju-note judge found backend-relative attachment redirects and missing `clipboard-list` web-shell icon registration; both are patched in current cycle and need re-judge.
 - Seventh-cycle PR-review judge found web/mobile surface authority ambiguity and proof-id-only web attachment creation; both are patched in current cycle and need re-judge.
 - Eighth-cycle Manju/PR judges found media uploads registered with non-attachment proof types and metadata-only proof idempotency; both are patched in current cycle and need re-judge.
+- Ninth-cycle PR judge found web Team Progress monitor authority shadowing and single-file web upload UI; both are patched in current cycle and need re-judge.

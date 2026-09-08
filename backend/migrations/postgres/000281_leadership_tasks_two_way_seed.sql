@@ -94,7 +94,10 @@ desired AS (
   GROUP BY tenant_id, workforce_member_id
   UNION ALL
   SELECT tenant_id, workforce_member_id, 'web'::text AS surface, 'leadership_tasks'::text AS module_key,
-         ARRAY['view','configure']::text[] AS capabilities
+         CASE
+           WHEN COALESCE(bool_or(role = 'ceo_internal'), false) THEN ARRAY['view','oversee','configure']::text[]
+           ELSE ARRAY['view','configure']::text[]
+         END AS capabilities
   FROM role_people
   GROUP BY tenant_id, workforce_member_id
   HAVING COALESCE(bool_or(role IN (
