@@ -127,7 +127,10 @@ func TestAudienceRoundTripThroughTheStoredOverride(t *testing.T) {
 	}
 
 	// 6. Reset restores the catalog default for the notifier.
-	reset, err := svc.Save(ctx, tenantID, "", domain.AlertFeedLowStock, app.SaveAudienceRequest{UseDefaults: true})
+	if _, err := svc.Save(ctx, tenantID, "", domain.AlertFeedLowStock, app.SaveAudienceRequest{UseDefaults: true, RowVersion: 1}); !errors.Is(err, ports.ErrVersionConflict) {
+		t.Fatalf("stale reset err = %v want ErrVersionConflict", err)
+	}
+	reset, err := svc.Save(ctx, tenantID, "", domain.AlertFeedLowStock, app.SaveAudienceRequest{UseDefaults: true, RowVersion: 2})
 	if err != nil {
 		t.Fatal(err)
 	}

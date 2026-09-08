@@ -235,7 +235,7 @@ func (n *SaleFeedReduceNotifier) notify(ctx context.Context, tenantID string, ba
 	if err != nil {
 		return err
 	}
-	recipients, err := n.audience.Recipients(ctx, tenantID, "", audiencedomain.AlertFeedSaleReduce)
+	recipients, err := n.audience.Recipients(ctx, tenantID, strings.TrimSpace(batch.Pens[0].ParkID), audiencedomain.AlertFeedSaleReduce)
 	if err != nil {
 		return fmt.Errorf("sale feed reduce: %w", err)
 	}

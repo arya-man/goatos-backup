@@ -106,21 +106,6 @@ func (n *FeedLowStockNotifier) NotifyLowStock(ctx context.Context, tenantID stri
 		return nil
 	}
 
-	// The three desks are resolved ONCE for the whole run, not per feed: the recipient set is the
-	// same for every alert, and resolving it inside the loop would be one roster read per low feed.
-	recipients, err := n.leadership(ctx, tenantID)
-	if err != nil {
-		return err
-	}
-	if len(recipients) == 0 {
-		// Loud, and no fallback: an alert nobody receives must not look sent.
-		if n.logger != nil {
-			n.logger.WarnContext(ctx, "feed_low_stock_notification_no_recipients",
-				"tenant_id", tenantID, "low_feeds", len(low))
-		}
-		return nil
-	}
-
 	businessDate := biztime.BusinessDate(n.now())
 	visibleDate := biztime.FarmDateFromBusinessDate(businessDate)
 	// ONE lookup for the whole run, not one per feed: the same two parks repeat down the list.
@@ -140,6 +125,18 @@ func (n *FeedLowStockNotifier) NotifyLowStock(ctx context.Context, tenantID stri
 		parkName := feed.FarmLabel
 		if resolved := strings.TrimSpace(parkNames[feed.ParkID]); resolved != "" {
 			parkName = resolved
+		}
+		recipients, err := n.leadership(ctx, tenantID, feed.ParkID)
+		if err != nil {
+			return err
+		}
+		if len(recipients) == 0 {
+			// Loud, and no fallback: an alert nobody receives must not look sent.
+			if n.logger != nil {
+				n.logger.WarnContext(ctx, "feed_low_stock_notification_no_recipients",
+					"tenant_id", tenantID, "park_id", feed.ParkID, "feed_item_key", feed.FeedItemKey)
+			}
+			continue
 		}
 		// The key carries the business date, so the first tick of the day writes and every later
 		// tick writes nothing -- "once per day" with no scheduler and no state of its own.
@@ -196,8 +193,8 @@ func (n *FeedLowStockNotifier) NotifyLowStock(ctx context.Context, tenantID stri
 // leadership resolves the desks configured for feed.low_stock -- by default the three tenant
 // seats that can act on a low feed. A desk with no reachable device is simply absent; the alert
 // still goes to the others rather than failing whole.
-func (n *FeedLowStockNotifier) leadership(ctx context.Context, tenantID string) ([]calendarports.NotificationRecipient, error) {
-	recipients, err := n.audience.Recipients(ctx, tenantID, "", audiencedomain.AlertFeedLowStock)
+func (n *FeedLowStockNotifier) leadership(ctx context.Context, tenantID, parkID string) ([]calendarports.NotificationRecipient, error) {
+	recipients, err := n.audience.Recipients(ctx, tenantID, strings.TrimSpace(parkID), audiencedomain.AlertFeedLowStock)
 	if err != nil {
 		return nil, fmt.Errorf("feed low stock notification: %w", err)
 	}

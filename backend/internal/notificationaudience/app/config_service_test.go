@@ -14,6 +14,7 @@ type configRepoFake struct {
 	stored   map[string]ports.Audience
 	replaced *ports.ReplaceAudienceCommand
 	reset    string
+	resetVer int
 }
 
 func (r *configRepoFake) ListAudiences(context.Context, string) (map[string]ports.Audience, error) {
@@ -27,8 +28,9 @@ func (r *configRepoFake) ReplaceAudience(_ context.Context, cmd ports.ReplaceAud
 	r.replaced = &cmd
 	return ports.Audience{AlertKey: cmd.AlertKey, DesignationCodes: cmd.DesignationCodes, RowVersion: cmd.ExpectedRowVersion + 1}, nil
 }
-func (r *configRepoFake) ResetAudience(_ context.Context, _, _, key string) error {
+func (r *configRepoFake) ResetAudience(_ context.Context, _, _, key string, expectedRowVersion int) error {
 	r.reset = key
+	r.resetVer = expectedRowVersion
 	return nil
 }
 func (r *configRepoFake) ListDesignations(context.Context) ([]ports.Designation, error) {
@@ -100,8 +102,8 @@ func TestSaveUseDefaultsResetsAndReportsTheDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if repo.reset != domain.AlertProcurementLoadOverdue || repo.replaced != nil {
-		t.Fatalf("use_defaults must reset, not replace: reset=%q replaced=%+v", repo.reset, repo.replaced)
+	if repo.reset != domain.AlertProcurementLoadOverdue || repo.resetVer != 1 || repo.replaced != nil {
+		t.Fatalf("use_defaults must reset with the loaded version, not replace: reset=%q version=%d replaced=%+v", repo.reset, repo.resetVer, repo.replaced)
 	}
 	if row.Customised || !reflect.DeepEqual(row.Designations, []string{"ceo_internal"}) {
 		t.Fatalf("row after reset = %+v", row)

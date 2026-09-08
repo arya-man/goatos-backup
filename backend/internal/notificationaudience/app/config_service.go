@@ -124,7 +124,7 @@ func (s *ConfigService) Save(ctx context.Context, tenantID, actorID, alertKey st
 		return AlertRow{}, fmt.Errorf("%w: reload the page to see the current settings, then try again", ErrInvalidRequest)
 	}
 	if req.UseDefaults {
-		if err := s.repo.ResetAudience(ctx, tenantID, actorID, alert.Key); err != nil {
+		if err := s.repo.ResetAudience(ctx, tenantID, actorID, alert.Key, req.RowVersion); err != nil {
 			return AlertRow{}, err
 		}
 		return alertRow(alert, ports.Audience{}), nil

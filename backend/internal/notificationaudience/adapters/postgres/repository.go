@@ -75,7 +75,7 @@ RETURNING alert_key, designation_codes, row_version`
 
 const deleteAudienceSQL = `
 DELETE FROM notification_alert_audiences
-WHERE tenant_id = $1::uuid AND alert_key = $2`
+WHERE tenant_id = $1::uuid AND alert_key = $2 AND row_version = $3`
 
 const insertAudienceAuditSQL = `
 INSERT INTO audit_log (tenant_id, actor_id, actor_type, action, resource_type, resource_id, after_state, metadata)
@@ -198,26 +198,37 @@ func (r *Repository) ReplaceAudience(ctx context.Context, cmd ports.ReplaceAudie
 
 // ResetAudience deletes the override. Deleting a row that does not exist is a no-op: "back to
 // default" is already true, so a double click is not an error.
-func (r *Repository) ResetAudience(ctx context.Context, tenantID, actorID, alertKey string) error {
+func (r *Repository) ResetAudience(ctx context.Context, tenantID, actorID, alertKey string, expectedRowVersion int) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	if expectedRowVersion == 0 {
+		_, customised, err := r.LoadAudience(ctx, tenantID, alertKey)
+		if err != nil {
+			return err
+		}
+		if customised {
+			return ports.ErrVersionConflict
+		}
+		return nil
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("notification audiences: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	tag, err := tx.Exec(ctx, deleteAudienceSQL, tenantID, alertKey)
+	tag, err := tx.Exec(ctx, deleteAudienceSQL, tenantID, alertKey, expectedRowVersion)
 	if err != nil {
 		return fmt.Errorf("notification audiences: reset %s: %w", alertKey, err)
 	}
-	if tag.RowsAffected() > 0 {
-		after, err := json.Marshal(map[string]any{"alert_key": alertKey, "use_defaults": true})
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, insertAudienceAuditSQL, tenantID, actorID, "notification_audience.reset", after, "{}"); err != nil {
-			return fmt.Errorf("notification audiences: audit: %w", err)
-		}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrVersionConflict
+	}
+	after, err := json.Marshal(map[string]any{"alert_key": alertKey, "use_defaults": true})
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, insertAudienceAuditSQL, tenantID, actorID, "notification_audience.reset", after, "{}"); err != nil {
+		return fmt.Errorf("notification audiences: audit: %w", err)
 	}
 	return tx.Commit(ctx)
 }

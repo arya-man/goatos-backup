@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	feeddomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
@@ -99,6 +100,37 @@ func TestLowStockAlertReachesCEOFeedAndProcurementOnly(t *testing.T) {
 	}
 	if len(queue.queued[0].Recipients) != 3 {
 		t.Errorf("recipients = %d, want exactly the three seats", len(queue.queued[0].Recipients))
+	}
+}
+
+type feedAudienceSpy struct {
+	parks []string
+}
+
+func (s *feedAudienceSpy) Recipients(_ context.Context, _, parkID, _ string) ([]calendarports.NotificationRecipient, error) {
+	s.parks = append(s.parks, parkID)
+	if parkID == "" {
+		return nil, nil
+	}
+	return []calendarports.NotificationRecipient{{MemberID: "m-head", DeviceID: "d-head", FCMToken: "fcm-head", RoleLabel: roleLabelParkHead}}, nil
+}
+
+func (s *feedAudienceSpy) Addressed(context.Context, string, string, string, []string, []calendarports.NotificationRecipient) ([]calendarports.NotificationRecipient, error) {
+	return nil, nil
+}
+
+func TestLowStockConfiguredParkDeskResolvesAgainstTheFeedPark(t *testing.T) {
+	_, _, queue, notifier := newLowStockFixture()
+	audience := &feedAudienceSpy{}
+	notifier.WithAudience(audience)
+	if err := notifier.NotifyLowStock(context.Background(), missedTenant); err != nil {
+		t.Fatalf("NotifyLowStock: %v", err)
+	}
+	if len(audience.parks) != 1 || audience.parks[0] != missedPark {
+		t.Fatalf("audience resolved parks %v, want the low-stock feed's park", audience.parks)
+	}
+	if len(queue.queued) != 1 || len(queue.queued[0].Recipients) != 1 || queue.queued[0].Recipients[0].RoleLabel != roleLabelParkHead {
+		t.Fatalf("queued recipients = %+v, want the configured park desk", queue.queued)
 	}
 }
 

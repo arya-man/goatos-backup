@@ -130,6 +130,22 @@ func TestSaleFeedNoticeNamesParkPensCountsAndTheFeedDay(t *testing.T) {
 	}
 }
 
+func TestSaleFeedConfiguredParkDeskResolvesAgainstTheSoldPensPark(t *testing.T) {
+	sold := time.Date(2026, 9, 7, 11, 0, 0, 0, saleFeedIST)
+	_, _, _, queue, notifier := newSaleFeedFixture(sold)
+	audience := &feedAudienceSpy{}
+	notifier.WithAudience(audience)
+	if err := notifier.HandleEvent(context.Background(), saleAllocatedEvent(t, saleFeedBatch(sold))); err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+	if len(audience.parks) != 1 || audience.parks[0] != missedPark {
+		t.Fatalf("audience resolved parks %v, want the sale pens' park", audience.parks)
+	}
+	if len(queue.queued) != 1 || len(queue.queued[0].Recipients) != 1 || queue.queued[0].Recipients[0].RoleLabel != roleLabelParkHead {
+		t.Fatalf("queued recipients = %+v, want the configured park desk", queue.queued)
+	}
+}
+
 // The feed day follows the park's correction cutoff: a sale after 14:00 cannot reach tomorrow's
 // frozen sheet, so the notice names the day after.
 func TestSaleFeedNoticeAfterTheCutoffNamesTheDayAfterNext(t *testing.T) {

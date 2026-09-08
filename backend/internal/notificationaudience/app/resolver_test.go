@@ -42,7 +42,7 @@ func (r *repoFake) LoadAudience(_ context.Context, _, key string) (ports.Audienc
 func (r *repoFake) ReplaceAudience(context.Context, ports.ReplaceAudienceCommand) (ports.Audience, error) {
 	return ports.Audience{}, nil
 }
-func (r *repoFake) ResetAudience(context.Context, string, string, string) error { return nil }
+func (r *repoFake) ResetAudience(context.Context, string, string, string, int) error { return nil }
 func (r *repoFake) ListDesignations(context.Context) ([]ports.Designation, error) {
 	return nil, nil
 }

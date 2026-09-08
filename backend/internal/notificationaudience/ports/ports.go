@@ -48,8 +48,10 @@ type AudienceRepository interface {
 	// screen loaded (0 for a not-yet-customised alert), and validates every code against the
 	// active designation catalog inside the transaction.
 	ReplaceAudience(ctx context.Context, cmd ReplaceAudienceCommand) (Audience, error)
-	// ResetAudience deletes the override so the alert returns to its catalog default.
-	ResetAudience(ctx context.Context, tenantID, actorID, alertKey string) error
+	// ResetAudience deletes the override so the alert returns to its catalog default, fenced on
+	// the version the screen loaded. ExpectedRowVersion 0 means "already default" and only
+	// succeeds when no override exists.
+	ResetAudience(ctx context.Context, tenantID, actorID, alertKey string, expectedRowVersion int) error
 	// ListDesignations returns the active designation catalog in its display order.
 	ListDesignations(ctx context.Context) ([]Designation, error)
 }
