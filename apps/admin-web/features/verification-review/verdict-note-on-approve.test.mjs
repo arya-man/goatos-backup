@@ -1,0 +1,45 @@
+// A verifier may leave a note on an ACCEPTED video, not only a reason on a rejected one
+// (maintainer request 2026-09-08). The backend has always stored `reason` on either decision;
+// the web drawer hid the box until Reject was pressed and the server action dropped the value
+// on an approve, so an accepted proof could never carry the verifier's words.
+//
+// Source-shape tests, like every other test in this folder: there is no DOM harness here.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+const drawerSource = readFileSync(new URL("./verification-review-drawer.tsx", import.meta.url), "utf8");
+const actionsSource = readFileSync(new URL("./actions.ts", import.meta.url), "utf8");
+
+test("the note box is always rendered, not revealed only by Reject", () => {
+  assert.doesNotMatch(
+    drawerSource,
+    /display:\s*rejecting\s*\?\s*"grid"\s*:\s*"none"/,
+    "the reason field must not be hidden until Reject is pressed -- an approval can carry a note too",
+  );
+  assert.match(drawerSource, /<textarea[\s\S]{0,200}name="reason"/, "the verdict form keeps its reason textarea");
+});
+
+test("the server action sends the note on an approve when one was typed", () => {
+  assert.match(
+    actionsSource,
+    /\.\.\.\(reason \? \{ reason \} : \{\}\)/,
+    "reason must be forwarded whenever present, regardless of decision",
+  );
+  assert.doesNotMatch(
+    actionsSource,
+    /\.\.\.\(decision === "rejected" \? \{ reason \} : \{\}\)/,
+    "the reject-only forwarding is the defect being replaced",
+  );
+  // The reject rule is untouched: a blank reason still bounces before any request is made.
+  assert.match(actionsSource, /if \(decision === "rejected" && !reason\) \{\s*redirect\(withFeedback\(url, "error", "missing_reason"\)\);/);
+});
+
+test("the drawer shows the verifier's words on an approved item too", () => {
+  assert.doesNotMatch(
+    drawerSource,
+    /item\.status === "rejected" && item\.verdict_reason/,
+    "verdict_reason must render for either decision, not only a rejection",
+  );
+  assert.match(drawerSource, /\{item\.verdict_reason && \(/);
+});

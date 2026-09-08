@@ -128,9 +128,11 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
     itemId,
     {
       decision: decision as VerificationDecision,
-      // Send reason only when rejecting: the schema marks it required-when-rejected, and an empty
-      // string on an approval is a value the contract does not ask for.
-      ...(decision === "rejected" ? { reason } : {}),
+      // Sent whenever she typed one: required on a reject (checked above and by the backend's
+      // 422), optional on an approve -- a note on an accepted video is stored as the item's
+      // verdict reason just like a rejection's (maintainer request 2026-09-08). An empty string
+      // is never sent; blank on an approval means no note.
+      ...(reason ? { reason } : {}),
       row_version: rowVersion,
       // Only on an approve. A rejection sends the work back to be recorded again, so a value typed
       // before she changed her mind must not land on a record about to be redone. The backend drops

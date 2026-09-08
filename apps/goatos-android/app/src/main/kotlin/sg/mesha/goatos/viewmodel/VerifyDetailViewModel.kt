@@ -306,7 +306,9 @@ class VerifyDetailViewModel @Inject constructor(
                 submitVerdict(
                     event.itemId ?: itemId,
                     VerificationDecision.APPROVED,
-                    reason = null,
+                    // The verifier's optional note on an accepted video rides the same field a
+                    // rejection's reason does; blank stays null so the request is unchanged.
+                    reason = event.note?.trim()?.takeIf(String::isNotBlank),
                     measurement = event.measurement,
                 )
             is VerifyDetailEvent.Reject ->

@@ -134,6 +134,49 @@ class VerifyDetailViewModelAnalyticsTest {
         assertEquals("scale reads 42.5", verdict?.measurement?.reason)
     }
 
+    // A verifier may leave a note on an ACCEPTED video too (maintainer request 2026-09-08). It
+    // rides the same `reason` field a rejection uses; blank stays absent so an unannotated approve
+    // is the request it always was.
+    @Test
+    fun `approve carries the optional note`() = runTest(dispatcher) {
+        val syncRepository = FakeVerifyDetailSyncRepository()
+        val vm = VerifyDetailViewModel(
+            repo = FakeVerifyDetailRepository(),
+            syncRepo = syncRepository,
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(VerifyDetailEvent.Approve(itemId = "item-1", note = "  tag clearly readable  "))
+        advanceUntilIdle()
+
+        assertEquals("approved", syncRepository.lastVerdict?.decision)
+        assertEquals("tag clearly readable", syncRepository.lastVerdict?.reason)
+    }
+
+    @Test
+    fun `approve with a blank note sends no reason`() = runTest(dispatcher) {
+        val syncRepository = FakeVerifyDetailSyncRepository()
+        val vm = VerifyDetailViewModel(
+            repo = FakeVerifyDetailRepository(),
+            syncRepo = syncRepository,
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(VerifyDetailEvent.Approve(itemId = "item-1", note = "   "))
+        advanceUntilIdle()
+
+        assertEquals("approved", syncRepository.lastVerdict?.decision)
+        assertEquals(null, syncRepository.lastVerdict?.reason)
+    }
+
     // A rejection sends the work back to be recorded again, so a number typed before she changed
     // her mind must never reach the record that is about to be redone.
     @Test
@@ -588,6 +631,7 @@ private class FakeVerifyDetailRepository : VerificationRepository {
 private data class RecordedVerdict(
     val decision: String,
     val measurement: VerificationVerdictMeasurementDto?,
+    val reason: String? = null,
 )
 
 private class FakeVerifyDetailSyncRepository : SyncRepository {
@@ -613,7 +657,7 @@ private class FakeVerifyDetailSyncRepository : SyncRepository {
         rowVersion: Int,
         measurement: VerificationVerdictMeasurementDto?,
     ): AppResult<String> {
-        lastVerdict = RecordedVerdict(decision = decision, measurement = measurement)
+        lastVerdict = RecordedVerdict(decision = decision, measurement = measurement, reason = reason)
         return AppResult.Ok("outbox-1")
     }
 
