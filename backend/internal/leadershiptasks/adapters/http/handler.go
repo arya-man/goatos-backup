@@ -282,6 +282,10 @@ func (h *Handler) idempotencyKey(w http.ResponseWriter, r *http.Request) (string
 		h.writeErr(w, r, app.BadRequest("missing_idempotency_key", "This could not be saved safely. Try again."))
 		return "", false
 	}
+	if len(key) < 8 || len(key) > 200 {
+		h.writeErr(w, r, app.BadRequest("invalid_idempotency_key", "This could not be saved safely. Try again."))
+		return "", false
+	}
 	return key, true
 }
 
