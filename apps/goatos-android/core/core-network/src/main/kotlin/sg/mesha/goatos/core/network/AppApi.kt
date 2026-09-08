@@ -1719,6 +1719,7 @@ interface AppApi {
      * (`all` | `open` | `in_progress` | `done`); blank means the backend default.
      */
     suspend fun getLeadershipTasks(
+        scope: String? = null,
         filter: String? = null,
         limit: Int? = null,
         cursor: String? = null,
@@ -3192,6 +3193,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         paymentStatus = "Pending", paymentBalance = 23000.0, deliveryStatus = "purchased", entrySource = "app",
     )
     override suspend fun getLeadershipTasks(
+        scope: String?,
         filter: String?,
         limit: Int?,
         cursor: String?,

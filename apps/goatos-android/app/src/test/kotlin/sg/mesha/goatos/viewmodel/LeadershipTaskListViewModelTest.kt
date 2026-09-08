@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEventsLeadershipTasks
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.data.LeadershipTaskPageMeta
 import sg.mesha.goatos.core.network.dto.LeadershipTaskFilterDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskScopeDto
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskListEvent
 
 /**
@@ -86,6 +87,11 @@ class LeadershipTaskListViewModelTest {
                     LeadershipTaskFilterDto(key = "open", label = "Open", count = 2, selected = false, emptyMessage = "Nothing open"),
                     LeadershipTaskFilterDto(key = "done", label = "Done", count = 2, selected = false, emptyMessage = "Nothing done yet"),
                 ),
+                scopes = listOf(
+                    LeadershipTaskScopeDto(key = "assigned_to_me", label = "Assigned to me", count = 2, selected = true),
+                    LeadershipTaskScopeDto(key = "assigned_by_me", label = "Assigned by me", count = 4, selected = false),
+                    LeadershipTaskScopeDto(key = "team_progress", label = "Team progress", count = 9, selected = false),
+                ),
                 unseenCount = 2,
                 canRaise = true,
             ),
@@ -96,6 +102,7 @@ class LeadershipTaskListViewModelTest {
         assertEquals(listOf("All", "Open", "Done"), vm.state.value.filters.map { it.label })
         assertEquals(listOf(4, 2, 2), vm.state.value.filters.map { it.count })
         assertEquals("all", vm.state.value.filters.single { it.selected }.key)
+        assertEquals("assigned_to_me", vm.state.value.scopes.single { it.selected }.key)
         assertEquals("No tasks yet", vm.state.value.emptyMessage)
         assertEquals("a landed page re-reads the badge once", 1, refreshRequests.size)
 
@@ -103,6 +110,11 @@ class LeadershipTaskListViewModelTest {
         advanceUntilIdle()
         assertEquals("open", vm.state.value.filters.single { it.selected }.key)
         assertEquals("Nothing open", vm.state.value.emptyMessage)
+
+        vm.onEvent(LeadershipTaskListEvent.SelectScope("team_progress"))
+        advanceUntilIdle()
+        assertEquals("team_progress", vm.state.value.scopes.single { it.selected }.key)
+        assertEquals("all", vm.state.value.filters.single { it.selected }.key)
 
         signalJob.cancel()
         stateJob.cancel()
@@ -122,6 +134,7 @@ class LeadershipTaskListViewModelTest {
         vm.onRowsLoadFailed(IllegalStateException("network down"))
         advanceUntilIdle()
 
+        assertEquals(listOf(""), repository.invalidatedScopes)
         assertEquals(listOf(""), repository.invalidatedFilters)
         assertEquals("", repository.requestedFilters.first())
         assertTrue(analytics.events.any { it.name == AnalyticsEventsLeadershipTasks.LIST_VIEWED })

@@ -39,7 +39,9 @@ class FakeLeadershipTasksRepository(
     override val pageMeta: StateFlow<LeadershipTaskPageMeta> = _pageMeta
 
     val requestedFilters = mutableListOf<String>()
+    val requestedScopes = mutableListOf<String>()
     val invalidatedFilters = mutableListOf<String>()
+    val invalidatedScopes = mutableListOf<String>()
     var refreshDetailCalls: Int = 0
         private set
     val seenCalls = mutableListOf<String>()
@@ -65,12 +67,14 @@ class FakeLeadershipTasksRepository(
         _pageMeta.value = next
     }
 
-    override fun tasks(filter: String): Flow<PagingData<LeadershipTaskDto>> {
+    override fun tasks(scope: String, filter: String): Flow<PagingData<LeadershipTaskDto>> {
+        requestedScopes += scope
         requestedFilters += filter
         return flowOf(PagingData.from(pages))
     }
 
-    override suspend fun invalidateTasks(filter: String) {
+    override suspend fun invalidateTasks(scope: String, filter: String) {
+        invalidatedScopes += scope
         invalidatedFilters += filter
     }
 

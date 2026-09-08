@@ -23,7 +23,7 @@ import (
 // Service is the behaviour this transport depends on.
 type Service interface {
 	ListAssignees(ctx context.Context, tenantID string) ([]ports.Assignee, error)
-	ListTasks(ctx context.Context, tenantID, userID, filterKey string, limit int, cursor string) (ports.Page, error)
+	ListTasks(ctx context.Context, tenantID, userID, scopeKey, filterKey string, limit int, cursor string, actor domain.Actor) (ports.Page, error)
 	GetTask(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error)
 	Raise(ctx context.Context, p ports.RaiseParams) (domain.Task, error)
 	Edit(ctx context.Context, p ports.EditParams) (domain.Task, error)
@@ -81,7 +81,8 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 	actor := actorFrom(r)
-	page, err := h.service.ListTasks(r.Context(), tenantID(r), actor.UserID, filterKey, limit, q.Get("cursor"))
+	scopeKey := domain.ScopeKeyOrDefault(q.Get("scope"), actor)
+	page, err := h.service.ListTasks(r.Context(), tenantID(r), actor.UserID, scopeKey, filterKey, limit, q.Get("cursor"), actor)
 	if err != nil {
 		h.writeErr(w, r, toAppError(err))
 		return
@@ -100,6 +101,7 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		Rows:        rows,
 		NextCursor:  next,
 		Filters:     toFilterPayloads(filterKey, page, actor.CanRaise),
+		Scopes:      toScopePayloads(scopeKey, page, actor),
 		UnseenCount: page.UnseenCount,
 		CanRaise:    actor.CanRaise,
 		TraceID:     traceID(r),
@@ -330,6 +332,17 @@ func traceID(r *http.Request) string {
 // SAME grants the route table authorized against, never from a role string the client sends.
 func actorFrom(r *http.Request) domain.Actor {
 	actor := domain.Actor{UserID: strings.TrimSpace(httpmiddleware.ActorIDFromContext(r.Context()))}
+	if held, ok := httpmiddleware.PersonPermissionsFromContext(r.Context()); ok {
+		for _, perm := range held {
+			switch perm {
+			case permissions.LeadershipTasksRaise:
+				actor.CanRaise = true
+			case permissions.LeadershipTasksAct:
+				actor.CanAct = true
+			}
+		}
+		return actor
+	}
 	for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
 		if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksRaise) {
 			actor.CanRaise = true

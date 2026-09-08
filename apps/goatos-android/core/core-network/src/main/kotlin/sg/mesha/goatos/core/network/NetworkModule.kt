@@ -1219,6 +1219,7 @@ interface AppApiService {
     // Leadership Tasks (maintainer request 2026-09-04)
     @GET("app/leadership-tasks")
     suspend fun getLeadershipTasks(
+        @Query("scope") scope: String?,
         @Query("filter") filter: String?,
         @Query("limit") limit: Int?,
         @Query("cursor") cursor: String?,
@@ -2343,10 +2344,11 @@ class RetrofitAppApi(
     override suspend fun createSalesWeightCheck(idempotencyKey: String, request: SalesWeightCheckWriteDto): SalesRecordedDto =
         service.createSalesWeightCheck(idempotencyKey, request)
     override suspend fun getLeadershipTasks(
+        scope: String?,
         filter: String?,
         limit: Int?,
         cursor: String?,
-    ): LeadershipTaskPageDto = service.getLeadershipTasks(filter, limit, cursor)
+    ): LeadershipTaskPageDto = service.getLeadershipTasks(scope, filter, limit, cursor)
 
     override suspend fun getLeadershipTaskAssignees(): LeadershipAssigneeListDto =
         service.getLeadershipTaskAssignees()

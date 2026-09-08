@@ -68,10 +68,11 @@ func (s *Service) ListAssignees(ctx context.Context, tenantID string) ([]ports.A
 }
 
 // ListTasks pages the caller's tasks for one chip.
-func (s *Service) ListTasks(ctx context.Context, tenantID, userID, filterKey string, limit int, cursor string) (ports.Page, error) {
+func (s *Service) ListTasks(ctx context.Context, tenantID, userID, scopeKey, filterKey string, limit int, cursor string, actor domain.Actor) (ports.Page, error) {
 	return s.repo.ListTasks(ctx, ports.ListParams{
 		TenantID: tenantID,
 		UserID:   userID,
+		Scope:    domain.ScopeKeyOrDefault(scopeKey, actor),
 		Statuses: domain.StatusesForFilter(domain.FilterKeyOrDefault(filterKey)),
 		Limit:    ClampPageSize(limit),
 		Cursor:   strings.TrimSpace(cursor),

@@ -32,6 +32,7 @@ type Assignee struct {
 type ListParams struct {
 	TenantID string
 	UserID   string
+	Scope    string
 	Statuses []string
 	Limit    int
 	Cursor   string
@@ -44,6 +45,7 @@ type Page struct {
 	// StatusCounts range over the SAME party predicate as the rows (never page-local, never
 	// tenant-wide), keyed by status.
 	StatusCounts map[string]int
+	ScopeCounts  map[string]int
 	// UnseenCount is the number of tasks addressed to the caller they have not opened yet,
 	// excluding cancelled ones. The drawer badge shows the same number.
 	UnseenCount int

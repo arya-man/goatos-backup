@@ -190,3 +190,18 @@ func TestFiltersHideCancelledAndCountWholeList(t *testing.T) {
 		t.Fatal("the empty line differs between a director (invited to raise) and a CXO (desk clear)")
 	}
 }
+
+func TestScopeDefaultsAndCopy(t *testing.T) {
+	if ScopeKeyOrDefault("bogus", Actor{CanAct: true}) != ScopeAssignedToMe {
+		t.Fatal("actors who can act default to assigned_to_me")
+	}
+	if ScopeKeyOrDefault("", Actor{CanRaise: true}) != ScopeAssignedByMe {
+		t.Fatal("raisers default to assigned_by_me")
+	}
+	if ScopeKeyOrDefault(" team_progress ", Actor{}) != ScopeTeamProgress {
+		t.Fatal("scope key normalization")
+	}
+	if ScopeLabel(ScopeAssignedByMe) != "Assigned by me" || ScopeEmptyMessage(ScopeTeamProgress) == "" {
+		t.Fatal("scope copy must be stable for the dashboard")
+	}
+}

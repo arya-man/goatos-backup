@@ -3764,10 +3764,14 @@ fun AppNavHost(
                             vm.onEvent(event)
                             rows.refresh()
                         }
-                        is LeadershipTaskListEvent.SelectFilter -> {
-                            vm.onEvent(event)
-                            rows.refresh()
-                        }
+	                        is LeadershipTaskListEvent.SelectFilter -> {
+	                            vm.onEvent(event)
+	                            rows.refresh()
+	                        }
+	                        is LeadershipTaskListEvent.SelectScope -> {
+	                            vm.onEvent(event)
+	                            rows.refresh()
+	                        }
                         is LeadershipTaskListEvent.OpenTask -> {
                             vm.onEvent(event)
                             navController.navigate(Routes.leadershipTaskRoute(event.taskId)) {

@@ -1018,6 +1018,7 @@ object AnalyticsEvents {
 
         const val CHROME = "chrome"
         const val ACTION = "action"
+        const val SCOPE = "scope"
         const val SHED_ID = "shed_id"
         const val RFID = "rfid"
         const val GOAT_ID = "goat_id"

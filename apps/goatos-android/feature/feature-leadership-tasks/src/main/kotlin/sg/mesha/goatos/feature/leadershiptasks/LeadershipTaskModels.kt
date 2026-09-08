@@ -92,6 +92,15 @@ data class LeadershipTaskFilterUi(
 )
 
 @Immutable
+data class LeadershipTaskScopeUi(
+    val key: String,
+    val label: String,
+    val count: Int,
+    val selected: Boolean,
+    val emptyMessage: String = "",
+)
+
+@Immutable
 data class LeadershipTaskListUiState(
     /** The backend's page title, VERBATIM. */
     val title: String = "",
@@ -100,6 +109,7 @@ data class LeadershipTaskListUiState(
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
     val filters: List<LeadershipTaskFilterUi> = emptyList(),
+    val scopes: List<LeadershipTaskScopeUi> = emptyList(),
     /** The backend's `can_raise` — the ONLY thing that shows the "+" action. */
     val canRaise: Boolean = false,
 )
@@ -107,6 +117,7 @@ data class LeadershipTaskListUiState(
 sealed interface LeadershipTaskListEvent {
     data object Refresh : LeadershipTaskListEvent
     data class SelectFilter(val key: String) : LeadershipTaskListEvent
+    data class SelectScope(val key: String) : LeadershipTaskListEvent
     data class OpenTask(val taskId: String) : LeadershipTaskListEvent
 
     /** The "+" action: raise a new task. Only offered when `can_raise`. */

@@ -91,6 +91,9 @@ fun LeadershipTaskListScreen(
                 }
             },
         )
+        if (state.scopes.isNotEmpty()) {
+            LeadershipScopeRow(scopes = state.scopes, onEvent = onEvent)
+        }
         if (state.filters.isNotEmpty()) {
             LeadershipFilterRow(filters = state.filters, onEvent = onEvent)
         }
@@ -128,6 +131,47 @@ fun LeadershipTaskListScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LeadershipScopeRow(
+    scopes: List<LeadershipTaskScopeUi>,
+    onEvent: (LeadershipTaskListEvent) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        scopes.forEach { scope ->
+            LeadershipScopeChip(scope = scope) {
+                onEvent(LeadershipTaskListEvent.SelectScope(scope.key))
+            }
+        }
+    }
+}
+
+@Composable
+private fun LeadershipScopeChip(scope: LeadershipTaskScopeUi, onClick: () -> Unit) {
+    val background = if (scope.selected) MeshaColors.BrandD else MeshaColors.Surf
+    val border = if (scope.selected) MeshaColors.BrandD else MeshaColors.Hair
+    val labelColor = if (scope.selected) MeshaColors.Surf else MeshaColors.Ink
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(background)
+            .border(1.dp, border, RoundedCornerShape(8.dp))
+            .selectable(selected = scope.selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = scope.label, color = labelColor, style = MeshaType.pillStrong)
+        Text(text = scope.count.toString(), color = labelColor.copy(alpha = 0.8f), style = MeshaType.pill)
     }
 }
 
