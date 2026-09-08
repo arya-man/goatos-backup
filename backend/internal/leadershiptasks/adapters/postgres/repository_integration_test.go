@@ -385,3 +385,37 @@ func TestLeadershipTaskListPaginationPageBoundaryAndEveryStatusBuckets(t *testin
 	}
 	_ = cxo
 }
+
+func TestListAssigneesDoesNotDropEmployeesPastHundred(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedLeadershipFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	for i := 0; i < 101; i++ {
+		userID := fmt.Sprintf("00000000-0000-4000-8000-00000001%04d", i)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (tenant_id, user_id, display_code, display_name, status)
+VALUES ($1::uuid, $2::uuid, $3, $4, 'active')`, ltTenant, userID, fmt.Sprintf("EMP%03d", i), fmt.Sprintf("Worker %03d", i)); err != nil {
+			t.Fatalf("seed employee %03d: %v", i, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
+SELECT $1::uuid, workforce_member_id, 'mobile', 'leadership_tasks', ARRAY['view','oversee']::text[]
+FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTenant, userID); err != nil {
+			t.Fatalf("seed employee tick %03d: %v", i, err)
+		}
+	}
+
+	assignees, err := repo.ListAssignees(ctx, ltTenant)
+	if err != nil {
+		t.Fatalf("list assignees: %v", err)
+	}
+	if len(assignees) != 104 {
+		t.Fatalf("assignees len = %d, want 104", len(assignees))
+	}
+	if got := assignees[len(assignees)-1].Name; got != "Worker 100" {
+		t.Fatalf("last assignee = %q, want Worker 100", got)
+	}
+}

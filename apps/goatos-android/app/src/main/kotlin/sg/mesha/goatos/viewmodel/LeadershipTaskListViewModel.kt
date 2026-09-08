@@ -84,11 +84,19 @@ class LeadershipTaskListViewModel @Inject constructor(
         val selectedChip = meta.filters.firstOrNull { chip ->
             if (current.filter.isBlank()) chip.selected else chip.key == current.filter
         }
+        val selectedScope = meta.scopes.firstOrNull { chip ->
+            if (current.taskScope.isBlank()) chip.selected else chip.key == current.taskScope
+        }
         LeadershipTaskListUiState(
             // The backend's own page title once a page has landed; the nav label until then.
             title = meta.title.ifBlank { current.fallbackTitle },
             isRefreshing = refreshing,
-            emptyMessage = selectedChip?.emptyMessage?.takeIf { it.isNotBlank() }
+            emptyMessage = if (current.filter.isBlank()) {
+                selectedScope?.emptyMessage?.takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
+                ?: selectedChip?.emptyMessage?.takeIf { it.isNotBlank() }
                 ?: meta.filters.firstOrNull()?.emptyMessage?.takeIf { it.isNotBlank() },
             filters = meta.filters.map { chip ->
                 LeadershipTaskFilterUi(
@@ -104,7 +112,7 @@ class LeadershipTaskListViewModel @Inject constructor(
                     key = chip.key,
                     label = chip.label,
                     count = chip.count,
-                    selected = if (current.taskScope.isBlank()) chip.selected else chip.key == current.taskScope,
+                    selected = selectedScope?.key == chip.key,
                     emptyMessage = chip.emptyMessage,
                 )
             },

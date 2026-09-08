@@ -88,9 +88,9 @@ class LeadershipTaskListViewModelTest {
                     LeadershipTaskFilterDto(key = "done", label = "Done", count = 2, selected = false, emptyMessage = "Nothing done yet"),
                 ),
                 scopes = listOf(
-                    LeadershipTaskScopeDto(key = "assigned_to_me", label = "Assigned to me", count = 2, selected = true),
-                    LeadershipTaskScopeDto(key = "assigned_by_me", label = "Assigned by me", count = 4, selected = false),
-                    LeadershipTaskScopeDto(key = "team_progress", label = "Team progress", count = 9, selected = false),
+                    LeadershipTaskScopeDto(key = "assigned_to_me", label = "Assigned to me", count = 2, selected = true, emptyMessage = "No tasks assigned to you yet"),
+                    LeadershipTaskScopeDto(key = "assigned_by_me", label = "Assigned by me", count = 4, selected = false, emptyMessage = "No tasks raised by you yet"),
+                    LeadershipTaskScopeDto(key = "team_progress", label = "Team progress", count = 9, selected = false, emptyMessage = "No team tasks in progress yet"),
                 ),
                 unseenCount = 2,
                 canRaise = true,
@@ -103,7 +103,7 @@ class LeadershipTaskListViewModelTest {
         assertEquals(listOf(4, 2, 2), vm.state.value.filters.map { it.count })
         assertEquals("all", vm.state.value.filters.single { it.selected }.key)
         assertEquals("assigned_to_me", vm.state.value.scopes.single { it.selected }.key)
-        assertEquals("No tasks yet", vm.state.value.emptyMessage)
+        assertEquals("No tasks assigned to you yet", vm.state.value.emptyMessage)
         assertEquals("a landed page re-reads the badge once", 1, refreshRequests.size)
 
         vm.onEvent(LeadershipTaskListEvent.SelectFilter("open"))
@@ -115,6 +115,7 @@ class LeadershipTaskListViewModelTest {
         advanceUntilIdle()
         assertEquals("team_progress", vm.state.value.scopes.single { it.selected }.key)
         assertEquals("all", vm.state.value.filters.single { it.selected }.key)
+        assertEquals("No team tasks in progress yet", vm.state.value.emptyMessage)
 
         signalJob.cancel()
         stateJob.cancel()

@@ -3143,13 +3143,13 @@ export interface paths {
         };
         /**
          * One page of the caller's leadership tasks.
-         * @description Leadership Tasks (maintainer decision 2026-09-04): a director raises a task for one CXO. The caller sees the tasks they are PARTY to -- a director the ones they raised, a CXO the ones addressed to them -- newest first, keyset-paged. `filters` are whole-list counts over the same party predicate, never page sums. Every visible word (chips, meta line, number label, status button labels, empty messages) is backend-owned and rendered verbatim.
+         * @description Leadership Tasks (maintainer decisions 2026-09-04 and Manju ask 2026-09-08): an authorized leader can raise a manual, non-event-driven task for a director, park head, or employee. The caller sees the tasks they are party to -- tasks addressed to them and, when they can raise tasks, tasks they raised -- newest first, keyset-paged. CEO/COO-style monitors can also open `team_progress` for read-only cross-team progress. `filters` are whole-list counts over the same scope predicate, never page sums. Every visible word (chips, meta line, number label, status button labels, empty messages) is backend-owned and rendered verbatim.
          */
         get: operations["listLeadershipTasks"];
         put?: never;
         /**
-         * Raise a task for a CXO.
-         * @description Directors only (`leadership_tasks.raise`). Attachments are proofs already uploaded through `POST /app/proofs/uploads` with `proof_type: attachment`; each must be a completed upload by the raiser in this tenant or the whole raise is refused 422 invalid_attachment. The `Idempotency-Key` header is REQUIRED; an exact replay returns the original task. The task's running number is minted inside the write. Pushes `leadership_task.raised` to the assignee.
+         * Raise a manual leadership task for another worker.
+         * @description Requires `leadership_tasks.raise`. The assignee must be an active app-backed worker ticked for Leadership Tasks acting, covering directors, park heads, and employees. Attachments are proofs already uploaded through `POST /app/proofs/uploads` with `proof_type: attachment`; each must be a completed upload by the raiser in this tenant or the whole raise is refused 422 invalid_attachment. The `Idempotency-Key` header is REQUIRED; an exact replay returns the original task. The task's running number is minted inside the write. Pushes `leadership_task.raised` to the assignee.
          */
         post: operations["raiseLeadershipTask"];
         delete?: never;
@@ -3167,7 +3167,7 @@ export interface paths {
         };
         /**
          * The people a task may be raised for.
-         * @description The raise form's picker: every CXO (`ceo_internal`) with an active grant and an active roster profile, by display name. Directors only.
+         * @description The raise form's picker: every active app-backed worker ticked for Leadership Tasks acting, by display name. Requires `leadership_tasks.raise`.
          */
         get: operations["listLeadershipTaskAssignees"];
         put?: never;
@@ -3249,7 +3249,7 @@ export interface paths {
         put?: never;
         /**
          * Set the assignee's note on a task.
-         * @description The CXO's comment back on the task (maintainer instruction 2026-09-04): one field its owner overwrites, no thread. Assignee only (403 not_assignee), while the task is not cancelled (409 task_closed). The `Idempotency-Key` header is REQUIRED.
+         * @description The assignee's comment back on the task (maintainer instruction 2026-09-04): one field its owner overwrites, no thread. Assignee only (403 not_assignee), while the task is not cancelled (409 task_closed). The `Idempotency-Key` header is REQUIRED.
          */
         post: operations["setLeadershipTaskComment"];
         delete?: never;
@@ -7418,13 +7418,13 @@ export interface components {
             is_assignee: boolean;
             /** @description The caller raised this task. */
             is_raiser: boolean;
-            /** @description From the viewer's side -- "Raised by Hemant · 04/09/2026" for the CXO, "For Ravi · 04/09/2026" for the raiser. */
+            /** @description From the viewer's side -- "Raised by Hemant · 04/09/2026" for the assignee, "For Ravi · 04/09/2026" for the raiser. */
             meta_line: string;
             row_version: number;
             can_edit: boolean;
             can_change_status: boolean;
             can_cancel: boolean;
-            /** @description The CXO's note back on the task; one field its owner overwrites. */
+            /** @description The assignee's note back on the task; one field its owner overwrites. */
             comment: string;
             can_comment: boolean;
             /** @description The statuses THIS caller may move the task to, in display order; empty when read-only. */
@@ -7445,11 +7445,21 @@ export interface components {
             selected: boolean;
             empty_message: string;
         };
+        LeadershipTaskScope: {
+            /** @enum {string} */
+            key: "assigned_to_me" | "assigned_by_me" | "team_progress";
+            label: string;
+            /** @description Whole-list count for the selected leadership task monitoring scope. */
+            count: number;
+            selected: boolean;
+            empty_message: string;
+        };
         LeadershipTaskPage: {
             /** @description The L0 header title; mirrors the nav label. */
             title: string;
             rows: components["schemas"]["LeadershipTask"][];
             next_cursor?: string | null;
+            scopes: components["schemas"]["LeadershipTaskScope"][];
             filters: components["schemas"]["LeadershipTaskFilter"][];
             /** @description Tasks addressed to the caller not yet opened; 0 for a pure raiser. */
             unseen_count: number;
@@ -22108,6 +22118,8 @@ export interface operations {
     listLeadershipTasks: {
         parameters: {
             query?: {
+                /** @description Monitoring scope key. Callers without `leadership_tasks.raise` are confined to `assigned_to_me`; `assigned_by_me` requires raise authority, and `team_progress` requires CEO/COO-style monitor authority. Unknown or unavailable scopes resolve to the caller's default scope. */
+                scope?: "assigned_to_me" | "assigned_by_me" | "team_progress";
                 /** @description The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks). */
                 filter?: "all" | "open" | "in_progress" | "done";
                 limit?: number;
