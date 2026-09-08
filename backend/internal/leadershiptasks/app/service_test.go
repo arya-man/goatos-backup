@@ -110,7 +110,7 @@ func TestRaiseResolvesAttachmentsBeforeTheWriteAndRefusesSelfAssignment(t *testi
 	}
 }
 
-func TestGetTaskHidesATaskTheCallerIsNotPartyTo(t *testing.T) {
+func TestGetTaskAllowsPartyOrTeamProgressMonitor(t *testing.T) {
 	repo := &fakeRepo{task: domain.Task{TaskID: taskID, RaisedByUserID: raiser, AssigneeUserID: assignee, Status: domain.StatusOpen}}
 	svc := NewService(repo, nil)
 	ctx := context.Background()
@@ -123,12 +123,15 @@ func TestGetTaskHidesATaskTheCallerIsNotPartyTo(t *testing.T) {
 	if _, err := svc.GetTask(ctx, tenant, domain.Actor{UserID: assignee}, taskID); err != nil {
 		t.Fatalf("assignee: %v", err)
 	}
+	if _, err := svc.GetTask(ctx, tenant, domain.Actor{UserID: "66666666-6666-4666-8666-666666666666", CanRaise: true}, taskID); err != nil {
+		t.Fatalf("team progress monitor: %v", err)
+	}
 	if _, err := svc.GetTask(ctx, tenant, domain.Actor{UserID: assignee}, "not-a-uuid"); !errors.Is(err, ports.ErrTaskNotFound) {
 		t.Fatalf("bad id must read not-found, got %v", err)
 	}
 }
 
-func TestAttachmentDownloadURLIsPartyAndAttachmentScoped(t *testing.T) {
+func TestAttachmentDownloadURLIsReaderAndAttachmentScoped(t *testing.T) {
 	const proofID = "66666666-6666-4666-8666-666666666666"
 	repo := &fakeRepo{task: domain.Task{
 		TaskID:         taskID,
@@ -152,9 +155,12 @@ func TestAttachmentDownloadURLIsPartyAndAttachmentScoped(t *testing.T) {
 		t.Fatalf("unattached proof must read not-found, got %v", err)
 	}
 	if _, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: "55555555-5555-4555-8555-555555555555"}, taskID, proofID); !errors.Is(err, ports.ErrTaskNotFound) {
-		t.Fatalf("non-party proof download must read not-found, got %v", err)
+		t.Fatalf("unauthorized proof download must read not-found, got %v", err)
 	}
-	if len(downloader.calls) != 1 {
+	if url, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: "66666666-6666-4666-8666-666666666666", CanRaise: true}, taskID, proofID); err != nil || url != downloader.url {
+		t.Fatalf("team progress monitor proof download = %q, %v", url, err)
+	}
+	if len(downloader.calls) != 2 {
 		t.Fatalf("downloader must not be reached for refused requests: %+v", downloader.calls)
 	}
 }

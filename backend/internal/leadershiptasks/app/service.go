@@ -79,8 +79,8 @@ func (s *Service) ListTasks(ctx context.Context, tenantID, userID, scopeKey, fil
 	})
 }
 
-// GetTask reads one task the caller is party to. A task the caller neither raised nor was
-// addressed to reads as not found: the list never shows it, and a guessed id must not open it.
+// GetTask reads one task the caller is party to, or a task the caller may monitor through
+// the Team progress scope. A task outside both shapes reads as not found.
 func (s *Service) GetTask(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error) {
 	if !uuidutil.IsUUIDString(taskID) {
 		return domain.Task{}, ports.ErrTaskNotFound
@@ -89,7 +89,7 @@ func (s *Service) GetTask(ctx context.Context, tenantID string, actor domain.Act
 	if err != nil {
 		return domain.Task{}, err
 	}
-	if !task.IsRaiser(actor) && !task.IsAssignee(actor) {
+	if !task.IsRaiser(actor) && !task.IsAssignee(actor) && !task.CanMonitor(actor) {
 		return domain.Task{}, ports.ErrTaskNotFound
 	}
 	return task, nil
@@ -186,7 +186,7 @@ func (s *Service) MarkSeen(ctx context.Context, tenantID string, actor domain.Ac
 	return s.repo.MarkSeen(ctx, tenantID, taskID, actor.UserID)
 }
 
-// AttachmentDownloadURL returns a URL only when the caller is party to the task and the proof
+// AttachmentDownloadURL returns a URL only when the caller can read the task and the proof
 // is one of that task's stored attachments.
 func (s *Service) AttachmentDownloadURL(ctx context.Context, tenantID string, actor domain.Actor, taskID, proofID string) (string, error) {
 	if !uuidutil.IsUUIDString(proofID) {
