@@ -107,6 +107,8 @@ func vendorFieldLabel(field string) string {
 		return "Filtered stock"
 	case "price_per_goat":
 		return "Price per goat"
+	case "average_animal_weight_kg":
+		return "Average animal weight"
 	case "ready_to_filtered":
 		return "Ready to filtered"
 	case "bank_name":
