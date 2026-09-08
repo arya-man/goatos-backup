@@ -6406,6 +6406,7 @@ CREATE TABLE public.goat_sale_allocations (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT goat_sale_allocations_released_check CHECK ((((status = 'tagged'::text) AND (released_at IS NULL)) OR ((status = 'released'::text) AND (released_at IS NOT NULL)))),
     CONSTRAINT goat_sale_allocations_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT goat_sale_allocations_weight_check CHECK (((weight_kg IS NULL) OR (weight_kg > (0)::numeric))),
     CONSTRAINT goat_sale_allocations_status_check CHECK ((status = ANY (ARRAY['tagged'::text, 'released'::text])))
 );
 
