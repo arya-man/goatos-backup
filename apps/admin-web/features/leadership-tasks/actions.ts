@@ -1,6 +1,5 @@
 "use server";
 
-import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { raiseLeadershipTask } from "@/lib/api/server";
@@ -35,11 +34,15 @@ export async function raiseLeadershipTaskAction(
   const title = String(formData.get("title") ?? "").trim();
   const assigneeUserID = String(formData.get("assignee_user_id") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim();
+  const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
 
   if (!title || !assigneeUserID) {
     redirect(
       withFeedback(url, "error", !title ? "missing_title" : "missing_assignee"),
     );
+  }
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    redirect(withFeedback(url, "error", "invalid_idempotency_key"));
   }
 
   const result = await raiseLeadershipTask(
@@ -47,9 +50,9 @@ export async function raiseLeadershipTaskAction(
       title,
       body,
       assignee_user_id: assigneeUserID,
-      attachments: [],
+      attachments: attachmentRefs(formData),
     },
-    `admin-web-leadership-task:${randomUUID()}`,
+    idempotencyKey,
   );
 
   revalidatePath(PATHNAME);
@@ -59,4 +62,33 @@ export async function raiseLeadershipTaskAction(
     );
   }
   redirect(withFeedback(url, "success", "task_raised"));
+}
+
+function attachmentRefs(
+  formData: FormData,
+): Array<{ proof_id: string; kind: string; file_name?: string }> {
+  const proofIDs = formData
+    .getAll("attachment_proof_id")
+    .map((value) => String(value).trim());
+  const kinds = formData
+    .getAll("attachment_kind")
+    .map((value) => String(value).trim());
+  const fileNames = formData
+    .getAll("attachment_file_name")
+    .map((value) => String(value).trim());
+  const refs: Array<{ proof_id: string; kind: string; file_name?: string }> =
+    [];
+  for (let i = 0; i < proofIDs.length; i += 1) {
+    const proofID = proofIDs[i];
+    const kind = kinds[i];
+    if (!proofID || !["audio", "video", "photo", "file"].includes(kind)) {
+      continue;
+    }
+    refs.push({
+      proof_id: proofID,
+      kind,
+      file_name: fileNames[i] || undefined,
+    });
+  }
+  return refs.slice(0, 12);
 }

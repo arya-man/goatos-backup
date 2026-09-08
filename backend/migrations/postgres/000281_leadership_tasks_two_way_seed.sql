@@ -127,7 +127,7 @@ SET capabilities = (
   SELECT array_agg(DISTINCT cap ORDER BY cap)
   FROM unnest(public.person_module_access.capabilities || EXCLUDED.capabilities) AS cap
 )
-RETURNING tenant_id, workforce_member_id, (xmax = 0) AS inserted
+RETURNING tenant_id, workforce_member_id, surface, (xmax = 0) AS inserted
 ),
 recorded_rows AS (
   INSERT INTO public.person_module_access_leadership_tasks_two_way_rows (tenant_id, workforce_member_id, surface)
@@ -175,7 +175,7 @@ SET capabilities = (
   SELECT array_agg(DISTINCT cap ORDER BY cap)
   FROM unnest(public.person_module_access.capabilities || EXCLUDED.capabilities) AS cap
 )
-RETURNING tenant_id, workforce_member_id, (xmax = 0) AS inserted
+RETURNING tenant_id, workforce_member_id, surface, (xmax = 0) AS inserted
 ),
 recorded_rows AS (
   INSERT INTO public.person_module_access_leadership_tasks_two_way_rows (tenant_id, workforce_member_id, surface)

@@ -110,6 +110,9 @@ export type LeadershipTaskAssignees =
   AppApiComponents["schemas"]["LeadershipTaskAssignees"];
 export type LeadershipTaskDetail =
   AppApiComponents["schemas"]["LeadershipTaskDetail"];
+export type LeadershipTaskAttachment =
+  AppApiComponents["schemas"]["LeadershipTaskAttachment"];
+export type LeadershipTaskDownload = { download_url: string; trace_id: string };
 
 // Process-integrity read model — the canonical truth feeding Action Center, Protocol Adherence,
 // Control Tower, and workflow drilldown. One backend projection, not the Parks physical projection.
@@ -3374,6 +3377,23 @@ export async function raiseLeadershipTask(
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
       body,
+    }),
+  );
+}
+
+export async function leadershipTaskAttachmentDownloadURL(
+  taskId: string,
+  proofId: string,
+): Promise<ApiResult<LeadershipTaskDownload>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path =
+    `/app/leadership-tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(proofId)}/download` as keyof AppApiPaths &
+      string;
+  return request(() =>
+    client.request<LeadershipTaskDownload>(path, {
+      cache: "no-store",
     }),
   );
 }
