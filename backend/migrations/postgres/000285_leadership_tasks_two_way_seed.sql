@@ -1,5 +1,5 @@
 -- +goose Up
--- seed-fixture-guard:ignore leadership-tasks access backfill updates person_module_access for the Tasks module only; it does not change vaccination or HRMS source seed data.
+-- seed-fixture-guard:ignore: leadership-tasks access backfill updates person_module_access for the Tasks module only; it does not change vaccination or HRMS source seed data.
 -- Leadership Tasks extension (Manju ask, 2026-09-08): keep the module capability-driven,
 -- but seed existing OCI/staging people so CEO/CXO can assign work downward, directors can
 -- still raise the cross-leadership asks they already hold by role, and park heads can
