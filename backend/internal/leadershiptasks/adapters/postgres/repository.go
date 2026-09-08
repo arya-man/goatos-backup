@@ -114,7 +114,15 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	defer cancel()
 
 	args := []any{p.TenantID, p.UserID}
-	where := "t.tenant_id = $1 AND (t.raised_by = $2::uuid OR t.assignee_user_id = $2::uuid)"
+	where := "t.tenant_id = $1"
+	switch p.Scope {
+	case domain.ScopeAssignedByMe:
+		where += " AND t.raised_by = $2::uuid"
+	case domain.ScopeTeamProgress:
+		where += " AND t.status <> 'cancelled'"
+	default:
+		where += " AND t.assignee_user_id = $2::uuid"
+	}
 	if len(p.Statuses) > 0 {
 		args = append(args, p.Statuses)
 		where += fmt.Sprintf(" AND t.status = ANY($%d)", len(args))
@@ -148,7 +156,7 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	if err := rows.Err(); err != nil {
 		return ports.Page{}, fmt.Errorf("leadership task: list rows: %w", err)
 	}
-	page := ports.Page{StatusCounts: map[string]int{}}
+	page := ports.Page{StatusCounts: map[string]int{}, ScopeCounts: map[string]int{}}
 	if len(tasks) > limit {
 		last := tasks[limit-1]
 		page.NextCursor = encodeCursor(last.RaisedAt, last.TaskID)
@@ -159,7 +167,7 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	}
 	page.Rows = tasks
 
-	countRows, err := r.pool.Query(ctx, sqlRepository4, p.TenantID, p.UserID)
+	countRows, err := r.pool.Query(ctx, sqlStatusCountsForScope(p.Scope), p.TenantID, p.UserID)
 	if err != nil {
 		return ports.Page{}, fmt.Errorf("leadership task: status counts: %w", err)
 	}
@@ -180,6 +188,22 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 		return ports.Page{}, err
 	}
 	page.UnseenCount = unseen
+	scopeRows, err := r.pool.Query(ctx, sqlRepository14, p.TenantID, p.UserID)
+	if err != nil {
+		return ports.Page{}, fmt.Errorf("leadership task: scope counts: %w", err)
+	}
+	defer scopeRows.Close()
+	for scopeRows.Next() {
+		var scope string
+		var n int
+		if err := scopeRows.Scan(&scope, &n); err != nil {
+			return ports.Page{}, fmt.Errorf("leadership task: scope counts scan: %w", err)
+		}
+		page.ScopeCounts[scope] = n
+	}
+	if err := scopeRows.Err(); err != nil {
+		return ports.Page{}, err
+	}
 	return page, nil
 }
 
@@ -294,7 +318,7 @@ func (r *Repository) Raise(ctx context.Context, p ports.RaiseParams) (domain.Tas
 		return domain.Task{}, fmt.Errorf("leadership task: check assignee: %w", err)
 	}
 	if !assignable {
-		return domain.Task{}, domain.ErrAssigneeNotCXO
+		return domain.Task{}, domain.ErrAssigneeNotAssignable
 	}
 
 	// The running number is minted under a per-tenant advisory lock so two directors raising
@@ -738,7 +762,39 @@ INSERT INTO public.leadership_task_attachments (
 ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (tenant_id, task_id, proof_id) DO UPDATE
 SET kind = EXCLUDED.kind, file_name = EXCLUDED.file_name, position = EXCLUDED.position`
+	sqlRepository14 = `
+SELECT scope, count(*) FROM (
+  SELECT '` + domain.ScopeAssignedToMe + `'::text AS scope FROM public.leadership_tasks
+  WHERE tenant_id = $1 AND assignee_user_id = $2::uuid AND status <> 'cancelled'
+  UNION ALL
+  SELECT '` + domain.ScopeAssignedByMe + `'::text AS scope FROM public.leadership_tasks
+  WHERE tenant_id = $1 AND raised_by = $2::uuid AND status <> 'cancelled'
+  UNION ALL
+  SELECT '` + domain.ScopeTeamProgress + `'::text AS scope FROM public.leadership_tasks
+  WHERE tenant_id = $1 AND status <> 'cancelled'
+) s
+GROUP BY scope`
 )
+
+func sqlStatusCountsForScope(scope string) string {
+	switch scope {
+	case domain.ScopeAssignedByMe:
+		return `
+SELECT status, count(*) FROM public.leadership_tasks
+WHERE tenant_id = $1 AND raised_by = $2::uuid
+GROUP BY status`
+	case domain.ScopeTeamProgress:
+		return `
+SELECT status, count(*) FROM public.leadership_tasks
+WHERE tenant_id = $1
+GROUP BY status`
+	default:
+		return `
+SELECT status, count(*) FROM public.leadership_tasks
+WHERE tenant_id = $1 AND assignee_user_id = $2::uuid
+GROUP BY status`
+	}
+}
 
 const sqlSetComment = `
 UPDATE public.leadership_tasks

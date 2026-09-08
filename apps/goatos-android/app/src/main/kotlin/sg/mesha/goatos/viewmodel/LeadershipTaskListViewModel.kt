@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.data.LeadershipTasksRepository
 import sg.mesha.goatos.core.network.dto.LeadershipTaskDto
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskCardUi
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskFilterUi
+import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskScopeUi
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskListEvent
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskListUiState
 import javax.inject.Inject
@@ -49,6 +50,7 @@ class LeadershipTaskListViewModel @Inject constructor(
 
     private data class Scope(
         /** The selected backend filter KEY. "" means the backend default before any tap. */
+        val taskScope: String = "",
         val filter: String = "",
         val fallbackTitle: String = "",
         /** Bumped by refresh so an unchanged scope is still a NEW value (StateFlow conflates). */
@@ -97,6 +99,15 @@ class LeadershipTaskListViewModel @Inject constructor(
                     emptyMessage = chip.emptyMessage,
                 )
             },
+            scopes = meta.scopes.map { chip ->
+                LeadershipTaskScopeUi(
+                    key = chip.key,
+                    label = chip.label,
+                    count = chip.count,
+                    selected = if (current.taskScope.isBlank()) chip.selected else chip.key == current.taskScope,
+                    emptyMessage = chip.emptyMessage,
+                )
+            },
             canRaise = meta.canRaise,
         )
     }
@@ -105,7 +116,7 @@ class LeadershipTaskListViewModel @Inject constructor(
     @OptIn(ExperimentalCoroutinesApi::class)
     val rows: Flow<PagingData<LeadershipTaskCardUi>> = scope
         .flatMapLatest { current ->
-            repository.tasks(current.filter).map { page -> page.map { it.toCardUi() } }
+            repository.tasks(current.taskScope, current.filter).map { page -> page.map { it.toCardUi() } }
         }
         .cachedIn(viewModelScope)
 
@@ -113,6 +124,7 @@ class LeadershipTaskListViewModel @Inject constructor(
         when (event) {
             LeadershipTaskListEvent.Refresh -> refresh()
             is LeadershipTaskListEvent.SelectFilter -> selectFilter(event.key)
+            is LeadershipTaskListEvent.SelectScope -> selectScope(event.key)
             is LeadershipTaskListEvent.OpenTask -> analytics.track(AnalyticsEventsLeadershipTasks.TASK_OPENED)
             LeadershipTaskListEvent.RaiseTask -> Unit
         }
@@ -121,6 +133,15 @@ class LeadershipTaskListViewModel @Inject constructor(
     private fun selectFilter(key: String) {
         if (scope.value.filter == key) return
         scope.value = scope.value.copy(filter = key)
+    }
+
+    private fun selectScope(key: String) {
+        if (scope.value.taskScope == key) return
+        scope.value = scope.value.copy(taskScope = key, filter = "")
+        analytics.track(
+            AnalyticsEventsLeadershipTasks.LIST_VIEWED,
+            mapOf(AnalyticsEvents.Params.SCOPE to key),
+        )
     }
 
     /** Paging surfaced a load failure. The cached rows keep serving; this only reports it. */
@@ -138,7 +159,7 @@ class LeadershipTaskListViewModel @Inject constructor(
             _isRefreshing.value = true
             try {
                 // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
-                runCatching { repository.invalidateTasks(scope.value.filter) }
+                runCatching { repository.invalidateTasks(scope.value.taskScope, scope.value.filter) }
                 scope.value = scope.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
             } finally {
                 _isRefreshing.value = false

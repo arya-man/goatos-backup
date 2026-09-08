@@ -1,7 +1,9 @@
 -- +goose Up
 -- Leadership Tasks extension (Manju ask, 2026-09-08): keep the module capability-driven,
 -- but seed existing OCI/staging people so CEO/CXO can assign work downward and park heads
--- can receive/act on tasks from their phone. No leadership_tasks rows are hand-created here;
+-- can receive/act on tasks from their phone. Active directors and employees are also seeded as
+-- receivers, so the assignee picker covers Manju's "director, park head, or employee" path.
+-- No leadership_tasks rows are hand-created here;
 -- operational task data must still be produced by the app write path.
 --
 -- Rollback safety follows the 000251/000272 access-backfill pattern, with one extra
@@ -29,7 +31,17 @@ WITH role_people AS (
    AND g.user_id = m.user_id
    AND g.status = 'active'
    AND (g.valid_to IS NULL OR g.valid_to > now())
-   AND g.role IN ('ceo_internal', 'park_head')
+   AND g.role IN (
+     'ceo_internal',
+     'park_head',
+     'pc_director',
+     'growth_director',
+     'feed_director',
+     'health_director',
+     'procurement_director',
+     'breeding_director',
+     'operator'
+   )
   WHERE m.status = 'active'
     AND m.user_id IS NOT NULL
     AND EXISTS (

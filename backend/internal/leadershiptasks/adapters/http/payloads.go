@@ -81,6 +81,7 @@ type taskPagePayload struct {
 	Rows        []taskPayload   `json:"rows"`
 	NextCursor  *string         `json:"next_cursor"`
 	Filters     []filterPayload `json:"filters"`
+	Scopes      []filterPayload `json:"scopes"`
 	UnseenCount int             `json:"unseen_count"`
 	CanRaise    bool            `json:"can_raise"`
 	TraceID     string          `json:"trace_id"`
@@ -194,6 +195,26 @@ func toFilterPayloads(selected string, page ports.Page, canRaise bool) []filterP
 			Count:        domain.FilterCount(key, page.StatusCounts),
 			Selected:     key == selected,
 			EmptyMessage: domain.FilterEmptyMessage(key, canRaise),
+		})
+	}
+	return out
+}
+
+func toScopePayloads(selected string, page ports.Page, actor domain.Actor) []filterPayload {
+	out := make([]filterPayload, 0, len(domain.ScopeKeys))
+	for _, key := range domain.ScopeKeys {
+		if key == domain.ScopeAssignedByMe && !actor.CanRaise {
+			continue
+		}
+		if key == domain.ScopeTeamProgress && !actor.CanRaise {
+			continue
+		}
+		out = append(out, filterPayload{
+			Key:          key,
+			Label:        domain.ScopeLabel(key),
+			Count:        page.ScopeCounts[key],
+			Selected:     key == selected,
+			EmptyMessage: domain.ScopeEmptyMessage(key),
 		})
 	}
 	return out

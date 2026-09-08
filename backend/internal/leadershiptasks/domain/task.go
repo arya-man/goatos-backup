@@ -1,10 +1,10 @@
 // Package domain is the rulebook of the Leadership Tasks module (maintainer decision
 // 2026-09-04).
 //
-// A DIRECTOR raises a task for ONE CXO: a title, a written brief, and optional attachments
+// A leader or director raises a task for one assignable person: a title, a written brief, and optional attachments
 // (a voice note recorded in the app, photos or videos picked from the gallery, any file).
 // It is not operational work -- no shed, no animal, no proof -- it is a director asking the
-// leadership desk for something. The CXO it is addressed to sees it, opens it (which marks
+// leadership desk for something. The person it is addressed to sees it, opens it (which marks
 // it SEEN, the fact the drawer badge counts), and moves it open -> in_progress -> done. The
 // raiser may edit the brief and its attachments, or cancel the task, only while it is still
 // open or in progress; a finished task is history and is never rewritten.
@@ -66,7 +66,7 @@ var (
 	ErrNotRaiser                = errors.New("leadership task: caller did not raise this task")
 	ErrNotAssignee              = errors.New("leadership task: caller is not the assignee")
 	ErrSelfAssignment           = errors.New("leadership task: a task cannot be raised for oneself")
-	ErrAssigneeNotCXO           = errors.New("leadership task: assignee is not a CXO")
+	ErrAssigneeNotAssignable    = errors.New("leadership task: assignee is not assignable")
 	ErrFileNameTooLong          = errors.New("leadership task: file name too long")
 	ErrAttachmentProofRequired  = errors.New("leadership task: attachment proof is required")
 	ErrAttachmentNotCompleted   = errors.New("leadership task: attachment upload is not complete")
@@ -292,7 +292,7 @@ func NumberLabel(taskNo int64) string { return fmt.Sprintf("#%d", taskNo) }
 // RaisedOnLabel is the farm-readable raise date in IST.
 func RaisedOnLabel(raisedAt time.Time) string { return biztime.FarmDate(raisedAt) }
 
-// MetaLine names the OTHER party and the date, from the viewer's side: the CXO reads who
+// MetaLine names the OTHER party and the date, from the viewer's side: the assignee reads who
 // asked, the director reads whom they asked. A third party (neither) reads both names.
 func MetaLine(t Task, a Actor) string {
 	date := RaisedOnLabel(t.RaisedAt)
@@ -324,6 +324,45 @@ const (
 
 // FilterKeys is the chip order.
 var FilterKeys = []string{FilterAll, FilterOpen, FilterInProgress, FilterDone}
+
+const (
+	ScopeAssignedToMe = "assigned_to_me"
+	ScopeAssignedByMe = "assigned_by_me"
+	ScopeTeamProgress = "team_progress"
+)
+
+var ScopeKeys = []string{ScopeAssignedToMe, ScopeAssignedByMe, ScopeTeamProgress}
+
+func ScopeKeyOrDefault(key string, actor Actor) string {
+	switch strings.TrimSpace(key) {
+	case ScopeAssignedToMe, ScopeAssignedByMe, ScopeTeamProgress:
+		return strings.TrimSpace(key)
+	}
+	if actor.CanAct {
+		return ScopeAssignedToMe
+	}
+	return ScopeAssignedByMe
+}
+
+func ScopeLabel(key string) string {
+	switch key {
+	case ScopeAssignedByMe:
+		return "Assigned by me"
+	case ScopeTeamProgress:
+		return "Team progress"
+	}
+	return "Assigned to me"
+}
+
+func ScopeEmptyMessage(key string) string {
+	switch key {
+	case ScopeAssignedByMe:
+		return "Nothing raised by you yet. Tap + to assign work."
+	case ScopeTeamProgress:
+		return "No team tasks in progress yet."
+	}
+	return "No tasks assigned to you yet."
+}
 
 // FilterKeyOrDefault normalizes a requested key, falling back to All so a stale client
 // still sees its list rather than an empty screen.

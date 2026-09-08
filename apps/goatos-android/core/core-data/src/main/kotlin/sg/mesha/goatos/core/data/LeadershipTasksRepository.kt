@@ -37,6 +37,7 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskEditRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskFilterDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskScopeDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
@@ -47,7 +48,7 @@ import sg.mesha.goatos.core.network.serverErrorText
 const val LEADERSHIP_TASK_PAGE_SIZE = 20
 
 /** How many distinct filter scopes keep their cached list rows. */
-private const val LEADERSHIP_TASK_CACHED_QUERIES = 6
+private const val LEADERSHIP_TASK_CACHED_QUERIES = 16
 
 /** Bump whenever the cached row JSON changes shape incompatibly. */
 private const val LEADERSHIP_TASK_CACHE_SHAPE = "task-v1"
@@ -63,6 +64,7 @@ private const val ATTACHMENT_CACHE_DIR = "leadership-task-attachments"
 data class LeadershipTaskPageMeta(
     val title: String = "",
     val filters: List<LeadershipTaskFilterDto> = emptyList(),
+    val scopes: List<LeadershipTaskScopeDto> = emptyList(),
     val unseenCount: Int = 0,
     val canRaise: Boolean = false,
 )
@@ -78,13 +80,13 @@ data class LeadershipTaskPageMeta(
  */
 interface LeadershipTasksRepository {
     /** The paged task list for one backend filter KEY ("" = the backend default). */
-    fun tasks(filter: String): Flow<PagingData<LeadershipTaskDto>>
+    fun tasks(scope: String, filter: String): Flow<PagingData<LeadershipTaskDto>>
 
     /** Backend-composed page facts from the LAST list refresh. */
     val pageMeta: StateFlow<LeadershipTaskPageMeta>
 
     /** Drops one scope's freshness marker so the next pager refetches instead of TTL-skipping. */
-    suspend fun invalidateTasks(filter: String)
+    suspend fun invalidateTasks(scope: String, filter: String)
 
     /** Room-first task detail; null while nothing is cached yet. */
     fun observeTaskDetail(taskId: String): Flow<LeadershipTaskDto?>
@@ -150,8 +152,8 @@ class DefaultLeadershipTasksRepository(
     override val pageMeta: StateFlow<LeadershipTaskPageMeta> = _pageMeta
 
     @OptIn(ExperimentalPagingApi::class)
-    override fun tasks(filter: String): Flow<PagingData<LeadershipTaskDto>> {
-        val key = scopeKey(filter)
+    override fun tasks(scope: String, filter: String): Flow<PagingData<LeadershipTaskDto>> {
+        val key = scopeKey(scope, filter)
         return Pager(
             config = PagingConfig(
                 pageSize = LEADERSHIP_TASK_PAGE_SIZE,
@@ -161,6 +163,7 @@ class DefaultLeadershipTasksRepository(
                 maxSize = LEADERSHIP_TASK_PAGE_SIZE * 3,
             ),
             remoteMediator = LeadershipTaskRemoteMediator(
+                scope = scope,
                 filter = filter,
                 api = api,
                 database = database,
@@ -175,8 +178,8 @@ class DefaultLeadershipTasksRepository(
             .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun invalidateTasks(filter: String) {
-        database.leadershipTaskRemoteKeyDao().delete(scopeKey(filter))
+    override suspend fun invalidateTasks(scope: String, filter: String) {
+        database.leadershipTaskRemoteKeyDao().delete(scopeKey(scope, filter))
     }
 
     override fun observeTaskDetail(taskId: String): Flow<LeadershipTaskDto?> =
@@ -331,8 +334,8 @@ class DefaultLeadershipTasksRepository(
         AppResult.Err(message = error.serverErrorText()?.display.orEmpty(), cause = error)
     }
 
-    private fun scopeKey(filter: String): String =
-        cacheKey(LEADERSHIP_TASK_CACHE_SHAPE, "leadership-tasks", filter, LEADERSHIP_TASK_PAGE_SIZE.toString())
+    private fun scopeKey(scope: String, filter: String): String =
+        cacheKey(LEADERSHIP_TASK_CACHE_SHAPE, "leadership-tasks", scope, filter, LEADERSHIP_TASK_PAGE_SIZE.toString())
 
     private companion object {
         const val LOG_TAG = "GoatOsLeadershipTasks"
@@ -351,6 +354,7 @@ class DefaultLeadershipTasksRepository(
  */
 @OptIn(ExperimentalPagingApi::class)
 private class LeadershipTaskRemoteMediator(
+    private val scope: String,
     private val filter: String,
     private val api: AppApi,
     private val database: GoatDatabase,
@@ -358,7 +362,7 @@ private class LeadershipTaskRemoteMediator(
     private val clock: () -> Long,
     private val onMeta: (LeadershipTaskPageMeta) -> Unit,
 ) : RemoteMediator<Int, LeadershipTaskItemEntity>() {
-    private val queryKey = cacheKey(LEADERSHIP_TASK_CACHE_SHAPE, "leadership-tasks", filter, LEADERSHIP_TASK_PAGE_SIZE.toString())
+    private val queryKey = cacheKey(LEADERSHIP_TASK_CACHE_SHAPE, "leadership-tasks", scope, filter, LEADERSHIP_TASK_PAGE_SIZE.toString())
 
     override suspend fun initialize(): InitializeAction = InitializeAction.LAUNCH_INITIAL_REFRESH
 
@@ -380,6 +384,7 @@ private class LeadershipTaskRemoteMediator(
         }
         return try {
             val response = api.getLeadershipTasks(
+                scope = scope.ifBlank { null },
                 filter = filter.ifBlank { null },
                 limit = LEADERSHIP_TASK_PAGE_SIZE,
                 cursor = cursor,
@@ -391,6 +396,7 @@ private class LeadershipTaskRemoteMediator(
                     LeadershipTaskPageMeta(
                         title = response.title,
                         filters = response.filters,
+                        scopes = response.scopes,
                         unseenCount = response.unseenCount,
                         canRaise = response.canRaise,
                     ),

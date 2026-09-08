@@ -17618,9 +17618,18 @@ components:
         count: { type: integer, description: Whole-list count over the caller's party predicate, never a page sum. }
         selected: { type: boolean }
         empty_message: { type: string }
+    LeadershipTaskScope:
+      type: object
+      required: [key, label, count, selected, empty_message]
+      properties:
+        key: { type: string, enum: [assigned_to_me, assigned_by_me, team_progress] }
+        label: { type: string }
+        count: { type: integer, description: Whole-list count for the selected leadership task monitoring scope. }
+        selected: { type: boolean }
+        empty_message: { type: string }
     LeadershipTaskPage:
       type: object
-      required: [title, rows, filters, unseen_count, can_raise, trace_id]
+      required: [title, rows, scopes, filters, unseen_count, can_raise, trace_id]
       properties:
         title: { type: string, description: The L0 header title; mirrors the nav label. }
         rows:
@@ -17628,6 +17637,10 @@ components:
           items:
             $ref: "#/components/schemas/LeadershipTask"
         next_cursor: { type: string, nullable: true }
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeadershipTaskScope"
         filters:
           type: array
           items:

@@ -48,7 +48,7 @@ func Internal(message string) *Error {
 }
 
 // HTTPError maps a module error onto the transport shape. Every branch carries a message
-// the director or CXO can act on; unknown errors fall through to a generic 500.
+// the sender or assignee can act on; unknown errors fall through to a generic 500.
 func HTTPError(err error) *Error {
 	switch {
 	case err == nil:
@@ -67,7 +67,7 @@ func HTTPError(err error) *Error {
 		return BadRequest("assignee_required", "Choose who this task is for.")
 	case errors.Is(err, domain.ErrSelfAssignment):
 		return BadRequest("self_assignment", "A task is raised for someone else, not for yourself.")
-	case errors.Is(err, domain.ErrAssigneeNotCXO):
+	case errors.Is(err, domain.ErrAssigneeNotAssignable):
 		return BadRequest("assignee_not_available", "That person is not set up to receive tasks. Choose from the list.")
 	case errors.Is(err, domain.ErrTooManyAttachments):
 		return BadRequest("too_many_attachments", "Attach at most 12 items to one task.")

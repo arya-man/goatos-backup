@@ -26,7 +26,7 @@ const (
 )
 
 // seedLeadershipFixture inserts only EXTERNAL facts: the tenant, four roster rows with
-// their user ids, the CXOs' ceo_internal grants, and two completed attachment proofs. Every
+// their user ids, the assignable people's grants/ticks, and two completed attachment proofs. Every
 // task row, number, seen stamp, audit row and outbox message below is produced by the
 // repository under test.
 func seedLeadershipFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -47,9 +47,7 @@ VALUES ($1::uuid, $2::uuid, $3, $4, 'active')`, ltTenant, p.userID, p.code, p.na
 			t.Fatalf("seed member %s: %v", p.name, err)
 		}
 	}
-	// Assignability is the person's own mobile tick at Oversee, never the role: both CXOs
-	// hold ceo_internal, only these two are ticked, and Dinakar (a director) is ticked too
-	// to prove the tick is what the picker reads.
+	// Assignability is the person's own mobile tick at Oversee, never the role.
 	for _, cxo := range []string{ltCXO, ltCXO2} {
 		if _, err := pool.Exec(ctx, `
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
@@ -57,7 +55,7 @@ VALUES ($1::uuid, $2::uuid, 'ceo_internal', 'tenant', $1::uuid, 'active', now() 
 			t.Fatalf("seed grant: %v", err)
 		}
 	}
-	for _, ticked := range []string{ltCXO, ltCXO2} {
+	for _, ticked := range []string{ltCXO, ltCXO2, ltDirector2} {
 		if _, err := pool.Exec(ctx, `
 INSERT INTO person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
 SELECT $1::uuid, workforce_member_id, 'mobile', 'leadership_tasks', ARRAY['view','oversee']::text[]
@@ -65,10 +63,10 @@ FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTen
 			t.Fatalf("seed tick: %v", err)
 		}
 	}
-	// A CXO-shaped grant with NO tick: must never be assignable.
+	// A leadership-shaped grant with NO tick: must never be assignable.
 	if _, err := pool.Exec(ctx, `
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
-VALUES ($1::uuid, $2::uuid, 'ceo_internal', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, ltTenant, ltDirector2); err != nil {
+VALUES ($1::uuid, $2::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, ltTenant, ltDirector); err != nil {
 		t.Fatalf("seed unticked grant: %v", err)
 	}
 	for _, proof := range []string{ltProof1, ltProof2} {
@@ -125,8 +123,8 @@ func TestLeadershipTaskLifecyclePostgresPaths(t *testing.T) {
 		t.Fatalf("conflicting replay: %v", err)
 	}
 	// 3. An UNTICKED person is refused inside the write, whatever the picker said -- even one
-	// holding the CXO role.
-	if _, err := repo.Raise(ctx, raiseParams(ltDirector2, "Not ticked", "raise-bad")); !errors.Is(err, domain.ErrAssigneeNotCXO) {
+	// holding a leadership role.
+	if _, err := repo.Raise(ctx, raiseParams(ltDirector, "Not ticked", "raise-bad")); !errors.Is(err, domain.ErrAssigneeNotAssignable) {
 		t.Fatalf("unticked assignee: %v", err)
 	}
 
@@ -315,7 +313,7 @@ func TestLeadershipTaskListPaginationPageBoundaryAndEveryStatusBuckets(t *testin
 	move(ids[3], domain.StatusCancelled, "m3", domain.Actor{UserID: ltDirector, CanRaise: true})
 
 	// Ravi, All (hides cancelled): 4 rows over two pages of 3, counts whole-list.
-	page1, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 3})
+	page1, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 3})
 	if err != nil {
 		t.Fatalf("page 1: %v", err)
 	}
@@ -331,7 +329,10 @@ func TestLeadershipTaskListPaginationPageBoundaryAndEveryStatusBuckets(t *testin
 	if page1.UnseenCount != 4 {
 		t.Fatalf("unseen = %d, want 4 (cancelled excluded)", page1.UnseenCount)
 	}
-	page2, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 3, Cursor: page1.NextCursor})
+	if page1.ScopeCounts[domain.ScopeAssignedToMe] != 4 || page1.ScopeCounts[domain.ScopeAssignedByMe] != 0 || page1.ScopeCounts[domain.ScopeTeamProgress] != 7 {
+		t.Fatalf("scope counts = %v, want assigned_to_me=4 assigned_by_me=0 team_progress=7", page1.ScopeCounts)
+	}
+	page2, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 3, Cursor: page1.NextCursor})
 	if err != nil {
 		t.Fatalf("page 2: %v", err)
 	}
@@ -366,16 +367,20 @@ func TestLeadershipTaskListPaginationPageBoundaryAndEveryStatusBuckets(t *testin
 		t.Fatalf("attachment fan-out: %+v", withAtt)
 	}
 	// The Done chip lists exactly the done one; the director's list is HIS raised set.
-	donePage, _ := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Statuses: domain.StatusesForFilter(domain.FilterDone), Limit: 20})
+	donePage, _ := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe, Statuses: domain.StatusesForFilter(domain.FilterDone), Limit: 20})
 	if len(donePage.Rows) != 1 || donePage.Rows[0].TaskID != ids[2] {
 		t.Fatalf("done page = %+v", donePage.Rows)
 	}
-	directorPage, _ := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltDirector, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 20})
+	directorPage, _ := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltDirector, Scope: domain.ScopeAssignedByMe, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 20})
 	if len(directorPage.Rows) != 6 || directorPage.UnseenCount != 0 {
 		t.Fatalf("director sees %d rows (want 6 uncancelled raised) unseen=%d", len(directorPage.Rows), directorPage.UnseenCount)
 	}
+	teamPage, _ := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltDirector, Scope: domain.ScopeTeamProgress, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 20})
+	if len(teamPage.Rows) != 7 {
+		t.Fatalf("team progress sees %d rows, want 7 uncancelled tenant tasks", len(teamPage.Rows))
+	}
 	assignees, err := repo.ListAssignees(ctx, ltTenant)
-	if err != nil || len(assignees) != 2 || assignees[0].Name != "Manohar" || assignees[1].Name != "Ravi" {
+	if err != nil || len(assignees) != 3 || assignees[0].Name != "Dinakar" || assignees[1].Name != "Manohar" || assignees[2].Name != "Ravi" {
 		t.Fatalf("assignees = %+v err %v", assignees, err)
 	}
 	_ = cxo

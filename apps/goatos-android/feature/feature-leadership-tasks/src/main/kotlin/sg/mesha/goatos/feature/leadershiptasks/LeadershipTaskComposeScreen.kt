@@ -268,7 +268,7 @@ private fun LeadershipAssigneeDropdown(
             border = BorderStroke(1.dp, MeshaColors.Hair),
             modifier = Modifier.fillMaxWidth(0.86f),
         ) {
-            assignees.forEach { assignee -> // compose-guard:ignore: the handful of CXOs a task can go to (five today), never park-scale data
+            assignees.forEach { assignee -> // compose-guard:ignore: assignment picker is bounded to active leadership/personnel records, not park-scale animal data
                 DropdownMenuItem(
                     text = {
                         Text(

@@ -114,12 +114,22 @@ data class LeadershipTaskFilterDto(
 )
 
 @Serializable
+data class LeadershipTaskScopeDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("count") val count: Int = 0,
+    @SerialName("selected") val selected: Boolean = false,
+    @SerialName("empty_message") val emptyMessage: String = "",
+)
+
+@Serializable
 data class LeadershipTaskPageDto(
     /** The backend's own page title ("Tasks"), rendered VERBATIM. */
     @SerialName("title") val title: String = "",
     @SerialName("rows") val rows: List<LeadershipTaskDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("filters") val filters: List<LeadershipTaskFilterDto> = emptyList(),
+    @SerialName("scopes") val scopes: List<LeadershipTaskScopeDto> = emptyList(),
     /** Tasks assigned to the caller not yet seen; 0 for a raiser. */
     @SerialName("unseen_count") val unseenCount: Int = 0,
     /** The caller may raise a task — the ONLY thing that shows the "+" action. */
