@@ -7,7 +7,7 @@ import (
 )
 
 func TestLeadershipTasksTwoWaySeedKeepsDirectorsRaisingAndEmployeesAssignable(t *testing.T) {
-	raw, err := os.ReadFile("000281_leadership_tasks_two_way_seed.sql")
+	raw, err := os.ReadFile("000285_leadership_tasks_two_way_seed.sql")
 	if err != nil {
 		t.Fatalf("read leadership tasks seed migration: %v", err)
 	}
