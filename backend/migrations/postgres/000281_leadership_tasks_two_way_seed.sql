@@ -1,8 +1,9 @@
 -- +goose Up
 -- Leadership Tasks extension (Manju ask, 2026-09-08): keep the module capability-driven,
--- but seed existing OCI/staging people so CEO/CXO can assign work downward and park heads
--- can receive/act on tasks from their phone. Active directors and employees are also seeded as
--- receivers, so the assignee picker covers Manju's "director, park head, or employee" path.
+-- but seed existing OCI/staging people so CEO/CXO can assign work downward, directors can
+-- still raise the cross-leadership asks they already hold by role, and park heads can
+-- receive/act on tasks from their phone. Active employees are seeded as receivers, so the
+-- assignee picker covers Manju's "director, park head, or employee" path.
 -- No leadership_tasks rows are hand-created here;
 -- operational task data must still be produced by the app write path.
 --
@@ -26,7 +27,7 @@ CREATE TABLE IF NOT EXISTS public.person_module_access_leadership_tasks_two_way_
 WITH role_people AS (
   SELECT DISTINCT m.tenant_id, m.workforce_member_id, g.role
   FROM public.workforce_members m
-  JOIN public.user_scope_grants g
+  LEFT JOIN public.user_scope_grants g
     ON g.tenant_id = m.tenant_id
    AND g.user_id = m.user_id
    AND g.status = 'active'
@@ -59,7 +60,15 @@ desired AS (
              array_cat(
                ARRAY['view','oversee']::text[],
                CASE
-                 WHEN bool_or(role = 'ceo_internal') THEN ARRAY['configure']::text[]
+                 WHEN COALESCE(bool_or(role IN (
+                   'ceo_internal',
+                   'pc_director',
+                   'growth_director',
+                   'feed_director',
+                   'health_director',
+                   'procurement_director',
+                   'breeding_director'
+                 )), false) THEN ARRAY['configure']::text[]
                  ELSE ARRAY[]::text[]
                END
              )
