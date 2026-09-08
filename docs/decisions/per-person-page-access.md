@@ -67,6 +67,26 @@ backfill has not reached. A **source error** is likewise not a narrowing: it is
 logged and the full contract is served. The sidebar is a convenience; the route
 behind every page is independently permission-gated, and the 403 is the lockout.
 
+## CEO/CXO visibility is baseline, not a manual HRMS repair
+
+`ceo_internal` is the founder/CXO operating seat. Core executive and commercial
+visibility — registers, Sales pages, config pages, KPI/oversight pages, and
+cross-module control surfaces — must be present for CEO/CXO in both places the
+access model now reads:
+
+1. the role permission set must authorize the page's own route;
+2. already-migrated CEO/CXO people must receive the needed
+   `person_module_access` module/page/capability rows through backfill or an
+   additive migration.
+
+Do not ship a page where CEO/CXO visibility exists only after someone manually
+ticks HRMS. Per-person ticks are the ordinary narrowing tool, but they are not
+allowed to be the only mechanism that makes a core CEO/CXO surface appear. The
+incident this rule closes was **Sales > Vendors**: the leaf ticks with the
+`sales` module but opens on `procurement.vendor.read`, so a CEO/CXO missing the
+stored row did not see the Vendors screen until access was manually repaired.
+Future split-authority leaves must carry the same seed/backfill proof.
+
 ## A screen is offered only when it can be OPENED
 
 A module tick is coarser than a screen, and two layers used to decide separately whether a

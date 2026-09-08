@@ -1928,6 +1928,13 @@ one, so without it the module would be narrowed away on every existing phone. Ca
 `TestSalesIsItsOwnPhoneModuleCarryingItsOwnVendorsTab` and
 `TestSalesModuleAndItsVendorsTabAnswerToDifferentPermissions` (each mutation-tested when written).
 
+CEO/CXO visibility for Sales > Vendors is not an HRMS clean-up task. The leaf ticks with `sales`
+but opens on `procurement.vendor.read`, so every future change to Sales/Vendors/page access must
+prove `ceo_internal` holds both permissions AND that already-migrated CEO/CXO people receive the
+stored `person_module_access` row/page through backfill or additive migration. A founder should
+never lose a core commercial/register/config/oversight surface until Manohar manually re-ticks it
+in HRMS; per-person ticks narrow ordinary users, not baseline CEO/CXO visibility.
+
 Confirmed RANDOMIZED VERIFICATION SAMPLING rule (maintainer decision 2026-08-26): the CEO sets, per
 verification category, the PERCENTAGE of that category's proof videos the verifier actually has to
 watch. Her day is complete when she has cleared HER SHARE -- at 40% on feed packing, reviewing those
