@@ -4,6 +4,10 @@ Read first:
 
 - `../../context/frontend/current-admin-web-scope.md`
 - `../../mock/goatos-dashboard-mock.html`
+- `../../.agents/skills/mesha-design-system/SKILL.md` — the visual system (type
+  roles, one-accent colour rule, hairline cards, 2px-or-pill radii) and the traps
+  that have already shipped visible defects. Read it before adding any class,
+  colour, radius or font. Machine gate: `npm run check:design-system`.
 
 ## Local Dev Server Safety
 
