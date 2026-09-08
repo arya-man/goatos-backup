@@ -8178,10 +8178,12 @@ paths:
       operationId: listLeadershipTasks
       summary: One page of the caller's leadership tasks.
       description: >-
-        Leadership Tasks (maintainer decision 2026-09-04): a director raises a task for one CXO.
-        The caller sees the tasks they are PARTY to -- a director the ones they raised, a CXO the
-        ones addressed to them -- newest first, keyset-paged. `filters` are whole-list counts over
-        the same party predicate, never page sums. Every visible word (chips, meta line, number
+        Leadership Tasks (maintainer decisions 2026-09-04 and Manju ask 2026-09-08): an authorized
+        leader can raise a manual, non-event-driven task for a director, park head, or employee.
+        The caller sees the tasks they are party to -- tasks addressed to them and, when they can
+        raise tasks, tasks they raised -- newest first, keyset-paged. CEO/COO-style monitors can
+        also open `team_progress` for read-only cross-team progress. `filters` are whole-list counts
+        over the same scope predicate, never page sums. Every visible word (chips, meta line, number
         label, status button labels, empty messages) is backend-owned and rendered verbatim.
       parameters:
         - name: scope
@@ -8189,9 +8191,10 @@ paths:
           required: false
           schema: { type: string, enum: [assigned_to_me, assigned_by_me, team_progress], default: assigned_to_me }
           description: >-
-            Monitoring scope key. Callers without leadership_tasks.raise are confined to
-            `assigned_to_me`; `assigned_by_me` and `team_progress` require raise authority.
-            Unknown or unavailable scopes resolve to the caller's default scope.
+            Monitoring scope key. Callers without `leadership_tasks.raise` are confined to
+            `assigned_to_me`; `assigned_by_me` requires raise authority, and `team_progress`
+            requires CEO/COO-style monitor authority. Unknown or unavailable scopes resolve to
+            the caller's default scope.
         - name: filter
           in: query
           required: false
@@ -8225,13 +8228,15 @@ paths:
       tags:
         - Leadership Tasks
       operationId: raiseLeadershipTask
-      summary: Raise a task for a CXO.
+      summary: Raise a manual leadership task for another worker.
       description: >-
-        Directors only (`leadership_tasks.raise`). Attachments are proofs already uploaded through
-        `POST /app/proofs/uploads` with `proof_type: attachment`; each must be a completed upload by
-        the raiser in this tenant or the whole raise is refused 422 invalid_attachment. The
-        `Idempotency-Key` header is REQUIRED; an exact replay returns the original task. The task's
-        running number is minted inside the write. Pushes `leadership_task.raised` to the assignee.
+        Requires `leadership_tasks.raise`. The assignee must be an active app-backed worker ticked
+        for Leadership Tasks acting, covering directors, park heads, and employees. Attachments are
+        proofs already uploaded through `POST /app/proofs/uploads` with `proof_type: attachment`;
+        each must be a completed upload by the raiser in this tenant or the whole raise is refused
+        422 invalid_attachment. The `Idempotency-Key` header is REQUIRED; an exact replay returns
+        the original task. The task's running number is minted inside the write. Pushes
+        `leadership_task.raised` to the assignee.
       parameters:
         - name: Idempotency-Key
           in: header

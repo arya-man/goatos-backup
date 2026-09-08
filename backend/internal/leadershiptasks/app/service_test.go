@@ -123,7 +123,7 @@ func TestGetTaskAllowsPartyOrTeamProgressMonitor(t *testing.T) {
 	if _, err := svc.GetTask(ctx, tenant, domain.Actor{UserID: assignee}, taskID); err != nil {
 		t.Fatalf("assignee: %v", err)
 	}
-	if _, err := svc.GetTask(ctx, tenant, domain.Actor{UserID: "66666666-6666-4666-8666-666666666666", CanRaise: true}, taskID); err != nil {
+	if _, err := svc.GetTask(ctx, tenant, domain.Actor{UserID: "66666666-6666-4666-8666-666666666666", CanMonitor: true}, taskID); err != nil {
 		t.Fatalf("team progress monitor: %v", err)
 	}
 	if _, err := svc.GetTask(ctx, tenant, domain.Actor{UserID: assignee}, "not-a-uuid"); !errors.Is(err, ports.ErrTaskNotFound) {

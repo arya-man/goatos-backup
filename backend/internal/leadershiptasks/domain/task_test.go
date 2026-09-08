@@ -29,7 +29,7 @@ func sample(status string) Task {
 var (
 	director = Actor{UserID: raiser, CanRaise: true}
 	cxo      = Actor{UserID: assignee, CanAct: true}
-	nobody   = Actor{UserID: stranger, CanRaise: true, CanAct: true}
+	nobody   = Actor{UserID: stranger, CanRaise: true, CanAct: true, CanMonitor: true}
 )
 
 // The status ladder from each side: the CXO walks it, the director only cancels, a
@@ -198,8 +198,11 @@ func TestScopeDefaultsAndCopy(t *testing.T) {
 	if ScopeKeyOrDefault("", Actor{CanRaise: true}) != ScopeAssignedByMe {
 		t.Fatal("raisers default to assigned_by_me")
 	}
-	if ScopeKeyOrDefault(" team_progress ", Actor{CanRaise: true}) != ScopeTeamProgress {
-		t.Fatal("raisers may open team progress")
+	if ScopeKeyOrDefault(" team_progress ", Actor{CanRaise: true}) != ScopeAssignedByMe {
+		t.Fatal("raise-only directors must not widen to team progress")
+	}
+	if ScopeKeyOrDefault(" team_progress ", Actor{CanRaise: true, CanAct: true, CanMonitor: true}) != ScopeTeamProgress {
+		t.Fatal("CEO/COO-style monitors may open team progress")
 	}
 	if ScopeKeyOrDefault("team_progress", Actor{CanAct: true}) != ScopeAssignedToMe {
 		t.Fatal("act-only callers must not widen to team progress")

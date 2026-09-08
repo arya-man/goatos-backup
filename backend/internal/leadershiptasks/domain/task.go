@@ -177,12 +177,13 @@ func ValidateBrief(title, body string, refs []AttachmentRef) error {
 	return nil
 }
 
-// Actor is who is looking at, or acting on, a task: their id and the two authorities the
+// Actor is who is looking at, or acting on, a task: their id and the authorities the
 // route table already resolved. Read authority is implied by reaching the handler.
 type Actor struct {
-	UserID   string
-	CanRaise bool
-	CanAct   bool
+	UserID     string
+	CanRaise   bool
+	CanAct     bool
+	CanMonitor bool
 }
 
 // IsRaiser reports whether the actor raised the task.
@@ -206,9 +207,10 @@ func (t Task) CanChangeStatus(a Actor) bool {
 // CanComment: the assignee, while the task is not cancelled. The raiser reads it.
 func (t Task) CanComment(a Actor) bool { return t.CanChangeStatus(a) }
 
-// CanMonitor reports read-only team-progress visibility. It deliberately follows raise
-// authority, the same gate that unlocks the Team progress list scope.
-func (t Task) CanMonitor(a Actor) bool { return a.CanRaise }
+// CanMonitor reports read-only team-progress visibility for CEO/COO-style monitors. It is
+// deliberately separate from raise authority so directors can raise without receiving a
+// tenant-wide task dashboard.
+func (t Task) CanMonitor(a Actor) bool { return a.CanMonitor }
 
 // ValidateComment bounds the note.
 func ValidateComment(comment string) error {
@@ -342,7 +344,10 @@ func ScopeKeyOrDefault(key string, actor Actor) string {
 	case ScopeAssignedToMe:
 		return ScopeAssignedToMe
 	case ScopeAssignedByMe, ScopeTeamProgress:
-		if actor.CanRaise {
+		if key == ScopeAssignedByMe && actor.CanRaise {
+			return strings.TrimSpace(key)
+		}
+		if key == ScopeTeamProgress && actor.CanMonitor {
 			return strings.TrimSpace(key)
 		}
 	}
