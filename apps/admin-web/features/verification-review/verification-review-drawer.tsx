@@ -836,9 +836,9 @@ function VerificationReviewDrawerPanel({
                   all -- the server's 422 becomes unreachable from the UI instead of something the
                   verifier has to read and recover from. */}
               <button
-                type={rejecting && reasonReady ? "submit" : "button"}
+                type={reasonReady ? "submit" : "button"}
                 onClick={
-                  rejecting && reasonReady
+                  reasonReady
                     ? undefined
                     : () => {
                         setRejecting(true);
