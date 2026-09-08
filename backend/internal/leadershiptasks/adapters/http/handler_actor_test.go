@@ -29,15 +29,15 @@ func TestActorFromSeededDirectorPersonAccessStillRaises(t *testing.T) {
 	perms := permissions.PermissionsForAssignments([]permissions.ModuleAssignment{{
 		Module:       "leadership_tasks",
 		Surface:      permissions.SurfaceMobile,
-		Capabilities: []string{permissions.LevelView, permissions.LevelConfigure},
+		Capabilities: []string{permissions.LevelView, permissions.LevelDo, permissions.LevelOversee, permissions.LevelConfigure},
 	}})
 	ctx := httpmiddleware.WithActorID(context.Background(), "11111111-1111-4111-8111-111111111111")
 	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{Role: permissions.RoleFeedDirector}})
 	ctx = httpmiddleware.WithPersonPermissions(ctx, perms)
 
 	actor := actorFrom((&http.Request{}).WithContext(ctx))
-	if !actor.CanRaise || actor.CanAct {
-		t.Fatalf("seeded director Tasks tick must keep raise without assignee act: perms=%v actor=%+v", perms, actor)
+	if !actor.CanRaise || !actor.CanAct || actor.CanMonitor {
+		t.Fatalf("seeded director Tasks tick must keep raise/assignee act without CEO/COO monitor scope: perms=%v actor=%+v", perms, actor)
 	}
 
 	assigneePerms := permissions.PermissionsForAssignments([]permissions.ModuleAssignment{{
@@ -49,7 +49,22 @@ func TestActorFromSeededDirectorPersonAccessStillRaises(t *testing.T) {
 	ctx = httpmiddleware.WithPersonPermissions(ctx, assigneePerms)
 
 	actor = actorFrom((&http.Request{}).WithContext(ctx))
-	if actor.CanRaise || !actor.CanAct {
+	if actor.CanRaise || !actor.CanAct || actor.CanMonitor {
 		t.Fatalf("seeded assignee Tasks tick must act without raise: perms=%v actor=%+v", assigneePerms, actor)
+	}
+}
+
+func TestActorFromCombinedLeadershipTaskAccessCanMonitor(t *testing.T) {
+	perms := permissions.PermissionsForAssignments([]permissions.ModuleAssignment{{
+		Module:       "leadership_tasks",
+		Surface:      permissions.SurfaceMobile,
+		Capabilities: []string{permissions.LevelView, permissions.LevelOversee, permissions.LevelConfigure},
+	}})
+	ctx := httpmiddleware.WithActorID(context.Background(), "11111111-1111-4111-8111-111111111111")
+	ctx = httpmiddleware.WithPersonPermissions(ctx, perms)
+
+	actor := actorFrom((&http.Request{}).WithContext(ctx))
+	if !actor.CanRaise || !actor.CanAct || !actor.CanMonitor {
+		t.Fatalf("combined Tasks access should unlock CEO/COO-style monitor scope: perms=%v actor=%+v", perms, actor)
 	}
 }

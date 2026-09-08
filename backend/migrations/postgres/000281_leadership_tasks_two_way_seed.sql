@@ -54,25 +54,38 @@ WITH role_people AS (
 ),
 desired AS (
   SELECT tenant_id, workforce_member_id, 'mobile'::text AS surface, 'leadership_tasks'::text AS module_key,
-         ARRAY(
-           SELECT DISTINCT cap
-           FROM unnest(
-             array_cat(
-               ARRAY['view','oversee']::text[],
-               CASE
-                 WHEN COALESCE(bool_or(role IN (
-                   'ceo_internal',
-                   'pc_director',
-                   'growth_director',
-                   'feed_director',
-                   'health_director',
-                   'procurement_director',
-                   'breeding_director'
-                 )), false) THEN ARRAY['configure']::text[]
-                 ELSE ARRAY[]::text[]
-               END
-             )
-           ) AS cap
+	         ARRAY(
+	           SELECT DISTINCT cap
+	           FROM unnest(
+	             array_cat(
+	               array_cat(
+	                 ARRAY['view','oversee']::text[],
+	                 CASE
+	                   WHEN COALESCE(bool_or(role IN (
+	                     'pc_director',
+	                     'growth_director',
+	                     'feed_director',
+	                     'health_director',
+	                     'procurement_director',
+	                     'breeding_director'
+	                   )), false) THEN ARRAY['do']::text[]
+	                   ELSE ARRAY[]::text[]
+	                 END
+	               ),
+	               CASE
+	                  WHEN COALESCE(bool_or(role IN (
+	                    'ceo_internal',
+	                    'pc_director',
+	                    'growth_director',
+	                    'feed_director',
+	                    'health_director',
+	                    'procurement_director',
+	                    'breeding_director'
+	                  )), false) THEN ARRAY['configure']::text[]
+	                  ELSE ARRAY[]::text[]
+	                END
+	             )
+	           ) AS cap
            ORDER BY cap
          ) AS capabilities
   FROM role_people

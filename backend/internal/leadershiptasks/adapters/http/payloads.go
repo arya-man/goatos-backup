@@ -206,7 +206,7 @@ func toScopePayloads(selected string, page ports.Page, actor domain.Actor) []fil
 		if key == domain.ScopeAssignedByMe && !actor.CanRaise {
 			continue
 		}
-		if key == domain.ScopeTeamProgress && !actor.CanRaise {
+		if key == domain.ScopeTeamProgress && !actor.CanMonitor {
 			continue
 		}
 		out = append(out, filterPayload{
