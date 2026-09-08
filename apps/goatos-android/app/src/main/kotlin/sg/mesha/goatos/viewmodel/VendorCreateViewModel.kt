@@ -103,6 +103,9 @@ class VendorCreateViewModel @Inject constructor(
     private val clientId: String
         get() = savedStateHandle.get<String>(KEY_CLIENT_ID) ?: UUID.randomUUID().toString().also { savedStateHandle[KEY_CLIENT_ID] = it }
 
+    private val updateCommitId: String
+        get() = savedStateHandle.get<String>(KEY_UPDATE_COMMIT_ID) ?: UUID.randomUUID().toString().also { savedStateHandle[KEY_UPDATE_COMMIT_ID] = it }
+
     /** Null until [bind]; the form shows no record types rather than the wrong side's. */
     private val side = MutableStateFlow<VendorRegisterSide?>(null)
 
@@ -220,6 +223,7 @@ class VendorCreateViewModel @Inject constructor(
                 syncRepository.enqueueVendorUpdate(
                     VendorUpdatePayload(
                         clientId = clientId,
+                        commitId = updateCommitId,
                         vendorId = editing.vendorId,
                         request = current.values.toWrite().carryingUnshownFieldsOf(editing),
                         voiceNoteOutboxItemId = current.voiceNoteOutboxItemId,
@@ -229,6 +233,7 @@ class VendorCreateViewModel @Inject constructor(
             when (result) {
                 is AppResult.Ok -> {
                     analytics.track(if (editing == null) AnalyticsEventsVendors.VENDORS_VENDOR_QUEUED else AnalyticsEventsVendors.VENDORS_VENDOR_EDITED)
+                    if (editing != null) savedStateHandle[KEY_UPDATE_COMMIT_ID] = UUID.randomUUID().toString()
                     local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
                     followWrite(result.value)
                 }
@@ -258,6 +263,7 @@ class VendorCreateViewModel @Inject constructor(
     }
     private fun reset() {
         savedStateHandle[KEY_CLIENT_ID] = UUID.randomUUID().toString()
+        savedStateHandle[KEY_UPDATE_COMMIT_ID] = UUID.randomUUID().toString()
         local.value = Local()
     }
 
@@ -429,6 +435,7 @@ class VendorCreateViewModel @Inject constructor(
 
     private companion object {
         const val KEY_CLIENT_ID = "vendor_create_client_id"
+        const val KEY_UPDATE_COMMIT_ID = "vendor_update_commit_id"
         const val STEP_COUNT = 3
         const val FIELD_VOICE_NOTE = "voice_note"
         const val SCOPE_TYPE_TASK = "task"

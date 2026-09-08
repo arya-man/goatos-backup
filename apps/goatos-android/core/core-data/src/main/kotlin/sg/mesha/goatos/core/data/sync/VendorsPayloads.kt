@@ -58,11 +58,11 @@ data class VendorCreatePayload(
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.FEED_PURCHASE_CREATE]. */
 /**
- * STABLE per client id: a retry of one edit form replays the SAME replace rather than a second one.
- * The lane is [vendorCreateGroupKey] of the same client id, so a re-recorded voice note's
- * PROOF_UPLOAD drains before the update that references it, exactly the create shape.
+ * STABLE per edit commit: a retry of one saved edit replays the SAME replace, while a later edit
+ * from the same form/vendor gets a fresh key and stays retained as its own outbox commit.
  */
-fun vendorUpdateIdempotencyKey(clientId: String): String = "vendors:update:$clientId"
+fun vendorUpdateIdempotencyKey(clientId: String, commitId: String): String =
+    "vendors:update:$clientId:${commitId.ifBlank { clientId }}"
 
 /**
  * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.VENDOR_UPDATE]
@@ -74,6 +74,7 @@ fun vendorUpdateIdempotencyKey(clientId: String): String = "vendors:update:$clie
 @Serializable
 data class VendorUpdatePayload(
     @SerialName("client_id") val clientId: String,
+    @SerialName("commit_id") val commitId: String = clientId,
     @SerialName("vendor_id") val vendorId: String,
     @SerialName("request") val request: VendorWriteDto,
     @SerialName("voice_note_outbox_item_id") val voiceNoteOutboxItemId: String = "",
