@@ -210,6 +210,10 @@ func (t Task) CanChangeStatus(a Actor) bool {
 // CanComment: the assignee, while the task is not cancelled. The raiser reads it.
 func (t Task) CanComment(a Actor) bool { return t.CanChangeStatus(a) }
 
+// CanMonitor reports read-only team-progress visibility. It deliberately follows raise
+// authority, the same gate that unlocks the Team progress list scope.
+func (t Task) CanMonitor(a Actor) bool { return a.CanRaise }
+
 // ValidateComment bounds the note.
 func ValidateComment(comment string) error {
 	if len([]rune(strings.TrimSpace(comment))) > MaxCommentRunes {
