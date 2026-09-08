@@ -587,6 +587,7 @@ class SyncEngine(
         OutboxOpType.CLOCK_IN -> dispatchClockPunch(item, clockIn = true)
         OutboxOpType.CLOCK_OUT -> dispatchClockPunch(item, clockIn = false)
         OutboxOpType.VENDOR_CREATE -> dispatchVendorCreate(item)
+        OutboxOpType.VENDOR_UPDATE -> dispatchVendorUpdate(item)
         OutboxOpType.FEED_PURCHASE_CREATE -> dispatchFeedPurchaseCreate(item)
         OutboxOpType.SALES_DEAL_CREATE -> dispatchSalesDealCreate(item)
         OutboxOpType.SALES_DEAL_PAYMENT_WRITE -> dispatchSalesDealPaymentWrite(item)
@@ -800,7 +801,9 @@ class SyncEngine(
                     }
                 }
             }
-            OutboxOpType.VENDOR_CREATE -> {
+            OutboxOpType.VENDOR_CREATE,
+            OutboxOpType.VENDOR_UPDATE,
+            -> {
                 item.resultJson?.takeIf { it.trim() != "{}" }?.let { resultJson ->
                     runCatching {
                         vendorsRepository?.persistServerVendor(
@@ -1107,6 +1110,25 @@ class SyncEngine(
     }
 
     /** A feed purchase recorded on the phone; the stored key rides as the backend's Idempotency-Key. */
+    /**
+     * A vendor edited on the phone (maintainer decision 2026-09-08). The request is the WHOLE row
+     * fenced on the row_version the form opened with: a `409 vendor_stale_write` (someone saved
+     * first) or a `404` is terminal by [recordFailure]'s `isTerminalAppApiError` check, so it
+     * surfaces to the operator rather than retrying against a fence that can never match. A newly
+     * recorded voice note resolves to its server proof id here, the create shape; a blank upload id
+     * keeps the note the request already references.
+     */
+    private suspend fun dispatchVendorUpdate(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<VendorUpdatePayload>(item.payloadJson)
+        val request = if (payload.voiceNoteOutboxItemId.isBlank()) {
+            payload.request
+        } else {
+            payload.request.copy(voiceNoteProofRef = resolveUploadedProofRef(payload.voiceNoteOutboxItemId))
+        }
+        val updated = api.updateProcurementVendor(payload.vendorId, request)
+        return syncJson.encodeToString(updated)
+    }
+
     private suspend fun dispatchFeedPurchaseCreate(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<FeedPurchaseCreatePayload>(item.payloadJson)
         val created = api.createFeedPurchase(item.idempotencyKey, payload.request)

@@ -102,3 +102,54 @@ func TestVendorFilterNormalizeDropsAnUnknownSide(t *testing.T) {
 		t.Fatalf("side normalized to %q, want %q", got, VendorSideSales)
 	}
 }
+
+// TestVendorAverageAnimalWeightIsOptionalAndNeverZero pins the 2026-09-08 rule: the average
+// animal weight a buyer expects is a plain optional value -- absent and blank both mean "not
+// recorded" (nil, never 0), a typed value must be a positive weight with at most two decimals,
+// and the display line is backend-composed so every surface renders the same "35 kg".
+func TestVendorAverageAnimalWeightIsOptionalAndNeverZero(t *testing.T) {
+	base := func() VendorWrite {
+		return VendorWrite{RecordType: "Butcher", BusinessName: "Kumar Traders", Status: "active", State: "TN"}
+	}
+	if err := base().Normalize().Validate(); err != nil {
+		t.Fatalf("absent weight must be accepted: %v", err)
+	}
+	blank := "   "
+	cleared := base()
+	cleared.AverageAnimalWeightKg = &blank
+	if got := cleared.Normalize(); got.AverageAnimalWeightKg != nil {
+		t.Fatalf("a blank weight must normalize to nil (not recorded), got %q", *got.AverageAnimalWeightKg)
+	}
+	for _, ok := range []string{"35", "32.5", "28.75", " 40 "} {
+		w := base()
+		v := ok
+		w.AverageAnimalWeightKg = &v
+		if err := w.Normalize().Validate(); err != nil {
+			t.Fatalf("weight %q must be accepted: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"0", "0.0", "00.00", "-5", "abc", "12.345", "1234567"} {
+		w := base()
+		v := bad
+		w.AverageAnimalWeightKg = &v
+		err := w.Normalize().Validate()
+		if err == nil {
+			t.Fatalf("weight %q was accepted", bad)
+		}
+		if ve, ok := err.(ErrVendorValidation); !ok || ve.Field != "average_animal_weight_kg" {
+			t.Fatalf("weight %q refused on the wrong field: %v", bad, err)
+		}
+	}
+
+	kg := "35.00"
+	if got := (Vendor{AverageAnimalWeightKg: &kg}).AverageAnimalWeightDisplay(); got != "35 kg" {
+		t.Fatalf("display = %q", got)
+	}
+	half := "32.50"
+	if got := (Vendor{AverageAnimalWeightKg: &half}).AverageAnimalWeightDisplay(); got != "32.5 kg" {
+		t.Fatalf("display = %q", got)
+	}
+	if got := (Vendor{}).AverageAnimalWeightDisplay(); got != "" {
+		t.Fatalf("empty display = %q (a missing weight must not read as a weight)", got)
+	}
+}

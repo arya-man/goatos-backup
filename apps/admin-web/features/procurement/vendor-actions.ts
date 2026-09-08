@@ -69,6 +69,8 @@ function readVendorForm(formData: FormData): ProcurementVendorWrite {
     // Sent verbatim as a string so the backend validates the amount; parsing to a float here would
     // be the money-through-float round trip the contract avoids.
     price_per_goat: optionalString(formData, "price_per_goat") ?? null,
+    // Same shape as price: verbatim string, blank -> null ("not recorded"), never coerced to 0.
+    average_animal_weight_kg: optionalString(formData, "average_animal_weight_kg") ?? null,
     // Capacity travels as a pair (the backend refuses one half without the other); the quantity is
     // a decimal string for the same no-float reason as the price.
     capacity_quantity: optionalString(formData, "capacity_quantity") ?? null,

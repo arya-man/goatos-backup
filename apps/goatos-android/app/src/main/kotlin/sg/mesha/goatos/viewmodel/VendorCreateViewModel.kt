@@ -35,8 +35,10 @@ import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.VendorUpdatePayload
 import sg.mesha.goatos.core.data.sync.vendorCreateGroupKey
 import sg.mesha.goatos.core.network.dto.VendorCatalogDto
+import sg.mesha.goatos.core.network.dto.VendorDto
 import sg.mesha.goatos.core.network.dto.VendorWriteDto
 import sg.mesha.goatos.feature.vendors.VendorCreateEvent
 import sg.mesha.goatos.feature.vendors.VendorCreateUiState
@@ -87,6 +89,13 @@ class VendorCreateViewModel @Inject constructor(
         val closeAfterSave: Boolean = false,
         val submitInFlight: Boolean = false,
         val message: String? = null,
+        /**
+         * The stored row this form is EDITING (maintainer decision 2026-09-08), null when adding.
+         * Kept whole so the fields the phone never shows (filtered stock, details, ready-to-filtered,
+         * the existing voice note) ride through the backend's replace unchanged instead of being
+         * blanked by a form that never offered them.
+         */
+        val editing: VendorDto? = null,
     )
 
     private val local = MutableStateFlow(Local())
@@ -106,6 +115,27 @@ class VendorCreateViewModel @Inject constructor(
         if (side.value == registerSide) return
         side.value = registerSide
         viewModelScope.launch { repository.refreshCatalog(registerSide) }
+    }
+
+    /**
+     * Opens the wizard on a RECORDED vendor (maintainer decision 2026-09-08: editable on the phone
+     * too). Room is read first so the form opens offline; a refresh follows so the row_version the
+     * replace is fenced on is the freshest the phone can get. A vendor the phone has never cached
+     * and cannot fetch is reported rather than edited blind.
+     */
+    fun bindEdit(registerSide: VendorRegisterSide, vendorId: String) {
+        bind(registerSide)
+        if (local.value.editing?.vendorId == vendorId) return
+        analytics.track(AnalyticsEventsVendors.VENDORS_EDIT_OPENED)
+        viewModelScope.launch {
+            repository.refreshVendor(vendorId)
+            val vendor = repository.observeVendor(vendorId).first()
+            if (vendor == null) {
+                local.update { it.copy(message = MESSAGE_NOT_FOUND) }
+                return@launch
+            }
+            local.update { it.copy(editing = vendor, values = vendor.toValues(), fieldErrors = emptyMap()) }
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -135,6 +165,7 @@ class VendorCreateViewModel @Inject constructor(
             closeAfterSave = l.closeAfterSave,
             submitInFlight = l.submitInFlight,
             message = l.message,
+            isEditing = l.editing != null,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VendorCreateUiState())
 
@@ -178,14 +209,26 @@ class VendorCreateViewModel @Inject constructor(
         }
         viewModelScope.launch {
             local.update { it.copy(submitInFlight = true, message = null) }
-            val result = syncRepository.enqueueVendorCreate(
-                clientId = clientId,
-                request = current.values.toWrite(),
-                voiceNoteOutboxItemId = current.voiceNoteOutboxItemId,
-            )
+            val editing = current.editing
+            val result = if (editing == null) {
+                syncRepository.enqueueVendorCreate(
+                    clientId = clientId,
+                    request = current.values.toWrite(),
+                    voiceNoteOutboxItemId = current.voiceNoteOutboxItemId,
+                )
+            } else {
+                syncRepository.enqueueVendorUpdate(
+                    VendorUpdatePayload(
+                        clientId = clientId,
+                        vendorId = editing.vendorId,
+                        request = current.values.toWrite().carryingUnshownFieldsOf(editing),
+                        voiceNoteOutboxItemId = current.voiceNoteOutboxItemId,
+                    ),
+                )
+            }
             when (result) {
                 is AppResult.Ok -> {
-                    analytics.track(AnalyticsEventsVendors.VENDORS_VENDOR_QUEUED)
+                    analytics.track(if (editing == null) AnalyticsEventsVendors.VENDORS_VENDOR_QUEUED else AnalyticsEventsVendors.VENDORS_VENDOR_EDITED)
                     local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
                     followWrite(result.value)
                 }
@@ -292,16 +335,20 @@ class VendorCreateViewModel @Inject constructor(
     private fun validate(step: Int, v: Map<VendorField, String>): Map<VendorField, String> {
         val errors = mutableMapOf<VendorField, String>() // mobile-guard:ignore: per-call validation result, at most one entry per form field, returned and dropped
         fun blank(f: VendorField) = v[f].isNullOrBlank()
+        // Contact, phone and city are required of a NEW vendor only, mirroring the backend's
+        // ValidateForCreate: legacy rows imported without them must stay editable, or correcting a
+        // typo would first demand a contact the farm may not know.
+        val adding = local.value.editing == null
         when (step) {
             0 -> {
                 if (blank(VendorField.BUSINESS_NAME)) errors[VendorField.BUSINESS_NAME] = REQUIRED
                 if (blank(VendorField.RECORD_TYPE)) errors[VendorField.RECORD_TYPE] = REQUIRED
-                if (blank(VendorField.CONTACT_PERSON)) errors[VendorField.CONTACT_PERSON] = REQUIRED
-                if (blank(VendorField.PHONE)) errors[VendorField.PHONE] = REQUIRED
+                if (adding && blank(VendorField.CONTACT_PERSON)) errors[VendorField.CONTACT_PERSON] = REQUIRED
+                if (adding && blank(VendorField.PHONE)) errors[VendorField.PHONE] = REQUIRED
             }
             1 -> {
                 if (blank(VendorField.STATE)) errors[VendorField.STATE] = REQUIRED
-                if (blank(VendorField.CITY)) errors[VendorField.CITY] = REQUIRED
+                if (adding && blank(VendorField.CITY)) errors[VendorField.CITY] = REQUIRED
             }
             else -> {
                 val qty = v[VendorField.CAPACITY_QUANTITY].orEmpty().trim()
@@ -312,6 +359,10 @@ class VendorCreateViewModel @Inject constructor(
                 if (price.isNotBlank() && !Regex("""^\d{1,10}(\.\d{1,2})?$""").matches(price)) errors[VendorField.PRICE_PER_GOAT] = AMOUNT
                 val eta = v[VendorField.ETA_DAYS].orEmpty().trim()
                 if (eta.isNotBlank() && (eta.toIntOrNull() == null || eta.toInt() < 0)) errors[VendorField.ETA_DAYS] = WHOLE_DAYS
+                // Optional (maintainer decision 2026-09-08); only a typed weight is shape-checked,
+                // and zero is refused the way the backend refuses it.
+                val weight = v[VendorField.AVERAGE_ANIMAL_WEIGHT].orEmpty().trim()
+                if (weight.isNotBlank() && (!Regex("""^\d{1,6}(\.\d{1,2})?$""").matches(weight) || weight.toDouble() <= 0.0)) errors[VendorField.AVERAGE_ANIMAL_WEIGHT] = WEIGHT_MORE_THAN_ZERO
             }
         }
         return errors
@@ -339,6 +390,41 @@ class VendorCreateViewModel @Inject constructor(
         capacityQuantity = get(VendorField.CAPACITY_QUANTITY).orEmpty().trim().ifBlank { null },
         capacityUnit = get(VendorField.CAPACITY_UNIT).orEmpty(),
         supplyFrequency = get(VendorField.SUPPLY_FREQUENCY).orEmpty(),
+        averageAnimalWeightKg = get(VendorField.AVERAGE_ANIMAL_WEIGHT).orEmpty().trim().ifBlank { null },
+    )
+
+    /** The stored row as form values, so the edit wizard opens on what the register holds. */
+    private fun VendorDto.toValues(): Map<VendorField, String> = buildMap {
+        put(VendorField.BUSINESS_NAME, businessName)
+        put(VendorField.RECORD_TYPE, recordType)
+        put(VendorField.CONTACT_PERSON, contactPersonName.orEmpty())
+        put(VendorField.PHONE, phoneNumber.orEmpty())
+        put(VendorField.STATE, state)
+        put(VendorField.CITY, city.orEmpty())
+        put(VendorField.STATUS, status.ifBlank { "active" })
+        put(VendorField.CAPACITY_QUANTITY, capacityQuantity.orEmpty())
+        put(VendorField.CAPACITY_UNIT, capacityUnit.orEmpty())
+        put(VendorField.SUPPLY_FREQUENCY, supplyFrequency.orEmpty())
+        put(VendorField.FEED, feed.orEmpty())
+        put(VendorField.BREED, breed.orEmpty())
+        put(VendorField.PRICE_PER_GOAT, pricePerGoat.orEmpty())
+        put(VendorField.ETA_DAYS, etaAfterOrderDays?.toString().orEmpty())
+        put(VendorField.AVERAGE_ANIMAL_WEIGHT, averageAnimalWeightKg.orEmpty())
+        put(VendorField.NOTE, comments.orEmpty())
+    }
+
+    /**
+     * The backend's update is a REPLACE and the phone's form shows a subset of the row, so the
+     * fields it never offers are carried from the stored vendor rather than blanked. Payment
+     * instruments need no carrying: the backend preserves them for a caller who cannot read them.
+     * The row_version is the fence the replace is judged against.
+     */
+    private fun VendorWriteDto.carryingUnshownFieldsOf(stored: VendorDto): VendorWriteDto = copy(
+        filteredStock = stored.filteredStock,
+        readyToFiltered = stored.readyToFiltered.orEmpty(),
+        details = stored.details.orEmpty(),
+        voiceNoteProofRef = stored.voiceNoteProofRef.orEmpty(),
+        rowVersion = stored.rowVersion,
     )
 
     private companion object {
@@ -353,6 +439,8 @@ class VendorCreateViewModel @Inject constructor(
         const val MORE_THAN_ZERO = "Must be more than zero"
         const val AMOUNT = "Enter an amount, up to two decimals"
         const val WHOLE_DAYS = "Whole days, zero or more"
+        const val WEIGHT_MORE_THAN_ZERO = "Enter a weight in kg, more than zero"
+        const val MESSAGE_NOT_FOUND = "This vendor could not be opened for editing. Refresh the list and try again."
         const val MESSAGE_SAVING = "Saving vendor…"
         const val MESSAGE_SAVED = "Vendor saved to the register."
         const val MESSAGE_QUEUED = "Saved on this phone. It will reach the register when the phone is online."

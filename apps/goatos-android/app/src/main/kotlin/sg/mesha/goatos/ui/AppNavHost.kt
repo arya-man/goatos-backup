@@ -629,6 +629,9 @@ object Routes {
     const val FEED_PURCHASE_DETAIL = "/vendors/feed-purchases/purchase/{$FEED_PURCHASE_ID_ARG}"
 
     fun vendorDetailRoute(vendorId: String): String = "/vendors/vendor/${Uri.encode(vendorId)}"
+    /** Edit drill under the detail (maintainer decision 2026-09-08): a literal `/edit` tail, never a prefix reuse. */
+    const val VENDOR_EDIT = "/vendors/vendor/{$VENDOR_ID_ARG}/edit"
+    fun vendorEditRoute(vendorId: String): String = "/vendors/vendor/${Uri.encode(vendorId)}/edit"
     fun feedPurchaseDetailRoute(purchaseId: String): String = "/vendors/feed-purchases/purchase/${Uri.encode(purchaseId)}"
 
     // Sales module (backend module `sales`, maintainer decision 2026-09-05). TWO L0 roots whose
@@ -656,6 +659,8 @@ object Routes {
     const val SALES_VENDOR_DETAIL = "/sales/vendors/vendor/{$VENDOR_ID_ARG}"
 
     fun salesVendorDetailRoute(vendorId: String): String = "/sales/vendors/vendor/${Uri.encode(vendorId)}"
+    const val SALES_VENDOR_EDIT = "/sales/vendors/vendor/{$VENDOR_ID_ARG}/edit"
+    fun salesVendorEditRoute(vendorId: String): String = "/sales/vendors/vendor/${Uri.encode(vendorId)}/edit"
 
     // Pipeline and evidence (maintainer instruction 2026-09-04): the five panels the web's
     // /sales/config opens as drawers. On the phone they are L1/L2 drills under the Sales tab --
@@ -3479,9 +3484,11 @@ fun AppNavHost(
             listRoute = Routes.VENDORS,
             newRoute = Routes.VENDOR_NEW,
             detailRoute = Routes.VENDOR_DETAIL,
+            editRoute = Routes.VENDOR_EDIT,
             title = VENDORS_TAB_TITLE,
             navController = navController,
             detailRouteOf = Routes::vendorDetailRoute,
+            editRouteOf = Routes::vendorEditRoute,
         )
         composable(Routes.VENDORS_FEED_PURCHASES) {
             val vm: FeedPurchasesListViewModel = hiltViewModel()
@@ -3594,9 +3601,11 @@ fun AppNavHost(
             listRoute = Routes.SALES_VENDORS,
             newRoute = Routes.SALES_VENDOR_NEW,
             detailRoute = Routes.SALES_VENDOR_DETAIL,
+            editRoute = Routes.SALES_VENDOR_EDIT,
             title = SALES_VENDORS_TAB_TITLE,
             navController = navController,
             detailRouteOf = Routes::salesVendorDetailRoute,
+            editRouteOf = Routes::salesVendorEditRoute,
         )
         composable(Routes.SALES_PIPELINE) {
             val vm: SalesPipelineHubViewModel = hiltViewModel()
@@ -4674,9 +4683,11 @@ private fun NavGraphBuilder.vendorRegisterComposables(
     listRoute: String,
     newRoute: String,
     detailRoute: String,
+    editRoute: String,
     title: String,
     navController: NavHostController,
     detailRouteOf: (String) -> String,
+    editRouteOf: (String) -> String,
 ) {
     composable(listRoute) {
         val vm: VendorsListViewModel = hiltViewModel()
@@ -4742,15 +4753,41 @@ private fun NavGraphBuilder.vendorRegisterComposables(
         // record type, and one vendor is on exactly one side of the register anyway.
         val vm: VendorDetailViewModel = hiltViewModel()
         val state by vm.state.collectAsStateWithLifecycle()
+        val vendorId = it.arguments?.getString(Routes.VENDOR_ID_ARG).orEmpty()
         VendorDetailScreen(
             state = state,
             onEvent = { event ->
                 when (event) {
                     VendorDetailEvent.Back -> navController.popBackStack()
+                    VendorDetailEvent.Edit -> navController.navigate(editRouteOf(vendorId)) { launchSingleTop = true }
                     else -> vm.onEvent(event)
                 }
             },
         )
+    }
+    // The edit form (maintainer decision 2026-09-08) is the SAME wizard as the add form, opened on
+    // the vendor's stored row and saved as a fenced replace; the side still reaches it only through
+    // the catalog, exactly as for a new vendor.
+    composable(
+        route = editRoute,
+        arguments = listOf(navArgument(Routes.VENDOR_ID_ARG) { type = NavType.StringType }),
+    ) {
+        val vm: VendorCreateViewModel = hiltViewModel()
+        val vendorId = it.arguments?.getString(Routes.VENDOR_ID_ARG).orEmpty()
+        LaunchedEffect(vm, vendorId) { vm.bindEdit(side, vendorId) }
+        val state by vm.state.collectAsStateWithLifecycle()
+        CaptureAccessGate {
+            BindAudioCaptureSource(rememberDelegatingAudioCaptureSource())
+            VendorCreateScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        VendorCreateEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
     }
 }
 

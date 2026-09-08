@@ -57,6 +57,13 @@ type vendorPayload struct {
 	CapacityDisplay   string  `json:"capacity_display"`
 	VoiceNoteProofRef *string `json:"voice_note_proof_ref"`
 
+	// Average animal weight (maintainer decision 2026-09-08): the live weight per animal this
+	// buyer expects, in kg. It is a plain recorded value connected to nothing else.
+	// average_animal_weight_display is BACKEND-composed ("35 kg"), empty when not recorded;
+	// clients render it verbatim and use the raw field only to prefill a form.
+	AverageAnimalWeightKg      *string `json:"average_animal_weight_kg"`
+	AverageAnimalWeightDisplay string  `json:"average_animal_weight_display"`
+
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 	// row_version must be echoed back on update. It is the optimistic fence that stops two editors
@@ -126,6 +133,8 @@ type vendorWritePayload struct {
 	CapacityUnit      string  `json:"capacity_unit"`
 	SupplyFrequency   string  `json:"supply_frequency"`
 	VoiceNoteProofRef string  `json:"voice_note_proof_ref"`
+	// Average animal weight in kg as a decimal string; null or "" = not recorded. Optional.
+	AverageAnimalWeightKg *string `json:"average_animal_weight_kg"`
 	// row_version is required on update and ignored on create.
 	RowVersion int64 `json:"row_version"`
 }
@@ -149,6 +158,7 @@ func (p vendorWritePayload) toDomain() domain.VendorWrite {
 		UPIID: p.UPIID, PANNumber: p.PANNumber, Comments: p.Comments,
 		CapacityQuantity: p.CapacityQuantity, CapacityUnit: p.CapacityUnit,
 		SupplyFrequency: p.SupplyFrequency, VoiceNoteProofRef: p.VoiceNoteProofRef,
+		AverageAnimalWeightKg: p.AverageAnimalWeightKg,
 	}
 }
 
@@ -196,10 +206,12 @@ func toVendorPayload(v domain.Vendor, labels catalogLabels) vendorPayload {
 			labels.label(domain.CatalogKindCapacityUnit, derefString(v.CapacityUnit)),
 			labels.label(domain.CatalogKindSupplyFrequency, derefString(v.SupplyFrequency)),
 		),
-		VoiceNoteProofRef: v.VoiceNoteProofRef,
-		CreatedAt:         v.CreatedAt,
-		UpdatedAt:         v.UpdatedAt,
-		RowVersion:        v.RowVersion,
+		VoiceNoteProofRef:          v.VoiceNoteProofRef,
+		AverageAnimalWeightKg:      v.AverageAnimalWeightKg,
+		AverageAnimalWeightDisplay: v.AverageAnimalWeightDisplay(),
+		CreatedAt:                  v.CreatedAt,
+		UpdatedAt:                  v.UpdatedAt,
+		RowVersion:                 v.RowVersion,
 	}
 }
 

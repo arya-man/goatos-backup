@@ -103,6 +103,8 @@ data class VendorDetailUiState(
 sealed interface VendorDetailEvent {
     data object Refresh : VendorDetailEvent
     data object Back : VendorDetailEvent
+    /** Opens the edit form for this vendor (maintainer decision 2026-09-08: editable on the phone too). */
+    data object Edit : VendorDetailEvent
     data object PlayVoiceNote : VendorDetailEvent
     data object StopVoiceNote : VendorDetailEvent
     data object DismissMessage : VendorDetailEvent
@@ -113,6 +115,8 @@ enum class VendorField {
     BUSINESS_NAME, RECORD_TYPE, CONTACT_PERSON, PHONE,
     STATE, CITY, STATUS,
     CAPACITY_QUANTITY, CAPACITY_UNIT, SUPPLY_FREQUENCY, FEED, BREED, PRICE_PER_GOAT, ETA_DAYS,
+    /** Average live weight per animal (kg) this buyer expects. Optional; a plain recorded value. */
+    AVERAGE_ANIMAL_WEIGHT,
     NOTE,
 }
 
@@ -149,6 +153,8 @@ data class VendorCreateUiState(
     val closeAfterSave: Boolean = false,
     val submitInFlight: Boolean = false,
     val message: String? = null,
+    /** True when the wizard is editing an existing vendor rather than adding one. */
+    val isEditing: Boolean = false,
 )
 
 sealed interface VendorCreateEvent {

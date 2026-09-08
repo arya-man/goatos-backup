@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -49,7 +50,14 @@ fun VendorDetailScreen(
             title = state.title,
             subtitle = state.subtitle.ifBlank { null },
             onBack = { onEvent(VendorDetailEvent.Back) },
-            actions = { SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(VendorDetailEvent.Refresh) }) },
+            actions = {
+                if (!state.isLoading) {
+                    IconButton(onClick = { onEvent(VendorDetailEvent.Edit) }) {
+                        Icon(MeshaIcons.Edit, contentDescription = EDIT_LABEL, tint = MeshaColors.Ink, modifier = Modifier.size(MeshaDimens.iconMd))
+                    }
+                }
+                SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(VendorDetailEvent.Refresh) })
+            },
         )
         if (state.isLoading) {
             LoadingSkeletonList(modifier = Modifier.padding(MeshaDimens.gutter))
@@ -132,6 +140,7 @@ private fun VoiceNoteCard(playback: VoiceNotePlayback, onEvent: (VendorDetailEve
     }
 }
 
+private const val EDIT_LABEL = "Edit vendor"
 private const val VOICE_NOTE_TITLE = "Voice note"
 private const val PLAY_LABEL = "Play voice note"
 private const val STOP_LABEL = "Stop voice note"

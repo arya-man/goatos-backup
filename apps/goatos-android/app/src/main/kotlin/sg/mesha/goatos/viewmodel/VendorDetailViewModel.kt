@@ -79,6 +79,8 @@ class VendorDetailViewModel @Inject constructor(
             VendorDetailEvent.StopVoiceNote -> stop()
             VendorDetailEvent.DismissMessage -> local.update { it.copy(message = null) }
             VendorDetailEvent.Back -> Unit
+            // Navigation-owned: the host routes to the edit form.
+            VendorDetailEvent.Edit -> Unit
         }
     }
 
@@ -159,6 +161,7 @@ internal fun VendorDto.sections(): List<VendorsDetailSectionUi> {
         "Feed" to feed,
         "Breed" to breed,
         "Price per goat" to pricePerGoat?.let { "₹$it" },
+        "Average animal weight" to averageAnimalWeightDisplay,
         "Lead time" to etaAfterOrderDays?.let { "$it days" },
         "Filtered stock" to filteredStock?.toString(),
         "Ready to filtered" to readyToFiltered,

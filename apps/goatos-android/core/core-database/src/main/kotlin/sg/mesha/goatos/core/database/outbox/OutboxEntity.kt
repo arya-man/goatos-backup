@@ -349,6 +349,13 @@ enum class OutboxOpType {
      */
     VENDOR_CREATE,
 
+    /**
+     * EDITING a recorded vendor (maintainer decision 2026-09-08): a REPLACE of its fields through
+     * `PUT /procurement/vendors/{vendor_id}`, fenced on the row_version the form opened with. Same
+     * per-form lane as the create so a re-recorded voice note uploads first.
+     */
+    VENDOR_UPDATE,
+
     /** A feed purchase recorded on the phone (`POST /procurement/feed-purchases`, Idempotency-Key). */
     FEED_PURCHASE_CREATE,
 

@@ -52,6 +52,10 @@ data class VendorDto(
     @SerialName("capacity_display") val capacityDisplay: String = "",
     /** A completed `audio` proof id, or null when no voice note was recorded. */
     @SerialName("voice_note_proof_ref") val voiceNoteProofRef: String? = null,
+    /** Decimal kg as a string; null when not recorded (maintainer decision 2026-09-08). Prefills the form only. */
+    @SerialName("average_animal_weight_kg") val averageAnimalWeightKg: String? = null,
+    /** Backend-composed "35 kg", VERBATIM; empty when not recorded. */
+    @SerialName("average_animal_weight_display") val averageAnimalWeightDisplay: String = "",
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
     @SerialName("row_version") val rowVersion: Long = 0,
@@ -119,6 +123,8 @@ data class VendorWriteDto(
     @SerialName("supply_frequency") val supplyFrequency: String = "",
     /** Server proof id of the uploaded audio note; the sync engine fills it at dispatch time. */
     @SerialName("voice_note_proof_ref") val voiceNoteProofRef: String = "",
+    /** Optional. Average live weight per animal in kg as a decimal string; null = not recorded. */
+    @SerialName("average_animal_weight_kg") val averageAnimalWeightKg: String? = null,
     @SerialName("row_version") val rowVersion: Long = 0,
 )
 

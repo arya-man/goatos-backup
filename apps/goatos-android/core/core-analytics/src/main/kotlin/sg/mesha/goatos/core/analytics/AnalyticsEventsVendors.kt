@@ -24,6 +24,12 @@ object AnalyticsEventsVendors {
     /** A vendor write was durably queued on the outbox. */
     const val VENDORS_VENDOR_QUEUED = "vendors_vendor_queued"
 
+    /** The edit form for a recorded vendor was opened (maintainer decision 2026-09-08). */
+    const val VENDORS_EDIT_OPENED = "vendors_edit_opened"
+
+    /** A vendor edit was made durable in the outbox. */
+    const val VENDORS_VENDOR_EDITED = "vendors_vendor_edited"
+
     /** The feed purchase ledger (L0) was opened or resumed. */
     const val VENDORS_PURCHASES_VIEWED = "vendors_purchases_viewed"
 

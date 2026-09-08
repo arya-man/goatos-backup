@@ -704,6 +704,8 @@ class TopLevelChromeTest {
         assertTrue(isTopLevelRoute(Routes.VENDORS_FEED_PURCHASES, roots))
         assertFalse(isTopLevelRoute(Routes.VENDOR_NEW, roots))
         assertFalse(isTopLevelRoute(Routes.VENDOR_DETAIL, roots))
+        assertFalse(isTopLevelRoute(Routes.VENDOR_EDIT, roots))
+        assertFalse(isTopLevelRoute(Routes.vendorEditRoute("v-1"), roots))
         assertFalse(isTopLevelRoute(Routes.FEED_PURCHASE_NEW, roots))
         assertFalse(isTopLevelRoute(Routes.FEED_PURCHASE_DETAIL, roots))
         assertFalse(isTopLevelRoute(Routes.vendorDetailRoute("v-1"), roots))
@@ -734,6 +736,8 @@ class TopLevelChromeTest {
         assertFalse(isTopLevelRoute(Routes.SALES_VENDOR_NEW, roots))
         assertFalse(isTopLevelRoute(Routes.SALES_VENDOR_DETAIL, roots))
         assertFalse(isTopLevelRoute(Routes.salesVendorDetailRoute("v-1"), roots))
+        assertFalse(isTopLevelRoute(Routes.SALES_VENDOR_EDIT, roots))
+        assertFalse(isTopLevelRoute(Routes.salesVendorEditRoute("v-1"), roots))
     }
 
     @Test
@@ -744,6 +748,11 @@ class TopLevelChromeTest {
         assertNotEquals(Routes.VENDOR_NEW, Routes.SALES_VENDOR_NEW)
         assertNotEquals(Routes.VENDOR_DETAIL, Routes.SALES_VENDOR_DETAIL)
         assertNotEquals(Routes.vendorDetailRoute("v-1"), Routes.salesVendorDetailRoute("v-1"))
+        // The edit drill sits UNDER each half's detail (maintainer decision 2026-09-08) and is
+        // never a prefix of it, so a detail route can never be matched as an edit.
+        assertNotEquals(Routes.VENDOR_EDIT, Routes.SALES_VENDOR_EDIT)
+        assertTrue(Routes.vendorEditRoute("v-1").startsWith(Routes.vendorDetailRoute("v-1") + "/"))
+        assertTrue(Routes.salesVendorEditRoute("v-1").startsWith(Routes.salesVendorDetailRoute("v-1") + "/"))
         // Each half's detail carries the literal `/vendor/` segment, so `/sales/vendors` itself can
         // never be matched as a vendor id.
         assertTrue(Routes.SALES_VENDOR_DETAIL.startsWith("${Routes.SALES_VENDORS}/vendor/"))
