@@ -113,6 +113,12 @@ was deliberately never given it, through a second door. The same applies to the 
 with the `sales` module and is reached on `VendorRead` — module ownership and authority are separate
 questions, exactly as Feed SOP is grouped under Feed and opened on `sop.read`.
 
+CEO/CXO visibility for this split is mandatory, not a manual HRMS repair. Because **Sales >
+Vendors** ticks with `sales` while opening on `VendorRead`, every change to this module must prove
+that `ceo_internal` has both permissions and that already-migrated CEO/CXO people receive the
+stored `person_module_access` rows/pages through migration or canonical backfill. A founder should
+not lose this screen until someone manually grants it after deploy.
+
 **`sales` gained `SurfaceMobile`, so it needed a tick backfill.** A person's phone modules are their
 ticks, and a tick NARROWS an offer — it never widens one. Everyone already backfilled carries a web
 `sales` tick and no mobile one, so the new module would be narrowed away on every existing phone

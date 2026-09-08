@@ -33,6 +33,26 @@ doc, the Makefile, or `package.json`. Any concrete value written below is
 truth and the value as a hint. Never approve or flag on a memorized value — open
 the source the check points to and read the live value there.
 
+## Founder visibility invariant
+
+CEO/CXO (`ceo_internal`) visibility is not an HRMS afterthought. Any executive,
+commercial, register, config, KPI, or cross-module oversight screen that a
+founder reasonably uses to run the business must remain visible to CEO/CXO by
+role and by stored per-person access. When reviewing a new module, page, tab, or
+permission split, verify BOTH halves:
+
+- the route/page/tab is reachable from the CEO/CXO permission set, including
+  split-authority leaves such as **Sales > Vendors** where the leaf ticks with
+  `sales` but opens on `procurement.vendor.read`;
+- existing migrated CEO/CXO people receive the needed `person_module_access`
+  row/page/capability through an additive migration or the canonical backfill,
+  so access does not depend on Manohar or anyone else manually ticking HRMS after
+  deploy.
+
+Never approve a change that says "CEO can get it if HRMS grants it later" for
+these surfaces. Per-person ticks may narrow ordinary operators and managers; they
+must not be the only path that makes core CEO/CXO business visibility appear.
+
 ## When to use
 
 - "Review this diff / branch / PR" · "audit these changes" · "is this safe to merge"

@@ -8,14 +8,14 @@ import (
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
 
-// TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO pins the 2026-09-04 maintainer
-// decision: the Tasks module (a director's ask of the CXO desk) is on the phone of every
-// director job that carries a phone, and of ceo_internal -- and of nobody below leadership.
-// A park head, an operator, a verifier and the per-person roles resolve NO such module.
+// TestLeadershipTasksModuleIsOfferedToDirectorsCEOAndParkHeads pins the Tasks module's
+// two-way shape: director jobs raise asks and carry the "For me" pen-visit tab, CEO/CXO can
+// raise downward and act, and park heads can act on tasks assigned to them. Operators,
+// verifiers and the per-person roles resolve NO such module by role.
 //
 // Mutation-tested when written: deleting the LeadershipTasksRead branch in
-// leadershipModuleKeys, and granting the permission to RoleParkHead, each turn a subtest red.
-func TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO(t *testing.T) {
+// leadershipModuleKeys, and granting the permission to RoleOperator, each turn a subtest red.
+func TestLeadershipTasksModuleIsOfferedToDirectorsCEOAndParkHeads(t *testing.T) {
 	const en = localization.DefaultTag
 	hasKey := func(keys []string, want string) bool {
 		for _, k := range keys {
@@ -33,6 +33,7 @@ func TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO(t *testing.T) {
 		"breeding_director":    permissions.RoleBreedingDirector,
 		"procurement_director": permissions.RoleProcurementDirector,
 		"ceo_internal":         permissions.RoleCEOInternal,
+		"park_head":            permissions.RoleParkHead,
 	} {
 		grants := []domain.GrantSummary{grantWithRole(role)}
 		t.Run(name+" is offered Tasks", func(t *testing.T) {
@@ -57,9 +58,9 @@ func TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO(t *testing.T) {
 			if found.Label != "Tasks" || found.Href != "/leadership-tasks" {
 				t.Fatalf("Tasks module rendered wrong: %+v", *found)
 			}
-			if role == permissions.RoleCEOInternal {
+			if role == permissions.RoleCEOInternal || role == permissions.RoleParkHead {
 				if len(found.NavItems) != 0 {
-					t.Fatalf("a CXO's Tasks module must serve no bar destinations, got %+v", found.NavItems)
+					t.Fatalf("%s Tasks module must serve no bar destinations, got %+v", name, found.NavItems)
 				}
 			} else {
 				if len(found.NavItems) != 2 || found.NavItems[0].Href != "/leadership-tasks" || found.NavItems[1].Href != "/pen-visits" {
@@ -72,7 +73,6 @@ func TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO(t *testing.T) {
 		})
 	}
 	for name, role := range map[string]string{
-		"park_head":       permissions.RoleParkHead,
 		"operator":        permissions.RoleOperator,
 		"verifier":        permissions.RoleVerifier,
 		"counts_approver": permissions.RoleCountsApprover,

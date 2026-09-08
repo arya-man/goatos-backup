@@ -24,11 +24,21 @@ WITH role_people AS (
 ),
 desired AS (
   SELECT tenant_id, workforce_member_id, 'mobile'::text AS surface, 'leadership_tasks'::text AS module_key,
-         CASE
-           WHEN role = 'ceo_internal' THEN ARRAY['view','oversee','configure']::text[]
-           ELSE ARRAY['view','oversee']::text[]
-         END AS capabilities
+         ARRAY(
+           SELECT DISTINCT cap
+           FROM unnest(
+             array_cat(
+               ARRAY['view','oversee']::text[],
+               CASE
+                 WHEN bool_or(role = 'ceo_internal') THEN ARRAY['configure']::text[]
+                 ELSE ARRAY[]::text[]
+               END
+             )
+           ) AS cap
+           ORDER BY cap
+         ) AS capabilities
   FROM role_people
+  GROUP BY tenant_id, workforce_member_id
 )
 INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
 SELECT tenant_id, workforce_member_id, surface, module_key, capabilities
@@ -58,4 +68,48 @@ SET capabilities = (
 );
 
 -- +goose Down
-SELECT 1;
+UPDATE public.person_module_access a
+SET capabilities = ARRAY(
+  SELECT cap
+  FROM unnest(a.capabilities) AS cap
+  WHERE cap <> 'configure'
+  ORDER BY cap
+)
+USING public.workforce_members m
+JOIN public.user_scope_grants g
+  ON g.tenant_id = m.tenant_id
+ AND g.user_id = m.user_id
+ AND g.status = 'active'
+ AND (g.valid_to IS NULL OR g.valid_to > now())
+ AND g.role = 'ceo_internal'
+WHERE m.tenant_id = a.tenant_id
+  AND m.workforce_member_id = a.workforce_member_id
+  AND m.status = 'active'
+  AND a.surface = 'mobile'
+  AND a.module_key = 'leadership_tasks'
+  AND 'configure' = ANY (a.capabilities);
+
+DELETE FROM public.person_module_access a
+USING public.workforce_members m
+JOIN public.user_scope_grants g
+  ON g.tenant_id = m.tenant_id
+ AND g.user_id = m.user_id
+ AND g.status = 'active'
+ AND (g.valid_to IS NULL OR g.valid_to > now())
+ AND g.role = 'park_head'
+WHERE m.tenant_id = a.tenant_id
+  AND m.workforce_member_id = a.workforce_member_id
+  AND m.status = 'active'
+  AND a.surface = 'mobile'
+  AND a.module_key = 'leadership_tasks'
+  AND a.capabilities <@ ARRAY['view','oversee']::text[];
+
+DELETE FROM public.person_module_access a
+USING public.workforce_members m
+WHERE m.tenant_id = a.tenant_id
+  AND m.workforce_member_id = a.workforce_member_id
+  AND m.status = 'active'
+  AND lower(btrim(m.email)) IN ('ravi@mesha.sg', 'manju@mesha.sg', 'aryaman@mesha.sg')
+  AND a.surface = 'mobile'
+  AND a.module_key = 'leadership_tasks'
+  AND a.capabilities <@ ARRAY['view','oversee']::text[];

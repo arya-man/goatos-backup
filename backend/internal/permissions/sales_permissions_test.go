@@ -9,8 +9,8 @@ import "testing"
 // vertical's own tiers do. Operators and park heads hold ProcurementRead for intake screens and
 // must not inherit revenue/buyer visibility from that.
 func TestSalesRolePermissions(t *testing.T) {
-	if !RolesAuthorize([]string{RoleCEOInternal}, []string{SalesRead, SalesWrite}, false) {
-		t.Fatal("CEO/CXO should read and write sales")
+	if !RolesAuthorize([]string{RoleCEOInternal}, []string{SalesRead, SalesWrite, VendorRead}, false) {
+		t.Fatal("CEO/CXO should read and write sales and must always see Sales > Vendors")
 	}
 	// procurement_manager joined the selling side on 2026-09-04 (the Procurement phone module's
 	// Sales tab), alongside the director it reports to.
