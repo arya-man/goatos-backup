@@ -1687,7 +1687,7 @@ class DefaultSyncRepository(
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.VENDOR_UPDATE,
         groupKey = vendorCreateGroupKey(payload.clientId.trim()),
-        idempotencyKey = vendorUpdateIdempotencyKey(payload.clientId.trim()),
+        idempotencyKey = vendorUpdateIdempotencyKey(payload.clientId.trim(), payload.commitId.trim()),
         payloadJson = syncJson.encodeToString(payload),
     )
 
