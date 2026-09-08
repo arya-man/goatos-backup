@@ -5099,3 +5099,129 @@ select:disabled { opacity: .45; }
    the system asks for anyway. Inherited, so one declaration covers the document;
    the sans and mono faces carry real weights and are unaffected. */
 :where(:root){font-synthesis-weight:none}
+
+/* ===== ACTIVE STATE ON SELECTABLE CONTROLS =====
+   Reported three times: "I don't know which tab is highlighted." An audit of all
+   41 routes measured 149 control groups across 18 classes: 13 of 16 SELECTABLE
+   classes fail, 96 instances below 1.3:1 active-vs-inactive background contrast,
+   in BOTH themes. None of them changes font-weight either -- what reads as
+   weight is only --ink vs --muted, and on five classes even that is replaced by
+   --brand-d green, whose luminance sits within 4% of --muted (1.03:1).
+
+   Two root causes:
+   - `--brand-soft` (rgba(122,201,67,.1)) was used as the selection FILL. Over
+     --panel it composites to #12190c: 1.11-1.15:1. It is a badge tint and is
+     arithmetically incapable of carrying a selection on a #070706 ground.
+   - `--shadow` was used to "lift" the active pill. In dark mode that is black on
+     near-black: mathematically zero. The raised-pill idiom only ever worked in
+     light mode.
+
+   The fix is not new design -- it is what `.nav.on` already does in this file: a
+   solid --brand fill with --on-brand ink, which measures 9.85:1 dark / 4.52:1
+   light against its inactive siblings. */
+
+:where(:root) .subtabs a.on,:where(:root) .subtabs button.on,
+:where(:root) .metricseg a.on,:where(:root) .metricseg button.on,
+:where(:root) .chip.on,
+:where(:root) .vr-lg.on,
+:where(:root) .herd-signals-page .segs a.on,
+:where(:root) .opf a.on,:where(:root) .opf button.on,
+:where(:root) .top-date-mode.on,
+:where(:root) .intervalpick button.on,:where(:root) .lt-page .lt-intervalpick button.on{
+  background:var(--brand);
+  color:var(--on-brand);
+  border-color:var(--brand);
+  box-shadow:none;
+}
+/* Children of an active pill (counts, tags) must flip with it or they vanish. */
+:where(:root) .chip.on > .tag,:where(:root) .chip.on > .cbq,
+:where(:root) .subtabs a.on .cbq,:where(:root) .subtabs button.on .cbq{
+  background:color-mix(in srgb,var(--on-brand) 16%,transparent);color:var(--on-brand);box-shadow:none}
+
+/* Inactive siblings drop to --muted so the pair reads as a pair. */
+:where(:root) .subtabs a:not(.on),:where(:root) .subtabs button:not(.on),
+:where(:root) .metricseg a:not(.on),:where(:root) .metricseg button:not(.on){color:var(--muted)}
+
+/* Hover says "selectable" without impersonating the selection. */
+:where(:root) .subtabs a:not(.on):hover,:where(:root) .subtabs button:not(.on):hover,
+:where(:root) .metricseg a:not(.on):hover,:where(:root) .metricseg button:not(.on):hover,
+:where(:root) .top-date-mode:not(.on):hover{
+  background:color-mix(in srgb,var(--ink) 8%,transparent);color:var(--ink)}
+
+/* A menu ROW, not a pill: a full-bleed brand fill across a 240px dropdown row is
+   violent. This is the treatment `#userMenu .pm-item.on` already uses 275 lines
+   below -- the park picker was simply missing it. */
+:where(:root) .pm-item.on{box-shadow:inset 2px 0 0 var(--brand)}
+:where(:root) .pm-item.on .pn{color:var(--ink);font-weight:600}
+
+/* List/table rows keep the tint but gain an edge that is actually visible,
+   matching the pattern .counts-pens-table already uses for its detail row. */
+:where(:root) .wfrow.on,:where(:root) .opf .fitem.on{box-shadow:inset 3px 0 0 var(--brand)}
+
+/* The workflow stage stepper was the most complete failure found: .step.cur,
+   .step.done and a plain .step were byte-identical on the row element in both
+   themes -- a 24px numbered bullet 12px away was the entire signal. */
+:where(:root) .stepper .step{color:var(--muted)}
+:where(:root) .stepper .step.cur{color:var(--ink);font-weight:600;box-shadow:inset 2px 0 0 var(--brand)}
+:where(:root) .stepper .step.done{color:var(--ink)}
+
+/* No focus-visible rule targeted ANY of these controls, so keyboard users got
+   Chrome's default 1px blue ring -- off-brand, and on .metricseg it was the only
+   reliable way to tell items apart. The ring is --ink, not --brand: a brand ring
+   on the new brand fill would disappear exactly where it is needed. */
+:where(:root) .subtabs a:focus-visible,:where(:root) .subtabs button:focus-visible,
+:where(:root) .metricseg a:focus-visible,:where(:root) .metricseg button:focus-visible,
+:where(:root) .chip:focus-visible,:where(:root) .vr-lg:focus-visible,
+:where(:root) .segs a:focus-visible,:where(:root) .top-date-mode:focus-visible,
+:where(:root) .opf a:focus-visible,:where(:root) .intervalpick button:focus-visible,
+:where(:root) .pm-item:focus-visible,:where(:root) .stepper .step:focus-visible{
+  outline:2px solid var(--ink);outline-offset:2px}
+
+/* ===== ONE STATUS PILL =====
+   `.pill` (sans 10/700 sentence) and `.vplan .pill` (sans 12/600) are the same
+   concept as `.tag` (mono 10/500 uppercase). On /workflows a mono `IN PROGRESS`
+   sat directly above a sans stage row -- the maintainer's screenshot. */
+:where(:root) .pill,:where(:root) .vplan .pill{
+  font-family:var(--fm);font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase}
+
+/* Stage pills are a NAV control whose labels are sentence-case prose, so they
+   stay sans -- but they must stop being 700 weight beside a 500 status pill. */
+:where(:root) .ostage{font-weight:600}
+
+/* ===== ALIGNMENT AND CONTROL HEIGHT =====
+   From a 44-route alignment audit. The structural cause of most of these is that
+   lines ~2378-2560 (`/* === Vaccination Operators Screen === *\/`) are an
+   UNSCOPED copy-paste from one screen's mock that redefines .phead, .card, .btn,
+   .btn.sm, .fld and bare `select` for the whole app, and win by source order.
+   Properly, that block should be scoped to [data-screen="vaccination-operators"];
+   that is a larger change than these corrections and is called out separately.
+
+   Page-header actions were top-aligned against a two-line title block on 17
+   routes -- /people measured 23.1px of centre offset, /operations/audit 16.6px.
+   `.phead` is used BOTH as a page header and as a collapsible panel head in JSX,
+   so it cannot be split here without component changes; `center` is correct for
+   both (a single-line panel head is unaffected). */
+:where(:root) .phead{align-items:center}
+
+/* One control height. The audit found EIGHT distinct interactive heights
+   (29.4/30/32/34/35.9/38/40/40.3) because `.btn` has no min-height and is
+   font-derived, while `.iconbtn` is hard-38 and `.tsize` is min-40. That is what
+   makes the toolbars, pager bars and card headers look ragged: `.pager2` varies
+   by 20.6px within one row, `.card .hd` by 18.5px, `.tbar` by 22.6px. */
+:where(:root){--ctl-h:38px;--ctl-h-sm:30px}
+:where(:root) .btn,:where(:root) select,:where(:root) .tsearch,:where(:root) .tsize{
+  min-height:var(--ctl-h);box-sizing:border-box}
+:where(:root) .btn.sm,:where(:root) .btn.icon{min-height:var(--ctl-h-sm)}
+:where(:root) .iconbtn{min-height:var(--ctl-h);height:var(--ctl-h)}
+
+/* Orphaned labels. `.fld{flex-direction:column}` from the unscoped block above
+   stacks a label over its control inside rows whose other children are centred,
+   so the label floats 25px above the line -- the "Pen (optional)" case on
+   /verify. The intended fix at :650 set display:flex and align-items:center but
+   never set a direction, so column still won. */
+:where(:root) .screen .vr-fld{flex-direction:row}
+
+/* Bare `select` carried min-width:170px, which forced toolbars to wrap and left
+   one or two orphans on a second line (/weighing/weights, /workflows pager). */
+:where(:root) select{min-width:0}
+:where(:root) .tbar select,:where(:root) .fld select{min-width:150px}
