@@ -37,6 +37,7 @@ import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.VendorUpdatePayload
 import sg.mesha.goatos.core.data.sync.vendorCreateGroupKey
+import sg.mesha.goatos.core.data.sync.vendorUpdateGroupKey
 import sg.mesha.goatos.core.network.dto.VendorCatalogDto
 import sg.mesha.goatos.core.network.dto.VendorDto
 import sg.mesha.goatos.core.network.dto.VendorWriteDto
@@ -294,6 +295,7 @@ class VendorCreateViewModel @Inject constructor(
     /** Writes the durable proof row and returns the PROOF_UPLOAD outbox row id the vendor write references. */
     private suspend fun captureNote(localUri: String, mimeType: String, startMs: Long, endMs: Long, captureSource: String): String? {
         val id = clientId
+        val editingVendorId = local.value.editing?.vendorId.orEmpty()
         val slot = EvidenceSlot(
             identity = ProofIdentity(flow = ProofFlow.VENDOR_VOICE_NOTE, taskId = id, subjectKey = FIELD_VOICE_NOTE),
             fieldKey = FIELD_VOICE_NOTE,
@@ -314,7 +316,7 @@ class VendorCreateViewModel @Inject constructor(
             capturedByPrincipalId = null,
             proofPolicy = vendorVoiceNotePolicy(captureSource),
             awaitUploadEnqueue = true,
-            uploadGroupKey = vendorCreateGroupKey(id),
+            uploadGroupKey = if (editingVendorId.isBlank()) vendorCreateGroupKey(id) else vendorUpdateGroupKey(editingVendorId),
         )
         when (result) {
             is AppResult.Err -> {
