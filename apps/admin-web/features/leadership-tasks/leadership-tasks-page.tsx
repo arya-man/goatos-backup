@@ -368,6 +368,7 @@ export function LeadershipTasksPage({
                 <input
                   type="file"
                   name="attachment_file"
+                  multiple
                   accept="audio/*,video/*,image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
                 />
               </label>

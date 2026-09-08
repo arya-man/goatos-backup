@@ -78,7 +78,7 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
   );
   assert.match(
     component,
-    /type="file"[\s\S]*name="attachment_file"/,
+    /type="file"[\s\S]*name="attachment_file"[\s\S]*multiple/,
     "web create must provide a real file/audio upload control",
   );
   assert.match(
