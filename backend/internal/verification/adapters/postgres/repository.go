@@ -56,10 +56,10 @@ const (
 )
 
 type Repository struct {
-	pool      *pgxpool.Pool
-	timeout   time.Duration
-	cacheMu   sync.Mutex
-	readCache map[string]verificationReadCacheEntry
+	pool       *pgxpool.Pool
+	timeout    time.Duration
+	cacheMu    sync.Mutex
+	readCache  map[string]verificationReadCacheEntry
 	cacheEpoch uint64
 }
 
@@ -2006,7 +2006,7 @@ func (r *Repository) RecordVerdict(ctx context.Context, in domain.Verdict) (doma
 	}
 	defer rollback(ctx, tx)
 	reservation, err := reserveIdempotency(ctx, tx, in.TenantID, "verification.verdict", in.IdempotencyKey,
-		requestFingerprint(in.ItemID, in.Decision, in.Reason, in.VerifierID, fmt.Sprintf("%d", in.RowVersion)))
+		requestFingerprint(in.ItemID, in.Decision, in.Reason, in.VerifierID, fmt.Sprintf("%d", in.RowVersion), verdictMeasurementFingerprint(in.Measurement)))
 	if err != nil {
 		return domain.Item{}, err
 	}
@@ -2101,6 +2101,36 @@ WHERE tenant_id = $4::uuid
 	}
 	r.invalidateReadCache()
 	return item, nil
+}
+
+func verdictMeasurementFingerprint(measurement *domain.VerdictMeasurement) string {
+	if measurement == nil {
+		return ""
+	}
+	type measurementEntry struct {
+		Key   string  `json:"key"`
+		Value float64 `json:"value"`
+	}
+	type measurementFingerprint struct {
+		Value   float64            `json:"value"`
+		Count   *int               `json:"count,omitempty"`
+		Reason  string             `json:"reason,omitempty"`
+		Entries []measurementEntry `json:"entries,omitempty"`
+	}
+	entries := make([]measurementEntry, 0, len(measurement.Entries))
+	for _, entry := range measurement.Entries {
+		entries = append(entries, measurementEntry{Key: entry.Key, Value: entry.Value})
+	}
+	payload, err := json.Marshal(measurementFingerprint{
+		Value:   measurement.Value,
+		Count:   measurement.Count,
+		Reason:  measurement.Reason,
+		Entries: entries,
+	})
+	if err != nil {
+		return "measurement:marshal_error"
+	}
+	return string(payload)
 }
 
 func requireProducerMeasurementBeforeApproval(ctx context.Context, tx pgx.Tx, tenantID, itemID string) error {

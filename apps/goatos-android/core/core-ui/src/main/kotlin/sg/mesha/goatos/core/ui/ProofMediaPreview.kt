@@ -489,7 +489,7 @@ private fun ProofVideoPreview(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        if (!isPlaying || !firstFrameRendered) {
+        if ((!isPlaying || !firstFrameRendered) && displayPositionMs == 0L) {
             ProofVideoPoster(path)
         }
         if (onExpand != null) {
