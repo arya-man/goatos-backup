@@ -167,11 +167,25 @@ func TestLeadershipTaskLifecyclePostgresPaths(t *testing.T) {
 		t.Fatalf("assignee cancelling: %v", err)
 	}
 
-	// 6. Edit by the raiser: brief replaced, attachment list diffed (proof 2 dropped).
+	// 6. Two-way notes append chronologically: the assignee and raiser both write to the
+	// activity stream, while the compatibility comment field still carries the assignee note.
+	commented, err := repo.SetComment(ctx, ports.CommentParams{TenantID: ltTenant, Actor: cxo, TaskID: task.TaskID, Comment: "Checking with park head.", IdempotencyKey: "comment-1"})
+	if err != nil || commented.AssigneeComment != "Checking with park head." {
+		t.Fatalf("assignee note: %+v err %v", commented, err)
+	}
+	replied, err := repo.SetComment(ctx, ports.CommentParams{TenantID: ltTenant, Actor: director, TaskID: task.TaskID, Comment: "Add a voice note when done.", IdempotencyKey: "comment-2"})
+	if err != nil {
+		t.Fatalf("raiser note: %+v err %v", replied, err)
+	}
+	if len(replied.Notes) != 2 || replied.Notes[0].AuthorID != ltCXO || replied.Notes[1].AuthorID != ltDirector || replied.Notes[1].Body != "Add a voice note when done." {
+		t.Fatalf("notes = %+v", replied.Notes)
+	}
+
+	// 7. Edit by the raiser: brief replaced, attachment list diffed (proof 2 dropped).
 	edited, err := repo.Edit(ctx, ports.EditParams{
 		TenantID: ltTenant, ActorID: ltDirector, TaskID: task.TaskID, Title: "Approve the vendor contract (revised)", Body: "New brief.",
 		Attachments: []domain.Attachment{{ProofID: ltProof1, Kind: domain.AttachmentAudio, MimeType: "audio/mp4", FileName: "note.m4a", SizeBytes: 4096}},
-		RowVersion:  started.RowVersion, IdempotencyKey: "edit-1",
+		RowVersion:  replied.RowVersion, IdempotencyKey: "edit-1",
 	})
 	if err != nil || edited.Title != "Approve the vendor contract (revised)" || len(edited.Attachments) != 1 || edited.Attachments[0].ProofID != ltProof1 {
 		t.Fatalf("edit: %+v err %v", edited, err)
@@ -180,7 +194,7 @@ func TestLeadershipTaskLifecyclePostgresPaths(t *testing.T) {
 		t.Fatalf("another director editing: %v", err)
 	}
 
-	// 7. Done, then the raiser can no longer edit; the assignee may reopen.
+	// 8. Done, then the raiser can no longer edit; the assignee may reopen.
 	done, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: cxo, TaskID: task.TaskID, Status: domain.StatusDone, RowVersion: edited.RowVersion, IdempotencyKey: "st-4"})
 	if err != nil || done.Status != domain.StatusDone || done.DoneAt == nil {
 		t.Fatalf("done: %+v err %v", done, err)
@@ -192,7 +206,7 @@ func TestLeadershipTaskLifecyclePostgresPaths(t *testing.T) {
 	if err != nil || reopened.Status != domain.StatusInProgress || reopened.DoneAt != nil {
 		t.Fatalf("reopen: %+v err %v", reopened, err)
 	}
-	// 8. Cancel by the raiser is terminal.
+	// 9. Cancel by the raiser is terminal.
 	cancelled, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: director, TaskID: task.TaskID, Status: domain.StatusCancelled, RowVersion: reopened.RowVersion, IdempotencyKey: "st-6"})
 	if err != nil || cancelled.Status != domain.StatusCancelled || cancelled.CancelledAt == nil {
 		t.Fatalf("cancel: %+v err %v", cancelled, err)
@@ -201,7 +215,7 @@ func TestLeadershipTaskLifecyclePostgresPaths(t *testing.T) {
 		t.Fatalf("reopening a cancelled task: %v", err)
 	}
 
-	// 9. Every write announced itself: one raised event, five status events (start, done,
+	// 10. Every write announced itself: one raised event, five status events (start, done,
 	// reopen, cancel) -- the refused transitions emitted nothing.
 	var raised, statusChanged int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE event_type = 'leadership_task.raised'), count(*) FILTER (WHERE event_type = 'leadership_task.status_changed') FROM outbox_messages WHERE tenant_id = $1 AND aggregate_id = $2`, ltTenant, task.TaskID).Scan(&raised, &statusChanged); err != nil {

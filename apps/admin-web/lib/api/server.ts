@@ -3418,6 +3418,48 @@ export async function raiseLeadershipTask(
   );
 }
 
+export async function changeLeadershipTaskStatus(
+  taskId: string,
+  body: { status: string; row_version: number },
+  idempotencyKey: string,
+): Promise<ApiResult<LeadershipTaskDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path =
+    `/app/leadership-tasks/${encodeURIComponent(taskId)}/status` as keyof AppApiPaths &
+      string;
+  return request(() =>
+    client.request<LeadershipTaskDetail>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function setLeadershipTaskComment(
+  taskId: string,
+  body: { comment: string },
+  idempotencyKey: string,
+): Promise<ApiResult<LeadershipTaskDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path =
+    `/app/leadership-tasks/${encodeURIComponent(taskId)}/comment` as keyof AppApiPaths &
+      string;
+  return request(() =>
+    client.request<LeadershipTaskDetail>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function leadershipTaskAttachmentDownloadURL(
   taskId: string,
   proofId: string,

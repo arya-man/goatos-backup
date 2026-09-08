@@ -8422,11 +8422,11 @@ paths:
       tags:
         - Leadership Tasks
       operationId: setLeadershipTaskComment
-      summary: Set the assignee's note on a task.
+      summary: Add a two-way note to a task.
       description: >-
-        The assignee's comment back on the task (maintainer instruction 2026-09-04): one field its
-        owner overwrites, no thread. Assignee only (403 not_assignee), while the task is not
-        cancelled (409 task_closed). The `Idempotency-Key` header is REQUIRED.
+        Appends a chronological task note while the task is not cancelled. The assignee and raiser
+        can both write; the compatibility `comment` field is also refreshed for older clients when
+        the assignee writes. The `Idempotency-Key` header is REQUIRED.
       parameters:
         - name: task_id
           in: path
@@ -17562,6 +17562,16 @@ components:
       properties:
         key: { type: string, enum: [open, in_progress, done, cancelled] }
         label: { type: string, description: Backend-owned button label, rendered verbatim. }
+    LeadershipTaskNote:
+      type: object
+      description: One chronological two-way note in the task activity stream.
+      required: [note_id, author_user_id, author_name, body, created_at]
+      properties:
+        note_id: { type: string, format: uuid }
+        author_user_id: { type: string, format: uuid }
+        author_name: { type: string }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
     LeadershipTask:
       type: object
       description: >-
@@ -17596,6 +17606,7 @@ components:
         - status_options
         - attachment_count
         - attachments
+        - notes
       properties:
         task_id: { type: string, format: uuid }
         task_no: { type: integer, format: int64, description: Per-tenant running number. }
@@ -17623,7 +17634,7 @@ components:
         can_edit: { type: boolean }
         can_change_status: { type: boolean }
         can_cancel: { type: boolean }
-        comment: { type: string, description: The assignee's note back on the task; one field its owner overwrites. }
+        comment: { type: string, description: Compatibility assignee note field for older mobile clients; newer clients render notes. }
         can_comment: { type: boolean }
         status_options:
           type: array
@@ -17635,6 +17646,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/LeadershipTaskAttachment"
+        notes:
+          type: array
+          description: Chronological two-way task notes; either task party may append while active.
+          items:
+            $ref: "#/components/schemas/LeadershipTaskNote"
     LeadershipTaskDetail:
       type: object
       required: [task, trace_id]

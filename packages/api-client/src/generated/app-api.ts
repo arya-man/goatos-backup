@@ -3248,8 +3248,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Set the assignee's note on a task.
-         * @description The assignee's comment back on the task (maintainer instruction 2026-09-04): one field its owner overwrites, no thread. Assignee only (403 not_assignee), while the task is not cancelled (409 task_closed). The `Idempotency-Key` header is REQUIRED.
+         * Add a two-way note to a task.
+         * @description Appends a chronological task note while the task is not cancelled. The assignee and raiser can both write; the compatibility `comment` field is also refreshed for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
          */
         post: operations["setLeadershipTaskComment"];
         delete?: never;
@@ -7381,6 +7381,17 @@ export interface components {
             /** @description Backend-owned button label */
             label: string;
         };
+        /** @description One chronological two-way note in the task activity stream. */
+        LeadershipTaskNote: {
+            /** Format: uuid */
+            note_id: string;
+            /** Format: uuid */
+            author_user_id: string;
+            author_name: string;
+            body: string;
+            /** Format: date-time */
+            created_at: string;
+        };
         /** @description One leadership task as seen by THIS caller. The capability booleans and status_options are resolved per request from the caller's grants and their party to the task; the client renders controls from them and never from a role string. */
         LeadershipTask: {
             /** Format: uuid */
@@ -7424,13 +7435,15 @@ export interface components {
             can_edit: boolean;
             can_change_status: boolean;
             can_cancel: boolean;
-            /** @description The assignee's note back on the task; one field its owner overwrites. */
+            /** @description Compatibility assignee note field for older mobile clients; newer clients render notes. */
             comment: string;
             can_comment: boolean;
             /** @description The statuses THIS caller may move the task to, in display order; empty when read-only. */
             status_options: components["schemas"]["LeadershipTaskStatusOption"][];
             attachment_count: number;
             attachments: components["schemas"]["LeadershipTaskAttachment"][];
+            /** @description Chronological two-way task notes; either task party may append while active. */
+            notes: components["schemas"]["LeadershipTaskNote"][];
         };
         LeadershipTaskDetail: {
             task: components["schemas"]["LeadershipTask"];

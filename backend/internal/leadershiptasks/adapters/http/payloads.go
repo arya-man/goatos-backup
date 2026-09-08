@@ -27,6 +27,14 @@ type statusOptionPayload struct {
 	Label string `json:"label"`
 }
 
+type notePayload struct {
+	NoteID     string `json:"note_id"`
+	AuthorID   string `json:"author_user_id"`
+	AuthorName string `json:"author_name"`
+	Body       string `json:"body"`
+	CreatedAt  string `json:"created_at"`
+}
+
 type taskPayload struct {
 	TaskID         string  `json:"task_id"`
 	TaskNo         int64   `json:"task_no"`
@@ -55,12 +63,13 @@ type taskPayload struct {
 	CanEdit         bool   `json:"can_edit"`
 	CanChangeStatus bool   `json:"can_change_status"`
 	CanCancel       bool   `json:"can_cancel"`
-	// Comment is the CXO's note back on the task; CanComment says whether the caller may write it.
+	// Comment is the compatibility assignee note field; Notes is the chronological activity.
 	Comment         string                `json:"comment"`
 	CanComment      bool                  `json:"can_comment"`
 	StatusOptions   []statusOptionPayload `json:"status_options"`
 	AttachmentCount int                   `json:"attachment_count"`
 	Attachments     []attachmentPayload   `json:"attachments"`
+	Notes           []notePayload         `json:"notes"`
 }
 
 type taskDetailPayload struct {
@@ -153,6 +162,16 @@ func toTaskPayload(t domain.Task, actor domain.Actor) taskPayload {
 	for _, o := range options {
 		optionPayloads = append(optionPayloads, statusOptionPayload{Key: o.Key, Label: o.Label})
 	}
+	notes := make([]notePayload, 0, len(t.Notes))
+	for _, n := range t.Notes {
+		notes = append(notes, notePayload{
+			NoteID:     n.NoteID,
+			AuthorID:   n.AuthorID,
+			AuthorName: n.AuthorName,
+			Body:       n.Body,
+			CreatedAt:  n.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
 	return taskPayload{
 		TaskID:          t.TaskID,
 		TaskNo:          t.TaskNo,
@@ -183,6 +202,7 @@ func toTaskPayload(t domain.Task, actor domain.Actor) taskPayload {
 		StatusOptions:   optionPayloads,
 		AttachmentCount: len(t.Attachments),
 		Attachments:     attachments,
+		Notes:           notes,
 	}
 }
 

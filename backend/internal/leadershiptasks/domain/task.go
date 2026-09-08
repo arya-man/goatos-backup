@@ -5,15 +5,16 @@
 // (a voice note recorded in the app, photos or videos picked from the gallery, any file).
 // It is not operational work -- no shed, no animal, no proof -- it is a director asking the
 // leadership desk for something. The person it is addressed to sees it, opens it (which marks
-// it SEEN, the fact the drawer badge counts), and moves it open -> in_progress -> done. The
-// raiser may edit the brief and its attachments, or cancel the task, only while it is still
-// open or in progress; a finished task is history and is never rewritten.
+// it SEEN, the fact the drawer badge counts), and moves it open -> in_progress -> done. Both
+// sides can add task notes while the task is active. The raiser may edit the brief and its
+// attachments, or cancel the task, only while it is still open or in progress; a finished task
+// is history and is never rewritten.
 //
 // Every task carries a per-tenant running NUMBER ("#12"), which is how two people on a call
 // refer to it. The number is minted inside the raise transaction and never reused.
 //
 // All copy a screen shows -- status chips, the meta line, the number label -- is composed
-// HERE and rendered verbatim by the phone. There is no comment thread in v1.
+// HERE and rendered verbatim by the phone.
 package domain
 
 import (
@@ -99,6 +100,7 @@ type Task struct {
 	RowVersion      int
 	Attachments     []Attachment
 	AttachmentCount int
+	Notes           []Note
 }
 
 // Attachment is one stored attachment of a task. ProofID points at the proof store row that
@@ -112,6 +114,16 @@ type Attachment struct {
 	SizeBytes    int64
 	DurationMS   *int64
 	Position     int
+}
+
+// Note is one chronological task update in the Jira-style activity stream. The legacy
+// AssigneeComment field is still kept for older mobile clients, but new clients read Notes.
+type Note struct {
+	NoteID     string
+	AuthorID   string
+	AuthorName string
+	Body       string
+	CreatedAt  time.Time
 }
 
 // AttachmentRef is what a raise/edit request names: the proof the phone already uploaded,
@@ -208,8 +220,10 @@ func (t Task) CanChangeStatus(a Actor) bool {
 	return a.CanAct && t.IsAssignee(a) && t.Status != StatusCancelled
 }
 
-// CanComment: the assignee, while the task is not cancelled. The raiser reads it.
-func (t Task) CanComment(a Actor) bool { return t.CanChangeStatus(a) }
+// CanComment: either task party can append a note while the task is not cancelled.
+func (t Task) CanComment(a Actor) bool {
+	return (t.IsAssignee(a) || t.IsRaiser(a)) && t.Status != StatusCancelled
+}
 
 // CanMonitor reports read-only team-progress visibility for CEO/COO-style monitors. It is
 // deliberately separate from raise authority so directors can raise without receiving a
