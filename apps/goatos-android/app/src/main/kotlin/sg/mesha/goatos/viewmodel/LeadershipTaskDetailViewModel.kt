@@ -33,6 +33,7 @@ import sg.mesha.goatos.feature.leadershiptasks.LeadershipAttachmentUi
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipStatusOptionUi
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskDetailEvent
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskDetailUiState
+import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskNoteUi
 import sg.mesha.goatos.feature.leadershiptasks.formatBytes
 import sg.mesha.goatos.feature.leadershiptasks.formatClock
 import javax.inject.Inject
@@ -213,7 +214,7 @@ class LeadershipTaskDetailViewModel @Inject constructor(
         val task = latest ?: return
         val own = local.value
         val draft = own.commentDraft ?: return
-        if (own.commentSaving || draft.trim() == task.comment.trim()) return
+        if (own.commentSaving || draft.trim().isBlank()) return
         // One key per draft text: a retry of the same text replays, a changed text is a new write.
         val key = own.commentKey ?: UUID.randomUUID().toString().also { minted -> local.update { it.copy(commentKey = minted) } }
         viewModelScope.launch {
@@ -304,6 +305,13 @@ class LeadershipTaskDetailViewModel @Inject constructor(
                         loading = key in own.fetching,
                     )
                 },
+            notes = detail.notes.map { note ->
+                LeadershipTaskNoteUi(
+                    listKey = note.noteId.ifBlank { "${note.authorUserId}:${note.createdAt}" },
+                    authorName = note.authorName,
+                    body = note.body,
+                )
+            },
             statusOptions = detail.statusOptions
                 .filter { it.key != STATUS_CANCELLED }
                 .map { LeadershipStatusOptionUi(key = it.key, label = it.label) },
@@ -312,7 +320,7 @@ class LeadershipTaskDetailViewModel @Inject constructor(
             // option or flags it — both mean the same thing for this caller.
             canCancel = detail.canCancel || detail.statusOptions.any { it.key == STATUS_CANCELLED },
             comment = detail.comment,
-            commentDraft = own.commentDraft ?: detail.comment,
+            commentDraft = own.commentDraft.orEmpty(),
             canComment = detail.canComment,
             commentSaving = own.commentSaving,
             isRefreshing = own.isRefreshing,

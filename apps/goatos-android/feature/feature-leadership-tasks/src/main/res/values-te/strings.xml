@@ -30,6 +30,8 @@
     <string name="leadership_tasks_comment_placeholder">ఈ పనిపై ఒక నోట్ జోడించండి</string>
     <string name="leadership_tasks_comment_save">వ్యాఖ్యను సేవ్ చేయండి</string>
     <string name="leadership_tasks_comment_saving">సేవ్ అవుతోంది…</string>
+    <string name="leadership_tasks_notes_label">కార్యాచరణ నోట్లు</string>
+    <string name="leadership_tasks_note_author_fallback">పని నోట్</string>
     <string name="leadership_tasks_status_label">స్థితి</string>
     <string name="leadership_tasks_attachment_view">చూడండి</string>
 </resources>

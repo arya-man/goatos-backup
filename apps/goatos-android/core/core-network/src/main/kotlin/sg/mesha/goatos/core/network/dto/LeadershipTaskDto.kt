@@ -58,6 +58,15 @@ data class LeadershipTaskStatusOptionDto(
 )
 
 @Serializable
+data class LeadershipTaskNoteDto(
+    @SerialName("note_id") val noteId: String = "",
+    @SerialName("author_user_id") val authorUserId: String = "",
+    @SerialName("author_name") val authorName: String = "",
+    @SerialName("body") val body: String = "",
+    @SerialName("created_at") val createdAt: String = "",
+)
+
+@Serializable
 data class LeadershipTaskDto(
     @SerialName("task_id") val taskId: String = "",
     @SerialName("task_no") val taskNo: Int = 0,
@@ -96,6 +105,7 @@ data class LeadershipTaskDto(
     @SerialName("status_options") val statusOptions: List<LeadershipTaskStatusOptionDto> = emptyList(),
     @SerialName("attachment_count") val attachmentCount: Int = 0,
     @SerialName("attachments") val attachments: List<LeadershipTaskAttachmentDto> = emptyList(),
+    @SerialName("notes") val notes: List<LeadershipTaskNoteDto> = emptyList(),
 )
 
 @Serializable

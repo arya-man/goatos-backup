@@ -170,7 +170,7 @@ fun LeadershipTaskDetailScreen(
                                     unfocusedPlaceholderColor = MeshaColors.Muted,
                                 ),
                             )
-                            val dirty = state.commentDraft.trim() != state.comment.trim()
+                            val dirty = state.commentDraft.trim().isNotBlank()
                             LeadershipPrimaryButton(
                                 label = stringResource(
                                     if (state.commentSaving) R.string.leadership_tasks_comment_saving else R.string.leadership_tasks_comment_save,
@@ -182,6 +182,31 @@ fun LeadershipTaskDetailScreen(
                         } else {
                             Text(text = state.comment, color = MeshaColors.Ink, style = MeshaType.body)
                         }
+                    }
+                }
+            }
+
+            if (state.notes.isNotEmpty()) {
+                item(key = "notes_label") {
+                    Text(
+                        text = stringResource(R.string.leadership_tasks_notes_label),
+                        color = MeshaColors.Faint,
+                        style = MeshaType.sectionLabel,
+                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                    )
+                }
+                items(count = state.notes.size, key = { index -> state.notes[index].listKey }) { index ->
+                    val note = state.notes[index]
+                    Column(
+                        modifier = leadershipCardModifier(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = note.authorName.ifBlank { stringResource(R.string.leadership_tasks_note_author_fallback) },
+                            color = MeshaColors.Faint,
+                            style = MeshaType.sectionLabel,
+                        )
+                        Text(text = note.body, color = MeshaColors.Ink, style = MeshaType.body)
                     }
                 }
             }

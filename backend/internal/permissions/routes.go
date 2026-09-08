@@ -329,10 +329,10 @@ var protectedRoutes = []Route{
 
 	// LEADERSHIP TASKS (maintainer decisions 2026-09-04 and 2026-09-08): manual asks between
 	// leadership and active app-backed workers.
-	// List/detail/seen are LeadershipTasksRead (seen is a no-op for anyone but the assignee);
-	// raise/edit are LeadershipTasksRaise; a status change is LeadershipTasksRead at the
+	// List/detail/seen/comment are LeadershipTasksRead (seen is a no-op for anyone but the assignee);
+	// raise/edit are LeadershipTasksRaise; status/comment writes are LeadershipTasksRead at the
 	// route and the domain rule decides who may move it (the assignee walks the ladder, the
-	// raiser only cancels) -- both parties reach the route and neither can do the other's
+	// raiser only cancels) or append a note -- both parties reach the route and neither can do the other's
 	// act. Patterns must stay byte-identical to leadershiptasks/adapters/http.Register.
 	{OperationID: "listLeadershipTasks", Method: "GET", Pattern: "/app/leadership-tasks", Permissions: []string{LeadershipTasksRead}},
 	{OperationID: "listLeadershipTaskAssignees", Method: "GET", Pattern: "/app/leadership-tasks/assignees", Permissions: []string{LeadershipTasksRaise}},
@@ -340,7 +340,7 @@ var protectedRoutes = []Route{
 	{OperationID: "raiseLeadershipTask", Method: "POST", Pattern: "/app/leadership-tasks", Permissions: []string{LeadershipTasksRaise}},
 	{OperationID: "editLeadershipTask", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/edit", Permissions: []string{LeadershipTasksRaise}},
 	{OperationID: "changeLeadershipTaskStatus", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/status", Permissions: []string{LeadershipTasksRead}},
-	{OperationID: "setLeadershipTaskComment", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/comment", Permissions: []string{LeadershipTasksAct}},
+	{OperationID: "setLeadershipTaskComment", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/comment", Permissions: []string{LeadershipTasksRead}},
 	{OperationID: "markLeadershipTaskSeen", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/seen", Permissions: []string{LeadershipTasksRead}},
 	{OperationID: "downloadLeadershipTaskAttachment", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}/attachments/{proof_id}/download", Permissions: []string{LeadershipTasksRead}},
 

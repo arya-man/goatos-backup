@@ -24,6 +24,7 @@ import sg.mesha.goatos.boot.RecordingAnalytics
 import sg.mesha.goatos.core.analytics.AnalyticsEventsLeadershipTasks
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.network.dto.LeadershipTaskAttachmentDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskNoteDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusOptionDto
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipAttachmentKind
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskDetailEvent
@@ -162,6 +163,10 @@ class LeadershipTaskDetailViewModelTest {
                     LeadershipTaskAttachmentDto(attachmentId = "att-1", proofId = "proof-1", kind = "photo", mimeType = "image/jpeg", fileName = "pump.jpg", sizeBytes = 2_048L, position = 0),
                     LeadershipTaskAttachmentDto(attachmentId = "att-2", proofId = "proof-2", kind = "audio", mimeType = "audio/mp4", fileName = "Voice note 1", sizeBytes = 0L, durationMs = 61_000L, position = 1),
                 ),
+                notes = listOf(
+                    LeadershipTaskNoteDto(noteId = "note-1", authorName = "Ravi", body = "Please add the voice note.", createdAt = "2026-09-08T08:00:00Z"),
+                    LeadershipTaskNoteDto(noteId = "note-2", authorName = "Satish", body = "Uploading after the park round.", createdAt = "2026-09-08T08:05:00Z"),
+                ),
             ),
         )
         val vm = viewModel(repository)
@@ -176,6 +181,9 @@ class LeadershipTaskDetailViewModelTest {
         assertEquals(listOf(LeadershipAttachmentKind.PHOTO, LeadershipAttachmentKind.AUDIO), state.attachments.map { it.kind })
         assertEquals("1:01", state.attachments[1].durationLabel)
         assertEquals("2 KB", state.attachments[0].sizeLabel)
+        assertEquals(listOf("Ravi", "Satish"), state.notes.map { it.authorName })
+        assertEquals(listOf("Please add the voice note.", "Uploading after the park round."), state.notes.map { it.body })
+        assertEquals("", state.commentDraft)
 
         vm.onEvent(LeadershipTaskDetailEvent.OpenAttachment("att-1"))
         advanceUntilIdle()

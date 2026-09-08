@@ -12,6 +12,7 @@ import sg.mesha.goatos.core.data.LeadershipTasksRepository
 import sg.mesha.goatos.core.network.dto.LeadershipAssigneeDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskEditRequestDto
+import sg.mesha.goatos.core.network.dto.LeadershipTaskNoteDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
 import sg.mesha.goatos.leadershiptasks.AttachmentImporter
@@ -135,7 +136,17 @@ class FakeLeadershipTasksRepository(
     }
 
     override suspend fun setComment(taskId: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto): AppResult<LeadershipTaskDto> {
-        val updated = (detail.value ?: LeadershipTaskDto(taskId = taskId)).copy(comment = request.comment)
+        val current = detail.value ?: LeadershipTaskDto(taskId = taskId)
+        val updated = current.copy(
+            comment = request.comment,
+            notes = current.notes + LeadershipTaskNoteDto(
+                noteId = "note-${current.notes.size + 1}",
+                authorUserId = "actor",
+                authorName = "Ravi",
+                body = request.comment,
+                createdAt = "2026-09-08T08:00:00Z",
+            ),
+        )
         detail.value = updated
         return AppResult.Ok(updated)
     }
@@ -211,6 +222,7 @@ fun leadershipTask(
         sg.mesha.goatos.core.network.dto.LeadershipTaskStatusOptionDto(key = "in_progress", label = "Start"),
     ),
     attachments: List<sg.mesha.goatos.core.network.dto.LeadershipTaskAttachmentDto> = emptyList(),
+    notes: List<LeadershipTaskNoteDto> = emptyList(),
 ): LeadershipTaskDto = LeadershipTaskDto(
     taskId = taskId,
     taskNo = 12,
@@ -232,4 +244,5 @@ fun leadershipTask(
     statusOptions = statusOptions,
     attachmentCount = attachments.size,
     attachments = attachments,
+    notes = notes,
 )
