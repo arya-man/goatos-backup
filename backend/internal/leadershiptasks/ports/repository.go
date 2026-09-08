@@ -17,8 +17,7 @@ var (
 	ErrInvalidAttachment   = errors.New("leadership task: invalid attachment")
 )
 
-// Assignee is one person a task may be raised for: a CXO with an active grant and an
-// active roster profile.
+// Assignee is one active app-backed worker a task may be raised for.
 type Assignee struct {
 	UserID string
 	Name   string
@@ -26,9 +25,8 @@ type Assignee struct {
 
 // ListParams selects one page of the caller's tasks.
 //
-// The caller sees the tasks THEY are party to: a director sees the ones they raised, a CXO
-// sees the ones addressed to them. Both predicates are ORed so a person who is both (a CXO
-// who also raised one) sees both sides on one list.
+// The caller sees the tasks THEY are party to: the ones they raised and the ones addressed
+// to them. Both predicates are ORed so a person who is both sees both sides on one list.
 type ListParams struct {
 	TenantID string
 	UserID   string

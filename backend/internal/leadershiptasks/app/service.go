@@ -62,7 +62,7 @@ func ClampPageSize(limit int) int {
 	return limit
 }
 
-// ListAssignees is the raise form's picker: every CXO a task may be addressed to.
+// ListAssignees is the raise form's picker: every active worker a task may be addressed to.
 func (s *Service) ListAssignees(ctx context.Context, tenantID string) ([]ports.Assignee, error) {
 	return s.repo.ListAssignees(ctx, tenantID)
 }

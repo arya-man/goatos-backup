@@ -53,6 +53,15 @@ export type ActionCenterObligation = AppApiComponents["schemas"]["ActionCenterOb
 export type ActionCenterResponse = AppApiComponents["schemas"]["ActionCenterResponse"];
 export type VaccinationQueueItem = AppApiComponents["schemas"]["VaccinationQueueItem"];
 export type VaccinationQueueResponse = AppApiComponents["schemas"]["VaccinationQueueResponse"];
+export type LeadershipTaskPage = AppApiComponents["schemas"]["LeadershipTaskPage"] & {
+  scopes?: Array<{
+    key: "assigned_to_me" | "assigned_by_me" | "team_progress";
+    label: string;
+    count: number;
+    selected: boolean;
+    empty_message: string;
+  }>;
+};
 
 // Process-integrity read model — the canonical truth feeding Action Center, Protocol Adherence,
 // Control Tower, and workflow drilldown. One backend projection, not the Parks physical projection.
@@ -2810,6 +2819,28 @@ export async function listPCCareTasks(params: {
         limit: params.limit,
         cursor: params.cursor,
         current_or_carry: params.currentOrCarry ? "true" : undefined,
+      }),
+    }),
+  );
+}
+
+export async function listLeadershipTasks(params: {
+  scope?: "assigned_to_me" | "assigned_by_me" | "team_progress";
+  filter?: "all" | "open" | "in_progress" | "done";
+  limit?: number;
+  cursor?: string;
+} = {}): Promise<ApiResult<LeadershipTaskPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LeadershipTaskPage>("/app/leadership-tasks", {
+      cache: "no-store",
+      query: compactQuery({
+        scope: params.scope,
+        filter: params.filter,
+        limit: params.limit ?? 50,
+        cursor: params.cursor,
       }),
     }),
   );

@@ -145,7 +145,7 @@ const previewContract: AdminWebBootstrapResponse = {
 export default function TasksPreviewRoute() {
   return (
     <MeshaShell parks={previewParks} contract={previewContract}>
-      <LeadershipTasksPage />
+      <LeadershipTasksPage preview />
     </MeshaShell>
   );
 }

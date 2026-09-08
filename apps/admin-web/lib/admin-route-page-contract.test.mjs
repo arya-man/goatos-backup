@@ -21,3 +21,12 @@ test("production admin product pages require backend page contracts", () => {
     );
   }
 });
+
+test("production Tasks page uses live backend data, with fixtures confined to preview", () => {
+  const route = readFileSync(join(root, "app/(admin)/tasks/page.tsx"), "utf8");
+  assert.match(route, /listLeadershipTasks\(/, "production /tasks must fetch the backend Leadership Tasks page");
+
+  const component = readFileSync(join(root, "features/leadership-tasks/leadership-tasks-page.tsx"), "utf8");
+  assert.match(component, /page \? rowsFromPage\(page\) : preview \? fixtureTasks : \[\]/);
+  assert.doesNotMatch(component, /page \? rowsFromPage\(page\) : fixtureTasks/);
+});

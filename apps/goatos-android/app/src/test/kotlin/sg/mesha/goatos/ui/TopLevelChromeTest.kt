@@ -136,7 +136,7 @@ class TopLevelChromeTest {
         ),
     )
 
-    // The Tasks module (director -> CXO ask desk) serves NO bar destinations: the backend
+    // The Tasks module can serve no bar destinations for assignee-only users: the backend
     // declares it noBottomBar, so its navItems arrive empty (bootstrap_copy.go, maintainer
     // decision 2026-09-05). Its drawer row and landing href still exist -- that is the way out.
     private val tasks = NavModule(
@@ -166,7 +166,7 @@ class TopLevelChromeTest {
         assertEquals(3, state.barItems("vaccination", Routes.VACCINATION).size)
     }
 
-    // A DIRECTOR / park head's Tasks module (maintainer decision 2026-09-07): the backend serves
+    // A director / park head's Tasks module (maintainer decision 2026-09-07): the backend serves
     // TWO destinations — "Raised by me" and the pen-visit "For me" tab — so this principal gets
     // the two-tab bar the CXO above does not.
     private val tasksWithPenVisits = NavModule(

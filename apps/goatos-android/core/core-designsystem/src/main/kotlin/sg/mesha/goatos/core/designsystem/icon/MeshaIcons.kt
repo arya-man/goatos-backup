@@ -334,8 +334,8 @@ object MeshaIcons {
     )
 
     /**
-     * Leadership Tasks (maintainer request 2026-09-04): a clipboard carrying LINES — the brief a
-     * director hands a CXO. Deliberately not [ClipboardCheck] (Feed Wastage's recorded check) and
+     * Leadership Tasks (maintainer request 2026-09-04 and Manju extension 2026-09-08): a clipboard
+     * carrying LINES -- the brief one worker hands another. Deliberately not [ClipboardCheck] (Feed Wastage's recorded check) and
      * not the generic [Module] grid: the drawer lists this beside every other module.
      */
     val Tasks: ImageVector = strokeIcon(

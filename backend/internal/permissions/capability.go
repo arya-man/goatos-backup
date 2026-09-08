@@ -509,7 +509,8 @@ var moduleCapabilities = []ModuleCapability{
 	{
 		// Leadership Tasks: a general ask desk for leadership to assign follow-up work inside
 		// the phone app. Raises and assignees are capability-driven; a role name never decides
-		// the picker by itself. Phone-only; no admin-web sidebar leaf.
+		// the picker by itself. Admin-web has only a contract-gated preview until a real data
+		// endpoint is added.
 		Key:      "leadership_tasks",
 		Label:    "Tasks",
 		Blurb:    "Tasks raised inside the farm team, with voice notes, media and files.",

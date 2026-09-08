@@ -340,15 +340,16 @@ const (
 var ScopeKeys = []string{ScopeAssignedToMe, ScopeAssignedByMe, ScopeTeamProgress}
 
 func ScopeKeyOrDefault(key string, actor Actor) string {
-	switch strings.TrimSpace(key) {
+	trimmed := strings.TrimSpace(key)
+	switch trimmed {
 	case ScopeAssignedToMe:
 		return ScopeAssignedToMe
 	case ScopeAssignedByMe, ScopeTeamProgress:
-		if key == ScopeAssignedByMe && actor.CanRaise {
-			return strings.TrimSpace(key)
+		if trimmed == ScopeAssignedByMe && actor.CanRaise {
+			return trimmed
 		}
-		if key == ScopeTeamProgress && actor.CanMonitor {
-			return strings.TrimSpace(key)
+		if trimmed == ScopeTeamProgress && actor.CanMonitor {
+			return trimmed
 		}
 	}
 	if actor.CanRaise {

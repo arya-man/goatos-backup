@@ -1,6 +1,7 @@
 import { CheckCircle2, ClipboardList, Clock3, Mic2, Paperclip, Plus, UserRoundCheck, Video } from "lucide-react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
+import type { LeadershipTaskPage } from "@/lib/api/server";
 
 type TaskStatus = "open" | "doing" | "done";
 
@@ -24,9 +25,10 @@ type ScopeRow = {
   count: number;
   detail: string;
   tone: Tone;
+  emptyMessage?: string;
 };
 
-const tasks: TaskRow[] = [
+const fixtureTasks: TaskRow[] = [
   {
     id: "1",
     number: "#18",
@@ -68,14 +70,17 @@ const tasks: TaskRow[] = [
   },
 ];
 
-const scopes: ScopeRow[] = [
+const fixtureScopes: ScopeRow[] = [
   { key: "assigned_to_me", label: "Assigned to me", count: 2, detail: "My action queue", tone: "info" },
   { key: "assigned_by_me", label: "Assigned by me", count: 7, detail: "Follow-ups I raised", tone: "warn" },
   { key: "team_progress", label: "Team progress", count: 18, detail: "Open team work", tone: "ok" },
 ];
 
-export function LeadershipTasksPage() {
+export function LeadershipTasksPage({ page, preview = false }: { page?: LeadershipTaskPage | null; preview?: boolean }) {
+  const tasks = page ? rowsFromPage(page) : preview ? fixtureTasks : [];
+  const scopes = page?.scopes?.length ? scopesFromPage(page) : preview ? fixtureScopes : [];
   const selected = tasks[0];
+  const selectedScope = scopes.find((scope) => scope.key === "team_progress") ?? scopes.find((scope) => scope.key === "assigned_by_me") ?? scopes[0];
 
   return (
     <div className="screen on lt-page">
@@ -84,8 +89,10 @@ export function LeadershipTasksPage() {
           <div className="crumb">
             Operations / <b>Tasks</b>
           </div>
-          <h1>Tasks</h1>
-          <div className="sub">Manual work assigned across directors, park heads, and employees.</div>
+          <h1>{page?.title || "Tasks"}</h1>
+          <div className="sub">
+            {preview ? "Preview data" : "Live backend data"} / Manual work assigned across directors, park heads, and employees.
+          </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
         <button type="button" className="btn p">
@@ -98,11 +105,12 @@ export function LeadershipTasksPage() {
         {scopes.map((scope) => (
           <KPI key={scope.key} label={scope.label} value={String(scope.count)} detail={scope.detail} tone={scope.tone} />
         ))}
+        {!scopes.length ? <KPI label="Team progress" value="0" detail="Live data unavailable" tone="warn" /> : null}
       </div>
 
       <div className="subtabs" style={{ marginBottom: 14 }} aria-label="Task scopes">
         {scopes.map((scope) => (
-          <button key={scope.key} type="button" className={scope.key === "team_progress" ? "on" : ""}>
+          <button key={scope.key} type="button" className={scope.key === selectedScope?.key ? "on" : ""}>
             {scope.label}
             <span className="cbq">{scope.count}</span>
           </button>
@@ -130,6 +138,13 @@ export function LeadershipTasksPage() {
                 </tr>
               </thead>
               <tbody>
+                {tasks.length === 0 ? (
+                  <tr>
+                    <td colSpan={6}>
+                      <span className="muted small">{selectedScope?.emptyMessage || "No tasks in this scope."}</span>
+                    </td>
+                  </tr>
+                ) : null}
                 {tasks.map((task) => (
                   <tr key={task.id}>
                     <td>
@@ -168,6 +183,7 @@ export function LeadershipTasksPage() {
           </div>
         </section>
 
+        {selected ? (
         <aside className="card lt-card">
           <div className="hd">
             <UserRoundCheck className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
@@ -194,9 +210,51 @@ export function LeadershipTasksPage() {
             </div>
           </div>
         </aside>
+        ) : null}
       </div>
     </div>
   );
+}
+
+function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
+  return page.rows.map((task) => {
+    const status = task.status === "done" ? "done" : task.status === "in_progress" ? "doing" : "open";
+    const evidence = task.attachments?.map((attachment) => attachment.kind).filter(Boolean).join(", ");
+    return {
+      id: task.task_id,
+      number: task.number_label,
+      title: task.title,
+      status,
+      assignee: task.assignee_name,
+      assigneeRole: task.is_assignee ? "Assigned to me" : "Assignee",
+      raisedBy: task.raised_by_name,
+      age: task.raised_on_label,
+      attachments: task.attachment_count,
+      evidence: evidence || (task.attachment_count > 0 ? "attached files" : "no attachments"),
+      priority: task.status === "open" ? "High" : task.status === "in_progress" ? "Medium" : "Normal",
+    };
+  });
+}
+
+function scopesFromPage(page: LeadershipTaskPage): ScopeRow[] {
+  const detailByKey: Record<string, string> = {
+    assigned_to_me: "My action queue",
+    assigned_by_me: "Follow-ups I raised",
+    team_progress: "Open team work",
+  };
+  const toneByKey: Record<string, Tone> = {
+    assigned_to_me: "info",
+    assigned_by_me: "warn",
+    team_progress: "ok",
+  };
+  return (page.scopes ?? []).map((scope) => ({
+    key: scope.key,
+    label: scope.label,
+    count: scope.count,
+    detail: detailByKey[scope.key] ?? "Task queue",
+    tone: toneByKey[scope.key] ?? "info",
+    emptyMessage: scope.empty_message,
+  }));
 }
 
 function KPI({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: Tone }) {

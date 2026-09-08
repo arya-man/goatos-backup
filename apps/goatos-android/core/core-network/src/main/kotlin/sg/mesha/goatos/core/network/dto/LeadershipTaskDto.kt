@@ -4,10 +4,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Leadership Tasks module (maintainer request 2026-09-04): a DIRECTOR raises a task for ONE CXO
- * with a title, a brief, and optional attachments (an in-app voice note, gallery photos/videos,
- * arbitrary files). The CXO marks it seen and moves it open -> in_progress -> done; the raiser may
- * edit and cancel while it is not done.
+ * Leadership Tasks module (maintainer request 2026-09-04, Manju extension 2026-09-08): an
+ * authorized leader raises a manual task for another active worker with a title, a brief, and
+ * optional attachments (an in-app voice note, gallery photos/videos, arbitrary files). The assignee
+ * marks it seen and moves it open -> in_progress -> done; the raiser may edit and cancel while it
+ * is not done.
  *
  * ALL business copy (`number_label`, `status_chip`, `meta_line`, `raised_on_label`, the filter
  * labels and empty messages, the status option labels, the page title) is BACKEND-OWNED and
@@ -15,7 +16,7 @@ import kotlinx.serialization.Serializable
  * backend composed for THIS caller (`can_raise`, `can_edit`, `can_change_status`, `can_cancel`,
  * `status_options`) — never by a role string.
  *
- * Wire contract of record: the Leadership Tasks contract (v1, 2026-09-04).
+ * Wire contract of record: the Leadership Tasks contract (v2, 2026-09-08).
  */
 @Serializable
 data class LeadershipAssigneeDto(
@@ -87,7 +88,7 @@ data class LeadershipTaskDto(
     @SerialName("row_version") val rowVersion: Int = 0,
     @SerialName("can_edit") val canEdit: Boolean = false,
     @SerialName("can_change_status") val canChangeStatus: Boolean = false,
-    /** The CXO's note back on the task; [canComment] says whether the caller may write it. */
+    /** The assignee's note back on the task; [canComment] says whether the caller may write it. */
     @SerialName("comment") val comment: String = "",
     @SerialName("can_comment") val canComment: Boolean = false,
     @SerialName("can_cancel") val canCancel: Boolean = false,
