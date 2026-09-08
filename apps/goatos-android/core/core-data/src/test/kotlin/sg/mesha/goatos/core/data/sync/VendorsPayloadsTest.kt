@@ -6,14 +6,18 @@ import org.junit.Test
 
 class VendorsPayloadsTest {
     @Test
-    fun `a vendor edit shares its form lane but keys each saved commit apart`() {
-        // Same client id -> same FIFO lane, so a re-recorded voice note's upload drains before the
-        // update that references it; but each saved edit commit carries a DIFFERENT idempotency key,
-        // so one month's retained offline commits cannot collapse into the first queued edit.
-        assertEquals(vendorCreateGroupKey("form-9"), vendorCreateGroupKey("form-9"))
+    fun `a vendor edit shares its vendor lane but keys each saved commit apart`() {
+        // Same target vendor -> same FIFO lane even when two form instances save while offline, so
+        // whole-row replaces cannot race each other. Each saved edit commit still carries a different
+        // idempotency key, so retained offline commits cannot collapse into the first queued edit.
+        assertEquals(vendorUpdateGroupKey("vendor-9"), vendorUpdateGroupKey("vendor-9"))
+        assertEquals(vendorUpdateGroupKey("vendor-9"), vendorUpdateGroupKey("vendor-9"))
+        assertNotEquals(vendorUpdateGroupKey("vendor-9"), vendorCreateGroupKey("form-9"))
+        assertNotEquals(vendorUpdateGroupKey("vendor-9"), vendorUpdateGroupKey("vendor-10"))
         assertNotEquals(vendorUpdateIdempotencyKey("form-9", "commit-1"), vendorCreateIdempotencyKey("form-9"))
         assertEquals(vendorUpdateIdempotencyKey("form-9", "commit-1"), vendorUpdateIdempotencyKey("form-9", "commit-1"))
         assertNotEquals(vendorUpdateIdempotencyKey("form-9", "commit-1"), vendorUpdateIdempotencyKey("form-9", "commit-2"))
+        assertNotEquals(vendorUpdateIdempotencyKey("form-9", "commit-1"), vendorUpdateIdempotencyKey("form-10", "commit-1"))
     }
 
     @Test

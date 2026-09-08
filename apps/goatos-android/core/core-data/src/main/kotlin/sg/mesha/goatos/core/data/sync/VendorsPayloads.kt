@@ -33,6 +33,12 @@ import sg.mesha.goatos.core.network.dto.VendorWriteDto
  *  capture path must pass this SAME value as its `uploadGroupKey`. */
 fun vendorCreateGroupKey(clientId: String): String = "vendors:vendor:$clientId"
 
+/** Group key for edits to ONE recorded vendor. Every form instance targeting the same vendor must
+ * share this lane so whole-row replaces drain in the order the operator saved them. A newly recorded
+ * voice note for the edit uses this same lane, so the update never reaches the server before the
+ * upload row it references. */
+fun vendorUpdateGroupKey(vendorId: String): String = "vendors:vendor-update:$vendorId"
+
 /** STABLE per client id; a retry replays for free. */
 fun vendorCreateIdempotencyKey(clientId: String): String = "vendors:create:$clientId"
 

@@ -611,8 +611,8 @@ interface SyncRepository {
 
     /**
      * Enqueues an edit of a recorded vendor (`PUT /procurement/vendors/{vendor_id}`, maintainer
-     * decision 2026-09-08). Same lane rule as the create: the payload's client id keys both the
-     * idempotency key and the group a re-recorded voice-note upload shares.
+     * decision 2026-09-08). One lane per vendor id: two offline whole-row replaces of the same
+     * register row must drain in saved order, and a re-recorded voice note for this edit shares it.
      */
     suspend fun enqueueVendorUpdate(
         payload: VendorUpdatePayload,
@@ -1686,7 +1686,7 @@ class DefaultSyncRepository(
         payload: VendorUpdatePayload,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.VENDOR_UPDATE,
-        groupKey = vendorCreateGroupKey(payload.clientId.trim()),
+        groupKey = vendorUpdateGroupKey(payload.vendorId.trim()),
         idempotencyKey = vendorUpdateIdempotencyKey(payload.clientId.trim(), payload.commitId.trim()),
         payloadJson = syncJson.encodeToString(payload),
     )
