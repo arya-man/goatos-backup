@@ -16318,6 +16318,17 @@ components:
           description: >-
             The vendor's audio note: a completed `audio` proof in this tenant. Play it through
             GET /app/proofs/{proof_id}/download. Null when none was recorded.
+        average_animal_weight_kg:
+          type: string
+          nullable: true
+          description: >-
+            Average live weight per animal (kg) this counterparty expects when buying, a decimal as
+            a string; null when not recorded. A plain recorded value, connected to nothing else.
+        average_animal_weight_display:
+          type: string
+          description: >-
+            BACKEND-composed "35 kg" from average_animal_weight_kg. Empty when not recorded.
+            Rendered verbatim.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         row_version:
@@ -16383,6 +16394,12 @@ components:
           description: >-
             Proof id of a completed in-app-microphone `audio` upload in this tenant, or empty. An
             unusable ref is rejected (`vendor_voice_note_invalid`), never stored unchecked.
+        average_animal_weight_kg:
+          type: string
+          nullable: true
+          description: >-
+            Optional. Average live weight per animal in kg as a decimal string, more than zero, up
+            to two places. Null or empty clears it (stores NULL, never 0).
         row_version:
           type: integer
           format: int64

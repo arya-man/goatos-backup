@@ -155,6 +155,7 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // once (the record is durable in the outbox), and the sync pass writes the server's
         // RETURNED row straight into the Room detail/list caches -- the toxin/packing shape.
         OutboxOpType.VENDOR_CREATE -> overlayDirectReconcileLifecycle()
+        OutboxOpType.VENDOR_UPDATE -> overlayDirectReconcileLifecycle()
         OutboxOpType.FEED_PURCHASE_CREATE -> overlayDirectReconcileLifecycle()
         // Sales (maintainer instruction 2026-09-04): the same shape -- queued banner at once, the
         // server's returned deal written straight into the Room ledger/detail caches.

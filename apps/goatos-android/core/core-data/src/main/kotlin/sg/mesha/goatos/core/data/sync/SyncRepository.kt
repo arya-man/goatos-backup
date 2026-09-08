@@ -609,6 +609,15 @@ interface SyncRepository {
         voiceNoteOutboxItemId: String = "",
     ): AppResult<String> = AppResult.Err("vendor sync is not configured")
 
+    /**
+     * Enqueues an edit of a recorded vendor (`PUT /procurement/vendors/{vendor_id}`, maintainer
+     * decision 2026-09-08). Same lane rule as the create: the payload's client id keys both the
+     * idempotency key and the group a re-recorded voice-note upload shares.
+     */
+    suspend fun enqueueVendorUpdate(
+        payload: VendorUpdatePayload,
+    ): AppResult<String> = AppResult.Err("vendor sync is not configured")
+
     /** Enqueues a feed purchase recorded on the phone (`POST /procurement/feed-purchases`). */
     suspend fun enqueueFeedPurchaseCreate(
         clientId: String,
@@ -1671,6 +1680,15 @@ class DefaultSyncRepository(
         payloadJson = syncJson.encodeToString(
             VendorCreatePayload(clientId = clientId.trim(), request = request, voiceNoteOutboxItemId = voiceNoteOutboxItemId),
         ),
+    )
+
+    override suspend fun enqueueVendorUpdate(
+        payload: VendorUpdatePayload,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.VENDOR_UPDATE,
+        groupKey = vendorCreateGroupKey(payload.clientId.trim()),
+        idempotencyKey = vendorUpdateIdempotencyKey(payload.clientId.trim()),
+        payloadJson = syncJson.encodeToString(payload),
     )
 
     override suspend fun enqueueFeedPurchaseCreate(

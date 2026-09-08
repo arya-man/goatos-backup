@@ -57,6 +57,11 @@ type Vendor struct {
 	// this tenant), nil when none was recorded.
 	VoiceNoteProofRef *string
 
+	// AverageAnimalWeightKg (maintainer decision 2026-09-08) is the average live weight per animal
+	// this counterparty expects when BUYING from the farm, in kg. A decimal carried as a string
+	// like PricePerGoat; nil means "not recorded" -- existing rows stay nil, never 0.
+	AverageAnimalWeightKg *string
+
 	SourceRow *int
 
 	CreatedAt  string
@@ -233,6 +238,10 @@ type VendorWrite struct {
 	CapacityUnit      string
 	SupplyFrequency   string
 	VoiceNoteProofRef string
+
+	// AverageAnimalWeightKg is a decimal string (up to two places, more than zero); nil means not
+	// recorded. Optional on create and update alike.
+	AverageAnimalWeightKg *string
 }
 
 // ErrVendorValidation reports a rejected write with a field-specific, operator-readable reason.
@@ -276,6 +285,15 @@ func (w VendorWrite) Normalize() VendorWrite {
 			out.CapacityQuantity = nil
 		} else {
 			out.CapacityQuantity = &q
+		}
+	}
+	if w.AverageAnimalWeightKg != nil {
+		kg := strings.TrimSpace(*w.AverageAnimalWeightKg)
+		if kg == "" {
+			// A cleared field is "not recorded", the same NULL an omitted one stores.
+			out.AverageAnimalWeightKg = nil
+		} else {
+			out.AverageAnimalWeightKg = &kg
 		}
 	}
 
@@ -402,7 +420,35 @@ func (w VendorWrite) Validate() error {
 	if w.VoiceNoteProofRef != "" && !uuidPattern.MatchString(w.VoiceNoteProofRef) {
 		return ErrVendorValidation{Field: "voice_note_proof_ref", Reason: "must be a proof id"}
 	}
+	// Average animal weight is OPTIONAL (maintainer decision 2026-09-08); only a value that IS
+	// entered is shape-checked. Zero is refused: a buyer expecting zero-kilogram animals is not a
+	// fact, and storing it would render as a weight someone recorded.
+	if w.AverageAnimalWeightKg != nil {
+		if !averageWeightPattern.MatchString(*w.AverageAnimalWeightKg) || isZeroDecimal(*w.AverageAnimalWeightKg) {
+			return ErrVendorValidation{Field: "average_animal_weight_kg", Reason: "must be more than zero"}
+		}
+	}
 	return nil
+}
+
+// averageWeightPattern accepts a positive weight with up to two decimal places (numeric(8,2)):
+// up to six whole digits, which is far beyond any live animal and exists only to match storage.
+var averageWeightPattern = regexp.MustCompile(`^\d{1,6}(\.\d{1,2})?$`)
+
+// isZeroDecimal reports whether a pattern-valid decimal string is zero in any spelling ("0",
+// "0.0", "00.00"), so the > 0 rule cannot be dodged by a trailing decimal.
+func isZeroDecimal(raw string) bool {
+	return strings.Trim(raw, "0.") == ""
+}
+
+// AverageAnimalWeightDisplay composes the ONE weight sentence every surface renders ("35 kg",
+// "32.5 kg"), backend-owned so the phone and the web cannot phrase the same fact two ways. Empty
+// when no weight is recorded, so a client renders its own "not recorded" copy rather than "0 kg".
+func (v Vendor) AverageAnimalWeightDisplay() string {
+	if v.AverageAnimalWeightKg == nil || strings.TrimSpace(*v.AverageAnimalWeightKg) == "" {
+		return ""
+	}
+	return formatCapacityQuantity(strings.TrimSpace(*v.AverageAnimalWeightKg)) + " kg"
 }
 
 // capacityPattern accepts a positive amount with up to three decimal places (numeric(14,3)). Zero

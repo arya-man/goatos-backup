@@ -31,6 +31,7 @@ const vendorColumns = `
 	v.bank_name, v.account_no, v.ifsc_code, v.upi_id, v.pan_number,
 	v.comments, v.party_id, v.source_row,
 	v.capacity_quantity::text, v.capacity_unit, v.supply_frequency, v.voice_note_proof_ref::text,
+	v.average_animal_weight_kg::text,
 	v.created_at, v.updated_at, v.row_version`
 
 // scanVendor reads one row of vendorColumns, in that exact order.
@@ -57,6 +58,7 @@ func scanVendor(row pgx.Row) (domain.Vendor, error) {
 		&v.BankName, &v.AccountNo, &v.IFSCCode, &v.UPIID, &v.PANNumber,
 		&v.Comments, &partyID, &sourceRow,
 		&v.CapacityQuantity, &v.CapacityUnit, &v.SupplyFrequency, &v.VoiceNoteProofRef,
+		&v.AverageAnimalWeightKg,
 		&createdAt, &updatedAt, &rowVersion,
 	)
 	if err != nil {
@@ -253,14 +255,16 @@ func (r *Repository) CreateVendor(ctx context.Context, tenantID string, write do
 			eta_after_order_days, details, state, city,
 			bank_name, account_no, ifsc_code, upi_id, pan_number,
 			comments, created_by, updated_by,
-			capacity_quantity, capacity_unit, supply_frequency, voice_note_proof_ref
+			capacity_quantity, capacity_unit, supply_frequency, voice_note_proof_ref,
+			average_animal_weight_kg
 		) VALUES (
 			$1, $2, $3, %s, %s,
 			%s, %s, $6, $7, $8, %s,
 			$10, %s, $11, %s,
 			%s, %s, %s, %s, %s,
 			%s, $18, $18,
-			$23::numeric, %s, %s, nullif($26, '')::uuid
+			$23::numeric, %s, %s, nullif($26, '')::uuid,
+			$27::numeric
 		)
 		RETURNING %s`,
 		nullIf("$4"), nullIf("$5"),
@@ -279,6 +283,7 @@ func (r *Repository) CreateVendor(ctx context.Context, tenantID string, write do
 		nullableActor(actorID),
 		w.Breed, w.Feed, w.Details, w.Comments,
 		w.CapacityQuantity, w.CapacityUnit, w.SupplyFrequency, w.VoiceNoteProofRef,
+		w.AverageAnimalWeightKg,
 	))
 	if err != nil {
 		if isNaturalKeyViolation(err) {
@@ -326,6 +331,7 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 			capacity_unit = %s,
 			supply_frequency = %s,
 			voice_note_proof_ref = nullif($29, '')::uuid,
+			average_animal_weight_kg = $30::numeric,
 			updated_by = $23,
 			updated_at = now(),
 			row_version = v.row_version + 1
@@ -346,6 +352,7 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 		w.BankName, w.AccountNo, w.IFSCCode, w.UPIID, w.PANNumber,
 		w.Comments, nullableActor(actorID), rowVersion, preserveFinance,
 		w.CapacityQuantity, w.CapacityUnit, w.SupplyFrequency, w.VoiceNoteProofRef,
+		w.AverageAnimalWeightKg,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Zero rows means the tenant+id+version triple did not match. Re-read without the version to

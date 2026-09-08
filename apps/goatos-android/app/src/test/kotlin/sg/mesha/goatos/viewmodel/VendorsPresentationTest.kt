@@ -54,13 +54,22 @@ class VendorsPresentationTest {
             locationDisplay = "TN",
             pricePerGoat = "8500.00",
             etaAfterOrderDays = 3,
+            averageAnimalWeightKg = "35.00",
+            averageAnimalWeightDisplay = "35 kg",
         ).sections()
 
         assertEquals(listOf("Who they are", "What they supply"), sections.map { it.title })
         val supply = sections[1].rows.associate { it.label to it.value }
         assertEquals("₹8500.00", supply["Price per goat"])
         assertEquals("3 days", supply["Lead time"])
+        // Backend-composed, rendered verbatim (maintainer decision 2026-09-08).
+        assertEquals("35 kg", supply["Average animal weight"])
         assertFalse(supply.containsKey("Capacity"))
+
+        // A vendor with no recorded weight shows no weight row at all -- never "0 kg".
+        val bare = VendorDto(vendorId = "v-3", businessName = "Bare", displayName = "Bare", status = "active", statusLabel = "Active", state = "TN", locationDisplay = "TN")
+            .sections().flatMap { it.rows }.associate { it.label to it.value }
+        assertFalse(bare.containsKey("Average animal weight"))
     }
 
     @Test

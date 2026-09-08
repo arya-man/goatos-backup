@@ -31,6 +31,7 @@ func TestVendorRegisterPostgresPaths(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 	price := "1250.50"
+	avgWeight := "35.50"
 
 	created, err := repo.CreateVendor(ctx, testTenant, domain.VendorWrite{
 		RecordType: "Goat Stockist", BusinessName: "Bhopal Goat And Agro", ContactPersonName: "Sammer",
@@ -39,7 +40,7 @@ func TestVendorRegisterPostgresPaths(t *testing.T) {
 		ETAAfterOrderDays: intp(80), Details: "2 and 4 Teeth Sojat - 35kg avg",
 		State: "MP", City: "Bhopal", BankName: "HDFC Bank", AccountNo: "12345678901",
 		IFSCCode: "hdfc0002398", UPIID: "sammer@upi", PANNumber: "abcde1234f",
-		Comments: "prefers morning calls",
+		Comments: "prefers morning calls", AverageAnimalWeightKg: &avgWeight,
 	}.Normalize(), "")
 	if err != nil {
 		t.Fatalf("create vendor: %v", err)
@@ -85,6 +86,9 @@ func TestVendorRegisterPostgresPaths(t *testing.T) {
 		}
 		if created.PricePerGoat == nil || !strings.HasPrefix(*created.PricePerGoat, "1250.5") {
 			t.Errorf("price_per_goat mismapped: %v", created.PricePerGoat)
+		}
+		if created.AverageAnimalWeightKg == nil || !strings.HasPrefix(*created.AverageAnimalWeightKg, "35.5") {
+			t.Errorf("average_animal_weight_kg mismapped: %v", created.AverageAnimalWeightKg)
 		}
 		if created.Status != domain.VendorStatusActive {
 			t.Errorf("sheet casing 'Active' must normalize to %q, got %q", domain.VendorStatusActive, created.Status)

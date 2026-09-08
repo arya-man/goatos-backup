@@ -64,7 +64,7 @@ fun VendorCreateScreen(
     }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
-            title = TITLE,
+            title = if (state.isEditing) TITLE_EDIT else TITLE,
             subtitle = STEP_TITLES.getOrNull(state.step),
             onBack = { onEvent(VendorCreateEvent.Back) },
         )
@@ -97,7 +97,7 @@ fun VendorCreateScreen(
                 }
                 val last = state.step == state.stepCount - 1
                 VendorsPrimaryButton(
-                    label = if (last) SAVE else NEXT,
+                    label = if (last) (if (state.isEditing) SAVE_CHANGES else SAVE) else NEXT,
                     enabled = !state.submitInFlight && state.voiceNote != VoiceNoteSlotState.WORKING,
                     onClick = { onEvent(if (last) VendorCreateEvent.Submit else VendorCreateEvent.Next) },
                     modifier = Modifier.weight(1f),
@@ -167,6 +167,16 @@ private fun SupplyStep(state: VendorCreateUiState, onEvent: (VendorCreateEvent) 
             VendorsTextField(v[VendorField.PRICE_PER_GOAT].orEmpty(), { onEvent(VendorCreateEvent.FieldChanged(VendorField.PRICE_PER_GOAT, it)) }, LABEL_PRICE, keyboard = KeyboardType.Decimal, error = e[VendorField.PRICE_PER_GOAT], modifier = Modifier.weight(1f))
             VendorsTextField(v[VendorField.ETA_DAYS].orEmpty(), { onEvent(VendorCreateEvent.FieldChanged(VendorField.ETA_DAYS, it)) }, LABEL_ETA, keyboard = KeyboardType.Number, error = e[VendorField.ETA_DAYS], modifier = Modifier.weight(1f))
         }
+        // Optional (maintainer decision 2026-09-08): what size of animal this buyer expects. A plain
+        // recorded value, connected to nothing else; blank means "not recorded", never 0.
+        VendorsTextField(
+            v[VendorField.AVERAGE_ANIMAL_WEIGHT].orEmpty(),
+            { onEvent(VendorCreateEvent.FieldChanged(VendorField.AVERAGE_ANIMAL_WEIGHT, it)) },
+            LABEL_AVERAGE_WEIGHT,
+            keyboard = KeyboardType.Decimal,
+            error = e[VendorField.AVERAGE_ANIMAL_WEIGHT],
+            supporting = HINT_AVERAGE_WEIGHT,
+        )
     }
     Spacer(Modifier.height(10.dp))
     VendorsFormGroup(title = LABEL_NOTES) {
@@ -238,6 +248,8 @@ private fun VoiceNoteSlot(state: VoiceNoteSlotState, length: String, onEvent: (V
 }
 
 private const val TITLE = "Add vendor"
+private const val TITLE_EDIT = "Edit vendor"
+private const val SAVE_CHANGES = "Save changes"
 private val STEP_TITLES = listOf("Who they are", "Where they are", "What they supply")
 private const val NEXT = "Next"
 private const val PREVIOUS = "Back"
@@ -263,6 +275,8 @@ private const val LABEL_FEED = "Feed"
 private const val LABEL_BREED = "Breed"
 private const val LABEL_PRICE = "Price per goat (₹)"
 private const val LABEL_ETA = "Lead time (days)"
+private const val LABEL_AVERAGE_WEIGHT = "Average animal weight (kg)"
+private const val HINT_AVERAGE_WEIGHT = "Optional. The weight per animal they expect."
 private const val LABEL_NOTES = "Notes"
 private const val LABEL_NOTE = "Note"
 private const val HINT_PICK = "Tap to choose"

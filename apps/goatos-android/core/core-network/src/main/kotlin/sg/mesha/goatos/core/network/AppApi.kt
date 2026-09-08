@@ -1534,6 +1534,13 @@ interface AppApi {
      */
     suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto
 
+    /**
+     * PUT /procurement/vendors/{vendor_id} — REPLACES a vendor's fields, fenced on the request's
+     * row_version (maintainer decision 2026-09-08: vendors are editable on the phone). Returns the
+     * stored row.
+     */
+    suspend fun updateProcurementVendor(vendorId: String, request: VendorWriteDto): VendorDto
+
     /** GET /procurement/feed-purchases — one bounded page of the ledger, newest first. */
     suspend fun getFeedPurchases(
         farm: String? = null,
@@ -3018,6 +3025,14 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto =
         fakeVendor().copy(vendorId = "vendor-new", businessName = request.businessName, displayName = request.businessName)
+
+    override suspend fun updateProcurementVendor(vendorId: String, request: VendorWriteDto): VendorDto =
+        fakeVendor().copy(
+            vendorId = vendorId, businessName = request.businessName, displayName = request.businessName,
+            averageAnimalWeightKg = request.averageAnimalWeightKg,
+            averageAnimalWeightDisplay = request.averageAnimalWeightKg?.let { "$it kg" }.orEmpty(),
+            rowVersion = request.rowVersion + 1,
+        )
 
     override suspend fun getFeedPurchases(
         farm: String?,

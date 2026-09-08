@@ -291,6 +291,12 @@ export function VendorLocalDrawer({
                 <input id="v-price" name="price_per_goat" inputMode="decimal" defaultValue={vendor?.price_per_goat ?? ""} />
               </div>
               <div className="fld">
+                <label htmlFor="v-avg_weight">{field("average_animal_weight")}</label>
+                {/* Optional. Sent verbatim as a string so the backend validates the number; a blank
+                    stores NULL ("not recorded"), never 0. */}
+                <input id="v-avg_weight" name="average_animal_weight_kg" inputMode="decimal" defaultValue={vendor?.average_animal_weight_kg ?? ""} />
+              </div>
+              <div className="fld">
                 <label htmlFor="v-eta">{field("eta_after_order")}</label>
                 <input id="v-eta" name="eta_after_order_days" type="number" min={0} step={1} defaultValue={vendor?.eta_after_order_days ?? ""} />
               </div>
@@ -403,6 +409,8 @@ export function VendorLocalDrawer({
                 {cell(field("feed"), vendor.feed)}
                 {cell(field("filtered_stock"), vendor.filtered_stock)}
                 {cell(field("price_per_goat"), vendor.price_per_goat)}
+                {/* BACKEND-composed "35 kg"; empty renders the shared "Not recorded" copy. */}
+                {cell(field("average_animal_weight"), vendor.average_animal_weight_display)}
                 {cell(field("eta_after_order"), vendor.eta_after_order_days)}
                 {cell(field("ready_to_filtered"), vendor.ready_to_filtered)}
                 {cell(field("details"), vendor.details)}
