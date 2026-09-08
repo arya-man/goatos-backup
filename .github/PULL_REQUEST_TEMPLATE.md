@@ -1,3 +1,12 @@
+<!-- TITLE FORMAT (checked on review): type(scope): imperative summary
+     type  = feat | fix | perf | refactor | docs | test | chore | build | ci
+     scope = feed, sales, verify, vaccination, pc-care, weights, weighing,
+             health, adminui, android, workforce, process-integrity,
+             leadership-tasks, pen-visits, design-system  (reuse before inventing)
+     e.g.  fix(verify): note on approve, and fullscreen resumes where the clip was
+     A bare sentence title is a rule violation even when the commits are correct.
+     Full rule: AGENTS.md -> "PR and Commit Title Rule". -->
+
 ## PR type
 
 - [ ] Ordinary PR. Program-only fields below are `N/A`; follow the ordinary

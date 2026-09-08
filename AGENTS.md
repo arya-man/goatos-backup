@@ -106,12 +106,38 @@ that render as a bare shed name such as `Godel 1`, and do not use `whole` as the
 visible partition label in phone evidence unless the maintainer explicitly asks
 for a whole-shed case.
 
-Before giving Ravi any screenshot, screen recording, or image as proof of a UI
-state, Codex/Claude must validate the artifact visually first: open the captured
-file, confirm it shows the requested target screen/state and not login,
-loading, an error page, stale content, or the wrong route, and only then present
-it. If the artifact cannot be visually validated, do not present it as proof;
-say exactly what blocked validation and recapture or ask for the missing auth.
+## PR and Commit Title Rule — Conventional Commits (Claude AND Codex)
+
+**Every PR title and every commit subject uses Conventional Commits:**
+
+```text
+type(scope): imperative summary in sentence case
+```
+
+- **type** — one of `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `chore`,
+  `build`, `ci`. Most PRs here are `feat` or `fix`.
+- **scope** — the product area, lowercase, in parentheses. It is not optional in
+  practice. Scopes actually in use: `feed`, `sales`, `verify`, `vaccination`,
+  `pc-care`, `weights`, `weighing`, `health`, `adminui`, `android`, `workforce`,
+  `process-integrity`, `leadership-tasks`, `pen-visits`, `design-system`.
+  Reuse an existing scope before inventing one.
+- **summary** — imperative mood, sentence case, no trailing period. Say what the
+  change does for the reader, not which files moved.
+
+```text
+GOOD  feat(sales): vendor average animal weight + weight at tagging
+GOOD  fix(verify): note on approve, and fullscreen resumes where the clip was
+GOOD  perf(process-integrity): bucket the read-cache key so the cache can hit
+BAD   Apply the Mesha design system across admin-web        <- no type, no scope
+BAD   Fix admin sidebar latency and performance telemetry   <- capitalised, no type
+```
+
+**The PR title is held to this too, not just the commits.** A PR whose commits
+are conventional but whose title is a bare sentence still fails the rule — that
+exact mistake shipped on PR #199 while its own commits were correct. Check the
+title after `gh pr create`, because `gh` takes it from your `--title` flag and
+will not correct it. Older titles in `git log` predate the rule; match the most
+recent merged PRs, not the historical average.
 
 ## PR Review + Land Main Rule
 
