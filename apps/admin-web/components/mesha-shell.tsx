@@ -29,6 +29,8 @@ import {
   Sun,
   TowerControl,
   Truck,
+  Type,
+  TypeOutline,
   Wheat,
   Workflow,
   Zap,
@@ -288,6 +290,18 @@ export function MeshaShell({
   const [rail, setRail] = useState(false);
 
   const [isLight, setIsLight] = useState(false);
+  // Typeface comparison switch (top bar, beside the theme toggle). `.legacy-type` on <html>
+  // puts the admin back on the OS sans/mono stacks it shipped before the design system, so the
+  // two lettering systems can be compared on a real screen with real data instead of side by
+  // side in a mock. Colour, radius, spacing and the type ladder do not move.
+  //
+  // Deliberately not persisted, exactly like the theme toggle above it: the class survives
+  // client-side navigation, so a whole browsing pass stays in one typeface, and a hard reload
+  // returns to the system faces. Reading a stored choice back would mean either setting state
+  // from an effect (which react-hooks/set-state-in-effect rejects) or a lazy initialiser that
+  // renders differently on the server than the client. Neither is worth it for a switch whose
+  // whole purpose is to be flipped back and forth while looking at one screen.
+  const [isLegacyType, setIsLegacyType] = useState(false);
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
   const [routePending, setRoutePending] = useState(false);
@@ -650,6 +664,16 @@ export function MeshaShell({
     document.documentElement.classList.toggle("light", next);
     setIsLight(next);
   }
+
+  const typefaceLabel = isLegacyType
+    ? shellCopy(contract, "typeface.switch_to_mesha")
+    : shellCopy(contract, "typeface.switch_to_legacy");
+
+  function toggleTypeface() {
+    const next = !document.documentElement.classList.contains("legacy-type");
+    document.documentElement.classList.toggle("legacy-type", next);
+    setIsLegacyType(next);
+  }
   function toggleNav() {
     if (typeof window !== "undefined" && window.matchMedia("(max-width: 880px)").matches) {
       setNavOpen((o) => !o);
@@ -788,6 +812,16 @@ export function MeshaShell({
           aria-label={isLight ? shellCopy(contract, "theme.switch_to_dark") : shellCopy(contract, "theme.switch_to_light")}
         >
           {isLight ? <Moon className="ic" /> : <Sun className="ic" />}
+        </button>
+        <button
+          type="button"
+          className="iconbtn"
+          onClick={toggleTypeface}
+          aria-pressed={isLegacyType}
+          title={typefaceLabel}
+          aria-label={typefaceLabel}
+        >
+          {isLegacyType ? <TypeOutline className="ic" /> : <Type className="ic" />}
         </button>
         <button
           type="button"

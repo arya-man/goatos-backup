@@ -99,6 +99,26 @@
   }
   :root{color-scheme:dark}
   :root.light{color-scheme:light}
+
+  /* ===== TYPEFACE TOGGLE =====
+     `.legacy-type` on <html> puts the admin back on the faces it shipped before the
+     design system: the OS sans stack, the OS mono stack, and NO serif at all (headings
+     and figures were bold sans). It is a side-by-side comparison switch driven from the
+     top bar next to the theme toggle, not a supported theme -- everything else (colour,
+     radius, tracking, the type ladder) is unchanged, so what moves on screen is purely
+     the lettering.
+
+     The serif role carries its own weight token because the swap is not symmetric:
+     Instrument Serif is a single-weight face read at 400, and the same sizes set in
+     400-weight sans read thin and unfinished. The old admin set those headings and KPI
+     figures in bold sans, so legacy mode restores 700 with them. */
+  :root{--f-serif-weight:400}
+  :root.legacy-type{
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --f-serif:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --fm:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --f-serif-weight:700;
+  }
   *{box-sizing:border-box}
   html{max-width:100%;overflow-x:hidden}
   body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--f);-webkit-font-smoothing:antialiased}
@@ -3963,7 +3983,7 @@ aside.drawer.on{transform:none}
 
 .herd-signals-page .insight{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:13px 14px;box-shadow:var(--shadow)}
 .herd-signals-page .insight .ih{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;margin-bottom:3px}
-.herd-signals-page .insight .iv{font-family:var(--f-serif);font-size:23px;font-weight:400;font-variant-numeric:tabular-nums;letter-spacing:0}
+.herd-signals-page .insight .iv{font-family:var(--f-serif);font-size:23px;font-weight:var(--f-serif-weight);font-variant-numeric:tabular-nums;letter-spacing:0}
 .herd-signals-page .insight .if{font-size:11.5px;color:var(--muted);margin-top:5px}
 .herd-signals-page .insight .idis{font-size:11px;color:var(--muted);margin-top:6px;border-top:1px solid var(--line2);padding-top:6px}
 
@@ -4925,7 +4945,7 @@ aside.drawer.on{transform:none}
 
 /* Figures: the numbers are the point of an operator dashboard, so they take the
    serif -- at dashboard size, not the marketing ramp's poster scale. */
-:where(:root) .kpi .val{font-family:var(--f-serif);font-size:34px;font-weight:400;letter-spacing:0;line-height:1.04;margin-top:9px;font-variant-numeric:tabular-nums}
+:where(:root) .kpi .val{font-family:var(--f-serif);font-size:34px;font-weight:var(--f-serif-weight);letter-spacing:0;line-height:1.04;margin-top:9px;font-variant-numeric:tabular-nums}
 :where(:root) .kpi .val small{font-family:var(--f);font-size:12px;letter-spacing:0}
 :where(:root) .kpi .dl{font-family:var(--f);font-weight:400;color:var(--muted)}
 
@@ -4963,7 +4983,7 @@ aside.drawer.on{transform:none}
 :where(:root) .tag{font-family:var(--fm);font-size:10px;font-weight:500;letter-spacing:var(--tracking-label);text-transform:uppercase;padding:3px 10px;border-radius:var(--r-pill);border:1px solid currentColor;background:transparent}
 
 /* Headings read as the brand, at dashboard scale. */
-:where(:root) h1,:where(:root) h2,:where(:root) h3,:where(:root) .pagetitle,:where(:root) .cardh b{font-family:var(--f-serif);font-weight:400;letter-spacing:0}
+:where(:root) h1,:where(:root) h2,:where(:root) h3,:where(:root) .pagetitle,:where(:root) .cardh b{font-family:var(--f-serif);font-weight:var(--f-serif-weight);letter-spacing:0}
 
 /* Tabular figures wherever digits line up in a column. */
 :where(:root) td,:where(:root) .num,:where(:root) .val,:where(:root) .stat{font-variant-numeric:tabular-nums}
@@ -5122,7 +5142,7 @@ aside.drawer.on{transform:none}
 :where(:root) th{font-family:var(--fm);letter-spacing:var(--tracking-label);font-weight:500}
 
 /* The one genuine headline figure still in sans: vaccination heatmap cell counts. */
-:where(:root) .cbm-cell-head{font-family:var(--f-serif);font-weight:400;font-variant-numeric:tabular-nums}
+:where(:root) .cbm-cell-head{font-family:var(--f-serif);font-weight:var(--f-serif-weight);font-variant-numeric:tabular-nums}
 
 /* Instrument Serif ships a 400 face only, so every font-weight 640-800 on a
    heading or KPI value was being SYNTHESISED into smeared, uneven stems. This
@@ -5287,7 +5307,7 @@ aside.drawer.on{transform:none}
 :where(:root) .card > .hd::before,:where(:root) .cardh::before{
   counter-increment:sec;
   content:"N\00BA " counter(sec,decimal-leading-zero);
-  font-family:var(--f-serif);font-style:italic;font-size:14px;
+  font-family:var(--f-serif);font-weight:var(--f-serif-weight);font-style:italic;font-size:14px;
   letter-spacing:.04em;color:var(--value);margin-right:14px;white-space:nowrap}
 /* The kit's lime kicker reads a label no component emits, so it rendered as an
    empty pseudo-element on every card. It needs a markup change and is called out
@@ -5299,9 +5319,9 @@ aside.drawer.on{transform:none}
    read flat rather than small. Five rungs at ~1.55x is the density-compressed
    translation. */
 :where(:root) .phead h1,:where(:root) .pagetitle{
-  font-family:var(--f-serif);font-weight:400;font-size:34px;line-height:1.06;letter-spacing:-.01em}
+  font-family:var(--f-serif);font-weight:var(--f-serif-weight);font-size:34px;line-height:1.06;letter-spacing:-.01em}
 :where(:root) .card > .hd h3,:where(:root) .cardh h3,:where(:root) .cardh b{
-  font-family:var(--f-serif);font-weight:400;font-size:22px;line-height:1.12;letter-spacing:0}
+  font-family:var(--f-serif);font-weight:var(--f-serif-weight);font-size:22px;line-height:1.12;letter-spacing:0}
 
 /* 4. NOTHING IS FILLED SOLID. Kit controls are transparent and fill only on
    hover. The admin painted a solid lime slab for the active nav item, tab and
@@ -5348,7 +5368,7 @@ aside.drawer.on{transform:none}
 
 /* 8. ONE ITALIC SERIF LINE, in the one place a dashboard has room for it. */
 :where(:root) .empty h4,:where(:root) .empty > b{
-  font-family:var(--f-serif);font-style:italic;font-weight:400;font-size:22px;color:var(--ink);letter-spacing:0}
+  font-family:var(--f-serif);font-style:italic;font-weight:var(--f-serif-weight);font-size:22px;color:var(--ink);letter-spacing:0}
 
 /* 9. Native <select> chrome is the one surface that looks like no other Mesha
    screen. Field, not widget: a baseline rule, no box, no OS arrow. */
@@ -5407,9 +5427,9 @@ aside.drawer.on{transform:none}
    exact opposite, on every single screen. */
 :where(:root) .brand .logo{
   width:28px;height:28px;border-width:1px;background:transparent;
-  font-family:var(--f-serif);font-weight:400;font-size:15px}
+  font-family:var(--f-serif);font-weight:var(--f-serif-weight);font-size:15px}
 :where(:root) .brand b{
-  font-family:var(--f-serif);font-weight:400;font-size:19px;
+  font-family:var(--f-serif);font-weight:var(--f-serif-weight);font-size:19px;
   letter-spacing:.34em;text-indent:.34em;text-transform:uppercase}
 
 /* THE LAST EVERYDAY SHADOWS. .card dropped its shadow; .chartcard, .drawer and

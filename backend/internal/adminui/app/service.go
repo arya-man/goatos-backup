@@ -362,6 +362,8 @@ func chromeCopy() map[string]string {
 		"date.disabled_badge":       "soon",
 		"theme.switch_to_dark":      "Switch to dark theme",
 		"theme.switch_to_light":     "Switch to light theme",
+		"typeface.switch_to_legacy": "Typeface: Mesha \u2014 switch to the legacy system faces",
+		"typeface.switch_to_mesha":  "Typeface: legacy system faces \u2014 switch to Mesha",
 		"account.open_menu":         "Open account menu",
 		"ceo_ai.title":              "Ask Mesha",
 		"ceo_ai.subtitle":           "Ask about your operations",
