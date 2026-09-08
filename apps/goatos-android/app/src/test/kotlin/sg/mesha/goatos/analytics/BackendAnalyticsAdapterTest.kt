@@ -14,6 +14,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsLeadershipTasks
 import sg.mesha.goatos.core.analytics.AnalyticsEventsPenVisits
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.network.AppAnalyticsEventRequestDto
@@ -224,6 +225,14 @@ class BackendAnalyticsAdapterTest {
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_SUBMIT_CONFIRMED))
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_SLOT_SUBMIT))
         assertTrue(allowlist.contains(AnalyticsEvents.PC_CARE_FAILURE))
+        assertTrue(allowlist.contains(AnalyticsEventsLeadershipTasks.LIST_VIEWED))
+        assertTrue(allowlist.contains(AnalyticsEventsLeadershipTasks.TASK_OPENED))
+        assertTrue(allowlist.contains(AnalyticsEventsLeadershipTasks.TASK_RAISED))
+        assertTrue(allowlist.contains(AnalyticsEventsLeadershipTasks.TASK_EDITED))
+        assertTrue(allowlist.contains(AnalyticsEventsLeadershipTasks.STATUS_CHANGED))
+        assertTrue(allowlist.contains(AnalyticsEventsLeadershipTasks.ATTACHMENT_ADDED))
+        assertTrue(allowlist.contains(AnalyticsEventsLeadershipTasks.AUDIO_RECORDED))
+        assertTrue(allowlist.contains(AnalyticsEventsLeadershipTasks.FAILURE))
         assertTrue(allowlist.contains(AnalyticsEventsPenVisits.LIST_VIEWED))
         assertTrue(allowlist.contains(AnalyticsEventsPenVisits.TASK_OPENED))
         assertTrue(allowlist.contains(AnalyticsEventsPenVisits.CAPTURE_STARTED))
