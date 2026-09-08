@@ -33,6 +33,16 @@ function withFeedback(url: URL, status: "success" | "error", code: string): stri
   return qs ? `${url.pathname}?${qs}` : url.pathname;
 }
 
+function verdictRequestFingerprint(value: unknown): string {
+  const text = JSON.stringify(value);
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 // readMeasurement pulls the verifier's reading out of the verdict form.
 //
 // A BLANK FIELD IS NOT A ZERO. Blank means she entered nothing -- the normal weighing case, where
@@ -119,26 +129,27 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
     redirect(withFeedback(url, "error", measurementRead.code));
   }
 
-  // Idempotency identity for this verdict. Derived, not random, so a double-click or a retried
-  // Server Action is ONE write: the same (item, row_version, decision) is the same logical act.
-  // row_version makes it self-expiring — once the verdict lands the row moves on, so a later,
-  // legitimately different verdict can never collide with this key.
-  const idempotencyKey = `verification-verdict-${itemId}-${rowVersion}-${decision}`;
+  const request = {
+    decision: decision as VerificationDecision,
+    // Sent whenever she typed one: required on a reject (checked above and by the backend's
+    // 422), optional on an approve -- a note on an accepted video is stored as the item's
+    // verdict reason just like a rejection's (maintainer request 2026-09-08). An empty string
+    // is never sent; blank on an approval means no note.
+    ...(reason ? { reason } : {}),
+    row_version: rowVersion,
+    // Only on an approve. A rejection sends the work back to be recorded again, so a value typed
+    // before she changed her mind must not land on a record about to be redone. The backend drops
+    // it too; sending it would just be a value the contract does not ask for.
+    ...(decision === "approved" && measurementRead.measurement ? { measurement: measurementRead.measurement } : {}),
+  };
+
+  // Idempotency identity for this exact verdict payload. A double-click or browser retry resends
+  // the same body with the same key; changing the now-user-authored approval note changes the key
+  // too, matching the backend fingerprint that includes `reason`.
+  const idempotencyKey = `verification-verdict-${itemId}-${rowVersion}-${decision}-${verdictRequestFingerprint(request)}`;
   const result = await recordVerificationVerdict(
     itemId,
-    {
-      decision: decision as VerificationDecision,
-      // Sent whenever she typed one: required on a reject (checked above and by the backend's
-      // 422), optional on an approve -- a note on an accepted video is stored as the item's
-      // verdict reason just like a rejection's (maintainer request 2026-09-08). An empty string
-      // is never sent; blank on an approval means no note.
-      ...(reason ? { reason } : {}),
-      row_version: rowVersion,
-      // Only on an approve. A rejection sends the work back to be recorded again, so a value typed
-      // before she changed her mind must not land on a record about to be redone. The backend drops
-      // it too; sending it would just be a value the contract does not ask for.
-      ...(decision === "approved" && measurementRead.measurement ? { measurement: measurementRead.measurement } : {}),
-    },
+    request,
     idempotencyKey,
   );
   revalidateVaccinationViews();

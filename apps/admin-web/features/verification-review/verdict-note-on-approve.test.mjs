@@ -35,6 +35,32 @@ test("the server action sends the note on an approve when one was typed", () => 
   assert.match(actionsSource, /if \(decision === "rejected" && !reason\) \{\s*redirect\(withFeedback\(url, "error", "missing_reason"\)\);/);
 });
 
+test("the server action keys idempotency to the exact verdict payload", () => {
+  assert.match(
+    actionsSource,
+    /const request = \{[\s\S]{0,600}\.\.\.\(reason \? \{ reason \} : \{\}\)[\s\S]{0,600}\};/,
+    "the request object should be assembled before deriving the idempotency key",
+  );
+  assert.match(
+    actionsSource,
+    /verification-verdict-\$\{itemId\}-\$\{rowVersion\}-\$\{decision\}-\$\{verdictRequestFingerprint\(request\)\}/,
+    "the key must change when the optional approval note changes",
+  );
+});
+
+test("a typed visible note lets Reject submit on the first click", () => {
+  assert.match(
+    drawerSource,
+    /type=\{reasonReady \? "submit" : "button"\}/,
+    "once the always-visible note has text, Reject should submit without a second arming click",
+  );
+  assert.doesNotMatch(
+    drawerSource,
+    /type=\{rejecting && reasonReady \? "submit" : "button"\}/,
+    "rejecting mode alone should not gate submit now that the note box is always visible",
+  );
+});
+
 test("the drawer shows the verifier's words on an approved item too", () => {
   assert.doesNotMatch(
     drawerSource,
