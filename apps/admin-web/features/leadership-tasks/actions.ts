@@ -48,7 +48,13 @@ export async function raiseLeadershipTaskAction(
     redirect(withFeedback(url, "error", "invalid_idempotency_key"));
   }
 
-  const uploads = await uploadedAttachmentRefs(formData, idempotencyKey);
+  const existingRefs = attachmentRefs(formData);
+  const files = attachmentFiles(formData);
+  if (existingRefs.length + files.length > 12) {
+    redirect(withFeedback(url, "error", "too_many_attachments"));
+  }
+
+  const uploads = await uploadedAttachmentRefs(files, idempotencyKey);
   if (!uploads.ok) {
     redirect(withFeedback(url, "error", uploads.error));
   }
@@ -58,7 +64,7 @@ export async function raiseLeadershipTaskAction(
       title,
       body,
       assignee_user_id: assigneeUserID,
-      attachments: [...uploads.refs, ...attachmentRefs(formData)],
+      attachments: [...uploads.refs, ...existingRefs],
     },
     idempotencyKey,
   );
@@ -73,7 +79,7 @@ export async function raiseLeadershipTaskAction(
 }
 
 async function uploadedAttachmentRefs(
-  formData: FormData,
+  files: File[],
   idempotencyKey: string,
 ): Promise<
   | {
@@ -82,10 +88,6 @@ async function uploadedAttachmentRefs(
     }
   | { ok: false; error: string }
 > {
-  const files = formData
-    .getAll("attachment_file")
-    .filter((value): value is File => value instanceof File && value.size > 0)
-    .slice(0, 12);
   const refs: Array<{ proof_id: string; kind: string; file_name?: string }> = [];
   for (let i = 0; i < files.length; i += 1) {
     const upload = await uploadLeadershipTaskAttachment(
@@ -102,6 +104,12 @@ async function uploadedAttachmentRefs(
     });
   }
   return { ok: true, refs };
+}
+
+function attachmentFiles(formData: FormData): File[] {
+  return formData
+    .getAll("attachment_file")
+    .filter((value): value is File => value instanceof File && value.size > 0);
 }
 
 function attachmentRefs(

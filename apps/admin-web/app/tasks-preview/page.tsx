@@ -180,10 +180,19 @@ const previewContract: AdminWebBootstrapResponse = {
   display_rules: [],
 };
 
-export default function TasksPreviewRoute() {
+export default async function TasksPreviewRoute({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = (await searchParams) ?? {};
+  const rawTask = Array.isArray(params.task) ? params.task[0] : params.task;
   return (
     <MeshaShell parks={previewParks} contract={previewContract}>
-      <LeadershipTasksPage preview />
+      <LeadershipTasksPage
+        preview
+        selectedTaskID={typeof rawTask === "string" ? rawTask : undefined}
+      />
     </MeshaShell>
   );
 }
