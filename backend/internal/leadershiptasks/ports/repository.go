@@ -51,11 +51,12 @@ type Page struct {
 
 // RaiseParams raises a task.
 type RaiseParams struct {
-	TenantID       string
-	ActorID        string
-	AssigneeUserID string
-	Title          string
-	Body           string
+	TenantID         string
+	ActorID          string
+	ActorDesignation string
+	AssigneeUserID   string
+	Title            string
+	Body             string
 	// Refs is what the client named; Attachments is what the service resolved against the
 	// proof store (mime, size, duration read from the stored artifact). The repository
 	// writes Attachments and never trusts Refs for anything but position and file name.

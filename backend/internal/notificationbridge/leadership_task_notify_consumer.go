@@ -39,18 +39,19 @@ const (
 )
 
 type leadershipTaskEventPayload struct {
-	TaskID          string `json:"task_id"`
-	TaskNo          int64  `json:"task_no"`
-	Title           string `json:"title"`
-	Status          string `json:"status"`
-	PreviousStatus  string `json:"previous_status"`
-	RaisedByUserID  string `json:"raised_by_user_id"`
-	RaisedByName    string `json:"raised_by_name"`
-	AssigneeUserID  string `json:"assignee_user_id"`
-	AssigneeName    string `json:"assignee_name"`
-	AttachmentCount int    `json:"attachment_count"`
-	ChangedBy       string `json:"changed_by_user_id"`
-	OccurredAt      string `json:"occurred_at"`
+	TaskID              string `json:"task_id"`
+	TaskNo              int64  `json:"task_no"`
+	Title               string `json:"title"`
+	Status              string `json:"status"`
+	PreviousStatus      string `json:"previous_status"`
+	RaisedByUserID      string `json:"raised_by_user_id"`
+	RaisedByName        string `json:"raised_by_name"`
+	RaisedByDesignation string `json:"raised_by_designation"`
+	AssigneeUserID      string `json:"assignee_user_id"`
+	AssigneeName        string `json:"assignee_name"`
+	AttachmentCount     int    `json:"attachment_count"`
+	ChangedBy           string `json:"changed_by_user_id"`
+	OccurredAt          string `json:"occurred_at"`
 }
 
 // LeadershipTaskNotifyConsumer turns the two task events into one push each.
@@ -180,8 +181,12 @@ func (c *LeadershipTaskNotifyConsumer) notifyStatusChanged(ctx context.Context, 
 		if err != nil {
 			return fmt.Errorf("leadership task notification: resolve raiser: %w", err)
 		}
+		addressee := []string{strings.TrimSpace(p.RaisedByDesignation)}
+		if addressee[0] == "" {
+			addressee = audiencedomain.DirectorDesignations
+		}
 		recipients, err := c.audience.Addressed(ctx, tenantID, "", audiencedomain.AlertLeadershipTaskDone,
-			audiencedomain.DirectorDesignations, dedupeQueueRecipients(toQueueRecipients(devices, "director")))
+			addressee, dedupeQueueRecipients(toQueueRecipients(devices, "director")))
 		if err != nil {
 			return fmt.Errorf("leadership task notification: %w", err)
 		}

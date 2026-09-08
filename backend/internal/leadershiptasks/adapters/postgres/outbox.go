@@ -31,18 +31,19 @@ const (
 // EventPayload is the inner payload both events carry: everything the notifier needs to
 // compose a specific message without a second read.
 type EventPayload struct {
-	TaskID         string `json:"task_id"`
-	TaskNo         int64  `json:"task_no"`
-	Title          string `json:"title"`
-	Status         string `json:"status"`
-	PreviousStatus string `json:"previous_status,omitempty"`
-	RaisedByUserID string `json:"raised_by_user_id"`
-	RaisedByName   string `json:"raised_by_name"`
-	AssigneeUserID string `json:"assignee_user_id"`
-	AssigneeName   string `json:"assignee_name"`
-	AttachmentCnt  int    `json:"attachment_count"`
-	ChangedBy      string `json:"changed_by_user_id"`
-	OccurredAt     string `json:"occurred_at"`
+	TaskID              string `json:"task_id"`
+	TaskNo              int64  `json:"task_no"`
+	Title               string `json:"title"`
+	Status              string `json:"status"`
+	PreviousStatus      string `json:"previous_status,omitempty"`
+	RaisedByUserID      string `json:"raised_by_user_id"`
+	RaisedByName        string `json:"raised_by_name"`
+	RaisedByDesignation string `json:"raised_by_designation,omitempty"`
+	AssigneeUserID      string `json:"assignee_user_id"`
+	AssigneeName        string `json:"assignee_name"`
+	AttachmentCnt       int    `json:"attachment_count"`
+	ChangedBy           string `json:"changed_by_user_id"`
+	OccurredAt          string `json:"occurred_at"`
 }
 
 // emitEvent writes one task event into outbox_messages inside tx.
@@ -53,18 +54,19 @@ func emitEvent(ctx context.Context, tx pgx.Tx, eventType string, t domain.Task, 
 	}
 	now = now.UTC()
 	payload := EventPayload{
-		TaskID:         t.TaskID,
-		TaskNo:         t.TaskNo,
-		Title:          t.Title,
-		Status:         t.Status,
-		PreviousStatus: previousStatus,
-		RaisedByUserID: t.RaisedByUserID,
-		RaisedByName:   t.RaisedByName,
-		AssigneeUserID: t.AssigneeUserID,
-		AssigneeName:   t.AssigneeName,
-		AttachmentCnt:  len(t.Attachments),
-		ChangedBy:      actorID,
-		OccurredAt:     now.Format(time.RFC3339),
+		TaskID:              t.TaskID,
+		TaskNo:              t.TaskNo,
+		Title:               t.Title,
+		Status:              t.Status,
+		PreviousStatus:      previousStatus,
+		RaisedByUserID:      t.RaisedByUserID,
+		RaisedByName:        t.RaisedByName,
+		RaisedByDesignation: t.RaisedByDesignation,
+		AssigneeUserID:      t.AssigneeUserID,
+		AssigneeName:        t.AssigneeName,
+		AttachmentCnt:       len(t.Attachments),
+		ChangedBy:           actorID,
+		OccurredAt:          now.Format(time.RFC3339),
 	}
 	envelope, err := json.Marshal(map[string]any{
 		"event_id":       eventID,

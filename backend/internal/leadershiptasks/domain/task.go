@@ -84,13 +84,16 @@ type Task struct {
 	Status         string
 	RaisedByUserID string
 	RaisedByName   string
-	AssigneeUserID string
-	AssigneeName   string
-	RaisedAt       time.Time
-	UpdatedAt      time.Time
-	DoneAt         *time.Time
-	CancelledAt    *time.Time
-	SeenAt         *time.Time
+	// RaisedByDesignation is the director desk the raiser held when the task was created.
+	// It lets notification audience config gate the addressed raiser by that specific title.
+	RaisedByDesignation string
+	AssigneeUserID      string
+	AssigneeName        string
+	RaisedAt            time.Time
+	UpdatedAt           time.Time
+	DoneAt              *time.Time
+	CancelledAt         *time.Time
+	SeenAt              *time.Time
 	// AssigneeComment is the CXO's note back on the task: one field its owner overwrites.
 	AssigneeComment string
 	RowVersion      int
@@ -180,9 +183,10 @@ func ValidateBrief(title, body string, refs []AttachmentRef) error {
 // Actor is who is looking at, or acting on, a task: their id and the two authorities the
 // route table already resolved. Read authority is implied by reaching the handler.
 type Actor struct {
-	UserID   string
-	CanRaise bool
-	CanAct   bool
+	UserID           string
+	CanRaise         bool
+	CanAct           bool
+	RaiseDesignation string
 }
 
 // IsRaiser reports whether the actor raised the task.

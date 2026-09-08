@@ -143,13 +143,14 @@ func (h *Handler) Raise(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := actorFrom(r)
 	task, err := h.service.Raise(r.Context(), ports.RaiseParams{
-		TenantID:       tenantID(r),
-		ActorID:        actor.UserID,
-		AssigneeUserID: body.AssigneeUserID,
-		Title:          body.Title,
-		Body:           body.Body,
-		Refs:           toRefs(body.Attachments),
-		IdempotencyKey: key,
+		TenantID:         tenantID(r),
+		ActorID:          actor.UserID,
+		ActorDesignation: actor.RaiseDesignation,
+		AssigneeUserID:   body.AssigneeUserID,
+		Title:            body.Title,
+		Body:             body.Body,
+		Refs:             toRefs(body.Attachments),
+		IdempotencyKey:   key,
 	})
 	if err != nil {
 		h.writeErr(w, r, toAppError(err))
@@ -332,6 +333,9 @@ func actorFrom(r *http.Request) domain.Actor {
 	for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
 		if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksRaise) {
 			actor.CanRaise = true
+			if actor.RaiseDesignation == "" {
+				actor.RaiseDesignation = grant.Role
+			}
 		}
 		if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksAct) {
 			actor.CanAct = true

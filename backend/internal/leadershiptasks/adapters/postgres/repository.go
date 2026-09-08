@@ -70,7 +70,7 @@ func scanTask(row pgx.Row) (domain.Task, error) {
 	var t domain.Task
 	err := row.Scan(
 		&t.TaskID, &t.TenantID, &t.TaskNo, &t.Title, &t.Body, &t.Status,
-		&t.RaisedByUserID, &t.RaisedByName,
+		&t.RaisedByUserID, &t.RaisedByName, &t.RaisedByDesignation,
 		&t.AssigneeUserID, &t.AssigneeName,
 		&t.RaisedAt, &t.UpdatedAt, &t.DoneAt, &t.CancelledAt, &t.SeenAt, &t.AssigneeComment, &t.RowVersion,
 	)
@@ -305,7 +305,7 @@ func (r *Repository) Raise(ctx context.Context, p ports.RaiseParams) (domain.Tas
 	now := r.now().UTC()
 	var taskID string
 	if err := tx.QueryRow(ctx, sqlRepository7,
-		p.TenantID, p.Title, p.Body, domain.StatusOpen, p.ActorID, p.AssigneeUserID, now,
+		p.TenantID, p.Title, p.Body, domain.StatusOpen, p.ActorID, p.ActorDesignation, p.AssigneeUserID, now,
 	).Scan(&taskID); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: insert: %w", err)
 	}
@@ -655,12 +655,13 @@ func attachmentFingerprint(attachments []domain.Attachment) string {
 
 func auditState(t domain.Task) map[string]any {
 	return map[string]any{
-		"task_no":          t.TaskNo,
-		"title":            t.Title,
-		"status":           t.Status,
-		"assignee_user_id": t.AssigneeUserID,
-		"attachment_count": len(t.Attachments),
-		"row_version":      t.RowVersion,
+		"task_no":               t.TaskNo,
+		"title":                 t.Title,
+		"status":                t.Status,
+		"raised_by_designation": t.RaisedByDesignation,
+		"assignee_user_id":      t.AssigneeUserID,
+		"attachment_count":      len(t.Attachments),
+		"row_version":           t.RowVersion,
 	}
 }
 
@@ -668,7 +669,7 @@ func auditState(t domain.Task) map[string]any {
 const (
 	sqlRepository1 = `
 	t.task_id::text, t.tenant_id::text, t.task_no, t.title, t.body, t.status,
-	t.raised_by::text, COALESCE(rb.display_name, ''),
+	t.raised_by::text, COALESCE(rb.display_name, ''), COALESCE(t.raised_by_designation, ''),
 	t.assignee_user_id::text, COALESCE(asg.display_name, ''),
 	t.raised_at, t.updated_at, t.done_at, t.cancelled_at, t.seen_at, t.assignee_comment, t.row_version`
 	sqlRepository2 = `
@@ -703,11 +704,11 @@ SELECT EXISTS (
 )`
 	sqlRepository7 = `
 INSERT INTO public.leadership_tasks (
-  tenant_id, task_no, title, body, status, raised_by, assignee_user_id, raised_at, updated_at
+  tenant_id, task_no, title, body, status, raised_by, raised_by_designation, assignee_user_id, raised_at, updated_at
 ) VALUES (
   $1::uuid,
   (SELECT COALESCE(MAX(task_no), 0) + 1 FROM public.leadership_tasks WHERE tenant_id = $1::uuid),
-  $2, $3, $4, $5::uuid, $6::uuid, $7, $7
+  $2, $3, $4, $5::uuid, nullif($6, ''), $7::uuid, $8, $8
 )
 RETURNING task_id::text`
 	sqlRepository8 = `
