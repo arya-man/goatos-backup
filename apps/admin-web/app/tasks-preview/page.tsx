@@ -8,7 +8,13 @@ const previewParks: Park[] = [
   { id: "chk", code: "CHK", name: "Channapatna" },
 ];
 
-const navItem = (id: string, label: string, href: string, icon: string, domain = "operations") => ({
+const navItem = (
+  id: string,
+  label: string,
+  href: string,
+  icon: string,
+  domain = "operations",
+) => ({
   id,
   label,
   href,
@@ -58,7 +64,13 @@ const previewContract: AdminWebBootstrapResponse = {
         badge_key: "",
         leaves: [
           navItem("feed", "Feed", "/feed", "wheat", "feed"),
-          navItem("weighing", "Weighing", "/weighing/weights", "scale", "weighing"),
+          navItem(
+            "weighing",
+            "Weighing",
+            "/weighing/weights",
+            "scale",
+            "weighing",
+          ),
           navItem("health", "Health", "/health", "stethoscope", "health"),
         ],
       },
@@ -73,16 +85,42 @@ const previewContract: AdminWebBootstrapResponse = {
   top_bar: {
     product_name: "Mesha OS",
     logo_text: "M",
-    scope_mode_toggle: [{ key: "park", label: "Park", title: "Park scope", enabled: true, disabled_reason: "" }],
+    scope_mode_toggle: [
+      {
+        key: "park",
+        label: "Park",
+        title: "Park scope",
+        enabled: true,
+        disabled_reason: "",
+      },
+    ],
     park_selector: {
       label: "Park scope",
       enabled: true,
       disabled_reason: "",
       hint: "Preview scope selector",
-      options: previewParks.map((park) => ({ key: park.id, label: park.code ?? park.name, title: park.name, enabled: true, disabled_reason: "" })),
+      options: previewParks.map((park) => ({
+        key: park.id,
+        label: park.code ?? park.name,
+        title: park.name,
+        enabled: true,
+        disabled_reason: "",
+      })),
     },
-    date_range_selector: { label: "Date range", enabled: false, disabled_reason: "Preview", hint: "", options: [] },
-    notifications: { label: "Notifications", enabled: false, disabled_reason: "Notifications disabled in preview", hint: "", options: [] },
+    date_range_selector: {
+      label: "Date range",
+      enabled: false,
+      disabled_reason: "Preview",
+      hint: "",
+      options: [],
+    },
+    notifications: {
+      label: "Notifications",
+      enabled: false,
+      disabled_reason: "Notifications disabled in preview",
+      hint: "",
+      options: [],
+    },
     role_preview: { display_name: "Ravi", initials: "RA", subtitle: "CEO" },
   },
   role_lenses: [],
