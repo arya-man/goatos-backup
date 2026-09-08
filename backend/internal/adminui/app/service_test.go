@@ -39,6 +39,12 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 	if othersLeafGroup(t, resp.Navigation.Groups, "control-tower") != "others" {
 		t.Fatalf("control-tower must sit in the others group")
 	}
+	// Health is its own module group, not an Others leaf (maintainer request 2026-09-08).
+	for _, id := range []string{"health-analytics", "health-config"} {
+		if got := othersLeafGroup(t, resp.Navigation.Groups, id); got != "health" {
+			t.Fatalf("%s must sit in the health group, got %q", id, got)
+		}
+	}
 	for _, group := range resp.Navigation.Groups {
 		if group.ID == "pc" && group.Label != "Preventive Care" {
 			t.Fatalf("preventive care group label = %q, want %q", group.Label, "Preventive Care")
@@ -54,6 +60,7 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 		{"feed", "Feed"},
 		{"pc", "Preventive Care"},
 		{"procurement", "Procurement"},
+		{"health", "Health"},
 		{"others", "Others"},
 	}
 	if len(resp.Navigation.Groups) != len(wantGroups) {

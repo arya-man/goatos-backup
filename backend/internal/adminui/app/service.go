@@ -184,6 +184,15 @@ func navigation() domain.NavigationContract {
 				},
 			},
 			{
+				// Health is its own module group (maintainer request 2026-09-08); its two
+				// pages used to sit under Others.
+				ID: "health", Label: "Health", Icon: "stethoscope", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeaf("health-analytics", "Health Analytics", "/health/analytics", nil),
+					navLeaf("health-config", "Health Config", "/health/config", nil),
+				},
+			},
+			{
 				ID: "others", Label: "Others", Icon: "edit-3", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeaf("control-tower", "Control Tower", "/", nil),
@@ -193,8 +202,6 @@ func navigation() domain.NavigationContract {
 					navLeaf("milk-preparation", "Milk Preparation", "/counts/milk-preparation", nil),
 					navLeaf("milk-sops", "Milk SOP", "/milk/sops", nil),
 					navLeafDomain("herd-signals", "Live Monitor", "/herd-signals", "herd_signals.live", nil),
-					navLeaf("health-analytics", "Health Analytics", "/health/analytics", nil),
-					navLeaf("health-config", "Health Config", "/health/config", nil),
 					navLeafDomain("audit-log", "Audit Log", "/operations/audit", "admin.audit", nil),
 					navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
 					navLeafDomain("people", "People / HRMS", "/people", "admin.people", nil),
