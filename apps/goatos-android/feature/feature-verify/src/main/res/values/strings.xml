@@ -96,6 +96,8 @@
     <string name="verify_approve_dialog_subtitle">Approving is final — it cannot be undone later.</string>
     <string name="verify_approve_dialog_confirm">Confirm approve</string>
     <string name="verify_approve_dialog_cancel">Cancel</string>
+    <string name="verify_approve_dialog_note_placeholder">Add a note (optional)</string>
+    <string name="verify_detail_verifier_note_title">Verifier note</string>
     <string name="verify_detail_group_accepted">All videos in this shed are accepted</string>
     <string name="verify_filter_park_title">Park</string>
     <string name="verify_filter_shed_title">Shed</string>

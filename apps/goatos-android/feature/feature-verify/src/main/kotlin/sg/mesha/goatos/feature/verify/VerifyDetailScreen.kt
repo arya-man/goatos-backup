@@ -380,6 +380,12 @@ sealed interface VerifyDetailEvent {
     data class Approve(
         val itemId: String? = null,
         val measurement: VerifyMeasurementInput? = null,
+        /** An OPTIONAL note on an approval (maintainer request 2026-09-08): the verifier may want
+         *  to say what she saw on an accepted video too, not only on a rejected one. Blank means
+         *  no note; it travels on the same `reason` field the reject already uses, so the backend
+         *  stores it as the item's verdict reason and every surface that shows a rejection reason
+         *  shows this the same way. */
+        val note: String? = null,
     ) : VerifyDetailEvent
     /** [reason] is always non-blank — the reject dialog below refuses to emit this otherwise.
      *  [itemId] follows the same null-means-legacy-single-entry contract as [Approve]. */
@@ -554,8 +560,8 @@ fun VerifyDetailScreen(
     pendingApprove?.let { pending ->
         ApproveConfirmDialog(
             isSubmitting = state.isSubmitting,
-            onConfirm = {
-                onEvent(VerifyDetailEvent.Approve(pending.itemId, pending.measurement))
+            onConfirm = { note ->
+                onEvent(VerifyDetailEvent.Approve(pending.itemId, pending.measurement, note))
             },
             onDismiss = {
                 if (!state.isSubmitting) {
@@ -700,7 +706,7 @@ private fun VerifyEntryCard(
             StatusPill(tone = entry.statusTone)
         }
         entry.verdictReason?.takeIf { it.isNotBlank() }?.let { reason ->
-            RejectionReasonCard(reason = reason)
+            VerdictNoteCard(reason = reason, tone = entry.statusTone)
         }
         // Shown ONLY when the backend attached a correctable measurement to this item -- weighing
         // today. It sits ABOVE the verdict row because the order matches the act: she watches the
@@ -992,6 +998,8 @@ private fun VerifyVideoPlayer(
     // player state on that string rebuilt the player behind a PlayerView that was never rebound,
     // and the verifier got a blank box: "first time I can see it, second time it is blank".
     var isFullscreen by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
+    // Where the clip was when fullscreen opened; see the fullscreen button's click handler.
+    var fullscreenStartPositionMs by remember(media.proofSubject) { mutableStateOf(0L) }
     var isPlaying by remember { mutableStateOf(false) }
     val currentOnPlayback by rememberUpdatedState(onPlayback)
     // ONE video is prepared at a time, and only after the reader asks for it.
@@ -1276,6 +1284,12 @@ private fun VerifyVideoPlayer(
         run {
             VideoFullscreenButton(
                 onClick = {
+                    // Captured BEFORE stop() below resets the playhead: fullscreen opens at the
+                    // frame she was on, not from 0:00 (maintainer report 2026-09-08 -- ten seconds
+                    // in, enlarge, and the clip restarted). A finished clip hands over 0 so the
+                    // fullscreen player replays it instead of opening on its last frame.
+                    fullscreenStartPositionMs =
+                        if (player.playbackState == Player.STATE_ENDED) 0L else player.currentPosition.coerceAtLeast(0L)
                     currentOnPlayback(
                     VerifyDetailEvent.VideoPlayback(
                         proofSubject = media.proofSubject,
@@ -1309,8 +1323,14 @@ private fun VerifyVideoPlayer(
             media = media,
             onPlayback = onPlayback,
             controlsEnabled = controlsEnabled,
-            onDismiss = {
+            startPositionMs = fullscreenStartPositionMs,
+            onDismiss = { resumePositionMs ->
                 isFullscreen = false
+                // The inline player was stop()ped to IDLE when fullscreen opened. A seek on an
+                // IDLE ExoPlayer is kept as the start position of its next prepare(), which is
+                // exactly what the play tap does -- so closing fullscreen and pressing play
+                // continues where she left off instead of restarting the proof.
+                player.seekTo(resumePositionMs)
                 onPlayback(
                     VerifyDetailEvent.VideoPlayback(
                         proofSubject = media.proofSubject,
@@ -1323,19 +1343,26 @@ private fun VerifyVideoPlayer(
     }
 }
 
+/** The verifier's own words on this item. A rejection's reason and an approval's optional note
+ *  are the same stored field, so they render through the same card; only the heading and tone
+ *  say which act they belong to. */
 @Composable
-private fun RejectionReasonCard(reason: String) {
+private fun VerdictNoteCard(reason: String, tone: VerifyTone) {
+    val rejected = tone == VerifyTone.REJECTED
+    val accent = if (rejected) MeshaColors.Danger else MeshaColors.Ok
     Column(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .fillMaxWidth()
-            .background(MeshaColors.DangerX, shape = RoundedCornerShape(16.dp))
-            .border(1.dp, MeshaColors.Danger.copy(alpha = 0.28f), shape = RoundedCornerShape(16.dp))
+            .background(if (rejected) MeshaColors.DangerX else MeshaColors.OkX, shape = RoundedCornerShape(16.dp))
+            .border(1.dp, accent.copy(alpha = 0.28f), shape = RoundedCornerShape(16.dp))
             .padding(14.dp),
     ) {
         Text(
-            text = stringResource(R.string.verify_detail_rejection_reason_title),
-            color = MeshaColors.Danger,
+            text = stringResource(
+                if (rejected) R.string.verify_detail_rejection_reason_title else R.string.verify_detail_verifier_note_title,
+            ),
+            color = accent,
             // design-system:ignore: 12sp/W800 has no close token — `cardSubtitle` is 12sp but W500,
             // and the only W800 styles (`button` 15sp, `dayNumber` 15sp) are 3sp larger.
             fontSize = 12.sp,
@@ -1550,8 +1577,12 @@ private fun PlayPauseButton(isPlaying: Boolean, onClick: () -> Unit, modifier: M
 private fun FullscreenVideoDialog(
     media: VerifyMediaItem,
     onPlayback: (VerifyDetailEvent.VideoPlayback) -> Unit,
-    onDismiss: () -> Unit,
+    /** Called with the position the fullscreen player was at, so the inline player resumes there.
+     *  A clip that ran to the end reports 0, so the next inline play replays it. */
+    onDismiss: (resumePositionMs: Long) -> Unit,
     controlsEnabled: Boolean = false,
+    /** Where the inline player was when fullscreen opened -- playback starts here, not at 0. */
+    startPositionMs: Long = 0L,
 ) {
     val context = LocalContext.current
     val playerFactory = LocalProofPlayerFactory.current
@@ -1562,10 +1593,13 @@ private fun FullscreenVideoDialog(
     // would restart the proof from zero (or blank it, before the rebind below existed).
     val player = remember(media.proofSubject) {
         playerFactory.create(context).apply {
-            setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
+            setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)), startPositionMs.coerceAtLeast(0L))
             prepare()
             playWhenReady = true
         }
+    }
+    val dismissAtCurrentPosition = {
+        onDismiss(if (player.playbackState == Player.STATE_ENDED) 0L else player.currentPosition.coerceAtLeast(0L))
     }
     DisposableEffect(player) {
         val tracker = VideoPlaybackTracker(media = media, onPlayback = currentOnPlayback)
@@ -1617,7 +1651,7 @@ private fun FullscreenVideoDialog(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismissAtCurrentPosition,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
@@ -1687,7 +1721,7 @@ private fun FullscreenVideoDialog(
                     .padding(16.dp)
                     .size(48.dp)
                     .background(MeshaColors.Ink.copy(alpha = 0.72f), shape = RoundedCornerShape(12.dp))
-                    .clickable { onDismiss() },
+                    .clickable { dismissAtCurrentPosition() },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -2084,9 +2118,14 @@ private fun RejectReasonDialog(
 @Composable
 private fun ApproveConfirmDialog(
     isSubmitting: Boolean,
-    onConfirm: () -> Unit,
+    onConfirm: (note: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // Optional, never required: a blank box confirms exactly as the dialog always did. The verifier
+    // can still leave a word about what she saw on an ACCEPTED video (maintainer request
+    // 2026-09-08) instead of only being able to comment when rejecting.
+    var note by remember { mutableStateOf("") }
+    val latestNote by rememberUpdatedState(note)
     AlertDialog(
         onDismissRequest = {
             if (!isSubmitting) onDismiss()
@@ -2095,16 +2134,31 @@ private fun ApproveConfirmDialog(
         // MeshaType style here would also replace the AlertDialog's own title size/line-height.
         title = { Text(stringResource(R.string.verify_approve_dialog_title), fontWeight = FontWeight.W700) },
         text = {
-            Text(
-                text = stringResource(R.string.verify_approve_dialog_subtitle),
-                color = MeshaColors.Muted,
-                // design-system:ignore: 12.5sp/W400 has no close token — `cta` matches the size
-                // but is W700, which would visibly bold this dialog subtitle.
-                fontSize = 12.5.sp,
-            )
+            Column {
+                Text(
+                    text = stringResource(R.string.verify_approve_dialog_subtitle),
+                    color = MeshaColors.Muted,
+                    // design-system:ignore: 12.5sp/W400 has no close token — `cta` matches the size
+                    // but is W700, which would visibly bold this dialog subtitle.
+                    fontSize = 12.5.sp,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    enabled = !isSubmitting,
+                    placeholder = { Text(stringResource(R.string.verify_approve_dialog_note_placeholder)) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MeshaColors.Brand,
+                        unfocusedBorderColor = MeshaColors.Hair,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         },
         confirmButton = {
-            TextButton(enabled = !isSubmitting, onClick = onConfirm) {
+            TextButton(enabled = !isSubmitting, onClick = { onConfirm(latestNote.trim().ifBlank { null }) }) {
                 // design-system:ignore: weight-only override on the Material TextButton label style —
                 // a MeshaType style would also replace the button's own size/line-height.
                 if (isSubmitting) {

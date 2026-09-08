@@ -215,23 +215,43 @@ fun ProofMediaPreview(
     expandable: Boolean = true,
 ) {
     var showFullscreen by remember(path) { mutableStateOf(false) }
-    val onExpand: (() -> Unit)? = if (expandable) ({ showFullscreen = true }) else null
+    // Where the inline video was when it was enlarged, and where fullscreen was when it closed.
+    // Enlarging used to build a fresh player at 0:00 -- ten seconds in, expand, and the clip
+    // restarted (maintainer report 2026-09-08). The position now travels both ways.
+    var fullscreenStartPositionMs by remember(path) { mutableStateOf(0L) }
+    var inlineResume by remember(path) { mutableStateOf<ProofVideoResume?>(null) }
+    val onExpand: ((positionMs: Long) -> Unit)? = if (expandable) {
+        { positionMs ->
+            fullscreenStartPositionMs = positionMs
+            showFullscreen = true
+        }
+    } else {
+        null
+    }
     when (kind) {
-        ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier, onExpand, onPreviewAction)
-        ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, onPlaybackFailure, onExpand, showFullscreen, onPreviewAction)
+        ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier, onExpand?.let { expand -> { expand(0L) } }, onPreviewAction)
+        ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, onPlaybackFailure, onExpand, showFullscreen, onPreviewAction, inlineResume)
     }
     if (showFullscreen) {
         ProofMediaFullscreenDialog(
             path = path,
             kind = kind,
             onPreviewAction = onPreviewAction,
-            onDismiss = {
+            startPositionMs = fullscreenStartPositionMs,
+            onDismiss = { resumePositionMs ->
                 onPreviewAction(ProofMediaPreviewActions.FULLSCREEN_CLOSE)
                 showFullscreen = false
+                if (kind == ProofMediaPreviewKind.Video) {
+                    inlineResume = ProofVideoResume(positionMs = resumePositionMs, ticket = (inlineResume?.ticket ?: 0) + 1)
+                }
             },
         )
     }
 }
+
+/** A position handed back from the fullscreen viewer. [ticket] makes each hand-back distinct so the
+ *  inline preview applies it once even when the same position comes back twice. */
+private data class ProofVideoResume(val positionMs: Long, val ticket: Int)
 
 @Composable
 private fun ProofPhotoPreview(
@@ -323,9 +343,10 @@ private fun ProofVideoPreview(
     path: String,
     modifier: Modifier = Modifier,
     onPlaybackFailure: () -> Unit = {},
-    onExpand: (() -> Unit)? = null,
+    onExpand: ((positionMs: Long) -> Unit)? = null,
     fullscreenShowing: Boolean = false,
     onPreviewAction: (String) -> Unit = {},
+    resume: ProofVideoResume? = null,
 ) {
     val context = LocalContext.current
     val playerFactory = LocalProofPlayerFactory.current
@@ -415,6 +436,27 @@ private fun ProofVideoPreview(
             player?.pause()
         }
     }
+    // Fullscreen closed at [resume]: continue from there rather than from the start. A never-armed
+    // preview (she enlarged without ever pressing play inline) is armed first so a player exists to
+    // seek; the effect re-runs once it does. Applied once per ticket.
+    var appliedResumeTicket by remember(path) { mutableStateOf(0) }
+    LaunchedEffect(player, resume) {
+        val pending = resume ?: return@LaunchedEffect
+        if (pending.ticket == appliedResumeTicket) return@LaunchedEffect
+        if (player == null) {
+            if (pending.positionMs > 0L && !armed) armed = true else appliedResumeTicket = pending.ticket
+            return@LaunchedEffect
+        }
+        player.seekTo(pending.positionMs)
+        positionMs = pending.positionMs
+        playStartedPositionMs = pending.positionMs
+        appliedResumeTicket = pending.ticket
+    }
+    // The frame she is on, handed to fullscreen so it opens there. A finished clip hands over 0 so
+    // the fullscreen player replays it instead of opening on its last frame.
+    val expandAtCurrentPosition: (() -> Unit)? = onExpand?.let { expand ->
+        { expand(if (player?.playbackState == Player.STATE_ENDED) 0L else displayPositionMs) }
+    }
     LaunchedEffect(player) {
         while (player != null) {
             val playerDuration = player.duration
@@ -461,7 +503,7 @@ private fun ProofVideoPreview(
                         role = Role.Button,
                         onClick = {
                             onPreviewAction(ProofMediaPreviewActions.FULLSCREEN_OPEN)
-                            onExpand()
+                            expandAtCurrentPosition?.invoke()
                         },
                     ),
             )
@@ -469,7 +511,7 @@ private fun ProofVideoPreview(
         ProofPreviewActions(
             path = path,
             kind = ProofMediaPreviewKind.Video,
-            onExpand = onExpand,
+            onExpand = expandAtCurrentPosition,
             onAction = onPreviewAction,
             modifier = Modifier.align(Alignment.TopStart),
         )
@@ -677,17 +719,44 @@ private fun ProofMediaFullscreenDialog(
     path: String,
     kind: ProofMediaPreviewKind,
     onPreviewAction: (String) -> Unit,
-    onDismiss: () -> Unit,
+    /** Called with the position the video was at when the viewer closed (0 for a photo, and 0 for
+     *  a clip that ran to the end so the inline preview replays it). */
+    onDismiss: (resumePositionMs: Long) -> Unit,
+    /** Where the inline preview was when it was enlarged -- a video starts here, not at 0. */
+    startPositionMs: Long = 0L,
 ) {
+    val context = LocalContext.current
+    val playerFactory = LocalProofPlayerFactory.current
+    // Built here, outside the Dialog's own composition, so the dismiss request (Back, outside tap,
+    // the close button) can read the playhead before the player is released.
+    val player = remember(path, kind) {
+        if (kind != ProofMediaPreviewKind.Video) {
+            null
+        } else {
+            playerFactory.create(context).apply {
+                setMediaItem(MediaItem.fromUri(Uri.parse(path)), startPositionMs.coerceAtLeast(0L))
+                playWhenReady = true
+                prepare()
+            }
+        }
+    }
+    val dismissAtCurrentPosition = {
+        val current = player
+        onDismiss(
+            when {
+                current == null -> 0L
+                current.playbackState == Player.STATE_ENDED -> 0L
+                else -> current.currentPosition.coerceAtLeast(0L)
+            },
+        )
+    }
     androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismissAtCurrentPosition,
         properties = androidx.compose.ui.window.DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
         ),
     ) {
-        val context = LocalContext.current
-        val playerFactory = LocalProofPlayerFactory.current
         Column(modifier = Modifier.fillMaxSize().background(MeshaColors.Bg)) {
             Row(
                 modifier = Modifier
@@ -714,7 +783,7 @@ private fun ProofMediaFullscreenDialog(
                     }
                 }
                 IconButton(
-                    onClick = onDismiss,
+                    onClick = dismissAtCurrentPosition,
                     modifier = Modifier.size(40.dp),
                 ) {
                     Box(
@@ -767,15 +836,8 @@ private fun ProofMediaFullscreenDialog(
                             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = MeshaColors.Brand)
                         }
                     }
-                    ProofMediaPreviewKind.Video -> {
+                    ProofMediaPreviewKind.Video -> if (player != null) {
                         val lifecycleOwner = LocalLifecycleOwner.current
-                        val player = remember(path) {
-                            playerFactory.create(context).apply {
-                                setMediaItem(MediaItem.fromUri(Uri.parse(path)))
-                                playWhenReady = true
-                                prepare()
-                            }
-                        }
                         DisposableEffect(player) {
                             var lastIsPlaying: Boolean? = null
                             val listener = object : Player.Listener {
@@ -790,7 +852,7 @@ private fun ProofMediaFullscreenDialog(
 
                                 override fun onPlayerError(error: PlaybackException) {
                                     onPreviewAction(proofPlaybackFailureAction(error))
-                                    onDismiss()
+                                    onDismiss(0L)
                                 }
                             }
                             player.addListener(listener)

@@ -639,8 +639,10 @@ function VerificationReviewDrawerPanel({
                 </div>
               ) : null
             )}
-            {/* Rejection reason when rejected */}
-            {item.status === "rejected" && item.verdict_reason && (
+            {/* The verifier's own words on this verdict: a rejection's reason, or the optional
+                note she left on an approval (maintainer request 2026-09-08). Same stored field,
+                shown for either decision. */}
+            {item.verdict_reason && (
               <div className="vr-fact">
                 <b>{text("drawer.meta.reason")}</b>
                 {item.verdict_reason}
@@ -765,10 +767,13 @@ function VerificationReviewDrawerPanel({
                   <input type="hidden" name="next_row" value={nextRowId} />
                   <input type="hidden" name="next_cursor" value={nextCursor} />
                   <input type="hidden" name="next_trail" value={nextTrail} />
-                  <label className="fld" style={{ marginBottom: 0, display: rejecting ? "grid" : "none" }}>
+                  {/* Always shown (maintainer request 2026-09-08): a verifier may leave a note on
+                      an ACCEPTED video too, so the box no longer waits for Reject to reveal it.
+                      Reject still needs it filled; Accept sends it only when something was typed. */}
+                  <label className="fld" style={{ marginBottom: 0 }}>
                     <span>{text("verdict.reason_label")}</span>
                     {/* Deliberately not `required`: the same field is mandatory for Reject and
-                        unused for Approve, so the rule lives in the server action and the backend
+                        optional for Approve, so the rule lives in the server action and the backend
                         (422), not in a per-button HTML attribute. */}
                     <textarea
                       ref={reasonRef}
@@ -780,7 +785,7 @@ function VerificationReviewDrawerPanel({
                       onChange={(e) => setReason(e.target.value)}
                     />
                   </label>
-                  {rejecting ? <div className="small muted">{text("verdict.reason_required")}</div> : null}
+                  <div className="small muted">{text("verdict.reason_required")}</div>
                   {verdictSettled ? <div className="note">{text("verdict.disabled_not_pending")}</div> : null}
                   {!hasEvidence ? <div className="note">{text("verdict.disabled_no_evidence")}</div> : null}
                   {/* Reject stays available: she can always send an unreadable clip back, and it is

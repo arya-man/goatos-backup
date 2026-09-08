@@ -34962,7 +34962,10 @@ components:
           $ref: "#/components/schemas/VerificationDecision"
         reason:
           type: string
-          description: Required (non-empty) when decision is rejected; 422 otherwise.
+          description: >-
+            Required (non-empty) when decision is rejected; 422 otherwise. Optional on an
+            approval, where it is the verifier's note on an accepted video and is stored as
+            the item's verdict_reason exactly like a rejection's reason.
         row_version:
           type: integer
           minimum: 1

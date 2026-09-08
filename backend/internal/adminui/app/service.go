@@ -1853,11 +1853,11 @@ func pageSpecificCopy(id string) map[string]string {
 			// not promise that approving closes or completes the underlying work, because it does
 			// not -- an authority closes the submission afterwards.
 			"verdict.title":                "Video verification",
-			"verdict.reason_label":         "Rejection reason",
-			"verdict.reason_placeholder":   "What did the video show that failed the standard?",
+			"verdict.reason_label":         "Note for this verdict",
+			"verdict.reason_placeholder":   "What did the video show? Required to reject, optional to approve.",
 			"verdict.approve":              "Approve",
 			"verdict.reject":               "Reject",
-			"verdict.reason_required":      "A rejection must say what was wrong. Approving needs no reason.",
+			"verdict.reason_required":      "A rejection must say what was wrong. A note on an approval is optional.",
 			"verdict.disabled_not_pending": "This action already has a verdict and cannot be reviewed again.",
 			"verdict.disabled_no_access":   "Recording a verdict is limited to the video verification team.",
 			"verdict.disabled_no_evidence": "No video available — accept is blocked. Reject it, or come back once the proof resolves.",
