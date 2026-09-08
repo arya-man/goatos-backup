@@ -11,7 +11,11 @@ import {
 } from "lucide-react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
-import { raiseLeadershipTaskAction } from "./actions";
+import {
+  changeLeadershipTaskStatusAction,
+  raiseLeadershipTaskAction,
+  setLeadershipTaskCommentAction,
+} from "./actions";
 import type {
   LeadershipTaskAssignee,
   LeadershipTaskAttachment,
@@ -26,7 +30,10 @@ type TaskRow = {
   title: string;
   body: string;
   comment: string;
+  canComment: boolean;
+  rowVersion: number;
   status: TaskStatus;
+  statusOptions: Array<{ key: string; label: string }>;
   assignee: string;
   assigneeRole: string;
   raisedBy: string;
@@ -35,6 +42,12 @@ type TaskRow = {
   evidence: string;
   attachmentKinds: string[];
   attachmentRows: LeadershipTaskAttachment[];
+  notes: Array<{
+    note_id: string;
+    author_name: string;
+    body: string;
+    created_at: string;
+  }>;
   priority: "High" | "Medium" | "Normal";
 };
 
@@ -57,7 +70,10 @@ const fixtureTasks: TaskRow[] = [
     title: "Check CPT west fence repair before evening close",
     body: "Confirm the west fence patch before close and attach the completion proof.",
     comment: "Park team acknowledged.",
+    canComment: true,
+    rowVersion: 4,
     status: "doing",
+    statusOptions: [{ key: "done", label: "Done" }],
     assignee: "Satish",
     assigneeRole: "Park Head",
     raisedBy: "Manju",
@@ -66,6 +82,14 @@ const fixtureTasks: TaskRow[] = [
     evidence: "video, voice note",
     attachmentKinds: ["video", "audio"],
     attachmentRows: [],
+    notes: [
+      {
+        note_id: "fixture-note-1",
+        author_name: "Satish",
+        body: "Park team acknowledged.",
+        created_at: new Date().toISOString(),
+      },
+    ],
     priority: "High",
   },
   {
@@ -74,7 +98,10 @@ const fixtureTasks: TaskRow[] = [
     title: "Confirm director handoff for feed unloading delay",
     body: "Capture what delayed unloading and who owns the next checkpoint.",
     comment: "Waiting for vendor note.",
+    canComment: true,
+    rowVersion: 2,
     status: "open",
+    statusOptions: [{ key: "in_progress", label: "Doing" }],
     assignee: "Manohar",
     assigneeRole: "Feed Director",
     raisedBy: "Ravi",
@@ -83,6 +110,14 @@ const fixtureTasks: TaskRow[] = [
     evidence: "note, file",
     attachmentKinds: ["file"],
     attachmentRows: [],
+    notes: [
+      {
+        note_id: "fixture-note-2",
+        author_name: "Manohar",
+        body: "Waiting for vendor note.",
+        created_at: new Date().toISOString(),
+      },
+    ],
     priority: "Medium",
   },
   {
@@ -91,7 +126,10 @@ const fixtureTasks: TaskRow[] = [
     title: "Send Borewell-2 motor reading after restart",
     body: "Share the post-restart reading with a short clip.",
     comment: "Completed.",
+    canComment: false,
+    rowVersion: 7,
     status: "done",
+    statusOptions: [],
     assignee: "Prakash",
     assigneeRole: "Employee",
     raisedBy: "Manju",
@@ -100,6 +138,14 @@ const fixtureTasks: TaskRow[] = [
     evidence: "completion video",
     attachmentKinds: ["video"],
     attachmentRows: [],
+    notes: [
+      {
+        note_id: "fixture-note-3",
+        author_name: "Prakash",
+        body: "Completed.",
+        created_at: new Date().toISOString(),
+      },
+    ],
     priority: "Normal",
   },
 ];
@@ -462,6 +508,77 @@ export function LeadershipTasksPage({
                   <p>{selected.comment}</p>
                 </div>
               ) : null}
+              {selected.statusOptions.length ? (
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 8,
+                    marginBottom: 12,
+                  }}
+                >
+                  {selected.statusOptions.map((option) => (
+                    <form
+                      key={option.key}
+                      action={changeLeadershipTaskStatusAction}
+                    >
+                      <input
+                        type="hidden"
+                        name="idempotency_key"
+                        value={`admin-web-leadership-task-status:${selected.id}:${option.key}:${crypto.randomUUID()}`}
+                      />
+                      <input
+                        type="hidden"
+                        name="return_to"
+                        value={`/tasks?scope=${encodeURIComponent(selectedScope.key)}&task=${encodeURIComponent(selected.id)}`}
+                      />
+                      <input type="hidden" name="task_id" value={selected.id} />
+                      <input
+                        type="hidden"
+                        name="row_version"
+                        value={selected.rowVersion}
+                      />
+                      <input type="hidden" name="status" value={option.key} />
+                      <button type="submit" className="btn">
+                        <CheckCircle2 className="ic" aria-hidden="true" />
+                        {option.label}
+                      </button>
+                    </form>
+                  ))}
+                </div>
+              ) : null}
+              {selected.canComment ? (
+                <form
+                  action={setLeadershipTaskCommentAction}
+                  style={{ display: "grid", gap: 10, marginBottom: 12 }}
+                >
+                  <input
+                    type="hidden"
+                    name="idempotency_key"
+                    value={`admin-web-leadership-task-note:${selected.id}:${crypto.randomUUID()}`}
+                  />
+                  <input
+                    type="hidden"
+                    name="return_to"
+                    value={`/tasks?scope=${encodeURIComponent(selectedScope.key)}&task=${encodeURIComponent(selected.id)}`}
+                  />
+                  <input type="hidden" name="task_id" value={selected.id} />
+                  <label className="fld">
+                    <span>Task note</span>
+                    <textarea
+                      name="comment"
+                      maxLength={2000}
+                      rows={3}
+                      placeholder="Add a reply or update."
+                      required
+                    />
+                  </label>
+                  <button type="submit" className="btn p">
+                    <Mic2 className="ic" aria-hidden="true" />
+                    Add note
+                  </button>
+                </form>
+              ) : null}
               {selected.attachmentRows.length ? (
                 <div className="lt-attachments" style={{ marginBottom: 12 }}>
                   {selected.attachmentRows.map((attachment) => (
@@ -479,7 +596,17 @@ export function LeadershipTasksPage({
                 </div>
               ) : null}
               <div className="lt-feed" style={{ maxHeight: "none" }}>
-                {preview ? (
+                {selected.notes.length ? (
+                  selected.notes.map((note) => (
+                    <FeedRow
+                      key={note.note_id}
+                      icon={Mic2}
+                      tone="f-pur"
+                      title={note.author_name || "Task note"}
+                      detail={note.body}
+                    />
+                  ))
+                ) : preview ? (
                   <>
                     <FeedRow
                       icon={Clock3}
@@ -544,7 +671,10 @@ function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
       title: task.title,
       body: task.body,
       comment: task.comment,
+      canComment: task.can_comment,
+      rowVersion: task.row_version,
       status,
+      statusOptions: task.status_options ?? [],
       assignee: task.assignee_name,
       assigneeRole: task.is_assignee ? "Assigned to me" : "Assignee",
       raisedBy: task.raised_by_name,
@@ -555,6 +685,7 @@ function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
         (task.attachment_count > 0 ? "attached files" : "no attachments"),
       attachmentKinds,
       attachmentRows: task.attachments ?? [],
+      notes: task.notes ?? [],
       priority:
         task.status === "open"
           ? "High"

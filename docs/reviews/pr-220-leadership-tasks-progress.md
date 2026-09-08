@@ -37,12 +37,13 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Fixed tenth-cycle Manju-note judge finding: admin-web task rows are now selectable through `?task=`, so the detail panel can inspect notes, comments and attachments for any task in the selected scope instead of always showing the first row.
 - Fixed eleventh-cycle PR review finding: Leadership Task write handlers now enforce the same 8-200 character `Idempotency-Key` boundary as web/mobile actions.
 - Fixed twelfth-cycle judge findings: assignee listing no longer drops valid employees after 100 rows, generated TypeScript API client is refreshed from OpenAPI, and Android empty-state copy now prefers the backend-owned selected scope message for all-filter scope views.
+- Fixed thirteenth-cycle Manju-note judge findings: Leadership Tasks now persist chronological two-way notes, preserve the old assignee comment field for mobile compatibility, expose `notes[]` in the OpenAPI/API client contract, and admin-web selected-task details can change status and add task notes instead of being read-only.
 
 ## Acceptance Status
 
 - COO representation: accepted as the existing CEO/CXO leadership desk role (`ceo_internal`) plus combined raise+act/no-pen-visit person access. There is no separate `RoleCOO` in the current RBAC vocabulary.
 - Employee assignment: accepted as every active app-backed workforce member with `person_access` and mobile Leadership Tasks `view+oversee`.
-- Notes: accepted for this PR as title/body plus one assignee note/comment field and attachments. Threaded Jira-style activity is not built in this PR.
+- Notes: implemented as title/body plus chronological two-way task notes, with the older assignee `comment` field preserved for compatibility.
 - Seed/E2E data: migration is implemented and guarded locally. Real OCI/staging readback is not part of the committed test suite here.
 - Screenshots: Android evidence remains unit/Paparazzi fixture based; web evidence includes Chrome `/tasks-preview` with shell/sidebar. Production `/tasks` is live-data backed behind the backend page contract.
 
@@ -79,3 +80,4 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Tenth-cycle Manju judge found the web detail panel was locked to the first row; patched in current cycle and needs re-judge.
 - Eleventh-cycle PR judge found backend Leadership Task writes accepted malformed non-empty idempotency keys; patched in current cycle and needs re-judge.
 - Twelfth-cycle judges found the assignee picker cap, stale generated client, and Android scope empty copy drift; all are patched in current cycle and need re-judge.
+- Thirteenth-cycle Manju-note judge found missing two-way note history and read-only admin-web task details; both are patched in current cycle and need re-judge.

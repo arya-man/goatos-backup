@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
+  changeLeadershipTaskStatus,
   raiseLeadershipTask,
+  setLeadershipTaskComment,
   uploadLeadershipTaskAttachment,
 } from "@/lib/api/server";
 
@@ -76,6 +78,68 @@ export async function raiseLeadershipTaskAction(
     );
   }
   redirect(withFeedback(url, "success", "task_raised"));
+}
+
+export async function changeLeadershipTaskStatusAction(
+  formData: FormData,
+): Promise<void> {
+  const url = redirectTarget(formData);
+  const taskID = String(formData.get("task_id") ?? "").trim();
+  const status = String(formData.get("status") ?? "").trim();
+  const rowVersion = Number.parseInt(
+    String(formData.get("row_version") ?? ""),
+    10,
+  );
+  const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+
+  if (!taskID || !status || !Number.isFinite(rowVersion)) {
+    redirect(withFeedback(url, "error", "invalid_status_change"));
+  }
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    redirect(withFeedback(url, "error", "invalid_idempotency_key"));
+  }
+
+  const result = await changeLeadershipTaskStatus(
+    taskID,
+    { status, row_version: rowVersion },
+    idempotencyKey,
+  );
+  revalidatePath(PATHNAME);
+  if (!result.ok) {
+    redirect(
+      withFeedback(url, "error", result.error.code ?? result.error.kind),
+    );
+  }
+  redirect(withFeedback(url, "success", "task_updated"));
+}
+
+export async function setLeadershipTaskCommentAction(
+  formData: FormData,
+): Promise<void> {
+  const url = redirectTarget(formData);
+  const taskID = String(formData.get("task_id") ?? "").trim();
+  const comment = String(formData.get("comment") ?? "").trim();
+  const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+
+  if (!taskID || !comment) {
+    redirect(withFeedback(url, "error", "missing_note"));
+  }
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    redirect(withFeedback(url, "error", "invalid_idempotency_key"));
+  }
+
+  const result = await setLeadershipTaskComment(
+    taskID,
+    { comment },
+    idempotencyKey,
+  );
+  revalidatePath(PATHNAME);
+  if (!result.ok) {
+    redirect(
+      withFeedback(url, "error", result.error.code ?? result.error.kind),
+    );
+  }
+  redirect(withFeedback(url, "success", "note_added"));
 }
 
 async function uploadedAttachmentRefs(

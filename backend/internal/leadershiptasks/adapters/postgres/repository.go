@@ -165,6 +165,9 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	if err := r.attachTo(ctx, r.pool, p.TenantID, tasks); err != nil {
 		return ports.Page{}, err
 	}
+	if err := r.notesTo(ctx, r.pool, p.TenantID, tasks); err != nil {
+		return ports.Page{}, err
+	}
 	page.Rows = tasks
 
 	countRows, err := r.pool.Query(ctx, sqlStatusCountsForScope(p.Scope), p.TenantID, p.UserID)
@@ -240,6 +243,37 @@ func (r *Repository) attachTo(ctx context.Context, q querier, tenantID string, t
 	return rows.Err()
 }
 
+// notesTo loads the chronological task notes of a bounded task set in one query.
+func (r *Repository) notesTo(ctx context.Context, q querier, tenantID string, tasks []domain.Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(tasks))
+	index := make(map[string]int, len(tasks))
+	for i := range tasks {
+		ids = append(ids, tasks[i].TaskID)
+		index[tasks[i].TaskID] = i
+		tasks[i].Notes = nil
+	}
+	rows, err := q.Query(ctx, sqlListNotes, tenantID, ids)
+	if err != nil {
+		return fmt.Errorf("leadership task: list notes: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var taskID string
+		var n domain.Note
+		if err := rows.Scan(&taskID, &n.NoteID, &n.AuthorID, &n.AuthorName, &n.Body, &n.CreatedAt); err != nil {
+			return fmt.Errorf("leadership task: notes scan: %w", err)
+		}
+		n.CreatedAt = n.CreatedAt.UTC()
+		if i, ok := index[taskID]; ok {
+			tasks[i].Notes = append(tasks[i].Notes, n)
+		}
+	}
+	return rows.Err()
+}
+
 func encodeCursor(raisedAt time.Time, taskID string) string {
 	return raisedAt.UTC().Format(time.RFC3339Nano) + "|" + taskID
 }
@@ -280,6 +314,9 @@ func (r *Repository) getRow(ctx context.Context, q querier, tenantID, taskID str
 	}
 	tasks := []domain.Task{t}
 	if err := r.attachTo(ctx, q, tenantID, tasks); err != nil {
+		return domain.Task{}, err
+	}
+	if err := r.notesTo(ctx, q, tenantID, tasks); err != nil {
 		return domain.Task{}, err
 	}
 	return tasks[0], nil
@@ -554,14 +591,20 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 	if err != nil {
 		return domain.Task{}, err
 	}
-	if !before.IsAssignee(p.Actor) {
+	if !before.CanComment(p.Actor) {
+		if before.Status == domain.StatusCancelled {
+			return domain.Task{}, domain.ErrTaskClosed
+		}
 		return domain.Task{}, domain.ErrNotAssignee
 	}
-	if !before.CanComment(p.Actor) {
-		return domain.Task{}, domain.ErrTaskClosed
-	}
-	if _, err := tx.Exec(ctx, sqlSetComment, p.TenantID, p.TaskID, p.Comment, r.now().UTC()); err != nil {
+	now := r.now().UTC()
+	if _, err := tx.Exec(ctx, sqlSetComment, p.TenantID, p.TaskID, p.Comment, now); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: update comment: %w", err)
+	}
+	if p.Comment != "" {
+		if _, err := tx.Exec(ctx, sqlInsertNote, p.TenantID, p.TaskID, p.Actor.UserID, p.Comment, now); err != nil {
+			return domain.Task{}, fmt.Errorf("leadership task: insert note: %w", err)
+		}
 	}
 	after, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, false)
 	if err != nil {
@@ -800,6 +843,18 @@ const sqlSetComment = `
 UPDATE public.leadership_tasks
 SET assignee_comment = $3::text, updated_at = $4::timestamptz, row_version = row_version + 1
 WHERE tenant_id = $1 AND task_id = $2`
+
+const sqlInsertNote = `
+INSERT INTO public.leadership_task_notes (tenant_id, task_id, author_user_id, body, created_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`
+
+const sqlListNotes = `
+SELECT n.task_id::text, n.note_id::text, n.author_user_id::text, COALESCE(w.display_name, ''), n.body, n.created_at
+FROM public.leadership_task_notes n
+LEFT JOIN public.workforce_members w
+       ON w.tenant_id = n.tenant_id AND w.user_id = n.author_user_id AND w.status = 'active'
+WHERE n.tenant_id = $1 AND n.task_id = ANY($2::uuid[])
+ORDER BY n.task_id, n.created_at, n.note_id`
 
 // leadershipTasksModuleKey is the module_key the /people ticks store for this module.
 const leadershipTasksModuleKey = "leadership_tasks"
