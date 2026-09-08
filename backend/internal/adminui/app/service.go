@@ -99,11 +99,10 @@ func navLeafDomain(id, label, href, module string, extra map[string]string) doma
 func navigation() domain.NavigationContract {
 	return domain.NavigationContract{
 		Primary: []domain.NavigationItem{
-			navItem("control-tower", "Control Tower", "/", "tower-control", ""),
-			navItem("action-center", "Action Center", "/action-center", "zap", ""),
+			// Control Tower, Action Center, Protocol Adherence and Workflows moved into the
+			// "Others" group (maintainer request 2026-09-08). They remain top-level command
+			// lenses at their own routes; only their sidebar placement changed.
 			navItem("calendar", "Calendar", "/calendar", "calendar-days", ""),
-			navItem("protocol-adherence", "Protocol Adherence", "/protocol-adherence", "clipboard-check", ""),
-			navItem("workflows", "Workflows", "/workflows", "workflow", ""),
 			// Approvals is a top-level decision surface (maintainer decision 2026-07-21): the queue of
 			// pending birth/death/shifting requests, approved or rejected here. Moved off mobile;
 			// access is gated server-side by counts.approve_access (the four org tiers + admin +
@@ -186,6 +185,10 @@ func navigation() domain.NavigationContract {
 			{
 				ID: "others", Label: "Others", Icon: "edit-3", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
+					navLeaf("control-tower", "Control Tower", "/", nil),
+					navLeaf("action-center", "Action Center", "/action-center", nil),
+					navLeaf("protocol-adherence", "Protocol Adherence", "/protocol-adherence", nil),
+					navLeaf("workflows", "Workflows", "/workflows", nil),
 					navLeaf("milk-preparation", "Milk Preparation", "/counts/milk-preparation", nil),
 					navLeaf("milk-sops", "Milk SOP", "/milk/sops", nil),
 					navLeafDomain("herd-signals", "Live Monitor", "/herd-signals", "herd_signals.live", nil),
