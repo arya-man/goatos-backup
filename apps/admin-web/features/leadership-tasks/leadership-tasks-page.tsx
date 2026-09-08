@@ -14,6 +14,7 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import { raiseLeadershipTaskAction } from "./actions";
 import type {
   LeadershipTaskAssignee,
+  LeadershipTaskAttachment,
   LeadershipTaskPage,
 } from "@/lib/api/server";
 
@@ -23,6 +24,8 @@ type TaskRow = {
   id: string;
   number: string;
   title: string;
+  body: string;
+  comment: string;
   status: TaskStatus;
   assignee: string;
   assigneeRole: string;
@@ -31,6 +34,7 @@ type TaskRow = {
   attachments: number;
   evidence: string;
   attachmentKinds: string[];
+  attachmentRows: LeadershipTaskAttachment[];
   priority: "High" | "Medium" | "Normal";
 };
 
@@ -51,6 +55,8 @@ const fixtureTasks: TaskRow[] = [
     id: "1",
     number: "#18",
     title: "Check CPT west fence repair before evening close",
+    body: "Confirm the west fence patch before close and attach the completion proof.",
+    comment: "Park team acknowledged.",
     status: "doing",
     assignee: "Satish",
     assigneeRole: "Park Head",
@@ -59,12 +65,15 @@ const fixtureTasks: TaskRow[] = [
     attachments: 3,
     evidence: "video, voice note",
     attachmentKinds: ["video", "audio"],
+    attachmentRows: [],
     priority: "High",
   },
   {
     id: "2",
     number: "#17",
     title: "Confirm director handoff for feed unloading delay",
+    body: "Capture what delayed unloading and who owns the next checkpoint.",
+    comment: "Waiting for vendor note.",
     status: "open",
     assignee: "Manohar",
     assigneeRole: "Feed Director",
@@ -73,12 +82,15 @@ const fixtureTasks: TaskRow[] = [
     attachments: 2,
     evidence: "note, file",
     attachmentKinds: ["file"],
+    attachmentRows: [],
     priority: "Medium",
   },
   {
     id: "3",
     number: "#16",
     title: "Send Borewell-2 motor reading after restart",
+    body: "Share the post-restart reading with a short clip.",
+    comment: "Completed.",
     status: "done",
     assignee: "Prakash",
     assigneeRole: "Employee",
@@ -87,6 +99,7 @@ const fixtureTasks: TaskRow[] = [
     attachments: 4,
     evidence: "completion video",
     attachmentKinds: ["video"],
+    attachmentRows: [],
     priority: "Normal",
   },
 ];
@@ -311,6 +324,11 @@ export function LeadershipTasksPage({
             >
               <input
                 type="hidden"
+                name="idempotency_key"
+                value={`admin-web-leadership-task:${crypto.randomUUID()}`}
+              />
+              <input
+                type="hidden"
                 name="return_to"
                 value="/tasks?scope=assigned_by_me"
               />
@@ -343,6 +361,31 @@ export function LeadershipTasksPage({
                   maxLength={4000}
                   rows={4}
                   placeholder="Add context for the assignee."
+                />
+              </label>
+              <div className="metagrid">
+                <label className="fld">
+                  <span>Proof ID</span>
+                  <input
+                    name="attachment_proof_id"
+                    placeholder="Uploaded proof id"
+                  />
+                </label>
+                <label className="fld">
+                  <span>Type</span>
+                  <select name="attachment_kind" defaultValue="file">
+                    <option value="file">File</option>
+                    <option value="audio">Voice note</option>
+                    <option value="video">Video</option>
+                    <option value="photo">Photo</option>
+                  </select>
+                </label>
+              </div>
+              <label className="fld">
+                <span>Attachment name</span>
+                <input
+                  name="attachment_file_name"
+                  placeholder="Optional file name"
                 />
               </label>
               <button
@@ -390,6 +433,34 @@ export function LeadershipTasksPage({
                   value={String(selected.attachments)}
                 />
               </div>
+              {selected.body ? (
+                <div className="note-box" style={{ marginBottom: 12 }}>
+                  <b>Brief</b>
+                  <p>{selected.body}</p>
+                </div>
+              ) : null}
+              {selected.comment ? (
+                <div className="note-box" style={{ marginBottom: 12 }}>
+                  <b>Assignee note</b>
+                  <p>{selected.comment}</p>
+                </div>
+              ) : null}
+              {selected.attachmentRows.length ? (
+                <div className="lt-attachments" style={{ marginBottom: 12 }}>
+                  {selected.attachmentRows.map((attachment) => (
+                    <a
+                      key={attachment.attachment_id}
+                      className="chip"
+                      href={`/api/leadership-tasks/attachments/${encodeURIComponent(selected.id)}/${encodeURIComponent(attachment.proof_id)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Paperclip className="ic" aria-hidden="true" />
+                      {attachment.file_name || attachment.kind}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
               <div className="lt-feed" style={{ maxHeight: "none" }}>
                 {preview ? (
                   <>
@@ -454,6 +525,8 @@ function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
       id: task.task_id,
       number: task.number_label,
       title: task.title,
+      body: task.body,
+      comment: task.comment,
       status,
       assignee: task.assignee_name,
       assigneeRole: task.is_assignee ? "Assigned to me" : "Assignee",
@@ -464,6 +537,7 @@ function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
         evidence ||
         (task.attachment_count > 0 ? "attached files" : "no attachments"),
       attachmentKinds,
+      attachmentRows: task.attachments ?? [],
       priority:
         task.status === "open"
           ? "High"
@@ -496,9 +570,7 @@ function scopesFromPage(page: LeadershipTaskPage): ScopeRow[] {
   }));
 }
 
-function liveFeedRows(
-  task: TaskRow,
-): Array<{
+function liveFeedRows(task: TaskRow): Array<{
   icon: typeof Clock3;
   tone: FeedTone;
   title: string;

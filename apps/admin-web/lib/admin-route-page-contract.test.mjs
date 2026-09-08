@@ -71,4 +71,34 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     /action=\{raiseLeadershipTaskAction\}/,
     "production raise form must submit to the backend server action",
   );
+  assert.match(
+    component,
+    /name="idempotency_key"/,
+    "web create must submit a rendered stable idempotency key",
+  );
+  assert.match(
+    component,
+    /name="attachment_proof_id"/,
+    "web create must accept uploaded proof attachment refs",
+  );
+  assert.match(
+    component,
+    /\/api\/leadership-tasks\/attachments\//,
+    "web monitor must open task-scoped attachments through the admin proxy",
+  );
+
+  const actions = readFileSync(
+    join(root, "features/leadership-tasks/actions.ts"),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    actions,
+    /randomUUID\(/,
+    "server action must not mint a fresh idempotency key on retry",
+  );
+  assert.match(
+    actions,
+    /attachmentRefs\(formData\)/,
+    "server action must send non-empty attachment refs when provided",
+  );
 });

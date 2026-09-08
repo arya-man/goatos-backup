@@ -26,6 +26,9 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Fixed fifth-cycle PR review findings `LT-220-02` and `LT-220-03`: production admin-web activity is derived from live task fields, preview-only rows stay behind `/tasks-preview`, and scope chips navigate through `?scope=` so `/tasks` fetches the selected backend scope instead of always forcing Team Progress.
 - Fixed fifth-cycle Manju-note finding `LT-WEB-001`: admin-web now fetches backend assignees and posts a real create form to `POST /app/leadership-tasks` when the backend page says `can_raise=true`.
 - Fixed fifth-cycle Manju-note finding `LT-ANALYTICS-001`: Leadership Tasks list/open/raise/edit/status/attachment/audio/failure events are all in the durable backend analytics allowlist.
+- Fixed sixth-cycle PR review finding `LT-220-01`: both migration upsert CTEs now return `surface`, and the migration guard asserts this so the web/mobile seed executes instead of failing at `recorded_rows`.
+- Fixed sixth-cycle PR review finding `LT-220-02`: admin-web create uses a stable idempotency key rendered with the form and rejects invalid/missing keys instead of minting a fresh key inside the server action.
+- Fixed sixth-cycle Manju/PR web attachment findings: admin-web create accepts existing uploaded proof refs with kind/name, posts them as non-empty attachment refs, and the monitor panel renders live task brief/comment plus task-scoped attachment links through an admin proxy that resolves backend signed URLs.
 
 ## Acceptance Status
 
@@ -44,6 +47,7 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Passed: `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk ./gradlew :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.analytics.BackendAnalyticsAdapterTest'`.
 - Passed: `npm run typecheck && npm exec -- eslint 'app/(admin)'/tasks/page.tsx app/tasks-preview/page.tsx features/leadership-tasks/leadership-tasks-page.tsx`.
 - Passed: `npm run typecheck && npm exec -- eslint 'app/(admin)'/tasks/page.tsx app/tasks-preview/page.tsx features/leadership-tasks/actions.ts features/leadership-tasks/leadership-tasks-page.tsx lib/admin-route-page-contract.test.mjs lib/api/server.ts && node --test lib/admin-route-page-contract.test.mjs`.
+- Passed: `npm run typecheck && npm exec -- eslint 'app/(admin)'/tasks/page.tsx app/tasks-preview/page.tsx 'app/api/leadership-tasks/attachments/[taskId]/[proofId]/route.ts' features/leadership-tasks/actions.ts features/leadership-tasks/leadership-tasks-page.tsx lib/admin-route-page-contract.test.mjs lib/api/server.ts && node --test lib/admin-route-page-contract.test.mjs`.
 - Captured: Chrome shell screenshot at `apps/admin-web/.codex-leadership-tasks-web-sidebar.png`.
 - Captured: Android Paparazzi images for CEO Team Progress, CEO assignee picker, Director detail, and Park Head detail under `apps/goatos-android/app/build/reports/paparazzi/devDebug/images/`.
 - Passed: `node --test lib/admin-route-page-contract.test.mjs`.
@@ -55,3 +59,5 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Fourth-cycle PR-review judge found missing backend admin-ui page/nav contract and an overly broad test actor; both are patched in current cycle and need re-judge.
 - Fifth-cycle Manju-note judge found inert admin-web create and non-durable list/open/attachment/audio analytics; both are patched in current cycle and need re-judge.
 - Fifth-cycle PR-review judge found missing web person-access seed, fake production activity, and cosmetic-only web scopes; all are patched in current cycle and need re-judge.
+- Sixth-cycle Manju-note judge found web attachment-create and web evidence-inspection gaps; both are patched in current cycle and need re-judge.
+- Sixth-cycle PR-review judge found migration CTE execution, web idempotency, and web attachment-create gaps; all are patched in current cycle and need re-judge.

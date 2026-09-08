@@ -45,6 +45,9 @@ func TestLeadershipTasksTwoWaySeedKeepsDirectorsRaisingAndEmployeesAssignable(t 
 		!strings.Contains(sql, "AND a.surface = r.surface") {
 		t.Fatal("leadership tasks seed down migration must remove mobile and web rows by exact surface")
 	}
+	if strings.Count(sql, "RETURNING tenant_id, workforce_member_id, surface, (xmax = 0) AS inserted") != 2 {
+		t.Fatal("leadership tasks seed must return surface from both upsert CTEs")
+	}
 	doStart := strings.Index(sql, "ARRAY['do']::text[]")
 	configStart := strings.Index(sql, "ARRAY['configure']::text[]")
 	if doStart == -1 || configStart == -1 || doStart > configStart {
