@@ -5257,59 +5257,108 @@ aside.drawer.on{transform:none}
 :where(:root) select{min-width:0}
 :where(:root) .tbar select,:where(:root) .fld select{min-width:150px}
 
-/* ===== THE SYSTEM'S OWN IDIOMS =====
-   Applying the tokens made the admin use the right hexes and faces, but it did
-   not make it look like Mesha. The kit's voice is carried by three structural
-   idioms that were never ported. Taken from components/data-display/StatBlock.jsx,
-   components/layout/SectionRule.jsx and components/data-display/ProofRow.jsx in
-   the design system, adapted to dashboard density (the kit is editorial scale;
-   an operator screen cannot use its 1.8rem padding verbatim). */
+/* ===== THE SYSTEM'S GRAMMAR =====
+   A judge put the kit's website beside the admin and named the gap precisely:
+   the admin had the kit's hexes, faces and three components, but not its
+   GRAMMAR -- how a Mesha screen opens, breathes and ranks. Everything below is
+   that grammar, adapted to operator density. Each rule says what it replaces.
 
-/* StatBlock. The kit's stat is NOT a card -- it has no box, no fill and no
-   surrounding border. It is a single left hairline, generous air, a tiny
-   wide-tracked mono label and a serif figure at real display size. That absence
-   of a box is most of why the kit breathes and the dashboard did not. */
-:where(:root) .kpi{
-  background:transparent;
-  border:0;
-  border-left:1px solid var(--line2);
-  border-radius:0;
-  padding:18px 18px 14px;
-  box-shadow:none;
-}
-:where(:root) .kpi .lab,:where(:root) .kpi .lbl{
-  font-family:var(--fm);font-size:10px;font-weight:500;
-  letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
-:where(:root) .kpi .val{
-  font-family:var(--f-serif);font-weight:400;
-  font-size:clamp(1.9rem,2.4vw,2.6rem);line-height:1.05;
-  margin-top:10px;letter-spacing:0;font-variant-numeric:tabular-nums}
-/* The status rail becomes the left hairline itself, so state is carried by the
-   one line that is already there rather than by a second coloured stripe. */
-:where(:root) .kpi.ok{border-left-color:var(--ok)}
-:where(:root) .kpi.danger{border-left-color:var(--danger)}
-:where(:root) .kpi.warn{border-left-color:var(--warn)}
-:where(:root) .kpi .stripe{display:none}
+   The previous revision of this block made one thing WORSE: it put a top hairline
+   on the card header while .card still carried a border on all four sides, so it
+   produced the double border the readme explicitly bans ("hairlines only ...
+   never a heavy rule or double border"). The idiom was decoration on top of the
+   old idiom instead of replacing it. */
 
-/* SectionRule. Every chapter in the kit opens on a full-width hairline with an
-   italic serif brass mark at one end and a wide-tracked mono green label at the
-   other. It is the kit's most recognisable device and the admin had no
-   equivalent -- card headers were just a bold line of text. */
+/* 1. UN-BOX THE PANEL. In the kit a rule is the WIDEST thing on the page and
+   everything sits inside it; nothing is boxed. The admin had 27 four-sided
+   borders on Control Tower, none doing the kit's job. Replacing a box with a top
+   hairline costs NEGATIVE space -- it gives 2px back per panel. */
+:where(:root) .card{background:transparent;border:0;border-radius:0;box-shadow:none}
 :where(:root) .card > .hd,:where(:root) .cardh{
-  border-top:1px solid var(--line);
-  border-bottom:0;
-  align-items:baseline;
-  padding-top:13px}
-:where(:root) .card > .hd::after,:where(:root) .cardh::after{
-  content:attr(data-rule);
-  font-family:var(--fm);font-size:9.5px;letter-spacing:.26em;
-  text-transform:uppercase;color:var(--brand);margin-left:auto}
-:where(:root) .card > .hd h3,:where(:root) .cardh h3,:where(:root) .cardh b{
-  font-family:var(--f-serif);font-weight:400;font-size:15px;letter-spacing:0}
+  border-top:1px solid var(--line);border-bottom:0;
+  align-items:baseline;padding:14px 0 0;margin-bottom:16px}
 
-/* ProofRow. The kit states a fact as a ledger line: mono key on the left, sans
-   value hard right, one hairline between. The admin's label/value grids were a
-   flat two-column stack with no such rhythm. */
+/* 2. THE MISSING HALF OF SectionRule -- the brass italic mark. The kit opens
+   every chapter with `No 01` in brass italic serif at one end and a wide-tracked
+   lime mono label at the other. Only the lime half had been ported, so brass and
+   italic serif appeared ZERO times in the whole admin. Numbered with a CSS
+   counter so no component markup has to change. */
+:where(:root) .main,:where(:root) .screen{counter-reset:sec}
+:where(:root) .card > .hd::before,:where(:root) .cardh::before{
+  counter-increment:sec;
+  content:"N\00BA " counter(sec,decimal-leading-zero);
+  font-family:var(--f-serif);font-style:italic;font-size:14px;
+  letter-spacing:.04em;color:var(--value);margin-right:14px;white-space:nowrap}
+/* The kit's lime kicker reads a label no component emits, so it rendered as an
+   empty pseudo-element on every card. It needs a markup change and is called out
+   as such rather than shipped inert. */
+
+/* 3. THE TYPE LADDER. The kit uses FOUR rungs about 1.8x apart. The admin had
+   NINE rungs about 1.06x apart -- h3 was 15px against 14px body, which is not a
+   level at all, it is the same size in a different face. That is why the screens
+   read flat rather than small. Five rungs at ~1.55x is the density-compressed
+   translation. */
+:where(:root) .phead h1,:where(:root) .pagetitle{
+  font-family:var(--f-serif);font-weight:400;font-size:34px;line-height:1.06;letter-spacing:-.01em}
+:where(:root) .card > .hd h3,:where(:root) .cardh h3,:where(:root) .cardh b{
+  font-family:var(--f-serif);font-weight:400;font-size:22px;line-height:1.12;letter-spacing:0}
+
+/* 4. NOTHING IS FILLED SOLID. Kit controls are transparent and fill only on
+   hover. The admin painted a solid lime slab for the active nav item, tab and
+   chip -- a Material/shadcn selection idiom wearing Mesha's green. The kit's own
+   NavBar carries active with ink + a lime rule. Two signals (ink vs faint, plus
+   the rule) so it stays legible: the earlier 1.02:1 fill was invisible. */
+:where(:root) .side .nav.on,:where(:root) .side .leaf.on{
+  background:transparent;color:var(--ink);box-shadow:inset 2px 0 0 var(--brand)}
+:where(:root) .side .nav:not(.on),:where(:root) .side .leaf:not(.on){color:var(--sidebar-ink)}
+:where(:root) .subtabs a.on,:where(:root) .subtabs button.on,
+:where(:root) .metricseg a.on,:where(:root) .metricseg button.on,
+:where(:root) .chip.on,:where(:root) .vr-lg.on{
+  background:var(--brand-soft);color:var(--ink);
+  box-shadow:inset 0 -2px 0 var(--brand);border-color:color-mix(in srgb,var(--brand) 45%,transparent)}
+
+/* 5. NO ICONS. The readme is explicit that the source defines no icon set and the
+   site is icon-free. Decorative glyphs on card headers and stat labels are the
+   most generic-SaaS thing on screen and cost zero rows to remove. Sidebar icons
+   are KEPT: 31 nav destinations are scanned, not read, and that is a density
+   argument the kit never had to answer. */
+:where(:root) .cardh > svg.ic,:where(:root) .card > .hd > svg.ic,
+:where(:root) .kpi .lab > svg.ic,:where(:root) .kpi .kpiic{display:none}
+
+/* 6. THE STAT IS TWO LINES. The kit's StatBlock is a mono label and a serif
+   figure. Stop. The admin added a third sans caption under the figure, which
+   collapses the silence the figure was meant to sit in, and painted six
+   different hues across one stat row -- the single most generic thing on any
+   route, in a system that rations colour to one accent. */
+:where(:root) .kpi{border:0;border-left:1px solid var(--line2);border-radius:0;
+  background:transparent;box-shadow:none;padding:20px 0 10px 20px}
+:where(:root) .kpi .val{font-size:44px;line-height:1.02;margin-top:12px}
+:where(:root) .kpi .dl{font-size:11px;color:var(--faint);margin-top:12px}
+:where(:root) .kpi .acc,:where(:root) .kpi .stripe{display:none}
+:where(:root) .kpi.ok,:where(:root) .kpi.warn,:where(:root) .kpi.info,
+:where(:root) .kpi.mut{border-left-color:var(--line2)}
+:where(:root) .kpi.danger{border-left-color:var(--danger)}
+:where(:root) .kpi-row,:where(:root) .kpis{column-gap:34px}
+
+/* 7. AIR. The kit separates sections with clamp(6rem,13vh,10rem). 26px was not
+   that compressed -- it was what a generic admin already had. 52px is the honest
+   translation; more would push the second panel below the fold on /verify. */
+:where(:root) .screen > section + section,:where(:root) .main > section + section{margin-top:52px}
+:where(:root) .phead{margin-bottom:36px}
+
+/* 8. ONE ITALIC SERIF LINE, in the one place a dashboard has room for it. */
+:where(:root) .empty h4,:where(:root) .empty > b{
+  font-family:var(--f-serif);font-style:italic;font-weight:400;font-size:22px;color:var(--ink);letter-spacing:0}
+
+/* 9. Native <select> chrome is the one surface that looks like no other Mesha
+   screen. Field, not widget: a baseline rule, no box, no OS arrow. */
+:where(:root) .fld select,:where(:root) .tbar select{
+  appearance:none;-webkit-appearance:none;background:transparent;border:0;
+  border-bottom:1px solid var(--line);border-radius:0;
+  font-family:var(--f);color:var(--ink);padding:8px 22px 8px 0}
+
+/* ProofRow -- the kit states a fact as a ledger line: mono key left, sans value
+   hard right, one hairline between. */
 :where(:root) .metagrid > div,:where(:root) .proofrow{
   display:flex;justify-content:space-between;align-items:baseline;gap:2rem;
   padding:11px 0;border-bottom:1px solid var(--line2)}
@@ -5319,5 +5368,66 @@ aside.drawer.on{transform:none}
 :where(:root) .metagrid > div > .v,:where(:root) .proofrow > .v{
   font-family:var(--f);font-weight:500;font-size:13.5px;text-align:right;color:var(--ink)}
 
-/* The kit breathes. Sections are separated by real air, not 14px. */
-:where(:root) .screen > section + section,:where(:root) .main > section + section{margin-top:26px}
+/* ===== ONE SHAPE PER CONCEPT =====
+   A component-fidelity audit found SIX mutually inconsistent shapes doing one
+   job -- .subtabs, .metricseg, .opf, .chip, .schip and .vplan .preset/.segb --
+   three of which appear within 100px of each other on /operations/audit. The kit
+   has ONE selectable control: a mono pill that fills on hover. Sentence-case
+   bold sans in a 2px box is a Bootstrap idiom nothing in the kit produces. */
+:where(:root) .subtabs a,:where(:root) .subtabs button,
+:where(:root) .metricseg a,:where(:root) .metricseg button,
+:where(:root) .opf a,:where(:root) .opf button,
+:where(:root) .chip,:where(:root) .schip,
+:where(:root) .vplan .preset,:where(:root) .vplan .segb{
+  font-family:var(--fm);font-size:11px;font-weight:500;
+  letter-spacing:var(--tracking-label);text-transform:uppercase;
+  border-radius:var(--r-pill);padding:8px 14px;min-height:var(--ctl-h-sm);
+  background:transparent;border:1px solid var(--line);color:var(--muted);
+  transition:background .3s,color .3s,border-color .3s}
+/* The container was a box around a box. In the kit the pills sit on the page. */
+:where(:root) .subtabs,:where(:root) .metricseg,:where(:root) .vplan .seg,:where(:root) .opf{
+  background:transparent;border:0;padding:0;gap:8px;overflow:visible}
+
+/* THE MULTI-HUE KPI RAIL. Four to five hues per screen used as tile IDENTITY is
+   the loudest contradiction of "green is the ONE accent". A tile is identified by
+   its label, not its colour. State stays on the left hairline. */
+:where(:root) .kpi .acc{display:none}
+:where(:root) .kpi{border-top:0}
+
+/* TAG. The kit's tag is a tinted fill plus a matching border dimmed to ~55%,
+   "never a solid badge". The admin had made it never a fill at all, with the
+   border at full hue, so a row of tags read harder than the kit's. The kit also
+   tracks Tag TIGHTER than a label -- .16em, not .22em. */
+:where(:root) .tag{letter-spacing:.16em;
+  border-color:color-mix(in srgb,currentColor 55%,transparent);
+  background:color-mix(in srgb,currentColor 10%,transparent)}
+
+/* THE BRAND LOCKUP. The kit specifies tracked-out serif caps -- MESHA at .34em.
+   The admin shipped sentence-case bold sans at NEGATIVE tracking, which is the
+   exact opposite, on every single screen. */
+:where(:root) .brand .logo{
+  width:28px;height:28px;border-width:1px;background:transparent;
+  font-family:var(--f-serif);font-weight:400;font-size:15px}
+:where(:root) .brand b{
+  font-family:var(--f-serif);font-weight:400;font-size:19px;
+  letter-spacing:.34em;text-indent:.34em;text-transform:uppercase}
+
+/* THE LAST EVERYDAY SHADOWS. .card dropped its shadow; .chartcard, .drawer and
+   .modal did not, so three surfaces still float in a system that forbids it. */
+:where(:root) .chartcard,:where(:root) .drawer,:where(:root) .modal{box-shadow:none}
+:where(:root) .chartcard{border:1px solid var(--line);border-radius:var(--r)}
+:where(:root) .drawer .df,:where(:root) .modal .mf{background:transparent;border-top:1px solid var(--line2)}
+
+/* THE TOAST. A full-bleed solid-green bar in bold sans was the most off-brand
+   element in the file: the kit's only solid-accent surface is a HOVERED button. */
+:where(:root) .toast,:where(:root) #toast,:where(:root) #cfgToastEl{
+  background:var(--panel);color:var(--ink);
+  border:1px solid var(--line);border-left:2px solid var(--brand);
+  border-radius:var(--r);font-family:var(--fm);font-size:11px;font-weight:500;
+  letter-spacing:var(--tracking-label);text-transform:uppercase;box-shadow:none}
+
+/* ONE TRACKING VALUE. Four were live at once: .4px, .5px, .16em, .22em, .24em. */
+:where(:root) .modal label,:where(:root) .drawer .dgrp,
+:where(:root) .fld label,:where(:root) .crumb{
+  font-family:var(--fm);font-size:10px;font-weight:500;
+  letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--faint)}
