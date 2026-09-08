@@ -24,7 +24,7 @@ func TestCatalogRowsAreWellFormedAndUnique(t *testing.T) {
 	}
 	for _, alert := range Catalog() {
 		if !alertKeyRe.MatchString(alert.Key) {
-			t.Errorf("alert key %q must be <module>.<alert> (the 000281 CHECK refuses anything else)", alert.Key)
+			t.Errorf("alert key %q must be <module>.<alert> (the notification_alert_audiences CHECK refuses anything else)", alert.Key)
 		}
 		if _, dup := seen[alert.Key]; dup {
 			t.Errorf("alert key %q appears twice", alert.Key)

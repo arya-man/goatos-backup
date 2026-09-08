@@ -34,7 +34,7 @@ Now:
    at tenant scope for a director desk and at the alert's park for a park desk, and
    the result is deduped by device.
 3. **The audience is stored per designation** in `notification_alert_audiences`
-   (migration 000281): one row per (tenant, alert) holding the designation codes.
+   (migration 000283): one row per (tenant, alert) holding the designation codes.
    Absence is the default. An empty array is a decision ("nobody") and is kept distinct
    from "not customised".
 4. **An admin edits it on People / HRMS -> Notifications**: a matrix of alerts (rows,

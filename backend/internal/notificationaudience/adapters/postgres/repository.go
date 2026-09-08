@@ -1,4 +1,4 @@
-// Package postgres owns notification_alert_audiences (migration 000281) and reads the
+// Package postgres owns notification_alert_audiences (migration 000283) and reads the
 // designation catalog the matrix offers as columns.
 package postgres
 
