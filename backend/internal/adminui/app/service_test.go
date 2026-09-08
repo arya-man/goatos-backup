@@ -26,8 +26,18 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 	if len(resp.RouteLabels) == 0 || len(resp.Pages) == 0 {
 		t.Fatalf("route/page contracts missing: labels=%d pages=%d", len(resp.RouteLabels), len(resp.Pages))
 	}
-	if resp.Navigation.Primary[0].Label != "Control Tower" {
+	if resp.Navigation.Primary[0].Label != "Calendar" {
 		t.Fatalf("first primary nav = %#v", resp.Navigation.Primary[0])
+	}
+	// The four command lenses live under "Others" (maintainer request 2026-09-08) at their
+	// unchanged top-level routes.
+	for _, id := range []string{"control-tower", "action-center", "protocol-adherence", "workflows"} {
+		if leaf := groupLeafByID(t, resp.Navigation.Groups, id); leaf.ID == "" {
+			t.Fatalf("command lens %q must be an Others leaf", id)
+		}
+	}
+	if othersLeafGroup(t, resp.Navigation.Groups, "control-tower") != "others" {
+		t.Fatalf("control-tower must sit in the others group")
 	}
 	for _, group := range resp.Navigation.Groups {
 		if group.ID == "pc" && group.Label != "Preventive Care" {
@@ -649,7 +659,7 @@ func TestBootstrapDisablesUnauthorizedNavFromRequestGrants(t *testing.T) {
 			{Role: permissions.RoleOperator, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	item := primaryNavByID(t, resp.Navigation.Primary, "action-center")
+	item := groupLeafByID(t, resp.Navigation.Groups, "action-center")
 	if item.Enabled {
 		t.Fatalf("action-center should be disabled for operator-only admin-web grant: %#v", item)
 	}
@@ -762,7 +772,7 @@ func TestBootstrapAppliesDBBackedStableUIConfigEntries(t *testing.T) {
 	if resp.TopBar.ProductName != "Goat OS" {
 		t.Fatalf("top bar product name was not config-overridden: %#v", resp.TopBar)
 	}
-	if item := primaryNavByID(t, resp.Navigation.Primary, "action-center"); item.Label != "Work Queue" {
+	if item := groupLeafByID(t, resp.Navigation.Groups, "action-center"); item.Label != "Work Queue" {
 		t.Fatalf("action-center nav label = %q", item.Label)
 	}
 	actionCenter := pageByRouteID(t, resp.Pages, "action-center")
@@ -932,8 +942,8 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 		},
 	})
 
-	if len(resp.Navigation.Primary) != 8 {
-		t.Fatalf("primary command-lens items must stay present, got %d", len(resp.Navigation.Primary))
+	if len(resp.Navigation.Primary) != 4 {
+		t.Fatalf("primary items (Calendar, Approvals, Verify, Tasks) must stay present, got %d", len(resp.Navigation.Primary))
 	}
 	// Approvals is present but RBAC-disabled for an operator, who holds no counts.approve_access.
 	approvals := primaryNavByID(t, resp.Navigation.Primary, "approvals")
@@ -1051,7 +1061,7 @@ func (fakeUIConfigFamilies) LoadContractFamilies(ctx context.Context, tenantID s
 	families, err := fakeFamilies{}.LoadContractFamilies(ctx, tenantID)
 	families.UIConfig = []ConfigEntry{
 		{Key: "top_bar.product_name", Value: "Goat OS"},
-		{Key: "nav.primary.action-center.label", Value: "Work Queue"},
+		{Key: "nav.leaf.action-center.label", Value: "Work Queue"},
 		{RouteID: "action-center", Key: "page.title", Value: "Backend Work Queue"},
 		{Key: "page.action-center.subtitle", Value: "Backend queue subtitle"},
 		{RouteID: "action-center", Key: "copy.empty.work_board", Value: "No backend work for this scope."},
@@ -1114,6 +1124,31 @@ func optionalPageByRouteID(pages []domain.PageContract, routeID string) *domain.
 		}
 	}
 	return nil
+}
+
+func groupLeafByID(t *testing.T, groups []domain.NavigationGroup, id string) domain.NavigationItem {
+	t.Helper()
+	for _, group := range groups {
+		for _, leaf := range group.Leaves {
+			if leaf.ID == id {
+				return leaf
+			}
+		}
+	}
+	t.Fatalf("missing group nav leaf %q", id)
+	return domain.NavigationItem{}
+}
+
+func othersLeafGroup(t *testing.T, groups []domain.NavigationGroup, id string) string {
+	t.Helper()
+	for _, group := range groups {
+		for _, leaf := range group.Leaves {
+			if leaf.ID == id {
+				return group.ID
+			}
+		}
+	}
+	return ""
 }
 
 func primaryNavByID(t *testing.T, items []domain.NavigationItem, id string) domain.NavigationItem {
