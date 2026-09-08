@@ -811,8 +811,7 @@ JOIN public.workforce_members m
   ON m.tenant_id = a.tenant_id AND m.workforce_member_id = a.workforce_member_id AND m.status = 'active'
 WHERE a.tenant_id = $1 AND a.surface = $2 AND a.module_key = $3 AND $4 = ANY(a.capabilities)
   AND m.user_id IS NOT NULL
-ORDER BY m.display_name, m.user_id::text
-LIMIT 100`
+ORDER BY m.display_name, m.user_id::text`
 
 const sqlAssigneeIsTicked = `
 SELECT EXISTS (
