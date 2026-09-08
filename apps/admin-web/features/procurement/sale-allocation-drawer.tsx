@@ -91,6 +91,7 @@ export function SaleAllocationDrawer({
   // Live weight per picked goat id, as typed (maintainer decision 2026-09-08: required for
   // every animal). Kept as strings so the backend validates the number; nothing is parsed here.
   const [weights, setWeights] = useState<Map<string, string>>(new Map());
+  const [weightAttempted, setWeightAttempted] = useState(false);
   const [confirmed, setConfirmed] = useState<{ allocated: number } | null>(null);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
@@ -112,6 +113,7 @@ export function SaleAllocationDrawer({
     setCursor(null);
     setPicked(new Map());
     setWeights(new Map());
+    setWeightAttempted(false);
     setStep("pick");
     setPreview(null);
     setConfirmed(null);
@@ -225,6 +227,8 @@ export function SaleAllocationDrawer({
 
   const confirm = () => {
     setError("");
+    setWeightAttempted(true);
+    if (!allWeighed) return;
     startTransition(async () => {
       // Only the animals the review CLEARED are sent. A refused one would fail the whole
       // confirmation, which is the backend's fail-closed rule, and there is no way past it here.
@@ -432,7 +436,7 @@ export function SaleAllocationDrawer({
                     <tbody>
                       {clearedAnimals.map((c) => {
                         const raw = weightOf(c.goat_id);
-                        const bad = raw !== "" && !weightLooksValid(raw);
+                        const bad = weightAttempted ? !weightLooksValid(raw) : raw !== "" && !weightLooksValid(raw);
                         return (
                           <tr key={c.goat_id}>
                             <td>
@@ -453,6 +457,9 @@ export function SaleAllocationDrawer({
                                   const next = new Map(weights);
                                   next.set(c.goat_id, e.target.value);
                                   setWeights(next);
+                                  if (weightAttempted && clearedAnimals.every((animal) => weightLooksValid((next.get(animal.goat_id) ?? "").trim()))) {
+                                    setWeightAttempted(false);
+                                  }
                                 }}
                                 style={{ width: 96 }}
                               />
@@ -515,7 +522,7 @@ export function SaleAllocationDrawer({
                 type="button"
                 className="btn primary"
                 onClick={confirm}
-                disabled={pending || !preview?.complete || !allWeighed}
+                disabled={pending || !preview?.complete}
               >
                 {copy(pageContract, "action.confirm_sold")}
               </button>

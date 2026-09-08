@@ -201,7 +201,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.ReviewStep(state: Sal
     }
     VendorsWizardBar(contextLine = "") {
         VendorsGhostButton(label = BACK_TO_PICK, onClick = { onEvent(SaleTagAnimalsEvent.BackToPick) })
-        VendorsPrimaryButton(label = CONFIRM, enabled = state.reviewGroups.isNotEmpty() && state.allWeighed && !state.confirmInFlight, onClick = { onEvent(SaleTagAnimalsEvent.Confirm) }, modifier = Modifier.weight(1f))
+        VendorsPrimaryButton(label = CONFIRM, enabled = state.reviewGroups.isNotEmpty() && !state.confirmInFlight, onClick = { onEvent(SaleTagAnimalsEvent.Confirm) }, modifier = Modifier.weight(1f))
     }
 }
 
