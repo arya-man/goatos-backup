@@ -72,6 +72,9 @@ import (
 	locationshttp "github.com/vgoats/goatos/backend/internal/locations/adapters/http"
 	locationspg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
 	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
+	notificationaudiencehttp "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/http"
+	notificationaudiencepg "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/postgres"
+	notificationaudienceapp "github.com/vgoats/goatos/backend/internal/notificationaudience/app"
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
@@ -508,6 +511,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	accessRepo := workforcepg.NewAccessRepository(pool)
 	accessService := workforceapp.NewAccessService(accessRepo)
 	accessHandler := workforcehttp.NewAccessHandler(accessService, log)
+	notificationAudienceHandler := notificationaudiencehttp.NewHandler(
+		notificationaudienceapp.NewConfigService(notificationaudiencepg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	rosterHandler := workforcehttp.NewRosterHandler(rosterService, log)
 	// Clock In / Out (docs/features/clock-in-out/plan.md): punches + presence.
@@ -1093,11 +1098,17 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// copy. See the identical fix in internal/kernelstages/bus.go, the durable bus that is the
 	// one actually delivering pushes in production/E2E.
 	locationNames := notificationbridge.NewLocationNameResolver(pool)
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
-	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, log).Register(bus)
+	// WHO hears each leadership push is per-designation config (maintainer decision 2026-09-08):
+	// every upward-routing consumer below resolves its audience through the stored override,
+	// falling back to the catalog default. Pinned by notificationbridge's audience wiring test.
+	leadershipAudience := notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(pool, cfg.Postgres.QueryTimeout), log)
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
+	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
 	// Weighing publish/verdict/close pushes. Registered next to the submission
 	// consumer so no weighing state change is push-silent.
-	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, log).Register(bus)
+	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
+	// Leadership Tasks: raised and every status change, gated per designation (2026-09-08).
+	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
 	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).WithLocationNames(locationNames).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
@@ -1204,6 +1215,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforcehttp.RegisterRoster(protectedMux, rosterHandler)
 	workforcehttp.RegisterPeople(protectedMux, peopleHandler)
 	workforcehttp.RegisterAccess(protectedMux, accessHandler)
+	notificationaudiencehttp.Register(protectedMux, notificationAudienceHandler)
 	workforcehttp.RegisterClock(protectedMux, clockHandler)
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)

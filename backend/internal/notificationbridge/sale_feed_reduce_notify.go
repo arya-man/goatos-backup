@@ -11,6 +11,7 @@ import (
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	feeddomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
+	audiencedomain "github.com/vgoats/goatos/backend/internal/notificationaudience/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
@@ -84,16 +85,27 @@ type goatSaleAllocatedPen struct {
 // same pens, the same counts and the same feed day.
 type SaleFeedReduceNotifier struct {
 	recipients RecipientResolver
-	queue      NotificationQueue
-	batches    identityports.SaleAllocationBatchReader
-	clocks     FeedClockReader
-	logger     *slog.Logger
-	now        func() time.Time
+	// audience answers WHO hears both pushes (feed.sale_reduce): the tenant's stored
+	// designations, or the catalog default -- the Feed Director -- when none is stored.
+	audience AudienceResolver
+	queue    NotificationQueue
+	batches  identityports.SaleAllocationBatchReader
+	clocks   FeedClockReader
+	logger   *slog.Logger
+	now      func() time.Time
 }
 
 // NewSaleFeedReduceNotifier builds the notifier over the shared roster/notification seams.
 func NewSaleFeedReduceNotifier(recipients RecipientResolver, queue NotificationQueue, logger *slog.Logger) *SaleFeedReduceNotifier {
-	return &SaleFeedReduceNotifier{recipients: recipients, queue: queue, logger: logger, now: time.Now}
+	return &SaleFeedReduceNotifier{recipients: recipients, audience: defaultAudience(recipients), queue: queue, logger: logger, now: time.Now}
+}
+
+// WithAudience attaches the stored per-designation audience (production wiring).
+func (n *SaleFeedReduceNotifier) WithAudience(audience AudienceResolver) *SaleFeedReduceNotifier {
+	if audience != nil {
+		n.audience = audience
+	}
+	return n
 }
 
 // WithBatches attaches the confirm reader the REMINDER needs (the notice reads its batch off the
@@ -223,11 +235,11 @@ func (n *SaleFeedReduceNotifier) notify(ctx context.Context, tenantID string, ba
 	if err != nil {
 		return err
 	}
-	devices, err := n.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, positionFeedDirector)
+	recipients, err := n.audience.Recipients(ctx, tenantID, "", audiencedomain.AlertFeedSaleReduce)
 	if err != nil {
-		return fmt.Errorf("sale feed reduce: resolve feed director: %w", err)
+		return fmt.Errorf("sale feed reduce: %w", err)
 	}
-	if len(devices) == 0 {
+	if len(recipients) == 0 {
 		// Loud, and no fallback: a notice nobody receives must not look sent.
 		if n.logger != nil {
 			n.logger.WarnContext(ctx, "sale_feed_reduce_notification_no_recipients",
@@ -299,7 +311,7 @@ func (n *SaleFeedReduceNotifier) notify(ctx context.Context, tenantID string, ba
 			"group_key":    "feed_sale_reduce:" + tenantID,
 			"collapse_key": "feed_sale_reduce:" + tenantID + ":" + batchKey,
 		},
-		Recipients: toQueueRecipients(devices, roleLabelFeedDirector),
+		Recipients: recipients,
 	})
 	if err != nil {
 		return fmt.Errorf("sale feed reduce: queue %s: %w", eventKey, err)

@@ -7,6 +7,7 @@ import (
 
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
+	notificationaudiencepg "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	procurementpg "github.com/vgoats/goatos/backend/internal/procurement/adapters/postgres"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -31,7 +32,8 @@ func NewLoadAgeAlertStage(deps Deps, tenantID string, logger *slog.Logger) *Load
 	workforceRepo := workforcepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	return &LoadAgeAlertStage{
-		notifier: notificationbridge.NewLoadAgeNotifier(loadRepo, rosterService, calendarService, logger),
+		notifier: notificationbridge.NewLoadAgeNotifier(loadRepo, rosterService, calendarService, logger).
+			WithAudience(notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout), logger)),
 		tenantID: tenantID,
 	}
 }

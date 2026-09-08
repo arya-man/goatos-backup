@@ -843,7 +843,32 @@ WHERE $2 = 'tenant'
   AND g.scope_type = 'tenant'
   AND g.scope_id = $3::uuid
   AND g.role = $4
-  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director','feed_director','health_director'])
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director','feed_director','health_director','procurement_director','breeding_director','verifier'])
+  AND g.status = 'active'
+  AND g.valid_from <= $5::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
+), park_grant_recipients AS (
+-- A PARK desk (park_head, procurement_manager) is a park-scoped ROLE GRANT in the per-person
+-- access model (scope_type='park', scope_id=<park>), and most holders carry no
+-- workforce_positions seat at all. Resolving a 'center' scope from seats alone reached nobody
+-- for them (found 2026-09-08 by the notification-audience E2E: four park-head grants, zero
+-- park-head seats). Same reachability predicate, same validity window.
+SELECT DISTINCT m.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+JOIN workforce_member_devices d
+  ON d.tenant_id = m.tenant_id
+ AND d.workforce_member_id = m.workforce_member_id
+`+pushReachableDeviceSQL+`
+WHERE $2 = 'center'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'park'
+  AND g.scope_id = $3::uuid
+  AND g.role = $4
+  AND g.role = ANY(ARRAY['park_head','procurement_manager'])
   AND g.status = 'active'
   AND g.valid_from <= $5::timestamptz
   AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
@@ -853,6 +878,8 @@ FROM (
   SELECT * FROM position_recipients
   UNION ALL
   SELECT * FROM grant_recipients
+  UNION ALL
+  SELECT * FROM park_grant_recipients
 ) recipients
 ORDER BY 1, 2
 LIMIT 1000`, tenantID, scopeType, scopeID, positionCode, at)
@@ -906,7 +933,28 @@ WHERE $2 = 'tenant'
   AND g.scope_type = 'tenant'
   AND g.scope_id = ANY($3::uuid[])
   AND g.role = ANY($4::text[])
-  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director','feed_director','health_director'])
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director','feed_director','health_director','procurement_director','breeding_director','verifier'])
+  AND g.status = 'active'
+  AND g.valid_from <= $5::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
+), park_grant_recipients AS (
+-- Park-scoped role grants for the park desks; see the single-pair form for why.
+SELECT DISTINCT g.scope_id::text, g.role AS position_code, m.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+JOIN workforce_member_devices d
+  ON d.tenant_id = m.tenant_id
+ AND d.workforce_member_id = m.workforce_member_id
+`+pushReachableDeviceSQL+`
+WHERE $2 = 'center'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'park'
+  AND g.scope_id = ANY($3::uuid[])
+  AND g.role = ANY($4::text[])
+  AND g.role = ANY(ARRAY['park_head','procurement_manager'])
   AND g.status = 'active'
   AND g.valid_from <= $5::timestamptz
   AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
@@ -916,6 +964,8 @@ FROM (
   SELECT * FROM position_recipients
   UNION ALL
   SELECT * FROM grant_recipients
+  UNION ALL
+  SELECT * FROM park_grant_recipients
 ) recipients
 ORDER BY 1, 2, 3, 4
 LIMIT 5000`, tenantID, scopeType, scopeIDs, positionCodes, at)

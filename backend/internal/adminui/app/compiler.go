@@ -1251,6 +1251,22 @@ func compilePeopleControls(controls []domain.Control, input BootstrapInput, copy
 	// static group; the renderer enables it only when this control is enabled,
 	// and the backend routes refuse regardless — the control is the honest
 	// label, not the lock.
+	// edit_notifications gates the Notifications tab's WRITE (maintainer decision 2026-09-08:
+	// who hears which alert, per designation). Same authority as edit_access -- deciding what
+	// every holder of a job title is told is deciding what they may do -- and the PUT route
+	// behind it requires the same permission, so the control is the honest label, not the lock.
+	notificationsReason := ""
+	if !allowed {
+		notificationsReason = controlCopy(copy, "disabled.notifications_write", "Your current role can see who receives each alert but not change it.")
+	}
+	controls = upsertControl(controls, domain.Control{
+		ID:             "edit_notifications",
+		Label:          controlCopy(copy, "notifications.action.save", "Save"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: notificationsReason,
+		Action:         "PUT /admin/notifications/designations/{alert_key}",
+	})
 	clockAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.ClockPresenceRead})
 	clockReason := ""
 	if !clockAllowed {

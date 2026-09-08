@@ -19,6 +19,7 @@ import (
 	"time"
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
+	audiencedomain "github.com/vgoats/goatos/backend/internal/notificationaudience/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
@@ -370,6 +371,14 @@ func pendingProfileFor(module string) (pendingModuleProfile, bool) {
 	return profile, ok
 }
 
+// profileAlertKey names the module's proof-lifecycle alert in the notification-audience catalog
+// ("weighing.proof_rework"). The catalog carries one row per pendingModuleProfiles key, pinned
+// by TestEveryVerificationModuleHasAnAudienceCatalogRow, so a module the consumer routes always
+// has an audience row -- and an unknown module composes a key the resolver refuses loudly.
+func profileAlertKey(module, suffix string) string {
+	return audiencedomain.ProofAlertKey(strings.ToLower(strings.TrimSpace(module)), suffix)
+}
+
 // verificationSource is the producer's source back-reference (verificationVerdictPayload /
 // verificationItemPendingPayload in the verification repository). module + ref_type are the
 // two fields that identify a legacy-overlapping vaccination item.
@@ -458,8 +467,12 @@ func (p VerificationEventPayload) legacyHandledVaccination() bool {
 // verification vertical retains sole completion authority.
 type VerificationEventConsumer struct {
 	recipients RecipientResolver
-	queue      NotificationQueue
-	logger     *slog.Logger
+	// audience resolves every LEADERSHIP copy (park head + owning director + CEO by default,
+	// per module) from the notification-audience catalog and the tenant's stored designations.
+	// The verifier's own push stays on the module verify duty; the operator's on their member id.
+	audience AudienceResolver
+	queue    NotificationQueue
+	logger   *slog.Logger
 	// locations is optional park/shed name enrichment (see location_names.go). Enriches approval
 	// copy to be meaningful: instead of abstract "The proof is ready for operational closure",
 	// an approval says "ET+TT vaccination proof for Shed A (Park Name) is verified." per
@@ -473,7 +486,15 @@ type VerificationEventConsumer struct {
 // NewVerificationEventConsumer constructs the consumer over the workforce recipient resolver and
 // the calendar notification queue (the same two seams the legacy VerificationNotifier uses).
 func NewVerificationEventConsumer(recipients RecipientResolver, queue NotificationQueue, logger *slog.Logger) *VerificationEventConsumer {
-	return &VerificationEventConsumer{recipients: recipients, queue: queue, logger: logger}
+	return &VerificationEventConsumer{recipients: recipients, audience: defaultAudience(recipients), queue: queue, logger: logger}
+}
+
+// WithAudience attaches the stored per-designation audience (production wiring).
+func (c *VerificationEventConsumer) WithAudience(audience AudienceResolver) *VerificationEventConsumer {
+	if audience != nil {
+		c.audience = audience
+	}
+	return c
 }
 
 // WithLocationNames attaches park/shed name enrichment. Chainable at construction time.
@@ -547,24 +568,10 @@ func (c *VerificationEventConsumer) handleVaccinationDriveReady(ctx context.Cont
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	var recipients []calendarports.NotificationRecipient
-	if parkID := strings.TrimSpace(p.ParkID); parkID != "" {
-		parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
-		if err != nil {
-			return err
-		}
-		recipients = append(recipients, toQueueRecipients(parkHeadDevices, "park_head")...)
-	}
-	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionPCDirector)
+	recipients, err := c.audience.Recipients(ctx, tenantID, strings.TrimSpace(p.ParkID), audiencedomain.AlertVaccinationDriveReady)
 	if err != nil {
 		return err
 	}
-	recipients = append(recipients, toQueueRecipients(directorDevices, "pc_director")...)
-	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
-	if err != nil {
-		return err
-	}
-	recipients = dedupeQueueRecipients(append(recipients, toQueueRecipients(ceoDevices, "ceo")...))
 	// Name the park: "all proof videos for this vaccination drive are verified" gives a
 	// director nothing to act on (2026-08-02 meaningful-notification rule).
 	readyPark := "this park"
@@ -609,7 +616,7 @@ func (c *VerificationEventConsumer) handleVaccinationDriveClosed(ctx context.Con
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
+	closedRecipients, err := c.audience.Recipients(ctx, tenantID, strings.TrimSpace(p.ParkID), audiencedomain.AlertVaccinationDriveClosed)
 	if err != nil {
 		return err
 	}
@@ -649,7 +656,7 @@ func (c *VerificationEventConsumer) handleVaccinationDriveClosed(ctx context.Con
 			"collapse_key": "verification:" + tenantID + ":vaccination_drive",
 			"priority":     priorityNormal,
 		},
-		Recipients: toQueueRecipients(ceoDevices, "ceo"),
+		Recipients: closedRecipients,
 	})
 	return err
 }
@@ -670,24 +677,10 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
+	recipients, err := c.audience.Recipients(ctx, tenantID, parkID, profileAlertKey(p.Module, audiencedomain.ProofApprovedSuffix))
 	if err != nil {
 		return err
 	}
-	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, profile.leadershipPosition)
-	if err != nil {
-		return err
-	}
-	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
-	if err != nil {
-		return err
-	}
-	recipients := dedupeQueueRecipients(
-		append(append(
-			toQueueRecipients(parkHeadDevices, "park_head"),
-			toQueueRecipients(directorDevices, profile.leadershipRoleLabel)...),
-			toQueueRecipients(ceoDevices, "ceo")...),
-	)
 
 	// Enrich the approval body with specific, meaningful details: park, shed, vaccine/category, date.
 	// This closes defect 2026-08-02: abstract copy like "The proof is ready for operational closure"
@@ -817,7 +810,11 @@ func (c *VerificationEventConsumer) handleItemWithdrawn(ctx context.Context, p V
 	if err != nil {
 		return fmt.Errorf("verification_notify_consumer: resolve verifier recipients: %w", err) // retryable
 	}
-	recipients := dedupeQueueRecipients(toQueueRecipients(verifierDevices, "verifier"))
+	recipients, err := c.audience.Addressed(ctx, tenantID, parkID, profileAlertKey(p.Module, audiencedomain.ProofReviewSuffix),
+		[]string{audiencedomain.DesignationVerifier}, dedupeQueueRecipients(toQueueRecipients(verifierDevices, "verifier")))
+	if err != nil {
+		return fmt.Errorf("verification_notify_consumer: resolve verifier audience: %w", err) // retryable
+	}
 	if len(recipients) == 0 {
 		return nil
 	}
@@ -1038,25 +1035,15 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	if err != nil {
 		return fmt.Errorf("verification_notify_consumer: resolve verifier recipients: %w", err) // retryable
 	}
-	parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
+	leadershipRecipients, err := c.audience.Recipients(ctx, tenantID, parkID, profileAlertKey(p.Module, audiencedomain.ProofPendingSuffix))
 	if err != nil {
-		return fmt.Errorf("verification_notify_consumer: resolve park head recipients: %w", err)
+		return fmt.Errorf("verification_notify_consumer: resolve leadership recipients: %w", err) // retryable
 	}
-	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, profile.leadershipPosition)
+	verifierRecipients, err := c.audience.Addressed(ctx, tenantID, parkID, profileAlertKey(p.Module, audiencedomain.ProofReviewSuffix),
+		[]string{audiencedomain.DesignationVerifier}, dedupeQueueRecipients(toQueueRecipients(verifierDevices, "verifier")))
 	if err != nil {
-		return fmt.Errorf("verification_notify_consumer: resolve %s recipients: %w", profile.leadershipPosition, err)
+		return fmt.Errorf("verification_notify_consumer: resolve verifier audience: %w", err) // retryable
 	}
-	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
-	if err != nil {
-		return fmt.Errorf("verification_notify_consumer: resolve ceo recipients: %w", err)
-	}
-	verifierRecipients := dedupeQueueRecipients(toQueueRecipients(verifierDevices, "verifier"))
-	leadershipRecipients := dedupeQueueRecipients(
-		append(append(
-			toQueueRecipients(parkHeadDevices, "park_head"),
-			toQueueRecipients(directorDevices, profile.leadershipRoleLabel)...),
-			toQueueRecipients(ceoDevices, "ceo")...),
-	)
 	if len(verifierRecipients)+len(leadershipRecipients) == 0 && c.logger != nil {
 		c.logger.WarnContext(ctx, "verification_pending_notification_no_recipients",
 			"tenant_id", tenantID, "item_id", itemID, "park_id", parkID)
@@ -1212,29 +1199,24 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 	}
 	// Park-head positions are scoped scope_type='center' for a park (see the legacy notifier's
 	// identical note): resolve against scopeCenter, never the item's park scope directly.
-	if !legacyHandled {
-		parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
-		if err != nil {
-			return err // retryable
-		}
-		recipients = append(recipients, toQueueRecipients(parkHeadDevices, "park_head")...)
-	} else if c.logger != nil {
+	// The park head rides the leadership audience below (park-scoped desks resolve only when the
+	// item carries a park); for a legacy-handled vaccination item the park is withheld so the
+	// park head is not told twice, exactly as before.
+	leadershipPark := parkID
+	if legacyHandled {
+		leadershipPark = ""
+	}
+	if legacyHandled && c.logger != nil {
 		c.logger.InfoContext(ctx, "verification_rework_notification_suppressed_legacy_vaccination",
 			"tenant_id", tenantID, "item_id", itemID, "park_id", parkID,
 			"source_module", p.Source.Module, "source_ref_type", p.Source.RefType,
 			"source_task_id", p.Source.TaskID)
 	}
-	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, profile.leadershipPosition)
+	leadership, err := c.audience.Recipients(ctx, tenantID, leadershipPark, profileAlertKey(p.Module, audiencedomain.ProofReworkSuffix))
 	if err != nil {
-		return err
+		return err // retryable
 	}
-	recipients = append(recipients, toQueueRecipients(directorDevices, profile.leadershipRoleLabel)...)
-	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
-	if err != nil {
-		return err
-	}
-	recipients = append(recipients, toQueueRecipients(ceoDevices, "ceo")...)
-	recipients = dedupeQueueRecipients(recipients)
+	recipients = dedupeQueueRecipients(append(recipients, leadership...))
 
 	if len(recipients) == 0 && c.logger != nil {
 		c.logger.WarnContext(ctx, "verification_rework_notification_no_recipients",

@@ -20,6 +20,7 @@ import (
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
+	notificationaudiencepg "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/postgres"
 	notificationbridge "github.com/vgoats/goatos/backend/internal/notificationbridge"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
@@ -91,22 +92,26 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// real rework push carried no park name until this wiring was added.
 	verificationVaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, logger)
 	verificationLocationNames := notificationbridge.NewLocationNameResolver(pool)
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(verificationVaccineLabels).WithLocationNames(verificationLocationNames).Register(bus)
-	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
-	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
+	// WHO hears each leadership push is per-designation config (maintainer decision 2026-09-08):
+	// every upward-routing consumer below resolves its audience through the stored override,
+	// falling back to the catalog default. Pinned by notificationbridge's audience wiring test.
+	leadershipAudience := notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(pool, pgCfg.QueryTimeout), logger)
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithVaccineLabels(verificationVaccineLabels).WithLocationNames(verificationLocationNames).Register(bus)
+	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	// The afternoon feed correction's packing reopen: DOWNWARD push to the packer whose bag was
 	// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
 	// 2026-08-29).
 	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 	// Sale -> Feed Director notice (maintainer decision 2026-09-07): goat.sale_allocated, emitted once
 	// per confirm with the pen-by-pen breakdown, pushes the pens and the feed day to reduce from.
-	notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithFeedClocks(feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)).Register(bus)
+	notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithFeedClocks(feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)).Register(bus)
 	// Leadership Tasks (maintainer decision 2026-09-04): a raised task pushes to the CXO it is
 	// addressed to; a task marked done pushes back to the director who asked.
-	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, logger).Register(bus)
+	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned
 	// operator, UP to the park head and the owning module's director.
-	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, rosterService, calendarService, logger)).Register(bus)
+	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, rosterService, calendarService, logger).WithAudience(leadershipAudience)).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Keep every durable verdict applier on the shared registration path so the
 	// kernel stage cannot drift from API/outbox-relay wiring. This path includes

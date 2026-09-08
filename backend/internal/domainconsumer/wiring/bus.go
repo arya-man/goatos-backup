@@ -18,6 +18,7 @@ import (
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
+	notificationaudiencepg "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
@@ -97,9 +98,11 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	// C-defect-B (2026-08-04): mirrors the identical fix in internal/kernelstages/bus.go -- this
 	// consumer was never given a location/vaccine-label resolver, so a rework/approved push
 	// produced through cmd/domain-event-consumer's bus degraded to generic no-park copy.
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(notificationbridge.NewVaccineLabelResolver(pool, logger)).WithLocationNames(notificationbridge.NewLocationNameResolver(pool)).Register(bus)
-	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
-	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
+	// WHO hears each leadership push is per-designation config (maintainer decision 2026-09-08).
+	leadershipAudience := notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(pool, queryTimeout), logger)
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithVaccineLabels(notificationbridge.NewVaccineLabelResolver(pool, logger)).WithLocationNames(notificationbridge.NewLocationNameResolver(pool)).Register(bus)
+	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	// The afternoon feed correction's packing reopen: DOWNWARD push to the packer whose bag was
 	// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
 	// 2026-08-29). Registered here as well as in kernelstages/bus.go, cmd/domain-event-consumer and
@@ -108,7 +111,7 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 	// Sale -> Feed Director notice (maintainer decision 2026-09-07): goat.sale_allocated, emitted once
 	// per confirm with the pen-by-pen breakdown, pushes the pens and the feed day to reduce from.
-	notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithFeedClocks(feeddirectionpg.NewRepository(pool, queryTimeout)).Register(bus)
+	notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithFeedClocks(feeddirectionpg.NewRepository(pool, queryTimeout)).Register(bus)
 	// Verifier-verdict appliers: the ONE shared registration (internal/eventwiring), the same call
 	// bootstrap/api.go and cmd/outbox-relay make. This builder previously hand-listed consumers and
 	// carried ONLY the weighing applier, so every shifting / feed-distribution / feed-packing /

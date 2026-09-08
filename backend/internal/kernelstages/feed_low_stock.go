@@ -8,6 +8,7 @@ import (
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
+	notificationaudiencepg "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
@@ -32,7 +33,8 @@ func NewFeedLowStockStage(deps Deps, tenantID string, logger *slog.Logger) *Feed
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	return &FeedLowStockStage{
 		notifier: notificationbridge.NewFeedLowStockNotifier(feedRepo, rosterService, calendarService, logger).
-			WithLocationNames(notificationbridge.NewLocationNameResolver(deps.Pool)),
+			WithLocationNames(notificationbridge.NewLocationNameResolver(deps.Pool)).
+			WithAudience(notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout), logger)),
 		tenantID: tenantID,
 	}
 }

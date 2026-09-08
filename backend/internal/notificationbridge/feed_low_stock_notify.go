@@ -9,6 +9,7 @@ import (
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	feeddomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
+	audiencedomain "github.com/vgoats/goatos/backend/internal/notificationaudience/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
@@ -46,9 +47,13 @@ type LowStockReader interface {
 type FeedLowStockNotifier struct {
 	stock      LowStockReader
 	recipients RecipientResolver
-	queue      NotificationQueue
-	logger     *slog.Logger
-	now        func() time.Time
+	// audience answers WHO hears the alert (feed.low_stock in the notification-audience
+	// catalog): the tenant's stored designations, or the catalog default -- CEO/CXO, Feed
+	// Director, Procurement Director -- when none is stored. See audience.go.
+	audience AudienceResolver
+	queue    NotificationQueue
+	logger   *slog.Logger
+	now      func() time.Time
 	// locations turns the purchase ledger's farm CODE into the park's name. The ledger keys by
 	// "CBE"/"CPT" because the legacy sheet does; a director reading a phone at 09:00 should see
 	// "Coimbatore". Optional: without it the alert falls back to the code rather than going blank.
@@ -67,12 +72,20 @@ func NewFeedLowStockNotifier(
 	queue NotificationQueue,
 	logger *slog.Logger,
 ) *FeedLowStockNotifier {
-	return &FeedLowStockNotifier{stock: stock, recipients: recipients, queue: queue, logger: logger, now: time.Now}
+	return &FeedLowStockNotifier{stock: stock, recipients: recipients, audience: defaultAudience(recipients), queue: queue, logger: logger, now: time.Now}
 }
 
 // WithClock pins the clock, for tests.
 func (n *FeedLowStockNotifier) WithClock(now func() time.Time) *FeedLowStockNotifier {
 	n.now = now
+	return n
+}
+
+// WithAudience attaches the stored per-designation audience (production wiring).
+func (n *FeedLowStockNotifier) WithAudience(audience AudienceResolver) *FeedLowStockNotifier {
+	if audience != nil {
+		n.audience = audience
+	}
 	return n
 }
 
@@ -180,28 +193,15 @@ func (n *FeedLowStockNotifier) NotifyLowStock(ctx context.Context, tenantID stri
 	return nil
 }
 
-// leadership resolves the three tenant seats that can act on a low feed. A seat with no reachable
-// device is skipped and logged; the alert still goes to the others rather than failing whole.
+// leadership resolves the desks configured for feed.low_stock -- by default the three tenant
+// seats that can act on a low feed. A desk with no reachable device is simply absent; the alert
+// still goes to the others rather than failing whole.
 func (n *FeedLowStockNotifier) leadership(ctx context.Context, tenantID string) ([]calendarports.NotificationRecipient, error) {
-	seats := []struct{ position, roleLabel string }{
-		{positionCEOInternal, roleLabelCEO},
-		{positionFeedDirector, roleLabelFeedDirector},
-		{positionProcurementDirector, roleLabelProcurementDirector},
+	recipients, err := n.audience.Recipients(ctx, tenantID, "", audiencedomain.AlertFeedLowStock)
+	if err != nil {
+		return nil, fmt.Errorf("feed low stock notification: %w", err)
 	}
-	var out []calendarports.NotificationRecipient
-	for _, seat := range seats {
-		devices, err := n.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, seat.position)
-		if err != nil {
-			return nil, fmt.Errorf("feed low stock notification: resolve %s: %w", seat.position, err)
-		}
-		if len(devices) == 0 && n.logger != nil {
-			n.logger.WarnContext(ctx, "feed_low_stock_notification_no_devices_for_seat",
-				"tenant_id", tenantID, "position", seat.position)
-			continue
-		}
-		out = append(out, toQueueRecipients(devices, seat.roleLabel)...)
-	}
-	return out, nil
+	return recipients, nil
 }
 
 // kgPhrase and daysPhrase keep the body in farm words: kilos and days, never a bare decimal.

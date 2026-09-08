@@ -9,6 +9,7 @@ import (
 	"time"
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
+	audiencedomain "github.com/vgoats/goatos/backend/internal/notificationaudience/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
 
@@ -44,8 +45,11 @@ type weighingShedReopenedPayload struct {
 // idempotent FCM requests for tenant Directors and CEOs.
 type WeighingSubmissionEventConsumer struct {
 	recipients RecipientResolver
-	queue      NotificationQueue
-	logger     *slog.Logger
+	// audience resolves the UPWARD copy (weighing.submitted / weighing.reopened) from the
+	// notification-audience catalog and the tenant's stored designations.
+	audience AudienceResolver
+	queue    NotificationQueue
+	logger   *slog.Logger
 }
 
 func NewWeighingSubmissionEventConsumer(
@@ -53,7 +57,15 @@ func NewWeighingSubmissionEventConsumer(
 	queue NotificationQueue,
 	logger *slog.Logger,
 ) *WeighingSubmissionEventConsumer {
-	return &WeighingSubmissionEventConsumer{recipients: recipients, queue: queue, logger: logger}
+	return &WeighingSubmissionEventConsumer{recipients: recipients, audience: defaultAudience(recipients), queue: queue, logger: logger}
+}
+
+// WithAudience attaches the stored per-designation audience (production wiring).
+func (c *WeighingSubmissionEventConsumer) WithAudience(audience AudienceResolver) *WeighingSubmissionEventConsumer {
+	if audience != nil {
+		c.audience = audience
+	}
+	return c
 }
 
 var _ eventbus.Handler = (*WeighingSubmissionEventConsumer)(nil)
@@ -85,22 +97,10 @@ func (c *WeighingSubmissionEventConsumer) HandleEvent(ctx context.Context, event
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	directorDevices, err := c.recipients.ResolvePositionRecipients(
-		ctx, tenantID, "tenant", tenantID, positionGrowthDirector,
-	)
+	recipients, err := c.audience.Recipients(ctx, tenantID, "", audiencedomain.AlertWeighingSubmitted)
 	if err != nil {
-		return fmt.Errorf("weighing submission notification: resolve director recipients: %w", err)
+		return fmt.Errorf("weighing submission notification: %w", err)
 	}
-	ceoDevices, err := c.recipients.ResolvePositionRecipients(
-		ctx, tenantID, "tenant", tenantID, positionCEOInternal,
-	)
-	if err != nil {
-		return fmt.Errorf("weighing submission notification: resolve CEO recipients: %w", err)
-	}
-	recipients := dedupeQueueRecipients(append(
-		toQueueRecipients(directorDevices, "growth_director"),
-		toQueueRecipients(ceoDevices, "ceo")...,
-	))
 	if len(recipients) == 0 && c.logger != nil {
 		c.logger.WarnContext(ctx, "weighing_submission_notification_no_recipients",
 			"tenant_id", tenantID,
@@ -165,18 +165,11 @@ func (c *WeighingSubmissionEventConsumer) handleReopened(ctx context.Context, ev
 	if err != nil {
 		return fmt.Errorf("weighing reopen notification: resolve operator recipients: %w", err)
 	}
-	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionGrowthDirector)
+	upward, err := c.audience.Recipients(ctx, tenantID, "", audiencedomain.AlertWeighingReopened)
 	if err != nil {
-		return fmt.Errorf("weighing reopen notification: resolve growth director recipients: %w", err)
+		return fmt.Errorf("weighing reopen notification: %w", err)
 	}
-	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
-	if err != nil {
-		return fmt.Errorf("weighing reopen notification: resolve CEO recipients: %w", err)
-	}
-	recipients := dedupeQueueRecipients(append(append(
-		toQueueRecipients(operatorDevices, "operator"),
-		toQueueRecipients(directorDevices, "growth_director")...,
-	), toQueueRecipients(ceoDevices, "ceo")...))
+	recipients := dedupeQueueRecipients(append(toQueueRecipients(operatorDevices, "operator"), upward...))
 	body := "A weighing pen was reopened for more scans."
 	if shedLabel := strings.TrimSpace(payload.ShedLabel); shedLabel != "" {
 		body = shedLabel + " was reopened for more scans."

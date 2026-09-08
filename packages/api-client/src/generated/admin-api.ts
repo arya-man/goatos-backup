@@ -95,6 +95,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/notifications/designations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who hears which alert, per designation (maintainer decision 2026-09-08). Every configurable alert with its catalog default and the tenant's effective audience, plus the designation columns. */
+        get: operations["getNotificationDesignationMatrix"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/notifications/designations/{alert_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace one alert's designation audience, or reset it to the catalog default. Version-fenced; a concurrent edit returns 409. */
+        put: operations["saveNotificationDesignationAudience"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/operators/{operator_id}": {
         parameters: {
             query?: never;
@@ -2169,6 +2203,38 @@ export interface components {
             label: string;
             modules: components["schemas"]["AccessModuleWrite"][];
             trace_id?: string;
+        };
+        NotificationAudienceDesignation: {
+            code: string;
+            label: string;
+            grade?: string;
+        };
+        NotificationAudienceModule: {
+            key: string;
+            label: string;
+        };
+        /** @description One configurable alert. designations is the EFFECTIVE audience (the stored override when customised, else default_designations); row_version is 0 until the alert is customised and fences the next save. */
+        NotificationAudienceAlertRow: {
+            key: string;
+            module: string;
+            module_label: string;
+            label: string;
+            blurb: string;
+            default_designations: string[];
+            designations: string[];
+            customised: boolean;
+            row_version: number;
+        };
+        NotificationAudienceMatrixResponse: {
+            designations: components["schemas"]["NotificationAudienceDesignation"][];
+            modules: components["schemas"]["NotificationAudienceModule"][];
+            alerts: components["schemas"]["NotificationAudienceAlertRow"][];
+        };
+        /** @description The WHOLE audience for one alert. use_defaults discards the stored override; otherwise designation_codes replaces it (an empty list means nobody, deliberately). row_version is the value the screen loaded with, 0 for a not-yet-customised alert. */
+        SaveNotificationAudienceRequest: {
+            designation_codes: string[];
+            use_defaults: boolean;
+            row_version: number;
         };
         PeopleListResponse: {
             items: components["schemas"]["PersonSummary"][];
@@ -4696,6 +4762,59 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getNotificationDesignationMatrix: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole Notifications matrix. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationAudienceMatrixResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    saveNotificationDesignationAudience: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alert_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveNotificationAudienceRequest"];
+            };
+        };
+        responses: {
+            /** @description The alert row as it now reads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationAudienceAlertRow"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
         };
     };
     getOperator: {

@@ -334,6 +334,58 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /admin/notifications/designations:
+    get:
+      tags:
+        - Operator Management
+      operationId: getNotificationDesignationMatrix
+      summary: Who hears which alert, per designation (maintainer decision 2026-09-08). Every configurable alert with its catalog default and the tenant's effective audience, plus the designation columns.
+      responses:
+        "200":
+          description: The whole Notifications matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationAudienceMatrixResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/notifications/designations/{alert_key}:
+    put:
+      tags:
+        - Operator Management
+      operationId: saveNotificationDesignationAudience
+      summary: Replace one alert's designation audience, or reset it to the catalog default. Version-fenced; a concurrent edit returns 409.
+      parameters:
+        - name: alert_key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveNotificationAudienceRequest"
+      responses:
+        "200":
+          description: The alert row as it now reads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationAudienceAlertRow"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/operators/{operator_id}:
     get:
       tags:
@@ -5305,6 +5357,85 @@ components:
             $ref: "#/components/schemas/AccessModuleWrite"
         trace_id:
           type: string
+    NotificationAudienceDesignation:
+      type: object
+      additionalProperties: false
+      required: [code, label]
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        grade:
+          type: string
+    NotificationAudienceModule:
+      type: object
+      additionalProperties: false
+      required: [key, label]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+    NotificationAudienceAlertRow:
+      description: One configurable alert. designations is the EFFECTIVE audience (the stored override when customised, else default_designations); row_version is 0 until the alert is customised and fences the next save.
+      type: object
+      additionalProperties: false
+      required: [key, module, module_label, label, blurb, default_designations, designations, customised, row_version]
+      properties:
+        key:
+          type: string
+        module:
+          type: string
+        module_label:
+          type: string
+        label:
+          type: string
+        blurb:
+          type: string
+        default_designations:
+          type: array
+          items:
+            type: string
+        designations:
+          type: array
+          items:
+            type: string
+        customised:
+          type: boolean
+        row_version:
+          type: integer
+    NotificationAudienceMatrixResponse:
+      type: object
+      additionalProperties: false
+      required: [designations, modules, alerts]
+      properties:
+        designations:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationAudienceDesignation"
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationAudienceModule"
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationAudienceAlertRow"
+    SaveNotificationAudienceRequest:
+      description: The WHOLE audience for one alert. use_defaults discards the stored override; otherwise designation_codes replaces it (an empty list means nobody, deliberately). row_version is the value the screen loaded with, 0 for a not-yet-customised alert.
+      type: object
+      additionalProperties: false
+      required: [designation_codes, use_defaults, row_version]
+      properties:
+        designation_codes:
+          type: array
+          items:
+            type: string
+        use_defaults:
+          type: boolean
+        row_version:
+          type: integer
     PeopleListResponse:
       type: object
       additionalProperties: false

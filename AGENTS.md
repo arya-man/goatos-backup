@@ -2249,6 +2249,36 @@ immediately notifies the park verifier(s) and leadership with role-specific
 routes: verifier to video review, leadership to Vaccination overview. Run
 `make fcm-recipient-routing-guard` with local CI for any notification change.
 
+**WHO HEARS A LEADERSHIP PUSH IS CONFIG, PER DESIGNATION (maintainer decision 2026-09-08).**
+Every UPWARD push -- the daily low-stock and overdue-load alerts, the proof
+pending/approved/rework copies to directors, the weighing lifecycle notices, the
+missed-work escalation, the 20:30 vaccination checkpoint -- resolves its audience
+through ONE resolver (`notificationbridge.AudienceResolver`, implemented by
+`notificationaudience/app.Resolver`) keyed by an ALERT KEY in
+`notificationaudience/domain`'s catalog. The tenant's stored override
+(`notification_alert_audiences`, edited on People / HRMS -> Notifications) replaces
+the catalog default for that alert; ABSENCE IS THE DEFAULT, and the default of every
+alert is byte-for-byte the audience the notifier resolved by hand before, so deploying
+it changed nobody's phone. It is keyed by DESIGNATION (the job title), never by
+person: an alert is addressed to a desk, and whoever holds the desk hears it. An
+EMPTY stored audience is a decision ("nobody") and is never confused with "not
+customised". Park desks (park_head, verifier, operator, procurement_manager) resolve
+at the alert's park and to nobody when the alert carries none. Pushes ADDRESSED to a
+named person that leadership still wants switchable (the CXO a task names, the verifier
+on duty for a video) are rows with the `Resolver.Addressed` rule: the addressee is kept
+while their own title is ticked, other ticked titles get a copy. Two things stay OUT of
+the catalog on purpose: operator WORK pushes (the operator whose work bounced, the packer
+whose bag was reopened, the park head whose pen visit is due) and the Slack channel posts. Do NOT add a new upward push with a hand-resolved position code:
+add a catalog row and ask the resolver. Every production construction site of an
+upward consumer/notifier MUST chain `.WithAudience(NewStoredAudience(...))` -- a
+constructor builds a defaults-only resolver so tests keep their roster fakes, but a
+production site that forgets it serves defaults forever and the matrix silently does
+nothing for it. Pinned by `TestEveryUpwardNotifierIsWiredToTheStoredAudience`,
+`TestEveryVerificationModuleHasAnAudienceCatalogRow`,
+`TestDefaultsReproduceThePreCatalogAudiences` and the Postgres round trip
+`TestAudienceRoundTripThroughTheStoredOverride`. Canonical prose:
+`docs/decisions/notification-designation-audiences.md`.
+
 ## Operational Read Model Contract Is Mandatory
 
 Shared command surfaces (Calendar, Control Tower, Action Center, Protocol

@@ -35,8 +35,12 @@ the most senior people in the company.
    come from ONE function (`domain.StatusOptionsFor` / `CheckTransition`), so the phone
    can never offer a move the write refuses.
 3. **Status only, no thread.** Chosen for v1 to keep the surface minimal.
-4. **Android only, with push.** A raised task pushes to the assignee; a task marked done
-   pushes back to the raiser. In-progress, reopen and cancel are silent by design.
+4. **Android only, with push.** A raised task pushes to the assignee; EVERY status change
+   pushes to the other party -- the raiser when the CXO moved it, the CXO when the raiser
+   did (maintainer decision 2026-09-08, superseding the original done-only rule; the person
+   who made the change is never pushed about their own act). Both pushes are switchable per
+   designation on People / HRMS -> Notifications
+   (`docs/decisions/notification-designation-audiences.md`).
 5. **Unseen badge.** `seen_at` is stamped once, the first time the assignee opens the task.
    The drawer row and the module's bar item show the count of the CXO's unseen, uncancelled
    tasks. This is the first numeric badge in the app, and it is **backend-owned**:

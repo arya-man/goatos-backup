@@ -776,6 +776,10 @@ func pages() []domain.PageContract {
 				// Clock In / Out tab (maintainer decisions 2026-08-27/28): one row
 				// per active person per selected IST day, not-clocked-in included.
 				table("clock-entries", "Clock In / Out", "/admin/workforce/clock-entries", []string{"person", "park", "designation", "clock_in", "clock_out", "hours", "location", "device", "flags"}, "clock_entry_id"),
+				// Notifications tab (maintainer decision 2026-09-08): which DESIGNATION hears
+				// which alert. One row per configurable alert; the designation columns are
+				// tenant rows carried in the data source, so only the fixed columns are named.
+				table("notification-audiences", "Notifications", "/admin/notifications/designations", []string{"alert", "who_receives"}, "alert_key"),
 			}),
 		// SOP SPLIT (maintainer decision 2026-08-18): the /sops authority screen is retired;
 		// each remaining module owns its SOP page as a module-surface, sharing the
@@ -6302,6 +6306,24 @@ func pageSpecificCopy(id string) map[string]string {
 			"access.error.defaults":     "Those defaults could not be loaded. Set the access by hand, or try again.",
 			"access.error.save":         "That could not be saved. Reload the page to see the current settings, then try again.",
 			"disabled.access_write":     "Your current role can view access but not change it.",
+			// Notifications tab (maintainer decision 2026-09-08). "Desk" and "job title" are
+			// the farm words for a designation; the raw code (pc_director) is never shown.
+			"notifications.intro":              "Tick the job titles that should receive each alert. Everyone holding that title on an active login is told; nobody is named individually.",
+			"notifications.column.alert":       "Alert",
+			"notifications.column.setting":     "Setting",
+			"notifications.chip.default":       "Default",
+			"notifications.chip.custom":        "Customised",
+			"notifications.chip.nobody":        "Nobody receives this",
+			"notifications.action.save":        "Save",
+			"notifications.action.saving":      "Saving...",
+			"notifications.action.use_default": "Use default",
+			"notifications.action.reset_hint":  "Back to the standard audience for this alert.",
+			"notifications.always_told":        "The person doing the work is always told; these ticks only decide who else hears about it.",
+			"notifications.saved":              "Saved. New alerts go to the ticked job titles from now on.",
+			"notifications.error.load":         "The alert settings could not be loaded. Reload the page and try again.",
+			"notifications.error.save":         "That could not be saved. Reload the page to see the current settings, then try again.",
+			"notifications.empty":              "No alerts are configurable yet.",
+			"disabled.notifications_write":     "Your current role can see who receives each alert but not change it.",
 		}
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
@@ -6739,6 +6761,11 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					// view_clock control (clock.presence.read) compiled beside
 					// it — the renderer combines both, per role-scoped-UI rules.
 					option("clock", "Clock In / Out", "", ""),
+					// Notifications (maintainer decision 2026-09-08): who hears which
+					// alert, per designation, seated right after Clock In / Out (maintainer
+					// ask, same day). Enabled for everyone the page admits; the WRITE is
+					// gated by the edit_notifications control compiled beside it.
+					option("notifications", "Notifications", "", ""),
 					option("vaccination", "Vaccination", "", ""),
 					soonTab("weighing", "Weighing"),
 					soonTab("feed", "Feed"),

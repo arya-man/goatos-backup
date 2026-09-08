@@ -1413,6 +1413,9 @@ export type AccessCapabilityOption = AdminApiComponents["schemas"]["AccessCapabi
 export type AccessModuleWrite = AdminApiComponents["schemas"]["AccessModuleWrite"];
 export type SavePersonAccessRequest = AdminApiComponents["schemas"]["SavePersonAccessRequest"];
 export type DesignationDefaults = AdminApiComponents["schemas"]["DesignationDefaultsResponse"];
+export type NotificationAudienceMatrix = AdminApiComponents["schemas"]["NotificationAudienceMatrixResponse"];
+export type NotificationAudienceAlertRow = AdminApiComponents["schemas"]["NotificationAudienceAlertRow"];
+export type SaveNotificationAudienceRequest = AdminApiComponents["schemas"]["SaveNotificationAudienceRequest"];
 export type WorkforcePersonResponse = AdminApiComponents["schemas"]["PersonResponse"];
 
 // Clock In / Out (maintainer decisions 2026-08-27/28): the People/HRMS
@@ -1541,6 +1544,35 @@ export async function getDesignationDefaults(code: string): Promise<ApiResult<De
   const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/workforce/designations/${encodeURIComponent(code)}/defaults` as keyof AdminApiPaths & string;
   return request(() => client.request<DesignationDefaults>(path, { cache: "no-store" }));
+}
+
+/**
+ * Who hears which alert, per designation (GET /admin/notifications/designations; maintainer
+ * decision 2026-09-08). The whole Notifications matrix in one read: every configurable alert with
+ * its catalog default and the tenant's effective audience, plus the designation columns. Every
+ * visible word is backend-composed -- the raw vocabulary is `pc_director` and `feed.low_stock`.
+ */
+export async function getNotificationAudienceMatrix(): Promise<ApiResult<NotificationAudienceMatrix>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() => client.request<NotificationAudienceMatrix>("/admin/notifications/designations", { cache: "no-store" }));
+}
+
+/**
+ * Replace one alert's designation audience, or reset it to the catalog default. WHOLESALE and
+ * version-fenced: a concurrent edit returns 409 and the admin is told to reload rather than
+ * silently overwriting someone else's decision.
+ */
+export async function saveNotificationAudience(
+  alertKey: string,
+  body: SaveNotificationAudienceRequest,
+): Promise<ApiResult<NotificationAudienceAlertRow>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/notifications/designations/${encodeURIComponent(alertKey)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<NotificationAudienceAlertRow>(path, { method: "PUT", cache: "no-store", body }));
 }
 
 /**

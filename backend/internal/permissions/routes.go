@@ -142,6 +142,14 @@ var protectedRoutes = []Route{
 	// and it describes what a grant would contain.
 	{OperationID: "getDesignationDefaults", Method: "GET", Pattern: "/admin/workforce/designations/{code}/defaults", Permissions: []string{OperatorsManageCapability}},
 
+	// WHO HEARS WHICH ALERT, PER DESIGNATION (maintainer decision 2026-09-08): the Notifications
+	// tab of /people. Reading the matrix is OperatorsRead, the same as the directory it sits
+	// beside; writing it is OperatorsManageCapability -- deciding what every holder of a job
+	// title is told is the same authority as deciding what they may do, and neither is the
+	// OperatorsWrite that creates a person.
+	{OperationID: "getNotificationDesignationMatrix", Method: "GET", Pattern: "/admin/notifications/designations", Permissions: []string{OperatorsRead}},
+	{OperationID: "saveNotificationDesignationAudience", Method: "PUT", Pattern: "/admin/notifications/designations/{alert_key}", Permissions: []string{OperatorsManageCapability}},
+
 	{OperationID: "appMe", Method: "GET", Pattern: "/app/me", Permissions: []string{AppBootstrap}},
 	{OperationID: "appBootstrap", Method: "GET", Pattern: "/app/bootstrap", Permissions: []string{AppBootstrap}},
 	{OperationID: "adminWebBootstrap", Method: "GET", Pattern: "/admin-web/bootstrap", Permissions: []string{AdminWebBootstrap}},

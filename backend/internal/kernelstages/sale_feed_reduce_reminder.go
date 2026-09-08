@@ -9,6 +9,7 @@ import (
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
+	notificationaudiencepg "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
@@ -36,7 +37,8 @@ func NewSaleFeedReduceReminderStage(deps Deps, tenantID string, logger *slog.Log
 	return &SaleFeedReduceReminderStage{
 		notifier: notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).
 			WithBatches(identitypg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)).
-			WithFeedClocks(feeddirectionpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)),
+			WithFeedClocks(feeddirectionpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)).
+			WithAudience(notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout), logger)),
 		tenantID: tenantID,
 	}
 }

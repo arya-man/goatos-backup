@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
+	audiencedomain "github.com/vgoats/goatos/backend/internal/notificationaudience/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
@@ -33,8 +34,10 @@ const NotificationTypeObligationMissed = "obligation_missed"
 // says, and where a tap lands. Each module speaks in its OWN words; none of these fields is shared
 // or defaulted across modules.
 type missedModuleProfile struct {
-	// directorPosition is the tenant-scoped seat that owns the module (module-ownership decision).
-	directorPosition string
+	// alertKey names the module's missed-work alert in the notification-audience catalog; its
+	// default audience is the park head plus the module's owning director (module-ownership
+	// decision), and the tenant may customise it per designation.
+	alertKey string
 	// operatorScreen / leadershipScreen are the tap routes: the operator opens the work itself, the
 	// leader opens the module overview.
 	operatorScreen   string
@@ -50,7 +53,7 @@ type missedModuleProfile struct {
 // its own director, wording and tap routes.
 var missedModuleProfiles = map[string]missedModuleProfile{
 	"vaccination": {
-		directorPosition: positionPCDirector,
+		alertKey:         audiencedomain.AlertVaccinationWorkMissed,
 		operatorScreen:   "vaccination",
 		leadershipScreen: "vaccination_overview",
 		workNoun:         "vaccination",
@@ -70,8 +73,10 @@ type MissedObligationContextResolver interface {
 type ObligationMissedNotifier struct {
 	contextResolver MissedObligationContextResolver
 	recipients      RecipientResolver
-	queue           NotificationQueue
-	logger          *slog.Logger
+	// audience resolves the UPWARD copy's designations (see audience.go).
+	audience AudienceResolver
+	queue    NotificationQueue
+	logger   *slog.Logger
 	// locations is optional park name enrichment (see location_names.go). ShedLabel already comes
 	// through human-readable from calendarports.MissedObligationContext; this adds the park it sits
 	// in, since a shed name alone ("Godel 1 - Part 8") does not say which park to go to.
@@ -87,9 +92,18 @@ func NewObligationMissedNotifier(
 	return &ObligationMissedNotifier{
 		contextResolver: contextResolver,
 		recipients:      recipients,
+		audience:        defaultAudience(recipients),
 		queue:           queue,
 		logger:          logger,
 	}
+}
+
+// WithAudience attaches the stored per-designation audience (production wiring).
+func (n *ObligationMissedNotifier) WithAudience(audience AudienceResolver) *ObligationMissedNotifier {
+	if audience != nil {
+		n.audience = audience
+	}
+	return n
 }
 
 // WithLocationNames attaches park name enrichment. Chainable at construction time.
@@ -203,9 +217,9 @@ func (n *ObligationMissedNotifier) NotifyObligationMissed(ctx context.Context, t
 	}
 
 	// ---- UP: the park head and the module's own director. ---------------------------------------
-	leadership, err := n.missedLeadership(ctx, tenantID, missed.ParkID, profile.directorPosition)
+	leadership, err := n.audience.Recipients(ctx, tenantID, missed.ParkID, profile.alertKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("missed work notification: %w", err)
 	}
 	n.warnIfEmpty(ctx, leadership, "obligation_missed_notification_no_leadership_devices", tenantID, obligationID)
 	leadershipContext := copyContext(baseContext)
@@ -231,40 +245,6 @@ func (n *ObligationMissedNotifier) NotifyObligationMissed(ctx context.Context, t
 		return fmt.Errorf("missed work notification: queue leadership: %w", err)
 	}
 	return nil
-}
-
-// missedLeadership resolves the park head (park scope) plus the module's director (tenant scope),
-// deduped by device so one person holding both seats is pushed once.
-func (n *ObligationMissedNotifier) missedLeadership(ctx context.Context, tenantID, parkID, directorPosition string) ([]calendarports.NotificationRecipient, error) {
-	out := make([]calendarports.NotificationRecipient, 0, 4)
-	seen := map[string]bool{}
-	appendDevices := func(devices []workforcedomain.NotificationRecipient, roleLabel string) {
-		for _, device := range devices {
-			if device.DeviceID == "" || seen[device.DeviceID] {
-				continue
-			}
-			seen[device.DeviceID] = true
-			out = append(out, calendarports.NotificationRecipient{
-				MemberID:  device.WorkforceMemberID,
-				DeviceID:  device.DeviceID,
-				FCMToken:  device.FCMToken,
-				RoleLabel: roleLabel,
-			})
-		}
-	}
-	if parkID != "" {
-		parkHead, err := n.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
-		if err != nil {
-			return nil, fmt.Errorf("missed work notification: resolve park head: %w", err)
-		}
-		appendDevices(parkHead, positionParkHead)
-	}
-	director, err := n.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, directorPosition)
-	if err != nil {
-		return nil, fmt.Errorf("missed work notification: resolve director: %w", err)
-	}
-	appendDevices(director, directorPosition)
-	return out, nil
 }
 
 func (n *ObligationMissedNotifier) warn(ctx context.Context, msg, tenantID, obligationID string, extra ...any) {

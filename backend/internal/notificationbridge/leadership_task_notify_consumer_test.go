@@ -112,14 +112,15 @@ func TestLeadershipTaskDonePushGoesBackToTheRaiser(t *testing.T) {
 			t.Fatalf("body %q is missing %q", n.Body, want)
 		}
 	}
-	if !strings.HasSuffix(n.EventKey, ":evt-9") {
+	if !strings.Contains(n.EventKey, ":evt-9") {
 		t.Fatalf("a done push is keyed per event so a reopen/done cycle is new news; key=%q", n.EventKey)
 	}
 }
 
-// Every transition that is not DONE is silent: in progress, back to open, a reopen, and a
-// cancel are all visible on the list and would only be noise on a leadership phone.
-func TestLeadershipTaskOtherTransitionsAreSilent(t *testing.T) {
+// Every status change pushes to the OTHER party (maintainer decision 2026-09-08, superseding
+// the 2026-09-04 done-only rule): a change the raiser made reaches the CXO it is addressed to,
+// and never the raiser themself.
+func TestLeadershipTaskChangesByTheRaiserReachTheAssignee(t *testing.T) {
 	for _, status := range []string{"in_progress", "open", "cancelled"} {
 		recipients := &targetTestRecipients{}
 		queue := &targetTestQueue{}
@@ -132,9 +133,43 @@ func TestLeadershipTaskOtherTransitionsAreSilent(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("HandleEvent(%s): %v", status, err)
 		}
-		if len(queue.queued) != 0 {
-			t.Fatalf("status %s must not push; queued %+v", status, queue.queued)
+		if len(queue.queued) != 1 {
+			t.Fatalf("status %s must push once (to the assignee); queued %+v", status, queue.queued)
 		}
+		n := queue.queued[0]
+		if len(n.Recipients) != 1 || n.Recipients[0].MemberID != "44444444-4444-4444-8444-444444444444" {
+			t.Fatalf("status %s changed by the raiser must reach the ASSIGNEE only; recipients=%+v", status, n.Recipients)
+		}
+		if !strings.Contains(n.Title, "Hemant") || !strings.Contains(n.Title, "#12") {
+			t.Fatalf("title %q must name the raiser and the task", n.Title)
+		}
+	}
+}
+
+// A change by a THIRD party (another CXO on the desk) reaches both the raiser and the assignee.
+func TestLeadershipTaskChangeByAThirdPartyReachesBothParties(t *testing.T) {
+	recipients := &targetTestRecipients{}
+	queue := &targetTestQueue{}
+	consumer := notificationbridge.NewLeadershipTaskNotifyConsumer(recipients, queue, slog.Default())
+	if err := consumer.HandleEvent(context.Background(), eventbus.Event{
+		ID:       "evt-3",
+		Type:     notificationbridge.EventLeadershipTaskStatusChanged,
+		TenantID: "11111111-1111-4111-8111-111111111111",
+		Payload:  leadershipTaskPayload(map[string]any{"status": "in_progress", "changed_by_user_id": "55555555-5555-4555-8555-555555555555"}),
+	}); err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+	if len(queue.queued) != 2 {
+		t.Fatalf("queued %d, want raiser + assignee", len(queue.queued))
+	}
+	got := map[string]bool{}
+	for _, n := range queue.queued {
+		for _, r := range n.Recipients {
+			got[r.MemberID] = true
+		}
+	}
+	if !got["33333333-3333-4333-8333-333333333333"] || !got["44444444-4444-4444-8444-444444444444"] {
+		t.Fatalf("both parties must be told; got %v", got)
 	}
 }
 

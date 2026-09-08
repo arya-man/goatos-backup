@@ -3,6 +3,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import Link from "@/components/no-prefetch-link";
 import { PeopleBoard } from "./people-board";
 import { ClockScreen } from "./clock-screen";
+import { NotificationsScreen } from "./notifications-screen";
 
 const VaccinationOperatorsScreen = async ({
   initialParkId,
@@ -87,6 +88,8 @@ export async function PeoplePage({
         <VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} />
       ) : active === "clock" ? (
         <ClockScreen searchParams={searchParams} pageContract={pageContract} />
+      ) : active === "notifications" ? (
+        <NotificationsScreen pageContract={pageContract} />
       ) : (
         <PeopleBoard searchParams={searchParams} pageContract={pageContract} />
       )}

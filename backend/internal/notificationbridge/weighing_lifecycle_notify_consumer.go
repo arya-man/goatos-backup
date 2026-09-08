@@ -11,6 +11,7 @@ import (
 	"time"
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
+	audiencedomain "github.com/vgoats/goatos/backend/internal/notificationaudience/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
@@ -213,8 +214,12 @@ type weighingCampaignClosedPayload struct {
 // who owns the affected bucket.
 type WeighingLifecycleEventConsumer struct {
 	recipients RecipientResolver
-	queue      NotificationQueue
-	logger     *slog.Logger
+	// audience resolves every UPWARD copy from the notification-audience catalog (weighing.*
+	// alerts; growth_director + ceo by default, growth_director alone for rework) and the
+	// tenant's stored designations. The operator copies stay on ResolveMemberRecipients.
+	audience AudienceResolver
+	queue    NotificationQueue
+	logger   *slog.Logger
 }
 
 func NewWeighingLifecycleEventConsumer(
@@ -222,7 +227,15 @@ func NewWeighingLifecycleEventConsumer(
 	queue NotificationQueue,
 	logger *slog.Logger,
 ) *WeighingLifecycleEventConsumer {
-	return &WeighingLifecycleEventConsumer{recipients: recipients, queue: queue, logger: logger}
+	return &WeighingLifecycleEventConsumer{recipients: recipients, audience: defaultAudience(recipients), queue: queue, logger: logger}
+}
+
+// WithAudience attaches the stored per-designation audience (production wiring).
+func (c *WeighingLifecycleEventConsumer) WithAudience(audience AudienceResolver) *WeighingLifecycleEventConsumer {
+	if audience != nil {
+		c.audience = audience
+	}
+	return c
 }
 
 var _ eventbus.Handler = (*WeighingLifecycleEventConsumer)(nil)
@@ -337,7 +350,7 @@ func (c *WeighingLifecycleEventConsumer) handlePublished(ctx context.Context, ev
 		}
 	}
 
-	leadership, err := c.leadershipRecipients(ctx, tenantID)
+	leadership, err := c.leadershipRecipients(ctx, tenantID, audiencedomain.AlertWeighingPlanPublished)
 	if err != nil {
 		return fmt.Errorf("weighing publish notification: %w", err)
 	}
@@ -430,13 +443,13 @@ func (c *WeighingLifecycleEventConsumer) handleVerdict(ctx context.Context, even
 	if rework {
 		// Rework escalates to the owning director only; a bounced proof is an
 		// execution problem, not a CEO event.
-		directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, positionGrowthDirector)
+		upward, err := c.leadershipRecipients(ctx, tenantID, audiencedomain.AlertWeighingVerdictRework)
 		if err != nil {
-			return fmt.Errorf("weighing verdict notification: resolve growth director recipients: %w", err)
+			return fmt.Errorf("weighing verdict notification: %w", err)
 		}
-		recipients = append(recipients, toQueueRecipients(directorDevices, roleLabelGrowthDirector)...)
+		recipients = append(recipients, upward...)
 	} else {
-		leadership, err := c.leadershipRecipients(ctx, tenantID)
+		leadership, err := c.leadershipRecipients(ctx, tenantID, audiencedomain.AlertWeighingVerdictApprove)
 		if err != nil {
 			return fmt.Errorf("weighing verdict notification: %w", err)
 		}
@@ -524,7 +537,7 @@ func (c *WeighingLifecycleEventConsumer) handleShedClosed(ctx context.Context, e
 		return nil
 	}
 
-	recipients, err := c.leadershipRecipients(ctx, tenantID)
+	recipients, err := c.leadershipRecipients(ctx, tenantID, audiencedomain.AlertWeighingPenClosed)
 	if err != nil {
 		return fmt.Errorf("weighing close notification: %w", err)
 	}
@@ -624,7 +637,7 @@ func (c *WeighingLifecycleEventConsumer) handleVerifiedClosure(ctx context.Conte
 		return nil
 	}
 
-	recipients, err := c.leadershipRecipients(ctx, tenantID)
+	recipients, err := c.leadershipRecipients(ctx, tenantID, audiencedomain.AlertWeighingPenClosed)
 	if err != nil {
 		return fmt.Errorf("weighing verified-closure notification: %w", err)
 	}
@@ -819,7 +832,7 @@ func (c *WeighingLifecycleEventConsumer) handleCampaignClosed(ctx context.Contex
 		}
 	}
 
-	leadership, err := c.leadershipRecipients(ctx, tenantID)
+	leadership, err := c.leadershipRecipients(ctx, tenantID, audiencedomain.AlertWeighingTaskClosed)
 	if err != nil {
 		return fmt.Errorf("weighing campaign close notification: %w", err)
 	}
@@ -862,21 +875,13 @@ func (c *WeighingLifecycleEventConsumer) handleCampaignClosed(ctx context.Contex
 	return err
 }
 
-// leadershipRecipients resolves the UPWARD audience from active role grants for the
-// growth_director and ceo_internal positions. Never a hardcoded person.
-func (c *WeighingLifecycleEventConsumer) leadershipRecipients(ctx context.Context, tenantID string) ([]calendarports.NotificationRecipient, error) {
-	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, positionGrowthDirector)
-	if err != nil {
-		return nil, fmt.Errorf("resolve growth director recipients: %w", err)
-	}
-	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, positionCEOInternal)
-	if err != nil {
-		return nil, fmt.Errorf("resolve CEO recipients: %w", err)
-	}
-	return dedupeQueueRecipients(append(
-		toQueueRecipients(directorDevices, roleLabelGrowthDirector),
-		toQueueRecipients(ceoDevices, roleLabelCEO)...,
-	)), nil
+// leadershipRecipients resolves the UPWARD audience of one weighing alert: the tenant's stored
+// designations for it, or the catalog default (growth_director + ceo_internal, resolved from
+// active role grants and seats). Never a hardcoded person. Weighing alerts carry no park:
+// the two default desks are tenant-wide, and a park desk ticked onto one resolves to nobody
+// until a weighing push learns its park.
+func (c *WeighingLifecycleEventConsumer) leadershipRecipients(ctx context.Context, tenantID, alertKey string) ([]calendarports.NotificationRecipient, error) {
+	return c.audience.Recipients(ctx, tenantID, "", alertKey)
 }
 
 func (c *WeighingLifecycleEventConsumer) warnIfNoRecipients(ctx context.Context, recipients []calendarports.NotificationRecipient, message, tenantID, targetID string) {
@@ -988,7 +993,7 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 		}
 	}
 	if notifyLeadership {
-		leadership, err := c.leadershipRecipients(ctx, tenantID)
+		leadership, err := c.leadershipRecipients(ctx, tenantID, audiencedomain.AlertWeighingWorkCadence)
 		if err != nil {
 			return fmt.Errorf("weighing work item cadence notification: %w", err)
 		}
@@ -1159,12 +1164,11 @@ func (c *WeighingLifecycleEventConsumer) handleReworkDigest(ctx context.Context,
 		}
 		recipients = append(recipients, toQueueRecipients(devices, roleLabelOperator)...)
 	}
-	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, positionGrowthDirector)
+	upward, err := c.leadershipRecipients(ctx, tenantID, audiencedomain.AlertWeighingVerdictRework)
 	if err != nil {
-		return fmt.Errorf("weighing rework digest notification: resolve growth director recipients: %w", err)
+		return fmt.Errorf("weighing rework digest notification: %w", err)
 	}
-	recipients = append(recipients, toQueueRecipients(directorDevices, roleLabelGrowthDirector)...)
-	recipients = dedupeQueueRecipients(recipients)
+	recipients = dedupeQueueRecipients(append(recipients, upward...))
 
 	shedLabel := strings.TrimSpace(payload.ShedLabel)
 	if shedLabel == "" {

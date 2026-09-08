@@ -8,6 +8,7 @@ import (
 	"time"
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
+	audiencedomain "github.com/vgoats/goatos/backend/internal/notificationaudience/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	procurementdomain "github.com/vgoats/goatos/backend/internal/procurement/domain"
 )
@@ -51,9 +52,12 @@ type OverdueLoadReader interface {
 type LoadAgeNotifier struct {
 	loads      OverdueLoadReader
 	recipients RecipientResolver
-	queue      NotificationQueue
-	logger     *slog.Logger
-	now        func() time.Time
+	// audience answers WHO hears the alert (procurement.load_overdue): the tenant's stored
+	// designations, or the catalog default -- the CXO alone -- when none is stored.
+	audience AudienceResolver
+	queue    NotificationQueue
+	logger   *slog.Logger
+	now      func() time.Time
 }
 
 func NewLoadAgeNotifier(
@@ -62,12 +66,20 @@ func NewLoadAgeNotifier(
 	queue NotificationQueue,
 	logger *slog.Logger,
 ) *LoadAgeNotifier {
-	return &LoadAgeNotifier{loads: loads, recipients: recipients, queue: queue, logger: logger, now: time.Now}
+	return &LoadAgeNotifier{loads: loads, recipients: recipients, audience: defaultAudience(recipients), queue: queue, logger: logger, now: time.Now}
 }
 
 // WithClock pins the clock, for tests.
 func (n *LoadAgeNotifier) WithClock(now func() time.Time) *LoadAgeNotifier {
 	n.now = now
+	return n
+}
+
+// WithAudience attaches the stored per-designation audience (production wiring).
+func (n *LoadAgeNotifier) WithAudience(audience AudienceResolver) *LoadAgeNotifier {
+	if audience != nil {
+		n.audience = audience
+	}
 	return n
 }
 
@@ -92,11 +104,10 @@ func (n *LoadAgeNotifier) NotifyOverdueLoads(ctx context.Context, tenantID strin
 
 	// Resolved ONCE for the whole run: the recipient set is the same for every load, and resolving
 	// inside the loop would be one roster read per overdue load.
-	devices, err := n.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, positionCEOInternal)
+	recipients, err := n.audience.Recipients(ctx, tenantID, "", audiencedomain.AlertProcurementLoadOverdue)
 	if err != nil {
-		return fmt.Errorf("load overdue notification: resolve %s: %w", positionCEOInternal, err)
+		return fmt.Errorf("load overdue notification: %w", err)
 	}
-	recipients := toQueueRecipients(devices, roleLabelCEO)
 	if len(recipients) == 0 {
 		// Loud, and no fallback: an alert nobody receives must not look sent.
 		if n.logger != nil {
