@@ -35,6 +35,7 @@ import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.data.sync.VendorUpdatePayload
 import sg.mesha.goatos.core.data.sync.vendorCreateGroupKey
 import sg.mesha.goatos.core.data.sync.vendorUpdateGroupKey
@@ -132,6 +133,10 @@ class VendorCreateViewModel @Inject constructor(
         if (local.value.editing?.vendorId == vendorId) return
         analytics.track(AnalyticsEventsVendors.VENDORS_EDIT_OPENED)
         viewModelScope.launch {
+            if (hasActiveVendorUpdate(syncRepository.observeStatus().value, vendorId)) {
+                local.update { it.copy(message = MESSAGE_PENDING_EDIT) }
+                return@launch
+            }
             repository.refreshVendor(vendorId)
             val vendor = repository.observeVendor(vendorId).first()
             if (vendor == null) {
@@ -221,6 +226,10 @@ class VendorCreateViewModel @Inject constructor(
                     voiceNoteOutboxItemId = current.voiceNoteOutboxItemId,
                 )
             } else {
+                if (hasActiveVendorUpdate(syncRepository.observeStatus().value, editing.vendorId)) {
+                    local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_PENDING_EDIT) }
+                    return@launch
+                }
                 syncRepository.enqueueVendorUpdate(
                     VendorUpdatePayload(
                         clientId = clientId,
@@ -450,10 +459,20 @@ class VendorCreateViewModel @Inject constructor(
         const val WHOLE_DAYS = "Whole days, zero or more"
         const val WEIGHT_MORE_THAN_ZERO = "Enter a weight in kg, more than zero"
         const val MESSAGE_NOT_FOUND = "This vendor could not be opened for editing. Refresh the list and try again."
+        const val MESSAGE_PENDING_EDIT = "This vendor already has a pending edit on this phone. Wait for it to sync, then edit again."
         const val MESSAGE_SAVING = "Saving vendor…"
         const val MESSAGE_SAVED = "Vendor saved to the register."
         const val MESSAGE_QUEUED = "Saved on this phone. It will reach the register when the phone is online."
         const val MESSAGE_NOT_SAVED = "Could not save this vendor. Try again."
+    }
+}
+
+internal fun hasActiveVendorUpdate(status: SyncStatus, vendorId: String): Boolean {
+    val groupKey = vendorUpdateGroupKey(vendorId.trim())
+    return status.items.any { item ->
+        item.isActive &&
+            item.opType == VENDOR_UPDATE_OP_TYPE &&
+            item.groupKey == groupKey
     }
 }
 
@@ -473,3 +492,5 @@ internal fun vendorVoiceNotePolicy(captureSource: String): ProofPolicy = ProofPo
     captureSource = captureSource,
     maximumCountPerField = 1,
 )
+
+private const val VENDOR_UPDATE_OP_TYPE = "VENDOR_UPDATE"

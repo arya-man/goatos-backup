@@ -4,6 +4,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
+import sg.mesha.goatos.core.data.sync.SyncStatus
+import sg.mesha.goatos.core.data.sync.vendorUpdateGroupKey
 import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
 import sg.mesha.goatos.core.network.dto.VendorDto
 import sg.mesha.goatos.feature.vendors.VendorsTone
@@ -110,5 +114,30 @@ class VendorsPresentationTest {
         assertEquals("", rupees(null))
         assertEquals("01-09-2026", farmDate("2026-09-01"))
         assertEquals("0:42", formatLength(42_000L))
+    }
+
+    @Test
+    fun `active vendor edit row blocks reopening the same vendor for another stale replace`() {
+        val status = SyncStatus.empty(online = false).copy(
+            items = listOf(
+                SyncQueueItem(
+                    id = "row-1",
+                    opType = "VENDOR_UPDATE",
+                    idempotencyKey = "vendors:update:form:commit",
+                    groupKey = vendorUpdateGroupKey("vendor-9"),
+                    status = SyncItemStatus.QUEUED,
+                    attemptCount = 0,
+                    maxAttempts = 3,
+                    conflict = false,
+                    createdAt = 1L,
+                    updatedAt = 1L,
+                    lastError = null,
+                ),
+            ),
+        )
+
+        assertTrue(hasActiveVendorUpdate(status, "vendor-9"))
+        assertFalse(hasActiveVendorUpdate(status, "vendor-10"))
+        assertFalse(hasActiveVendorUpdate(status.copy(items = status.items.map { it.copy(status = SyncItemStatus.SUCCEEDED) }), "vendor-9"))
     }
 }
