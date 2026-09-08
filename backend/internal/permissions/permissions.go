@@ -414,22 +414,21 @@ const (
 	// work at all) and never to RoleToxinTester (the tester must not review their own
 	// test). TestToxinVerdictIsCEOOnly pins all three edges.
 	ToxinVerdict = "toxin.verdict"
-	// LEADERSHIP TASKS (maintainer decision 2026-09-04): a director raises a task for a CXO
-	// on the phone -- a brief plus voice note / gallery media / files -- and the CXO moves
-	// it open -> in_progress -> done. Three permissions, three questions:
+	// LEADERSHIP TASKS: a general phone task desk -- a brief plus voice note / gallery
+	// media / files -- where the assignee moves it open -> in_progress -> done. Three
+	// permissions, three questions:
 	//
 	//   LeadershipTasksRead  -- may this person open the module at all (the list, a task,
-	//                           its attachments). Every director role and ceo_internal.
+	//                           its attachments). Directors, CEO/CXO and task assignees.
 	//   LeadershipTasksRaise -- may this person RAISE (and edit or cancel their own). The
-	//                           director roles. Also ORed into the /app/proofs upload routes,
-	//                           the same lever toxin.execute needed, or a director could never
-	//                           finish an attachment upload.
+	//                           director and CEO/CXO roles. Also ORed into the /app/proofs
+	//                           upload routes, the same lever toxin.execute needed, or a
+	//                           raiser could never finish an attachment upload.
 	//   LeadershipTasksAct   -- may this person be ASSIGNED one and change its status.
-	//                           ceo_internal only: the CXO desk is the audience.
+	//                           CEO/CXO, park heads, and per-person assignees.
 	//
-	// Deliberately per JOB, not per person: the maintainer's words were "all the directors".
-	// A director who is also a CXO (none today) would hold both raise and act through the
-	// union of their grants and see both sides of their own list.
+	// Assignment is still narrowed by person_module_access for the picker/write check; these
+	// route permissions only decide whether a signed-in principal may open the surface.
 	LeadershipTasksRead  = "leadership_tasks.read"
 	LeadershipTasksRaise = "leadership_tasks.raise"
 	LeadershipTasksAct   = "leadership_tasks.act"
@@ -852,6 +851,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		GoatRead:      {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, AppBootstrap: {},
+		LeadershipTasksRead: {}, LeadershipTasksAct: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationOverseeExecution: {},
 		CalendarRead: {}, CalendarAction: {},
@@ -1212,9 +1212,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		PCCareExecute: {},
 	},
 	RoleCEOInternal: {
-		// Leadership Tasks (2026-09-04): the CXO desk is the audience; it reads and acts,
-		// and does not raise (directors ask the desk, not the other way round).
-		LeadershipTasksRead: {}, LeadershipTasksAct: {},
+		// Leadership Tasks: CEO/CXO can assign work downward and can still act on tasks
+		// addressed to the leadership desk.
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, LeadershipTasksAct: {},
 		// Toxin (maintainer decisions 2026-08-25 and 2026-08-26): CEO/CXO WATCHES and JUDGES;
 		// they never run the test. Read shows the tasks (the phone card is not tappable and
 		// no step opens a camera), and verdict is the accept/reject that only this role can

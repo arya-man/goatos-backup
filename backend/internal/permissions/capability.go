@@ -507,11 +507,12 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
-		// Leadership Tasks (maintainer decision 2026-09-04): a director's ask of the CXO desk.
-		// Phone-only; no admin-web sidebar leaf.
+		// Leadership Tasks: a general ask desk for leadership to assign follow-up work inside
+		// the phone app. Raises and assignees are capability-driven; a role name never decides
+		// the picker by itself. Phone-only; no admin-web sidebar leaf.
 		Key:      "leadership_tasks",
 		Label:    "Tasks",
-		Blurb:    "Tasks directors raise for the leadership desk, with voice notes, media and files.",
+		Blurb:    "Tasks raised inside the farm team, with voice notes, media and files.",
 		Surfaces: []string{SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {LeadershipTasksRead},
@@ -519,9 +520,10 @@ var moduleCapabilities = []ModuleCapability{
 			// "For me" tab (pen visits, maintainer decision 2026-09-07): the same people who
 			// raise are the ones a park's visits can be configured against.
 			LevelDo: {LeadershipTasksRead, LeadershipTasksRaise, PenVisitsExecute},
-			// Being assigned one and working it. Deliberately WITHOUT raise -- the CXO desk
-			// answers asks, it does not send them -- so this is a third non-superset level.
+			// Being assigned one and working it.
 			LevelOversee: {LeadershipTasksRead, LeadershipTasksAct},
+			// Raising without bundling the Tasks module's operational "For me" tab.
+			LevelConfigure: {LeadershipTasksRead, LeadershipTasksRaise},
 		},
 	},
 	{

@@ -2,15 +2,14 @@ package permissions
 
 import "testing"
 
-// Leadership Tasks (maintainer decision 2026-09-04): directors ASK, the CXO desk ANSWERS.
-// Three edges, each deliberate and each mutation-tested when written:
+// Leadership Tasks: leadership can assign work in the app, and assignees act from the
+// same module. Three edges, each deliberate and each mutation-tested when written:
 //
-//  1. RAISE belongs to the director roles that carry a phone (pc, growth, feed, health)
-//     and NOT to ceo_internal -- the desk does not send itself asks.
-//  2. ACT (be assigned, change status) belongs to ceo_internal ALONE.
-//  3. Nobody below leadership -- operator, park head, verifier, the per-person roles --
-//     reaches the module at all.
-func TestLeadershipTasksRaiseIsDirectorsAndActIsCEO(t *testing.T) {
+//  1. RAISE belongs to the director roles that carry a phone and to ceo_internal.
+//  2. ACT belongs to ceo_internal and park_head by role; other employees become assignable
+//     only through their per-person Tasks tick.
+//  3. Operators/verifiers/per-person micro-roles do not inherit the module by role.
+func TestLeadershipTasksRaiseAndActFollowTheTwoWayTaskDesk(t *testing.T) {
 	directors := []string{RolePCDirector, RoleGrowthDirector, RoleFeedDirector, RoleHealthDirector, RoleBreedingDirector, RoleProcurementDirector}
 	for _, role := range directors {
 		if !RoleHasPermission(role, LeadershipTasksRead) || !RoleHasPermission(role, LeadershipTasksRaise) {
@@ -23,10 +22,16 @@ func TestLeadershipTasksRaiseIsDirectorsAndActIsCEO(t *testing.T) {
 	if !RoleHasPermission(RoleCEOInternal, LeadershipTasksRead) || !RoleHasPermission(RoleCEOInternal, LeadershipTasksAct) {
 		t.Error("ceo_internal must read and act on leadership tasks")
 	}
-	if RoleHasPermission(RoleCEOInternal, LeadershipTasksRaise) {
-		t.Error("ceo_internal must NOT raise leadership tasks -- directors ask the desk, not the reverse")
+	if !RoleHasPermission(RoleCEOInternal, LeadershipTasksRaise) {
+		t.Error("ceo_internal must raise leadership tasks for downward assignment")
 	}
-	for _, role := range []string{RoleOperator, RoleParkHead, RoleVerifier, RoleCountsApprover, RoleToxinTester, RoleProcurementManager} {
+	if !RoleHasPermission(RoleParkHead, LeadershipTasksRead) || !RoleHasPermission(RoleParkHead, LeadershipTasksAct) {
+		t.Error("park_head must read and act on tasks assigned to them")
+	}
+	if RoleHasPermission(RoleParkHead, LeadershipTasksRaise) {
+		t.Error("park_head must not raise leadership tasks by role; use per-person ticks if needed")
+	}
+	for _, role := range []string{RoleOperator, RoleVerifier, RoleCountsApprover, RoleToxinTester, RoleProcurementManager} {
 		for _, perm := range []string{LeadershipTasksRead, LeadershipTasksRaise, LeadershipTasksAct} {
 			if RoleHasPermission(role, perm) {
 				t.Errorf("%s must not hold %s", role, perm)
@@ -60,8 +65,8 @@ func TestLeadershipTaskRoutesAreGatedOnTheDedicatedPermissions(t *testing.T) {
 		if !RolesAuthorize([]string{RoleFeedDirector}, route.Permissions, route.AdminOnly) {
 			t.Errorf("feed_director must authorize %s %s", target.method, target.path)
 		}
-		if RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
-			t.Errorf("ceo_internal must NOT authorize %s %s", target.method, target.path)
+		if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
+			t.Errorf("ceo_internal must authorize %s %s", target.method, target.path)
 		}
 	}
 	for _, target := range bothParties {
@@ -69,7 +74,7 @@ func TestLeadershipTaskRoutesAreGatedOnTheDedicatedPermissions(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s %s is not registered", target.method, target.path)
 		}
-		for _, role := range []string{RoleFeedDirector, RolePCDirector, RoleCEOInternal} {
+		for _, role := range []string{RoleFeedDirector, RolePCDirector, RoleCEOInternal, RoleParkHead} {
 			if !RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
 				t.Errorf("%s must authorize %s %s", role, target.method, target.path)
 			}
@@ -78,11 +83,10 @@ func TestLeadershipTaskRoutesAreGatedOnTheDedicatedPermissions(t *testing.T) {
 			t.Errorf("operator must NOT authorize %s %s", target.method, target.path)
 		}
 	}
-	// The assignee picker must not be reachable on read alone: a guessed URL from a CXO's
-	// phone would list the leadership desk to someone with no reason to see it there.
+	// The assignee picker must not be reachable on read/act alone.
 	picker, _ := Match("GET", "/app/leadership-tasks/assignees")
-	if RolesAuthorize([]string{RoleCEOInternal}, picker.Permissions, picker.AdminOnly) {
-		t.Error("the assignee picker must ride leadership_tasks.raise, not read")
+	if RolesAuthorize([]string{RoleParkHead}, picker.Permissions, picker.AdminOnly) {
+		t.Error("the assignee picker must ride leadership_tasks.raise, not read/act")
 	}
 }
 

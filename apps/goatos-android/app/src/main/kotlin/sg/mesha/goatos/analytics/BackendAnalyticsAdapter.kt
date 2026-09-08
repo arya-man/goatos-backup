@@ -6,6 +6,7 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsLeadershipTasks
 import sg.mesha.goatos.core.analytics.AnalyticsEventsPenVisits
 import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
@@ -202,6 +203,14 @@ class BackendAnalyticsAdapter(
             AnalyticsEvents.PC_CARE_SUBMIT_CONFIRMED,
             AnalyticsEvents.PC_CARE_SLOT_SUBMIT,
             AnalyticsEvents.PC_CARE_FAILURE,
+            AnalyticsEventsLeadershipTasks.LIST_VIEWED,
+            AnalyticsEventsLeadershipTasks.TASK_OPENED,
+            AnalyticsEventsLeadershipTasks.TASK_RAISED,
+            AnalyticsEventsLeadershipTasks.TASK_EDITED,
+            AnalyticsEventsLeadershipTasks.STATUS_CHANGED,
+            AnalyticsEventsLeadershipTasks.ATTACHMENT_ADDED,
+            AnalyticsEventsLeadershipTasks.AUDIO_RECORDED,
+            AnalyticsEventsLeadershipTasks.FAILURE,
             AnalyticsEventsPenVisits.LIST_VIEWED,
             AnalyticsEventsPenVisits.TASK_OPENED,
             AnalyticsEventsPenVisits.CAPTURE_STARTED,

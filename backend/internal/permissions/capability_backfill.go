@@ -89,6 +89,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// The park head runs a park's execution from the phone: supervises task work, completes
 	// feed on his own ground, captures counts. Deliberately NOT admin-web.
 	RoleParkHead: rows(
+		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee)),
 		one(assign("vaccination", SurfaceMobile, LevelView, LevelOversee)),
 		one(assign("counts", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("milk", SurfaceMobile, LevelDo)),
@@ -227,8 +228,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// Whole-org. Note weighing and pc_care at View+Configure and NOT Do: the CEO plans that
 	// work and never carries it out.
 	RoleCEOInternal: rows(
-		// Leadership Tasks (2026-09-04): the desk the directors write to.
-		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee)),
+		// Leadership Tasks: the CEO/CXO desk can assign work downward and answer asks sent to it.
+		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee, LevelConfigure)),
 		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("weighing", LevelView, LevelConfigure),
 		bothSurfaces("pc_care", LevelView, LevelConfigure),
