@@ -116,13 +116,14 @@ func TestHealthAnalyticsDeclaresItsFourTables(t *testing.T) {
 	}
 }
 
-// The leaf sits in Others, directly above Health Config (maintainer request).
+// The leaf sits in the Health group (its own module since 2026-09-08; previously
+// under Others), directly above Health Config (maintainer request).
 // Order is asserted rather than mere presence: "on top of Health Config" is the
 // instruction, and a leaf appended to the end of the group satisfies presence
 // while ignoring it.
 func TestHealthAnalyticsLeafSitsDirectlyAboveHealthConfig(t *testing.T) {
 	for _, group := range navigation().Groups {
-		if group.ID != "others" {
+		if group.ID != "health" {
 			continue
 		}
 		for i, leaf := range group.Leaves {
@@ -137,9 +138,9 @@ func TestHealthAnalyticsLeafSitsDirectlyAboveHealthConfig(t *testing.T) {
 			}
 			return
 		}
-		t.Fatal("Health Analytics is not a leaf of the Others group")
+		t.Fatal("Health Analytics is not a leaf of the Health group")
 	}
-	t.Fatal("no Others navigation group")
+	t.Fatal("no Health navigation group")
 }
 
 // The leaf's gate and the page catalog's gate must be the SAME permission, and
