@@ -138,5 +138,5 @@ function attachmentRefs(
       file_name: fileNames[i] || undefined,
     });
   }
-  return refs.slice(0, 12);
+  return refs;
 }
