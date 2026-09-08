@@ -21622,7 +21622,9 @@ export interface operations {
     updateProcurementVendor: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
             path: {
                 vendor_id: string;
             };

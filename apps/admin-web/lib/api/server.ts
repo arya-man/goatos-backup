@@ -1678,6 +1678,7 @@ export async function createProcurementVendor(
  */
 export async function updateProcurementVendor(
   vendorId: string,
+  idempotencyKey: string,
   body: ProcurementVendorWrite,
 ): Promise<ApiResult<ProcurementVendor>> {
   const config = await getServerConfig();
@@ -1685,7 +1686,7 @@ export async function updateProcurementVendor(
   const client = createAppApiClient(apiClientOptions(config.data));
   const path = `/procurement/vendors/${encodeURIComponent(vendorId)}` as keyof AppApiPaths & string;
   return request(() =>
-    client.request<ProcurementVendor>(path, { method: "PUT", cache: "no-store", body }),
+    client.request<ProcurementVendor>(path, { method: "PUT", cache: "no-store", headers: { "Idempotency-Key": idempotencyKey }, body }),
   );
 }
 

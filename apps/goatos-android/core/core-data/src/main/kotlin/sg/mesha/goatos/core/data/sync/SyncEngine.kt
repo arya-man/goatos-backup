@@ -1125,7 +1125,7 @@ class SyncEngine(
         } else {
             payload.request.copy(voiceNoteProofRef = resolveUploadedProofRef(payload.voiceNoteOutboxItemId))
         }
-        val updated = api.updateProcurementVendor(payload.vendorId, request)
+        val updated = api.updateProcurementVendor(payload.vendorId, item.idempotencyKey, request)
         return syncJson.encodeToString(updated)
     }
 

@@ -155,16 +155,28 @@ func TestVendorRegisterPostgresPaths(t *testing.T) {
 			Status: "Active", State: "MP", PhoneNumber: "97550 44183",
 		}.Normalize()
 
-		if _, err := repo.UpdateVendor(ctx, testTenant, created.VendorID, base, 99, "", false); !errors.Is(err, ports.ErrVendorStaleWrite) {
+		if _, err := repo.UpdateVendor(ctx, testTenant, created.VendorID, base, 99, "", "vendor-stale-edit", false); !errors.Is(err, ports.ErrVendorStaleWrite) {
 			t.Fatalf("stale version must be refused, got %v", err)
 		}
 
 		next := base
 		next.Status = "In Active " // the source sheet's exact spelling, which the CHECK rejects raw
 		next.City = "Bhopal"
-		updated, err := repo.UpdateVendor(ctx, testTenant, created.VendorID, next.Normalize(), created.RowVersion, "", false)
+		updated, err := repo.UpdateVendor(ctx, testTenant, created.VendorID, next.Normalize(), created.RowVersion, "", "vendor-edit-1", false)
 		if err != nil {
 			t.Fatalf("update with current version: %v", err)
+		}
+		replayed, err := repo.UpdateVendor(ctx, testTenant, created.VendorID, next.Normalize(), created.RowVersion, "", "vendor-edit-1", false)
+		if err != nil {
+			t.Fatalf("exact replay after row_version advanced must return the saved row: %v", err)
+		}
+		if replayed.RowVersion != updated.RowVersion || replayed.Status != updated.Status {
+			t.Fatalf("replay returned different row: got version/status %d/%q want %d/%q", replayed.RowVersion, replayed.Status, updated.RowVersion, updated.Status)
+		}
+		conflicting := next
+		conflicting.BusinessName = "Different Payload Same Key"
+		if _, err := repo.UpdateVendor(ctx, testTenant, created.VendorID, conflicting.Normalize(), created.RowVersion, "", "vendor-edit-1", false); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("same key with different payload must be refused as idempotency conflict, got %v", err)
 		}
 		if updated.Status != domain.VendorStatusInactive {
 			t.Errorf("'In Active ' must normalize to %q, got %q", domain.VendorStatusInactive, updated.Status)
@@ -270,7 +282,7 @@ func TestVendorRegisterPostgresPaths(t *testing.T) {
 		}.Normalize()
 
 		// preserveFinance = true: the caller could not see the payment block.
-		kept, err := repo.UpdateVendor(ctx, testTenant, seed.VendorID, blankFinance, seed.RowVersion, "", true)
+		kept, err := repo.UpdateVendor(ctx, testTenant, seed.VendorID, blankFinance, seed.RowVersion, "", "vendor-finance-preserve", true)
 		if err != nil {
 			t.Fatalf("update with preserveFinance: %v", err)
 		}
@@ -296,7 +308,7 @@ func TestVendorRegisterPostgresPaths(t *testing.T) {
 		}
 
 		// preserveFinance = false: a caller who CAN see the block really is clearing it.
-		if _, err := repo.UpdateVendor(ctx, testTenant, seed.VendorID, blankFinance, kept.RowVersion, "", false); err != nil {
+		if _, err := repo.UpdateVendor(ctx, testTenant, seed.VendorID, blankFinance, kept.RowVersion, "", "vendor-finance-clear", false); err != nil {
 			t.Fatalf("update without preserveFinance: %v", err)
 		}
 		cleared, err := repo.GetVendor(ctx, testTenant, seed.VendorID, true)

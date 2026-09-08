@@ -7528,12 +7528,15 @@ paths:
       description: >-
         A REPLACE, not a patch: an omitted optional field and a cleared one both store NULL.
         Fenced on `row_version` -- a stale value is rejected with 409 `vendor_stale_write` rather
-        than silently overwriting another editor's save.
+        than silently overwriting another editor's save. Idempotent via `Idempotency-Key`, so an
+        exact replay after a lost response returns the saved vendor instead of replaying into the
+        stale row-version fence.
       parameters:
         - name: vendor_id
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:

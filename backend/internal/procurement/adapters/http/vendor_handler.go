@@ -23,7 +23,7 @@ type VendorService interface {
 	ListVendors(ctx context.Context, tenantID string, q app.VendorListQuery) (ports.VendorPage, error)
 	GetVendor(ctx context.Context, tenantID, vendorID string, includeFinance bool) (domain.Vendor, error)
 	CreateVendor(ctx context.Context, tenantID string, write domain.VendorWrite, actorID string, includeFinance bool) (domain.Vendor, error)
-	UpdateVendor(ctx context.Context, tenantID, vendorID string, write domain.VendorWrite, rowVersion int64, actorID string, includeFinance bool) (domain.Vendor, error)
+	UpdateVendor(ctx context.Context, tenantID, vendorID string, write domain.VendorWrite, rowVersion int64, actorID, idempotencyKey string, includeFinance bool) (domain.Vendor, error)
 	UpdateVendorStatus(ctx context.Context, tenantID, vendorID, status string, rowVersion int64, actorID string) (domain.Vendor, error)
 	ListVendorCatalog(ctx context.Context, tenantID string, side string) ([]domain.VendorCatalogEntry, error)
 	ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error)
@@ -179,7 +179,7 @@ func (h *VendorHandler) UpdateVendor(w http.ResponseWriter, r *http.Request) {
 	if !h.decode(w, r, &body) {
 		return
 	}
-	updated, err := h.service.UpdateVendor(r.Context(), tenantID(r), vendorID, body.toDomain(), body.RowVersion, httpmiddleware.ActorIDFromContext(r.Context()), callerMaySeeFinance(r))
+	updated, err := h.service.UpdateVendor(r.Context(), tenantID(r), vendorID, body.toDomain(), body.RowVersion, httpmiddleware.ActorIDFromContext(r.Context()), strings.TrimSpace(r.Header.Get("Idempotency-Key")), callerMaySeeFinance(r))
 	if err != nil {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
