@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
+	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
 
 const (
@@ -64,6 +65,45 @@ func TestWeighingSubmissionEventConsumerQueuesDirectorAndCEOIdempotently(t *test
 	if len(recipientRefs) != 2 || !recipientRefs[vnLeadershipToken] || !recipientRefs[vnCEOToken] {
 		t.Fatalf("weighing completion recipients = %v, want exactly Director %q and CEO %q",
 			recipientRefs, vnLeadershipToken, vnCEOToken)
+	}
+}
+
+func TestWeighingSubmissionEventConsumerPassesEventParkToAudienceResolver(t *testing.T) {
+	recipients := &fakeRecipients{
+		byMember:   map[string][]workforcedomain.NotificationRecipient{},
+		byPosition: map[string][]workforcedomain.NotificationRecipient{},
+	}
+	queue := &fakeQueue{}
+	audience := &recordingAudience{}
+	consumer := notificationbridge.NewWeighingSubmissionEventConsumer(recipients, queue, slog.Default()).WithAudience(audience)
+
+	payload, err := json.Marshal(map[string]any{
+		"tenant_id":        lifecycleTenant,
+		"campaign_id":      lifecycleCampaign,
+		"campaign_shed_id": lifecycleBucketA,
+		"park_id":          lifecyclePark,
+		"shed_id":          lifecyclePark,
+		"shed_label":       "Gandhi",
+		"completed_at":     "2026-07-29T10:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	event := eventbus.Event{
+		Type:     notificationbridge.EventWeighingShedSubmissionCompleted,
+		TenantID: lifecycleTenant,
+		Key:      lifecycleBucketA,
+		Payload:  payload,
+	}
+	if err := consumer.HandleEvent(context.Background(), event); err != nil {
+		t.Fatalf("HandleEvent errored: %v", err)
+	}
+	if len(audience.calls) != 1 {
+		t.Fatalf("audience calls=%d, want 1", len(audience.calls))
+	}
+	call := audience.calls[0]
+	if call.tenantID != lifecycleTenant || call.parkID != lifecyclePark {
+		t.Fatalf("audience call=%+v, want tenant %s and park %s", call, lifecycleTenant, lifecyclePark)
 	}
 }
 

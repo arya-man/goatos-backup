@@ -97,7 +97,7 @@ func (c *WeighingSubmissionEventConsumer) HandleEvent(ctx context.Context, event
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	recipients, err := c.audience.Recipients(ctx, tenantID, "", audiencedomain.AlertWeighingSubmitted)
+	recipients, err := c.audience.Recipients(ctx, tenantID, payload.ParkID, audiencedomain.AlertWeighingSubmitted)
 	if err != nil {
 		return fmt.Errorf("weighing submission notification: %w", err)
 	}
@@ -165,7 +165,7 @@ func (c *WeighingSubmissionEventConsumer) handleReopened(ctx context.Context, ev
 	if err != nil {
 		return fmt.Errorf("weighing reopen notification: resolve operator recipients: %w", err)
 	}
-	upward, err := c.audience.Recipients(ctx, tenantID, "", audiencedomain.AlertWeighingReopened)
+	upward, err := c.audience.Recipients(ctx, tenantID, payload.ParkID, audiencedomain.AlertWeighingReopened)
 	if err != nil {
 		return fmt.Errorf("weighing reopen notification: %w", err)
 	}

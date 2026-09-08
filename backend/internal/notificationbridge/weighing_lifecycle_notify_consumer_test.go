@@ -86,6 +86,22 @@ func (q *fakeQueue) QueueRoleNotifications(_ context.Context, in calendarports.Q
 	return len(in.Recipients), nil
 }
 
+type audienceCall struct{ tenantID, parkID, alertKey string }
+
+type recordingAudience struct {
+	calls []audienceCall
+}
+
+func (a *recordingAudience) Recipients(_ context.Context, tenantID, parkID, alertKey string) ([]calendarports.NotificationRecipient, error) {
+	a.calls = append(a.calls, audienceCall{tenantID: tenantID, parkID: parkID, alertKey: alertKey})
+	return []calendarports.NotificationRecipient{{MemberID: "member-audience", DeviceID: "device-audience", FCMToken: "token-audience", RoleLabel: "audience"}}, nil
+}
+
+func (a *recordingAudience) Addressed(_ context.Context, tenantID, parkID, alertKey string, _ []string, addressed []calendarports.NotificationRecipient) ([]calendarports.NotificationRecipient, error) {
+	a.calls = append(a.calls, audienceCall{tenantID: tenantID, parkID: parkID, alertKey: alertKey})
+	return addressed, nil
+}
+
 func newLifecycleFixture() (*fakeRecipients, *fakeQueue, *notificationbridge.WeighingLifecycleEventConsumer) {
 	recipients := &fakeRecipients{
 		byMember: map[string][]workforcedomain.NotificationRecipient{
@@ -99,6 +115,23 @@ func newLifecycleFixture() (*fakeRecipients, *fakeQueue, *notificationbridge.Wei
 	}
 	queue := &fakeQueue{}
 	return recipients, queue, notificationbridge.NewWeighingLifecycleEventConsumer(recipients, queue, slog.Default())
+}
+
+func TestWeighingLifecyclePassesEventParkToAudienceResolver(t *testing.T) {
+	_, _, consumer := newLifecycleFixture()
+	audience := &recordingAudience{}
+	consumer.WithAudience(audience)
+
+	if err := consumer.HandleEvent(context.Background(), lifecycleEvent(t, notificationbridge.EventWeighingCampaignPublished, "evt-publish", publishPayload())); err != nil {
+		t.Fatalf("HandleEvent errored: %v", err)
+	}
+	if len(audience.calls) != 1 {
+		t.Fatalf("audience calls=%d, want 1", len(audience.calls))
+	}
+	call := audience.calls[0]
+	if call.tenantID != lifecycleTenant || call.parkID != lifecyclePark {
+		t.Fatalf("audience call=%+v, want tenant %s and park %s", call, lifecycleTenant, lifecyclePark)
+	}
 }
 
 func lifecycleEvent(t *testing.T, eventType, eventID string, payload any) eventbus.Event {
