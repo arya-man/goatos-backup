@@ -22,6 +22,10 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Fixed fourth-cycle PR review finding `LT-220-01`: backend admin-ui now publishes the `leadership-tasks` `/tasks` page contract, primary nav leaf, route label, module page mapping, and web-capability surface so production admin web can render Tasks instead of redirecting away.
 - Fixed fourth-cycle PR review finding `LT-220-02`: attachment download monitor coverage now uses `CanMonitor`, not accidental `CanRaise`, so the guard matches the intended Team Progress/read-monitor authority.
 - Preserved the existing Approvals -> Verify primary-nav invariant and placed Tasks after Verify, with tests covering CEO/CXO receipt of the Tasks page contract and nav leaf.
+- Fixed fifth-cycle PR review finding `LT-220-01`: migration now seeds `leadership_tasks` on `web` with `view` for CEO/CXO and director cohorts, and rollback tracking is surface-scoped so mobile raise/act rows remain separate from admin-web page narrowing.
+- Fixed fifth-cycle PR review findings `LT-220-02` and `LT-220-03`: production admin-web activity is derived from live task fields, preview-only rows stay behind `/tasks-preview`, and scope chips navigate through `?scope=` so `/tasks` fetches the selected backend scope instead of always forcing Team Progress.
+- Fixed fifth-cycle Manju-note finding `LT-WEB-001`: admin-web now fetches backend assignees and posts a real create form to `POST /app/leadership-tasks` when the backend page says `can_raise=true`.
+- Fixed fifth-cycle Manju-note finding `LT-ANALYTICS-001`: Leadership Tasks list/open/raise/edit/status/attachment/audio/failure events are all in the durable backend analytics allowlist.
 
 ## Acceptance Status
 
@@ -37,7 +41,9 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Passed: `go test ./internal/leadershiptasks/app ./internal/leadershiptasks/domain ./internal/leadershiptasks/adapters/http ./internal/permissions ./internal/workforce/app ./internal/adminui/app`.
 - Passed: `go test ./migrations/postgres -run 'LeadershipTasksTwoWaySeed'`.
 - Passed: `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk ./gradlew :app:testDevDebugUnitTest --tests '*LeadershipTask*'`.
+- Passed: `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk ./gradlew :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.analytics.BackendAnalyticsAdapterTest'`.
 - Passed: `npm run typecheck && npm exec -- eslint 'app/(admin)'/tasks/page.tsx app/tasks-preview/page.tsx features/leadership-tasks/leadership-tasks-page.tsx`.
+- Passed: `npm run typecheck && npm exec -- eslint 'app/(admin)'/tasks/page.tsx app/tasks-preview/page.tsx features/leadership-tasks/actions.ts features/leadership-tasks/leadership-tasks-page.tsx lib/admin-route-page-contract.test.mjs lib/api/server.ts && node --test lib/admin-route-page-contract.test.mjs`.
 - Captured: Chrome shell screenshot at `apps/admin-web/.codex-leadership-tasks-web-sidebar.png`.
 - Captured: Android Paparazzi images for CEO Team Progress, CEO assignee picker, Director detail, and Park Head detail under `apps/goatos-android/app/build/reports/paparazzi/devDebug/images/`.
 - Passed: `node --test lib/admin-route-page-contract.test.mjs`.
@@ -47,3 +53,5 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Third-cycle PR-review judge found web static data and whitespace scope normalization; patched in current cycle.
 - Fourth-cycle Manju-note judge returned clean against commit `e68759993`, with only the documented v1 note-depth limitation.
 - Fourth-cycle PR-review judge found missing backend admin-ui page/nav contract and an overly broad test actor; both are patched in current cycle and need re-judge.
+- Fifth-cycle Manju-note judge found inert admin-web create and non-durable list/open/attachment/audio analytics; both are patched in current cycle and need re-judge.
+- Fifth-cycle PR-review judge found missing web person-access seed, fake production activity, and cosmetic-only web scopes; all are patched in current cycle and need re-judge.
