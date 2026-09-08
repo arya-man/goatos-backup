@@ -1598,6 +1598,7 @@ type GoatSaleAllocation struct {
 	ShedID         pgtype.UUID
 	PartitionLabel pgtype.Text
 	TagNumber      pgtype.Text
+	WeightKg       pgtype.Numeric
 	Status         string
 	AllocatedAt    pgtype.Timestamptz
 	AllocatedBy    pgtype.UUID
@@ -2554,40 +2555,41 @@ type ProcurementSourceHealthCheck struct {
 }
 
 type ProcurementVendor struct {
-	VendorID          pgtype.UUID
-	TenantID          pgtype.UUID
-	RecordType        string
-	BusinessName      string
-	ContactPersonName pgtype.Text
-	PhoneNumber       pgtype.Text
-	Breed             pgtype.Text
-	Feed              pgtype.Text
-	Status            string
-	FilteredStock     pgtype.Int4
-	PricePerGoat      pgtype.Numeric
-	ReadyToFiltered   pgtype.Text
-	EtaAfterOrderDays pgtype.Int4
-	Details           pgtype.Text
-	State             string
-	City              pgtype.Text
-	BankName          pgtype.Text
-	AccountNo         pgtype.Text
-	IfscCode          pgtype.Text
-	UpiID             pgtype.Text
-	PanNumber         pgtype.Text
-	Comments          pgtype.Text
-	PartyID           pgtype.UUID
-	CapacityQuantity  pgtype.Numeric
-	CapacityUnit      pgtype.Text
-	SupplyFrequency   pgtype.Text
-	VoiceNoteProofRef pgtype.UUID
-	SourceRow         pgtype.Int4
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
-	CreatedBy         pgtype.UUID
-	UpdatedBy         pgtype.UUID
-	RowVersion        int64
-	SearchText        pgtype.Text
+	VendorID              pgtype.UUID
+	TenantID              pgtype.UUID
+	RecordType            string
+	BusinessName          string
+	ContactPersonName     pgtype.Text
+	PhoneNumber           pgtype.Text
+	Breed                 pgtype.Text
+	Feed                  pgtype.Text
+	Status                string
+	FilteredStock         pgtype.Int4
+	PricePerGoat          pgtype.Numeric
+	ReadyToFiltered       pgtype.Text
+	EtaAfterOrderDays     pgtype.Int4
+	Details               pgtype.Text
+	State                 string
+	City                  pgtype.Text
+	BankName              pgtype.Text
+	AccountNo             pgtype.Text
+	IfscCode              pgtype.Text
+	UpiID                 pgtype.Text
+	PanNumber             pgtype.Text
+	Comments              pgtype.Text
+	PartyID               pgtype.UUID
+	CapacityQuantity      pgtype.Numeric
+	CapacityUnit          pgtype.Text
+	SupplyFrequency       pgtype.Text
+	VoiceNoteProofRef     pgtype.UUID
+	AverageAnimalWeightKg pgtype.Numeric
+	SourceRow             pgtype.Int4
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	CreatedBy             pgtype.UUID
+	UpdatedBy             pgtype.UUID
+	RowVersion            int64
+	SearchText            pgtype.Text
 }
 
 type ProcurementVendorCatalog struct {
