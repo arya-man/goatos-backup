@@ -14,14 +14,16 @@
 CREATE TABLE IF NOT EXISTS public.person_module_access_leadership_tasks_two_way_rows (
   tenant_id           uuid NOT NULL,
   workforce_member_id uuid NOT NULL,
-  PRIMARY KEY (tenant_id, workforce_member_id)
+  surface             text NOT NULL DEFAULT 'mobile',
+  PRIMARY KEY (tenant_id, workforce_member_id, surface)
 );
 
 CREATE TABLE IF NOT EXISTS public.person_module_access_leadership_tasks_two_way_caps (
   tenant_id           uuid NOT NULL,
   workforce_member_id uuid NOT NULL,
+  surface             text NOT NULL DEFAULT 'mobile',
   capability          text NOT NULL,
-  PRIMARY KEY (tenant_id, workforce_member_id, capability)
+  PRIMARY KEY (tenant_id, workforce_member_id, surface, capability)
 );
 
 WITH role_people AS (
@@ -90,9 +92,23 @@ desired AS (
          ) AS capabilities
   FROM role_people
   GROUP BY tenant_id, workforce_member_id
+  UNION ALL
+  SELECT tenant_id, workforce_member_id, 'web'::text AS surface, 'leadership_tasks'::text AS module_key,
+         ARRAY['view']::text[] AS capabilities
+  FROM role_people
+  GROUP BY tenant_id, workforce_member_id
+  HAVING COALESCE(bool_or(role IN (
+    'ceo_internal',
+    'pc_director',
+    'growth_director',
+    'feed_director',
+    'health_director',
+    'procurement_director',
+    'breeding_director'
+  )), false)
 ),
 missing_caps AS (
-  SELECT d.tenant_id, d.workforce_member_id, cap.capability
+  SELECT d.tenant_id, d.workforce_member_id, d.surface, cap.capability
   FROM desired d
   JOIN public.person_module_access a
     ON a.tenant_id = d.tenant_id
@@ -114,14 +130,14 @@ SET capabilities = (
 RETURNING tenant_id, workforce_member_id, (xmax = 0) AS inserted
 ),
 recorded_rows AS (
-  INSERT INTO public.person_module_access_leadership_tasks_two_way_rows (tenant_id, workforce_member_id)
-  SELECT tenant_id, workforce_member_id
+  INSERT INTO public.person_module_access_leadership_tasks_two_way_rows (tenant_id, workforce_member_id, surface)
+  SELECT tenant_id, workforce_member_id, surface
   FROM inserted
   WHERE inserted
   ON CONFLICT DO NOTHING
 )
-INSERT INTO public.person_module_access_leadership_tasks_two_way_caps (tenant_id, workforce_member_id, capability)
-SELECT tenant_id, workforce_member_id, capability
+INSERT INTO public.person_module_access_leadership_tasks_two_way_caps (tenant_id, workforce_member_id, surface, capability)
+SELECT tenant_id, workforce_member_id, surface, capability
 FROM missing_caps
 ON CONFLICT DO NOTHING;
 
@@ -140,7 +156,7 @@ WITH desired AS (
     )
 ),
 missing_caps AS (
-  SELECT d.tenant_id, d.workforce_member_id, cap.capability
+  SELECT d.tenant_id, d.workforce_member_id, d.surface, cap.capability
   FROM desired d
   JOIN public.person_module_access a
     ON a.tenant_id = d.tenant_id
@@ -162,14 +178,14 @@ SET capabilities = (
 RETURNING tenant_id, workforce_member_id, (xmax = 0) AS inserted
 ),
 recorded_rows AS (
-  INSERT INTO public.person_module_access_leadership_tasks_two_way_rows (tenant_id, workforce_member_id)
-  SELECT tenant_id, workforce_member_id
+  INSERT INTO public.person_module_access_leadership_tasks_two_way_rows (tenant_id, workforce_member_id, surface)
+  SELECT tenant_id, workforce_member_id, surface
   FROM inserted
   WHERE inserted
   ON CONFLICT DO NOTHING
 )
-INSERT INTO public.person_module_access_leadership_tasks_two_way_caps (tenant_id, workforce_member_id, capability)
-SELECT tenant_id, workforce_member_id, capability
+INSERT INTO public.person_module_access_leadership_tasks_two_way_caps (tenant_id, workforce_member_id, surface, capability)
+SELECT tenant_id, workforce_member_id, surface, capability
 FROM missing_caps
 ON CONFLICT DO NOTHING;
 
@@ -183,17 +199,18 @@ SET capabilities = ARRAY(
     FROM public.person_module_access_leadership_tasks_two_way_caps c
     WHERE c.tenant_id = a.tenant_id
       AND c.workforce_member_id = a.workforce_member_id
+      AND c.surface = a.surface
       AND c.capability = cap
   )
   ORDER BY cap
 )
-WHERE a.surface = 'mobile'
-  AND a.module_key = 'leadership_tasks'
+WHERE a.module_key = 'leadership_tasks'
   AND EXISTS (
     SELECT 1
     FROM public.person_module_access_leadership_tasks_two_way_caps c
     WHERE c.tenant_id = a.tenant_id
       AND c.workforce_member_id = a.workforce_member_id
+      AND c.surface = a.surface
       AND c.capability = ANY(a.capabilities)
   );
 
@@ -201,13 +218,14 @@ DELETE FROM public.person_module_access a
 USING public.person_module_access_leadership_tasks_two_way_rows r
 WHERE a.tenant_id = r.tenant_id
   AND a.workforce_member_id = r.workforce_member_id
-  AND a.surface = 'mobile'
+  AND a.surface = r.surface
   AND a.module_key = 'leadership_tasks'
   AND NOT EXISTS (
     SELECT 1
     FROM public.person_module_access_leadership_tasks_two_way_caps c
     WHERE c.tenant_id = a.tenant_id
       AND c.workforce_member_id = a.workforce_member_id
+      AND c.surface = a.surface
   );
 
 DROP TABLE IF EXISTS public.person_module_access_leadership_tasks_two_way_caps;

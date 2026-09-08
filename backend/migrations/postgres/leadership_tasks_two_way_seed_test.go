@@ -16,6 +16,8 @@ func TestLeadershipTasksTwoWaySeedKeepsDirectorsRaisingAndEmployeesAssignable(t 
 	for _, needle := range []string{
 		"LEFT JOIN public.user_scope_grants g",
 		"ARRAY['view','oversee']::text[]",
+		"'web'::text AS surface, 'leadership_tasks'::text AS module_key",
+		"ARRAY['view']::text[] AS capabilities",
 		"ARRAY['do']::text[]",
 		"ARRAY['configure']::text[]",
 		"'pc_director'",
@@ -34,6 +36,14 @@ func TestLeadershipTasksTwoWaySeedKeepsDirectorsRaisingAndEmployeesAssignable(t 
 	}
 	if !strings.Contains(sql, "COALESCE(bool_or(role IN (") {
 		t.Fatal("leadership tasks seed must grant configure only to raise-capable cohorts")
+	}
+	if !strings.Contains(sql, "PRIMARY KEY (tenant_id, workforce_member_id, surface)") ||
+		!strings.Contains(sql, "PRIMARY KEY (tenant_id, workforce_member_id, surface, capability)") {
+		t.Fatal("leadership tasks seed rollback tracking must be surface-scoped")
+	}
+	if !strings.Contains(sql, "AND c.surface = a.surface") ||
+		!strings.Contains(sql, "AND a.surface = r.surface") {
+		t.Fatal("leadership tasks seed down migration must remove mobile and web rows by exact surface")
 	}
 	doStart := strings.Index(sql, "ARRAY['do']::text[]")
 	configStart := strings.Index(sql, "ARRAY['configure']::text[]")
