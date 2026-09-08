@@ -363,12 +363,20 @@ export function LeadershipTasksPage({
                   placeholder="Add context for the assignee."
                 />
               </label>
+              <label className="fld">
+                <span>Attachment / voice note</span>
+                <input
+                  type="file"
+                  name="attachment_file"
+                  accept="audio/*,video/*,image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                />
+              </label>
               <div className="metagrid">
                 <label className="fld">
-                  <span>Proof ID</span>
+                  <span>Existing proof ID</span>
                   <input
                     name="attachment_proof_id"
-                    placeholder="Uploaded proof id"
+                    placeholder="Optional existing proof id"
                   />
                 </label>
                 <label className="fld">

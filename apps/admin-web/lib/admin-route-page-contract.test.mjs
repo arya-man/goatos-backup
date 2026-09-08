@@ -78,6 +78,11 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
   );
   assert.match(
     component,
+    /type="file"[\s\S]*name="attachment_file"/,
+    "web create must provide a real file/audio upload control",
+  );
+  assert.match(
+    component,
     /name="attachment_proof_id"/,
     "web create must accept uploaded proof attachment refs",
   );
@@ -95,6 +100,11 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     actions,
     /randomUUID\(/,
     "server action must not mint a fresh idempotency key on retry",
+  );
+  assert.match(
+    actions,
+    /uploadLeadershipTaskAttachment\(/,
+    "server action must upload selected file/audio before raising the task",
   );
   assert.match(
     actions,

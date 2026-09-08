@@ -3391,11 +3391,22 @@ export async function leadershipTaskAttachmentDownloadURL(
   const path =
     `/app/leadership-tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(proofId)}/download` as keyof AppApiPaths &
       string;
-  return request(() =>
+  const result = await request(() =>
     client.request<LeadershipTaskDownload>(path, {
       cache: "no-store",
     }),
   );
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    data: {
+      ...result.data,
+      download_url: absolutizeBackendURL(
+        result.data.download_url,
+        config.data.baseUrl,
+      ),
+    },
+  };
 }
 
 // Live drive-day tracker. ONE read backs the whole page: KPI tiles, operator board, shed proof
@@ -4257,11 +4268,11 @@ function absolutizeBackendURL(value: string, baseUrl: string): string {
 // These enable the frontend to initiate proof uploads for vaccination completions and task submissions.
 
 export async function createProofUpload(body: {
-  proof_type: "photo" | "video" | "attachment";
+  proof_type: "photo" | "video" | "audio" | "attachment";
   mime_type: string;
-  scope_type: "task";
+  scope_type: "tenant" | "task";
   scope_id: string;
-  subject_type: "task" | "administration";
+  subject_type: "task" | "administration" | "other";
   subject_id?: string | null;
   metadata?: Record<string, unknown>;
 }): Promise<ApiResult<CreateProofUploadResponse>> {
@@ -4275,6 +4286,70 @@ export async function createProofUpload(body: {
       body,
     }),
   );
+}
+
+export async function uploadLeadershipTaskAttachment(
+  file: File,
+  idempotencyKey: string,
+): Promise<
+  ApiResult<{ proof_id: string; kind: "photo" | "video" | "audio" | "file"; file_name: string }>
+> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const mediaType = file.type || "application/octet-stream";
+  const createResult = await createProofUpload({
+    proof_type: leadershipTaskProofType(mediaType),
+    mime_type: mediaType,
+    scope_type: "tenant",
+    scope_id: config.data.tenantId,
+    subject_type: "other",
+    subject_id: null,
+    metadata: {
+      source: "admin-web-leadership-tasks",
+      idempotency_key: idempotencyKey,
+      file_name: file.name,
+    },
+  });
+  if (!createResult.ok) return createResult;
+  const proofId = createResult.data.proof.proof_id;
+  const uploadResult = await uploadProofLocal(
+    createResult.data.upload_url,
+    createResult.data.headers,
+    file,
+  );
+  if (!uploadResult.ok) return uploadResult;
+  const completeResult = await completeProofUpload(
+    proofId,
+    mediaType,
+    file.size,
+  );
+  if (!completeResult.ok) return completeResult;
+  return {
+    ok: true,
+    data: {
+      proof_id: proofId,
+      kind: leadershipTaskAttachmentKind(mediaType),
+      file_name: file.name || "attachment",
+    },
+  };
+}
+
+function leadershipTaskProofType(
+  mediaType: string,
+): "photo" | "video" | "audio" | "attachment" {
+  if (mediaType.startsWith("image/")) return "photo";
+  if (mediaType.startsWith("video/")) return "video";
+  if (mediaType.startsWith("audio/")) return "audio";
+  return "attachment";
+}
+
+function leadershipTaskAttachmentKind(
+  mediaType: string,
+): "photo" | "video" | "audio" | "file" {
+  if (mediaType.startsWith("image/")) return "photo";
+  if (mediaType.startsWith("video/")) return "video";
+  if (mediaType.startsWith("audio/")) return "audio";
+  return "file";
 }
 
 export async function uploadProofLocal(

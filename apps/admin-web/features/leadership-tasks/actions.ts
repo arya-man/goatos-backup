@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { raiseLeadershipTask } from "@/lib/api/server";
+import {
+  raiseLeadershipTask,
+  uploadLeadershipTaskAttachment,
+} from "@/lib/api/server";
 
 const PATHNAME = "/tasks";
 
@@ -45,12 +48,17 @@ export async function raiseLeadershipTaskAction(
     redirect(withFeedback(url, "error", "invalid_idempotency_key"));
   }
 
+  const uploads = await uploadedAttachmentRefs(formData, idempotencyKey);
+  if (!uploads.ok) {
+    redirect(withFeedback(url, "error", uploads.error));
+  }
+
   const result = await raiseLeadershipTask(
     {
       title,
       body,
       assignee_user_id: assigneeUserID,
-      attachments: attachmentRefs(formData),
+      attachments: [...uploads.refs, ...attachmentRefs(formData)],
     },
     idempotencyKey,
   );
@@ -62,6 +70,38 @@ export async function raiseLeadershipTaskAction(
     );
   }
   redirect(withFeedback(url, "success", "task_raised"));
+}
+
+async function uploadedAttachmentRefs(
+  formData: FormData,
+  idempotencyKey: string,
+): Promise<
+  | {
+      ok: true;
+      refs: Array<{ proof_id: string; kind: string; file_name?: string }>;
+    }
+  | { ok: false; error: string }
+> {
+  const files = formData
+    .getAll("attachment_file")
+    .filter((value): value is File => value instanceof File && value.size > 0)
+    .slice(0, 12);
+  const refs: Array<{ proof_id: string; kind: string; file_name?: string }> = [];
+  for (let i = 0; i < files.length; i += 1) {
+    const upload = await uploadLeadershipTaskAttachment(
+      files[i],
+      `${idempotencyKey}:attachment:${i}`,
+    );
+    if (!upload.ok) {
+      return { ok: false, error: upload.error.code ?? upload.error.kind };
+    }
+    refs.push({
+      proof_id: upload.data.proof_id,
+      kind: upload.data.kind,
+      file_name: upload.data.file_name,
+    });
+  }
+  return { ok: true, refs };
 }
 
 function attachmentRefs(
