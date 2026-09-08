@@ -3732,7 +3732,7 @@ select:disabled { opacity: .45; }
 .herd-signals-page .kpi .dl{font-size:11px;font-weight:400;color:var(--muted);margin-top:0}
 /* Chips: mock .tag is a small rounded-rect label in the full tone colour, not a muted-bordered
    pill. Scoped to this page so it never touches an unrelated screen's .tag. */
-.herd-signals-page .tag{border-radius:2px;font-weight:700;border:0;padding:2px 8px;letter-spacing:normal;line-height:normal}
+.herd-signals-page .tag{border-radius:2px;font-weight:700;border:0;padding:2px 8px;letter-spacing:.16em;line-height:normal}
 /* Pins font-size/weight/padding above other same-specificity `.xyz .tag` rules elsewhere in this
    shared stylesheet (e.g. `.task-ac .tag`) that this page's tags never sit inside, but which the
    mock-parity guard's selector resolver treats as competing for the bare `.tag` class. */
@@ -5069,3 +5069,49 @@ select:disabled { opacity: .45; }
    comfortably; wrapping is the honest fix. Caught by scripts/smoke-visual-live.mjs,
    which asserts no button/link text is clipped at 1440x1000. */
 :where(:root) .celllink .tag{white-space:normal;text-align:center;line-height:1.25;max-width:100%}
+
+/* ===== ROLE ASSIGNMENT =====
+   A route-by-route judge pass found the FACES were right everywhere (16,478 text
+   elements, 100% on a system face) but several ROLES were not: column headers,
+   chips, breadcrumbs, form labels and the global chrome buttons were still sans
+   while the tag or button beside them was mono. Two uppercase treatments on one
+   screen is the thing a reader actually notices.
+
+   Selectors deliberately match the specificity of the rule they correct and sit
+   at end of file, so they win the tie on source order while any legitimately
+   more specific page rule still wins. They are NOT promoted to a bare `:root`
+   prefix: that was measured to outrank scoped rules and silently killed
+   `.btn.sm` across 151 sites and every per-page KPI size. */
+
+/* Column headers. The base `th` rule sets uppercase and a .5px letter-spacing but
+   never a family, so every table header in the app inherited sans while the tag
+   in the row below it was mono. Tables that deliberately opt out of uppercase
+   (.vr-table, .vl-tbl) are more specific and keep their sentence case. */
+:where(:root) th{font-family:var(--fm);letter-spacing:var(--tracking-label);font-weight:500}
+
+/* .chip had NO font-family at all, so it inherited -- sans in a normal container,
+   and SERIF when nested inside an h2 (the Weight/Daily-gain toggle on
+   /weighing/weights was the only serif control in the app). An explicit family
+   fixes the role and blocks the inheritance. */
+:where(:root) .chip{font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase}
+
+/* Breadcrumbs and form labels are eyebrows. The crumb rendered three different
+   ways across routes; labels split between uppercase-sans and sentence-sans. */
+:where(:root) .crumb,:where(:root) .fld > label,:where(:root) .eyebrow{font-family:var(--fm);letter-spacing:var(--tracking-label);text-transform:uppercase}
+
+/* Global chrome. The park-scope and user-menu buttons sit in the top bar on all
+   41 routes, inches from a mono SIGN OUT, and were sans -- the most-seen
+   violation in the app. The live badge is literally the word "LIVE". */
+:where(:root) .pscope,:where(:root) .userpick .me,:where(:root) .top-date-mode,:where(:root) .livebadge,
+:where(:root) .lt-livebadge,:where(:root) .cbm-chip,:where(:root) .pgsize,:where(:root) .thsort{
+  font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase}
+
+/* A genuine headline figure that was still sans: the vaccination heatmap cell counts. */
+:where(:root) .cbm-cell-head{font-family:var(--f-serif);font-weight:400;font-variant-numeric:tabular-nums}
+
+/* Instrument Serif ships a 400 face only, so every font-weight:640-800 on a
+   heading or KPI value was being SYNTHESISED -- smeared, uneven stems. Turning
+   synthesis off makes those render at the real weight the file contains, which is
+   the weight the system asks for anyway. Inherited, so one declaration covers the
+   document; the sans and mono faces carry real weights and are unaffected. */
+:where(:root){font-synthesis-weight:none}
