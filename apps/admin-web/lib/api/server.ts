@@ -4312,7 +4312,7 @@ export async function createProofUpload(body: {
   subject_type: "task" | "administration" | "other";
   subject_id?: string | null;
   metadata?: Record<string, unknown>;
-}): Promise<ApiResult<CreateProofUploadResponse>> {
+}, idempotencyKey?: string): Promise<ApiResult<CreateProofUploadResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
@@ -4320,6 +4320,7 @@ export async function createProofUpload(body: {
     client.request<CreateProofUploadResponse>("/app/proofs/uploads", {
       method: "POST",
       cache: "no-store",
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
       body,
     }),
   );
@@ -4335,7 +4336,7 @@ export async function uploadLeadershipTaskAttachment(
   if (!config.ok) return config;
   const mediaType = file.type || "application/octet-stream";
   const createResult = await createProofUpload({
-    proof_type: leadershipTaskProofType(mediaType),
+    proof_type: "attachment",
     mime_type: mediaType,
     scope_type: "tenant",
     scope_id: config.data.tenantId,
@@ -4346,7 +4347,7 @@ export async function uploadLeadershipTaskAttachment(
       idempotency_key: idempotencyKey,
       file_name: file.name,
     },
-  });
+  }, idempotencyKey);
   if (!createResult.ok) return createResult;
   const proofId = createResult.data.proof.proof_id;
   const uploadResult = await uploadProofLocal(
@@ -4369,15 +4370,6 @@ export async function uploadLeadershipTaskAttachment(
       file_name: file.name || "attachment",
     },
   };
-}
-
-function leadershipTaskProofType(
-  mediaType: string,
-): "photo" | "video" | "audio" | "attachment" {
-  if (mediaType.startsWith("image/")) return "photo";
-  if (mediaType.startsWith("video/")) return "video";
-  if (mediaType.startsWith("audio/")) return "audio";
-  return "attachment";
 }
 
 function leadershipTaskAttachmentKind(

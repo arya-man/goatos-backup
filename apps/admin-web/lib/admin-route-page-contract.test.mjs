@@ -111,4 +111,15 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     /attachmentRefs\(formData\)/,
     "server action must send non-empty attachment refs when provided",
   );
+  const apiServer = readFileSync(join(root, "lib/api/server.ts"), "utf8");
+  assert.match(
+    apiServer,
+    /proof_type: "attachment"/,
+    "leadership task uploads must register as proof attachments even for audio/video/photo bytes",
+  );
+  assert.match(
+    apiServer,
+    /headers: idempotencyKey \? \{ "Idempotency-Key": idempotencyKey \}/,
+    "proof upload creation must send the stable attachment idempotency key as a header",
+  );
 });
