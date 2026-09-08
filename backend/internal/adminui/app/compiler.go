@@ -81,6 +81,9 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 	// ONE small indexed read per bootstrap, not two.
 	access, assigned, accessErr := s.personPageAccessFor(ctx, input)
 	if procurementDirectorStockOnly(input) {
+		// Sales > Vendors is the one page here that follows the person's own HRMS tick
+		// (maintainer instruction 2026-09-08): it shows only when ticked on /people.
+		_, salesVendorsTicked := access.Pages["sales-vendors"]
 		access = permissions.PageAccess{
 			Pages: map[string]struct{}{
 				"sales-config":               {},
@@ -94,6 +97,9 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 				"vendors":        {},
 				"feed_purchases": {},
 			},
+		}
+		if salesVendorsTicked {
+			access.Pages["sales-vendors"] = struct{}{}
 		}
 		assigned = true
 		accessErr = nil
