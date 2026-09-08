@@ -2828,7 +2828,7 @@ export interface paths {
         get: operations["getProcurementVendor"];
         /**
          * Replace a vendor's fields.
-         * @description A REPLACE, not a patch: an omitted optional field and a cleared one both store NULL. Fenced on `row_version` -- a stale value is rejected with 409 `vendor_stale_write` rather than silently overwriting another editor's save.
+         * @description A REPLACE, not a patch: an omitted optional field and a cleared one both store NULL. Fenced on `row_version` -- a stale value is rejected with 409 `vendor_stale_write` rather than silently overwriting another editor's save. Idempotent via `Idempotency-Key`, so an exact replay after a lost response returns the saved vendor instead of replaying into the stale row-version fence.
          */
         put: operations["updateProcurementVendor"];
         post?: never;
@@ -14611,7 +14611,7 @@ export interface components {
         VerificationDecision: "approved" | "rejected";
         VerificationVerdictRequest: {
             decision: components["schemas"]["VerificationDecision"];
-            /** @description Required (non-empty) when decision is rejected; 422 otherwise. */
+            /** @description Required (non-empty) when decision is rejected; 422 otherwise. Optional on an approval, where it is the verifier's note on an accepted video and is stored as the item's verdict_reason exactly like a rejection's reason. */
             reason?: string;
             row_version: number;
             measurement?: components["schemas"]["VerificationVerdictMeasurement"];
@@ -21623,7 +21623,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                "Idempotency-Key": string;
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
             };
             path: {
                 vendor_id: string;
