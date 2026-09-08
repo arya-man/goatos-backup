@@ -62,6 +62,18 @@ sealed interface SalesListEvent {
 @Immutable
 data class SaleShedGroupUi(val location: String, val animals: Int, val tags: String)
 
+/** One cleared animal on the review step with the weight typed for it (maintainer decision 2026-09-08). */
+@Immutable
+data class SaleReviewAnimalUi(
+    val goatId: String,
+    val tag: String,
+    /** Backend pen name, VERBATIM. */
+    val location: String,
+    val weight: String,
+    /** Blank until Confirm finds this weight missing or not a weight. */
+    val error: String,
+)
+
 @Immutable
 data class SaleDetailUiState(
     val title: String = "",
@@ -245,6 +257,9 @@ data class SaleTagAnimalsUiState(
     /** Review: backend-composed pen groups and the animals it refused. */
     val reviewGroups: List<SaleShedGroupUi> = emptyList(),
     val reviewBlocked: List<SaleCandidateUi> = emptyList(),
+    /** Review: every cleared animal and its weight box; all must be filled before Confirm. */
+    val reviewAnimals: List<SaleReviewAnimalUi> = emptyList(),
+    val allWeighed: Boolean = false,
     val reviewLine: String = "",
     val reviewInFlight: Boolean = false,
     val confirmInFlight: Boolean = false,
@@ -262,6 +277,7 @@ sealed interface SaleTagAnimalsEvent {
     data object LoadMore : SaleTagAnimalsEvent
     data object Review : SaleTagAnimalsEvent
     data object BackToPick : SaleTagAnimalsEvent
+    data class WeightChanged(val goatId: String, val value: String) : SaleTagAnimalsEvent
     data object Confirm : SaleTagAnimalsEvent
     data object Done : SaleTagAnimalsEvent
     data object DismissMessage : SaleTagAnimalsEvent

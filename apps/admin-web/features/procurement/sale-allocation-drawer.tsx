@@ -88,6 +88,9 @@ export function SaleAllocationDrawer({
   const [picked, setPicked] = useState<Map<string, SaleCandidate>>(new Map());
   const [step, setStep] = useState<Step>("pick");
   const [preview, setPreview] = useState<SaleAllocationPreviewResponse | null>(null);
+  // Live weight per picked goat id, as typed (maintainer decision 2026-09-08: required for
+  // every animal). Kept as strings so the backend validates the number; nothing is parsed here.
+  const [weights, setWeights] = useState<Map<string, string>>(new Map());
   const [confirmed, setConfirmed] = useState<{ allocated: number } | null>(null);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
@@ -108,6 +111,7 @@ export function SaleAllocationDrawer({
     setCandidates([]);
     setCursor(null);
     setPicked(new Map());
+    setWeights(new Map());
     setStep("pick");
     setPreview(null);
     setConfirmed(null);
@@ -208,17 +212,29 @@ export function SaleAllocationDrawer({
     });
   };
 
+  // The animals the review CLEARED: the ones a weight is owed for and the ones confirm sends.
+  const clearedAnimals = pickedList.filter(
+    (c) => !(preview?.blocked_animals ?? []).some((b) => b.goat_id === c.goat_id),
+  );
+  const weightOf = (goatId: string) => (weights.get(goatId) ?? "").trim();
+  // A weight must be present and look like kg (more than zero, up to two decimals) for EVERY
+  // cleared animal before confirm is offered. The backend re-checks; this only stops a click
+  // that the server would refuse.
+  const weightLooksValid = (raw: string) => /^\d{1,5}(\.\d{1,2})?$/.test(raw) && Number(raw) > 0;
+  const allWeighed = clearedAnimals.length > 0 && clearedAnimals.every((c) => weightLooksValid(weightOf(c.goat_id)));
+
   const confirm = () => {
     setError("");
     startTransition(async () => {
       // Only the animals the review CLEARED are sent. A refused one would fail the whole
       // confirmation, which is the backend's fail-closed rule, and there is no way past it here.
-      const clearedIds = pickedList
-        .map((c) => c.goat_id)
-        .filter((id) => !(preview?.blocked_animals ?? []).some((b) => b.goat_id === id));
+      const clearedIds = clearedAnimals.map((c) => c.goat_id);
+      const animalWeightsKg: Record<string, string> = {};
+      for (const id of clearedIds) animalWeightsKg[id] = weightOf(id);
       const result = await confirmSaleAllocationAction({
         salesDealId: deal.deal_id,
         goatIds: clearedIds,
+        animalWeightsKg,
       });
       if (!result.ok) {
         setError(result.message);
@@ -404,6 +420,50 @@ export function SaleAllocationDrawer({
                   </div>
                 </section>
               ))}
+              {/* Weight at tagging (maintainer decision 2026-09-08): one box per cleared animal,
+                  every one required. The value goes to the backend as typed. */}
+              <section className="card sales-tagweights">
+                <b>{copy(pageContract, "field.animal_weight")}</b>
+                <p className="muted small" style={{ marginTop: 4 }}>
+                  {copy(pageContract, "hint.animal_weight")}
+                </p>
+                <div className="tablewrap">
+                  <table className="tbl sales-tagtable">
+                    <tbody>
+                      {clearedAnimals.map((c) => {
+                        const raw = weightOf(c.goat_id);
+                        const bad = raw !== "" && !weightLooksValid(raw);
+                        return (
+                          <tr key={c.goat_id}>
+                            <td>
+                              <b>{c.tag_number || c.display_id}</b>
+                              {c.secondary_tag_number ? (
+                                <div className="muted small">{c.secondary_tag_number}</div>
+                              ) : null}
+                            </td>
+                            <td>{c.operational_location_display}</td>
+                            <td>
+                              <input
+                                inputMode="decimal"
+                                required
+                                aria-label={`${copy(pageContract, "field.animal_weight")} ${animalLabel(c)}`}
+                                aria-invalid={bad}
+                                value={weights.get(c.goat_id) ?? ""}
+                                onChange={(e) => {
+                                  const next = new Map(weights);
+                                  next.set(c.goat_id, e.target.value);
+                                  setWeights(next);
+                                }}
+                                style={{ width: 96 }}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
               {preview.blocked_animals.length > 0 ? (
                 <section className="card">
                   <b>{copy(pageContract, "label.cannot_sell")}</b>
@@ -455,7 +515,7 @@ export function SaleAllocationDrawer({
                 type="button"
                 className="btn primary"
                 onClick={confirm}
-                disabled={pending || !preview?.complete}
+                disabled={pending || !preview?.complete || !allWeighed}
               >
                 {copy(pageContract, "action.confirm_sold")}
               </button>

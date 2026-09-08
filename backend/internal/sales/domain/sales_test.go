@@ -252,3 +252,83 @@ func TestBucketWeightGapBucketsAreDisjoint(t *testing.T) {
 		t.Fatalf("max gap = %v", s.MaxGapKg)
 	}
 }
+
+// TestSoldWeightBandsAreDisjointOnTheMaintainersEdges pins the 2026-09-08 bands: 40+, 35-40,
+// 20-35, below 20, each edge belonging to the band ABOVE it, unweighed counted apart, and the
+// parts always summing to the total.
+func TestSoldWeightBandsAreDisjointOnTheMaintainersEdges(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
+	b := SoldWeightBands{}
+	for _, kg := range []*float64{f(19.99), f(20), f(34.99), f(35), f(39.99), f(40), f(52), nil, nil} {
+		b.AddSoldWeight(kg)
+	}
+	want := SoldWeightBands{Total: 9, Under20: 1, From20To35: 2, From35To40: 2, AtOrAbove40: 2, Unweighed: 2}
+	if b != want {
+		t.Fatalf("bands = %+v, want %+v", b, want)
+	}
+	if b.Under20+b.From20To35+b.From35To40+b.AtOrAbove40+b.Unweighed != b.Total {
+		t.Fatal("bands plus unweighed must equal total")
+	}
+}
+
+// TestSoldWeightBandsOneToManyAllocationsCountEachAnimalOnce: a deal with MANY allocations is
+// many sold animals, each counted once at its own weight -- never once per deal, and never
+// multiplied by anything hanging off the deal (payments, evidence rows). The band fold takes one
+// call per allocation row and nothing else, which is the grain the SQL groups at.
+func TestSoldWeightBandsOneToManyAllocationsCountEachAnimalOnce(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
+	b := SoldWeightBands{}
+	// One deal, five animals tagged to it at five weights.
+	for _, kg := range []*float64{f(18), f(22), f(36), f(44), f(44)} {
+		b.AddSoldWeight(kg)
+	}
+	if b.Total != 5 || b.Under20 != 1 || b.From20To35 != 1 || b.From35To40 != 1 || b.AtOrAbove40 != 2 {
+		t.Fatalf("five allocations on one deal must count five animals once each, got %+v", b)
+	}
+}
+
+// TestSoldWeightBandsPageBoundaryIndependentOfFoldOrder: the bands are a WHOLE-REGISTER fact.
+// Folding the same rows in any order or in any chunking yields the same counts, which is what
+// lets the SQL group by weight and hand the fold per distinct weight rather than per page --
+// a paged read could never produce this number.
+func TestSoldWeightBandsPageBoundaryIndependentOfFoldOrder(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
+	rows := []*float64{f(41), nil, f(19.5), f(35), f(20), f(39.99), nil, f(60), f(25)}
+	fold := func(order []int) SoldWeightBands {
+		b := SoldWeightBands{}
+		for _, i := range order {
+			b.AddSoldWeight(rows[i])
+		}
+		return b
+	}
+	forward := fold([]int{0, 1, 2, 3, 4, 5, 6, 7, 8})
+	reversed := fold([]int{8, 7, 6, 5, 4, 3, 2, 1, 0})
+	chunked := fold([]int{4, 0, 8, 2, 6, 1, 5, 3, 7})
+	if forward != reversed || forward != chunked {
+		t.Fatalf("fold order changed the bands: %+v / %+v / %+v", forward, reversed, chunked)
+	}
+	if forward.Total != 9 || forward.Unweighed != 2 {
+		t.Fatalf("total/unweighed = %d/%d", forward.Total, forward.Unweighed)
+	}
+}
+
+// TestSoldWeightBandsStatusBucketsAreExhaustiveAndDisjoint: every sold animal lands in EXACTLY
+// one of the five buckets (four bands + unweighed), so the buckets sum to the total and no
+// animal is double-filed or dropped. The status half of the matrix -- only `tagged` rows count,
+// a `released` allocation never does -- is enforced in the SQL WHERE, and its projection-review
+// note names it; this test pins the bucket half.
+func TestSoldWeightBandsStatusBucketsAreExhaustiveAndDisjoint(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
+	b := SoldWeightBands{}
+	for i := 0; i < 200; i++ {
+		var kg *float64
+		if i%7 != 0 {
+			v := float64(i%60) + 0.5
+			kg = f(v)
+		}
+		b.AddSoldWeight(kg)
+	}
+	if got := b.Under20 + b.From20To35 + b.From35To40 + b.AtOrAbove40 + b.Unweighed; got != b.Total || b.Total != 200 {
+		t.Fatalf("buckets sum to %d, total %d", got, b.Total)
+	}
+}

@@ -7730,6 +7730,16 @@ export interface components {
             tag_roster: components["schemas"]["SalesTagRoster"];
             weight_audit: components["schemas"]["SalesWeightAudit"];
             market_benchmarks: components["schemas"]["SalesMarketBenchmark"][];
+            sold_weight_bands: components["schemas"]["SalesSoldWeightBands"];
+        };
+        /** @description Every animal tagged sold, counted by the live weight recorded at tagging (maintainer decision 2026-09-08). The four bands are disjoint -- a weight sits in the lowest band whose upper edge is above it, so exactly 20 kg is 20-35 and exactly 40 kg is 40+ -- and `unweighed` is the remainder tagged before a weight was recorded. Bands plus unweighed equal total. Whole register, no window. */
+        SalesSoldWeightBands: {
+            total: number;
+            under_20_kg: number;
+            from_20_to_35_kg: number;
+            from_35_to_40_kg: number;
+            at_or_above_40_kg: number;
+            unweighed: number;
         };
         FeedConfigRationGroupPage: {
             items: components["schemas"]["FeedConfigRationGroup"][];

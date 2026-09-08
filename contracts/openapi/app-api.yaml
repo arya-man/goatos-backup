@@ -18076,6 +18076,7 @@ components:
         - tag_roster
         - weight_audit
         - market_benchmarks
+        - sold_weight_bands
       properties:
         summary:
           $ref: "#/components/schemas/SalesOverviewSummary"
@@ -18103,6 +18104,24 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SalesMarketBenchmark"
+        sold_weight_bands:
+          $ref: "#/components/schemas/SalesSoldWeightBands"
+    SalesSoldWeightBands:
+      type: object
+      description: >-
+        Every animal tagged sold, counted by the live weight recorded at tagging (maintainer
+        decision 2026-09-08). The four bands are disjoint -- a weight sits in the lowest band whose
+        upper edge is above it, so exactly 20 kg is 20-35 and exactly 40 kg is 40+ -- and
+        `unweighed` is the remainder tagged before a weight was recorded. Bands plus unweighed
+        equal total. Whole register, no window.
+      required: [total, under_20_kg, from_20_to_35_kg, from_35_to_40_kg, at_or_above_40_kg, unweighed]
+      properties:
+        total: { type: integer }
+        under_20_kg: { type: integer }
+        from_20_to_35_kg: { type: integer }
+        from_35_to_40_kg: { type: integer }
+        at_or_above_40_kg: { type: integer }
+        unweighed: { type: integer }
     FeedConfigRationGroupPage:
       type: object
       additionalProperties: false
