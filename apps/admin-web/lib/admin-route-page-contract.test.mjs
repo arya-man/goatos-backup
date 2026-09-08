@@ -123,6 +123,11 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     /existingRefs\.length \+ files\.length > 12/,
     "server action must reject the combined attachment count before uploading",
   );
+  assert.doesNotMatch(
+    actions,
+    /return refs\.slice\(0, 12\)/,
+    "existing proof refs must not be truncated before the combined attachment cap check",
+  );
   const apiServer = readFileSync(join(root, "lib/api/server.ts"), "utf8");
   assert.match(
     apiServer,
