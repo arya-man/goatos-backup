@@ -6,6 +6,7 @@ export async function GET(
   { params }: { params: Promise<{ taskId: string; proofId: string }> },
 ) {
   const { taskId, proofId } = await params;
+  // serial-await: allow download URL depends on decoded route params.
   const result = await leadershipTaskAttachmentDownloadURL(taskId, proofId);
   if (!result.ok) {
     return NextResponse.json(

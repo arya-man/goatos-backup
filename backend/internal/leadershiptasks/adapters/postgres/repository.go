@@ -822,25 +822,31 @@ SELECT scope, count(*) FROM (
   WHERE tenant_id = $1 AND status <> 'cancelled'
 ) s
 GROUP BY scope`
+	sqlStatusCountsAssignedByMe = `
+-- projection-review: membership=leadership_tasks for tenant and raiser; group_key=status; join_cardinality=no joins; pagination=whole-result summary independent of task page; scope=tenant plus actor raiser
+SELECT status, count(*) FROM public.leadership_tasks
+WHERE tenant_id = $1 AND raised_by = $2::uuid
+GROUP BY status`
+	sqlStatusCountsTeamProgress = `
+-- projection-review: membership=leadership_tasks for tenant; group_key=status; join_cardinality=no joins; pagination=whole-result summary independent of task page; scope=tenant-wide monitor scope
+SELECT status, count(*) FROM public.leadership_tasks
+WHERE tenant_id = $1
+GROUP BY status`
+	sqlStatusCountsAssignedToMe = `
+-- projection-review: membership=leadership_tasks for tenant and assignee; group_key=status; join_cardinality=no joins; pagination=whole-result summary independent of task page; scope=tenant plus actor assignee
+SELECT status, count(*) FROM public.leadership_tasks
+WHERE tenant_id = $1 AND assignee_user_id = $2::uuid
+GROUP BY status`
 )
 
 func sqlStatusCountsForScope(scope string) string {
 	switch scope {
 	case domain.ScopeAssignedByMe:
-		return `
-SELECT status, count(*) FROM public.leadership_tasks
-WHERE tenant_id = $1 AND raised_by = $2::uuid
-GROUP BY status`
+		return sqlStatusCountsAssignedByMe
 	case domain.ScopeTeamProgress:
-		return `
-SELECT status, count(*) FROM public.leadership_tasks
-WHERE tenant_id = $1
-GROUP BY status`
+		return sqlStatusCountsTeamProgress
 	default:
-		return `
-SELECT status, count(*) FROM public.leadership_tasks
-WHERE tenant_id = $1 AND assignee_user_id = $2::uuid
-GROUP BY status`
+		return sqlStatusCountsAssignedToMe
 	}
 }
 

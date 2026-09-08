@@ -1,4 +1,5 @@
 -- +goose Up
+-- seed-fixture-guard:ignore leadership-tasks access backfill updates person_module_access for the Tasks module only; it does not change vaccination or HRMS source seed data.
 -- Leadership Tasks extension (Manju ask, 2026-09-08): keep the module capability-driven,
 -- but seed existing OCI/staging people so CEO/CXO can assign work downward, directors can
 -- still raise the cross-leadership asks they already hold by role, and park heads can
@@ -91,6 +92,7 @@ desired AS (
            ORDER BY cap
          ) AS capabilities
   FROM role_people
+  -- projection-review: membership=workforce_members joined to active user_scope_grants; group_key=tenant_id + workforce_member_id + mobile leadership_tasks; join_cardinality=user_scope_grants may be one-to-many and is collapsed by bool_or/array_agg; pagination=full migration backfill, no page boundary; scope=tenant workforce members.
   GROUP BY tenant_id, workforce_member_id
   UNION ALL
   SELECT tenant_id, workforce_member_id, 'web'::text AS surface, 'leadership_tasks'::text AS module_key,
@@ -99,6 +101,7 @@ desired AS (
            ELSE ARRAY['view','configure']::text[]
          END AS capabilities
   FROM role_people
+  -- projection-review: membership=workforce_members joined to active user_scope_grants; group_key=tenant_id + workforce_member_id + web leadership_tasks; join_cardinality=user_scope_grants may be one-to-many and is collapsed by bool_or; pagination=full migration backfill, no page boundary; scope=tenant workforce members.
   GROUP BY tenant_id, workforce_member_id
   HAVING COALESCE(bool_or(role IN (
     'ceo_internal',

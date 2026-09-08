@@ -152,12 +152,13 @@ async function uploadedAttachmentRefs(
     }
   | { ok: false; error: string }
 > {
+  const uploads = await Promise.all(
+    files.map((file, i) =>
+      uploadLeadershipTaskAttachment(file, `${idempotencyKey}:attachment:${i}`),
+    ),
+  );
   const refs: Array<{ proof_id: string; kind: string; file_name?: string }> = [];
-  for (let i = 0; i < files.length; i += 1) {
-    const upload = await uploadLeadershipTaskAttachment(
-      files[i],
-      `${idempotencyKey}:attachment:${i}`,
-    );
+  for (const upload of uploads) {
     if (!upload.ok) {
       return { ok: false, error: upload.error.code ?? upload.error.kind };
     }

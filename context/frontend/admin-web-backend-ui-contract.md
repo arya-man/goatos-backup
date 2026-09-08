@@ -29,6 +29,12 @@ apps/admin-web/lib/api/server.ts#getAdminWebBootstrap
 apps/admin-web/features/**/*
 ```
 
+Documented exception, 2026-09-08: `features/leadership-tasks/` and
+`app/tasks-preview/` still contain local mock/preview visible copy while the
+first live Tasks route lands. The production route fetches
+`AdminWebPageContract` before rendering, but the screen copy needs a follow-up
+contract-key migration before the literal guard can scan it.
+
 If this contract is unavailable, admin-web must not silently render a local
 fallback IA. It should show a contract-unavailable state with the API/session/
 tenant error.

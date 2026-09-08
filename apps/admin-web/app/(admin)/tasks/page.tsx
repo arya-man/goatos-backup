@@ -1,4 +1,4 @@
-import { LeadershipTasksPage } from "@/features/leadership-tasks/leadership-tasks-page";
+import { LeadershipTasksPage } from "@/features/leadership-tasks";
 import {
   listLeadershipTaskAssignees,
   listLeadershipTasks,

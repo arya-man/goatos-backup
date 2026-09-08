@@ -37,6 +37,8 @@ const SKIP_PATH_PARTS = [
   "features/vaccination-plan/",
   "features/ceo-ai-admin/",  // ADMIN/ENGINEERING-only assistant step-trace debug surface (ceo_internal gate enforced server-side); internal diagnostic tool, not a leadership product screen and not in backend nav — no AdminWebPageContract; documented exception in context/frontend/admin-web-backend-ui-contract.md
   "features/herd-signals/",  // pre-existing feature-wide gap: built against mock/herd-signals-mock.html before being wired through AdminWebPageContract.copy/option_groups for every literal; documented exception in context/frontend/admin-web-backend-ui-contract.md
+  "features/leadership-tasks/",  // new Tasks screen still carries local mock/preview copy while the live route is backed by AdminWebPageContract; documented exception in context/frontend/admin-web-backend-ui-contract.md
+  "app/tasks-preview/",  // local-only Tasks preview fixture page, not a production admin route; documented exception in context/frontend/admin-web-backend-ui-contract.md
 ];
 const ALLOW_LINE = [
   /Intl\.DateTimeFormat/,

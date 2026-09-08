@@ -281,12 +281,12 @@ func TestLeadershipTaskNumberingUnderContention(t *testing.T) {
 	}
 }
 
-// TestLeadershipTaskListPaginationPageBoundaryAndEveryStatusBuckets pins the list's grain
+// TestLeadershipTaskListOneToManyPaginationPageBoundaryAndEveryStatusBuckets pins the list's grain
 // and its keyset: rows are the caller's PARTY rows only, attachments never fan a task into
 // several rows (OneToMany), the chip counts range over the whole party list across every
 // status bucket (StatusMatrix) and never over the page, and a page boundary hands the exact
 // next row through the cursor with no duplicate and no gap.
-func TestLeadershipTaskListPaginationPageBoundaryAndEveryStatusBuckets(t *testing.T) {
+func TestLeadershipTaskListOneToManyPaginationPageBoundaryAndEveryStatusBuckets(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)

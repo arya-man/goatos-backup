@@ -1,4 +1,4 @@
-import { LeadershipTasksPage } from "@/features/leadership-tasks/leadership-tasks-page";
+import { LeadershipTasksPage } from "@/features/leadership-tasks";
 import { MeshaShell } from "@/components/mesha-shell";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 import type { Park } from "@/lib/scope";
