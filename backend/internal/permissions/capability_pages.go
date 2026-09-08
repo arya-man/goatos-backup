@@ -72,6 +72,7 @@ var modulePages = []ModulePage{
 	{Key: "workflows", Module: "vaccination", Label: "Workflows", Href: "/workflows", Permissions: []string{ObligationRead, VaccinationRead}},
 	{Key: "calendar", Module: "calendar", Label: "Calendar", Href: "/calendar", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
 	{Key: "approvals", Module: "counts", Label: "Approvals", Href: "/approvals", Permissions: []string{CountsApproveAccess}},
+	{Key: "leadership-tasks", Module: "leadership_tasks", Label: "Tasks", Href: "/tasks", Permissions: []string{LeadershipTasksRead}},
 	{Key: "verification-actions", Module: "verification", Label: "Verify", Href: "/verify", Permissions: []string{VerificationReview}},
 
 	{Key: "preventive-care-vaccination", Module: "vaccination", Label: "Vaccination", Href: "/vaccination", Permissions: []string{ObligationRead, VaccinationRead}},
@@ -144,6 +145,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/vaccination":                "vaccination",
 	"/calendar":                   "calendar",
 	"/approvals":                  "counts",
+	"/tasks":                      "leadership_tasks",
 	"/verify":                     "verification",
 	"/procurement/source-entry":   "procurement",
 	"/procurement/vendors":        "vendors",

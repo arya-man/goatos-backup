@@ -1966,6 +1966,8 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.CountsApproveAccess}
 	case "verification-actions":
 		return []string{permissions.VerificationReview}
+	case "leadership-tasks":
+		return []string{permissions.LeadershipTasksRead}
 	case "health-config":
 		// The READ permission, not the write one: a principal allowed to inspect the standing
 		// dosages should reach the screen and see it read-only. Whether the save/publish controls

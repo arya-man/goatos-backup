@@ -157,7 +157,7 @@ func TestAttachmentDownloadURLIsReaderAndAttachmentScoped(t *testing.T) {
 	if _, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: "55555555-5555-4555-8555-555555555555"}, taskID, proofID); !errors.Is(err, ports.ErrTaskNotFound) {
 		t.Fatalf("unauthorized proof download must read not-found, got %v", err)
 	}
-	if url, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: "66666666-6666-4666-8666-666666666666", CanRaise: true}, taskID, proofID); err != nil || url != downloader.url {
+	if url, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: "66666666-6666-4666-8666-666666666666", CanMonitor: true}, taskID, proofID); err != nil || url != downloader.url {
 		t.Fatalf("team progress monitor proof download = %q, %v", url, err)
 	}
 	if len(downloader.calls) != 2 {
