@@ -94,7 +94,7 @@ desired AS (
   GROUP BY tenant_id, workforce_member_id
   UNION ALL
   SELECT tenant_id, workforce_member_id, 'web'::text AS surface, 'leadership_tasks'::text AS module_key,
-         ARRAY['view']::text[] AS capabilities
+         ARRAY['view','configure']::text[] AS capabilities
   FROM role_people
   GROUP BY tenant_id, workforce_member_id
   HAVING COALESCE(bool_or(role IN (

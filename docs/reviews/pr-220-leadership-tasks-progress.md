@@ -29,6 +29,8 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Fixed sixth-cycle PR review finding `LT-220-01`: both migration upsert CTEs now return `surface`, and the migration guard asserts this so the web/mobile seed executes instead of failing at `recorded_rows`.
 - Fixed sixth-cycle PR review finding `LT-220-02`: admin-web create uses a stable idempotency key rendered with the form and rejects invalid/missing keys instead of minting a fresh key inside the server action.
 - Fixed sixth-cycle Manju/PR web attachment findings: admin-web create accepts existing uploaded proof refs with kind/name, posts them as non-empty attachment refs, and the monitor panel renders live task brief/comment plus task-scoped attachment links through an admin proxy that resolves backend signed URLs.
+- Fixed seventh-cycle Manju-note judge findings: the admin-web attachment proxy now normalizes backend-relative signed URLs before redirecting, and the web shell maps the backend `clipboard-list` nav icon token so Tasks does not silently fall back to the generic icon.
+- Fixed seventh-cycle PR review findings: web raisers are now intentionally seeded with `web:view+configure`, and admin-web create can upload real file/audio/video/photo attachments through the proof upload pipeline before raising the leadership task.
 
 ## Acceptance Status
 
@@ -48,6 +50,8 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Passed: `npm run typecheck && npm exec -- eslint 'app/(admin)'/tasks/page.tsx app/tasks-preview/page.tsx features/leadership-tasks/leadership-tasks-page.tsx`.
 - Passed: `npm run typecheck && npm exec -- eslint 'app/(admin)'/tasks/page.tsx app/tasks-preview/page.tsx features/leadership-tasks/actions.ts features/leadership-tasks/leadership-tasks-page.tsx lib/admin-route-page-contract.test.mjs lib/api/server.ts && node --test lib/admin-route-page-contract.test.mjs`.
 - Passed: `npm run typecheck && npm exec -- eslint 'app/(admin)'/tasks/page.tsx app/tasks-preview/page.tsx 'app/api/leadership-tasks/attachments/[taskId]/[proofId]/route.ts' features/leadership-tasks/actions.ts features/leadership-tasks/leadership-tasks-page.tsx lib/admin-route-page-contract.test.mjs lib/api/server.ts && node --test lib/admin-route-page-contract.test.mjs`.
+- Passed: `npm run typecheck && npm exec -- eslint 'app/(admin)'/tasks/page.tsx app/tasks-preview/page.tsx 'app/api/leadership-tasks/attachments/[taskId]/[proofId]/route.ts' features/leadership-tasks/actions.ts features/leadership-tasks/leadership-tasks-page.tsx lib/admin-route-page-contract.test.mjs lib/api/server.ts components/mesha-shell.tsx components/mesha-shell-nav-icons.test.mjs && node --test lib/admin-route-page-contract.test.mjs components/mesha-shell-nav-icons.test.mjs`.
+- Blocked by pre-existing historical hot-table migration debt before applying `000281`: `bash backend/tests/integration/validate-postgres-migrations.sh`.
 - Captured: Chrome shell screenshot at `apps/admin-web/.codex-leadership-tasks-web-sidebar.png`.
 - Captured: Android Paparazzi images for CEO Team Progress, CEO assignee picker, Director detail, and Park Head detail under `apps/goatos-android/app/build/reports/paparazzi/devDebug/images/`.
 - Passed: `node --test lib/admin-route-page-contract.test.mjs`.
@@ -61,3 +65,5 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Fifth-cycle PR-review judge found missing web person-access seed, fake production activity, and cosmetic-only web scopes; all are patched in current cycle and need re-judge.
 - Sixth-cycle Manju-note judge found web attachment-create and web evidence-inspection gaps; both are patched in current cycle and need re-judge.
 - Sixth-cycle PR-review judge found migration CTE execution, web idempotency, and web attachment-create gaps; all are patched in current cycle and need re-judge.
+- Seventh-cycle Manju-note judge found backend-relative attachment redirects and missing `clipboard-list` web-shell icon registration; both are patched in current cycle and need re-judge.
+- Seventh-cycle PR-review judge found web/mobile surface authority ambiguity and proof-id-only web attachment creation; both are patched in current cycle and need re-judge.

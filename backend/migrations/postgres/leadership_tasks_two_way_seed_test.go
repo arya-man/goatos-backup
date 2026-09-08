@@ -17,7 +17,7 @@ func TestLeadershipTasksTwoWaySeedKeepsDirectorsRaisingAndEmployeesAssignable(t 
 		"LEFT JOIN public.user_scope_grants g",
 		"ARRAY['view','oversee']::text[]",
 		"'web'::text AS surface, 'leadership_tasks'::text AS module_key",
-		"ARRAY['view']::text[] AS capabilities",
+		"ARRAY['view','configure']::text[] AS capabilities",
 		"ARRAY['do']::text[]",
 		"ARRAY['configure']::text[]",
 		"'pc_director'",
