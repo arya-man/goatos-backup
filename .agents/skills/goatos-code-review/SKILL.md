@@ -13,7 +13,12 @@ not to build it. For building/navigating, use `goatos-build`. This skill is the
 review gate: it knows where every layer lives, drives the four review tools
 (CRG, Graphify, RTK, repowise), and holds the checklists that turn "the build is
 green" into "this is safe to merge at the current 5,000-50,000-animal release
-envelope (with 1-5M retained as the future certification gate)."
+envelope (with 1-5M retained as the future certification gate)." Whenever the
+maintainer says `review`, Codex and Claude must both use this lens: inspect the
+last one month of relevant commits for regressions, repeated patterns, and
+context drift, then review the target against the current sync architecture,
+contracts, operational read models, mobile/backend/admin sync, and shared kernel
+flow rather than only the visible diff.
 
 This file is the single entry point. Route to references below; do not review
 from memory alone. Every path here is repo-relative to the goatos checkout root.

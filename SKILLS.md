@@ -40,6 +40,11 @@ boundaries, backend + frontend architecture, and vaccination/obligation
 business-rule fidelity. It orchestrates CRG, Graphify, RTK, and repowise. Use
 `goatos-build` to build; use this to review and gate before push.
 
+When the maintainer says `review`, Codex and Claude must apply the same lens:
+inspect the last one month of relevant commits and review for sync-architecture
+drift across contracts, backend, admin-web, Android, read models, and the shared
+kernel, not only the visible diff.
+
 ```text
 .agents/skills/goatos-code-review/SKILL.md
 ```

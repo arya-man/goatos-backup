@@ -26,6 +26,18 @@ When Ravi asks for judge/subagent validation and spawning fails due to agent
 capacity, close completed or old non-critical agents and retry immediately.
 Do not stop on agent-capacity while stale agents can be safely closed.
 
+Whenever the maintainer says `review` for any Goat OS code, branch, or PR,
+Codex, Claude, and any other coding agent must use the same review lens: inspect
+the last one month of relevant commits for regressions, repeated patterns, and
+context drift, and review the change against the current sync architecture
+rather than only the visible diff. Treat mismatches between the PR and current
+architecture, contracts, operational read models, mobile/backend/admin sync, or
+shared kernel flow as review findings even when the diff compiles.
+
+A review request alone is not permission to push directly to `main`. If the
+maintainer explicitly asks to push, land, or merge after review, continue
+through the hard local CI/landing receipt gate before touching `main`.
+
 Any backend-composed navigation key or user-facing category added in the
 backend must have an explicit Android/frontend display mapping before it ships:
 icon, label/copy behavior, and layout fit. Never let mobile or web silently fall
