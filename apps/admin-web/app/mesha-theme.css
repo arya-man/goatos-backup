@@ -5061,3 +5061,11 @@ select:disabled { opacity: .45; }
 /* The wordmark asked for weight 900, but the variable face carries 400-700, so the
    browser silently clamped it. Stated honestly at the weight that exists. */
 :where(:root) .brand b{font-weight:700}
+
+/* Status tags inside a table cell link. The system sets tags in uppercase mono at
+   .16em, which is materially wider than the sentence-case sans they replaced -- a
+   20-character status like "Verification pending" measures ~186px against a 175px
+   Control Tower cell and was CLIPPED. The cell is 45px tall, so two 10px lines fit
+   comfortably; wrapping is the honest fix. Caught by scripts/smoke-visual-live.mjs,
+   which asserts no button/link text is clipped at 1440x1000. */
+:where(:root) .celllink .tag{white-space:normal;text-align:center;line-height:1.25;max-width:100%}
