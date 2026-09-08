@@ -3057,6 +3057,9 @@ select:disabled { opacity: .45; }
 .lt-page .card.lt-card{margin-top:0;overflow:hidden}
 .lt-page .card.lt-card .bd{padding:13px 15px}
 .lt-page .lt-tablewrap{padding:0;overflow-x:auto}
+.lt-page tr.is-selected td{background:color-mix(in srgb,var(--brand) 8%,transparent)}
+.lt-page .lt-tasklink{display:grid;gap:3px;max-width:320px;color:inherit;text-decoration:none}
+.lt-page .lt-tasklink:hover b{text-decoration:underline}
 .lt-page .lt-empty{display:flex;align-items:center;gap:12px;padding:18px 16px;flex-wrap:wrap}
 .lt-page .lt-emptynote{margin-bottom:14px}
 

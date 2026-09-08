@@ -53,7 +53,9 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
   );
   assert.doesNotMatch(component, /page \? rowsFromPage\(page\) : fixtureTasks/);
   assert.ok(
-    component.includes("href={`/tasks?scope=${scope.key}`}"),
+    component.includes(
+      'href={`${preview ? "/tasks-preview" : "/tasks"}?scope=${scope.key}`}',
+    ),
     "scope chips must navigate to the selected backend scope",
   );
   assert.match(
@@ -65,6 +67,11 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     component,
     /liveFeedRows\(selected\)/,
     "production activity must be derived from live task fields",
+  );
+  assert.match(
+    component,
+    /task=\$\{encodeURIComponent\(task\.id\)\}/,
+    "web task rows must be selectable so any task's notes and attachments can be inspected",
   );
   assert.match(
     component,
@@ -111,7 +118,17 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     /attachmentRefs\(formData\)/,
     "server action must send non-empty attachment refs when provided",
   );
+  assert.match(
+    actions,
+    /existingRefs\.length \+ files\.length > 12/,
+    "server action must reject the combined attachment count before uploading",
+  );
   const apiServer = readFileSync(join(root, "lib/api/server.ts"), "utf8");
+  assert.match(
+    apiServer,
+    /file_name\?: string/,
+    "raiseLeadershipTask wrapper must use backend attachment file_name, not label",
+  );
   assert.match(
     apiServer,
     /proof_type: "attachment"/,

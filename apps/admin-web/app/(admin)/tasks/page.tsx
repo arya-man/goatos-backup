@@ -22,6 +22,7 @@ export default async function Page({
 }) {
   const params = (await searchParams) ?? {};
   const rawScope = Array.isArray(params.scope) ? params.scope[0] : params.scope;
+  const rawTask = Array.isArray(params.task) ? params.task[0] : params.task;
   const scope = scopes.includes(rawScope as ScopeKey)
     ? (rawScope as ScopeKey)
     : "team_progress";
@@ -35,6 +36,7 @@ export default async function Page({
       page={page.ok ? page.data : null}
       assignees={assignees.ok ? assignees.data.assignees : []}
       selectedScopeKey={scope}
+      selectedTaskID={typeof rawTask === "string" ? rawTask : undefined}
     />
   );
 }

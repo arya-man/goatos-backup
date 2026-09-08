@@ -135,11 +135,13 @@ export function LeadershipTasksPage({
   page,
   preview = false,
   selectedScopeKey,
+  selectedTaskID,
   assignees = [],
 }: {
   page?: LeadershipTaskPage | null;
   preview?: boolean;
   selectedScopeKey?: string;
+  selectedTaskID?: string;
   assignees?: LeadershipTaskAssignee[];
 }) {
   const tasks = page ? rowsFromPage(page) : preview ? fixtureTasks : [];
@@ -148,7 +150,7 @@ export function LeadershipTasksPage({
     : preview
       ? fixtureScopes
       : [];
-  const selected = tasks[0];
+  const selected = tasks.find((task) => task.id === selectedTaskID) ?? tasks[0];
   const selectedScope =
     scopes.find((scope) => scope.key === selectedScopeKey) ??
     scopes.find((scope) => scope.selected) ??
@@ -201,7 +203,7 @@ export function LeadershipTasksPage({
         {scopes.map((scope) => (
           <Link
             key={scope.key}
-            href={`/tasks?scope=${scope.key}`}
+            href={`${preview ? "/tasks-preview" : "/tasks"}?scope=${scope.key}`}
             className={scope.key === selectedScope?.key ? "on" : ""}
           >
             {scope.label}
@@ -251,12 +253,18 @@ export function LeadershipTasksPage({
                   </tr>
                 ) : null}
                 {tasks.map((task) => (
-                  <tr key={task.id}>
+                  <tr
+                    key={task.id}
+                    className={task.id === selected?.id ? "is-selected" : ""}
+                  >
                     <td>
-                      <b>{task.number}</b>
-                      <div className="muted small" style={{ maxWidth: 320 }}>
-                        {task.title}
-                      </div>
+                      <Link
+                        href={`${preview ? "/tasks-preview" : "/tasks"}?scope=${selectedScope?.key ?? "team_progress"}&task=${encodeURIComponent(task.id)}`}
+                        className="lt-tasklink"
+                      >
+                        <b>{task.number}</b>
+                        <span className="muted small">{task.title}</span>
+                      </Link>
                     </td>
                     <td>
                       <div className="lt-opname">

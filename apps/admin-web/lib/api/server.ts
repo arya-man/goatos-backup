@@ -3364,7 +3364,7 @@ export async function raiseLeadershipTask(
     title: string;
     body?: string;
     assignee_user_id: string;
-    attachments?: Array<{ proof_id: string; kind: string; label?: string }>;
+    attachments?: Array<{ proof_id: string; kind: string; file_name?: string }>;
   },
   idempotencyKey: string,
 ): Promise<ApiResult<LeadershipTaskDetail>> {
