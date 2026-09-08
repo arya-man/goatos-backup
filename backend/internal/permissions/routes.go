@@ -327,7 +327,8 @@ var protectedRoutes = []Route{
 	{OperationID: "listToxinReview", Method: "GET", Pattern: "/toxin/review", Permissions: []string{ToxinVerdict}},
 	{OperationID: "recordToxinVerdict", Method: "POST", Pattern: "/toxin/tasks/{task_id}/verdict", Permissions: []string{ToxinVerdict}},
 
-	// LEADERSHIP TASKS (maintainer decision 2026-09-04): a director's ask of the CXO desk.
+	// LEADERSHIP TASKS (maintainer decisions 2026-09-04 and 2026-09-08): manual asks between
+	// leadership and active app-backed workers.
 	// List/detail/seen are LeadershipTasksRead (seen is a no-op for anyone but the assignee);
 	// raise/edit are LeadershipTasksRaise; a status change is LeadershipTasksRead at the
 	// route and the domain rule decides who may move it (the assignee walks the ladder, the

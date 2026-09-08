@@ -8277,8 +8277,8 @@ paths:
       operationId: listLeadershipTaskAssignees
       summary: The people a task may be raised for.
       description: >-
-        The raise form's picker: every CXO (`ceo_internal`) with an active grant and an active
-        roster profile, by display name. Directors only.
+        The raise form's picker: every active app-backed worker ticked for Leadership Tasks acting,
+        by display name. Requires `leadership_tasks.raise`.
       responses:
         "200":
           description: The assignee picker.
@@ -8424,7 +8424,7 @@ paths:
       operationId: setLeadershipTaskComment
       summary: Set the assignee's note on a task.
       description: >-
-        The CXO's comment back on the task (maintainer instruction 2026-09-04): one field its
+        The assignee's comment back on the task (maintainer instruction 2026-09-04): one field its
         owner overwrites, no thread. Assignee only (403 not_assignee), while the task is not
         cancelled (409 task_closed). The `Idempotency-Key` header is REQUIRED.
       parameters:
@@ -17618,12 +17618,12 @@ components:
         is_raiser: { type: boolean, description: The caller raised this task. }
         meta_line:
           type: string
-          description: From the viewer's side -- "Raised by Hemant · 04/09/2026" for the CXO, "For Ravi · 04/09/2026" for the raiser.
+          description: From the viewer's side -- "Raised by Hemant · 04/09/2026" for the assignee, "For Ravi · 04/09/2026" for the raiser.
         row_version: { type: integer }
         can_edit: { type: boolean }
         can_change_status: { type: boolean }
         can_cancel: { type: boolean }
-        comment: { type: string, description: The CXO's note back on the task; one field its owner overwrites. }
+        comment: { type: string, description: The assignee's note back on the task; one field its owner overwrites. }
         can_comment: { type: boolean }
         status_options:
           type: array

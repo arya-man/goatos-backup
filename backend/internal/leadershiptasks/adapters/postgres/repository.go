@@ -1,6 +1,6 @@
-// Package postgres persists leadership tasks: the per-tenant numbered brief a director
-// raises for a CXO, its attachments (pointers into the proof store), the seen stamp the
-// drawer badge counts, and the status ladder. Every write is idempotent, audited and
+// Package postgres persists leadership tasks: the per-tenant numbered brief one authorized
+// worker raises for another, its attachments (pointers into the proof store), the seen stamp
+// the drawer badge counts, and the status ladder. Every write is idempotent, audited and
 // announced through the outbox in ONE transaction.
 package postgres
 

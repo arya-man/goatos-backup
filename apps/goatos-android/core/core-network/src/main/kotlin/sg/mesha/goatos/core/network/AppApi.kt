@@ -1714,8 +1714,8 @@ interface AppApi {
     // ------------------------------------------------------------------
 
     /**
-     * GET /app/leadership-tasks — the caller's tasks (a director sees what they raised, a CXO
-     * what is assigned to them), keyset-paged. [filter] is a backend filter KEY
+     * GET /app/leadership-tasks — the caller's manual leadership tasks, keyset-paged by backend
+     * scope (`assigned_to_me`, `assigned_by_me`, or monitor-only `team_progress`). [filter] is a backend filter KEY
      * (`all` | `open` | `in_progress` | `done`); blank means the backend default.
      */
     suspend fun getLeadershipTasks(
@@ -1725,7 +1725,7 @@ interface AppApi {
         cursor: String? = null,
     ): LeadershipTaskPageDto
 
-    /** GET /app/leadership-tasks/assignees — the CXOs a director may raise a task for. */
+    /** GET /app/leadership-tasks/assignees — active workers who may receive a leadership task. */
     suspend fun getLeadershipTaskAssignees(): LeadershipAssigneeListDto
 
     /** GET /app/leadership-tasks/{task_id}. */

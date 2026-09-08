@@ -1,9 +1,12 @@
 import { LeadershipTasksPage } from "@/features/leadership-tasks/leadership-tasks-page";
-import { requireAdminWebPageContract } from "@/lib/api/server";
+import { listLeadershipTasks, requireAdminWebPageContract } from "@/lib/api/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function Page() {
-  await requireAdminWebPageContract("leadership-tasks");
-  return <LeadershipTasksPage />;
+  const [, page] = await Promise.all([
+    requireAdminWebPageContract("leadership-tasks"),
+    listLeadershipTasks({ scope: "team_progress", filter: "all", limit: 50 }),
+  ]);
+  return <LeadershipTasksPage page={page.ok ? page.data : null} />;
 }

@@ -16,13 +16,17 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Fixed second-cycle PR review finding `LT-001`: director seeds now include `do` so existing person-access rows do not shadow away `PenVisitsExecute`; CEO keeps `configure` without the pen-visit execution bundle.
 - Fixed second-cycle PR review finding `LT-002`: production `/tasks` now requires the backend admin-web page contract and has a guard test; `/tasks-preview` remains the local screenshot/mock surface.
 - Updated OpenAPI Leadership Tasks copy from the old director-to-CXO wording to Manju's manual two-way assignment model.
+- Fixed third-cycle web completeness gap: production `/tasks` now fetches live `/app/leadership-tasks?scope=team_progress` data after the admin-web page-contract gate; fixtures are confined to `/tasks-preview`.
+- Fixed third-cycle scope bug: `ScopeKeyOrDefault` now trims once and compares the trimmed key, so whitespace query values do not drop monitor users out of Team Progress.
+- Cleaned stale Leadership Tasks comments/schema copy that still described one-way director-to-CXO tasks.
 
-## Known Open Items To Re-judge
+## Acceptance Status
 
-- Whether COO is represented by the existing combined raise+act/no-pen-visit leadership desk or needs a separate named role.
-- Whether "any employee" requires additional product constraints beyond every active app-backed workforce member with `person_access`.
-- Whether Jira-like notes must become threaded comments/history beyond the current task comment path.
-- Whether OCI-backed E2E is required now; current screenshots are local/Paparazzi/Chrome fixture evidence.
+- COO representation: accepted as the existing CEO/CXO leadership desk role (`ceo_internal`) plus combined raise+act/no-pen-visit person access. There is no separate `RoleCOO` in the current RBAC vocabulary.
+- Employee assignment: accepted as every active app-backed workforce member with `person_access` and mobile Leadership Tasks `view+oversee`.
+- Notes: accepted for this PR as title/body plus one assignee note/comment field and attachments. Threaded Jira-style activity is not built in this PR.
+- Seed/E2E data: migration is implemented and guarded locally. Real OCI/staging readback is not part of the committed test suite here.
+- Screenshots: Android evidence remains unit/Paparazzi fixture based; web evidence includes Chrome `/tasks-preview` with shell/sidebar. Production `/tasks` is live-data backed but requires a backend page contract to render.
 
 ## Validation Log
 
@@ -34,3 +38,5 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Passed: `node --test lib/admin-route-page-contract.test.mjs`.
 - Second-cycle Manju-note judge found remaining gaps around static admin-web data, mobile-only capability declaration, COO naming, notes depth, and screenshots as local evidence.
 - Second-cycle PR-review judge found `LT-001` director `do`/pen-visits shadowing and `LT-002` production admin route missing page-contract gate; both are patched and need re-judge.
+- Third-cycle Manju-note judge found web static data, stale OpenAPI assignee copy, ambiguous progress-doc items; patched in current cycle.
+- Third-cycle PR-review judge found web static data and whitespace scope normalization; patched in current cycle.
