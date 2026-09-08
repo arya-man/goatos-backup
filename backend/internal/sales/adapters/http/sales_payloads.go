@@ -170,6 +170,18 @@ type overviewPayload struct {
 	TagRoster        tagRosterPayload         `json:"tag_roster"`
 	WeightAudit      weightAuditPayload       `json:"weight_audit"`
 	MarketBenchmarks []marketBenchmarkPayload `json:"market_benchmarks"`
+	// sold_weight_bands (maintainer decision 2026-09-08): sold animals by the weight recorded
+	// at tagging. Disjoint bands plus the unweighed remainder; they sum to total.
+	SoldWeightBands soldWeightBandsPayload `json:"sold_weight_bands"`
+}
+
+type soldWeightBandsPayload struct {
+	Total       int `json:"total"`
+	Under20     int `json:"under_20_kg"`
+	From20To35  int `json:"from_20_to_35_kg"`
+	From35To40  int `json:"from_35_to_40_kg"`
+	AtOrAbove40 int `json:"at_or_above_40_kg"`
+	Unweighed   int `json:"unweighed"`
 }
 
 type summaryPayload struct {
@@ -334,6 +346,11 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 			MaxGapKg: o.WeightAudit.MaxGapKg,
 		},
 		MarketBenchmarks: benchmarks,
+		SoldWeightBands: soldWeightBandsPayload{
+			Total: o.SoldWeightBands.Total, Under20: o.SoldWeightBands.Under20,
+			From20To35: o.SoldWeightBands.From20To35, From35To40: o.SoldWeightBands.From35To40,
+			AtOrAbove40: o.SoldWeightBands.AtOrAbove40, Unweighed: o.SoldWeightBands.Unweighed,
+		},
 	}
 }
 

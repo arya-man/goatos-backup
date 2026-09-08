@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
@@ -160,6 +161,33 @@ private fun androidx.compose.foundation.layout.ColumnScope.ReviewStep(state: Sal
         items(count = state.reviewGroups.size, key = { "group_${state.reviewGroups[it].location}" }) { index ->
             ReviewGroupCard(state.reviewGroups[index])
         }
+        // Weight at tagging (maintainer decision 2026-09-08): one box per cleared animal, all required.
+        if (state.reviewAnimals.isNotEmpty()) {
+            item(key = "weights_title") {
+                Column {
+                    Text(text = LABEL_WEIGHTS, color = MeshaColors.Ink, style = MeshaType.sectionLabel)
+                    Text(text = HINT_WEIGHTS, color = MeshaColors.Muted, style = MeshaType.caption)
+                }
+            }
+            items(count = state.reviewAnimals.size, key = { "weight_${state.reviewAnimals[it].goatId}" }) { index ->
+                val a = state.reviewAnimals[index]
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text(text = a.tag, color = MeshaColors.Ink, style = MeshaType.listTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(text = a.location, color = MeshaColors.Muted, style = MeshaType.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    VendorsTextField(
+                        a.weight,
+                        { onEvent(SaleTagAnimalsEvent.WeightChanged(a.goatId, it)) },
+                        LABEL_WEIGHT_KG,
+                        required = true,
+                        keyboard = KeyboardType.Decimal,
+                        error = a.error.ifBlank { null },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
         if (state.reviewBlocked.isNotEmpty()) {
             item(key = "blocked_title") { Text(text = CANNOT_SELL, color = MeshaColors.Warn, style = MeshaType.sectionLabel) }
             items(count = state.reviewBlocked.size, key = { "blocked_${state.reviewBlocked[it].goatId}" }) { index ->
@@ -173,7 +201,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.ReviewStep(state: Sal
     }
     VendorsWizardBar(contextLine = "") {
         VendorsGhostButton(label = BACK_TO_PICK, onClick = { onEvent(SaleTagAnimalsEvent.BackToPick) })
-        VendorsPrimaryButton(label = CONFIRM, enabled = state.reviewGroups.isNotEmpty() && !state.confirmInFlight, onClick = { onEvent(SaleTagAnimalsEvent.Confirm) }, modifier = Modifier.weight(1f))
+        VendorsPrimaryButton(label = CONFIRM, enabled = state.reviewGroups.isNotEmpty() && state.allWeighed && !state.confirmInFlight, onClick = { onEvent(SaleTagAnimalsEvent.Confirm) }, modifier = Modifier.weight(1f))
     }
 }
 
@@ -213,6 +241,9 @@ private const val HINT_SEARCH = "RFID or animal ID"
 private const val SELECTED = "selected"
 private const val REVIEW = "Review"
 private const val HINT_REVIEW = "These animals will be marked sold and leave the herd. Check the pens and tags before confirming."
+private const val LABEL_WEIGHTS = "Weight at sale"
+private const val HINT_WEIGHTS = "Enter every animal's live weight in kg before confirming."
+private const val LABEL_WEIGHT_KG = "Weight (kg)"
 private const val CANNOT_SELL = "CANNOT BE SOLD YET"
 private const val BACK_TO_PICK = "Back"
 private const val CONFIRM = "Confirm and mark sold"

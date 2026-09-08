@@ -163,7 +163,7 @@ func TestConfirmRefusesEverythingWhenOneAnimalIsBlocked(t *testing.T) {
 	)
 	_, err := svc.ConfirmSaleAllocation(context.Background(), ConfirmSaleAllocationInput{
 		TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "confirm-1",
-		SalesDealID: saleDeal, GoatIDs: []string{goatID(1), goatID(2)},
+		SalesDealID: saleDeal, GoatIDs: []string{goatID(1), goatID(2)}, AnimalWeightsKg: weightsFor([]string{goatID(1), goatID(2)}),
 	})
 	if err == nil {
 		t.Fatal("a blocked animal must refuse the whole confirm")
@@ -204,7 +204,7 @@ func TestConfirmRejudgesInsteadOfTrustingThePreview(t *testing.T) {
 
 	if _, err := svc.ConfirmSaleAllocation(context.Background(), ConfirmSaleAllocationInput{
 		TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "confirm-2",
-		SalesDealID: saleDeal, GoatIDs: []string{goatID(1)},
+		SalesDealID: saleDeal, GoatIDs: []string{goatID(1)}, AnimalWeightsKg: weightsFor([]string{goatID(1)}),
 	}); err == nil {
 		t.Fatal("the confirm must re-judge and refuse an animal quarantined after the preview")
 	}
@@ -225,7 +225,7 @@ func TestConfirmCarriesEveryAnimalWithItsCapturedRowVersion(t *testing.T) {
 	)
 	result, err := svc.ConfirmSaleAllocation(context.Background(), ConfirmSaleAllocationInput{
 		TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "confirm-3",
-		SalesDealID: saleDeal, GoatIDs: []string{goatID(1), goatID(2)},
+		SalesDealID: saleDeal, GoatIDs: []string{goatID(1), goatID(2)}, AnimalWeightsKg: weightsFor([]string{goatID(1), goatID(2)}),
 	})
 	if err != nil {
 		t.Fatalf("confirm: %v", err)
@@ -254,7 +254,7 @@ func TestDuplicatePicksCollapseToOneAnimal(t *testing.T) {
 	svc, repo, _ := newSaleService(candidate(1, shedA, "Castro", "1", "9051", "alive"))
 	result, err := svc.ConfirmSaleAllocation(context.Background(), ConfirmSaleAllocationInput{
 		TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "confirm-4",
-		SalesDealID: saleDeal, GoatIDs: []string{goatID(1), goatID(1), goatID(1)},
+		SalesDealID: saleDeal, GoatIDs: []string{goatID(1), goatID(1), goatID(1)}, AnimalWeightsKg: weightsFor([]string{goatID(1), goatID(1), goatID(1)}),
 	})
 	if err != nil {
 		t.Fatalf("confirm: %v", err)
@@ -314,7 +314,7 @@ func TestASaleMustBeMappedExactlyAndNeverInHalves(t *testing.T) {
 		svc := NewSaleAllocationService(repo, repo, deal)
 		_, err := svc.ConfirmSaleAllocation(context.Background(), ConfirmSaleAllocationInput{
 			TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "count-gate-key",
-			SalesDealID: saleDeal, GoatIDs: ids,
+			SalesDealID: saleDeal, GoatIDs: ids, AnimalWeightsKg: weightsFor(ids),
 		})
 		return err
 	}
@@ -395,4 +395,62 @@ func TestPreviewReportsTheTargetAndWhetherTheSaleIsComplete(t *testing.T) {
 	if withBlocked.Complete {
 		t.Fatal("a picked-but-blocked animal must not count toward a complete mapping")
 	}
+}
+
+// The weight at tagging is REQUIRED (maintainer decision 2026-09-08): a confirm missing a
+// weight for any picked animal, or carrying a malformed one, is refused before the herd is
+// re-judged and before anything is written; a complete confirm carries each animal's weight
+// onto its allocation row.
+func TestConfirmRequiresAWeightForEveryAnimalAndCarriesIt(t *testing.T) {
+	svc, repo, _ := newSaleService(
+		candidate(1, shedA, "Castro", "1", "9051", "alive"),
+		candidate(2, shedB, "Gandhi", "2", "9052", "alive"),
+	)
+	base := ConfirmSaleAllocationInput{
+		TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "confirm-w",
+		SalesDealID: saleDeal, GoatIDs: []string{goatID(1), goatID(2)},
+	}
+	for name, weights := range map[string]map[string]string{
+		"no weights at all":  nil,
+		"one animal missing": {goatID(1): "32.5"},
+		"zero":               {goatID(1): "32.5", goatID(2): "0"},
+		"negative":           {goatID(1): "-3", goatID(2): "30"},
+		"not a number":       {goatID(1): "abc", goatID(2): "30"},
+		"three decimals":     {goatID(1): "31.255", goatID(2): "30"},
+	} {
+		in := base
+		in.AnimalWeightsKg = weights
+		if _, err := svc.ConfirmSaleAllocation(context.Background(), in); err == nil {
+			t.Fatalf("%s: confirm must be refused", name)
+		}
+		if repo.recorded != nil {
+			t.Fatalf("%s: nothing may be written, got %+v", name, repo.recorded)
+		}
+	}
+
+	in := base
+	in.AnimalWeightsKg = map[string]string{goatID(1): " 32.5 ", goatID(2): "41"}
+	result, err := svc.ConfirmSaleAllocation(context.Background(), in)
+	if err != nil {
+		t.Fatalf("confirm with weights: %v", err)
+	}
+	if result.Allocated != 2 || len(repo.recorded.Rows) != 2 {
+		t.Fatalf("allocated = %d rows = %+v", result.Allocated, repo.recorded.Rows)
+	}
+	want := map[string]string{goatID(1): "32.5", goatID(2): "41"}
+	for _, row := range repo.recorded.Rows {
+		if row.WeightKg != want[row.GoatID] {
+			t.Fatalf("row %s weight = %q want %q", row.GoatID, row.WeightKg, want[row.GoatID])
+		}
+	}
+}
+
+// weightsFor gives every listed animal a valid tagging weight, so tests about OTHER confirm
+// rules are not refused by the 2026-09-08 weight-required rule first.
+func weightsFor(ids []string) map[string]string {
+	out := make(map[string]string, len(ids))
+	for _, id := range ids {
+		out[id] = "30"
+	}
+	return out
 }

@@ -3849,6 +3849,10 @@ export interface components {
             sales_deal_id: string;
             /** @description The picked animals. Duplicates collapse to one. The cap keeps one confirmation a bounded transactional write and fits the canonical per-goat exit inside the hot-API latency budget; a larger sale is split into two confirmations, each atomic on its own. */
             goat_ids: string[];
+            /** @description Live weight in kg of each picked animal, keyed by goat id, as decimal strings (maintainer decision 2026-09-08). Ignored by preview. REQUIRED for every goat in goat_ids on confirm: a missing one is refused with `weight_required`, a malformed one with `invalid_weight`, and nothing is written. */
+            animal_weights_kg?: {
+                [key: string]: string;
+            };
             reason?: string;
         };
         /** @description The picked animals of ONE operational shed -- the gather list, in the order a person walks the farm. */

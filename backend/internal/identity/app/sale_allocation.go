@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -202,7 +203,12 @@ type ConfirmSaleAllocationInput struct {
 	TraceID        string
 	SalesDealID    string
 	GoatIDs        []string
-	Reason         string
+	// AnimalWeightsKg is the live weight of every picked animal, keyed by goat id, as the
+	// operator typed it at tagging (maintainer decision 2026-09-08). REQUIRED for every animal
+	// in GoatIDs: a sale weight is what the Sales page's weight bands are made of, and an
+	// animal tagged without one would be sold with no record of what left.
+	AnimalWeightsKg map[string]string
+	Reason          string
 }
 
 // ConfirmSaleAllocation records the allocation and exits each animal as sold, in ONE
@@ -218,6 +224,10 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 		return nil, err
 	}
 	_, dealID, goatIDs, err := validateAllocationInput(tenantID, input.SalesDealID, input.GoatIDs)
+	if err != nil {
+		return nil, err
+	}
+	weights, err := validateAnimalWeights(goatIDs, input.AnimalWeightsKg)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +249,7 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 			blocked = append(blocked, c)
 			continue
 		}
-		rows = append(rows, ports.SaleAllocationRow{GoatID: c.GoatID, RowVersion: c.RowVersion})
+		rows = append(rows, ports.SaleAllocationRow{GoatID: c.GoatID, RowVersion: c.RowVersion, WeightKg: weights[c.GoatID]})
 	}
 	if len(blocked) > 0 {
 		return nil, blockedConflict(blocked)
@@ -344,6 +354,29 @@ func groupByShed(candidates []ports.SaleCandidate) []ports.SaleAllocationShedGro
 		return out[i].OperationalLocationDisplay < out[j].OperationalLocationDisplay
 	})
 	return out
+}
+
+// saleWeightPattern is a positive live weight with at most two decimals (numeric(7,2)): up to
+// five whole digits, far beyond any animal, so the bound only mirrors storage.
+var saleWeightPattern = regexp.MustCompile(`^\d{1,5}(\.\d{1,2})?$`)
+
+// validateAnimalWeights checks that EVERY de-duplicated picked animal carries a usable weight
+// (maintainer decision 2026-09-08: the weight at tagging is required) and returns them trimmed,
+// keyed by goat id. A missing or malformed one refuses the whole confirm BEFORE the herd is
+// re-judged, so nothing is read or written for a request the operator must complete first.
+func validateAnimalWeights(goatIDs []string, weights map[string]string) (map[string]string, error) {
+	out := make(map[string]string, len(goatIDs))
+	for _, id := range goatIDs {
+		raw := strings.TrimSpace(weights[id])
+		if raw == "" {
+			return nil, BadRequest("weight_required", "enter a weight in kg for every animal before confirming")
+		}
+		if !saleWeightPattern.MatchString(raw) || strings.Trim(raw, "0.") == "" {
+			return nil, BadRequest("invalid_weight", "every weight must be a number of kg more than zero, up to two decimals")
+		}
+		out[id] = raw
+	}
+	return out, nil
 }
 
 func validateAllocationInput(tenantID, dealID string, goatIDs []string) (string, string, []string, error) {

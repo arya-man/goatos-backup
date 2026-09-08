@@ -137,6 +137,10 @@ type SaleCandidate struct {
 type SaleAllocationRow struct {
 	GoatID     string
 	RowVersion int
+	// WeightKg is the live weight recorded at tagging (maintainer decision 2026-09-08), a
+	// decimal string so kilograms never round-trip through a float. Required on every new
+	// confirm; the app layer validates it before the command is built.
+	WeightKg string
 }
 
 // RecordSaleAllocationsCommand confirms a picked set onto a sale.

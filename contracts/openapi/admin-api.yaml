@@ -10123,6 +10123,15 @@ components:
             atomic on its own.
           items:
             type: string
+        animal_weights_kg:
+          type: object
+          description: >-
+            Live weight in kg of each picked animal, keyed by goat id, as decimal strings
+            (maintainer decision 2026-09-08). Ignored by preview. REQUIRED for every goat in
+            goat_ids on confirm: a missing one is refused with `weight_required`, a malformed one
+            with `invalid_weight`, and nothing is written.
+          additionalProperties:
+            type: string
             format: uuid
         reason:
           type: string

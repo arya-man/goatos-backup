@@ -46,6 +46,7 @@ import sg.mesha.goatos.feature.vendors.SaleField
 import sg.mesha.goatos.feature.vendors.SalePaymentEditorUi
 import sg.mesha.goatos.feature.vendors.SalePaymentField
 import sg.mesha.goatos.feature.vendors.SalePaymentUi
+import sg.mesha.goatos.feature.vendors.SaleReviewAnimalUi
 import sg.mesha.goatos.feature.vendors.SaleShedGroupUi
 import sg.mesha.goatos.feature.vendors.SaleTagAnimalsEvent
 import sg.mesha.goatos.feature.vendors.SaleTagAnimalsUiState
@@ -806,6 +807,9 @@ class SaleTagAnimalsViewModel @Inject constructor(
         val picked: Map<String, SaleCandidateDto> = emptyMap(),
         val reviewGroups: List<SaleShedGroupUi> = emptyList(),
         val reviewBlocked: List<SaleCandidateDto> = emptyList(),
+        /** Live weight per cleared goat id as typed (maintainer decision 2026-09-08). */
+        val weights: Map<String, String> = emptyMap(),
+        val weightErrors: Map<String, String> = emptyMap(),
         val reviewLine: String = "",
         val reviewInFlight: Boolean = false,
         val confirmInFlight: Boolean = false,
@@ -877,6 +881,16 @@ class SaleTagAnimalsViewModel @Inject constructor(
                 else -> "$remaining still to pick"
             },
             reviewGroups = l.reviewGroups,
+            reviewAnimals = clearedPicks(l).map { c ->
+                SaleReviewAnimalUi(
+                    goatId = c.goatId,
+                    tag = c.tagNumber.ifBlank { c.secondaryTagNumber }.ifBlank { c.displayId },
+                    location = c.operationalLocationDisplay,
+                    weight = l.weights[c.goatId].orEmpty(),
+                    error = l.weightErrors[c.goatId].orEmpty(),
+                )
+            },
+            allWeighed = clearedPicks(l).let { picks -> picks.isNotEmpty() && picks.all { weightLooksValid(l.weights[it.goatId].orEmpty()) } },
             reviewBlocked = l.reviewBlocked.map { c ->
                 SaleCandidateUi(c.goatId, c.tagNumber.ifBlank { c.displayId }, dotJoin(c.displayId, c.breed, c.sex), c.operationalLocationDisplay, false, false, c.blockedReason)
             },
@@ -911,6 +925,9 @@ class SaleTagAnimalsViewModel @Inject constructor(
             SaleTagAnimalsEvent.LoadMore -> loadCandidates(reset = false)
             SaleTagAnimalsEvent.Review -> review()
             SaleTagAnimalsEvent.BackToPick -> local.update { it.copy(step = SaleTagStep.PICK, message = null) }
+            is SaleTagAnimalsEvent.WeightChanged -> local.update { l ->
+                l.copy(weights = l.weights + (event.goatId to event.value), weightErrors = l.weightErrors - event.goatId, message = null)
+            }
             SaleTagAnimalsEvent.Confirm -> confirm()
             SaleTagAnimalsEvent.DismissMessage -> local.update { it.copy(message = null) }
             SaleTagAnimalsEvent.Back, SaleTagAnimalsEvent.Done -> Unit
@@ -980,11 +997,19 @@ class SaleTagAnimalsViewModel @Inject constructor(
         val l = local.value
         if (l.picked.isEmpty() || l.confirmInFlight) return
         viewModelScope.launch {
-            local.update { it.copy(confirmInFlight = true, message = null) }
             // The blocked animals are left out: confirming them would be refused whole.
-            val blocked = l.reviewBlocked.map { it.goatId }.toSet()
-            val ids = l.picked.keys.filterNot { it in blocked }
-            when (val result = repository.confirmAllocation(l.confirmKey, SaleAllocationRequestDto(dealId, ids))) {
+            val ids = clearedPicks(l).map { it.goatId }
+            // Every cleared animal must carry a weight (maintainer decision 2026-09-08); the
+            // backend refuses the whole confirm otherwise, so the refusal is shown here first,
+            // against the box that is empty or wrong.
+            val errors = ids.filterNot { weightLooksValid(l.weights[it].orEmpty()) }.associateWith { WEIGHT_NEEDED }
+            if (errors.isNotEmpty()) {
+                local.update { it.copy(weightErrors = errors, message = MESSAGE_WEIGHTS_NEEDED) }
+                return@launch
+            }
+            local.update { it.copy(confirmInFlight = true, message = null) }
+            val weights = ids.associateWith { l.weights[it].orEmpty().trim() }
+            when (val result = repository.confirmAllocation(l.confirmKey, SaleAllocationRequestDto(dealId, ids, weights))) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_TAG_ANIMALS_CONFIRMED, mapOf(AnalyticsEvents.Params.REASON to result.value.allocated.toString()))
                     local.update {
@@ -1007,6 +1032,12 @@ class SaleTagAnimalsViewModel @Inject constructor(
         }
     }
 
+    /** The picked animals the review did not refuse: the ones a weight is owed for and confirm sends. */
+    private fun clearedPicks(l: Local): List<SaleCandidateDto> {
+        val blocked = l.reviewBlocked.map { it.goatId }.toSet()
+        return l.picked.values.filterNot { it.goatId in blocked }
+    }
+
     private fun penKey(shedId: String, partition: String): String = if (partition.isBlank()) shedId else "$shedId|$partition"
 
     private fun splitPenKey(key: String): Pair<String?, String?> {
@@ -1024,3 +1055,12 @@ class SaleTagAnimalsViewModel @Inject constructor(
         const val EMPTY_NONE = "No animals that can be sold in this pen"
     }
 }
+
+/** A weight the backend would accept: kg more than zero, up to two decimals (numeric(7,2)). */
+private fun weightLooksValid(raw: String): Boolean {
+    val v = raw.trim()
+    return Regex("""^\d{1,5}(\.\d{1,2})?$""").matches(v) && (v.toDoubleOrNull() ?: 0.0) > 0.0
+}
+
+private const val WEIGHT_NEEDED = "Enter the weight in kg"
+private const val MESSAGE_WEIGHTS_NEEDED = "Enter every animal's weight in kg before confirming."

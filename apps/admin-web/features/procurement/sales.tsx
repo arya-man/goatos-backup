@@ -250,6 +250,47 @@ function OverviewSections({
             />
           </section>
 
+          {/* Sold animals by weight (maintainer decision 2026-09-08): the weight recorded when
+              each animal was tagged to its sale, in the maintainer's four bands, whole register.
+              The unweighed remainder is named beside the total rather than hidden in a band. */}
+          <section className="card sales-card" aria-label={copy(pageContract, "section.sold_weight.aria")}>
+            <div className="hd">
+              <h3>{copy(pageContract, "section.sold_weight.title")}</h3>
+            </div>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              {copy(pageContract, "section.sold_weight.subtitle")}
+            </p>
+            {overview.sold_weight_bands.total === 0 ? (
+              <div className="empty">{copy(pageContract, "empty.sold_weight")}</div>
+            ) : (
+              <>
+                <p className="muted small">
+                  {num(overview.sold_weight_bands.total)} {copy(pageContract, "sold_weight.total")}
+                  {overview.sold_weight_bands.unweighed > 0
+                    ? ` · ${num(overview.sold_weight_bands.unweighed)} ${copy(pageContract, "sold_weight.unweighed")}`
+                    : ""}
+                </p>
+                {/* All FOUR bands, always, zeros included: the maintainer asked to see the count in
+                    each range, and a band that vanishes when it is empty reads as a band that does
+                    not exist. Hence tiles rather than the bar list, which drops zero rows. */}
+                <div className="grid g4 kpi-row" style={{ marginTop: 8 }}>
+                  {[
+                    { key: "40_plus", label: copy(pageContract, "sold_weight.band.40_plus"), value: overview.sold_weight_bands.at_or_above_40_kg },
+                    { key: "35_40", label: copy(pageContract, "sold_weight.band.35_40"), value: overview.sold_weight_bands.from_35_to_40_kg },
+                    { key: "20_35", label: copy(pageContract, "sold_weight.band.20_35"), value: overview.sold_weight_bands.from_20_to_35_kg },
+                    { key: "under_20", label: copy(pageContract, "sold_weight.band.under_20"), value: overview.sold_weight_bands.under_20_kg },
+                  ].map((band) => (
+                    <div key={band.key} className="kpi" data-band={band.key}>
+                      <div className="lab">{band.label}</div>
+                      <div className="val">{num(band.value)}</div>
+                      <div className="dl">{copy(pageContract, "sold_weight.total")}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+
           {/* The market benchmark table was removed from this board (maintainer request
               2026-09-03); the quotes are still entered and kept on /sales/config. */}
 

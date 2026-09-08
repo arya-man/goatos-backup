@@ -184,21 +184,30 @@ WHERE tenant_id = $1::uuid AND sales_deal_id = $2::uuid AND status = 'tagged'`,
 // each animal's location and identifier as they stand right now.
 func (r *Repository) insertSaleAllocations(ctx context.Context, tx pgx.Tx, cmd ports.RecordSaleAllocationsCommand, tenantUUID, dealUUID any) error {
 	goatIDs := make([]string, 0, len(cmd.Rows))
+	// Parallel to goatIDs by construction (same loop, same order): unnest pairs them back up
+	// below. "" stores NULL, which only a pre-000282 caller path can produce; the app layer
+	// requires a weight on every new confirm.
+	weights := make([]string, 0, len(cmd.Rows))
 	for _, row := range cmd.Rows {
 		goatIDs = append(goatIDs, row.GoatID)
+		weights = append(weights, row.WeightKg)
 	}
 	// scale-guard:ignore: bounded set-based transactional write over <=100 named ids, not a compute-on-read god-CTE.
 	_, err := tx.Exec(ctx, `
 INSERT INTO goat_sale_allocations (
     tenant_id, goat_id, sales_deal_id, park_id, shed_id, partition_label, tag_number,
-    status, allocated_at, allocated_by, idempotency_key
+    status, allocated_at, allocated_by, idempotency_key, weight_kg
 )
 SELECT g.tenant_id, g.goat_id, $2::uuid, g.park_id, g.shed_id,
        NULLIF(COALESCE(NULLIF(gsp.partition_label, 'whole'), ''), ''),
        tag.identifier_value,
        'tagged', $5::timestamptz, NULLIF($4, '')::uuid,
-       'sale_allocation:' || $2::text || ':' || g.goat_id::text
+       'sale_allocation:' || $2::text || ':' || g.goat_id::text,
+       NULLIF(picked.weight_kg, '')::numeric
 FROM goats g
+-- The weight typed for THIS animal at tagging (maintainer decision 2026-09-08), paired to its
+-- id by position: the two arrays are built in one loop from the same rows.
+JOIN unnest($3::uuid[], $6::text[]) AS picked(goat_id, weight_kg) ON picked.goat_id = g.goat_id
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
 LEFT JOIN LATERAL (
@@ -222,7 +231,7 @@ WHERE g.tenant_id = $1::uuid AND g.goat_id = ANY($3::uuid[])
 -- The live-goat partial unique index is what refuses a tagging onto a DIFFERENT sale;
 -- this clause is only about this command's own retry.
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
-		tenantUUID, dealUUID, goatIDs, cmd.ActorID, cmd.OccurredAt)
+		tenantUUID, dealUUID, goatIDs, cmd.ActorID, cmd.OccurredAt, weights)
 	if err != nil {
 		return fmt.Errorf("identity: insert sale allocations: %w", err)
 	}

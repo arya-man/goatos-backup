@@ -173,6 +173,8 @@ data class SaleCandidatePageDto(
 data class SaleAllocationRequestDto(
     @SerialName("sales_deal_id") val salesDealId: String,
     @SerialName("goat_ids") val goatIds: List<String>,
+    /** Live weight per goat id as typed (maintainer decision 2026-09-08). Empty on preview; required on confirm. */
+    @SerialName("animal_weights_kg") val animalWeightsKg: Map<String, String> = emptyMap(),
 )
 
 @Serializable

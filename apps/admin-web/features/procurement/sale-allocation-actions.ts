@@ -77,12 +77,15 @@ export async function previewSaleAllocationAction(params: {
 export async function confirmSaleAllocationAction(params: {
   salesDealId: string;
   goatIds: string[];
+  /** Live weight per goat id as typed, verbatim strings; the backend validates (2026-09-08). */
+  animalWeightsKg: Record<string, string>;
   reason?: string;
 }): Promise<SaleAllocationActionResult<SaleAllocationConfirmResponse>> {
   const result = await confirmSaleAllocation(
     {
       sales_deal_id: params.salesDealId,
       goat_ids: params.goatIds,
+      animal_weights_kg: params.animalWeightsKg,
       reason: params.reason?.trim() || undefined,
     },
     randomUUID(),

@@ -40,6 +40,7 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 		tagRoster        domain.TagRoster
 		weightAudit      domain.WeightAuditSummary
 		marketBenchmarks []domain.MarketBenchmark
+		soldWeightBands  domain.SoldWeightBands
 	)
 
 	group, gctx := errgroup.WithContext(ctx)
@@ -73,6 +74,11 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 		marketBenchmarks, err = r.marketBenchmarks(gctx, tenantID)
 		return err
 	})
+	group.Go(func() error {
+		var err error
+		soldWeightBands, err = r.soldWeightBands(gctx, tenantID, farm)
+		return err
+	})
 	if err := group.Wait(); err != nil {
 		return domain.Overview{}, err
 	}
@@ -82,7 +88,49 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 	overview.TagRoster = tagRoster
 	overview.WeightAudit = weightAudit
 	overview.MarketBenchmarks = marketBenchmarks
+	overview.SoldWeightBands = soldWeightBands
 	return overview, nil
+}
+
+// soldWeightBands counts every LIVE sale allocation (status 'tagged') by the weight recorded at
+// tagging, in ONE grouped read; the bands themselves are decided in domain.SoldWeightBands so
+// the edges live in exactly one place.
+//
+// projection-review: membership=goat_sale_allocations at (tenant_id, goat_id, sales_deal_id) grain, one
+// row per animal per sale, filtered to status='tagged' where the partial unique index
+// (tenant_id, goat_id) WHERE status='tagged' makes each sold animal appear exactly once;
+// group_key=a.weight_kg alone, each (weight, count) group folded by domain.SoldWeightBands into one
+// of four disjoint bands or the unweighed remainder, so band counts and Total range over the
+// identical key set of tagged allocation rows and bands + unweighed == total by construction;
+// join_cardinality=sales_deals joined 1:1 on (tenant_id, id) from (a.tenant_id, a.sales_deal_id)
+// purely for the farm predicate -- every allocation names exactly one deal, so the join can neither
+// fan out nor drop a row; pagination=none, whole-filter aggregate, the Sales page has no window;
+// scope=tenant, optionally narrowed to one farm through the deal's farm, the same buildDealFilter the
+// rest of the page uses.
+func (r *Repository) soldWeightBands(ctx context.Context, tenantID, farm string) (domain.SoldWeightBands, error) {
+	where, args := buildDealFilter(tenantID, farm)
+	query := fmt.Sprintf(soldWeightBandsSQL, where)
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return domain.SoldWeightBands{}, fmt.Errorf("sales sold weight bands: %w", err)
+	}
+	defer rows.Close()
+
+	bands := domain.SoldWeightBands{}
+	for rows.Next() {
+		var kg *float64
+		var n int
+		if err := rows.Scan(&kg, &n); err != nil {
+			return domain.SoldWeightBands{}, fmt.Errorf("sales sold weight bands scan: %w", err)
+		}
+		for i := 0; i < n; i++ {
+			bands.AddSoldWeight(kg)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return domain.SoldWeightBands{}, fmt.Errorf("sales sold weight bands rows: %w", err)
+	}
+	return bands, nil
 }
 
 // closedDeals loads every closed deal in the filter -- the ONE bounded read behind the summary,
@@ -342,3 +390,29 @@ func (r *Repository) marketBenchmarks(ctx context.Context, tenantID string) ([]d
 	}
 	return out, nil
 }
+
+// soldWeightBandsSQL is the one grouped read behind the Sales page's weight bands. %s is the
+// shared deal filter (tenant, optional farm) so the bands range over the same deals as the rest
+// of the page.
+//
+// projection-review: membership=goat_sale_allocations at (tenant_id, goat_id, sales_deal_id) grain, one
+// row per animal per sale, filtered to status='tagged' where the partial unique index
+// (tenant_id, goat_id) WHERE status='tagged' makes each sold animal appear exactly once;
+// group_key=a.weight_kg alone, each (weight, count) group folded by domain.SoldWeightBands into one
+// of four disjoint bands or the unweighed remainder, so band counts and Total range over the
+// identical key set of tagged allocation rows and bands + unweighed == total by construction;
+// join_cardinality=sales_deals joined 1:1 on (tenant_id, id) from (a.tenant_id, a.sales_deal_id)
+// purely for the farm predicate -- every allocation names exactly one deal, so the join can neither
+// fan out nor drop a row; pagination=none, whole-filter aggregate, the Sales page has no window;
+// scope=tenant, optionally narrowed to one farm through the deal's farm, the same buildDealFilter the
+// rest of the page uses.
+//
+// scale-guard:ignore: grouped read over the sale-allocation register (one row per animal SOLD,
+// hundreds today, grows with sales rather than herd size) keyed by the indexed
+// (tenant_id, sales_deal_id); a whole-register count cannot be served from a page.
+const soldWeightBandsSQL = `
+		SELECT a.weight_kg::float8, count(*)
+		FROM public.goat_sale_allocations a
+		JOIN public.sales_deals d ON d.id = a.sales_deal_id AND d.tenant_id = a.tenant_id
+		WHERE %s AND a.tenant_id = $1 AND a.status = 'tagged'
+		GROUP BY a.weight_kg`

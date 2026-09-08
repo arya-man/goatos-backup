@@ -6393,6 +6393,7 @@ CREATE TABLE public.goat_sale_allocations (
     shed_id uuid,
     partition_label text,
     tag_number text,
+    weight_kg numeric(7,2),
     status text DEFAULT 'tagged'::text NOT NULL,
     allocated_at timestamp with time zone DEFAULT now() NOT NULL,
     allocated_by uuid,

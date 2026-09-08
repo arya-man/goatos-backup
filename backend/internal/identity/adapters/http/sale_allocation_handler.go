@@ -131,7 +131,10 @@ func (h *SaleAllocationHandler) ListSaleCandidates(w http.ResponseWriter, r *htt
 type saleAllocationRequest struct {
 	SalesDealID string   `json:"sales_deal_id"`
 	GoatIDs     []string `json:"goat_ids"`
-	Reason      string   `json:"reason,omitempty"`
+	// animal_weights_kg: live weight per picked goat id, as decimal strings (maintainer
+	// decision 2026-09-08). Ignored by preview; required for every animal on confirm.
+	AnimalWeightsKg map[string]string `json:"animal_weights_kg,omitempty"`
+	Reason          string            `json:"reason,omitempty"`
 }
 
 type saleShedGroupPayload struct {
@@ -213,13 +216,14 @@ func (h *SaleAllocationHandler) ConfirmSaleAllocation(w http.ResponseWriter, r *
 		return
 	}
 	result, err := h.service.ConfirmSaleAllocation(r.Context(), app.ConfirmSaleAllocationInput{
-		TenantID:       tenantID(r),
-		ActorID:        actorID(r),
-		IdempotencyKey: r.Header.Get("Idempotency-Key"),
-		TraceID:        traceID(r),
-		SalesDealID:    req.SalesDealID,
-		GoatIDs:        req.GoatIDs,
-		Reason:         req.Reason,
+		TenantID:        tenantID(r),
+		ActorID:         actorID(r),
+		IdempotencyKey:  r.Header.Get("Idempotency-Key"),
+		TraceID:         traceID(r),
+		SalesDealID:     req.SalesDealID,
+		GoatIDs:         req.GoatIDs,
+		AnimalWeightsKg: req.AnimalWeightsKg,
+		Reason:          req.Reason,
 	})
 	if err != nil {
 		h.respondSaleError(w, r, err)
