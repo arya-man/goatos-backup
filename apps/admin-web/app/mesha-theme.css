@@ -3270,7 +3270,7 @@ aside.drawer.on{transform:none}
    ========================================================================== */
 .lt-page .lt-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:14px}
 .lt-page .kpi.lt-kpi{border-left:3px solid var(--line);border-radius:2px;padding:11px 13px;overflow:visible}
-.lt-page .kpi.lt-kpi .val{font-size:26px;font-weight:760;letter-spacing:-.5px;margin:2px 0 1px;font-variant-numeric:tabular-nums}
+.lt-page .kpi.lt-kpi .val{font-variant-numeric:tabular-nums}
 .lt-page .kpi.lt-kpi .lab{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
 .lt-page .kpi.lt-kpi .dl{font-size:11px;color:var(--muted);margin-top:2px}
 .lt-page .kpi.k-ok{border-left-color:var(--ok)}.lt-page .kpi.k-ok .val{color:var(--ok)}
@@ -3329,7 +3329,7 @@ aside.drawer.on{transform:none}
 .lt-page .lt-stale{display:inline-flex;align-items:center;gap:8px;background:var(--warnx);border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn);border-radius:2px;padding:8px 13px;font-size:12px;font-weight:650}
 
 /* Persistent filter bar */
-.lt-page .lt-fbar{position:sticky;top:0;z-index:12;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:2px;box-shadow:var(--shadow)}
+.lt-page .lt-fbar{position:sticky;top:0;z-index:12;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:2px;box-shadow:none}
 .lt-page .lt-fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:2px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
 .lt-page .lt-fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;max-width:210px}
 .lt-page .lt-fsel select option{background:var(--panel);color:var(--ink)}
@@ -3704,7 +3704,7 @@ aside.drawer.on{transform:none}
 .herd-signals-page .segs a .cnt{font-size:10.5px;font-weight:800;background:var(--panel-2);color:var(--muted);border-radius:999px;padding:1px 6px}
 .herd-signals-page .segs a.on .cnt{background:color-mix(in srgb,var(--brand) 24%,transparent);color:var(--brand-d)}
 
-.herd-signals-page .fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:2px;box-shadow:var(--shadow)}
+.herd-signals-page .fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:2px;box-shadow:none}
 .herd-signals-page .fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:2px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
 /* A global form-control rule pads every bare <select> 8px 10px, which inflated each .fsel pill to
    47px against the mock's 32px and wrapped the filter bar and pager onto extra rows. */
@@ -3758,7 +3758,7 @@ aside.drawer.on{transform:none}
 /* mock/herd-signals-mock.html `.achip{font-weight:700}` — the shared global `.achip` rule above is
    600 for other screens; scope the mock's exact weight to this page only. */
 .herd-signals-page .fbar .achip{font-weight:700}
-.herd-signals-page .kpi .val{font-size:26px;font-weight:760;letter-spacing:-.5px;margin:2px 0 1px}
+
 .herd-signals-page .kpi .dl{font-size:11px;font-weight:400;color:var(--muted);margin-top:0}
 /* Chips: mock .tag is a small rounded-rect label in the full tone colour, not a muted-bordered
    pill. Scoped to this page so it never touches an unrelated screen's .tag. */
@@ -3963,7 +3963,7 @@ aside.drawer.on{transform:none}
 
 .herd-signals-page .insight{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:13px 14px;box-shadow:var(--shadow)}
 .herd-signals-page .insight .ih{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;margin-bottom:3px}
-.herd-signals-page .insight .iv{font-size:23px;font-weight:760;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
+.herd-signals-page .insight .iv{font-family:var(--f-serif);font-size:23px;font-weight:400;font-variant-numeric:tabular-nums;letter-spacing:0}
 .herd-signals-page .insight .if{font-size:11.5px;color:var(--muted);margin-top:5px}
 .herd-signals-page .insight .idis{font-size:11px;color:var(--muted);margin-top:6px;border-top:1px solid var(--line2);padding-top:6px}
 

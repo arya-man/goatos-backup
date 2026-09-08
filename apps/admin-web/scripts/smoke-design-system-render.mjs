@@ -38,7 +38,19 @@ for (const route of routes) {
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
     await page.evaluate(() => document.fonts.ready).catch(() => {});
-    await page.waitForTimeout(600);
+    // Web-first settle instead of a fixed sleep: wait until the document has finished
+    // loading AND two animation frames have passed with no pending font work, so layout
+    // has actually been painted with the system faces before anything is measured.
+    await page
+      .waitForFunction(
+        () =>
+          document.readyState === "complete" &&
+          document.fonts.status === "loaded" &&
+          new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))),
+        null,
+        { timeout: 15_000 },
+      )
+      .catch(() => {});
 
     const http = resp?.status() ?? 0;
     const body = await page.locator("body").innerText().catch(() => "");
