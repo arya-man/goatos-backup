@@ -177,6 +177,9 @@ func TestLeadershipTaskLifecyclePostgresPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("raiser note: %+v err %v", replied, err)
 	}
+	if replied.AssigneeComment != "Checking with park head." {
+		t.Fatalf("raiser note overwrote compatibility comment: %q", replied.AssigneeComment)
+	}
 	if len(replied.Notes) != 2 || replied.Notes[0].AuthorID != ltCXO || replied.Notes[1].AuthorID != ltDirector || replied.Notes[1].Body != "Add a voice note when done." {
 		t.Fatalf("notes = %+v", replied.Notes)
 	}

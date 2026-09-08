@@ -598,8 +598,12 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 		return domain.Task{}, domain.ErrNotAssignee
 	}
 	now := r.now().UTC()
-	if _, err := tx.Exec(ctx, sqlSetComment, p.TenantID, p.TaskID, p.Comment, now); err != nil {
-		return domain.Task{}, fmt.Errorf("leadership task: update comment: %w", err)
+	if before.IsAssignee(p.Actor) {
+		if _, err := tx.Exec(ctx, sqlSetComment, p.TenantID, p.TaskID, p.Comment, now); err != nil {
+			return domain.Task{}, fmt.Errorf("leadership task: update comment: %w", err)
+		}
+	} else if _, err := tx.Exec(ctx, sqlTouchTask, p.TenantID, p.TaskID, now); err != nil {
+		return domain.Task{}, fmt.Errorf("leadership task: touch comment: %w", err)
 	}
 	if p.Comment != "" {
 		if _, err := tx.Exec(ctx, sqlInsertNote, p.TenantID, p.TaskID, p.Actor.UserID, p.Comment, now); err != nil {
@@ -842,6 +846,11 @@ GROUP BY status`
 const sqlSetComment = `
 UPDATE public.leadership_tasks
 SET assignee_comment = $3::text, updated_at = $4::timestamptz, row_version = row_version + 1
+WHERE tenant_id = $1 AND task_id = $2`
+
+const sqlTouchTask = `
+UPDATE public.leadership_tasks
+SET updated_at = $3::timestamptz, row_version = row_version + 1
 WHERE tenant_id = $1 AND task_id = $2`
 
 const sqlInsertNote = `
