@@ -38,6 +38,7 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Fixed eleventh-cycle PR review finding: Leadership Task write handlers now enforce the same 8-200 character `Idempotency-Key` boundary as web/mobile actions.
 - Fixed twelfth-cycle judge findings: assignee listing no longer drops valid employees after 100 rows, generated TypeScript API client is refreshed from OpenAPI, and Android empty-state copy now prefers the backend-owned selected scope message for all-filter scope views.
 - Fixed thirteenth-cycle Manju-note judge findings: Leadership Tasks now persist chronological two-way notes, preserve the old assignee comment field for mobile compatibility, expose `notes[]` in the OpenAPI/API client contract, and admin-web selected-task details can change status and add task notes instead of being read-only.
+- Fixed fourteenth-cycle judge findings: the comment route is now gated at LeadershipTasksRead so both task parties can reach domain authorization, raiser notes no longer overwrite the compatibility assignee comment, and Android models/renders backend `notes[]` instead of dropping the two-way activity stream.
 
 ## Acceptance Status
 
@@ -81,3 +82,4 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Eleventh-cycle PR judge found backend Leadership Task writes accepted malformed non-empty idempotency keys; patched in current cycle and needs re-judge.
 - Twelfth-cycle judges found the assignee picker cap, stale generated client, and Android scope empty copy drift; all are patched in current cycle and need re-judge.
 - Thirteenth-cycle Manju-note judge found missing two-way note history and read-only admin-web task details; both are patched in current cycle and need re-judge.
+- Fourteenth-cycle judges found route-auth and Android `notes[]` display gaps; both are patched in current cycle and need re-judge.

@@ -39,6 +39,8 @@
     <string name="leadership_tasks_comment_placeholder">Add a note back on this task</string>
     <string name="leadership_tasks_comment_save">Save comment</string>
     <string name="leadership_tasks_comment_saving">Saving…</string>
+    <string name="leadership_tasks_notes_label">Activity notes</string>
+    <string name="leadership_tasks_note_author_fallback">Task note</string>
     <string name="leadership_tasks_status_label">Status</string>
     <string name="leadership_tasks_attachment_view">View</string>
 </resources>

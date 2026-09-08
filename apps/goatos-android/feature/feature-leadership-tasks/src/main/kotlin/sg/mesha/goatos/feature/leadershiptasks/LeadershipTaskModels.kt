@@ -132,6 +132,13 @@ data class LeadershipStatusOptionUi(
 )
 
 @Immutable
+data class LeadershipTaskNoteUi(
+    val listKey: String,
+    val authorName: String,
+    val body: String,
+)
+
+@Immutable
 data class LeadershipTaskDetailUiState(
     /** True until the first cached/fetched detail lands. */
     val loading: Boolean = true,
@@ -142,6 +149,7 @@ data class LeadershipTaskDetailUiState(
     val body: String = "",
     val metaLine: String = "",
     val attachments: List<LeadershipAttachmentUi> = emptyList(),
+    val notes: List<LeadershipTaskNoteUi> = emptyList(),
     /** The backend's status options for this caller; empty renders no action row at all. */
     val statusOptions: List<LeadershipStatusOptionUi> = emptyList(),
     val canEdit: Boolean = false,

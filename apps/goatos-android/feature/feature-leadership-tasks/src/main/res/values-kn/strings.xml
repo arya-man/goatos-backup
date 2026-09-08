@@ -30,6 +30,8 @@
     <string name="leadership_tasks_comment_placeholder">ಈ ಕಾರ್ಯದ ಬಗ್ಗೆ ಟಿಪ್ಪಣಿ ಸೇರಿಸಿ</string>
     <string name="leadership_tasks_comment_save">ಟಿಪ್ಪಣಿ ಉಳಿಸಿ</string>
     <string name="leadership_tasks_comment_saving">ಉಳಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="leadership_tasks_notes_label">ಚಟುವಟಿಕೆ ಟಿಪ್ಪಣಿಗಳು</string>
+    <string name="leadership_tasks_note_author_fallback">ಕಾರ್ಯ ಟಿಪ್ಪಣಿ</string>
     <string name="leadership_tasks_status_label">ಸ್ಥಿತಿ</string>
     <string name="leadership_tasks_attachment_view">ವೀಕ್ಷಿಸಿ</string>
 </resources>
