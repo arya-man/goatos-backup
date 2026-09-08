@@ -99,12 +99,15 @@ func (s *VendorService) CreateVendor(ctx context.Context, tenantID string, write
 }
 
 // UpdateVendor validates and replaces a vendor's fields, fenced on rowVersion.
-func (s *VendorService) UpdateVendor(ctx context.Context, tenantID, vendorID string, write domain.VendorWrite, rowVersion int64, actorID string, includeFinance bool) (domain.Vendor, error) {
+func (s *VendorService) UpdateVendor(ctx context.Context, tenantID, vendorID string, write domain.VendorWrite, rowVersion int64, actorID, idempotencyKey string, includeFinance bool) (domain.Vendor, error) {
 	if rowVersion <= 0 {
 		// A missing or zero row_version means the client never read the row it is trying to replace,
 		// so the optimistic fence cannot protect anyone. Refuse rather than defaulting to "overwrite
 		// whatever is there".
 		return domain.Vendor{}, ErrVendorRowVersionRequired
+	}
+	if idempotencyKey == "" {
+		return domain.Vendor{}, ErrVendorIdempotencyRequired
 	}
 	normalized := write.Normalize()
 	if err := normalized.Validate(); err != nil {
@@ -116,7 +119,7 @@ func (s *VendorService) UpdateVendor(ctx context.Context, tenantID, vendorID str
 	// preserveFinance is the INVERSE of includeFinance. A caller who cannot READ the payment
 	// instruments was never shown them, so their form submits blanks -- and a replace would delete a
 	// bank account they had no way to know existed. You cannot clear what you cannot see.
-	updated, err := s.repo.UpdateVendor(ctx, tenantID, vendorID, normalized, rowVersion, actorID, !includeFinance)
+	updated, err := s.repo.UpdateVendor(ctx, tenantID, vendorID, normalized, rowVersion, actorID, idempotencyKey, !includeFinance)
 	if err != nil {
 		return domain.Vendor{}, err
 	}

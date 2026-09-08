@@ -13,6 +13,9 @@ var (
 	ErrVendorOffsetOutOfRange = errors.New("procurement: vendor page out of range")
 	// ErrVendorRowVersionRequired reports an update that carried no optimistic-concurrency fence.
 	ErrVendorRowVersionRequired = errors.New("procurement: vendor row version required")
+	// ErrVendorIdempotencyRequired reports a replace without a replay key. A phone outbox retry
+	// after a lost response would otherwise replay as a stale write and strand an already-applied edit.
+	ErrVendorIdempotencyRequired = errors.New("procurement: vendor idempotency key required")
 	// ErrVendorSideUnknown reports a register side that is neither procurement nor sales.
 	//
 	// REFUSED rather than widened to "both", because a page that asked for one half of the register
@@ -52,9 +55,16 @@ func VendorHTTPError(err error) *Error {
 		return Conflict("vendor_stale_write",
 			"Another user saved changes to this vendor while you were editing. Reload to see their version, then reapply your changes.")
 
+	case errors.Is(err, ports.ErrIdempotencyConflict):
+		return Conflict("idempotency_conflict", "That save key was already used for a different vendor edit. Reload and try again.")
+
 	case errors.Is(err, ErrVendorRowVersionRequired):
 		return BadRequest("vendor_row_version_required",
 			"This vendor must be reloaded before it can be saved.")
+
+	case errors.Is(err, ErrVendorIdempotencyRequired):
+		return BadRequest("missing_idempotency_key",
+			"This vendor edit could not be saved safely. Try again.")
 
 	case errors.Is(err, ErrVendorOffsetOutOfRange):
 		return BadRequest("page_out_of_range", "That page is beyond the vendor list. Use the filters to narrow it down.")

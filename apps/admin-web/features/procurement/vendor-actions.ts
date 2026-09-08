@@ -4,6 +4,7 @@
 // redirects back with a banner. No optimistic success: the backend response (or its error envelope)
 // drives the message, so a rejected duplicate or a stale-write conflict is what the operator sees.
 import { revalidatePath } from "next/cache";
+import { randomUUID } from "crypto";
 import { getProofDownloadUrl } from "@/lib/api/server";
 import { actionRedirect, optionalString, requiredString } from "@/lib/action-helpers";
 // NOTE: every actionKey below MUST start with "action." -- withActionFeedback silently rewrites
@@ -100,7 +101,7 @@ export async function updateVendorAction(formData: FormData): Promise<void> {
   // than silently overwriting, which is the intended failure.
   body.row_version = Number(formData.get("row_version")?.toString() ?? "0");
 
-  const result = await updateProcurementVendor(vendorId, body);
+  const result = await updateProcurementVendor(vendorId, randomUUID(), body);
   if (!result.ok) {
     actionRedirect(formData, "error", "action.vendor_save_failed");
   }

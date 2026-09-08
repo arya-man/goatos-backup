@@ -20,6 +20,11 @@ import (
 // operator hunting for a duplicate that does not exist.
 const naturalKeyConstraint = "procurement_vendors_natural_uq"
 
+// idemScopeVendorUpdate namespaces vendor replace replay keys. Vendor updates are fenced by
+// row_version, so a lost response must replay to the original result instead of becoming a stale
+// write against the row_version the first request already advanced.
+const idemScopeVendorUpdate = "procurement.vendor.update"
+
 // vendorColumns is the single projection every vendor read uses.
 //
 // search_text is deliberately NOT selected: it is a generated denormalization for the trigram
@@ -300,11 +305,29 @@ func (r *Repository) CreateVendor(ctx context.Context, tenantID string, write do
 // cannot both pass a check and then both write. The loser gets zero rows back, and the follow-up
 // read distinguishes "gone" from "changed underneath you" -- two different things to tell an
 // operator who has an edit drawer open.
-func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string, write domain.VendorWrite, rowVersion int64, actorID string, preserveFinance bool) (domain.Vendor, error) {
+func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string, write domain.VendorWrite, rowVersion int64, actorID, idempotencyKey string, preserveFinance bool) (domain.Vendor, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
 	w := write.Normalize()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Vendor{}, fmt.Errorf("procurement: begin update vendor: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	fingerprint := vendorUpdateFingerprint(vendorID, w, rowVersion, preserveFinance)
+	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeVendorUpdate, idempotencyKey, fingerprint)
+	if err != nil {
+		return domain.Vendor{}, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Vendor{}, fmt.Errorf("procurement: commit vendor update replay read: %w", err)
+		}
+		return r.GetVendor(ctx, tenantID, reservation.resultID, !preserveFinance)
+	}
+
 	query := fmt.Sprintf(`
 		UPDATE public.procurement_vendors v SET
 			record_type = $3,
@@ -344,7 +367,7 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 		nullIf("$27"), nullIf("$28"),
 		vendorColumns)
 
-	v, err := scanVendor(r.pool.QueryRow(ctx, query,
+	v, err := scanVendor(tx.QueryRow(ctx, query,
 		tenantID, vendorID, w.RecordType, w.BusinessName,
 		w.ContactPersonName, w.PhoneNumber, w.Breed, w.Feed,
 		w.Status, w.FilteredStock, w.PricePerGoat, w.ReadyToFiltered,
@@ -369,7 +392,36 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 		}
 		return domain.Vendor{}, fmt.Errorf("update vendor: %w", err)
 	}
+	if err := completeIdempotency(ctx, tx, tenantID, idemScopeVendorUpdate, idempotencyKey, "procurement_vendor", v.VendorID); err != nil {
+		return domain.Vendor{}, fmt.Errorf("procurement: complete vendor update idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Vendor{}, fmt.Errorf("procurement: commit update vendor: %w", err)
+	}
 	return v, nil
+}
+
+func vendorUpdateFingerprint(vendorID string, w domain.VendorWrite, rowVersion int64, preserveFinance bool) string {
+	preserve := "false"
+	if preserveFinance {
+		preserve = "true"
+	}
+	return requestFingerprint(
+		vendorID, fmt.Sprintf("%d", rowVersion), preserve,
+		w.RecordType, w.BusinessName, w.ContactPersonName, w.PhoneNumber,
+		w.Breed, w.Feed, w.Status, fpInt(w.FilteredStock), fpString(w.PricePerGoat),
+		w.ReadyToFiltered, fpInt(w.ETAAfterOrderDays), w.Details, w.State, w.City,
+		w.BankName, w.AccountNo, w.IFSCCode, w.UPIID, w.PANNumber, w.Comments,
+		fpString(w.CapacityQuantity), w.CapacityUnit, w.SupplyFrequency, w.VoiceNoteProofRef,
+		fpString(w.AverageAnimalWeightKg),
+	)
+}
+
+func fpString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 // ListVendorCatalog returns the business-managed dropdown vocabularies.

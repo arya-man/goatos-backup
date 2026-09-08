@@ -54,7 +54,7 @@ type VendorRepository interface {
 	// write. It is set for a caller without VendorFinanceRead, whose form never rendered those fields
 	// and would therefore submit blanks -- silently deleting a bank account they were not allowed to
 	// see. You cannot clear what you cannot read.
-	UpdateVendor(ctx context.Context, tenantID, vendorID string, write domain.VendorWrite, rowVersion int64, actorID string, preserveFinance bool) (domain.Vendor, error)
+	UpdateVendor(ctx context.Context, tenantID, vendorID string, write domain.VendorWrite, rowVersion int64, actorID, idempotencyKey string, preserveFinance bool) (domain.Vendor, error)
 
 	// UpdateVendorStatus changes ONLY the trading status, fenced on rowVersion.
 	//

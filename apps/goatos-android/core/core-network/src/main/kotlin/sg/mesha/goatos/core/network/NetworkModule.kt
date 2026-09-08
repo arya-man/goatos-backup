@@ -1016,7 +1016,11 @@ interface AppApiService {
     suspend fun createProcurementVendor(@Body request: VendorWriteDto): VendorDto
 
     @PUT("procurement/vendors/{vendor_id}")
-    suspend fun updateProcurementVendor(@Path("vendor_id") vendorId: String, @Body request: VendorWriteDto): VendorDto
+    suspend fun updateProcurementVendor(
+        @Path("vendor_id") vendorId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: VendorWriteDto,
+    ): VendorDto
 
     @GET("procurement/feed-purchases")
     suspend fun getFeedPurchases(
@@ -2244,8 +2248,8 @@ class RetrofitAppApi(
     override suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto =
         service.createProcurementVendor(request)
 
-    override suspend fun updateProcurementVendor(vendorId: String, request: VendorWriteDto): VendorDto =
-        service.updateProcurementVendor(vendorId, request)
+    override suspend fun updateProcurementVendor(vendorId: String, idempotencyKey: String, request: VendorWriteDto): VendorDto =
+        service.updateProcurementVendor(vendorId, idempotencyKey, request)
 
     override suspend fun getFeedPurchases(
         farm: String?,
