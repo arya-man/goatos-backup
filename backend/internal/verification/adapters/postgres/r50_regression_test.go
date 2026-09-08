@@ -401,6 +401,57 @@ func TestRecordVerdictIdempotencySameKeyDifferentPayload_RealPostgres(t *testing
 	}
 }
 
+func TestRecordVerdictIdempotencySameKeyDifferentMeasurement_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	created, err := repo.CreateItem(ctx, domain.CreateItem{
+		TenantID:       tenantID,
+		Vertical:       "preventive_care",
+		Module:         "vaccination",
+		Category:       "vaccination_proof",
+		Source:         domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: tenantID},
+		MediaRefs:      []string{"proof-1"},
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey: "r50-021-measurement:create",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+
+	verifierID := "00000000-0000-4000-8000-555555555555"
+	idemKey := "r50-021-measurement:verdict"
+	_, err = repo.RecordVerdict(ctx, domain.Verdict{
+		TenantID:       tenantID,
+		ItemID:         created.Item.ItemID,
+		Decision:       domain.DecisionApproved,
+		VerifierID:     verifierID,
+		RowVersion:     created.Item.RowVersion,
+		IdempotencyKey: idemKey,
+		Measurement:    &domain.VerdictMeasurement{Value: 42.5, Reason: "scale reads 42.5"},
+	})
+	if err != nil {
+		t.Fatalf("first RecordVerdict: %v", err)
+	}
+
+	_, err = repo.RecordVerdict(ctx, domain.Verdict{
+		TenantID:       tenantID,
+		ItemID:         created.Item.ItemID,
+		Decision:       domain.DecisionApproved,
+		VerifierID:     verifierID,
+		RowVersion:     created.Item.RowVersion,
+		IdempotencyKey: idemKey,
+		Measurement:    &domain.VerdictMeasurement{Value: 43.0, Reason: "scale reads 43"},
+	})
+	if !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("same-key different-measurement: err = %v, want ErrIdempotencyConflict", err)
+	}
+}
+
 // R50-021: CloseItem idempotency — first-call and exact-replay.
 func TestCloseItemIdempotencyFirstCallExactReplay_RealPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
