@@ -10123,6 +10123,7 @@ components:
             atomic on its own.
           items:
             type: string
+            format: uuid
         animal_weights_kg:
           type: object
           description: >-
@@ -10132,7 +10133,6 @@ components:
             with `invalid_weight`, and nothing is written.
           additionalProperties:
             type: string
-            format: uuid
         reason:
           type: string
           maxLength: 500
