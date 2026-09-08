@@ -23,7 +23,7 @@
   :root{
     --logo:#7ac943; --brand-l:#a9d15e;
     /* System radii: 2px on panels, pill on buttons/tags. Nothing in between. */
-    --r:2px; --r2:2px; --r-pill:999px;
+    --r:2px; --r2:2px; --r-md:4px; --r-lg:1rem; --r-pill:999px;
     --f:"Instrument Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     --f-serif:"Instrument Serif",Georgia,"Times New Roman",serif;
     --fm:"Spline Sans Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -2535,10 +2535,17 @@
   }
 
 /* === Vaccination Operators Screen === */
-.phead { display: flex; align-items: flex-start; gap: 16px; }
+/* SCOPED 2026-09-08: these rules were unscoped and redefined app-wide primitives
+   (.phead .card .btn .btn.sm .fld select .tag .kpi .grid table th .crumb) for EVERY
+   screen, winning on source order and silently dropping the properties they did not
+   name. That was the root cause of the page-header misalignment on 17 routes, the
+   eight distinct control heights, and the orphaned form labels. They now apply only
+   to the screen they were written for; every other screen falls back to the design
+   system block above, which is canonical. */
+[data-screen="vaccination-operators"] .phead{ display: flex; align-items: flex-start; gap: 16px; }
 .phead .sp { flex: 1; }
-.crumb { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
-.crumb b { color: var(--brand); }
+[data-screen="vaccination-operators"] .crumb{ font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
+[data-screen="vaccination-operators"] .crumb b{ color: var(--brand); }
 /* Purchase and Born keeps its breadcrumb in ordinary case (maintainer, 2026-09-02). The generic
    .crumb rule above uppercases every crumb, and this page's title is a plain phrase rather than a
    label -- shouted back as "SALES / PURCHASE AND BORN" it read as a system code. Scoped to the page
@@ -2548,18 +2555,18 @@
 .sales-loads-head>div:first-child{min-width:0}
 .sales-loads-tabs{position:absolute;top:2px;left:50%;transform:translateX(-50%);justify-content:center;margin-top:0}
 .sub { color: var(--muted); font-size: 12.5px; max-width: 820px; }
-.grid { display: grid; gap: 12px; }
-.g4 { grid-template-columns: repeat(4, 1fr); }
-.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 2px; padding: 13px 14px; position: relative; overflow: hidden; }
+[data-screen="vaccination-operators"] .grid{ display: grid; gap: 12px; }
+[data-screen="vaccination-operators"] .g4{ grid-template-columns: repeat(4, 1fr); }
+[data-screen="vaccination-operators"] .kpi{ background: var(--panel); border: 1px solid var(--line); border-radius: 2px; padding: 13px 14px; position: relative; overflow: hidden; }
 .kpi .acc { position: absolute; top: 0; left: 0; width: 100%; height: 3px; }
 .kpi .lab { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 6px; }
 .kpi .val { font-size: 26px; font-weight: 800; margin-top: 6px; }
 .kpi .dl { font-size: 11px; color: color-mix(in srgb,var(--muted) 64%,var(--ink)); margin-top: 2px; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 2px; margin-top: 16px; overflow: hidden; }
-.card .hd { display: flex; align-items: center; gap: 9px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
-.card .hd h3 { margin: 0; font-size: 14.5px; }
-.card .hd .sp { flex: 1; }
-.card .bd { padding: 6px 16px 16px; }
+[data-screen="vaccination-operators"] .card{ background: var(--panel); border: 1px solid var(--line); border-radius: 2px; margin-top: 16px; overflow: hidden; }
+[data-screen="vaccination-operators"] .card .hd{ display: flex; align-items: center; gap: 9px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+[data-screen="vaccination-operators"] .card .hd h3{ margin: 0; font-size: 14.5px; }
+[data-screen="vaccination-operators"] .card .hd .sp{ flex: 1; }
+[data-screen="vaccination-operators"] .card .bd{ padding: 6px 16px 16px; }
 .sales-config-card-copy{margin:0;padding:10px 16px 14px;line-height:1.45}
 .sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(180px,320px) auto;align-items:center;gap:12px;margin:10px auto 0 0;padding:9px 12px;border:1px solid var(--line);border-radius:2px;background:var(--panel);width:fit-content;max-width:100%}
 .sales-ready-tolerance-head{display:flex;align-items:baseline;gap:8px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.35px;text-transform:uppercase}
@@ -2567,20 +2574,20 @@
 .sales-ready-tolerance-row{display:grid;grid-template-columns:minmax(86px,1fr) auto;align-items:center;gap:8px}
 .sales-ready-tolerance input[type="range"]{width:100%;min-width:0;accent-color:var(--brand)}
 .sales-ready-tolerance output{min-width:48px;color:var(--ink);font-size:12px;font-weight:700;text-align:right}
-.tag { border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; display: inline-block; }
+[data-screen="vaccination-operators"] .tag{ border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; display: inline-block; }
 .t-ok { background: var(--okx); color: var(--ok); }
 .t-info { background: var(--infox); color: var(--info); }
 .t-warn { background: var(--warnx); color: var(--warn); }
 .t-danger { background: var(--dangerx); color: var(--danger); }
-.btn { border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); border-radius: 2px; padding: 8px 13px; font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
-.btn:hover { border-color: var(--brand); }
-.btn.b { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
-.btn.sm { padding: 5px 10px; font-size: 12px; min-width: 64px; justify-content: center; }
-.btn.ghost { background: transparent; }
-.btn:disabled { opacity: .5; cursor: not-allowed; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 12px 12px; border-bottom: 1px solid var(--line2); white-space: nowrap; vertical-align: middle; }
-th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); border-bottom: 1px solid var(--line); }
+[data-screen="vaccination-operators"] .btn{ border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); border-radius: 2px; padding: 8px 13px; font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+[data-screen="vaccination-operators"] .btn:hover{ border-color: var(--brand); }
+[data-screen="vaccination-operators"] .btn.b{ background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+[data-screen="vaccination-operators"] .btn.sm{ padding: 5px 10px; font-size: 12px; min-width: 64px; justify-content: center; }
+[data-screen="vaccination-operators"] .btn.ghost{ background: transparent; }
+[data-screen="vaccination-operators"] .btn:disabled{ opacity: .5; cursor: not-allowed; }
+[data-screen="vaccination-operators"] table{ width: 100%; border-collapse: collapse; font-size: 13px; }
+[data-screen="vaccination-operators"] th, td{ text-align: left; padding: 12px 12px; border-bottom: 1px solid var(--line2); white-space: nowrap; vertical-align: middle; }
+[data-screen="vaccination-operators"] th{ font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); border-bottom: 1px solid var(--line); }
 .person { display: flex; align-items: center; gap: 10px; }
 .person .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-weight: 800; border: 1px solid var(--brand); font-size: 12px; }
 .person b { display: block; }
@@ -2700,11 +2707,11 @@ aside.drawer.on{transform:none}
 .modal .err { margin-top: 12px; font-size: 12px; color: var(--danger); background: var(--dangerx); border: 1px solid var(--danger); border-radius: 2px; padding: 9px 11px; display: none; }
 .modal .err.on { display: block; }
 .modal .mf { display: flex; justify-content: flex-end; gap: 9px; padding: 14px 18px; border-top: 1px solid var(--line); background: var(--panel-2); }
-.ctl { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; margin: 8px 0 4px; }
-.fld { display: flex; flex-direction: column; gap: 5px; }
-.fld label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
-select { background: var(--bg); border: 1px solid var(--line); color: var(--ink); border-radius: 2px; padding: 8px 10px; font: inherit; min-width: 170px; }
-select:disabled { opacity: .45; }
+[data-screen="vaccination-operators"] .ctl{ display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; margin: 8px 0 4px; }
+[data-screen="vaccination-operators"] .fld{ display: flex; flex-direction: column; gap: 5px; }
+[data-screen="vaccination-operators"] .fld label{ font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+[data-screen="vaccination-operators"] select{ background: var(--bg); border: 1px solid var(--line); color: var(--ink); border-radius: 2px; padding: 8px 10px; font: inherit; min-width: 170px; }
+[data-screen="vaccination-operators"] select:disabled{ opacity: .45; }
 .selectgrid { display: flex; flex-wrap: wrap; gap: 10px; }
 .pickop { display: inline-flex; align-items: center; gap: 9px; min-width: 150px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); border-radius: 2px; padding: 8px 12px; font: inherit; text-align: left; cursor: pointer; }
 .pickop:hover { border-color: var(--brand); }
@@ -3732,7 +3739,7 @@ select:disabled { opacity: .45; }
 .herd-signals-page .kpi .dl{font-size:11px;font-weight:400;color:var(--muted);margin-top:0}
 /* Chips: mock .tag is a small rounded-rect label in the full tone colour, not a muted-bordered
    pill. Scoped to this page so it never touches an unrelated screen's .tag. */
-.herd-signals-page .tag{border-radius:2px;font-weight:700;border:0;padding:2px 8px;letter-spacing:.16em;line-height:normal}
+.herd-signals-page .tag{border-radius:2px;font-weight:700;border:0;padding:2px 8px;letter-spacing:var(--tracking-label);line-height:normal}
 /* Pins font-size/weight/padding above other same-specificity `.xyz .tag` rules elsewhere in this
    shared stylesheet (e.g. `.task-ac .tag`) that this page's tags never sit inside, but which the
    mock-parity guard's selector resolver treats as competing for the bare `.tag` class. */
@@ -4919,7 +4926,7 @@ select:disabled { opacity: .45; }
 
 /* Buttons: transparent pill outline at rest, fills solid with its accent on
    hover, ink flips to near-black. No lighten-only hover, no hover-scale. */
-:where(:root) .btn{font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;padding:9px 16px;border-radius:var(--r-pill);background:transparent;border:1px solid var(--line);color:var(--ink);transition:background .3s,color .3s,border-color .3s}
+:where(:root) .btn{font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:var(--tracking-label);text-transform:uppercase;padding:9px 16px;border-radius:var(--r-pill);background:transparent;border:1px solid var(--line);color:var(--ink);transition:background .3s,color .3s,border-color .3s}
 :where(:root) .btn:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
 :where(:root) .btn.p,:where(:root) .btn.primary{background:transparent;border-color:color-mix(in srgb,var(--brand) 40%,transparent);color:var(--brand)}
 :where(:root) .btn.p:hover,:where(:root) .btn.primary:hover{background:var(--brand);border-color:var(--brand);color:var(--on-brand)}
@@ -4930,7 +4937,7 @@ select:disabled { opacity: .45; }
 :where(:root) .btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 
 /* Status tags: pill, hairline in the status hue. */
-:where(:root) .tag{font-family:var(--fm);font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;padding:3px 10px;border-radius:var(--r-pill);border:1px solid currentColor;background:transparent}
+:where(:root) .tag{font-family:var(--fm);font-size:10px;font-weight:500;letter-spacing:var(--tracking-label);text-transform:uppercase;padding:3px 10px;border-radius:var(--r-pill);border:1px solid currentColor;background:transparent}
 
 /* Headings read as the brand, at dashboard scale. */
 :where(:root) h1,:where(:root) h2,:where(:root) h3,:where(:root) .pagetitle,:where(:root) .cardh b{font-family:var(--f-serif);font-weight:400;letter-spacing:0}
@@ -5033,7 +5040,7 @@ select:disabled { opacity: .45; }
 
 /* The file button inside an upload field kept OS chrome -- a light-grey button on a
    near-black drawer in the bulk-import flows. */
-:where(:root) input[type="file"]::file-selector-button{font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;padding:7px 12px;margin-right:10px;border-radius:var(--r-pill);border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+:where(:root) input[type="file"]::file-selector-button{font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:var(--tracking-label);text-transform:uppercase;padding:7px 12px;margin-right:10px;border-radius:var(--r-pill);border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
 :where(:root) input[type="file"]::file-selector-button:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
 
 /* Reduced motion: the existing blocks covered roughly half of the 14 named
@@ -5045,18 +5052,16 @@ select:disabled { opacity: .45; }
   :where(:root) *{scroll-behavior:auto!important}
 }
 
-/* ===== SIDEBAR GROUP LABELS =====
-   Counts / Weighing / Sales / Feed / Preventive Care / Procurement / Others are
-   STRUCTURAL labels -- they name a section rather than being read as prose -- and
-   the system gives that job to mono, uppercase, wide-tracked. Leaf items stay in
-   sans: there are 31 nav destinations and they are read, not scanned as labels.
+/* ===== SIDEBAR IS ONE VOICE =====
+   An earlier revision set the group labels (COUNTS, WEIGHING, SALES, FEED, ...)
+   in mono uppercase while the top-level items beside them (Control Tower, Action
+   Center, Calendar, ...) stayed sans sentence case. Both sit at the SAME level in
+   the same rail, so the sidebar read as two different kinds of thing where there
+   is only one: a list of top-level destinations, some of which expand.
 
-   Sizing is deliberately dropped a step. Uppercase mono at .16em tracking sets
-   much wider than 14px sans, and the sidebar is a fixed 256px -- at the original
-   size "Preventive Care" and "Protocol Adherence" would wrap or clip. */
-:where(:root) .side .ggrp{font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase}
-:where(:root) .side .ggrp .gct{font-family:var(--fm);letter-spacing:.16em;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* The rail (collapsed) state hides .gct entirely, so nothing to adjust there. */
+   Reported five times. Reverted: every top-level row is sans sentence case, and
+   the group/leaf distinction is carried by the chevron and the indent, which
+   already exist and do not need a second signal. */
 
 /* The wordmark asked for weight 900, but the variable face carries 400-700, so the
    browser silently clamped it. Stated honestly at the weight that exists. */
@@ -5182,7 +5187,7 @@ select:disabled { opacity: .45; }
    concept as `.tag` (mono 10/500 uppercase). On /workflows a mono `IN PROGRESS`
    sat directly above a sans stage row -- the maintainer's screenshot. */
 :where(:root) .pill,:where(:root) .vplan .pill{
-  font-family:var(--fm);font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase}
+  font-family:var(--fm);font-size:10px;font-weight:500;letter-spacing:var(--tracking-label);text-transform:uppercase}
 
 /* Stage pills are a NAV control whose labels are sentence-case prose, so they
    stay sans -- but they must stop being 700 weight beside a 500 status pill. */

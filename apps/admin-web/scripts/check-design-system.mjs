@@ -83,7 +83,12 @@ const HSL_TRIPLET_CANDIDATES = [
   "accent", "destructive", "muted-foreground", "ring",
 ];
 // The system's radius scale: 2px on surfaces, a full pill on controls. Nothing in between.
-const RADIUS_OK = new Set(["var(--r)", "var(--r2)", "var(--r-pill)", "0", "0px", "2px", "50%", "999px", "9999px", "inherit", "initial", "unset", "revert"]);
+// The design system's radius scale is sm 2px / md 4px / lg 1rem / pill (see
+// tokens/effects.css in the design system: --radius-sm/-md/-lg/-pill). An earlier
+// revision of this guard enforced "2px or pill, nothing between", which was an
+// invention -- the system does define a 4px and a 1rem step.
+const RADIUS_OK = new Set(["var(--r)", "var(--r2)", "var(--r-md)", "var(--r-lg)", "var(--r-pill)",
+  "0", "0px", "2px", "4px", "1rem", "16px", "50%", "999px", "9999px", "inherit", "initial", "unset"]);
 const FONT_TOKENS = /var\(\s*--(?:f|f-serif|fm|font-sans|font-serif|font-mono)\s*\)/;
 const HEX = /#[0-9a-fA-F]{3,8}\b/g;
 const COLOUR_FN = /\b(?:rgba?|hsla?)\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g;
@@ -186,7 +191,7 @@ export function findingsForSource(rel, rawSource, facts) {
       const bad = parts.filter((p) => !RADIUS_OK.has(p) && !/^var\(--r/.test(p));
       if (!bad.length) continue;
       if (isAllowed(rel, text, "off-scale-radius")) continue;
-      add(line, "off-scale-radius", `border radius "${value}" is off the system scale  ->  use var(--r) (2px surfaces), var(--r-pill)/999px (controls), 50% (circles) or 0`);
+      add(line, "off-scale-radius", `border radius "${value}" is off the system scale  ->  use var(--r) 2px, var(--r-md) 4px, var(--r-lg) 1rem, or var(--r-pill) (controls), 50% (circles) or 0`);
     }
 
     // 5) undefined custom properties
