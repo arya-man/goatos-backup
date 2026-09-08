@@ -508,13 +508,12 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		// Leadership Tasks: a general ask desk for leadership to assign follow-up work inside
-		// the phone app. Raises and assignees are capability-driven; a role name never decides
-		// the picker by itself. Admin-web has only a contract-gated preview until a real data
-		// endpoint is added.
+		// the phone app and admin-web monitor desk. Raises and assignees are capability-driven;
+		// a role name never decides the picker by itself.
 		Key:      "leadership_tasks",
 		Label:    "Tasks",
 		Blurb:    "Tasks raised inside the farm team, with voice notes, media and files.",
-		Surfaces: []string{SurfaceMobile},
+		Surfaces: []string{SurfaceMobile, SurfaceWeb},
 		Levels: map[string][]string{
 			LevelView: {LeadershipTasksRead},
 			// Raising, editing and cancelling one's own. The director roles. Do also carries the

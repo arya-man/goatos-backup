@@ -19,6 +19,9 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Fixed third-cycle web completeness gap: production `/tasks` now fetches live `/app/leadership-tasks?scope=team_progress` data after the admin-web page-contract gate; fixtures are confined to `/tasks-preview`.
 - Fixed third-cycle scope bug: `ScopeKeyOrDefault` now trims once and compares the trimmed key, so whitespace query values do not drop monitor users out of Team Progress.
 - Cleaned stale Leadership Tasks comments/schema copy that still described one-way director-to-CXO tasks.
+- Fixed fourth-cycle PR review finding `LT-220-01`: backend admin-ui now publishes the `leadership-tasks` `/tasks` page contract, primary nav leaf, route label, module page mapping, and web-capability surface so production admin web can render Tasks instead of redirecting away.
+- Fixed fourth-cycle PR review finding `LT-220-02`: attachment download monitor coverage now uses `CanMonitor`, not accidental `CanRaise`, so the guard matches the intended Team Progress/read-monitor authority.
+- Preserved the existing Approvals -> Verify primary-nav invariant and placed Tasks after Verify, with tests covering CEO/CXO receipt of the Tasks page contract and nav leaf.
 
 ## Acceptance Status
 
@@ -26,17 +29,21 @@ Finish PR 220 against Manju's ask: manual in-app tasks, assignable to director /
 - Employee assignment: accepted as every active app-backed workforce member with `person_access` and mobile Leadership Tasks `view+oversee`.
 - Notes: accepted for this PR as title/body plus one assignee note/comment field and attachments. Threaded Jira-style activity is not built in this PR.
 - Seed/E2E data: migration is implemented and guarded locally. Real OCI/staging readback is not part of the committed test suite here.
-- Screenshots: Android evidence remains unit/Paparazzi fixture based; web evidence includes Chrome `/tasks-preview` with shell/sidebar. Production `/tasks` is live-data backed but requires a backend page contract to render.
+- Screenshots: Android evidence remains unit/Paparazzi fixture based; web evidence includes Chrome `/tasks-preview` with shell/sidebar. Production `/tasks` is live-data backed behind the backend page contract.
 
 ## Validation Log
 
 - Passed: `go test ./internal/leadershiptasks/... ./internal/permissions/... ./internal/workforce/app -run 'Leadership|Task'`.
+- Passed: `go test ./internal/leadershiptasks/app ./internal/leadershiptasks/domain ./internal/leadershiptasks/adapters/http ./internal/permissions ./internal/workforce/app ./internal/adminui/app`.
 - Passed: `go test ./migrations/postgres -run 'LeadershipTasksTwoWaySeed'`.
 - Passed: `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk ./gradlew :app:testDevDebugUnitTest --tests '*LeadershipTask*'`.
 - Passed: `npm run typecheck && npm exec -- eslint 'app/(admin)'/tasks/page.tsx app/tasks-preview/page.tsx features/leadership-tasks/leadership-tasks-page.tsx`.
 - Captured: Chrome shell screenshot at `apps/admin-web/.codex-leadership-tasks-web-sidebar.png`.
+- Captured: Android Paparazzi images for CEO Team Progress, CEO assignee picker, Director detail, and Park Head detail under `apps/goatos-android/app/build/reports/paparazzi/devDebug/images/`.
 - Passed: `node --test lib/admin-route-page-contract.test.mjs`.
 - Second-cycle Manju-note judge found remaining gaps around static admin-web data, mobile-only capability declaration, COO naming, notes depth, and screenshots as local evidence.
 - Second-cycle PR-review judge found `LT-001` director `do`/pen-visits shadowing and `LT-002` production admin route missing page-contract gate; both are patched and need re-judge.
 - Third-cycle Manju-note judge found web static data, stale OpenAPI assignee copy, ambiguous progress-doc items; patched in current cycle.
 - Third-cycle PR-review judge found web static data and whitespace scope normalization; patched in current cycle.
+- Fourth-cycle Manju-note judge returned clean against commit `e68759993`, with only the documented v1 note-depth limitation.
+- Fourth-cycle PR-review judge found missing backend admin-ui page/nav contract and an overly broad test actor; both are patched in current cycle and need re-judge.

@@ -118,6 +118,7 @@ func navigation() domain.NavigationContract {
 			// "Actions", the vaguest possible label for a screen that does exactly one thing: open a
 			// proof video, check it against the facts, accept or reject.
 			navItemDomain("verification-actions", "Verify", "/verify", "clipboard-check", "", "admin.verification"),
+			navItem("leadership-tasks", "Tasks", "/tasks", "clipboard-list", ""),
 		},
 		Groups: []domain.NavigationGroup{
 			{
@@ -210,6 +211,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/workflows/{row_id}", Label: "Workflow record", Match: "pattern"},
 		{Pattern: "/workflows", Label: "Workflows", Match: "exact"},
 		{Pattern: "/approvals", Label: "Approvals", Match: "exact"},
+		{Pattern: "/tasks", Label: "Tasks", Match: "exact"},
 		{Pattern: "/verify", Label: "Verify", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
 		// Most-specific-first: the live tracker's exact rule must precede /vaccination's, or the
@@ -357,6 +359,8 @@ func pages() []domain.PageContract {
 		page("workflow-record", "/workflows/{row_id}", "/workflows/{row_id}", "Workflow drilldown", "One vaccination workflow chain reaction record.", "record-drilldown", nil),
 		page("approvals", "/approvals", "/approvals", "Approvals", "Pending birth, death, and shifting requests raised from the field. Approve to apply the change, or reject with a reason.", "authority-screen",
 			[]domain.TableContract{table("approval-requests", "Approval requests", "/admin-web/counts/approvals", []string{"request_type", "subject", "raised_at", "status", "action"}, "approval_request_id")}),
+		page("leadership-tasks", "/tasks", "/tasks", "Tasks", "Manual tasks raised across directors, park heads, and employees, with notes and attachments.", "monitoring-screen",
+			[]domain.TableContract{table("leadership-task-progress", "Team progress", "/app/leadership-tasks", []string{"task", "assignee", "raised_by", "status", "evidence", "priority"}, "task_id")}),
 		page("verification-review", "/verify", "/verify", "Verify", "Open a video, check it against the facts, and accept or reject it.", "authority-screen",
 			// "vertical_module" was DROPPED (maintainer decision 2026-08-07). It rendered the
 			// item's raw vertical/module tokens verbatim -- "preventive_care / vaccination" --

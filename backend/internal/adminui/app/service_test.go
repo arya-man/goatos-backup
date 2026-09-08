@@ -932,7 +932,7 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 		},
 	})
 
-	if len(resp.Navigation.Primary) != 7 {
+	if len(resp.Navigation.Primary) != 8 {
 		t.Fatalf("primary command-lens items must stay present, got %d", len(resp.Navigation.Primary))
 	}
 	// Approvals is present but RBAC-disabled for an operator, who holds no counts.approve_access.
@@ -979,6 +979,23 @@ func TestBootstrapNavLeavesOnlyPointAtPublishedAdminWebPages(t *testing.T) {
 				t.Fatalf("nav leaf %s/%s points at %q, but no admin-web page contract publishes that href", group.ID, leaf.ID, leaf.Href)
 			}
 		}
+	}
+}
+
+func TestCEOReceivesLeadershipTasksPageContract(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+
+	if leaf := optionalPrimaryNavItemByID(resp.Navigation.Primary, "leadership-tasks"); leaf == nil || leaf.Href != "/tasks" {
+		t.Fatalf("CEO/CXO must receive Tasks primary nav leaf, got %#v", leaf)
+	}
+	if page := optionalPageByRouteID(resp.Pages, "leadership-tasks"); page == nil || page.Href != "/tasks" {
+		t.Fatalf("CEO/CXO must receive leadership-tasks page contract, got %#v", page)
 	}
 }
 
@@ -1117,6 +1134,15 @@ func primaryNavIndex(items []domain.NavigationItem, id string) int {
 		}
 	}
 	return -1
+}
+
+func optionalPrimaryNavItemByID(items []domain.NavigationItem, id string) *domain.NavigationItem {
+	for i := range items {
+		if items[i].ID == id {
+			return &items[i]
+		}
+	}
+	return nil
 }
 
 func optionalNavLeafByID(groups []domain.NavigationGroup, id string) *domain.NavigationItem {
