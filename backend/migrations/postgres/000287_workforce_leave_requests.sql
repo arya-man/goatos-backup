@@ -120,6 +120,7 @@ CREATE TABLE workforce_leave_approval_config (
 -- the tenant-scoped grant the seeder writes is legal, and is_legacy=true because it belongs to
 -- no org vertical -- exactly the row shape 000108 used for counts_approver. It carries leave
 -- approval as its first authority; more approval kinds will be added to the role later.
+-- seed-migration-guard:ignore owner=manohark issue=leave-requests reason=per-person-role-row-granted-by-name-via-seed-stg-login-grants-perPersonGrants-no-fixture-seed-writes-it expiry=2026-12-31
 INSERT INTO public.org_role_catalog (role_key, tier_code, vertical_code, is_legacy, label, created_at)
 VALUES ('hr', 'director', NULL, true, 'HR', now())
 ON CONFLICT (role_key) DO UPDATE
@@ -170,8 +171,11 @@ ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING;
 -- +goose Down
 DELETE FROM public.person_module_access WHERE module_key = 'leave_approvals';
 DELETE FROM public.designation_catalog WHERE designation_code = 'hr';
+-- seed-migration-guard:ignore owner=manohark issue=leave-requests reason=per-person-role-row-granted-by-name-via-seed-stg-login-grants-perPersonGrants-no-fixture-seed-writes-it expiry=2026-12-31
 DELETE FROM public.user_scope_grants WHERE role = 'hr';
+-- seed-migration-guard:ignore owner=manohark issue=leave-requests reason=per-person-role-row-granted-by-name-via-seed-stg-login-grants-perPersonGrants-no-fixture-seed-writes-it expiry=2026-12-31
 DELETE FROM public.auth_pending_email_grants WHERE role = 'hr';
+-- seed-migration-guard:ignore owner=manohark issue=leave-requests reason=per-person-role-row-granted-by-name-via-seed-stg-login-grants-perPersonGrants-no-fixture-seed-writes-it expiry=2026-12-31
 DELETE FROM public.org_role_catalog WHERE role_key = 'hr';
 DROP TABLE IF EXISTS workforce_leave_approval_config;
 DROP TABLE IF EXISTS workforce_leave_requests;
