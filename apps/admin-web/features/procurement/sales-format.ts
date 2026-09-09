@@ -167,6 +167,15 @@ export function monthlyAnimalRevenueTotal(month: MonthlyLike): number {
   return month.sheep_revenue + month.goat_revenue;
 }
 
+/** Drops leading/trailing zero-only months for a chart-specific metric while preserving gaps inside. */
+export function trimEmptyMonthlyEdges<T>(months: T[], valueOf: (month: T) => number): T[] {
+  let first = 0;
+  while (first < months.length && valueOf(months[first]) <= 0) first += 1;
+  let last = months.length - 1;
+  while (last >= first && valueOf(months[last]) <= 0) last -= 1;
+  return first <= last ? months.slice(first, last + 1) : [];
+}
+
 /**
  * The market-check loss per kg: how far our landed cost sits ABOVE the market's quoted price.
  * Positive means we land dearer than the market sells. Null when either side is unrecorded — a
