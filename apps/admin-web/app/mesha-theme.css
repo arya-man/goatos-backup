@@ -3212,8 +3212,6 @@ select:disabled { opacity: .45; }
 .mcols::-webkit-scrollbar{height:8px}
 .mcols::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
 .mcols::-webkit-scrollbar-track{background:transparent}
-.mcols.compact{justify-content:flex-start}
-.mcols.compact .mcol{flex:0 0 132px}
 .mcol{flex:1 1 0;display:flex;flex-direction:column;align-items:center;min-width:58px}
 .mcarea{display:flex;align-items:flex-end;justify-content:center;height:138px;width:100%;border-bottom:1px solid var(--line)}
 .mcstack{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;width:100%;height:100%;box-sizing:border-box;padding-top:17px}

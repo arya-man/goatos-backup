@@ -38,7 +38,7 @@ import {
   numCompactWhole,
   resolveFarm,
   salesHref,
-  trimEmptyMonthlyEdges,
+  trimEmptyMonthlyStart,
 } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SalesReadyToleranceControl } from "./sales-ready-tolerance-control";
@@ -266,7 +266,7 @@ function OverviewSections({
               {copy(pageContract, "chart.monthly_revenue.title")}
             </div>
             <MonthColumns
-              data={trimEmptyMonthlyEdges(overview.monthly, monthlyRevenueTotal).map((month) => ({
+              data={trimEmptyMonthlyStart(overview.monthly, monthlyRevenueTotal).map((month) => ({
                 key: month.month,
                 axisLabel: monthLabel(month.month),
                 label: monthLabel(month.month),
@@ -281,7 +281,7 @@ function OverviewSections({
             {/* Head count owns the bar; the rupees it earned ride under the month label so the two
                 units are read separately and never share the axis. */}
             <MonthColumns
-              data={trimEmptyMonthlyEdges(overview.monthly, monthlyAnimalsTotal).map((month) => ({
+              data={trimEmptyMonthlyStart(overview.monthly, monthlyAnimalsTotal).map((month) => ({
                 key: month.month,
                 axisLabel: monthLabel(month.month),
                 label: monthLabel(month.month),
@@ -297,7 +297,7 @@ function OverviewSections({
             />
             <div className="mt">{copy(pageContract, "chart.monthly_manure.title")}</div>
             <MonthColumns
-              data={trimEmptyMonthlyEdges(overview.monthly, (month) => month.manure_kg).map((month) => ({
+              data={trimEmptyMonthlyStart(overview.monthly, (month) => month.manure_kg).map((month) => ({
                 key: month.month,
                 axisLabel: monthLabel(month.month),
                 label: monthLabel(month.month),
