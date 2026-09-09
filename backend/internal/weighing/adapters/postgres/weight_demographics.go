@@ -167,7 +167,7 @@ raw_obs AS (
   LEFT JOIN unnest($17::text[], $18::text[]) AS akmap(tag, canonical_tag)
     ON akmap.tag = lower(btrim(o.scanned_identifier))
   WHERE o.tenant_id = $1::uuid
-    AND o.accepted_at >= ($3::timestamptz - interval '90 days') AND o.accepted_at < $4::timestamptz
+    AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected' AND btrim(o.scanned_identifier) <> ''
     AND ($16::text = '' OR $16::text = 'individual_animal')
     AND (NOT $6::bool OR lower(btrim(o.scanned_identifier)) = ANY($7::text[]))

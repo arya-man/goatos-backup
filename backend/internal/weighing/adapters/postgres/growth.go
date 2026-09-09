@@ -337,8 +337,18 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	periodLen := periodEnd.Sub(periodStart)
 	prevStart := periodStart.Add(-periodLen)
 	prevEnd := periodStart
-	lookbackStart := periodStart.Add(-growthLookbackDays * 24 * time.Hour)
-	prevLookbackStart := prevStart.Add(-growthLookbackDays * 24 * time.Hour)
+	// BOTH weighs must fall inside the selected period (maintainer decision 2026-09-09).
+	// Reaching growthLookbackDays before periodStart let an animal weighed ONCE in the period
+	// pair against a weigh up to 400 days old and still count: on the 1-7 Sep view 250 of 349
+	// animals qualified on an August weigh, and 62% of the measured growth-days fell outside
+	// the window the reader selected -- so narrowing the dates barely moved the number. This
+	// matches the lump-sum half, which has always required both its points inside the period.
+	// "Twice" is per ANIMAL: the pairs CTE partitions on the identity_scope canonical key, so
+	// an animal scanned on animal_identifier_1 then animal_identifier_2 is still one animal
+	// with two weighs. The identity MAP stays resolved over the wide window on purpose -- it
+	// only says which tags are one animal, and narrowing it would un-merge those pairs.
+	lookbackStart := periodStart
+	prevLookbackStart := prevStart
 
 	var (
 		headline     domain.GrowthADGHeadline
@@ -999,7 +1009,7 @@ SELECT COUNT(*) FROM inperiod WHERE adg_g_per_day < 0`,
 	// positions, which is what lets the CTE carry one predicate for all of them.
 	rows, err := r.pool.Query(ctx, `WITH `+growthPairsCTE+`),
 inperiod AS (SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz AND adg_g_per_day >= 0 AND ($10::text = '' OR weighing_category = $10::text))
-SELECT LEAST(width_bucket(adg_g_per_day, 0, $11::float8, $12::int), $12::int) AS bucket, COUNT(*)
+SELECT width_bucket(adg_g_per_day, 0, $11::float8, $12::int) AS bucket, COUNT(*)
 FROM inperiod
 GROUP BY bucket
 ORDER BY bucket`,

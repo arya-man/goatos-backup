@@ -192,3 +192,98 @@ func TestGrowthADGPaginationTotalsAreNotPageLocal(t *testing.T) {
 		t.Fatalf("pair count = %d for 30 animals each weighed twice, want 30 -- totals must span the period, not a page", adg.Headline.PairCount)
 	}
 }
+
+// TestGrowthDistributionFillsTheOverflowBinAboveThreeHundred is the regression test for a bar
+// chart whose LAST bar could never fill. The bin query wrapped width_bucket in
+// LEAST(..., $12) -- $12 being the 12 regular bins -- which clamped the overflow bin 13 back
+// down to 12, the 275-300 band. The Go below then read counts[13] for the "300+" bucket, and
+// bin 13 no longer existed, so that bucket was ALWAYS zero. On live STG data the chart showed
+// 107 pairs in 275-300 and 0 above it, when the truth was 11 and 99, with a fastest pair of
+// 1,600 g/day. The comment above the "300+" bucket already promised the opposite of what the
+// code did ("rather than silently dropped or mis-binned into the last regular bucket").
+//
+// Restoring the LEAST() clamp turns this red: the 600 g/day pair lands in 275-300 instead.
+func TestGrowthDistributionFillsTheOverflowBinAboveThreeHundred(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	start, end := growthWindow()
+
+	// +6.0 kg across 10 whole days = 600 g/day, which belongs ABOVE the 300 g/day top edge.
+	first := time.Date(2026, 7, 10, 4, 0, 0, 0, time.UTC)
+	seedGrowthObservation(t, ctx, pool, "fast-grower", 20.0, first)
+	seedGrowthObservation(t, ctx, pool, "fast-grower", 26.0, first.AddDate(0, 0, 10))
+
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG: %v", err)
+	}
+
+	counts := map[string]int{}
+	total := 0
+	for _, b := range adg.Distribution {
+		counts[b.Label] = b.Count
+		total += b.Count
+	}
+	if counts["300+"] != 1 {
+		t.Fatalf("a 600 g/day pair must land in the 300+ bucket; got 300+=%d, 275-300=%d (the overflow bin is being clamped into the last regular bucket)",
+			counts["300+"], counts["275-300"])
+	}
+	if counts["275-300"] != 0 {
+		t.Fatalf("a 600 g/day pair must NOT be filed as 275-300; got 275-300=%d", counts["275-300"])
+	}
+	// The bars are the pairs, whole: a histogram that does not add up to its own denominator is
+	// hiding rows somewhere, which is exactly how the empty top bar went unnoticed.
+	if total != adg.Headline.PairCount {
+		t.Fatalf("distribution buckets sum to %d but PairCount is %d; every pair must land in exactly one bar",
+			total, adg.Headline.PairCount)
+	}
+}
+
+// TestGrowthPairsRequireBothWeighsInsideTheSelectedPeriod pins the rule that the date filter
+// actually scopes the measurement (maintainer decision 2026-09-09). The pair anchor used to
+// reach growthLookbackDays (400) BEFORE periodStart, so an animal weighed ONCE inside the
+// period paired against a weigh up to 400 days old and still counted. On live STG data that
+// made 250 of 349 animals qualify on an August weigh for a 1-7 September view, and 62% of the
+// measured growth-days fell outside the window the reader had selected -- so narrowing the
+// dates barely moved the number, while the lump-sum half (which always required both of its
+// points inside the period) did move. Same headline, two rules.
+//
+// Restoring `lookbackStart := periodStart.Add(-growthLookbackDays * 24 * time.Hour)` turns this
+// red: the straddling animal starts pairing again and PairCount becomes 2.
+func TestGrowthPairsRequireBothWeighsInsideTheSelectedPeriod(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	start, end := growthWindow()
+
+	// Straddles the window: earlier weigh 11 days BEFORE it opens, latest weigh inside.
+	seedGrowthObservation(t, ctx, pool, "straddles-window", 18.0, start.AddDate(0, 0, -11))
+	seedGrowthObservation(t, ctx, pool, "straddles-window", 20.0, start.AddDate(0, 0, 3))
+
+	// Wholly inside: this one is what the reader asked for and must survive.
+	seedGrowthObservation(t, ctx, pool, "inside-window", 18.0, start.AddDate(0, 0, 3))
+	seedGrowthObservation(t, ctx, pool, "inside-window", 20.0, start.AddDate(0, 0, 13))
+
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG: %v", err)
+	}
+	if adg.Headline.PairCount != 1 {
+		t.Fatalf("only the animal weighed TWICE inside the period may pair; PairCount=%d (an animal weighed once in the period is pairing against a weigh from before it)",
+			adg.Headline.PairCount)
+	}
+	// 2.0 kg over 10 whole days = 200 g/day, the inside-window animal and nothing else.
+	if adg.Headline.AverageADGGPerDay == nil {
+		t.Fatal("AverageADGGPerDay is nil; the wholly-inside pair should carry the headline")
+	}
+	if got := *adg.Headline.AverageADGGPerDay; got < 199.9 || got > 200.1 {
+		t.Fatalf("headline ADG = %.2f g/day, want 200.0 from the wholly-inside pair alone", got)
+	}
+}
