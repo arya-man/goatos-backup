@@ -143,12 +143,17 @@ async function verifyShell(page) {
     ["Calendar", "/calendar"],
     ["Protocol Adherence", "/protocol-adherence"],
     ["Workflows", "/workflows"],
+    ["DLQ Center", "/operations/dlq"],
+  ]) {
+    await goto(page, path);
+  }
+
+  for (const [label, path] of [
     ["Vaccination", "/vaccination"],
     ["Source Entry", "/procurement/source-entry"],
     ["SOP Library", "/sops"],
     ["Herd Analytics", "/counts/analytics"],
     ["Audit Log", "/operations/audit"],
-    ["DLQ Center", "/operations/dlq"],
   ]) {
     await goto(page, "/vaccination?scope_mode=company");
     await openAllSidebarGroups(page);

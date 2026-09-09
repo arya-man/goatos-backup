@@ -339,7 +339,7 @@ if (bearerToken) {
       name: "goatos_firebase_id_token",
       value: bearerToken,
       domain: url.hostname,
-      path: "/?lens=control-tower",
+      path: "/",
       httpOnly: true,
       sameSite: "Lax",
       expires: Math.floor(Date.now() / 1000) + 3600,
