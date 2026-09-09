@@ -12,7 +12,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
   );
   const routes = new Map(routeEntries);
   const required = new Map([
-    ["control-tower", "/?scope_mode=company"],
+    ["control-tower", "/?scope_mode=company&lens=control-tower"],
     ["action-center", "/action-center?scope_mode=company"],
     ["calendar", "/calendar?scope_mode=company&day=week"],
     ["protocol-adherence", "/protocol-adherence?scope_mode=company"],

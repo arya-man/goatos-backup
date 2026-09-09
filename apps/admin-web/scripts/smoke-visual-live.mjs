@@ -79,7 +79,7 @@ if (baselineDir) mkdirSync(diffDir, { recursive: true });
 // naming either was rejected as an unknown route.
 function buildRoutes(goatId, procurementLoadId) {
   const routes = [
-    { name: "control-tower", path: "/?scope_mode=company" },
+    { name: "control-tower", path: "/?scope_mode=company&lens=control-tower" },
     { name: "action-center", path: "/action-center?scope_mode=company" },
     { name: "calendar", path: "/calendar?scope_mode=company&day=week" },
     { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },

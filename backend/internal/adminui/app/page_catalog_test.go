@@ -42,8 +42,28 @@ func TestEveryNavLeafIsATickablePage(t *testing.T) {
 		}
 	}
 	for key := range catalog {
+		if catalog[key].HiddenFromNav {
+			continue
+		}
 		if _, ok := seen[key]; !ok {
 			t.Errorf("catalog page %q is not a nav leaf any more; a stale tick grants a screen that no longer exists", key)
+		}
+	}
+}
+
+func TestParkedPagesStayTickableSoTypedURLsCanFailClosed(t *testing.T) {
+	access := permissions.PageAccessForAssignments([]permissions.ModuleAssignment{{
+		Module:       "vaccination",
+		Surface:      permissions.SurfaceWeb,
+		Capabilities: []string{permissions.LevelView},
+		Pages:        []string{"preventive-care-vaccination"},
+	}})
+	resp := applyPersonPageLens(compileForTest(), access)
+	for _, banned := range []string{"/?lens=control-tower", "/action-center", "/protocol-adherence", "/workflows", "/calendar"} {
+		for _, page := range resp.Pages {
+			if page.Href == banned {
+				t.Errorf("parked page contract for %s survived without its tick; a typed URL would render", banned)
+			}
 		}
 	}
 }

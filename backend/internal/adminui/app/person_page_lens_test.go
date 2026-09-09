@@ -91,7 +91,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 func TestCeoIsNeverNarrowed(t *testing.T) {
 	access := accessFor(permissions.RoleCEOInternal, permissions.RoleProcurementDirector)
 	resp := applyPersonPageLens(compileForTest(), access)
-	for _, want := range []string{"/", "/people", "/feed/config", "/feed/analytics", "/feed/sops", "/sales", "/sales/config", "/procurement/source-entry", "/procurement/vendors", "/procurement/feed-purchases", "/verify", "/vaccination"} {
+	for _, want := range []string{"/weighing/analytics", "/people", "/feed/config", "/feed/analytics", "/feed/sops", "/sales", "/sales/config", "/procurement/source-entry", "/procurement/vendors", "/procurement/feed-purchases", "/verify", "/vaccination"} {
 		found := false
 		for _, href := range leafHrefs(resp) {
 			if href == want {

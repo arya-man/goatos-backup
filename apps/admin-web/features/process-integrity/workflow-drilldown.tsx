@@ -24,7 +24,7 @@ export async function VaccinationWorkflowDrilldownPage({
   const from = one(sp, "from");
   const backHref =
     from === "control-tower"
-      ? scopeHref("/", scope, {}, { ct_alert: rowId })
+      ? scopeHref("/", scope, {}, { lens: "control-tower", ct_alert: rowId })
       : from === "action-center"
         ? scopeHref("/action-center", scope, {}, { ac_row: rowId })
         : scopeHref("/workflows", scope);

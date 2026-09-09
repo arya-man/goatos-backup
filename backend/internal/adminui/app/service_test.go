@@ -26,18 +26,22 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 	if len(resp.RouteLabels) == 0 || len(resp.Pages) == 0 {
 		t.Fatalf("route/page contracts missing: labels=%d pages=%d", len(resp.RouteLabels), len(resp.Pages))
 	}
-	if resp.Navigation.Primary[0].Label != "Calendar" {
+	if resp.Navigation.Primary[0].Label != "Approvals" {
 		t.Fatalf("first primary nav = %#v", resp.Navigation.Primary[0])
 	}
-	// The four command lenses live under "Others" (maintainer request 2026-09-08) at their
-	// unchanged top-level routes.
-	for _, id := range []string{"control-tower", "action-center", "protocol-adherence", "workflows"} {
-		if leaf := groupLeafByID(t, resp.Navigation.Groups, id); leaf.ID == "" {
-			t.Fatalf("command lens %q must be an Others leaf", id)
+	// Calendar, Tasks, the four command lenses and DLQ Center are parked from the sidebar
+	// (maintainer request 2026-09-09): no leaf anywhere, but the page contract stays served
+	// at its unchanged route for deep links.
+	for _, id := range []string{"calendar", "leadership-tasks", "control-tower", "action-center", "protocol-adherence", "workflows", "dlq-center"} {
+		if leaf := optionalPrimaryNavItemByID(resp.Navigation.Primary, id); leaf != nil {
+			t.Fatalf("%q must be parked from the primary nav, got %#v", id, leaf)
 		}
-	}
-	if othersLeafGroup(t, resp.Navigation.Groups, "control-tower") != "others" {
-		t.Fatalf("control-tower must sit in the others group")
+		if leaf := optionalNavLeafByID(resp.Navigation.Groups, id); leaf != nil {
+			t.Fatalf("%q must be parked from every nav group, got %#v", id, leaf)
+		}
+		if page := optionalPageByRouteID(resp.Pages, id); page == nil {
+			t.Fatalf("parked page %q must keep its page contract for deep links", id)
+		}
 	}
 	// Health is its own module group, not an Others leaf (maintainer request 2026-09-08).
 	for _, id := range []string{"health-analytics", "health-config"} {
@@ -666,9 +670,9 @@ func TestBootstrapDisablesUnauthorizedNavFromRequestGrants(t *testing.T) {
 			{Role: permissions.RoleOperator, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	item := groupLeafByID(t, resp.Navigation.Groups, "action-center")
+	item := groupLeafByID(t, resp.Navigation.Groups, "preventive-care-vaccination")
 	if item.Enabled {
-		t.Fatalf("action-center should be disabled for operator-only admin-web grant: %#v", item)
+		t.Fatalf("preventive-care-vaccination should be disabled for operator-only admin-web grant: %#v", item)
 	}
 	if item.DisabledReason == "" {
 		t.Fatalf("disabled nav item must carry backend disabled reason: %#v", item)
@@ -683,9 +687,10 @@ func TestDLQCenterSeparatesReadNavFromRepairActions(t *testing.T) {
 			{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	item := navLeafByID(t, resp.Navigation.Groups, "dlq-center")
-	if !item.Enabled {
-		t.Fatalf("dlq-center should remain visible to DLQ read users: %#v", item)
+	// DLQ Center is parked from the sidebar (maintainer request 2026-09-09); the page contract
+	// still serves the deep link, and its read/repair split is unchanged.
+	if leaf := optionalNavLeafByID(resp.Navigation.Groups, "dlq-center"); leaf != nil {
+		t.Fatalf("dlq-center must be parked from the sidebar, got %#v", leaf)
 	}
 	page := pageByRouteID(t, resp.Pages, "dlq-center")
 	actions := optionGroupByID(t, page.OptionGroups, "dlq_repair_actions")
@@ -779,8 +784,8 @@ func TestBootstrapAppliesDBBackedStableUIConfigEntries(t *testing.T) {
 	if resp.TopBar.ProductName != "Goat OS" {
 		t.Fatalf("top bar product name was not config-overridden: %#v", resp.TopBar)
 	}
-	if item := groupLeafByID(t, resp.Navigation.Groups, "action-center"); item.Label != "Work Queue" {
-		t.Fatalf("action-center nav label = %q", item.Label)
+	if item := groupLeafByID(t, resp.Navigation.Groups, "feed-analytics"); item.Label != "Feed Stock" {
+		t.Fatalf("feed-analytics nav label = %q", item.Label)
 	}
 	actionCenter := pageByRouteID(t, resp.Pages, "action-center")
 	if actionCenter.Title != "Backend Work Queue" || actionCenter.Copy["page.title"] != "Backend Work Queue" {
@@ -949,8 +954,8 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 		},
 	})
 
-	if len(resp.Navigation.Primary) != 4 {
-		t.Fatalf("primary items (Calendar, Approvals, Verify, Tasks) must stay present, got %d", len(resp.Navigation.Primary))
+	if len(resp.Navigation.Primary) != 2 {
+		t.Fatalf("primary items (Approvals, Verify) must stay present, got %d", len(resp.Navigation.Primary))
 	}
 	// Approvals is present but RBAC-disabled for an operator, who holds no counts.approve_access.
 	approvals := primaryNavByID(t, resp.Navigation.Primary, "approvals")
@@ -1008,8 +1013,10 @@ func TestCEOReceivesLeadershipTasksPageContract(t *testing.T) {
 		},
 	})
 
-	if leaf := optionalPrimaryNavItemByID(resp.Navigation.Primary, "leadership-tasks"); leaf == nil || leaf.Href != "/tasks" {
-		t.Fatalf("CEO/CXO must receive Tasks primary nav leaf, got %#v", leaf)
+	// Tasks is parked from the sidebar (maintainer request 2026-09-09); the page contract
+	// still serves /tasks by deep link.
+	if leaf := optionalPrimaryNavItemByID(resp.Navigation.Primary, "leadership-tasks"); leaf != nil {
+		t.Fatalf("Tasks must be parked from the primary nav, got %#v", leaf)
 	}
 	if page := optionalPageByRouteID(resp.Pages, "leadership-tasks"); page == nil || page.Href != "/tasks" {
 		t.Fatalf("CEO/CXO must receive leadership-tasks page contract, got %#v", page)
@@ -1068,7 +1075,7 @@ func (fakeUIConfigFamilies) LoadContractFamilies(ctx context.Context, tenantID s
 	families, err := fakeFamilies{}.LoadContractFamilies(ctx, tenantID)
 	families.UIConfig = []ConfigEntry{
 		{Key: "top_bar.product_name", Value: "Goat OS"},
-		{Key: "nav.leaf.action-center.label", Value: "Work Queue"},
+		{Key: "nav.leaf.feed-analytics.label", Value: "Feed Stock"},
 		{RouteID: "action-center", Key: "page.title", Value: "Backend Work Queue"},
 		{Key: "page.action-center.subtitle", Value: "Backend queue subtitle"},
 		{RouteID: "action-center", Key: "copy.empty.work_board", Value: "No backend work for this scope."},
@@ -1187,17 +1194,6 @@ func optionalPrimaryNavItemByID(items []domain.NavigationItem, id string) *domai
 	return nil
 }
 
-func optionalNavLeafByID(groups []domain.NavigationGroup, id string) *domain.NavigationItem {
-	for _, group := range groups {
-		for i := range group.Leaves {
-			if group.Leaves[i].ID == id {
-				return &group.Leaves[i]
-			}
-		}
-	}
-	return nil
-}
-
 func navLeafByID(t *testing.T, groups []domain.NavigationGroup, id string) domain.NavigationItem {
 	t.Helper()
 	for _, group := range groups {
@@ -1301,4 +1297,15 @@ func optionKeys(group domain.OptionGroup) map[string]bool {
 		keys[option.Key] = true
 	}
 	return keys
+}
+
+func optionalNavLeafByID(groups []domain.NavigationGroup, id string) *domain.NavigationItem {
+	for _, group := range groups {
+		for i := range group.Leaves {
+			if group.Leaves[i].ID == id {
+				return &group.Leaves[i]
+			}
+		}
+	}
+	return nil
 }
