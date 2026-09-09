@@ -369,9 +369,12 @@ both functions against `DATABASE_URL`, intended to run once daily.
   every other kernel maintenance job uses. `-days-ahead=14 -retention-days=14`.
 - **stg**: the Cloud Run Job itself is declared
   (`infra/envs/stg/herd_signals_partition_maintenance.tf`, same
-  image/command/args as dev) but **stg has no Cloud Scheduler wiring for any
-  job today** — that infra does not exist in this environment yet, so running
-  this job on stg is a manual operator action until it does. See
+  image/command/args as dev) but **stg has no Terraform-managed Cloud
+  Scheduler wiring for product/runtime jobs today** — that infra does not
+  exist in this environment yet, so running this job on stg is a manual
+  operator action until it does. The manually managed
+  `goatos-stg-cost-alert-billing-anomaly-check` Scheduler job is an
+  alerting-only exception, not product/runtime scheduling. See
   `docs/runbooks/herd-signals-partition-retention.md` for the exact manual
   trigger command, the metrics/logs this job emits
   (`kernel.herd_signals_partition_maintenance.*`), and what healthy vs.

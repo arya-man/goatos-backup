@@ -16,7 +16,8 @@ database compatibility.
 - one `goatos-kernel-worker-stg` Cloud Run service with exactly two always-warm
   instances (`min=2`, `max=2`), with Postgres advisory locks electing one owner
   for each stage and the other instance acting as hot standby;
-- zero Cloud Scheduler jobs;
+- zero Terraform-managed Cloud Scheduler jobs, with one live manual exception
+  for the cost-alert anomaly watcher documented below;
 - zero scheduled Cloud Run Jobs;
 - `goatos-stg-migrate`, `goatos-stg-outbox-dlq`, and
   `goatos-stg-analytics-rollup` retained as explicit Cloud Run Jobs;
@@ -29,6 +30,35 @@ The seven former per-stage jobs, the partition-maintainer job, their service
 accounts, and Scheduler invoker IAM are retired from staging Terraform. The
 kernel worker owns the continuous, fast, operational, generation, and
 housekeeping stages.
+
+### Manual cost-alert Scheduler exception
+
+Staging intentionally has one live Cloud Scheduler job outside Terraform:
+
+- Job: `goatos-stg-cost-alert-billing-anomaly-check`
+- Project/location: `goatos-stg` / `asia-south1`
+- Schedule/time zone: `30 9 * * *` / `Asia/Kolkata`
+- Target: `POST /billing-anomaly-check` on
+  `goatos-stg-cost-alert-bridge`
+- OIDC service account:
+  `goatos-scheduler-stg@goatos-stg.iam.gserviceaccount.com`
+- OIDC audience:
+  `https://goatos-stg-cost-alert-bridge-514832198871.asia-south1.run.app`
+
+This job is not Terraform-owned because
+`tools/agent-hooks/check-stg-disposable-topology.mjs` intentionally rejects
+`google_cloud_scheduler_job` resources under `infra/envs/stg` while staging is
+kept disposable. Treat it as a live alerting exception, not as a precedent for
+reintroducing product/runtime schedules into stg Terraform.
+
+Verify drift before relying on the alert:
+
+```bash
+gcloud scheduler jobs describe goatos-stg-cost-alert-billing-anomaly-check \
+  --project=goatos-stg \
+  --location=asia-south1 \
+  --format='json(name,state,schedule,timeZone,httpTarget.uri,httpTarget.oidcToken.serviceAccountEmail,httpTarget.oidcToken.audience,lastAttemptTime,status)'
+```
 
 ## Source and infrastructure convergence
 
@@ -79,9 +109,10 @@ an analytics schedule.
    ```
 
 8. Verify API health, authenticated dashboard access, canonical vaccination and
-   Calendar reads, worker stage logs on both instances, zero Scheduler jobs,
-   zero failed job executions, and analytics rows for the available GA4 export
-   day.
+   Calendar reads, worker stage logs on both instances, zero Terraform-managed
+   product Scheduler jobs, the manual cost-alert Scheduler exception described
+   above, zero failed job executions, and analytics rows for the available GA4
+   export day.
 
 Do not start the demo from a partially seeded database. A failed migration,
 seed invariant, worker stage, smoke check, or analytics rollup is a failed

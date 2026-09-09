@@ -49,7 +49,33 @@ this trade (keep a few extra days, pay a few extra GB); data loss is the
 | Env | Cloud Run Job | Cloud Scheduler | Command |
 |---|---|---|---|
 | dev | `goatos-dev-herd-signals-partition-maintenance` (`infra/envs/dev/cloud_run_jobs.tf`, `local.kernel_jobs.herd_signals_partition_maintenance`) | **Yes** — `21 0 * * *` (00:21 IST), same `google_cloud_scheduler_job "kernel"` `for_each` every other kernel job uses | `-timeout=90s -days-ahead=14 -retention-days=14` |
-| stg | `goatos-stg-herd-signals-partition-maintenance` (`infra/envs/stg/herd_signals_partition_maintenance.tf`) | **No** — stg has no `google_cloud_scheduler_job` resource for *any* Cloud Run Job today (the `scheduler` runtime SA in `infra/envs/stg/main.tf` is reserved for this but nothing binds it yet). This job is declared and invokable but **must be triggered manually** until that infra is added. | same args, run manually (below) |
+| stg | `goatos-stg-herd-signals-partition-maintenance` (`infra/envs/stg/herd_signals_partition_maintenance.tf`) | **No** — stg Terraform has no `google_cloud_scheduler_job` resource for this or any other product/runtime Cloud Run Job today (the `scheduler` runtime SA in `infra/envs/stg/main.tf` is reserved for this but nothing binds it yet). This job is declared and invokable but **must be triggered manually** until that infra is added. The separate live cost-alert Scheduler exception is alerting-only and documented below. | same args, run manually (below) |
+
+### Live stg cost-alert Scheduler exception
+
+The only intentional live stg Scheduler job is the manually managed cost-alert
+anomaly watcher:
+
+```text
+job:                  goatos-stg-cost-alert-billing-anomaly-check
+project/location:     goatos-stg / asia-south1
+schedule/time zone:   30 9 * * * / Asia/Kolkata
+target:               POST /billing-anomaly-check on goatos-stg-cost-alert-bridge
+OIDC service account: goatos-scheduler-stg@goatos-stg.iam.gserviceaccount.com
+OIDC audience:        https://goatos-stg-cost-alert-bridge-514832198871.asia-south1.run.app
+```
+
+Terraform does not own this job because
+`tools/agent-hooks/check-stg-disposable-topology.mjs` intentionally rejects
+`google_cloud_scheduler_job` resources under `infra/envs/stg`. Verify drift
+with:
+
+```bash
+gcloud scheduler jobs describe goatos-stg-cost-alert-billing-anomaly-check \
+  --project=goatos-stg \
+  --location=asia-south1 \
+  --format='json(name,state,schedule,timeZone,httpTarget.uri,httpTarget.oidcToken.serviceAccountEmail,httpTarget.oidcToken.audience,lastAttemptTime,status)'
+```
 
 ### Manual stg trigger (until Cloud Scheduler is wired for stg)
 

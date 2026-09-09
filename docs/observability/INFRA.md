@@ -50,7 +50,10 @@ OTel Collector:      sidecar container (loopback :4318, no external ingress) ins
                      goatos-api-stg, every goatos-stg-* kernel Job, and
                      goatos-stg-grafana-alloy — NOT its own Cloud Run service.
                      See section 12.
-Cloud Scheduler:     none; execute the analytics rollup explicitly after reseed and before demos
+Cloud Scheduler:     no Terraform-managed observability/product schedule; execute the analytics
+                     rollup explicitly after reseed and before demos. The live manual
+                     goatos-stg-cost-alert-billing-anomaly-check alerting exception is
+                     documented in docs/runbooks/staging-disposable-deployment.md.
 GCS buckets:         goatos-stg-observability-config (collector/alloy config)
                      goatos-stg-grafana-provisioning (datasources/dashboards)
 BigQuery dataset:    goatos_stg_analytics_rollup (asia-south1)
