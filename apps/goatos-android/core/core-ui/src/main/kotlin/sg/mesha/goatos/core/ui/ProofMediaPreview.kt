@@ -303,7 +303,9 @@ private fun ProofPhotoPreview(
     // Remote proof photos are signed object reads. Do not auto-fetch them from a list/card preview;
     // only local post-capture files are decoded here.
     val bitmap = if (isRemote) null else remember(path) {
-        BitmapFactory.decodeFile(Uri.parse(path).path ?: path) ?: decodeLocalProofPhoto(context, path)
+        BitmapFactory.decodeFile(Uri.parse(path).path ?: path) ?: runCatching {
+            context.contentResolver.openInputStream(Uri.parse(path))?.use(BitmapFactory::decodeStream)
+        }.getOrNull()
     }
     val isLoading = false
     val canExpand = onExpand != null && (bitmap != null || isRemote)
@@ -354,16 +356,6 @@ private fun ProofPhotoPreview(
             ProofPreviewUnavailable(icon = MeshaIcons.EyeOff, label = "Photo unavailable")
         }
     }
-}
-
-private fun decodeLocalProofPhoto(context: android.content.Context, path: String) = try {
-    context.contentResolver.openInputStream(Uri.parse(path))?.use(BitmapFactory::decodeStream)
-} catch (_: SecurityException) {
-    null
-} catch (_: IOException) {
-    null
-} catch (_: IllegalArgumentException) {
-    null
 }
 
 @OptIn(UnstableApi::class)
@@ -819,7 +811,6 @@ private fun ProofMediaFullscreenDialog(
             playerFactory.create(context).apply {
                 setMediaItem(MediaItem.fromUri(Uri.parse(path)), startPositionMs.coerceAtLeast(0L))
                 playWhenReady = false
-                prepare()
             }
         }
     }

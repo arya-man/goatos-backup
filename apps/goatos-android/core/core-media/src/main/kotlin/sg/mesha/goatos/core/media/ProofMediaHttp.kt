@@ -201,11 +201,7 @@ class OkHttpProofRemoteImageLoader(private val client: OkHttpClient) : ProofRemo
         try {
             // proof-media-egress:ignore Tap/fullscreen-only remote image loader; same client carries auth/telemetry and caller bounds timeout.
             val request = Request.Builder().url(url).build()
-            val boundedClient = client.newBuilder()
-                .callTimeout(timeoutMs.coerceAtLeast(1L), TimeUnit.MILLISECONDS)
-                .readTimeout(timeoutMs.coerceAtLeast(1L), TimeUnit.MILLISECONDS)
-                .build()
-            boundedClient.newCall(request).execute().use { response ->
+            client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
                 response.body.byteStream().use(BitmapFactory::decodeStream)
             }

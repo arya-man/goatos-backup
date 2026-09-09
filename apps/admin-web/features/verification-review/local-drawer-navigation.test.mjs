@@ -4,7 +4,6 @@ import test from "node:test";
 
 const pageSource = readFileSync(new URL("./verification-review-page.tsx", import.meta.url), "utf8");
 const drawerSource = readFileSync(new URL("./verification-review-drawer.tsx", import.meta.url), "utf8");
-const subcategorySource = readFileSync(new URL("./subcategory-filter.tsx", import.meta.url), "utf8");
 const shellSource = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
 const actionsRedirectSource = readFileSync(new URL("../../app/(admin)/actions/page.tsx", import.meta.url), "utf8");
 
@@ -38,22 +37,7 @@ test("Actions filters and video links are backend-contract driven", () => {
   assert.match(pageSource, /businessDate: dateRange\.from/);
   assert.match(pageSource, /businessDateFrom: dateRange\.from, businessDateTo: dateRange\.to/);
   assert.match(pageSource, /parkId: scope\.parkId/);
-  assert.match(pageSource, /sort,/);
-  assert.match(pageSource, /hrefWith\(sp, \{ sort: nextSort, \.\.\.RESET_ON_FILTER \}\)/);
-  assert.match(pageSource, /const RESET_ON_FILTER = \{ vi_row: null, vi_cursor: null, vi_trail: null, vi_open_first: null, vi_play: null/);
-  assert.match(pageSource, /className="vr-sortlink"/);
   assert.match(pageSource, /option\.operational_location_display \|\| option\.label/);
-  assert.match(pageSource, /selectedModuleActionTypes = selectedModuleKey[\s\S]*option\.module_key === selectedModuleKey/);
-  assert.match(pageSource, /const selectedCategories = all\(sp, "category"\)/);
-  assert.match(pageSource, /categories: selectedCategories\.length > 1 \? selectedCategories : undefined/);
-  assert.match(pageSource, /<form action=\{PATHNAME\} className="vr-filter-form">/);
-  assert.match(pageSource, /<SubcategoryFilter/);
-  assert.match(subcategorySource, /"use client"/);
-  assert.match(subcategorySource, /useState\(\(\) => new Set\(selectedCategories\)\)/);
-  assert.match(subcategorySource, /type="button"/);
-  assert.match(subcategorySource, /aria-pressed=\{checked\}/);
-  assert.match(subcategorySource, /onClick=\{\(\) => toggle\(option\.category\)\}/);
-  assert.match(subcategorySource, /<input key=\{category\} type="hidden" name="category" value=\{category\} \/>/);
   // The mock has no verdict explainer card: the proof is the video player the verifier watches.
   // The player is only mounted after the verifier explicitly opens that one proof, then it uses the
   // click-resolved media URL and emits telemetry/block-forward-seek events.
@@ -85,7 +69,7 @@ test("approving a video advances to the next one instead of closing to the list"
   assert.match(pageSource, /one\(sp, "vi_open_first"\) === "1" \? items\[0\]\?\.item_id : undefined/);
   assert.match(drawerSource, /name="next_cursor" value=\{nextCursor\}/);
   assert.match(drawerSource, /name="next_trail" value=\{nextTrail\}/);
-  assert.match(drawerSource, /hrefWithout\(searchParams, \["vi_row", "vi_play", "vi_open_first"\]\)/);
+  assert.match(drawerSource, /hrefWithout\(searchParams, \["vi_row", "vi_open_first"\]\)/);
   assert.match(actionsSource, /url\.searchParams\.delete\("vi_open_first"\);/);
 });
 

@@ -636,9 +636,6 @@ class VerifyDetailViewModel @Inject constructor(
 
     private fun trackPhotoPreview(event: VerifyDetailEvent.PhotoPreview) {
         val targetItemId = itemIdForProof(event.proofSubject)
-        if (event.outcome == "failure") {
-            _flags.update { it.copy(unplayableProofIds = it.unplayableProofIds + event.proofSubject) }
-        }
         analytics.track(
             "verify_photo_preview_action",
             mapOf(

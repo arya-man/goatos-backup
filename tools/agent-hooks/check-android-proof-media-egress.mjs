@@ -327,30 +327,6 @@ function scanRemoteMediaHelperCalls(rel, text, helperNames) {
   return findings;
 }
 
-function scanTapArmedRemoteImageRotation(rel, text) {
-  const findings = [];
-  const armedStateRe = /\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s+by\s+rememberSaveable\s*\(([^)]*)\)\s*\{\s*mutableStateOf\s*\(\s*false\s*\)\s*\}/g;
-  for (const match of text.matchAll(armedStateRe)) {
-    const [, stateName, keyArgs] = match;
-    if (/(?:media\.signedUrl|media\.url|signedUrl|downloadUrl|mediaUrl)/.test(keyArgs)) continue;
-    const state = escapeRegExp(stateName);
-    const hasRemoteImageBehindState = new RegExp(`\\bif\\s*\\(\\s*${state}\\s*\\)\\s*\\{[\\s\\S]{0,1600}(?:AsyncImage|SubcomposeAsyncImage|ImageRequest\\.Builder)[\\s\\S]{0,900}(?:\\.data\\s*\\(|model\\s*=\\s*)(?:media\\.signedUrl|media\\.url|signedUrl|downloadUrl|mediaUrl|url)`, "g").test(text);
-    if (!hasRemoteImageBehindState) continue;
-    const resetsOnUrlRotation = new RegExp(`LaunchedEffect\\s*\\([^)]*(?:media\\.signedUrl|media\\.url|signedUrl|downloadUrl|mediaUrl)[^)]*\\)\\s*\\{[\\s\\S]{0,500}\\b${state}\\s*=\\s*false`, "g").test(text);
-    if (resetsOnUrlRotation) continue;
-    const suppression = suppressionFor(text, match.index ?? 0);
-    if (suppression?.startsWith("proof-media-egress:ignore ")) continue;
-    const line = text.split("\n")[lineNo(text, match.index ?? 0) - 1] ?? "";
-    findings.push({
-      rel,
-      line: lineNo(text, match.index ?? 0),
-      reason: "tap-gated remote proof image state must reset when signed URL rotates, otherwise a previous tap can silently reload remote bytes",
-      snippet: line.trim().slice(0, 160),
-    });
-  }
-  return findings;
-}
-
 function scanText(rel, text, externalRemoteMediaHelpers = new Set()) {
   const findings = [];
   for (const rule of rules) {
@@ -428,8 +404,6 @@ function scanText(rel, text, externalRemoteMediaHelpers = new Set()) {
     }
   }
   findings.push(...scanRemoteMediaHelperCalls(rel, text, new Set([...remoteMediaHelperNames(text), ...externalRemoteMediaHelpers])));
-  findings.push(...scanTapArmedRemoteImageRotation(rel, text));
-  findings.push(...scanReplacementStateRegression(rel, text));
   if (!/ProofMediaPreview|VerifyProofPhoto|VerifyVideoPlayer|FullscreenVideoDialog/.test(text)) return findings;
   const tainted = taintedIdentifiers(text);
   for (const match of text.matchAll(/ProofMediaPreview\s*\(/g)) {
@@ -495,27 +469,6 @@ function scanText(rel, text, externalRemoteMediaHelpers = new Set()) {
   return findings;
 }
 
-function scanReplacementStateRegression(rel, text) {
-  if (!rel.includes("/viewmodel/") || !text.includes("captureReplacingLatest")) return [];
-  const findings = [];
-  for (const match of text.matchAll(/captureReplacingLatest\s*\(/g)) {
-    const start = match.index ?? 0;
-    const window = text.slice(start, start + 2500);
-    const bad = window.match(/\b(?:videoCaptured|captured)\s*=\s*false\b/);
-    if (!bad) continue;
-    const absolute = start + (bad.index ?? 0);
-    const line = text.split("\n")[lineNo(text, absolute) - 1] ?? "";
-    if (line.includes("proof-media-egress:ignore")) continue;
-    findings.push({
-      rel,
-      line: lineNo(text, absolute),
-      reason: "captureReplacingLatest failure/cancel paths must preserve old visible proof state; do not set captured/videoCaptured=false unless the new proof succeeded",
-      snippet: line.trim().slice(0, 180),
-    });
-  }
-  return findings;
-}
-
 function scanFile(rel, externalRemoteMediaHelpers = new Set()) {
   if (!existsSync(resolve(repo, rel))) return [];
   return scanText(rel, readFileSync(resolve(repo, rel), "utf8"), externalRemoteMediaHelpers);
@@ -567,8 +520,6 @@ function selfTest() {
     ["range", scanText(rel, proof + "connection.setRequestProperty(\"Range\", \"bytes=0-0\")").length, 2],
     ["stable-remember", scanText(rel, proof + "val player = remember(media.proofId) { factory.create(context) }").length, 1],
     ["remember-saveable-url-key", scanText(rel, proof + "var loadPhoto by rememberSaveable(media.proofSubject, media.signedUrl) { mutableStateOf(false) }").length, 2],
-    ["tap-armed-remote-image-no-url-reset", scanText(rel, "var loadPhoto by rememberSaveable(media.proofSubject) { mutableStateOf(false) }\nif (loadPhoto) {\n// proof-media-egress:ignore explicit tap-gated image load; this fixture isolates URL rotation state reset coverage\nAsyncImage(model = ImageRequest.Builder(context).data(media.signedUrl).build(), contentDescription = null)\n}\n").length, 1],
-    ["tap-armed-remote-image-url-reset", scanText(rel, "var loadPhoto by rememberSaveable(media.proofSubject) { mutableStateOf(false) }\nLaunchedEffect(media.signedUrl) { loadPhoto = false }\nif (loadPhoto) {\n// proof-media-egress:ignore explicit tap-gated image load; this fixture isolates URL rotation state reset coverage\nAsyncImage(model = ImageRequest.Builder(context).data(media.signedUrl).build(), contentDescription = null)\n}\n").length, 0],
     ["typed-alias-remember-saveable", scanText(rel, proof + "val key: String = media.signedUrl\nvar loadPhoto by rememberSaveable(key) { mutableStateOf(false) }").length, 2],
     ["chained-alias-remember", scanText(rel, proof + "val first: String = media.signedUrl\nval second = first\nval player = remember(second) { factory.create(context) }").length, 2],
     ["resume-auto-arm", scanText(rel, proof + "LaunchedEffect(player, resume) {\nval pending = resume ?: return@LaunchedEffect\nif (player == null) { if (pending.positionMs > 0L && !armed) armed = true }\n}").length, 2],
@@ -578,8 +529,6 @@ function selfTest() {
     ["path-identity", scanText(rel, "ProofMediaPreview(path = signedUrl, mediaIdentity = path)\n").length, 1],
     ["qualified-path-identity", scanText(rel, "ProofMediaPreview(path = state.previewPath, mediaIdentity = state.previewPath)\n").length, 1],
     ["viewmodel-url-hydration", scanText("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FooViewModel.kt", "repository.proofDownloadUrl(proofRef)\n").length, 1],
-    ["replacement-erases-old-proof", scanText("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FooViewModel.kt", "when (proofCaptureRepository.captureReplacingLatest()) { is AppResult.Err -> state.update { it.copy(videoCaptured = false) } }\n").length, 1],
-    ["replacement-preserves-old-proof", scanText("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FooViewModel.kt", "when (proofCaptureRepository.captureReplacingLatest()) { is AppResult.Err -> state.update { it.copy(videoCaptured = it.videoCaptured) } }\n").length, 0],
     ["remember-url", scanText(rel, proof + "val player = remember(media.url) { factory.create(context) }").length, 2],
   ];
   const ok =

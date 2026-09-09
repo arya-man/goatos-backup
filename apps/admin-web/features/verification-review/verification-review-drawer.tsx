@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState, useMemo, useTransition } from
 import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import type { RouteSearchParams } from "@/lib/search-params";
 import { recordVerificationVerdictAction, resolveVerificationProofMediaUrl } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
 import { ReviewVideoPlayer } from "./review-video-player";
@@ -71,7 +71,6 @@ export function VerificationReviewDrawer({
   const initialItem = items.find((item) => item.item_id === initialSelectedId);
   const [activeId, setActiveId] = useState(initialItem?.item_id);
   const [displayedId, setDisplayedId] = useState(initialItem?.item_id);
-  const [playIntent, setPlayIntent] = useState(one(searchParams, "vi_play") === "1");
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const openFrameRef = useRef<number | null>(null);
@@ -79,7 +78,7 @@ export function VerificationReviewDrawer({
   const closeTimerRef = useRef<number | null>(null);
   const item = items.find((candidate) => candidate.item_id === displayedId);
   const drawerOpen = Boolean(activeId && item);
-  const closeHref = hrefWithout(searchParams, ["vi_row", "vi_play", "vi_open_first"]);
+  const closeHref = hrefWithout(searchParams, ["vi_row", "vi_open_first"]);
   const currentIndex = item ? items.findIndex((i) => i.item_id === item.item_id) : -1;
   const canGoBack = currentIndex > 0;
   const canGoForward = currentIndex >= 0 && currentIndex < items.length - 1;
@@ -87,9 +86,7 @@ export function VerificationReviewDrawer({
   const syncFromUrl = useCallback((): void => {
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
     if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
-    const currentParams = new URL(window.location.href).searchParams;
-    const id = currentParams.get("vi_row") ?? undefined;
-    setPlayIntent(currentParams.get("vi_play") === "1");
+    const id = new URL(window.location.href).searchParams.get("vi_row") ?? undefined;
     const selected = items.find((candidate) => candidate.item_id === id);
     if (openFallbackRef.current !== null) window.clearTimeout(openFallbackRef.current);
     if (selected) {
@@ -204,7 +201,6 @@ export function VerificationReviewDrawer({
         canGoBack={canGoBack}
         canGoForward={canGoForward}
         onStepItem={stepItem}
-        playIntent={playIntent}
       />
     </>
   );
@@ -229,7 +225,6 @@ function VerificationReviewDrawerPanel({
   canGoBack,
   canGoForward,
   onStepItem,
-  playIntent,
 }: {
   item: VerificationQueueItem;
   actionTypeLabel: string;
@@ -250,7 +245,6 @@ function VerificationReviewDrawerPanel({
   canGoBack: boolean;
   canGoForward: boolean;
   onStepItem: (direction: 1 | -1) => void;
-  playIntent: boolean;
 }) {
   // Keyed by item_id so switching items (Prev/Next or a fresh row click) resets the active proof
   // back to the first one without a setState-in-effect render cascade.
@@ -373,11 +367,6 @@ function VerificationReviewDrawerPanel({
       }));
     });
   }, [activeProofId, item.item_id, resolvedMediaUrls]);
-  useEffect(() => {
-    if (!open || !playIntent || !activeProofId || resolvedMediaUrls[activeProofId]) return;
-    const timeout = window.setTimeout(resolveActiveMedia, 0);
-    return () => window.clearTimeout(timeout);
-  }, [activeProofId, open, playIntent, resolvedMediaUrls, resolveActiveMedia]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const playerRef = useRef<HTMLDivElement>(null);
 
@@ -605,7 +594,6 @@ function VerificationReviewDrawerPanel({
                     proofId={activeMedia.proof_id}
                     itemId={item.item_id}
                     eventBuffer={eventBuffer}
-                    autoPlay={playIntent}
                     // Backend-owned copy for the double-speed control; the player renders it and
                     // composes none of it. It only appears on clips longer than 20 seconds.
                     speedLabels={{
@@ -615,11 +603,9 @@ function VerificationReviewDrawerPanel({
                     }}
                   />
                 ) : (
-                  <button type="button" className="vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
-                    <span className="vr-media-open-mark" aria-hidden="true">
-                      <PlayCircle className="ic" />
-                    </span>
-                    <span>{text("drawer.media.play_video")}</span>
+                  <button type="button" className="btn vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
+                    <PlayCircle className="ic" aria-hidden="true" />
+                    {text("drawer.media.open")}
                   </button>
                 )
               ) : activeMedia?.mime_type?.startsWith("image/") ? (
@@ -630,11 +616,9 @@ function VerificationReviewDrawerPanel({
                     <img className="vr-image-proof" src={resolvedMediaUrls[activeMedia.proof_id]} alt={activeMedia.label || subjectHeading || text("drawer.media.title")} />
                   </a>
                 ) : (
-                  <button type="button" className="vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
-                    <span className="vr-media-open-mark" aria-hidden="true">
-                      <ImageIcon className="ic" />
-                    </span>
-                    <span>{text("drawer.media.open_photo")}</span>
+                  <button type="button" className="btn vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
+                    <ImageIcon className="ic" aria-hidden="true" />
+                    {text("drawer.media.open")}
                   </button>
                 )
               ) : (
@@ -1026,10 +1010,10 @@ function hrefWithout(params: RouteSearchParams, exclude: string[]): string {
   return qs ? `${PATHNAME}?${qs}` : PATHNAME;
 }
 
-function hrefWithRow(params: RouteSearchParams, itemId: string, play = false): string {
+function hrefWithRow(params: RouteSearchParams, itemId: string): string {
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (key === "vi_row" || key === "vi_play" || key === "va_status" || key === "va_code" || key === "va_fields" || key === "va_entries") continue;
+    if (key === "vi_row" || key === "va_status" || key === "va_code" || key === "va_fields" || key === "va_entries") continue;
     if (Array.isArray(value)) {
       for (const item of value) if (item) next.append(key, item);
     } else if (value) {
@@ -1037,6 +1021,5 @@ function hrefWithRow(params: RouteSearchParams, itemId: string, play = false): s
     }
   }
   next.set("vi_row", itemId);
-  if (play) next.set("vi_play", "1");
   return `${PATHNAME}?${next.toString()}`;
 }

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -375,7 +374,6 @@ func (h *Handler) logProofDownloadEvent(r *http.Request, proof domain.Artifact, 
 	attrs := proofLogAttrs(r, proof.ProofID)
 	attrs = append(attrs,
 		slog.String("event", event),
-		slog.String("result", "success"),
 		slog.String("client_app_version", info.AppVersion),
 		slog.String("client_app_version_code", info.AppVersionCode),
 		slog.String("client_platform", info.Platform),
@@ -390,35 +388,12 @@ func (h *Handler) logProofDownloadEvent(r *http.Request, proof domain.Artifact, 
 		slog.String("subject_type", proof.SubjectType),
 		slog.String("subject_id", stringPtrValue(proof.SubjectID)),
 		slog.String("proof_type", proof.ProofType),
-		slog.String("field_key", metadataString(proof.Metadata, "field_key")),
-		slog.String("client_task_key", metadataString(proof.Metadata, "client_task_key")),
-		slog.String("capture_source", metadataString(proof.Metadata, "capture_source")),
-		slog.String("screen", metadataString(proof.Metadata, "screen")),
-		slog.String("source", metadataString(proof.Metadata, "source")),
 		slog.String("mime_type", proof.MimeType),
 		slog.Int64("size_bytes", proof.SizeBytes),
 		slog.String("content_hash", proof.ContentHash),
 		slog.String("uploaded_by", stringPtrValue(proof.UploadedBy)),
 	)
 	h.log.LogAttrs(r.Context(), slog.LevelInfo, event, attrs...)
-}
-
-func metadataString(metadata map[string]any, key string) string {
-	if len(metadata) == 0 {
-		return ""
-	}
-	value, ok := metadata[key]
-	if !ok || value == nil {
-		return ""
-	}
-	switch v := value.(type) {
-	case string:
-		return v
-	case fmt.Stringer:
-		return v.String()
-	default:
-		return fmt.Sprint(v)
-	}
 }
 
 func clientRemoteIP(r *http.Request) string {
