@@ -114,6 +114,18 @@ that adds a module to a director. Non-leadership staff are the opposite case:
 their modules come from their department's grants, which is how Pramod and
 Kumar Sharath have Herd Operations without any code entry.
 
+### `hr` is granted by NAME (maintainer decision 2026-09-10)
+
+`hr` is a per-person authority in the `counts_approver` shape: it decides the HR line of a
+leave request raised from the phone Clock screen (`leave.approve`) and reads every request on
+the web `/leave` page (`leave.read`). It carries both bootstraps because the HR person may hold
+no other job role, and NOTHING park-scoped. Nobody is named yet; when the maintainer names the
+acting HR, add them to `perPersonGrants` in `backend/cmd/seed-stg-login-grants/approvers.go`
+and run `make seed-stg-9-person-login`. The park head signs the other line through the
+`park_head` job (tenant-scoped grant seated by `workforce_members.primary_location_id`).
+Catalog row and designation: migration `000287`. Canonical prose:
+`docs/decisions/leave-requests.md`.
+
 ## Dormant Catalog Roles
 
 `org_role_catalog` also contains composite tier/vertical roles such as
