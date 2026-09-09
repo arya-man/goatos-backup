@@ -467,7 +467,12 @@ LIMIT $7`
 		saleThresholdLowerKg, saleThresholdUpperKg,
 		domain.MaxShedWeightsRows,
 		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels,
-		growthLookbackDays, weighingCategory,
+		// $12, the KPI pair lookback, is 0 since 2026-09-09: the "kids weighed" strip counts an
+		// animal only when BOTH its weighs fall inside the selected period -- the rule the lump-sum
+		// half always used, and the one growth.go now applies. It was growthLookbackDays, which let
+		// an animal weighed once in the period qualify on a weigh up to 400 days old, making the
+		// strip's own sub-label ("weighed twice in the selected period") untrue for most of it.
+		0, weighingCategory,
 		idMap.Tags, idMap.CanonicalTags)
 	if err != nil {
 		return domain.ShedWeights{}, err
