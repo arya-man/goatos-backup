@@ -79,15 +79,18 @@ func TestFarmValuationSQLPageBoundaryTotalsAreWholeInventory(t *testing.T) {
 }
 
 func TestFarmValuationSQLParkScopeHierarchyUsesLocationCodes(t *testing.T) {
+	scopedQuery := farmValuationQuery("CBE")
 	for _, want := range []string{
 		"LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id",
 		"LEFT JOIN public.locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id",
+		"upper(park.location_code) = upper($2)",
+		"park.location_code IS NULL AND upper(farm.location_code) = upper($2)",
 	} {
-		if !strings.Contains(farmValuationSQL, want) {
+		if !strings.Contains(scopedQuery, want) {
 			t.Fatalf("farm valuation SQL missing scope hierarchy proof %q", want)
 		}
 	}
-	if strings.Contains(farmValuationSQL, "COALESCE(park") || strings.Contains(farmValuationSQL, "coalesce(park") {
+	if strings.Contains(scopedQuery, "COALESCE(park") || strings.Contains(scopedQuery, "coalesce(park") {
 		t.Fatal("farm valuation farm scope must not collapse hierarchy with a generic park/farm COALESCE")
 	}
 }

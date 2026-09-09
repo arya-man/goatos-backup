@@ -152,13 +152,11 @@ func (r *Repository) soldWeightBands(ctx context.Context, tenantID, farm string)
 // scope=tenant_id and optional farm code.
 func (r *Repository) farmValuation(ctx context.Context, tenantID, farm string) (domain.FarmValuation, error) {
 	args := []any{tenantID}
-	farmPredicate := ""
 	if farm != "" {
 		args = append(args, farm)
-		farmPredicate = "AND upper(coalesce(park.location_code, farm.location_code, '')) = upper($2)"
 	}
 
-	query := fmt.Sprintf(farmValuationSQL, farmPredicate)
+	query := farmValuationQuery(farm)
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return domain.FarmValuation{}, fmt.Errorf("sales farm valuation: %w", err)
@@ -198,6 +196,14 @@ func (r *Repository) farmValuation(ctx context.Context, tenantID, farm string) (
 		return domain.FarmValuation{}, fmt.Errorf("sales farm valuation rows: %w", err)
 	}
 	return out, nil
+}
+
+func farmValuationQuery(farm string) string {
+	farmPredicate := ""
+	if farm != "" {
+		farmPredicate = "AND (upper(park.location_code) = upper($2) OR (park.location_code IS NULL AND upper(farm.location_code) = upper($2)))"
+	}
+	return fmt.Sprintf(farmValuationSQL, farmPredicate)
 }
 
 // closedDeals loads every closed deal in the filter -- the ONE bounded read behind the summary,
