@@ -487,14 +487,7 @@ const soldWeightBandsSQL = `
 // farmValuationSQL is the one live-inventory rollup behind the Farm Value cards. %s is the optional
 // farm-code predicate.
 const farmValuationSQL = `
-	WITH latest_purpose AS (
-		SELECT DISTINCT ON (tenant_id, goat_id)
-			tenant_id, goat_id, purpose
-		FROM public.procurement_load_goats
-		WHERE tenant_id = $1
-		ORDER BY tenant_id, goat_id, updated_at DESC NULLS LAST
-	),
-	idmap AS (
+	WITH idmap AS (
 		SELECT tenant_id, goat_id, lower(btrim(identifier_value)) AS identifier
 		FROM public.goat_identifiers
 		WHERE tenant_id = $1
@@ -518,8 +511,8 @@ const farmValuationSQL = `
 	),
 	classified AS (
 		SELECT
-			CASE
-				WHEN coalesce(lp.purpose, '') = 'fattening' OR g.management_stage IN ('F2', 'F2-Male', 'F2-Female') THEN 'fattening'
+				CASE
+					WHEN g.management_stage IN ('F2', 'F2-Male', 'F2-Female') THEN 'fattening'
 				WHEN g.age_band = 'adult' AND g.sex = 'female' THEN 'adult_female'
 				WHEN g.age_band = 'adult' AND g.sex = 'male' THEN 'adult_male_buck'
 				WHEN g.milk_cohort = 'K1' OR g.management_stage = 'K1' THEN 'K1'
@@ -529,9 +522,8 @@ const farmValuationSQL = `
 				ELSE 'unmapped'
 			END AS bucket,
 			gw.weight_kg
-		FROM public.goats g
-		LEFT JOIN latest_purpose lp ON lp.tenant_id = g.tenant_id AND lp.goat_id = g.goat_id
-		LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id
+			FROM public.goats g
+			LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id
 		LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 		LEFT JOIN public.locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id
 		WHERE g.tenant_id = $1
