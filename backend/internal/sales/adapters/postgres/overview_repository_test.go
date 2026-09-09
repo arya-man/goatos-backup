@@ -14,7 +14,13 @@ func TestFarmValuationSQLUsesCurrentInventoryShape(t *testing.T) {
 		"g.management_stage IN ('F2', 'F2-Male', 'F2-Female')",
 		"g.milk_cohort = 'K0' OR g.management_stage = 'K0'",
 		"total_inventory AS",
+		"count(*) FILTER (WHERE bucket <> 'unmapped')::int AS valued_animals",
+		"count(*) FILTER (WHERE bucket = 'unmapped')::int AS excluded_animals",
 		"SELECT DISTINCT ON (i.tenant_id, i.goat_id)",
+		"FROM public.goat_identifiers",
+		"status = 'active'",
+		"identifier_type IN ('animal_identifier_1', 'animal_identifier_2')",
+		"lower(btrim(scanned_identifier))",
 		"verification_status = 'verified'",
 		"450::float8",
 		"600::float8",
@@ -31,5 +37,8 @@ func TestFarmValuationSQLUsesCurrentInventoryShape(t *testing.T) {
 	}
 	if strings.Contains(farmValuationSQL, "g.management_stage ILIKE '%%kid%%'") {
 		t.Fatal("K0 valuation must be literal K0, not every unhandled kid-like stage such as ICU-Kid")
+	}
+	if strings.Contains(farmValuationSQL, "animal_identifier_1 AS identifier") {
+		t.Fatal("fattening weights must resolve through canonical goat_identifiers, not procurement-load snapshots")
 	}
 }
