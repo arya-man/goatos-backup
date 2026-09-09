@@ -67,10 +67,12 @@ Monitoring policies: goatos-stg API 5xx error-rate SLO burn
                      goatos-stg notification dispatch failure rate
 ```
 
-All Cloud Run services, the Cloud Run Job, Cloud Scheduler job, GCS buckets,
-and the BigQuery dataset explicitly set `location`/`region` = `var.region`
-(`asia-south1`) or a literal `"asia-south1"` for the BigQuery dataset — never
-left to provider defaults.
+All Terraform-managed Cloud Run services, the manual Cloud Run Job, GCS
+buckets, and the BigQuery dataset explicitly set `location`/`region` =
+`var.region` (`asia-south1`) or a literal `"asia-south1"` for the BigQuery
+dataset — never left to provider defaults. This observability plan does not
+declare a Cloud Scheduler job in stg Terraform; the separate live cost-alert
+Scheduler exception is manually managed outside Terraform.
 
 ---
 
@@ -206,7 +208,7 @@ terraform plan \
   -var='observability_operator_members=["user:ravi@mesha.sg"]' \
   -out=observability.tfplan
 # review the plan — it should show ONLY additive resources (4 SAs, 3 Cloud
-# Run services, 1 Cloud Run Job, 1 Scheduler job, 2 GCS buckets + objects,
+# Run services, 1 manual Cloud Run Job, 2 GCS buckets + objects,
 # 1 BigQuery dataset, 2 secrets, 1 cloud_sql_database_instance UPDATE
 # in-place for insights_config, 5 new alert policies) PLUS in-place updates
 # to the existing api service and every kernel Job (new otel-collector
@@ -312,10 +314,10 @@ stg with the mobile/backend lane before doing this if it differs).
   for a follow-up if log data residency in India specifically is a hard
   requirement, since that would need a dedicated regional log bucket +
   routing sink, not just an exporter setting).
-- Everything else — Cloud Run services/job, Cloud Scheduler, GCS buckets,
-  Secret Manager replication, the BigQuery dataset, Cloud SQL itself — is
-  explicitly `asia-south1` in this pass, not inherited from a provider
-  default.
+- Everything else this Terraform pass owns — Cloud Run services/job, GCS
+  buckets, Secret Manager replication, the BigQuery dataset, Cloud SQL itself
+  — is explicitly `asia-south1`, not inherited from a provider default. It
+  intentionally owns no stg Cloud Scheduler resource.
 
 ---
 
@@ -342,8 +344,8 @@ stg with the mobile/backend lane before doing this if it differs).
    `transform`/log-to-metric stage — not built in this pass.
 3. **Mobile dashboard rollup tables** (`analytics.mobile_*_rollup`) are
    referenced by `05-mobile.json` but their schema/population is entirely
-   backend-lane-owned; this infra pass only wires the Postgres datasource
-   and the Cloud Run Job/Scheduler shell that will eventually populate them.
+   backend-lane-owned; this infra pass only wires the Postgres datasource and
+   the manual Cloud Run Job shell that will eventually populate them.
 4. **GMP query-frontend and Cloud Monitoring datasource are additions**
    beyond the literal 3-named-service scope (section 3) — remove them if
    the reviewer wants to hold strictly to 3 Cloud Run services and accept a
