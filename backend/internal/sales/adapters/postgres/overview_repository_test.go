@@ -32,6 +32,9 @@ func TestFarmValuationSQLUsesCurrentInventoryShape(t *testing.T) {
 	if strings.Contains(farmValuationSQL, "public.farms") {
 		t.Fatal("farm valuation must use the locations register; public.farms does not exist in OCI/stg")
 	}
+	if strings.Contains(farmValuationSQL, "purpose") {
+		t.Fatal("farm valuation must use current herd stage, not historical procurement purpose")
+	}
 	if strings.Contains(farmValuationSQL, "g.lifecycle_status = 'alive'") {
 		t.Fatal("farm valuation must not hard-code alive-only; Counts/stg current inventory excludes terminal statuses")
 	}
