@@ -87,10 +87,11 @@ resource "google_pubsub_subscription" "cost_alert_budget_push" {
   retain_acked_messages      = false
 
   push_config {
-    push_endpoint = "${google_cloud_run_v2_service.cost_alert_bridge.uri}/budget-pubsub?token=${var.cost_alert_bridge_shared_token}"
+    push_endpoint = "${google_cloud_run_v2_service.cost_alert_bridge.uri}/budget-pubsub"
 
     oidc_token {
       service_account_email = google_service_account.runtime["cost_alert_bridge"].email
+      audience              = local.cost_alert_bridge_audience
     }
   }
 

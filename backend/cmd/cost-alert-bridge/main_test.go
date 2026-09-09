@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -38,11 +40,11 @@ func TestFormatBudgetIncludesBillingFields(t *testing.T) {
 	s := &server{console: "https://billing.example", queryHint: "group by SKU"}
 	got := s.formatBudget(budgetNotification{
 		BudgetDisplayName:       "GoatOS monthly forecast cost alerts",
-		AlertThresholdExceeded:  0.7777777778,
-		CostAmount:              12345,
-		BudgetAmount:            45000,
+		ForecastThreshold:       0.7777777778,
+		CostAmount:              flexibleFloat(12345),
+		BudgetAmount:            flexibleFloat(45000),
 		CurrencyCode:            "INR",
-		ForecastThresholdAmount: 35000,
+		ForecastThresholdAmount: flexibleFloat(35000),
 	})
 
 	for _, want := range []string{
@@ -59,6 +61,51 @@ func TestFormatBudgetIncludesBillingFields(t *testing.T) {
 			t.Fatalf("formatted budget alert missing %q in:\n%s", want, got)
 		}
 	}
+}
+
+func TestDecodeBudgetNotificationAcceptsGooglePubSubShape(t *testing.T) {
+	data := `{"budgetDisplayName":"GoatOS monthly forecast Slack alerts","costAmount":25001,"costIntervalStart":"2026-09-01T00:00:00Z","budgetAmount":45000,"budgetAmountType":"SPECIFIED_AMOUNT","forecastThresholdExceeded":0.5555555556,"currencyCode":"INR"}`
+	payload, err := json.Marshal(pubsubPushForTest(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := decodeBudgetNotification(payload)
+	if err != nil {
+		t.Fatalf("decodeBudgetNotification returned error: %v", err)
+	}
+	if got.BudgetDisplayName != "GoatOS monthly forecast Slack alerts" {
+		t.Fatalf("unexpected budget name: %q", got.BudgetDisplayName)
+	}
+	if got.ForecastThreshold != flexibleFloat(0.5555555556) {
+		t.Fatalf("unexpected forecast threshold: %v", got.ForecastThreshold)
+	}
+	if got.CostAmount != flexibleFloat(25001) || got.BudgetAmount != flexibleFloat(45000) {
+		t.Fatalf("unexpected amounts: cost=%v budget=%v", got.CostAmount, got.BudgetAmount)
+	}
+}
+
+func TestDecodeBudgetNotificationAcceptsStringNumbers(t *testing.T) {
+	data := `{"budgetDisplayName":"GoatOS","costAmount":"25001.50","budgetAmount":"45000","forecastThresholdExceeded":"0.7777777778","currencyCode":"INR"}`
+
+	got, err := decodeBudgetNotification([]byte(data))
+	if err != nil {
+		t.Fatalf("decodeBudgetNotification returned error: %v", err)
+	}
+	if got.CostAmount != flexibleFloat(25001.50) {
+		t.Fatalf("unexpected cost amount: %v", got.CostAmount)
+	}
+	if got.ForecastThreshold != flexibleFloat(0.7777777778) {
+		t.Fatalf("unexpected forecast threshold: %v", got.ForecastThreshold)
+	}
+}
+
+func pubsubPushForTest(data string) pubsubPush {
+	var push pubsubPush
+	push.Message.Data = base64.StdEncoding.EncodeToString([]byte(data))
+	push.Message.MessageID = "budget-test"
+	push.Subscription = "projects/goatos-stg/subscriptions/goatos-stg-cost-alert-budget-push"
+	return push
 }
 
 func TestBillingExportNotReadyErrorsAreRecognized(t *testing.T) {

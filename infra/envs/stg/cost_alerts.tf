@@ -1,3 +1,11 @@
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+locals {
+  cost_alert_bridge_audience = "https://${google_cloud_run_v2_service.cost_alert_bridge.name}-${data.google_project.current.number}.${var.region}.run.app"
+}
+
 resource "google_bigquery_dataset" "billing_export" {
   dataset_id    = "goatos_billing_export"
   friendly_name = "GoatOS Billing Export"

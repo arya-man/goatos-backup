@@ -19,6 +19,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
+	"google.golang.org/api/idtoken"
 	"google.golang.org/api/iterator"
 )
 
@@ -36,6 +37,8 @@ type server struct {
 	queryHint    string
 	billingTable string
 	projects     []string
+	oidcAudience string
+	oidcEmails   []string
 	now          func() time.Time
 }
 
@@ -73,15 +76,18 @@ type pubsubPush struct {
 }
 
 type budgetNotification struct {
-	BudgetDisplayName       string  `json:"budgetDisplayName"`
-	AlertThresholdExceeded  float64 `json:"alertThresholdExceeded"`
-	CostAmount              float64 `json:"costAmount"`
-	CostIntervalStart       string  `json:"costIntervalStart"`
-	BudgetAmount            float64 `json:"budgetAmount"`
-	BudgetAmountType        string  `json:"budgetAmountType"`
-	CurrencyCode            string  `json:"currencyCode"`
-	ForecastThresholdAmount float64 `json:"forecastThresholdAmount"`
+	BudgetDisplayName       string        `json:"budgetDisplayName"`
+	AlertThresholdExceeded  flexibleFloat `json:"alertThresholdExceeded"`
+	ForecastThresholdAmount flexibleFloat `json:"forecastThresholdAmount"`
+	ForecastThreshold       flexibleFloat `json:"forecastThresholdExceeded"`
+	CostAmount              flexibleFloat `json:"costAmount"`
+	CostIntervalStart       string        `json:"costIntervalStart"`
+	BudgetAmount            flexibleFloat `json:"budgetAmount"`
+	BudgetAmountType        string        `json:"budgetAmountType"`
+	CurrencyCode            string        `json:"currencyCode"`
 }
+
+type flexibleFloat float64
 
 type anomalyRow struct {
 	AlertType      string               `bigquery:"alert_type"`
@@ -130,6 +136,8 @@ func run() error {
 		queryHint:    envDefault("GOATOS_COST_ALERT_FIRST_QUERY", "Open Billing Reports grouped by project, service, then SKU for today and yesterday; for media spikes also open Cloud Logging for proof_download_redirect in goatos-api-stg."),
 		billingTable: strings.TrimSpace(os.Getenv("GOATOS_BILLING_EXPORT_TABLE")),
 		projects:     splitCSV(envDefault("GOATOS_BILLING_MONITORED_PROJECTS", "goatos-stg,goatos-sheets,goatos-dev")),
+		oidcAudience: strings.TrimSpace(os.Getenv("GOATOS_COST_ALERT_OIDC_AUDIENCE")),
+		oidcEmails:   splitCSV(os.Getenv("GOATOS_COST_ALERT_OIDC_EMAILS")),
 		now:          time.Now,
 	}
 	if s.billingTable != "" {
@@ -209,19 +217,15 @@ func (s *server) budgetPubsub(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	var push pubsubPush
-	if err := decodeJSON(r.Body, &push); err != nil {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
+	if err != nil {
 		http.Error(w, "invalid pubsub payload", http.StatusBadRequest)
 		return
 	}
-	data, err := base64.StdEncoding.DecodeString(push.Message.Data)
+	budget, err := decodeBudgetNotification(body)
 	if err != nil {
-		http.Error(w, "invalid pubsub data", http.StatusBadRequest)
-		return
-	}
-	var budget budgetNotification
-	if err := json.Unmarshal(data, &budget); err != nil {
-		http.Error(w, "invalid budget notification", http.StatusBadRequest)
+		s.log.Warn("cost_alert_budget_payload_rejected", slog.String("error", err.Error()))
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if err := s.postSlack(r.Context(), s.formatBudget(budget)); err != nil {
@@ -311,10 +315,42 @@ func (s *server) queryBillingAnomalies(ctx context.Context) ([]anomalyRow, error
 }
 
 func (s *server) authorized(r *http.Request) bool {
-	if s.token == "" {
+	if s.token != "" && r.URL.Query().Get("token") == s.token {
 		return true
 	}
-	return r.URL.Query().Get("token") == s.token || strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ") == s.token
+	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if s.token != "" && bearer == s.token {
+		return true
+	}
+	if s.authorizedGoogleOIDC(r, bearer) {
+		return true
+	}
+	return s.token == "" && len(s.oidcEmails) == 0
+}
+
+func (s *server) authorizedGoogleOIDC(r *http.Request, bearer string) bool {
+	if bearer == "" || s.oidcAudience == "" || len(s.oidcEmails) == 0 {
+		return false
+	}
+	if r.URL.Path != "/budget-pubsub" && r.URL.Path != "/billing-anomaly-check" {
+		return false
+	}
+	payload, err := idtoken.Validate(r.Context(), bearer, s.oidcAudience)
+	if err != nil {
+		s.log.Warn("cost_alert_oidc_rejected", slog.String("error", err.Error()))
+		return false
+	}
+	email, _ := payload.Claims["email"].(string)
+	if email == "" {
+		return false
+	}
+	for _, allowed := range s.oidcEmails {
+		if strings.EqualFold(email, allowed) {
+			return true
+		}
+	}
+	s.log.Warn("cost_alert_oidc_email_rejected", slog.String("email", email))
+	return false
 }
 
 func (s *server) formatMonitoring(payload monitoringIncident) string {
@@ -340,18 +376,21 @@ func (s *server) formatMonitoring(payload monitoringIncident) string {
 }
 
 func (s *server) formatBudget(payload budgetNotification) string {
-	threshold := payload.AlertThresholdExceeded
-	if threshold == 0 && payload.ForecastThresholdAmount > 0 && payload.BudgetAmount > 0 {
-		threshold = payload.ForecastThresholdAmount / payload.BudgetAmount
+	threshold := float64(payload.ForecastThreshold)
+	if threshold == 0 {
+		threshold = float64(payload.AlertThresholdExceeded)
 	}
-	spend := formatMoney(payload.CurrencyCode, payload.CostAmount)
-	forecast := formatMoney(payload.CurrencyCode, payload.ForecastThresholdAmount)
+	if threshold == 0 && payload.ForecastThresholdAmount > 0 && payload.BudgetAmount > 0 {
+		threshold = float64(payload.ForecastThresholdAmount / payload.BudgetAmount)
+	}
+	spend := formatMoney(payload.CurrencyCode, float64(payload.CostAmount))
+	forecast := formatMoney(payload.CurrencyCode, float64(payload.ForecastThresholdAmount))
 	return fmt.Sprintf("*GoatOS GCP billing forecast alert: %s*\nProject: `billing account scoped: goatos-stg (display name GoatOS), goatos-sheets, goatos-dev if billing is re-enabled`\nService: `all GCP services`\nSpend/usage: `%s current interval cost`\nDelta/threshold: `forecast crossed %.1f%% (%s of %s budget)`\nTop SKU/metric: `Billing export: group by Service, SKU, Project for today and previous 7 days`\nConsole: %s\nFirst query: `%s`",
 		firstNonEmpty(payload.BudgetDisplayName, "GoatOS monthly forecast cost alerts"),
 		spend,
 		threshold*100,
 		firstNonEmpty(forecast, "configured forecast threshold"),
-		formatMoney(payload.CurrencyCode, payload.BudgetAmount),
+		formatMoney(payload.CurrencyCode, float64(payload.BudgetAmount)),
 		s.console,
 		s.queryHint,
 	)
@@ -505,6 +544,61 @@ func decodeJSON(body io.Reader, out any) error {
 	return decoder.Decode(out)
 }
 
+func decodeBudgetNotification(body []byte) (budgetNotification, error) {
+	var budget budgetNotification
+	if err := json.Unmarshal(body, &budget); err == nil && budget.hasBudgetSignal() {
+		return budget, nil
+	}
+
+	var push pubsubPush
+	if err := json.Unmarshal(body, &push); err != nil {
+		return budgetNotification{}, fmt.Errorf("decode pubsub envelope: %w", err)
+	}
+	if strings.TrimSpace(push.Message.Data) == "" {
+		return budgetNotification{}, errors.New("missing pubsub message data")
+	}
+	data, err := decodePubsubData(push.Message.Data)
+	if err != nil {
+		return budgetNotification{}, err
+	}
+	if err := json.Unmarshal(data, &budget); err != nil {
+		return budgetNotification{}, fmt.Errorf("decode budget notification: %w", err)
+	}
+	if !budget.hasBudgetSignal() {
+		return budgetNotification{}, errors.New("budget notification missing budget fields")
+	}
+	return budget, nil
+}
+
+func decodePubsubData(value string) ([]byte, error) {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "{") {
+		return []byte(value), nil
+	}
+	if data, err := base64.StdEncoding.DecodeString(value); err == nil {
+		return data, nil
+	}
+	if data, err := base64.RawStdEncoding.DecodeString(value); err == nil {
+		return data, nil
+	}
+	if data, err := base64.URLEncoding.DecodeString(value); err == nil {
+		return data, nil
+	}
+	if data, err := base64.RawURLEncoding.DecodeString(value); err == nil {
+		return data, nil
+	}
+	return nil, errors.New("invalid pubsub data")
+}
+
+func (payload budgetNotification) hasBudgetSignal() bool {
+	return payload.BudgetDisplayName != "" ||
+		payload.CostAmount != 0 ||
+		payload.BudgetAmount != 0 ||
+		payload.AlertThresholdExceeded != 0 ||
+		payload.ForecastThreshold != 0 ||
+		payload.ForecastThresholdAmount != 0
+}
+
 func envDefault(key, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return value
@@ -540,6 +634,31 @@ func formatMoney(currency string, amount float64) string {
 		currency = "INR"
 	}
 	return currency + " " + strconv.FormatFloat(amount, 'f', 2, 64)
+}
+
+func (value *flexibleFloat) UnmarshalJSON(data []byte) error {
+	text := strings.TrimSpace(string(data))
+	if text == "" || text == "null" {
+		*value = 0
+		return nil
+	}
+	if len(text) >= 2 && text[0] == '"' && text[len(text)-1] == '"' {
+		var raw string
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+		text = strings.TrimSpace(raw)
+		if text == "" {
+			*value = 0
+			return nil
+		}
+	}
+	parsed, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return err
+	}
+	*value = flexibleFloat(parsed)
+	return nil
 }
 
 func splitCSV(value string) []string {

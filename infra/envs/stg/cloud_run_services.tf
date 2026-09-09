@@ -586,6 +586,16 @@ resource "google_cloud_run_v2_service" "cost_alert_bridge" {
         # "GoatOS" is the display name of project_id goatos-stg.
         value = "goatos-stg,goatos-sheets,goatos-dev"
       }
+
+      env {
+        name  = "GOATOS_COST_ALERT_OIDC_AUDIENCE"
+        value = local.cost_alert_bridge_audience
+      }
+
+      env {
+        name  = "GOATOS_COST_ALERT_OIDC_EMAILS"
+        value = "${google_service_account.runtime["cost_alert_bridge"].email},${google_service_account.runtime["scheduler"].email}"
+      }
     }
   }
 
