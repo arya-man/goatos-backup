@@ -749,9 +749,7 @@ function VerificationReviewDrawerPanel({
                 </label>
               )}
               {Object.keys(activeVarianceWarnings).length > 0 ? (
-                /* The confirmation the second Accept carries. Rendered only while a warning is
-                   showing; Accept below stays held until it is ticked, so "if you are sure" is a
-                   deliberate act and not the default. */
+                /* The second Accept carries this confirmation; keep Accept held until it is ticked. */
                 <label className="fld" style={{ marginBottom: 0, display: "flex", gap: 8, alignItems: "center" }}>
                   <input
                     form="verdict-form"
