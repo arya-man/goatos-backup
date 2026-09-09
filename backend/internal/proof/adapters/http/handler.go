@@ -29,6 +29,8 @@ type Service interface {
 	StoreUpload(ctx context.Context, tenantID, proofID, mimeType string, body io.Reader) (domain.Artifact, error)
 	ListUploadedProofs(ctx context.Context, query domain.ListUploadedProofsQuery) ([]domain.Artifact, error)
 	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
+	DownloadArtifact(ctx context.Context, tenantID, proofID string) (domain.Artifact, string, error)
+	DownloadArtifactForActor(ctx context.Context, tenantID, actorID, proofID string) (domain.Artifact, string, error)
 	OpenLocalDownload(ctx context.Context, tenantID, proofID string) (domain.Artifact, ports.ReadSeekCloser, error)
 	DeleteUpload(ctx context.Context, tenantID, proofID, actorID string) error
 	VerifySignedURL(method, path, tenantID, expires, signature string) bool
@@ -221,10 +223,13 @@ func (h *Handler) ListUploadedProofs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := make([]proofResponse, 0, len(proofs))
+	includeDownloadURLs := strings.EqualFold(strings.TrimSpace(q.Get("include_download_urls")), "true")
 	for _, proof := range proofs {
 		response := toProofResponse(proof)
-		if url, err := h.service.DownloadURL(r.Context(), tenant, proof.ProofID); err == nil {
-			response.DownloadURL = url
+		if includeDownloadURLs {
+			// Never bulk-sign from list reads. Callers that intentionally open media should use this
+			// backend route, which performs auth and logs attribution before issuing the short-lived URL.
+			response.DownloadURL = "/app/proofs/" + proof.ProofID + "/download"
 		}
 		out = append(out, response)
 	}
@@ -331,16 +336,82 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	url, err := h.service.DownloadURL(r.Context(), tenantID(r), r.PathValue("proof_id"))
+	proof, url, err := h.service.DownloadArtifactForActor(r.Context(), tenantID(r), actorID(r), r.PathValue("proof_id"))
 	if err != nil {
 		h.respondErr(w, r, err)
 		return
 	}
 	if strings.HasPrefix(url, "http") {
-		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+		w.Header().Set("Cache-Control", "private, max-age=300")
+		w.Header().Set("Vary", "Authorization, Accept")
+		if prefersDownloadRedirect(r) {
+			h.logProofDownloadRedirect(r, proof)
+			http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+			return
+		}
+		h.logProofDownloadURLIssued(r, proof)
+		httpresponse.WriteJSON(w, http.StatusOK, downloadURLResponse{DownloadURL: url})
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, downloadURLResponse{DownloadURL: url})
+}
+
+func prefersDownloadRedirect(r *http.Request) bool {
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	return !strings.Contains(accept, "application/json")
+}
+
+func (h *Handler) logProofDownloadRedirect(r *http.Request, proof domain.Artifact) {
+	h.logProofDownloadEvent(r, proof, "proof_download_redirect")
+}
+
+func (h *Handler) logProofDownloadURLIssued(r *http.Request, proof domain.Artifact) {
+	h.logProofDownloadEvent(r, proof, "proof_download_url_issued")
+}
+
+func (h *Handler) logProofDownloadEvent(r *http.Request, proof domain.Artifact, event string) {
+	info := httpmiddleware.ClientInfoFromContext(r.Context())
+	attrs := proofLogAttrs(r, proof.ProofID)
+	attrs = append(attrs,
+		slog.String("event", event),
+		slog.String("client_app_version", info.AppVersion),
+		slog.String("client_app_version_code", info.AppVersionCode),
+		slog.String("client_platform", info.Platform),
+		slog.String("client_os_version", info.OSVersion),
+		slog.String("client_device_model", info.DeviceModel),
+		slog.String("remote_ip", clientRemoteIP(r)),
+		slog.String("user_agent", r.UserAgent()),
+		slog.String("storage_provider", proof.StorageProvider),
+		slog.String("object_key", proof.ObjectKey),
+		slog.String("scope_type", proof.ScopeType),
+		slog.String("scope_id", proof.ScopeID),
+		slog.String("subject_type", proof.SubjectType),
+		slog.String("subject_id", stringPtrValue(proof.SubjectID)),
+		slog.String("proof_type", proof.ProofType),
+		slog.String("mime_type", proof.MimeType),
+		slog.Int64("size_bytes", proof.SizeBytes),
+		slog.String("content_hash", proof.ContentHash),
+		slog.String("uploaded_by", stringPtrValue(proof.UploadedBy)),
+	)
+	h.log.LogAttrs(r.Context(), slog.LevelInfo, event, attrs...)
+}
+
+func clientRemoteIP(r *http.Request) string {
+	forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+	if forwardedFor == "" {
+		return r.RemoteAddr
+	}
+	if comma := strings.Index(forwardedFor, ","); comma >= 0 {
+		return strings.TrimSpace(forwardedFor[:comma])
+	}
+	return forwardedFor
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (h *Handler) DownloadSigned(w http.ResponseWriter, r *http.Request) {

@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 )
 
 // Service is the behaviour this transport depends on.
@@ -30,7 +31,7 @@ type Service interface {
 	ChangeStatus(ctx context.Context, p ports.StatusParams) (domain.Task, error)
 	SetComment(ctx context.Context, p ports.CommentParams) (domain.Task, error)
 	MarkSeen(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error)
-	AttachmentDownloadURL(ctx context.Context, tenantID string, actor domain.Actor, taskID, proofID string) (string, error)
+	AttachmentDownloadURL(ctx context.Context, tenantID string, actor domain.Actor, taskID, proofID string) (app.AttachmentDownload, error)
 }
 
 // Handler serves the routes.
@@ -255,7 +256,7 @@ func (h *Handler) MarkSeen(w http.ResponseWriter, r *http.Request) {
 // DownloadAttachment serves GET /app/leadership-tasks/{task_id}/attachments/{proof_id}/download.
 func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 	actor := actorFrom(r)
-	url, err := h.service.AttachmentDownloadURL(
+	download, err := h.service.AttachmentDownloadURL(
 		r.Context(),
 		tenantID(r),
 		actor,
@@ -266,7 +267,75 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, downloadPayload{DownloadURL: url, TraceID: traceID(r)})
+	proof := download.Artifact
+	h.log.Info(
+		"proof_download_url_issued",
+		"event", "proof_download_url_issued",
+		"surface", "leadership_task_attachment",
+		"route", "/app/leadership-tasks/{task_id}/attachments/{proof_id}/download",
+		"result", "url_issued",
+		"tenant_id", tenantID(r),
+		"actor_id", actor.UserID,
+		"task_id", r.PathValue("task_id"),
+		"proof_id", r.PathValue("proof_id"),
+		"client_app_version", clientHeader(r, "X-GoatOS-App-Version"),
+		"client_app_version_code", clientHeader(r, "X-GoatOS-App-Version-Code"),
+		"client_platform", clientHeader(r, "X-GoatOS-Platform"),
+		"client_os_version", clientHeader(r, "X-GoatOS-OS-Version"),
+		"client_device_model", clientHeader(r, "X-GoatOS-Device-Model"),
+		"remote_ip", clientRemoteIP(r),
+		"user_agent", r.UserAgent(),
+		"storage_provider", nonEmpty(proof.StorageProvider, "gcs"),
+		"object_key", proof.ObjectKey,
+		"scope_type", nonEmpty(proof.ScopeType, "leadership_task"),
+		"scope_id", nonEmpty(proof.ScopeID, r.PathValue("task_id")),
+		"subject_type", nonEmpty(proof.SubjectType, "leadership_task_attachment"),
+		"subject_id", proofSubjectID(proof, r.PathValue("proof_id")),
+		"proof_type", nonEmpty(proof.ProofType, "leadership_task_attachment"),
+		"mime_type", proof.MimeType,
+		"size_bytes", proof.SizeBytes,
+		"content_hash", proof.ContentHash,
+		"uploaded_by", stringPtrValue(proof.UploadedBy),
+		"request_id", httpmiddleware.RequestIDFromContext(r.Context()),
+		"trace_id", traceID(r),
+	)
+	httpresponse.WriteJSON(w, http.StatusOK, downloadPayload{DownloadURL: download.URL, TraceID: traceID(r)})
+}
+
+func nonEmpty(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
+}
+
+func proofSubjectID(proof proofdomain.Artifact, fallback string) string {
+	if proof.SubjectID != nil && strings.TrimSpace(*proof.SubjectID) != "" {
+		return strings.TrimSpace(*proof.SubjectID)
+	}
+	return fallback
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func clientHeader(r *http.Request, key string) string {
+	return strings.TrimSpace(r.Header.Get(key))
+}
+
+func clientRemoteIP(r *http.Request) string {
+	forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+	if forwardedFor == "" {
+		return r.RemoteAddr
+	}
+	if comma := strings.Index(forwardedFor, ","); comma >= 0 {
+		return strings.TrimSpace(forwardedFor[:comma])
+	}
+	return forwardedFor
 }
 
 func toRefs(in []attachmentRefPayload) []domain.AttachmentRef {

@@ -8,8 +8,16 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import sg.mesha.goatos.core.media.ProofMediaHttp
 import sg.mesha.goatos.core.media.ProofPlayerFactory
+import sg.mesha.goatos.core.media.ProofRemoteImageLoader
+import sg.mesha.goatos.core.media.OkHttpProofRemoteImageLoader
 import sg.mesha.goatos.core.media.TelemetryProofPlayerFactory
+import sg.mesha.goatos.core.datastore.DeviceStore
+import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.network.NetworkTelemetryReporter
+import sg.mesha.goatos.core.network.RequestMetadata
+import sg.mesha.goatos.BuildConfig
+import android.os.Build
+import sg.mesha.goatos.auth.currentFirebaseIdTokenBlocking
 
 /**
  * Gives proof-video playback the SAME failure telemetry every API call gets (W-22).
@@ -29,6 +37,49 @@ object MediaModule {
     @Provides
     @Singleton
     @UnstableApi
-    fun provideProofPlayerFactory(reporter: NetworkTelemetryReporter): ProofPlayerFactory =
-        TelemetryProofPlayerFactory(ProofMediaHttp.proofMediaOkHttp(reporter = reporter))
+    fun provideProofMediaClient(
+        reporter: NetworkTelemetryReporter,
+        sessionStore: SessionStore,
+        deviceStore: DeviceStore,
+    ): okhttp3.OkHttpClient =
+        ProofMediaHttp.proofMediaOkHttp(
+            reporter = reporter,
+            apiBaseUrl = BuildConfig.API_BASE_URL,
+            tokenProvider = {
+                if (BuildConfig.FLAVOR == "dev") {
+                    sessionStore.cachedToken() ?: BuildConfig.DEV_BEARER_TOKEN.takeIf { it.isNotBlank() }
+                } else {
+                    currentFirebaseIdTokenBlocking()
+                }
+            },
+            tenantIdProvider = { BuildConfig.TENANT_ID },
+            localeProvider = { sessionStore.cachedLanguage() },
+            requestMetadataProvider = {
+                RequestMetadata(
+                    appVersion = BuildConfig.VERSION_NAME,
+                    appVersionCode = BuildConfig.VERSION_CODE.toString(),
+                    buildType = BuildConfig.FLAVOR + if (BuildConfig.DEBUG) "Debug" else "Release",
+                    deviceId = deviceStore.appInstallIdSync(),
+                    platform = "android",
+                    osVersion = "Android ${Build.VERSION.RELEASE.orEmpty()}",
+                    sdkVersion = Build.VERSION.SDK_INT.toString(),
+                    deviceModel = listOf(Build.MANUFACTURER, Build.MODEL)
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                        .joinToString(" "),
+                )
+            },
+        )
+
+    @Provides
+    @Singleton
+    @UnstableApi
+    fun provideProofPlayerFactory(client: okhttp3.OkHttpClient): ProofPlayerFactory =
+        TelemetryProofPlayerFactory(client)
+
+    @Provides
+    @Singleton
+    fun provideProofRemoteImageLoader(client: okhttp3.OkHttpClient): ProofRemoteImageLoader =
+        OkHttpProofRemoteImageLoader(client)
 }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -194,17 +195,14 @@ class WeighingFastingDetailViewModel @Inject constructor(
     private fun fetchRemotePreview(kind: WeighingFastingSlotKind, proofRef: String) {
         if (proofRef.isBlank()) return
         if (_state.value.slotOf(kind).let { it.remoteUrl != null || it.previewPath != null }) return
-        viewModelScope.launch {
-            val url = fastingRepository.fetchProofDownloadUrl(proofRef) ?: return@launch
-            updateSlot(kind) {
-                it.copy(
-                    captured = true,
-                    status = WeighingFastingSlotStatus.SYNCED,
-                    statusLabel = PROOF_SYNCED_LABEL,
-                    remoteUrl = url,
-                    serverProofId = proofRef,
-                )
-            }
+        updateSlot(kind) {
+            it.copy(
+                captured = true,
+                status = WeighingFastingSlotStatus.SYNCED,
+                statusLabel = PROOF_SYNCED_LABEL,
+                remoteUrl = weighingBackendProofUrl(proofRef),
+                serverProofId = proofRef,
+            )
         }
     }
 
@@ -776,6 +774,9 @@ class WeighingFastingDetailViewModel @Inject constructor(
         private const val SUBMIT_SYNCED_MESSAGE = "Sent. The videos will be checked later."
     }
 }
+
+private fun weighingBackendProofUrl(proofRef: String): String =
+    BuildConfig.API_BASE_URL.trimEnd('/') + "/app/proofs/${proofRef.trim()}/download"
 
 private fun WeighingFastingDetailUiState.slotOf(kind: WeighingFastingSlotKind): WeighingFastingSlotUi =
     if (kind == WeighingFastingSlotKind.FEED) feedSlot else waterSlot

@@ -2002,6 +2002,7 @@ private fun WeighingLumpSumCapture(
                 ProofMediaPreview(
                     path = previewPath,
                     kind = ProofMediaPreviewKind.Video,
+                    mediaIdentity = proof.id,
                     onPreviewAction = { action -> onShedVideoPreviewAction(proof.id, action) },
                 )
             }

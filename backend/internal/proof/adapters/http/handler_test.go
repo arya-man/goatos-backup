@@ -1,11 +1,13 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -120,6 +122,134 @@ func TestCreateUploadResponseAdvertisesResumableProtocol(t *testing.T) {
 	}
 }
 
+func TestDownloadRedirectLogsAttributionAndPrivateCache(t *testing.T) {
+	uploadedBy := "90000000-0000-4000-8000-000000000001"
+	subjectID := "30000000-0000-4000-8000-000000000001"
+	var logs bytes.Buffer
+	svc := &fakeHTTPProofService{
+		proof: domain.Artifact{
+			ProofID:         httpTestProof,
+			TenantID:        httpTestTenant,
+			StorageProvider: "gcs",
+			ObjectKey:       "goatos-stg-media/tenant/proofs/proof-1.mp4",
+			ContentHash:     "sha256:proof",
+			MimeType:        "video/mp4",
+			SizeBytes:       42,
+			ScopeType:       "pc_care_task",
+			ScopeID:         "20000000-0000-4000-8000-000000000001",
+			SubjectType:     "goat",
+			SubjectID:       &subjectID,
+			ProofType:       "pc_hoof_trimming",
+			UploadedBy:      &uploadedBy,
+			UpdatedAt:       time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC),
+		},
+		downloadURL: "https://storage.googleapis.com/goatos-stg-media/signed-proof",
+	}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(svc, slog.New(slog.NewJSONHandler(&logs, nil))))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/"+httpTestProof+"/download", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), httpTestTenant))
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("User-Agent", "okhttp/5.1.0")
+	req.Header.Set("X-Forwarded-For", "157.51.58.239, 10.0.0.1")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Location"); got != svc.downloadURL {
+		t.Fatalf("Location=%q, want signed URL", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "private, max-age=300" {
+		t.Fatalf("Cache-Control=%q", got)
+	}
+	if got := rec.Header().Get("Vary"); got != "Authorization, Accept" {
+		t.Fatalf("Vary=%q", got)
+	}
+	logLine := logs.String()
+	for _, want := range []string{
+		`"event":"proof_download_redirect"`,
+		`"proof_id":"` + httpTestProof + `"`,
+		`"remote_ip":"157.51.58.239"`,
+		`"object_key":"goatos-stg-media/tenant/proofs/proof-1.mp4"`,
+		`"proof_type":"pc_hoof_trimming"`,
+	} {
+		if !strings.Contains(logLine, want) {
+			t.Fatalf("log missing %s in %s", want, logLine)
+		}
+	}
+}
+
+func TestDownloadJSONClientGetsURLWithoutRedirectingToGCS(t *testing.T) {
+	uploadedBy := "90000000-0000-4000-8000-000000000001"
+	var logs bytes.Buffer
+	svc := &fakeHTTPProofService{
+		proof: domain.Artifact{
+			ProofID:         httpTestProof,
+			TenantID:        httpTestTenant,
+			StorageProvider: "gcs",
+			ObjectKey:       "goatos-stg-media/tenant/proofs/proof-1.mp4",
+			ContentHash:     "sha256:proof",
+			MimeType:        "video/mp4",
+			SizeBytes:       42,
+			ScopeType:       "pc_care_task",
+			ScopeID:         "20000000-0000-4000-8000-000000000001",
+			SubjectType:     "goat",
+			ProofType:       "pc_hoof_trimming",
+			UploadedBy:      &uploadedBy,
+			UpdatedAt:       time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC),
+		},
+		downloadURL: "https://storage.googleapis.com/goatos-stg-media/signed-proof",
+	}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(svc, slog.New(slog.NewJSONHandler(&logs, nil))))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/"+httpTestProof+"/download", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), httpTestTenant))
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "okhttp/5.1.0")
+	req.Header.Set("X-Forwarded-For", "157.51.58.239, 10.0.0.1")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Location"); got != "" {
+		t.Fatalf("Location=%q, want no redirect", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "private, max-age=300" {
+		t.Fatalf("Cache-Control=%q", got)
+	}
+	if got := rec.Header().Get("Vary"); got != "Authorization, Accept" {
+		t.Fatalf("Vary=%q", got)
+	}
+	var body downloadURLResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode JSON response: %v", err)
+	}
+	if body.DownloadURL != svc.downloadURL {
+		t.Fatalf("download_url=%q, want signed URL", body.DownloadURL)
+	}
+	logLine := logs.String()
+	if strings.Contains(logLine, `"event":"proof_download_redirect"`) {
+		t.Fatalf("unexpected redirect event in %s", logLine)
+	}
+	for _, want := range []string{
+		`"event":"proof_download_url_issued"`,
+		`"proof_id":"` + httpTestProof + `"`,
+		`"remote_ip":"157.51.58.239"`,
+		`"object_key":"goatos-stg-media/tenant/proofs/proof-1.mp4"`,
+		`"proof_type":"pc_hoof_trimming"`,
+	} {
+		if !strings.Contains(logLine, want) {
+			t.Fatalf("log missing %s in %s", want, logLine)
+		}
+	}
+}
+
 func TestListUploadedProofsPassesFeedSlotQuery(t *testing.T) {
 	const parkA = "86000000-0000-4000-8000-000000000701"
 	svc := &fakeHTTPProofService{
@@ -166,6 +296,49 @@ func TestListUploadedProofsPassesFeedSlotQuery(t *testing.T) {
 	}
 	if len(got.Proofs) != 1 || got.Proofs[0].ProofID != httpTestProof {
 		t.Fatalf("proofs = %#v", got.Proofs)
+	}
+	if got.Proofs[0].DownloadURL != "" {
+		t.Fatalf("download_url = %q, want omitted by default on list reads", got.Proofs[0].DownloadURL)
+	}
+	if svc.downloadURLCalls != 0 {
+		t.Fatalf("DownloadURL calls = %d, want 0 for default list read", svc.downloadURLCalls)
+	}
+}
+
+func TestListUploadedProofsOptInReturnsBackendDownloadPathWithoutSigning(t *testing.T) {
+	svc := &fakeHTTPProofService{
+		downloadURL: "https://storage.example/proof",
+		proofs: []domain.Artifact{{
+			ProofID:     httpTestProof,
+			TenantID:    httpTestTenant,
+			ProofType:   "video",
+			SubjectType: "shed",
+			UploadState: "completed",
+			MimeType:    "video/mp4",
+			CreatedAt:   time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC),
+		}},
+	}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(svc))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/uploads?include_download_urls=true", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), httpTestTenant))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got listUploadedProofsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	want := "/app/proofs/" + httpTestProof + "/download"
+	if len(got.Proofs) != 1 || got.Proofs[0].DownloadURL != want {
+		t.Fatalf("proofs = %#v, want backend download_url %q", got.Proofs, want)
+	}
+	if svc.downloadURLCalls != 0 {
+		t.Fatalf("DownloadURL calls = %d, want 0 for list opt-in path", svc.downloadURLCalls)
 	}
 }
 
@@ -237,15 +410,17 @@ func TestSignedDownloadPresentObjectStillStreams200(t *testing.T) {
 }
 
 type fakeHTTPProofService struct {
-	verify      bool
-	proof       domain.Artifact
-	target      domain.UploadTarget
-	reader      ports.ReadSeekCloser
-	proofs      []domain.Artifact
-	listQuery   domain.ListUploadedProofsQuery
-	openErr     error
-	openTenant  string
-	storeTenant string
+	verify           bool
+	proof            domain.Artifact
+	downloadURL      string
+	downloadURLCalls int
+	target           domain.UploadTarget
+	reader           ports.ReadSeekCloser
+	proofs           []domain.Artifact
+	listQuery        domain.ListUploadedProofsQuery
+	openErr          error
+	openTenant       string
+	storeTenant      string
 }
 
 func (s *fakeHTTPProofService) CreateUpload(context.Context, domain.CreateUpload) (domain.UploadTarget, error) {
@@ -273,7 +448,16 @@ func (s *fakeHTTPProofService) ListUploadedProofs(_ context.Context, query domai
 }
 
 func (s *fakeHTTPProofService) DownloadURL(context.Context, string, string) (string, error) {
-	return "", nil
+	s.downloadURLCalls++
+	return s.downloadURL, nil
+}
+
+func (s *fakeHTTPProofService) DownloadArtifact(context.Context, string, string) (domain.Artifact, string, error) {
+	return s.proof, s.downloadURL, nil
+}
+
+func (s *fakeHTTPProofService) DownloadArtifactForActor(context.Context, string, string, string) (domain.Artifact, string, error) {
+	return s.proof, s.downloadURL, nil
 }
 
 func (s *fakeHTTPProofService) DeleteUpload(context.Context, string, string, string) error {

@@ -71,6 +71,7 @@ data class PenReconciliationExecuteUiState(
      * gone (the preview then simply hides, never blocks the flow).
      */
     val videoPreviewPath: String? = null,
+    val videoMediaIdentity: String = "",
     val isCapturingVideo: Boolean = false,
     val videoMessage: String? = null,
     /** The "Mark done" write result. */
@@ -134,6 +135,9 @@ fun PenReconciliationExecuteScreen(
                         capturing = state.isCapturingVideo,
                         committed = committed,
                         previewPath = state.videoPreviewPath,
+                        mediaIdentity = state.videoMediaIdentity.ifBlank {
+                            "counts_pen_reconciliation:${state.cardId}:return_video"
+                        },
                         onClick = { onEvent(PenReconciliationExecuteEvent.RecordVideo) },
                         onReRecord = { onEvent(PenReconciliationExecuteEvent.ReRecordVideo) },
                         onPreviewAction = { action -> onEvent(PenReconciliationExecuteEvent.PreviewAction(action)) },
@@ -207,6 +211,7 @@ private fun PenReturnVideoCard(
     capturing: Boolean,
     committed: Boolean,
     previewPath: String?,
+    mediaIdentity: String,
     onClick: () -> Unit,
     onReRecord: () -> Unit = onClick,
     onPreviewAction: (String) -> Unit = {},
@@ -227,11 +232,12 @@ private fun PenReturnVideoCard(
         // the operator reviews what they actually shot before sending it to the verifier. A
         // missing/unplayable local file hides the preview and leaves Re-record as the way out.
         if (captured && !capturing && !previewPath.isNullOrBlank()) {
-            var previewFailed by remember(previewPath) { mutableStateOf(false) }
+            var previewFailed by remember(mediaIdentity) { mutableStateOf(false) }
             if (!previewFailed) {
                 ProofMediaPreview(
                     path = previewPath,
                     kind = ProofMediaPreviewKind.Video,
+                    mediaIdentity = mediaIdentity,
                     onPlaybackFailure = { previewFailed = true },
                     onPreviewAction = onPreviewAction,
                 )

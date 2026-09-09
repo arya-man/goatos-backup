@@ -81,6 +81,17 @@
       "ciStep": "admin-web-request-reads-guard"
     },
     {
+      "id": "admin-web-proof-media-egress",
+      "script": "tools/agent-hooks/check-admin-web-proof-media-egress.mjs",
+      "makeTarget": "admin-web-proof-media-egress-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-proof-media-egress.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-proof-media-egress.mjs --self-test",
+      "owningDoc": "docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-proof-media-egress-guard",
+      "notes": "Admin-web drawers/lists/details must not mint signed GCS proof URLs or render proof media tags on load. Use backend proof routes and explicit open/play actions."
+    },
+    {
       "id": "agent-write-scope",
       "script": "tools/agent-hooks/check-write-scope.sh",
       "makeTarget": null,
@@ -226,6 +237,17 @@
       "requiredInCI": true,
       "ciStep": "mobile-guard",
       "notes": "Every common proof preview surface must wire play/fullscreen/share/failure actions into feature analytics."
+    },
+    {
+      "id": "android-proof-media-egress",
+      "script": "tools/agent-hooks/check-android-proof-media-egress.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-proof-media-egress.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-proof-media-egress.mjs --self-test",
+      "owningDoc": "docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Blocks post-upload proof/media egress regressions: hidden remote preview/probe/download, signed-URL keyed state, missing stable preview identity, and unreviewed direct media reads."
     },
     {
       "id": "android-pen-visit-proof-preview",
@@ -1277,6 +1299,17 @@
       "requiredInCI": true,
       "ciStep": "weighing-operator-scope-guard",
       "notes": "Operator-facing weighing list/roster queries must filter by operator_user_id in SQL before LIMIT (never paginate then filter), and execute-scoped HTTP routes must derive operator scope from the authenticated actor, never a client-supplied field."
+    },
+    {
+      "id": "backend-proof-media-egress",
+      "script": "tools/agent-hooks/check-backend-proof-media-egress.mjs",
+      "makeTarget": "backend-proof-media-egress-guard",
+      "realCheck": "node tools/agent-hooks/check-backend-proof-media-egress.mjs",
+      "selfTest": "node tools/agent-hooks/check-backend-proof-media-egress.mjs --self-test",
+      "owningDoc": "docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md",
+      "requiredInCI": true,
+      "ciStep": "backend-proof-media-egress-guard",
+      "notes": "Hot backend list/dashboard read models must not mint signed GCS proof-media URLs. Return authenticated /app/proofs/{proof_id}/download paths and let the explicit-open route mint/log the short-lived signed URL."
     },
     {
       "id": "worker-stage-budgets",

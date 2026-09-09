@@ -483,6 +483,7 @@ class PenVisitDetailViewModel @Inject constructor(
         val video = penVisitVideoState(detail, proof, item, sendingAlive)
         return PenVisitDetailUiState(
             loading = false,
+            taskId = taskId,
             title = detail.title,
             penLabel = detail.operationalLocationDisplay,
             parkName = detail.parkName,

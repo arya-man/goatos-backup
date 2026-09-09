@@ -4051,15 +4051,19 @@ export async function recordToxinVerdict(
   );
 }
 
+// Builds one authenticated backend proof route without resolving/minting a signed GCS URL.
+// Use this for drawer/list/detail reads so evidence remains openable but bytes move only after a
+// reviewer clicks the link.
+export async function getProofDownloadRoute(
+  proofRef: string,
+): Promise<string | null> {
+  const trimmed = proofRef.trim();
+  if (!trimmed) return null;
+  return `/api/proof-media/${encodeURIComponent(trimmed)}`;
+}
+
 // Resolves one proof reference to a browser-usable signed URL via GET /app/proofs/{proof_id}/download.
-//
-// Toxin step rows carry only proof_ref — the signed-URL resolver that decorates verification queue
-// items is verification-item-specific, so the toxin drawer resolves each step's proof itself, one
-// bounded call per done step (at most 7 per task, in parallel). A ref that cannot be resolved
-// returns null and the drawer renders the step's completed_by/completed_at without a media link —
-// honest degradation, never a broken player. Known limitation (see downloadProof's 307 branch in
-// the contract): a deployment that answers with a storage redirect instead of the JSON envelope
-// resolves as null here too.
+// This is only for explicit open/play/share actions, never for hot drawer/list/detail hydration.
 export async function getProofDownloadUrl(
   proofRef: string,
 ): Promise<string | null> {

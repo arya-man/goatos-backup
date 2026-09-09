@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.R
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.PhotoCaptureContext
@@ -1134,16 +1135,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 )
             }
         }
-        // Preview URL is an ENRICHMENT: fetched async, best effort, re-attempted on the next
-        // captures read (open/Sync/30s poll) via previewUrlMissing above.
-        viewModelScope.launch {
-            val url = fetchProofPreviewUrl(proofRef) ?: return@launch
-            _state.update {
-                when (slot) {
-                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = url)
-                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = url)
-                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = url)
-                }
+        _state.update {
+            when (slot) {
+                ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = feedBackendProofUrl(proofRef))
+                ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = feedBackendProofUrl(proofRef))
+                ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = feedBackendProofUrl(proofRef))
             }
         }
     }
@@ -1192,15 +1188,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Fetches the signed download URL for a proof so its preview can be rendered.
-     * Best effort: a failure returns null (no thumbnail yet; retried on the next captures read).
-     */
-    private suspend fun fetchProofPreviewUrl(proofId: String): String? {
-        if (proofId.isBlank()) return null
-        return feedRepository.fetchProofDownloadUrl(proofId)
-    }
-
     private fun refreshTeammatePreviewUrl(slot: ProofSlot) {
         val proofRef = when (slot) {
             ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightRemoteRef.value
@@ -1215,12 +1202,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = null)
                 }
             }
-            val url = fetchProofPreviewUrl(proofRef) ?: return@launch
             _state.update {
                 when (slot) {
-                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = url)
-                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = url)
-                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = url)
+                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = feedBackendProofUrl(proofRef))
+                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = feedBackendProofUrl(proofRef))
+                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = feedBackendProofUrl(proofRef))
                 }
             }
         }
@@ -1624,6 +1610,9 @@ private fun ProofSlot.analyticsKind(): String = when (this) {
     ProofSlot.FEED_VIDEO -> "feed_video"
     ProofSlot.WATER_VIDEO -> "water_video"
 }
+
+private fun feedBackendProofUrl(proofRef: String): String =
+    BuildConfig.API_BASE_URL.trimEnd('/') + "/app/proofs/${proofRef.trim()}/download"
 
 private fun ProofSlot.fieldKey(): String = when (this) {
     ProofSlot.FEED_WEIGHT_PHOTO -> "feed_distribution_feed_weight_photo"

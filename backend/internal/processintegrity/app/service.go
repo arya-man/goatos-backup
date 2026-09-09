@@ -240,45 +240,8 @@ func (s *Service) WorkflowDrilldown(ctx context.Context, q domain.Query, rowID s
 }
 
 func (s *Service) withEvidenceMedia(ctx context.Context, tenantID string, rows []domain.Row) []domain.Row {
-	if s.media == nil || tenantID == "" || len(rows) == 0 {
+	if tenantID == "" || len(rows) == 0 {
 		return rows
-	}
-	proofIDs := make([]string, 0)
-	seen := map[string]struct{}{}
-	for _, row := range rows {
-		for _, id := range row.Evidence.ProofIDs {
-			id = strings.TrimSpace(id)
-			if id == "" {
-				continue
-			}
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			proofIDs = append(proofIDs, id)
-		}
-	}
-	if len(proofIDs) == 0 {
-		return rows
-	}
-	resolved, err := s.media.ResolveMedia(ctx, tenantID, proofIDs)
-	if err != nil {
-		msg := "proof media lookup failed"
-		for i := range rows {
-			if len(rows[i].Evidence.ProofIDs) > 0 {
-				rows[i].Evidence.MediaResolutionError = &msg
-			}
-		}
-		return rows
-	}
-	byID := make(map[string]domain.MediaItem, len(resolved))
-	for _, item := range resolved {
-		byID[item.ProofID] = domain.MediaItem{
-			ProofID:     item.ProofID,
-			DownloadURL: item.DownloadURL,
-			MimeType:    item.MimeType,
-			DurationMS:  item.DurationMS,
-		}
 	}
 	for i := range rows {
 		if len(rows[i].Evidence.ProofIDs) == 0 {
@@ -286,8 +249,9 @@ func (s *Service) withEvidenceMedia(ctx context.Context, tenantID string, rows [
 		}
 		media := make([]domain.MediaItem, 0, len(rows[i].Evidence.ProofIDs))
 		for _, id := range rows[i].Evidence.ProofIDs {
-			if item, ok := byID[id]; ok {
-				media = append(media, item)
+			id = strings.TrimSpace(id)
+			if id != "" {
+				media = append(media, domain.MediaItem{ProofID: id, DownloadURL: "/app/proofs/" + id + "/download"})
 			}
 		}
 		if len(media) > 0 {

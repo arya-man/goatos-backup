@@ -7,6 +7,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/ports"
+	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 )
 
 const (
@@ -66,11 +67,16 @@ func (f *fakeResolver) ResolveAttachments(_ context.Context, _, _ string, refs [
 type fakeDownloader struct {
 	url   string
 	calls []string
+	proof proofdomain.Artifact
 }
 
-func (f *fakeDownloader) DownloadURL(_ context.Context, tenantID, proofID string) (string, error) {
+func (f *fakeDownloader) DownloadArtifact(_ context.Context, tenantID, proofID string) (proofdomain.Artifact, string, error) {
 	f.calls = append(f.calls, tenantID+"/"+proofID)
-	return f.url, nil
+	proof := f.proof
+	if proof.ProofID == "" {
+		proof.ProofID = proofID
+	}
+	return proof, f.url, nil
 }
 
 func TestRaiseResolvesAttachmentsBeforeTheWriteAndRefusesSelfAssignment(t *testing.T) {
@@ -144,9 +150,9 @@ func TestAttachmentDownloadURLIsReaderAndAttachmentScoped(t *testing.T) {
 	svc := NewService(repo, nil).WithAttachmentDownloader(downloader)
 	ctx := context.Background()
 
-	url, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: assignee}, taskID, proofID)
-	if err != nil || url != downloader.url {
-		t.Fatalf("assignee attached proof download = %q, %v", url, err)
+	download, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: assignee}, taskID, proofID)
+	if err != nil || download.URL != downloader.url || download.Artifact.ProofID != proofID {
+		t.Fatalf("assignee attached proof download = %+v, %v", download, err)
 	}
 	if len(downloader.calls) != 1 || downloader.calls[0] != tenant+"/"+proofID {
 		t.Fatalf("downloader calls = %+v", downloader.calls)
@@ -157,8 +163,8 @@ func TestAttachmentDownloadURLIsReaderAndAttachmentScoped(t *testing.T) {
 	if _, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: "55555555-5555-4555-8555-555555555555"}, taskID, proofID); !errors.Is(err, ports.ErrTaskNotFound) {
 		t.Fatalf("unauthorized proof download must read not-found, got %v", err)
 	}
-	if url, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: "66666666-6666-4666-8666-666666666666", CanMonitor: true}, taskID, proofID); err != nil || url != downloader.url {
-		t.Fatalf("team progress monitor proof download = %q, %v", url, err)
+	if download, err := svc.AttachmentDownloadURL(ctx, tenant, domain.Actor{UserID: "66666666-6666-4666-8666-666666666666", CanMonitor: true}, taskID, proofID); err != nil || download.URL != downloader.url {
+		t.Fatalf("team progress monitor proof download = %+v, %v", download, err)
 	}
 	if len(downloader.calls) != 2 {
 		t.Fatalf("downloader must not be reached for refused requests: %+v", downloader.calls)

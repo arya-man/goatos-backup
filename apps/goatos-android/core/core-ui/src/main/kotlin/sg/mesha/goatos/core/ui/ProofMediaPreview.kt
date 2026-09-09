@@ -38,8 +38,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -54,13 +57,13 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import java.io.File
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import sg.mesha.goatos.core.media.LocalProofRemoteImageLoader
+import sg.mesha.goatos.core.media.ProofRemoteImageLoader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -146,6 +149,37 @@ private fun playbackFailureReason(error: PlaybackException): String =
         else -> "player_error"
     }
 
+private suspend fun loadProofPhotoBitmap(
+    context: android.content.Context,
+    path: String,
+    allowRemote: Boolean,
+    remoteImageLoader: ProofRemoteImageLoader,
+): android.graphics.Bitmap? {
+    val isRemote = isRemoteProofPath(path)
+    if (isRemote && !allowRemote) return null
+    return try {
+        if (isRemote) {
+            // proof-media-egress:ignore Remote proof photo bytes are fetched only after an
+            // explicit fullscreen/open action, over the same authenticated media client as video.
+            remoteImageLoader.load(context, path, PROOF_REMOTE_PHOTO_LOAD_TIMEOUT_MS)
+        } else {
+            val uri = Uri.parse(path)
+            when (uri.scheme) {
+                "content" -> context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+                "file" -> BitmapFactory.decodeFile(uri.path)
+                null, "" -> BitmapFactory.decodeFile(path)
+                else -> BitmapFactory.decodeFile(path.removePrefix("file://"))
+            }
+        }
+    } catch (_: IOException) {
+        null
+    } catch (_: SecurityException) {
+        null
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+}
+
 @Composable
 private fun ProofPreviewActionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -208,18 +242,21 @@ fun ProofMediaPreview(
     path: String,
     kind: ProofMediaPreviewKind,
     modifier: Modifier = Modifier,
+    mediaIdentity: String,
     onPlaybackFailure: () -> Unit = {},
     onPreviewAction: (String) -> Unit = {},
     // When true, tapping the tile (photo) or the expand button (video) opens the proof
     // full-screen. Proof surfaces opt in by default; pass false only for deliberately static media.
     expandable: Boolean = true,
+    playbackEnabled: Boolean = true,
 ) {
-    var showFullscreen by remember(path) { mutableStateOf(false) }
+    val mediaKey = remember(mediaIdentity) { stableProofMediaIdentity(mediaIdentity) }
+    var showFullscreen by remember(mediaKey) { mutableStateOf(false) }
     // Where the inline video was when it was enlarged, and where fullscreen was when it closed.
     // Enlarging used to build a fresh player at 0:00 -- ten seconds in, expand, and the clip
     // restarted (maintainer report 2026-09-08). The position now travels both ways.
-    var fullscreenStartPositionMs by remember(path) { mutableStateOf(0L) }
-    var inlineResume by remember(path) { mutableStateOf<ProofVideoResume?>(null) }
+    var fullscreenStartPositionMs by remember(mediaKey) { mutableStateOf(0L) }
+    var inlineResume by remember(mediaKey) { mutableStateOf<ProofVideoResume?>(null) }
     val onExpand: ((positionMs: Long) -> Unit)? = if (expandable) {
         { positionMs ->
             fullscreenStartPositionMs = positionMs
@@ -230,12 +267,13 @@ fun ProofMediaPreview(
     }
     when (kind) {
         ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier, onExpand?.let { expand -> { expand(0L) } }, onPreviewAction)
-        ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, onPlaybackFailure, onExpand, showFullscreen, onPreviewAction, inlineResume)
+        ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, mediaKey, onPlaybackFailure, onExpand, showFullscreen, playbackEnabled, onPreviewAction, inlineResume)
     }
     if (showFullscreen) {
         ProofMediaFullscreenDialog(
             path = path,
             kind = kind,
+            mediaIdentity = mediaKey,
             onPreviewAction = onPreviewAction,
             startPositionMs = fullscreenStartPositionMs,
             onDismiss = { resumePositionMs ->
@@ -262,42 +300,16 @@ private fun ProofPhotoPreview(
 ) {
     val context = LocalContext.current
     val isRemote = path.startsWith("http://") || path.startsWith("https://")
-    // Local decode stays synchronous (small local files, unchanged behavior); a REMOTE preview must
-    // never touch the network on the composing thread (NetworkOnMainThreadException), so it loads
-    // via produceState on Dispatchers.IO and falls back to the icon-only state on any failure.
-    val remoteLoad by produceState<ProofPreviewLoad>(initialValue = ProofPreviewLoad.Loading, key1 = path) {
-        if (isRemote) {
-            value = withContext(Dispatchers.IO) {
-                try {
-                    URL(path).openStream().use(BitmapFactory::decodeStream)?.let(ProofPreviewLoad::Ready)
-                        ?: ProofPreviewLoad.Failed
-                } catch (_: Exception) {
-                    ProofPreviewLoad.Failed
-                }
-            }
-        } else {
-            value = ProofPreviewLoad.Failed
-        }
+    // Remote proof photos are signed object reads. Do not auto-fetch them from a list/card preview;
+    // only local post-capture files are decoded here.
+    val bitmap = if (isRemote) null else remember(path) {
+        BitmapFactory.decodeFile(Uri.parse(path).path ?: path) ?: runCatching {
+            context.contentResolver.openInputStream(Uri.parse(path))?.use(BitmapFactory::decodeStream)
+        }.getOrNull()
     }
-    val bitmap = if (isRemote) (remoteLoad as? ProofPreviewLoad.Ready)?.bitmap else remember(path) {
-        try {
-            val uri = Uri.parse(path)
-            when (uri.scheme) {
-                "content" -> context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
-                "file" -> BitmapFactory.decodeFile(uri.path)
-                null, "" -> BitmapFactory.decodeFile(path)
-                else -> BitmapFactory.decodeFile(path.removePrefix("file://"))
-            }
-        } catch (_: IOException) {
-            null
-        } catch (_: SecurityException) {
-            null
-        } catch (_: IllegalArgumentException) {
-            null
-        }
-    }
-    val isLoading = isRemote && remoteLoad is ProofPreviewLoad.Loading
-    val tapToExpand = if (onExpand != null && bitmap != null) {
+    val isLoading = false
+    val canExpand = onExpand != null && (bitmap != null || isRemote)
+    val tapToExpand = if (canExpand) {
         Modifier.clickable(
             onClickLabel = "Open proof photo full screen",
             role = Role.Button,
@@ -320,7 +332,7 @@ private fun ProofPhotoPreview(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
-            if (onExpand != null) {
+            if (canExpand) {
                 ProofPreviewActions(
                     path = path,
                     kind = ProofMediaPreviewKind.Photo,
@@ -329,6 +341,15 @@ private fun ProofPhotoPreview(
                     modifier = Modifier.align(Alignment.TopStart),
                 )
             }
+        } else if (isRemote && canExpand) {
+            ProofPreviewUnavailable(icon = MeshaIcons.EyeOff, label = "Tap to open photo")
+            ProofPreviewActions(
+                path = path,
+                kind = ProofMediaPreviewKind.Photo,
+                onExpand = onExpand,
+                onAction = onPreviewAction,
+                modifier = Modifier.align(Alignment.TopStart),
+            )
         } else if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
         } else {
@@ -342,30 +363,39 @@ private fun ProofPhotoPreview(
 private fun ProofVideoPreview(
     path: String,
     modifier: Modifier = Modifier,
+    mediaKey: String,
     onPlaybackFailure: () -> Unit = {},
     onExpand: ((positionMs: Long) -> Unit)? = null,
     fullscreenShowing: Boolean = false,
+    playbackEnabled: Boolean = true,
     onPreviewAction: (String) -> Unit = {},
     resume: ProofVideoResume? = null,
 ) {
     val context = LocalContext.current
+    val rootView = LocalView.current
     val playerFactory = LocalProofPlayerFactory.current
-    var playRequested by remember(path) { mutableStateOf(false) }
-    var isPlaying by remember(path) { mutableStateOf(false) }
-    var armed by remember(path) { mutableStateOf(false) }
-    var firstFrameRendered by remember(path) { mutableStateOf(false) }
-    var durationMs by remember(path) { mutableStateOf(0L) }
-    var positionMs by remember(path) { mutableStateOf(0L) }
-    var playStartedAtMs by remember(path) { mutableStateOf(0L) }
-    var playStartedPositionMs by remember(path) { mutableStateOf(0L) }
-    val metadataDurationMs by produceState(initialValue = 0L, key1 = path) {
-        value = withContext(Dispatchers.IO) {
-            readProofVideoDurationMs(context, path)
+    var playRequested by remember(mediaKey) { mutableStateOf(false) }
+    var isPlaying by remember(mediaKey) { mutableStateOf(false) }
+    var armed by remember(mediaKey) { mutableStateOf(false) }
+    var firstFrameRendered by remember(mediaKey) { mutableStateOf(false) }
+    var durationMs by remember(mediaKey) { mutableStateOf(0L) }
+    var positionMs by remember(mediaKey) { mutableStateOf(0L) }
+    var playStartedAtMs by remember(mediaKey) { mutableStateOf(0L) }
+    var playStartedPositionMs by remember(mediaKey) { mutableStateOf(0L) }
+    var isInWindow by remember(mediaKey) { mutableStateOf(true) }
+    val isRemote = remember(path) { isRemoteProofPath(path) }
+    val metadataDurationMs by produceState(initialValue = 0L, key1 = mediaKey) {
+        value = if (isRemote) {
+            0L
+        } else {
+            withContext(Dispatchers.IO) {
+                readProofVideoDurationMs(context, path)
+            }
         }
     }
     val displayDurationMs = max(durationMs, metadataDurationMs)
     val displayPositionMs = positionMs.coerceAtMost(displayDurationMs.takeIf { it > 0L } ?: positionMs)
-    val player = remember(path, armed) {
+    val player = remember(mediaKey, armed) {
         if (!armed) {
             null
         } else {
@@ -374,6 +404,13 @@ private fun ProofVideoPreview(
                 playWhenReady = playRequested
                 prepare()
             }
+        }
+    }
+    LaunchedEffect(path, player) {
+        val currentPlayer = player ?: return@LaunchedEffect
+        val currentUri = currentPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
+        if (currentUri != path && !isPlaying && currentPlayer.playbackState == Player.STATE_IDLE) {
+            currentPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(path)))
         }
     }
     DisposableEffect(player) {
@@ -433,18 +470,52 @@ private fun ProofVideoPreview(
     LaunchedEffect(fullscreenShowing, player) {
         if (fullscreenShowing) {
             playRequested = false
-            player?.pause()
+            player?.playWhenReady = false
+            player?.stop()
+            armed = false
         }
     }
-    // Fullscreen closed at [resume]: continue from there rather than from the start. A never-armed
-    // preview (she enlarged without ever pressing play inline) is armed first so a player exists to
-    // seek; the effect re-runs once it does. Applied once per ticket.
-    var appliedResumeTicket by remember(path) { mutableStateOf(0) }
+    LaunchedEffect(playbackEnabled, player) {
+        if (!playbackEnabled) {
+            playRequested = false
+            player?.playWhenReady = false
+            player?.stop()
+            armed = false
+        }
+    }
+    LaunchedEffect(isInWindow, player) {
+        if (!isInWindow) {
+            playRequested = false
+            player?.playWhenReady = false
+            player?.stop()
+            armed = false
+        }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, player) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                playRequested = false
+                player?.playWhenReady = false
+                player?.stop()
+                armed = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    // Fullscreen closed at [resume]: remember the playhead, but do not arm/prepare a remote inline
+    // player just because the dialog closed. The next explicit play tap resumes from this position.
+    var appliedResumeTicket by remember(mediaKey) { mutableStateOf(0) }
     LaunchedEffect(player, resume) {
         val pending = resume ?: return@LaunchedEffect
         if (pending.ticket == appliedResumeTicket) return@LaunchedEffect
         if (player == null) {
-            if (pending.positionMs > 0L && !armed) armed = true else appliedResumeTicket = pending.ticket
+            positionMs = pending.positionMs
+            playStartedPositionMs = pending.positionMs
+            appliedResumeTicket = pending.ticket
             return@LaunchedEffect
         }
         player.seekTo(pending.positionMs)
@@ -472,7 +543,19 @@ private fun ProofVideoPreview(
         }
     }
     Box(
-        modifier = modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(MeshaColors.Bg),
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInWindow()
+                val rootWidth = rootView.width.toFloat()
+                val rootHeight = rootView.height.toFloat()
+                isInWindow = rootWidth <= 0f ||
+                    rootHeight <= 0f ||
+                    (bounds.right > 0f && bounds.left < rootWidth && bounds.bottom > 0f && bounds.top < rootHeight)
+            }
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.Bg),
         contentAlignment = Alignment.Center,
     ) {
         if (player != null) {
@@ -524,7 +607,12 @@ private fun ProofVideoPreview(
                     role = Role.Button,
                     onClick = {
                         val currentPlayer = player
-                        if (playRequested || currentPlayer?.isPlaying == true) {
+                        if (!playbackEnabled) {
+                            playRequested = false
+                            currentPlayer?.playWhenReady = false
+                            currentPlayer?.stop()
+                            armed = false
+                        } else if (playRequested || currentPlayer?.isPlaying == true) {
                             onPreviewAction(ProofMediaPreviewActions.PAUSE)
                             playRequested = false
                         } else {
@@ -600,11 +688,7 @@ private fun ProofVideoPreview(
 private fun readProofVideoDurationMs(context: android.content.Context, path: String): Long {
     val retriever = MediaMetadataRetriever()
     return try {
-        if (path.startsWith("http://") || path.startsWith("https://")) {
-            retriever.setDataSource(path, emptyMap())
-        } else {
-            retriever.setDataSource(context, Uri.parse(path))
-        }
+        retriever.setDataSource(context, Uri.parse(path))
         retriever
             .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
             ?.toLongOrNull()
@@ -629,15 +713,14 @@ private fun formatProofPreviewTime(ms: Long): String {
 @Composable
 private fun ProofVideoPoster(path: String) {
     val context = LocalContext.current
-    val isRemote = path.startsWith("http://") || path.startsWith("https://")
+    val isRemote = remember(path) { isRemoteProofPath(path) }
     var remoteReadable = false
     fun extractFrame(): android.graphics.Bitmap? {
         val retriever = MediaMetadataRetriever()
         return try {
             if (isRemote) {
-                remoteReadable = remoteProofPreviewLooksReadable(path)
-                if (!remoteReadable) return null
-                retriever.setDataSource(path, emptyMap())
+                remoteReadable = true
+                return null
             } else {
                 retriever.setDataSource(context, Uri.parse(path))
             }
@@ -687,27 +770,17 @@ private fun ProofVideoPoster(path: String) {
 }
 
 private const val PROOF_POSTER_LOAD_TIMEOUT_MS = 4_000L
+private const val PROOF_REMOTE_PHOTO_LOAD_TIMEOUT_MS = 10_000L
 private val ProofInlinePlayTouchSize = 48.dp
 private val ProofInlinePlayButtonSize = 30.dp
 private val ProofInlinePlayIconSize = 16.dp
 
-private fun remoteProofPreviewLooksReadable(path: String): Boolean {
-    return try {
-        val connection = URL(path).openConnection() as? HttpURLConnection ?: return false
-        connection.instanceFollowRedirects = true
-        connection.connectTimeout = PROOF_REMOTE_PROBE_TIMEOUT_MS
-        connection.readTimeout = PROOF_REMOTE_PROBE_TIMEOUT_MS
-        connection.requestMethod = "GET"
-        connection.setRequestProperty("Range", "bytes=0-0")
-        val code = connection.responseCode
-        connection.disconnect()
-        code in 200..399
-    } catch (_: Exception) {
-        false
-    }
-}
+private fun isRemoteProofPath(path: String): Boolean = path.startsWith("http://") || path.startsWith("https://")
 
-private const val PROOF_REMOTE_PROBE_TIMEOUT_MS = 1_500
+private fun stableProofMediaIdentity(mediaIdentity: String): String {
+    require(mediaIdentity.isNotBlank()) { "ProofMediaPreview mediaIdentity must be stable and non-blank." }
+    return mediaIdentity
+}
 
 /**
  * Full-screen proof viewer: a photo filling the screen, or a video with full playback controls.
@@ -718,6 +791,7 @@ private const val PROOF_REMOTE_PROBE_TIMEOUT_MS = 1_500
 private fun ProofMediaFullscreenDialog(
     path: String,
     kind: ProofMediaPreviewKind,
+    mediaIdentity: String,
     onPreviewAction: (String) -> Unit,
     /** Called with the position the video was at when the viewer closed (0 for a photo, and 0 for
      *  a clip that ran to the end so the inline preview replays it). */
@@ -727,16 +801,16 @@ private fun ProofMediaFullscreenDialog(
 ) {
     val context = LocalContext.current
     val playerFactory = LocalProofPlayerFactory.current
+    val remoteImageLoader = LocalProofRemoteImageLoader.current
     // Built here, outside the Dialog's own composition, so the dismiss request (Back, outside tap,
     // the close button) can read the playhead before the player is released.
-    val player = remember(path, kind) {
+    val player = remember(mediaIdentity, kind) {
         if (kind != ProofMediaPreviewKind.Video) {
             null
         } else {
             playerFactory.create(context).apply {
                 setMediaItem(MediaItem.fromUri(Uri.parse(path)), startPositionMs.coerceAtLeast(0L))
-                playWhenReady = true
-                prepare()
+                playWhenReady = false
             }
         }
     }
@@ -805,22 +879,10 @@ private fun ProofMediaFullscreenDialog(
                 when (kind) {
                     ProofMediaPreviewKind.Photo -> {
                         val isRemote = path.startsWith("http://") || path.startsWith("https://")
-                        val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = path) {
+                        val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = mediaIdentity) {
                             value = withContext(Dispatchers.IO) {
-                                try {
-                                    if (isRemote) {
-                                        URL(path).openStream().use(BitmapFactory::decodeStream)
-                                    } else {
-                                        val uri = Uri.parse(path)
-                                        when (uri.scheme) {
-                                            "content" -> context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
-                                            "file" -> BitmapFactory.decodeFile(uri.path)
-                                            null, "" -> BitmapFactory.decodeFile(path)
-                                            else -> BitmapFactory.decodeFile(path.removePrefix("file://"))
-                                        }
-                                    }
-                                } catch (_: Exception) {
-                                    null
+                                withTimeoutOrNull(PROOF_REMOTE_PHOTO_LOAD_TIMEOUT_MS) {
+                                    loadProofPhotoBitmap(context, path, allowRemote = true, remoteImageLoader)
                                 }
                             }
                         }
@@ -832,6 +894,8 @@ private fun ProofMediaFullscreenDialog(
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier.fillMaxSize(),
                             )
+                        } else if (isRemote) {
+                            ProofPreviewUnavailable(icon = MeshaIcons.EyeOff, label = "Photo unavailable")
                         } else {
                             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = MeshaColors.Brand)
                         }
@@ -858,7 +922,8 @@ private fun ProofMediaFullscreenDialog(
                             player.addListener(listener)
                             val observer = LifecycleEventObserver { _, event ->
                                 if (event == Lifecycle.Event.ON_STOP) {
-                                    player.pause()
+                                    player.playWhenReady = false
+                                    player.stop()
                                 }
                             }
                             lifecycleOwner.lifecycle.addObserver(observer)

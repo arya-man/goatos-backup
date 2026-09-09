@@ -6,13 +6,13 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { ImageIcon, Maximize, Minimize, PlayCircle } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo, useTransition } from "react";
 
 import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
-import { recordVerificationVerdictAction } from "./actions";
+import { recordVerificationVerdictAction, resolveVerificationProofMediaUrl } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
 import { ReviewVideoPlayer } from "./review-video-player";
 import { ReviewEventBuffer } from "./review-events";
@@ -334,6 +334,39 @@ function VerificationReviewDrawerPanel({
 
   const mediaIndex = mediaSelection.itemId === item.item_id ? mediaSelection.index : 0;
   const setMediaIndex = (index: number) => setMediaSelection({ itemId: item.item_id, index });
+  const activeMedia = item.media[Math.min(mediaIndex, Math.max(item.media.length - 1, 0))];
+  const [resolvedMedia, setResolvedMedia] = useState<{ itemId: string; urls: Record<string, string> }>({
+    itemId: item.item_id,
+    urls: {},
+  });
+  const resolvedMediaUrls = useMemo(
+    () => (resolvedMedia.itemId === item.item_id ? resolvedMedia.urls : {}),
+    [item.item_id, resolvedMedia],
+  );
+  const [mediaError, setMediaError] = useState<{ itemId: string; proofId: string | null }>({
+    itemId: item.item_id,
+    proofId: null,
+  });
+  const mediaErrorProofId = mediaError.itemId === item.item_id ? mediaError.proofId : null;
+  const [mediaPending, startMediaTransition] = useTransition();
+  const activeProofId = activeMedia?.proof_id ?? "";
+  const resolveActiveMedia = useCallback((): void => {
+    if (!activeProofId) return;
+    const proofId = activeProofId;
+    if (resolvedMediaUrls[proofId]) return;
+    setMediaError({ itemId: item.item_id, proofId: null });
+    startMediaTransition(async () => {
+      const url = await resolveVerificationProofMediaUrl(proofId);
+      if (!url) {
+        setMediaError({ itemId: item.item_id, proofId });
+        return;
+      }
+      setResolvedMedia((current) => ({
+        itemId: item.item_id,
+        urls: { ...(current.itemId === item.item_id ? current.urls : {}), [proofId]: url },
+      }));
+    });
+  }, [activeProofId, item.item_id, resolvedMediaUrls]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const playerRef = useRef<HTMLDivElement>(null);
 
@@ -454,7 +487,6 @@ function VerificationReviewDrawerPanel({
     });
   }, [item.item_id, eventBuffer]);
 
-  const activeMedia = item.media[Math.min(mediaIndex, Math.max(item.media.length - 1, 0))];
   const text = (key: string) => copy(pageContract, key);
   const hasEvidence = item.media.length > 0;
   // feedback.<code> is the backend-owned human sentence for a server error code; an unmapped code
@@ -553,31 +585,48 @@ function VerificationReviewDrawerPanel({
                   There is no seek/watch telemetry for a still: the review events this
                   player emits are all video positions, and a photo has none. */}
               {activeMedia?.mime_type?.startsWith("video/") ? (
-                <ReviewVideoPlayer
-                  key={activeMedia.proof_id}
-                  src={activeMedia.download_url}
-                  mimeType={activeMedia.mime_type}
-                  proofId={activeMedia.proof_id}
-                  itemId={item.item_id}
-                  eventBuffer={eventBuffer}
-                  // Backend-owned copy for the double-speed control; the player renders it and
-                  // composes none of it. It only appears on clips longer than 20 seconds.
-                  speedLabels={{
-                    normal: text("player.speed_normal"),
-                    fast: text("player.speed_fast"),
-                    hint: text("player.speed_hint"),
-                  }}
-                />
+                resolvedMediaUrls[activeMedia.proof_id] ? (
+                  // admin-proof-media-egress:ignore reviewer clicked play for this one proof; source is resolved by server action after the click.
+                  <ReviewVideoPlayer
+                    key={activeMedia.proof_id}
+                    src={resolvedMediaUrls[activeMedia.proof_id]}
+                    mimeType={activeMedia.mime_type}
+                    proofId={activeMedia.proof_id}
+                    itemId={item.item_id}
+                    eventBuffer={eventBuffer}
+                    // Backend-owned copy for the double-speed control; the player renders it and
+                    // composes none of it. It only appears on clips longer than 20 seconds.
+                    speedLabels={{
+                      normal: text("player.speed_normal"),
+                      fast: text("player.speed_fast"),
+                      hint: text("player.speed_hint"),
+                    }}
+                  />
+                ) : (
+                  <button type="button" className="btn vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
+                    <PlayCircle className="ic" aria-hidden="true" />
+                    {text("drawer.media.open")}
+                  </button>
+                )
               ) : activeMedia?.mime_type?.startsWith("image/") ? (
-                // A signed, short-lived proof URL on an external media host: next/image would
-                // proxy and cache evidence, so this stays a plain <img>.
-                // eslint-disable-next-line @next/next/no-img-element
-                <a key={activeMedia.proof_id} href={activeMedia.download_url} target="_blank" rel="noreferrer" className="vr-image-link">
-                  <img className="vr-image-proof" src={activeMedia.download_url} alt={activeMedia.label || subjectHeading || text("drawer.media.title")} />
-                </a>
+                resolvedMediaUrls[activeMedia.proof_id] ? (
+                  // admin-proof-media-egress:ignore reviewer clicked open for this one image proof; no image bytes move on drawer render.
+                  <a key={activeMedia.proof_id} href={resolvedMediaUrls[activeMedia.proof_id]} target="_blank" rel="noreferrer" className="vr-image-link">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img className="vr-image-proof" src={resolvedMediaUrls[activeMedia.proof_id]} alt={activeMedia.label || subjectHeading || text("drawer.media.title")} />
+                  </a>
+                ) : (
+                  <button type="button" className="btn vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
+                    <ImageIcon className="ic" aria-hidden="true" />
+                    {text("drawer.media.open")}
+                  </button>
+                )
               ) : (
                 <div className="vr-player-empty">{text("drawer.media.empty")}</div>
               )}
+              {activeMedia && mediaErrorProofId === activeMedia.proof_id ? (
+                <div className="muted small">{text("drawer.media.empty")}</div>
+              ) : null}
               <button
                 type="button"
                 className="vr-fsbtn"

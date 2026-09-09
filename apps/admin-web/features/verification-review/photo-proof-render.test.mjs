@@ -25,8 +25,8 @@ test("an image proof renders as a picture, not as the missing-media state", () =
   );
   assert.match(
     drawerSource,
-    /<img[\s\S]{0,240}src=\{activeMedia\.download_url\}/,
-    "an image/* proof must render an <img> pointed at the proof's own download URL",
+    /<img[\s\S]{0,240}src=\{resolvedMediaUrls\[activeMedia\.proof_id\]\}/,
+    "an image/* proof must render an <img> only after the proof URL is resolved by click",
   );
 });
 

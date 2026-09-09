@@ -284,6 +284,7 @@ class PenReconciliationExecuteViewModel @Inject constructor(
                         it.copy(
                             isCapturingVideo = false,
                             videoCaptured = true,
+                            videoMediaIdentity = returnProofTrace.stableMediaIdentity(cardId),
                             // The clip the operator just shot, playable in place before submitting
                             // (same review affordance as the feed proof screens).
                             videoPreviewPath = captured.localUri,
@@ -461,6 +462,9 @@ class PenReconciliationExecuteViewModel @Inject constructor(
                                 // the operator recorded, so the preview survives Back + reopen
                                 // (mirrors FeedDistributionCompleteViewModel).
                                 videoPreviewPath = item.localFilePath ?: current.videoPreviewPath,
+                                videoMediaIdentity = returnProofTrace
+                                    .copy(proofOutboxItemId = item.id)
+                                    .stableMediaIdentity(cardId),
                             )
                         }
                     }
@@ -529,6 +533,7 @@ class PenReconciliationExecuteViewModel @Inject constructor(
             belongsLabel = registeredOperationalLocationDisplay.ifBlank { registeredShedName.ifBlank { UNKNOWN_LOCATION } },
             reworkReason = reworkReason?.takeIf { it.isNotBlank() },
             videoCaptured = current.videoCaptured || draft.hasProof(STEP_RETURN),
+            videoMediaIdentity = returnProofTrace.stableMediaIdentity(cardId),
             canComplete = (current.videoCaptured || draft.hasProof(STEP_RETURN)) && !current.result.isCommitted,
         )
 
@@ -570,7 +575,13 @@ class PenReconciliationExecuteViewModel @Inject constructor(
         val proofOutboxItemId: String? = null,
         val submitOutboxItemId: String? = null,
         val serverProofId: String? = null,
-    )
+    ) {
+        fun stableMediaIdentity(cardId: String): String =
+            listOf(serverProofId, localProofRowId, proofOutboxItemId)
+                .firstOrNull { !it.isNullOrBlank() }
+                ?.let { "counts_pen_reconciliation:$it" }
+                ?: "counts_pen_reconciliation:$cardId:return_video"
+    }
 
     private fun countsJourneyProps(
         action: String,

@@ -143,6 +143,7 @@ fun FeedDistributionCompleteScreen(
 ) {
     val committed = state.result?.status == FeedDistributionStatus.SYNCED ||
         state.result?.status == FeedDistributionStatus.QUEUED
+    val captureInProgress = state.isCapturingFeedWeightPhoto || state.isCapturingVideo || state.isCapturingWaterVideo
     val subtitle = listOf(state.sessionLabel, state.workflowLabel)
         .filter { it.isNotBlank() }
         .joinToString(" · ")
@@ -198,6 +199,7 @@ fun FeedDistributionCompleteScreen(
                     captured = state.feedWeightPhotoCaptured,
                     status = state.feedWeightPhotoStatus,
                     previewPath = state.feedWeightPhotoPreviewPath,
+                    previewIdentity = "feed-distribution:feed-weight-photo",
                     previewKind = FeedDistPreviewKind.Photo,
                     capturedLabel = proofLabel(state.feedWeightPhotoStatus, stringResource(R.string.feed_dist_feed_weight_photo_captured)),
                     loading = state.isCapturingFeedWeightPhoto,
@@ -208,6 +210,7 @@ fun FeedDistributionCompleteScreen(
                     message = state.feedWeightPhotoMessage,
                     onClick = { onEvent(FeedDistributionEvent.TakeFeedWeightPhoto) },
                     remotePreviewUrl = state.feedWeightPhotoRemoteUrl,
+                    playbackEnabled = !captureInProgress,
                     showAction = !state.alreadySubmitted,
                     onPreviewAction = { action ->
                         onEvent(FeedDistributionEvent.ProofPreviewAction("feed_distribution_feed_weight_photo", action))
@@ -222,6 +225,7 @@ fun FeedDistributionCompleteScreen(
                     captured = state.videoCaptured,
                     status = state.videoStatus,
                     previewPath = state.videoPreviewPath,
+                    previewIdentity = "feed-distribution:feed-video",
                     previewKind = FeedDistPreviewKind.Video,
                     capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_dist_video_recorded)),
                     loading = state.isCapturingVideo,
@@ -232,6 +236,7 @@ fun FeedDistributionCompleteScreen(
                     message = state.videoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
                     remotePreviewUrl = state.videoRemoteUrl,
+                    playbackEnabled = !captureInProgress,
                     onPlaybackFailure = { onEvent(FeedDistributionEvent.FeedVideoPlaybackFailed) },
                     showAction = !state.alreadySubmitted,
                     onPreviewAction = { action ->
@@ -247,6 +252,7 @@ fun FeedDistributionCompleteScreen(
                     captured = state.waterVideoCaptured,
                     status = state.waterVideoStatus,
                     previewPath = state.waterVideoPreviewPath,
+                    previewIdentity = "feed-distribution:water-video",
                     previewKind = FeedDistPreviewKind.Video,
                     capturedLabel = proofLabel(state.waterVideoStatus, stringResource(R.string.feed_dist_water_video_captured)),
                     loading = state.isCapturingWaterVideo,
@@ -257,6 +263,7 @@ fun FeedDistributionCompleteScreen(
                     message = state.waterVideoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
                     remotePreviewUrl = state.waterVideoRemoteUrl,
+                    playbackEnabled = !captureInProgress,
                     onPlaybackFailure = { onEvent(FeedDistributionEvent.WaterVideoPlaybackFailed) },
                     showAction = !state.alreadySubmitted,
                     onPreviewAction = { action ->
@@ -326,6 +333,7 @@ internal fun FeedDistProofAction(
     captured: Boolean,
     status: FeedDistributionProofStatus,
     previewPath: String?,
+    previewIdentity: String,
     previewKind: FeedDistPreviewKind,
     capturedLabel: String,
     loading: Boolean,
@@ -336,6 +344,7 @@ internal fun FeedDistProofAction(
     message: String?,
     onClick: () -> Unit,
     remotePreviewUrl: String? = null,
+    playbackEnabled: Boolean = true,
     onPlaybackFailure: () -> Unit = {},
     showAction: Boolean = true,
     onPreviewAction: (String) -> Unit = {},
@@ -401,6 +410,8 @@ internal fun FeedDistProofAction(
                 FeedDistPreview(
                     path = previewToShow,
                     kind = previewKind,
+                    mediaIdentity = previewIdentity,
+                    playbackEnabled = playbackEnabled,
                     onPlaybackFailure = {
                         if (previewToShow == previewPath) {
                             localPreviewFailed = true
@@ -426,15 +437,19 @@ internal fun FeedDistProofAction(
 private fun FeedDistPreview(
     path: String,
     kind: FeedDistPreviewKind,
+    mediaIdentity: String,
+    playbackEnabled: Boolean = true,
     onPlaybackFailure: () -> Unit = {},
     onPreviewAction: (String) -> Unit = {},
 ) {
     ProofMediaPreview(
         path = path,
         kind = kind,
+        mediaIdentity = mediaIdentity,
         onPlaybackFailure = onPlaybackFailure,
         expandable = true,
         onPreviewAction = onPreviewAction,
+        playbackEnabled = playbackEnabled,
     )
 }
 

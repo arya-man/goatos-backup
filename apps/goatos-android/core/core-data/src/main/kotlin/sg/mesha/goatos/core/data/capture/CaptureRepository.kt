@@ -321,6 +321,14 @@ private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
     obligationRowVersion = obligationRowVersion,
 )
 
+private fun captureSyncStatusFromStorage(value: String): CaptureSyncStatus =
+    when (value.trim().uppercase()) {
+        "SYNCED" -> CaptureSyncStatus.SYNCED
+        "IN_FLIGHT" -> CaptureSyncStatus.IN_FLIGHT
+        "FAILED" -> CaptureSyncStatus.FAILED
+        else -> CaptureSyncStatus.PENDING
+    }
+
 /**
  * Idempotency key for a scan-capture outbox write, keyed by [obligationRowVersion] — the
  * server-issued `obligation_instances.row_version` capture-CYCLE discriminator (see
@@ -2343,7 +2351,7 @@ private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     capturedStartMs = capturedStartMs,
     capturedEndMs = capturedEndMs,
     capturedByPrincipalId = capturedByPrincipalId,
-    syncStatus = CaptureSyncStatus.valueOf(syncStatus),
+    syncStatus = captureSyncStatusFromStorage(syncStatus),
     serverProofId = serverProofId,
     outboxItemId = outboxItemId,
     lastError = lastError,

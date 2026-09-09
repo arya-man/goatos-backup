@@ -107,6 +107,7 @@ sealed interface VendorDetailEvent {
     data object Edit : VendorDetailEvent
     data object PlayVoiceNote : VendorDetailEvent
     data object StopVoiceNote : VendorDetailEvent
+    data object AppStopped : VendorDetailEvent
     data object DismissMessage : VendorDetailEvent
 }
 

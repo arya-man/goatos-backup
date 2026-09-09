@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
+	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 )
 
 // Sentinel errors the adapters return; the transport maps them.
@@ -121,5 +122,5 @@ type AttachmentResolver interface {
 // AttachmentDownloader mints a short-lived URL for a stored proof artifact after this module
 // has already proved the caller may see the task that carries it.
 type AttachmentDownloader interface {
-	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
+	DownloadArtifact(ctx context.Context, tenantID, proofID string) (proofdomain.Artifact, string, error)
 }

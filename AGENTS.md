@@ -14,6 +14,14 @@ trace screen -> field -> proof row -> outbox -> retry -> backend registration ->
 submit -> success/failure. Do not show raw internal identifiers such as
 `feed_water_removal` as user-facing titles.
 
+Every `ProofMediaPreview` caller must pass a stable `mediaIdentity` based on the
+proof id, server proof id, outbox item id, feature slot id, or attachment id. Do
+not key preview/player state by temporary signed GCS URLs. Remote proof media
+must not be loaded, probed, poster-extracted, or player-prepared just because a
+list/card is composed; bytes should move only after an explicit user action such
+as play/open/share. Any direct remote attachment download must be tap-triggered,
+bounded, cached locally, and explicitly annotated for the egress guard.
+
 For any proof-backed business workflow, proof upload success is not final
 business success. Green/done user-facing states must wait for the feature's
 business write or server read model: scan capture, animal observation, feed
@@ -33,6 +41,26 @@ context drift, and review the change against the current sync architecture
 rather than only the visible diff. Treat mismatches between the PR and current
 architecture, contracts, operational read models, mobile/backend/admin sync, or
 shared kernel flow as review findings even when the diff compiles.
+
+For Android/mobile/backend reviews that touch camera, proof media, attachments,
+signed URLs, uploads, previews, player screens, or billing/infra, include
+post-upload media egress risk in the review. Check for already-uploaded media
+being auto-previewed or auto-prepared, hidden thumbnail/poster/metadata probes,
+raw `URL.openStream`/Coil/Media3 downloads, retry loops around expired signed
+URLs, UI keyed by temporary signed URL instead of stable proof/slot/attachment
+identity, missing `ProofMediaPreview.mediaIdentity`, missing preview analytics,
+missing backend download attribution, and missing Cloud Monitoring/Slack billing
+alerts.
+
+This review lens is not satisfied by reading only the PR diff. The reviewer must
+run or inspect `tools/agent-hooks/check-android-proof-media-egress.mjs --all`,
+then manually enumerate every changed or adjacent proof-media consumer:
+`ProofMediaPreview` wrappers, raw Media3 players, `MediaPlayer`, Coil/AsyncImage,
+`MediaMetadataRetriever`, OkHttp, raw `URL` streams, backend list/read endpoints
+that mint `download_url`, and admin-web media tags. A review that says "all good"
+without naming these surfaces is incomplete. For PRs caused by a billing spike,
+the PR description must list: root cause, every newly found miss, files fixed,
+guards/tests run, and which alerts are live versus only configured in code.
 
 A review request alone is not permission to push directly to `main`. If the
 maintainer explicitly asks to push, land, or merge after review, continue

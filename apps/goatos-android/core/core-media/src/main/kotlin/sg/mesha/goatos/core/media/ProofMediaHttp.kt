@@ -1,6 +1,8 @@
 package sg.mesha.goatos.core.media
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -8,10 +10,19 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import java.io.IOException
+import java.util.Locale
 import java.util.concurrent.TimeUnit
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import sg.mesha.goatos.core.network.ACCEPT_LANGUAGE_HEADER
+import sg.mesha.goatos.core.network.LOCALE_CONTEXT_HEADER
 import sg.mesha.goatos.core.network.NetworkTelemetryReporter
 import sg.mesha.goatos.core.network.NoopNetworkTelemetryReporter
+import sg.mesha.goatos.core.network.RequestMetadata
+import sg.mesha.goatos.core.network.TENANT_CONTEXT_HEADER
 import sg.mesha.goatos.core.network.TelemetryInterceptor
 
 /**
@@ -34,12 +45,10 @@ import sg.mesha.goatos.core.network.TelemetryInterceptor
  * how the two halves drift apart.
  *
  * ### Auth
- * Playback URLs are pre-signed: the grant is IN the URL, and the object usually lives on a
- * third-party storage host (GCS). Today's players attach no headers at all, and [proofMediaOkHttp]
- * deliberately keeps it that way — it is built WITHOUT `BearerAuthInterceptor`, exactly like
- * `NetworkFactory.bareOkHttp()`. Adding the bearer would both be redundant and leak this app's
- * token to a host outside its own API (the same rule `bareOkHttp`'s KDoc states for proof
- * UPLOADS). Playback behaviour is therefore unchanged; only the observability is new.
+ * Proof playback now starts from an app-authenticated backend route such as
+ * `/app/proofs/{id}/download`, so [proofMediaOkHttp] attaches the app bearer only to the GoatOS
+ * API origin. OkHttp drops sensitive auth headers on a cross-host redirect, so the redirected GCS
+ * request stays storage-only and does not receive the app token.
  *
  * ### What is never logged
  * The signed URL's QUERY STRING carries the signature, and it never crosses this seam:
@@ -71,8 +80,22 @@ object ProofMediaHttp {
     fun proofMediaOkHttp(
         reporter: NetworkTelemetryReporter = NoopNetworkTelemetryReporter,
         telemetryEnabled: Boolean = true,
+        tokenProvider: () -> String? = { null },
+        tenantIdProvider: () -> String? = { null },
+        localeProvider: () -> String? = { null },
+        requestMetadataProvider: () -> RequestMetadata = { RequestMetadata() },
+        apiBaseUrl: String = "",
     ): OkHttpClient =
         OkHttpClient.Builder()
+            .addInterceptor(
+                proofApiAuthInterceptor(
+                    apiBaseUrl = apiBaseUrl,
+                    tokenProvider = tokenProvider,
+                    tenantIdProvider = tenantIdProvider,
+                    localeProvider = localeProvider,
+                    requestMetadataProvider = requestMetadataProvider,
+                ),
+            )
             .addInterceptor(
                 TelemetryInterceptor(
                     enabled = telemetryEnabled,
@@ -86,6 +109,34 @@ object ProofMediaHttp {
             .retryOnConnectionFailure(true)
             .build()
 
+    private fun proofApiAuthInterceptor(
+        apiBaseUrl: String,
+        tokenProvider: () -> String?,
+        tenantIdProvider: () -> String?,
+        localeProvider: () -> String?,
+        requestMetadataProvider: () -> RequestMetadata,
+    ): Interceptor {
+        val apiOrigin = apiBaseUrl.toHttpUrlOrNull()
+        return Interceptor { chain ->
+            val request = chain.request()
+            if (apiOrigin == null || !request.url.sameOriginAs(apiOrigin)) {
+                return@Interceptor chain.proceed(request)
+            }
+            val localeTag = normalizeLocale(localeProvider())
+            val builder = request.newBuilder()
+            tokenProvider()?.takeIf { it.isNotBlank() }?.let { token ->
+                builder.header("Authorization", "Bearer $token")
+            }
+            tenantIdProvider()?.takeIf { it.isNotBlank() }?.let { tenantId ->
+                builder.header(TENANT_CONTEXT_HEADER, tenantId)
+            }
+            builder.header(ACCEPT_LANGUAGE_HEADER, acceptLanguage(localeTag))
+            builder.header(LOCALE_CONTEXT_HEADER, localeTag)
+            requestMetadataProvider().headers().forEach { (name, value) -> builder.header(name, value) }
+            chain.proceed(builder.build())
+        }
+    }
+
     @UnstableApi
     fun dataSourceFactory(client: OkHttpClient): DataSource.Factory =
         OkHttpDataSource.Factory(client)
@@ -94,6 +145,21 @@ object ProofMediaHttp {
     fun playbackDataSourceFactory(context: Context, client: OkHttpClient): DataSource.Factory =
         DefaultDataSource.Factory(context, dataSourceFactory(client))
 }
+
+private fun okhttp3.HttpUrl.sameOriginAs(other: okhttp3.HttpUrl): Boolean =
+    scheme == other.scheme && host == other.host && port == other.port
+
+private fun normalizeLocale(raw: String?): String {
+    val candidate = raw?.trim()?.replace('_', '-')?.takeIf { it.isNotBlank() } ?: "en"
+    return if (Regex("^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$").matches(candidate)) {
+        candidate.lowercase(Locale.ROOT)
+    } else {
+        "en"
+    }
+}
+
+private fun acceptLanguage(localeTag: String): String =
+    if (localeTag == "en") "en" else "$localeTag, en;q=0.8"
 
 /**
  * Builds an [ExoPlayer] whose HTTP goes through the app's instrumented client.
@@ -125,3 +191,29 @@ val DefaultProofPlayerFactory: ProofPlayerFactory =
     ProofPlayerFactory { context -> ExoPlayer.Builder(context).build() }
 
 val LocalProofPlayerFactory = staticCompositionLocalOf { DefaultProofPlayerFactory }
+
+fun interface ProofRemoteImageLoader {
+    suspend fun load(context: Context, url: String, timeoutMs: Long): Bitmap?
+}
+
+class OkHttpProofRemoteImageLoader(private val client: OkHttpClient) : ProofRemoteImageLoader {
+    override suspend fun load(context: Context, url: String, timeoutMs: Long): Bitmap? =
+        try {
+            // proof-media-egress:ignore Tap/fullscreen-only remote image loader; same client carries auth/telemetry and caller bounds timeout.
+            val request = Request.Builder().url(url).build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                response.body.byteStream().use(BitmapFactory::decodeStream)
+            }
+        } catch (_: IOException) {
+            null
+        } catch (_: IllegalArgumentException) {
+            null
+        } catch (_: SecurityException) {
+            null
+        }
+}
+
+val DefaultProofRemoteImageLoader = ProofRemoteImageLoader { _, _, _ -> null }
+
+val LocalProofRemoteImageLoader = staticCompositionLocalOf { DefaultProofRemoteImageLoader }

@@ -1304,9 +1304,10 @@ func TestListQueueLabelsEveryProof(t *testing.T) {
 	if media[0].Label != "Feed distribution video" {
 		t.Fatalf("media[0].Label = %q, want the declared registry label", media[0].Label)
 	}
-	// Workflow-task truth is more specific than the registry's positional copy and must survive.
-	if media[1].Label != "Iodine dipping of umbilical cord" {
-		t.Fatalf("media[1].Label = %q, want the workflow task title preserved", media[1].Label)
+	// Queue reads no longer mint signed URLs to fetch workflow media metadata; the registry's
+	// positional copy is used until the verifier explicitly opens the media.
+	if media[1].Label != "Water distribution proof" {
+		t.Fatalf("media[1].Label = %q, want the declared registry label without eager media signing", media[1].Label)
 	}
 	for i, m := range media {
 		if strings.TrimSpace(m.Label) == "" {
@@ -1349,34 +1350,26 @@ func (failingMedia) ResolveMedia(_ context.Context, _ string, _ []string) ([]dom
 	return nil, errors.New("proof resolver unavailable")
 }
 
-// evidence_available (domain: EvidenceLinkResolved) is a LINK-RESOLUTION claim by design. The queue
-// read must NOT stat stored objects (N+1 on a hot operator read); a link that resolves but whose
-// bytes are gone is still reported true here and is caught terminally by the download route
-// (410 proof_object_missing, retryable=false).
-func TestEvidenceLinkResolvedIsLinkResolutionNotByteRetrievability(t *testing.T) {
+// evidence_available (domain: EvidenceLinkResolved) is a MediaRefsPresent claim by design. Queue
+// reads must NOT mint signed GCS URLs or stat stored objects; missing bytes are caught terminally
+// by the explicit download route (410 proof_object_missing, retryable=false).
+func TestEvidenceLinkResolvedUsesMediaRefsWithoutEagerSigning(t *testing.T) {
 	item := domain.Item{ItemID: "item-1", TenantID: testTenant, MediaRefs: []string{"proof-a", "proof-b"}}
 
-	// All refs resolve to signed links -> true. fakeMedia never touches storage bytes, which is
-	// exactly the production behaviour being documented.
-	svc, _ := newTestService()
+	svc := NewService(newFakeRepo(), failingMedia{})
 	rows := svc.resolveMedia(context.Background(), testTenant, []domain.Item{item})
 	if len(rows) != 1 || !rows[0].EvidenceLinkResolved {
-		t.Fatalf("EvidenceLinkResolved = %v, want true when every media_ref resolved a link", rows[0].EvidenceLinkResolved)
+		t.Fatalf("EvidenceLinkResolved = %v, want true when media_refs are present", rows[0].EvidenceLinkResolved)
 	}
 	if len(rows[0].Media) != 2 {
 		t.Fatalf("media len = %d, want 2", len(rows[0].Media))
 	}
-
-	// Resolver failure fails closed -> false, and no partial media list leaks.
-	failing := NewService(newFakeRepo(), failingMedia{})
-	rows = failing.resolveMedia(context.Background(), testTenant, []domain.Item{item})
-	if rows[0].EvidenceLinkResolved {
-		t.Fatal("EvidenceLinkResolved = true when the proof resolver failed, want false")
+	for _, media := range rows[0].Media {
+		want := "/app/proofs/" + media.ProofID + "/download"
+		if media.DownloadURL != want {
+			t.Fatalf("DownloadURL = %q, want backend download path %q", media.DownloadURL, want)
+		}
 	}
-	if len(rows[0].Media) != 0 {
-		t.Fatalf("media len = %d on resolver failure, want 0", len(rows[0].Media))
-	}
-
 	// No media refs at all -> false (nothing to show the verifier).
 	rows = svc.resolveMedia(context.Background(), testTenant, []domain.Item{{ItemID: "item-2", TenantID: testTenant}})
 	if rows[0].EvidenceLinkResolved {
@@ -1384,42 +1377,29 @@ func TestEvidenceLinkResolvedIsLinkResolutionNotByteRetrievability(t *testing.T)
 	}
 }
 
-// One unresolvable media ref per item should NOT blank the video for other healthy items on the page.
-// Per-item resolution: an item whose own refs all resolve keeps its media and evidence_available=true;
-// an item with any unresolvable ref of its OWN gets empty media + evidence_available=false.
-func TestPerItemMediaResolution(t *testing.T) {
-	// Two items: one with unresolvable ref, one healthy. The healthy item must retain its media.
+func TestPerItemMediaRefsBuildBackendDownloadPaths(t *testing.T) {
 	item1 := domain.Item{ItemID: "item-1", TenantID: testTenant, MediaRefs: []string{"proof-missing"}}
 	item2 := domain.Item{ItemID: "item-2", TenantID: testTenant, MediaRefs: []string{"proof-valid"}}
 
-	// Resolver returns per-ID failures as empty MediaItems (DownloadURL="")
-	failOnID := map[string]bool{"proof-missing": true}
-	partialResolver := &partialMediaResolver{failOnID: failOnID}
-
-	svc := NewService(newFakeRepo(), partialResolver)
+	svc := NewService(newFakeRepo(), failingMedia{})
 	rows := svc.resolveMedia(context.Background(), testTenant, []domain.Item{item1, item2})
 
 	if len(rows) != 2 {
 		t.Fatalf("rows len = %d, want 2", len(rows))
 	}
 
-	// Item 1: unresolvable ref -> empty media, evidence_available=false
-	if rows[0].EvidenceLinkResolved {
-		t.Errorf("item1.EvidenceLinkResolved = true, want false (ref failed to resolve)")
-	}
-	if len(rows[0].Media) != 0 {
-		t.Errorf("item1 media len = %d, want 0", len(rows[0].Media))
-	}
-
-	// Item 2: all refs resolved -> media present, evidence_available=true
-	if !rows[1].EvidenceLinkResolved {
-		t.Errorf("item2.EvidenceLinkResolved = false, want true (all refs resolved)")
-	}
-	if len(rows[1].Media) != 1 {
-		t.Errorf("item2 media len = %d, want 1", len(rows[1].Media))
-	}
-	if rows[1].Media[0].DownloadURL == "" {
-		t.Error("item2 media has empty DownloadURL")
+	for _, row := range rows {
+		if !row.EvidenceLinkResolved {
+			t.Errorf("%s EvidenceLinkResolved = false, want true when media_refs are present", row.Item.ItemID)
+		}
+		if len(row.Media) != 1 {
+			t.Errorf("%s media len = %d, want 1", row.Item.ItemID, len(row.Media))
+			continue
+		}
+		want := "/app/proofs/" + row.Media[0].ProofID + "/download"
+		if row.Media[0].DownloadURL != want {
+			t.Errorf("%s DownloadURL = %q, want %q", row.Item.ItemID, row.Media[0].DownloadURL, want)
+		}
 	}
 }
 

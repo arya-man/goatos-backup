@@ -295,7 +295,22 @@ A shared/reassigned device or role switch must not leak the prior principal's da
 - [ ] No Context/View/Activity in ViewModels
 - [ ] Sign-out wipes ALL app-owned state through one coordinator + deregisters device/FCM; caches principal-scoped; new persistence registers in the wipe inventory
 - [ ] Android contract changes are back-compat or versioned; consumed list endpoints carry keyset cursor
-- [ ] `make mobile-guard` run; whole-tree `--all` for a real pass (diff-scoped CI is blind to backend-induced anti-patterns); Android build actually ran if compile is claimed
+- [ ] Proof/camera/media review includes the Sep 8 GCS egress lens: already-uploaded
+      image/video/audio must not be auto-previewed, metadata-probed, poster-probed,
+      player-prepared, or repeatedly refetched from signed GCS URLs after upload.
+      Check PC Care, verify, scan/vaccination, weighing, feed, death, birth,
+      counts, pen visits, vendor voice notes, and leadership media surfaces.
+- [ ] Remote proof media is keyed by stable proof/slot/outbox/attachment identity,
+      never by a rotating temporary signed URL; `ProofMediaPreview` callers pass
+      `mediaIdentity`, and raw Media3/Coil/MediaPlayer/OkHttp/URL reads are
+      explicit user actions with lifecycle/offscreen stop and bounded telemetry.
+- [ ] Backend read/list APIs do not broaden signed URL distribution without a
+      reason; explicit download/open paths are logged and attributable, and any
+      billing-risk PR states whether Cloud Monitoring/Slack alerts are actually
+      live or only configured in code.
+- [ ] `make mobile-guard` run; whole-tree `make mobile-guard-audit`/`--all` for a
+      real pass (diff-scoped CI is blind to backend-induced anti-patterns);
+      Android build actually ran if compile is claimed
 
 ## Motion & transitions lens
 

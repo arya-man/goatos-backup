@@ -413,6 +413,7 @@ fun FeedTransportCaptureScreen(
                     captured = state.videoCaptured,
                     status = state.videoStatus,
                     previewPath = state.videoPreviewPath,
+                    previewIdentity = "feed-transport:video",
                     previewKind = FeedDistPreviewKind.Video,
                     capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_transport_video_recorded)),
                     loading = state.isCapturing,

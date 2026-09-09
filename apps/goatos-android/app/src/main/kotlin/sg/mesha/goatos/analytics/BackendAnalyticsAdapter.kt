@@ -209,6 +209,7 @@ class BackendAnalyticsAdapter(
             AnalyticsEventsLeadershipTasks.TASK_EDITED,
             AnalyticsEventsLeadershipTasks.STATUS_CHANGED,
             AnalyticsEventsLeadershipTasks.ATTACHMENT_ADDED,
+            AnalyticsEventsLeadershipTasks.ATTACHMENT_PREVIEW_ACTION,
             AnalyticsEventsLeadershipTasks.AUDIO_RECORDED,
             AnalyticsEventsLeadershipTasks.FAILURE,
             AnalyticsEventsPenVisits.LIST_VIEWED,

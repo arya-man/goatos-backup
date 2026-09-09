@@ -178,6 +178,7 @@ sealed interface LeadershipTaskDetailEvent {
 
     /** Fetch (if needed) and open one attachment: audio plays in place, a file opens outside. */
     data class OpenAttachment(val listKey: String) : LeadershipTaskDetailEvent
+    data class PreviewAttachment(val listKey: String, val action: String) : LeadershipTaskDetailEvent
     data class CommentChanged(val value: String) : LeadershipTaskDetailEvent
     data object SaveComment : LeadershipTaskDetailEvent
     data object DismissMessage : LeadershipTaskDetailEvent

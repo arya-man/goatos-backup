@@ -67,13 +67,32 @@ function stripCommentOnlyLines(text) {
     .join("\n");
 }
 
-export function validate({ manifest, guardScripts, makeGuardrailsBody, runLocalCiText }) {
+function commandLineInvokesTarget(line, target) {
+  const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[;&|\\s])(?:\\$\\(MAKE\\)|\\$\\{MAKE\\}|make)\\s+[^\\n#]*\\b${escaped}\\b`).test(line);
+}
+
+function makeTargetWired(makeGuardrailsBody, target) {
+  return stripCommentOnlyLines(makeGuardrailsBody)
+    .split("\n")
+    .some((line) => commandLineInvokesTarget(line, target));
+}
+
+function ciStepWired(runLocalCiText, ciStep) {
+  const standardJobs = stripCommentOnlyLines(standardCiJobText(runLocalCiText));
+  return standardJobs
+    .split("\n")
+    .some((line) => {
+      if (!/\bstep(?:_cached)?\b/.test(line) || !line.includes(ciStep)) return false;
+      if (/\bstep(?:_cached)?\b[\s\S]*\becho\b/.test(line)) return false;
+      return true;
+    });
+}
+
+export function validate({ manifest, guardScripts, makeGuardrailsBody, runLocalCiText, owningDocs = new Map() }) {
   const problems = [];
   const guards = manifest.guards || [];
   const registered = new Set(guards.map((g) => g.script));
-  const standardJobs = standardCiJobText(runLocalCiText);
-  const makeGuardrailsStripped = stripCommentOnlyLines(makeGuardrailsBody);
-  const standardJobsStripped = stripCommentOnlyLines(standardJobs);
 
   // (1) every enumerated guard script (.mjs and .sh) must be registered.
   for (const script of guardScripts) {
@@ -92,15 +111,32 @@ export function validate({ manifest, guardScripts, makeGuardrailsBody, runLocalC
       problems.push(`guard ${id}: no selfTest and no selfTestExemptReason`);
     }
 
+    if (g.owningDoc) {
+      const docText = owningDocs.get(g.owningDoc);
+      if (docText == null) {
+        problems.push(`guard ${id}: owningDoc "${g.owningDoc}" does not exist`);
+      } else if (id === "android-proof-media-egress" || id === "backend-proof-media-egress" || id === "admin-web-proof-media-egress") {
+        const requiredPhrases = ["--all", "adjacent", "Cloud Monitoring", "Slack", "live", "configured"];
+        if (id === "admin-web-proof-media-egress") {
+          requiredPhrases.push("admin-web", "drawer", "<img>", "<video>", "explicit open");
+        }
+        for (const phrase of requiredPhrases) {
+          if (!docText.includes(phrase)) {
+            problems.push(`guard ${id}: owningDoc "${g.owningDoc}" must mention "${phrase}"`);
+          }
+        }
+      }
+    }
+
     if (g.requiredInCI === true) {
       // (3) required guard's makeTarget must be wired into `make guardrails`.
-      if (g.makeTarget && !makeGuardrailsStripped.includes(g.makeTarget)) {
+      if (g.makeTarget && !makeTargetWired(makeGuardrailsBody, g.makeTarget)) {
         problems.push(`required guard ${id}: makeTarget "${g.makeTarget}" missing from Makefile guardrails: target`);
       }
       // (4) required guard's ciStep must appear in a standard local-CI job. A mention only
       // in run_guardrails (the compatibility mode) is not enforcement over pull requests.
       const ciStep = g.ciStep || g.makeTarget;
-      if (!ciStep || !standardJobsStripped.includes(ciStep)) {
+      if (!ciStep || !ciStepWired(runLocalCiText, ciStep)) {
         problems.push(`required guard ${id}: ciStep "${ciStep}" missing from a standard CI job in tools/ci/run-local-ci.sh`);
       }
     }
@@ -145,39 +181,44 @@ function extractGuardrailsBody(makefileText) {
 function selfTest() {
   const goodManifest = {
     guards: [
-      { id: "a", script: "tools/ci/check-a.mjs", makeTarget: "a-guard", selfTest: "x --self-test", requiredInCI: true, ciStep: "a-guard" },
-      { id: "c", script: "tools/agent-hooks/check-c.sh", makeTarget: null, selfTestExemptReason: "shell", requiredInCI: false, ciStep: "check-c.sh" },
-      { id: "b", script: "tools/agent-hooks/check-b.mjs", makeTarget: null, selfTestExemptReason: "driven e2e", requiredInCI: false, ciStep: "check-b.mjs" },
+      { id: "a", script: "tools/ci/check-a.mjs", makeTarget: "a-guard", selfTest: "x --self-test", owningDoc: "docs/a.md", requiredInCI: true, ciStep: "a-guard" },
+      { id: "c", script: "tools/agent-hooks/check-c.sh", makeTarget: null, selfTestExemptReason: "shell", owningDoc: "docs/c.md", requiredInCI: false, ciStep: "check-c.sh" },
+      { id: "b", script: "tools/agent-hooks/check-b.mjs", makeTarget: null, selfTestExemptReason: "driven e2e", owningDoc: "docs/b.md", requiredInCI: false, ciStep: "check-b.mjs" },
     ],
   };
   const mjs = ["tools/ci/check-a.mjs", "tools/agent-hooks/check-b.mjs", "tools/agent-hooks/check-c.sh"];
   const makeBody = "\t$(MAKE) a-guard\n";
-  const ci = "run_common() {\n  step a-guard\n}\n";
+  const ci = "run_common() {\n  step a-guard make a-guard\n}\n";
+  const docs = new Map([
+    ["docs/a.md", "doc"],
+    ["docs/b.md", "doc"],
+    ["docs/c.md", "doc"],
+  ]);
 
-  const clean = validate({ manifest: goodManifest, guardScripts: mjs, makeGuardrailsBody: makeBody, runLocalCiText: ci });
+  const clean = validate({ manifest: goodManifest, guardScripts: mjs, makeGuardrailsBody: makeBody, runLocalCiText: ci, owningDocs: docs });
   if (clean.length !== 0) throw new Error(`self-test: expected clean, got ${JSON.stringify(clean)}`);
 
   // orphan script present on disk but not in manifest -> detected.
-  const orphan = validate({ manifest: goodManifest, guardScripts: [...mjs, "tools/ci/check-orphan.mjs"], makeGuardrailsBody: makeBody, runLocalCiText: ci });
+  const orphan = validate({ manifest: goodManifest, guardScripts: [...mjs, "tools/ci/check-orphan.mjs"], makeGuardrailsBody: makeBody, runLocalCiText: ci, owningDocs: docs });
   if (!orphan.some((p) => p.includes("unregistered guard script: tools/ci/check-orphan.mjs"))) {
     throw new Error("self-test: orphan script not detected");
   }
 
   // guard with no self-test and no exemption -> detected.
   const noSelf = { guards: [{ id: "d", script: "tools/ci/check-d.mjs", makeTarget: null, requiredInCI: false, ciStep: "check-d.mjs" }] };
-  const noSelfProblems = validate({ manifest: noSelf, guardScripts: ["tools/ci/check-d.mjs"], makeGuardrailsBody: "", runLocalCiText: "check-d.mjs" });
+  const noSelfProblems = validate({ manifest: noSelf, guardScripts: ["tools/ci/check-d.mjs"], makeGuardrailsBody: "", runLocalCiText: "check-d.mjs", owningDocs: docs });
   if (!noSelfProblems.some((p) => p.includes("no selfTest and no selfTestExemptReason"))) {
     throw new Error("self-test: missing self-test not detected");
   }
 
   // required guard missing from make guardrails -> detected.
-  const missMake = validate({ manifest: goodManifest, guardScripts: mjs, makeGuardrailsBody: "", runLocalCiText: ci });
+  const missMake = validate({ manifest: goodManifest, guardScripts: mjs, makeGuardrailsBody: "", runLocalCiText: ci, owningDocs: docs });
   if (!missMake.some((p) => p.includes("missing from Makefile guardrails"))) {
     throw new Error("self-test: required-missing-from-make not detected");
   }
 
   // required guard missing from run-local-ci -> detected.
-  const missCi = validate({ manifest: goodManifest, guardScripts: mjs, makeGuardrailsBody: makeBody, runLocalCiText: "" });
+  const missCi = validate({ manifest: goodManifest, guardScripts: mjs, makeGuardrailsBody: makeBody, runLocalCiText: "", owningDocs: docs });
   if (!missCi.some((p) => p.includes("missing from a standard CI job"))) {
     throw new Error("self-test: required-missing-from-ci not detected");
   }
@@ -198,9 +239,32 @@ function selfTest() {
     guardScripts: mjs,
     makeGuardrailsBody: makeBody,
     runLocalCiText: compatibilityOnlyCi,
+    owningDocs: docs,
   });
   if (!compatibilityOnly.some((p) => p.includes("standard CI job"))) {
     throw new Error("self-test: compatibility-only guard wiring was not detected");
+  }
+
+  const echoOnlyMake = validate({
+    manifest: goodManifest,
+    guardScripts: mjs,
+    makeGuardrailsBody: "\techo a-guard\n",
+    runLocalCiText: ci,
+    owningDocs: docs,
+  });
+  if (!echoOnlyMake.some((p) => p.includes("missing from Makefile guardrails"))) {
+    throw new Error("self-test: echo-only make wiring was not detected");
+  }
+
+  const echoOnlyCi = validate({
+    manifest: goodManifest,
+    guardScripts: mjs,
+    makeGuardrailsBody: makeBody,
+    runLocalCiText: "run_common() {\n  step a-guard echo a-guard\n}\n",
+    owningDocs: docs,
+  });
+  if (!echoOnlyCi.some((p) => p.includes("standard CI job"))) {
+    throw new Error("self-test: echo-only CI wiring was not detected");
   }
 
   // Enumeration itself: shell guards must be picked up, *.test.sh harnesses must not.
@@ -223,9 +287,34 @@ function selfTest() {
     guardScripts: [...mjs, "tools/agent-hooks/check-orphan.sh"],
     makeGuardrailsBody: makeBody,
     runLocalCiText: ci,
+    owningDocs: docs,
   });
   if (!orphanSh.some((p) => p.includes("unregistered guard script: tools/agent-hooks/check-orphan.sh"))) {
     throw new Error("self-test: orphan SHELL guard not detected");
+  }
+
+  const adminProofManifest = {
+    guards: [
+      {
+        id: "admin-web-proof-media-egress",
+        script: "tools/agent-hooks/check-admin-web-proof-media-egress.mjs",
+        makeTarget: null,
+        selfTest: "node tools/agent-hooks/check-admin-web-proof-media-egress.mjs --self-test",
+        owningDoc: "docs/proof-egress.md",
+        requiredInCI: false,
+        ciStep: "admin-web-proof-media-egress-guard",
+      },
+    ],
+  };
+  const adminDocProblems = validate({
+    manifest: adminProofManifest,
+    guardScripts: ["tools/agent-hooks/check-admin-web-proof-media-egress.mjs"],
+    makeGuardrailsBody: "",
+    runLocalCiText: "",
+    owningDocs: new Map([["docs/proof-egress.md", "--all adjacent Cloud Monitoring Slack live configured"]]),
+  });
+  if (!adminDocProblems.some((p) => p.includes("must mention \"admin-web\""))) {
+    throw new Error("self-test: admin-web proof-media owning-doc phrases were not enforced");
   }
 
   console.log("guardrail-registration guard: self-test passed");
@@ -236,12 +325,19 @@ function run() {
   const { mjs: mjsScripts, sh: shScripts } = enumerateGuardScripts();
   const makeGuardrailsBody = extractGuardrailsBody(readFileSync(resolve(repo, "Makefile"), "utf8"));
   const runLocalCiText = readFileSync(resolve(repo, "tools/ci/run-local-ci.sh"), "utf8");
+  const owningDocs = new Map();
+  for (const g of manifest.guards || []) {
+    if (!g.owningDoc || owningDocs.has(g.owningDoc)) continue;
+    const path = resolve(repo, g.owningDoc);
+    owningDocs.set(g.owningDoc, existsSync(path) ? readFileSync(path, "utf8") : null);
+  }
 
   const problems = validate({
     manifest,
     guardScripts: [...mjsScripts, ...shScripts],
     makeGuardrailsBody,
     runLocalCiText,
+    owningDocs,
   });
   if (problems.length > 0) {
     console.error("guardrail-registration guard: FAIL");

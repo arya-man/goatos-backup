@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   assignSopTask,
+  getProofDownloadUrl,
   getSopTask,
   recordVerificationVerdict,
   requestSopTaskRework,
@@ -47,6 +48,15 @@ function verdictRequestFingerprint(value: unknown): string {
 const VARIANCE_CONFIRM_CODE = "measurement_confirmation_required";
 // Field errors on that refusal address each flagged entry box by its key.
 const VARIANCE_FIELD_PREFIX = "measurement.entries.";
+
+// Explicit media open/play bridge for admin-web. Drawer/list hydration must carry only proof IDs
+// or backend proof routes; this server action resolves one browser-usable signed URL only after a
+// reviewer clicks the proof.
+export async function resolveVerificationProofMediaUrl(proofRef: string): Promise<string | null> {
+  const trimmed = proofRef.trim();
+  if (!trimmed) return null;
+  return getProofDownloadUrl(trimmed);
+}
 
 // readMeasurement pulls the verifier's reading out of the verdict form.
 //

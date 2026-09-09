@@ -188,7 +188,7 @@ resource "google_monitoring_alert_policy" "media_bucket_read_egress_warning" {
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Possible proof media download loop. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject OK egress. Delta: 5 GiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; then group by user, device, screen, proof_id, object_key."
+    content   = "Possible proof media download loop. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject OK egress. Delta: 5 GiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=(\"proof_download_url_issued\" OR \"proof_download_redirect\")`; then group by user, device, screen, proof_id, object_key."
   }
 
   depends_on = [google_project_service.enabled]
@@ -228,7 +228,7 @@ resource "google_monitoring_alert_policy" "media_bucket_read_egress_critical" {
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Critical proof media egress spike. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject OK egress. Delta: 15 GiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; group by user, device, screen, proof_id, object_key."
+    content   = "Critical proof media egress spike. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject OK egress. Delta: 15 GiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=(\"proof_download_url_issued\" OR \"proof_download_redirect\")`; group by user, device, screen, proof_id, object_key."
   }
 
   depends_on = [google_project_service.enabled]
@@ -264,7 +264,7 @@ resource "google_monitoring_alert_policy" "media_bucket_daily_read_egress_critic
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Daily proof media egress crossed the emergency threshold. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject OK egress. Delta: 40 GiB/day threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; then inspect docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md."
+    content   = "Daily proof media egress crossed the emergency threshold. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject OK egress. Delta: 40 GiB/day threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=(\"proof_download_url_issued\" OR \"proof_download_redirect\")`; then inspect docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md."
   }
 
   depends_on = [google_project_service.enabled]
@@ -304,7 +304,7 @@ resource "google_monitoring_alert_policy" "media_bucket_cancelled_read_egress_wa
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Cancelled GCS reads can mean proof players are starting streams and abandoning them. Project: goatos-stg. Service: Cloud Storage. Usage: CANCELLED ReadObject egress. Delta: 512 MiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; compare with Android proof preview analytics."
+    content   = "Cancelled GCS reads can mean proof players are starting streams and abandoning them. Project: goatos-stg. Service: Cloud Storage. Usage: CANCELLED ReadObject egress. Delta: 512 MiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=(\"proof_download_url_issued\" OR \"proof_download_redirect\")`; compare with Android proof preview analytics."
   }
 
   depends_on = [google_project_service.enabled]
@@ -344,7 +344,7 @@ resource "google_monitoring_alert_policy" "media_bucket_cancelled_read_egress_cr
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Critical cancelled-read egress spike. Project: goatos-stg. Service: Cloud Storage. Usage: CANCELLED ReadObject egress. Delta: 2 GiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; group by user, device, screen, proof_id, object_key."
+    content   = "Critical cancelled-read egress spike. Project: goatos-stg. Service: Cloud Storage. Usage: CANCELLED ReadObject egress. Delta: 2 GiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=(\"proof_download_url_issued\" OR \"proof_download_redirect\")`; group by user, device, screen, proof_id, object_key."
   }
 
   depends_on = [google_project_service.enabled]
@@ -383,7 +383,7 @@ resource "google_monitoring_alert_policy" "media_bucket_read_request_storm" {
 
   documentation {
     mime_type = "text/markdown"
-    content   = "High ReadObject count can catch proof preview loops before the bill becomes visible. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject request count. Delta: 1,000 requests/10 min threshold. Top SKU/metric: storage.googleapis.com/api/request_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; compare top proof/user/device counts."
+    content   = "High ReadObject count can catch proof preview loops before the bill becomes visible. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject request count. Delta: 1,000 requests/10 min threshold. Top SKU/metric: storage.googleapis.com/api/request_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=(\"proof_download_url_issued\" OR \"proof_download_redirect\")`; compare top proof/user/device counts."
   }
 
   depends_on = [google_project_service.enabled]
@@ -422,7 +422,7 @@ resource "google_monitoring_alert_policy" "media_bucket_read_request_storm_criti
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Critical ReadObject request storm. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject request count. Delta: 3,000 requests/10 min threshold. Top SKU/metric: storage.googleapis.com/api/request_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; find looping screen/device before egress grows."
+    content   = "Critical ReadObject request storm. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject request count. Delta: 3,000 requests/10 min threshold. Top SKU/metric: storage.googleapis.com/api/request_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=(\"proof_download_url_issued\" OR \"proof_download_redirect\")`; find looping screen/device before egress grows."
   }
 
   depends_on = [google_project_service.enabled]

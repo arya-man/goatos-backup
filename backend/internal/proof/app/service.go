@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/proof/domain"
 	"github.com/vgoats/goatos/backend/internal/proof/ports"
@@ -17,7 +19,7 @@ import (
 
 const (
 	defaultSignedURLTTL         = 15 * time.Minute
-	defaultDownloadSignedURLTTL = time.Hour
+	defaultDownloadSignedURLTTL = 10 * time.Minute
 )
 
 var ErrInvalid = errors.New("proof: invalid input")
@@ -129,6 +131,28 @@ func (s *Service) DownloadURL(ctx context.Context, tenantID, proofID string) (st
 }
 
 func (s *Service) DownloadArtifact(ctx context.Context, tenantID, proofID string) (domain.Artifact, string, error) {
+	return s.downloadArtifact(ctx, tenantID, proofID)
+}
+
+func (s *Service) DownloadArtifactForActor(ctx context.Context, tenantID, actorID, proofID string) (domain.Artifact, string, error) {
+	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
+		return domain.Artifact{}, "", ErrInvalid
+	}
+	proof, err := s.repo.GetProof(ctx, tenantID, proofID)
+	if err != nil {
+		return domain.Artifact{}, "", err
+	}
+	if !canActorDownloadProof(ctx, tenantID, actorID, proof) {
+		return domain.Artifact{}, "", ports.ErrForbidden
+	}
+	url, err := s.storage.PrepareDownload(ctx, proof, defaultDownloadSignedURLTTL)
+	if err != nil {
+		return domain.Artifact{}, "", err
+	}
+	return proof, url, nil
+}
+
+func (s *Service) downloadArtifact(ctx context.Context, tenantID, proofID string) (domain.Artifact, string, error) {
 	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
 		return domain.Artifact{}, "", ErrInvalid
 	}
@@ -141,6 +165,26 @@ func (s *Service) DownloadArtifact(ctx context.Context, tenantID, proofID string
 		return domain.Artifact{}, "", err
 	}
 	return proof, url, nil
+}
+
+func canActorDownloadProof(ctx context.Context, tenantID, actorID string, proof domain.Artifact) bool {
+	if proof.UploadedBy != nil && strings.TrimSpace(actorID) != "" && strings.TrimSpace(*proof.UploadedBy) == strings.TrimSpace(actorID) {
+		return true
+	}
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	if len(grants) == 0 {
+		return true
+	}
+	for _, capability := range []string{permissions.TaskRead, permissions.VendorRead, permissions.VerificationReview, permissions.VerificationVerdict} {
+		if httpmiddleware.HasTenantWideCapability(grants, tenantID, capability) {
+			return true
+		}
+	}
+	if proof.ScopeType == "park" {
+		decision := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(ctx, tenantID, proof.ScopeID, permissions.TaskRead, permissions.VendorRead)
+		return decision.Allowed
+	}
+	return false
 }
 
 // EnsureObjectAvailable proves that ONE proof's stored bytes are still retrievable, without
