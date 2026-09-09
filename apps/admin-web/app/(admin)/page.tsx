@@ -1,6 +1,7 @@
 import { ControlTowerPage } from "@/features/control-tower";
 import { getAdminWebBootstrap } from "@/lib/api/server";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { parseScope, scopeHref } from "@/lib/scope";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   const requestedControlTower = one(sp, "lens") === CONTROL_TOWER_LENS;
   const landing = contract.ok ? contract.data.pages.find((item) => item.route_id === LANDING_ROUTE_ID) : null;
   if (!requestedControlTower && landing?.href) {
-    redirect(landing.href);
+    redirect(scopeHref(landing.href, parseScope(sp)));
   }
   const controlTower = contract.ok ? contract.data.pages.find((item) => item.route_id === "control-tower") : null;
   if (requestedControlTower && controlTower) {

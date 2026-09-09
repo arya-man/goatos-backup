@@ -14,7 +14,8 @@ test("admin root route lands on ADG Analytics when its page contract is present"
   assert.match(rootPageSource, /const CONTROL_TOWER_LENS = "control-tower"/);
   assert.match(rootPageSource, /one\(sp, "lens"\) === CONTROL_TOWER_LENS/);
   assert.match(rootPageSource, /item\.route_id === LANDING_ROUTE_ID/);
-  assert.match(rootPageSource, /if \(!requestedControlTower && landing\?\.href\) \{\s*redirect\(landing\.href\);/);
+  assert.match(rootPageSource, /import \{ parseScope, scopeHref \} from "@\/lib\/scope";/);
+  assert.match(rootPageSource, /if \(!requestedControlTower && landing\?\.href\) \{\s*redirect\(scopeHref\(landing\.href, parseScope\(sp\)\)\);/);
 });
 
 test("admin root route keeps explicit Control Tower deep links reachable", () => {
