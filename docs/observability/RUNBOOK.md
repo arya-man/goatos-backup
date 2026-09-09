@@ -51,12 +51,14 @@ terraform plan \
   -out=observability.tfplan
 
 # 4. Review the plan — it must show ONLY additive resources (5 service
-#    accounts, 4 Cloud Run services, 1 Cloud Run Job, 1 Scheduler job, 2 GCS
-#    buckets + objects, 1 BigQuery dataset, 2 secrets, 1 in-place Cloud SQL
-#    update for insights_config, 5 new alert policies) — nothing destructive
-#    to api/admin_web/kernel jobs. See INFRA.md §7 for the full resource list
-#    and the recommended staged sub-apply order (secrets → Cloud SQL insights
-#    → collector/gmp-frontend → grafana → alloy → full apply).
+#    accounts, 4 Cloud Run services, 1 manual Cloud Run Job, 2 GCS buckets +
+#    objects, 1 BigQuery dataset, 2 secrets, 1 in-place Cloud SQL update for
+#    insights_config, 5 new alert policies) — no Terraform-managed stg Cloud
+#    Scheduler job and nothing destructive to api/admin_web/kernel jobs. The
+#    live cost-alert Scheduler is a manual exception outside Terraform; see
+#    INFRA.md §7 for the full resource list and the recommended staged
+#    sub-apply order (secrets → Cloud SQL insights → collector/gmp-frontend →
+#    grafana → alloy → full apply).
 terraform apply observability.tfplan
 ```
 
