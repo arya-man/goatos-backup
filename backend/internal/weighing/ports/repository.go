@@ -300,8 +300,8 @@ type Repository interface {
 	// ListCampaigns / ListCampaignsForOperator page the task list. parkID is an
 	// optional row filter; the page's whole-filter Counts are computed over the
 	// scope and are deliberately NOT narrowed by it (see domain.CampaignCounts).
-	ListCampaigns(ctx context.Context, tenantID, parkID string, cursor string, limit int) (domain.CampaignPage, error)
-	ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, cursor string, limit int) (domain.CampaignPage, error)
+	ListCampaigns(ctx context.Context, tenantID, parkID string, filter domain.CampaignListFilter, cursor string, limit int) (domain.CampaignPage, error)
+	ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, filter domain.CampaignListFilter, cursor string, limit int) (domain.CampaignPage, error)
 	// CampaignByID is the SINGLE-task read behind a notification deep link. The task
 	// list is keyset-paged with no id filter, so a cold tap on a task that is not on
 	// the first page or two could not be resolved at all: the client walked a few

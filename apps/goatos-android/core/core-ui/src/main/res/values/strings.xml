@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- telemetry:exempt Resource strings; telemetry wired in feature module screens -->
+<!--
+  Shared worklist FILTER BAR chrome (Weighing tasks, Preventive Care rounds): the two status
+  pills, the Date and Pen controls, and their pickers. Business facts (counts, pen names,
+  dates) come from the backend; these are only the control labels.
+-->
+<resources>
+    <string name="filters_status_pending_fmt">Pending %1$d</string>
+    <string name="filters_status_completed_fmt">Completed %1$d</string>
+    <string name="filters_date_label">Date</string>
+    <string name="filters_pen_label">Pen</string>
+    <string name="filters_all_pens">All pens</string>
+    <string name="filters_today">Today</string>
+    <string name="filters_next_7_days">Next 7 days</string>
+    <string name="filters_next_30_days">Next 30 days</string>
+    <string name="filters_last_7_days">Last 7 days</string>
+    <string name="filters_from">From</string>
+    <string name="filters_to">To</string>
+    <string name="filters_apply">Apply</string>
+    <string name="filters_clear">Clear</string>
+    <string name="filters_calendar_hint">Tap a start day, then an end day · tap the same day twice for one day</string>
+    <string name="filters_previous_month">Previous month</string>
+    <string name="filters_next_month">Next month</string>
+    <string name="filters_pen_search">Search pens</string>
+    <string name="filters_pen_none">No pens have work in this date range</string>
+    <string name="filters_clear_pen">Clear pen</string>
+    <string name="filters_open_date">Change date range</string>
+    <string name="filters_open_pen">Change pen</string>
+</resources>

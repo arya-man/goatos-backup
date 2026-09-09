@@ -135,8 +135,6 @@
     <!-- Task board -->
     <string name="weighing_tasks_title">పనులు</string>
     <string name="weighing_tasks_refresh">బరువు పనులను రిఫ్రెష్ చేయండి</string>
-    <string name="weighing_tasks_tab_active_fmt">చురుకైన %1$d</string>
-    <string name="weighing_tasks_tab_completed_fmt">పూర్తయిన %1$d</string>
     <string name="weighing_tasks_empty_completed">ఇంకా పూర్తయిన పనులు లేవు</string>
     <string name="weighing_tasks_empty_active">చురుకైన పనులు లేవు</string>
     <string name="weighing_tasks_to_verify_fmt">%1$d ధృవీకరించాలి</string>

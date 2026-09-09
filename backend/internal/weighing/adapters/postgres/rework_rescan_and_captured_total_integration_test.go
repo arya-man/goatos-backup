@@ -394,7 +394,7 @@ func TestCampaignCapturedTotalCountsFreeFlowScansWithZeroExpectedAnimalRows(t *t
 		}
 	}
 
-	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
+	page, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("list campaigns: %v", err)
 	}

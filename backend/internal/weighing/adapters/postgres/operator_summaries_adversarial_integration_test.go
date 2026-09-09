@@ -229,7 +229,7 @@ func TestOperatorSummaryIsWholeFilterAcrossEveryPageBoundary(t *testing.T) {
 	}
 
 	// The truth: one unpaged read over the whole filter.
-	whole, err := repo.ListCampaigns(ctx, repoTenant, repoPark, "", 100)
+	whole, err := repo.ListCampaigns(ctx, repoTenant, repoPark, domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("whole-filter list: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestOperatorSummaryIsWholeFilterAcrossEveryPageBoundary(t *testing.T) {
 		pages := 0
 		seenRows := 0
 		for {
-			page, err := repo.ListCampaigns(ctx, repoTenant, repoPark, cursor, limit)
+			page, err := repo.ListCampaigns(ctx, repoTenant, repoPark, domain.CampaignListFilter{}, cursor, limit)
 			if err != nil {
 				t.Fatalf("limit=%d page=%d: %v", limit, pages, err)
 			}

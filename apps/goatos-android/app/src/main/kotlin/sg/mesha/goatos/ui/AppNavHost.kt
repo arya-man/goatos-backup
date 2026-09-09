@@ -1806,6 +1806,8 @@ fun AppNavHost(
                 state = tasksState,
                 onRefresh = vm::refresh,
                 onSelectTab = vm::selectTaskTab,
+                onSelectWindow = vm::selectTaskWindow,
+                onSelectPen = vm::selectTaskPen,
                 onSelectPark = vm::selectTaskPark,
                 onOpenTask = { campaignId -> navController.navigate(Routes.weighingTaskRoute(campaignId)) },
                 // Repeating opens task AUTHORING prefilled from that task, on its date step. It

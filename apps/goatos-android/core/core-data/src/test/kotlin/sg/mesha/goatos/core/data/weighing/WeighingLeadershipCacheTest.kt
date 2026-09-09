@@ -75,6 +75,11 @@ class WeighingLeadershipCacheTest {
                 cursor: String?,
                 limit: Int,
                 parkId: String?,
+                status: String?,
+                dateFrom: String?,
+                dateTo: String?,
+                shedId: String?,
+                partitionLabel: String?,
             ): WeighingCampaignListResponseDto {
                 calls += 1
                 // The client must ask for ONE screen-page, never the whole list.
@@ -116,6 +121,11 @@ class WeighingLeadershipCacheTest {
                 cursor: String?,
                 limit: Int,
                 parkId: String?,
+                status: String?,
+                dateFrom: String?,
+                dateTo: String?,
+                shedId: String?,
+                partitionLabel: String?,
             ): WeighingCampaignListResponseDto {
                 if (fail) throw IllegalStateException("offline")
                 return WeighingCampaignListResponseDto(items = listOf(campaign("task-1")))
@@ -140,6 +150,11 @@ class WeighingLeadershipCacheTest {
                 cursor: String?,
                 limit: Int,
                 parkId: String?,
+                status: String?,
+                dateFrom: String?,
+                dateTo: String?,
+                shedId: String?,
+                partitionLabel: String?,
             ) = WeighingCampaignListResponseDto(items = listOf(campaign("task-${parkId ?: "all"}")))
         }
         val repository = repository(api)

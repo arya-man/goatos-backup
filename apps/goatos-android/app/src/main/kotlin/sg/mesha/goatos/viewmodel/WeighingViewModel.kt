@@ -59,6 +59,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingOperatorSummary
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
+import sg.mesha.goatos.core.data.weighing.WeighingTaskListFilter
+import sg.mesha.goatos.core.ui.filters.WorklistDateWindow
+import sg.mesha.goatos.core.ui.filters.WorklistPen
+import sg.mesha.goatos.core.ui.filters.WorklistPenOption
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
 import sg.mesha.goatos.core.data.weighing.weighingCacheAgeNotice
@@ -254,6 +258,25 @@ class WeighingViewModel @Inject constructor(
     private val tasksTab = MutableStateFlow(WeighingTasksTab.ACTIVE)
 
     /**
+     * The task list's FILTER BAR (maintainer request 2026-09-10): the date window (default today
+     * through the next seven days, Asia/Kolkata) and the one pen, beside the tab above. All
+     * three are SERVER-SIDE: together with the park they name the keyset Room caches, so a
+     * change re-points the observed stream and refreshes, exactly as a park change does.
+     */
+    private val taskWindow = MutableStateFlow(WorklistDateWindow.default(LocalDate.now(ZoneId.of(WEIGHING_BUSINESS_ZONE))))
+    private val taskPen = MutableStateFlow<WorklistPen?>(null)
+    private val taskListFilter: StateFlow<WeighingTaskListFilter> =
+        combine(tasksTab, taskWindow, taskPen) { tab, window, pen ->
+            WeighingTaskListFilter(
+                status = if (tab == WeighingTasksTab.COMPLETED) "completed" else "pending",
+                dateFrom = window.fromIso,
+                dateTo = window.toIso,
+                shedId = pen?.shedId,
+                partitionLabel = pen?.partitionLabel,
+            )
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, taskListFilterFor(tasksTab.value, taskWindow.value, taskPen.value))
+
+    /**
      * What the SIGNED-IN viewer may actually do to a task, as the backend states it.
      *
      * Publishing needs the planning permission and ending needs the monitoring one, and a real
@@ -281,7 +304,8 @@ class WeighingViewModel @Inject constructor(
         if (scopeKey != null) {
             flowOf(WeighingTaskListCache())
         } else {
-            selectedAssignmentParkId.flatMapLatest { parkId -> repository.observeTaskList(surface, parkId) }
+            combine(selectedAssignmentParkId, taskListFilter) { parkId, filter -> parkId to filter }
+                .flatMapLatest { (parkId, filter) -> repository.observeTaskList(surface, parkId, filter) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskListCache())
 
     private val tasks: StateFlow<List<WeighingTask>> = taskCache
@@ -548,7 +572,19 @@ class WeighingViewModel @Inject constructor(
                     .sortedBy { it.value }
                     .map { WeighingParkFilterUiRow(parkId = it.key, label = it.value, selected = it.key == parkId) },
                 todayLabel = LocalDate.now(ZoneId.of(WEIGHING_BUSINESS_ZONE)).format(weighingTodayFormatter),
+                today = LocalDate.now(ZoneId.of(WEIGHING_BUSINESS_ZONE)),
+                pens = cached.pens.map { pen ->
+                    WorklistPenOption(
+                        shedId = pen.shedId,
+                        partitionLabel = pen.partitionLabel,
+                        label = pen.label,
+                        parkName = pen.parkName,
+                        count = pen.taskCount,
+                    )
+                },
             )
+        }.let { base ->
+            combine(base, taskWindow, taskPen) { current, window, pen -> current.copy(window = window, pen = pen) }
         }.let { base ->
             combine(base, tasksLoading, tasksAppending, tasksStale, taskCache) { current, loading, appending, stale, cached ->
                 // Two independent staleness signals: a refresh that failed in THIS session, and the
@@ -1402,6 +1438,7 @@ class WeighingViewModel @Inject constructor(
                     val loaded = repository.refreshTaskList(
                         scope = surface,
                         parkId = selectedAssignmentParkId.value,
+                        filter = taskListFilter.value,
                         reset = true,
                     )
                 ) {
@@ -1433,17 +1470,29 @@ class WeighingViewModel @Inject constructor(
     fun selectTaskTab(tab: WeighingTasksTab) {
         if (tasksTab.value == tab) return
         tasksTab.value = tab
-        // A tab is a view over the SAME keyset, so switching to a tab whose rows all sit further
-        // down the list should keep paging rather than show a false empty state -- but ONE page,
-        // not a drain.
-        //
-        // The server page is not tab-scoped, so on a tenant whose completed tasks sit far down the
-        // keyset an unbounded refill walks the entire campaign history into an in-heap accumulator,
-        // page after page, back to back. That is the mobile over-fetch rule inverted. One extra
-        // page per tab selection; after that the user's own scrolling drives paging, exactly as it
-        // does on the active tab.
-        tabRefillBudget = 1
-        appendTasksIfTabUnderfilled()
+        // The tab is part of the SERVER filter now (status=pending|completed), so it is its
+        // own keyset in Room: the observed stream re-points at that tab's rows and a refresh
+        // fills them, exactly as a park change does. The client-side tab match below stays as a
+        // belt-and-braces guard over whatever the cache holds; it can no longer under-fill a
+        // tab, so no refill budget is needed.
+        tabRefillBudget = 0
+        refreshTasks()
+    }
+
+    /** The filter bar's Date window. Applying it re-reads the list for that window. */
+    fun selectTaskWindow(window: WorklistDateWindow) {
+        if (taskWindow.value == window) return
+        taskWindow.value = window
+        // A different window may hold a pen the old one did not offer; the pen pick is kept
+        // (the server simply returns nothing for it) and the reader clears it from the picker.
+        refreshTasks()
+    }
+
+    /** The filter bar's Pen. Null is "all pens". */
+    fun selectTaskPen(pen: WorklistPen?) {
+        if (taskPen.value == pen) return
+        taskPen.value = pen
+        refreshTasks()
     }
 
     fun selectTaskPark(parkId: String?) {
@@ -1466,6 +1515,7 @@ class WeighingViewModel @Inject constructor(
                     val loaded = repository.appendTaskList(
                         scope = surface,
                         parkId = selectedAssignmentParkId.value,
+                        filter = taskListFilter.value,
                     )
                 ) {
                     is AppResult.Ok -> tasksStale.value = ""
@@ -4245,6 +4295,7 @@ private fun WeighingTask.toTaskUiRow(): WeighingTaskUiRow {
     }.getOrNull()
     return WeighingTaskUiRow(
         campaignId = campaignId,
+        weighDate = weighDate,
         parkId = parkId,
         parkName = parkName.ifBlank { parkId },
         status = status,
@@ -4365,3 +4416,12 @@ private fun WeighingCsvExportRow.toPreviewRowUi(): WeighingExportPreviewRowUi = 
 // The verifier verdict that means "this animal must be captured again". Matching the wire
 // value in one place keeps the row banner and the submit refusal talking about the same state.
 private const val WEIGHING_VERIFICATION_REWORK = "rework"
+
+private fun taskListFilterFor(tab: WeighingTasksTab, window: WorklistDateWindow, pen: WorklistPen?): WeighingTaskListFilter =
+    WeighingTaskListFilter(
+        status = if (tab == WeighingTasksTab.COMPLETED) "completed" else "pending",
+        dateFrom = window.fromIso,
+        dateTo = window.toIso,
+        shedId = pen?.shedId,
+        partitionLabel = pen?.partitionLabel,
+    )

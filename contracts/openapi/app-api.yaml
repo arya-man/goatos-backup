@@ -741,6 +741,52 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: status
+          in: query
+          required: false
+          description: >-
+            Filter-bar tab (maintainer request 2026-09-10). `pending` is every live status that
+            is not finished (draft, published, in_progress, delayed) and reads SOONEST-FIRST;
+            `completed` is completed or closed work and keeps the newest-first order. Absent is
+            the legacy unfiltered read. A canceled task is in neither.
+          schema:
+            type: string
+            enum: [pending, completed]
+        - name: date_from
+          in: query
+          required: false
+          description: >-
+            Start of an INCLUSIVE business-date window on the task's weigh date. Both ends or
+            neither; a half-formed window is refused. A `pending` read also carries still-open
+            work planned BEFORE the window, because a delayed task keeps its original date and
+            must not vanish behind "today onwards". The phone defaults to today through the next
+            seven days.
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: End of the inclusive window; see `date_from`.
+          schema:
+            type: string
+            format: date
+        - name: shed_id
+          in: query
+          required: false
+          description: >-
+            One pen, by the bucket's own location id (with `partition_label`). Narrows rows AND
+            `counts`; `pens` stays the whole window's vocabulary so the pick survives switching
+            tabs.
+          schema:
+            type: string
+            format: uuid
+        - name: partition_label
+          in: query
+          required: false
+          description: The pen's partition label as returned in `pens`; blank for an undivided shed.
+          schema:
+            type: string
         - name: cursor
           in: query
           required: false
@@ -6489,6 +6535,32 @@ paths:
           required: false
           description: With `date`, also returns open carry-over work due before it.
           schema: { type: boolean, default: false }
+        - name: date_from
+          in: query
+          required: false
+          description: >-
+            Filter bar (maintainer request 2026-09-10): start of an INCLUSIVE due-date window
+            on the DATELESS read. Both ends or neither. `filter=active` also carries still-open
+            work due BEFORE the window (a delayed round keeps its date); `filter=completed` is the
+            window exactly. The phone defaults to today through the next seven days.
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          required: false
+          description: End of the inclusive window; see `date_from`.
+          schema: { type: string, format: date }
+        - name: shed_id
+          in: query
+          required: false
+          description: >-
+            One pen (with `partition_label`). A card is kept WHOLE when any of its pens is that
+            pen. Narrows rows and `counts`; `pens` stays the window's vocabulary.
+          schema: { type: string, format: uuid }
+        - name: partition_label
+          in: query
+          required: false
+          description: The pen's partition label as returned in `pens`; blank for an undivided shed.
+          schema: { type: string }
       responses:
         "200":
           description: One bounded keyset page of round cards.
@@ -20621,7 +20693,36 @@ components:
           type: array
           items: { $ref: "#/components/schemas/PCCareRoundCard" }
         next_cursor: { type: string }
-      required: [items]
+        counts:
+          $ref: "#/components/schemas/PCCareRoundCardCounts"
+        pens:
+          type: array
+          description: >-
+            The PEN vocabulary behind the Pen filter: every pen holding a live task inside the
+            window (plus still-open work due before it), with how many cards it sits on.
+            Whole-filter, status-blind, empty without a window or on a day-pinned read.
+          items: { $ref: "#/components/schemas/PCCareRoundPenOption" }
+      required: [items, counts, pens]
+    PCCareRoundCardCounts:
+      type: object
+      description: >-
+        Whole-filter CARD tally behind the Pending / Completed pills, over the same window and
+        pen the list applies (Pending with its carry rule). Never derived from a page; zero on a
+        day-pinned read.
+      required: [active, completed]
+      properties:
+        active: { type: integer, minimum: 0 }
+        completed: { type: integer, minimum: 0 }
+    PCCareRoundPenOption:
+      type: object
+      required: [shed_id, partition_label, operational_location_display, park_id, park_name, card_count]
+      properties:
+        shed_id: { type: string, format: uuid }
+        partition_label: { type: string }
+        operational_location_display: { type: string, description: Backend-composed operational location display. }
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        card_count: { type: integer, minimum: 0 }
     PCCareRoundPen:
       type: object
       description: One pen named by a round create. Identity ONLY — the display label is composed server-side from the pen catalog, so a client cannot name a pen the farm does not use.
@@ -29913,6 +30014,14 @@ components:
           type: string
         counts:
           $ref: "#/components/schemas/WeighingCampaignCounts"
+        pens:
+          type: array
+          description: >-
+            The PEN vocabulary behind the task list's Pen filter: every pen holding a live
+            bucket on a task inside the date window (plus still-open work planned before it),
+            with how many tasks it sits on. Whole-filter, status-blind, empty without a window.
+          items:
+            $ref: "#/components/schemas/WeighingCampaignPenOption"
         capabilities:
           allOf:
             - $ref: "#/components/schemas/WeighingCampaignCapabilities"
@@ -30030,14 +30139,27 @@ components:
             When work exists and this is zero they show a "Not submitted" chip -- the same word
             as the operator's Submit button. This pair is what makes visible the mid-shift state
             where an operator has weighed animals and walked away without submitting them.
+    WeighingCampaignPenOption:
+      type: object
+      additionalProperties: false
+      required: [shed_id, partition_label, operational_location_display, park_id, park_name, task_count]
+      properties:
+        shed_id: { type: string, format: uuid }
+        partition_label: { type: string, description: Blank for an undivided shed. }
+        operational_location_display: { type: string, description: The bucket's display name verbatim, e.g. "Godel 1 - Part 3". }
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        task_count: { type: integer, minimum: 0 }
     WeighingCampaignCounts:
       type: object
       additionalProperties: false
       description: >-
-        Whole-filter task tally behind the Active / Completed tabs. GRAIN: one task = one park
+        Whole-filter task tally behind the Pending / Completed tabs. GRAIN: one task = one park
         on one weigh date. Computed over the entire scope the caller may see, never from the
-        returned page and never narrowed by `park_id`. `completed` is status completed or
-        closed; `active` is every other live status. A canceled task is in neither.
+        returned page and never narrowed by `park_id`; it IS narrowed by the filter bar's date
+        window and pen (the pills must equal what their tabs list), with the Pending carry rule.
+        `completed` is status completed or closed; `active` is every other live status. A
+        canceled task is in neither.
       required:
         - active
         - completed

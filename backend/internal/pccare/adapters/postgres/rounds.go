@@ -1020,9 +1020,15 @@ func (r *Repository) ListRoundCards(ctx context.Context, q ports.ListRoundCardsQ
 	}
 
 	// scale-guard:ignore: one bounded keyset page of one park-day's cards, covered by pc_care_tasks_serving_idx (tenant_id, park_id, due_business_date, work_state); bounded by the park's pen catalog x categories, never by herd size.
+	windowFrom, windowTo := "", ""
+	if strings.TrimSpace(q.DateFrom) != "" && strings.TrimSpace(q.DateTo) != "" {
+		windowFrom, windowTo = strings.TrimSpace(q.DateFrom), strings.TrimSpace(q.DateTo)
+	}
 	rows, err := r.pool.Query(ctx, roundCardsPageSQL,
 		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
-		q.ParkID, q.Category, q.CurrentOrCarry, afterDate, afterKey, limit+1, q.Filter)
+		q.ParkID, q.Category, q.CurrentOrCarry, afterDate, afterKey, limit+1, q.Filter,
+		nullableDate(windowFrom), nullableDate(windowTo), strings.TrimSpace(q.PenShedID), strings.TrimSpace(q.PenPartitionKey),
+		nullableDate(q.Today))
 	if err != nil {
 		return ports.RoundCardPage{}, fmt.Errorf("pccare: list round cards: %w", err)
 	}
@@ -1063,14 +1069,119 @@ func (r *Repository) ListRoundCards(ctx context.Context, q ports.ListRoundCardsQ
 		return ports.RoundCardPage{}, fmt.Errorf("pccare: iterate round cards: %w", err)
 	}
 
-	page := ports.RoundCardPage{Cards: cards}
+	page := ports.RoundCardPage{Cards: cards, Pens: []ports.RoundPenOption{}}
 	if len(cards) > limit {
 		page.Cards = cards[:limit]
 		last := page.Cards[len(page.Cards)-1]
 		page.NextCursor = encodeRoundCardCursor(last.DueBusinessDate, last.CardKey)
 	}
+	// A day-pinned read is the legacy shape and carries no filter-bar companions.
+	if strings.TrimSpace(q.DueBusinessDate) != "" {
+		return page, nil
+	}
+	if err := r.pool.QueryRow(ctx, roundCardCountsSQL,
+		q.TenantID, q.TenantWide, q.AuthorizedParkIDs, q.ParkID, q.Category,
+		nullableDate(windowFrom), nullableDate(windowTo), strings.TrimSpace(q.PenShedID), strings.TrimSpace(q.PenPartitionKey),
+		nullableDate(q.Today),
+	).Scan(&page.Counts.Active, &page.Counts.Completed); err != nil {
+		return ports.RoundCardPage{}, fmt.Errorf("pccare: count round cards: %w", err)
+	}
+	if windowFrom == "" {
+		return page, nil
+	}
+	penRows, err := r.pool.Query(ctx, roundCardPensSQL,
+		q.TenantID, q.TenantWide, q.AuthorizedParkIDs, q.ParkID, q.Category, windowFrom, windowTo, nullableDate(q.Today))
+	if err != nil {
+		return ports.RoundCardPage{}, fmt.Errorf("pccare: list round pens: %w", err)
+	}
+	defer penRows.Close()
+	for penRows.Next() {
+		var pen ports.RoundPenOption
+		var shedName string
+		if err := penRows.Scan(&pen.ShedID, &pen.PartitionLabel, &shedName, &pen.ParkID, &pen.ParkName, &pen.CardCount); err != nil {
+			return ports.RoundCardPage{}, fmt.Errorf("pccare: scan round pen: %w", err)
+		}
+		pen.Label = oploc.OperationalLocation{ShedName: shedName, PartitionLabel: pen.PartitionLabel}.Display()
+		page.Pens = append(page.Pens, pen)
+	}
+	if err := penRows.Err(); err != nil {
+		return ports.RoundCardPage{}, fmt.Errorf("pccare: iterate round pens: %w", err)
+	}
 	return page, nil
 }
+
+// nullableDate binds ” as SQL NULL so a `$n::date` cast never sees an empty string.
+func nullableDate(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
+}
+
+// roundCardCountsSQL is the WHOLE-FILTER tally behind the Pending / Completed pills, at CARD
+// grain: count(DISTINCT card_key) per bucket, over the same scope, window and pen the list
+// applies, so a pill can never advertise a total its tab does not list.
+//
+// projection-review: membership=pc_care_tasks in the caller's parks, dateless, excluding canceled and the round-grain removal card; group_key=coalesce(round_id, task_id) collapsed by count(DISTINCT ...) so a three-pen round is ONE card in exactly one bucket per pen state; join_cardinality=none (semijoin for the pen); pagination=none, two scalars; scope=tenant + park clamp + category + window + pen.
+const roundCardCountsSQL = `
+SELECT
+  count(DISTINCT coalesce(t.round_id::text, t.task_id::text)) FILTER (
+    WHERE t.work_state IN ('scheduled', 'delayed')
+      AND ($6::date IS NULL
+           OR t.due_business_date BETWEEN $6::date AND $7::date
+           OR ($6::date <= $10::date AND t.due_business_date < $6::date)))::int AS active,
+  count(DISTINCT coalesce(t.round_id::text, t.task_id::text)) FILTER (
+    WHERE t.work_state IN ('completed', 'closed')
+      AND ($6::date IS NULL OR t.due_business_date BETWEEN $6::date AND $7::date))::int AS completed
+FROM pc_care_tasks t
+WHERE t.tenant_id = $1::uuid
+  AND t.work_state <> 'canceled'
+  AND t.gates_round_id IS NULL
+  AND ($2::bool OR t.park_id = ANY($3::uuid[]))
+  AND (nullif($4::text, '') IS NULL OR t.park_id = $4::uuid)
+  AND (nullif($5::text, '') IS NULL OR t.category = $5::text)
+  AND (
+    nullif($8::text, '') IS NULL
+    OR EXISTS (
+      SELECT 1 FROM pc_care_tasks pen
+      WHERE pen.tenant_id = t.tenant_id
+        AND coalesce(pen.round_id::text, pen.task_id::text) = coalesce(t.round_id::text, t.task_id::text)
+        AND pen.shed_id = $8::uuid
+        AND pen.partition_key = $9::text
+        AND pen.work_state <> 'canceled'
+    )
+  )`
+
+// roundCardPensSQL is the PEN vocabulary behind the Pen filter: every pen holding a live task
+// inside the window (or still-open work due before it -- the Pending tab's own carry rule),
+// with how many CARDS it sits on. Status-blind so a pick survives switching tabs; bounded by
+// the farm's pen catalog, never by herd size.
+//
+// projection-review: membership=pc_care_tasks in the caller's parks inside the window; group_key=(shed_id, partition_key) with the human partition_label carried by min(); join_cardinality=locations shed 0..1 by PK, park 0..1 by PK; card_count=count(DISTINCT coalesce(round_id, task_id)) so a round's pens never inflate cards; pagination=none, LIMIT 500 over the pen catalog; scope=tenant + park clamp + category + window.
+const roundCardPensSQL = `
+SELECT t.shed_id::text,
+       coalesce(min(t.partition_label), '') AS partition_label,
+       coalesce(min(shed.name), '') AS shed_name,
+       t.park_id::text,
+       coalesce(min(park.name), '') AS park_name,
+       count(DISTINCT coalesce(t.round_id::text, t.task_id::text))::int AS card_count
+FROM pc_care_tasks t
+LEFT JOIN locations shed ON shed.tenant_id = t.tenant_id AND shed.location_id = t.shed_id
+LEFT JOIN locations park ON park.tenant_id = t.tenant_id AND park.location_id = t.park_id
+WHERE t.tenant_id = $1::uuid
+  AND t.shed_id IS NOT NULL
+  AND t.work_state <> 'canceled'
+  AND t.gates_round_id IS NULL
+  AND ($2::bool OR t.park_id = ANY($3::uuid[]))
+  AND (nullif($4::text, '') IS NULL OR t.park_id = $4::uuid)
+  AND (nullif($5::text, '') IS NULL OR t.category = $5::text)
+  AND (
+    t.due_business_date BETWEEN $6::date AND $7::date
+    OR ($6::date <= $8::date AND t.due_business_date < $6::date AND t.work_state IN ('scheduled', 'delayed'))
+  )
+GROUP BY t.shed_id, t.partition_key, t.park_id
+ORDER BY park_name, shed_name, partition_label
+LIMIT 500`
 
 // projection-review: membership=pc_care_tasks rows in the caller's authorized parks, narrowed to one due business date OR one work-state bucket, excluding canceled and excluding the round-grain removal card; group_key=coalesce(round_id, task_id) plus round_id; join_cardinality=locations 1:1 by PK, crew and animals aggregated to the CARD before joining so both are 1:0..1, removal 1:0..1 on pc_care_tasks_gates_round_uq; pagination=bounded keyset over (min(due_business_date), card_key), the same tuple ORDER BY and the cursor use; scope=tenant_id + park clamp.
 //
@@ -1113,13 +1224,30 @@ WITH scoped AS (
         ))
       ))
       OR (nullif($2::text, '') IS NULL AND (
-        ($11::text = 'completed' AND t.work_state IN ('completed', 'closed'))
-        OR ($11::text <> 'completed' AND t.work_state IN ('scheduled', 'delayed'))
+        ($11::text = 'completed' AND t.work_state IN ('completed', 'closed')
+          AND ($12::date IS NULL OR t.due_business_date BETWEEN $12::date AND $13::date))
+        OR ($11::text <> 'completed' AND t.work_state IN ('scheduled', 'delayed')
+          AND ($12::date IS NULL
+               OR t.due_business_date BETWEEN $12::date AND $13::date
+               OR ($12::date <= $16::date AND t.due_business_date < $12::date)))
       ))
     )
     AND ($3::bool OR t.park_id = ANY($4::uuid[]))
     AND (nullif($5::text, '') IS NULL OR t.park_id = $5::uuid)
     AND (nullif($6::text, '') IS NULL OR t.category = $6::text)
+    -- One pen (filter bar): keep every card that holds that pen, WHOLE. Filtering the pen
+    -- rows themselves would shrink a three-pen round to one pen and re-roll its status.
+    AND (
+      nullif($14::text, '') IS NULL
+      OR EXISTS (
+        SELECT 1 FROM pc_care_tasks pen
+        WHERE pen.tenant_id = t.tenant_id
+          AND coalesce(pen.round_id::text, pen.task_id::text) = coalesce(t.round_id::text, t.task_id::text)
+          AND pen.shed_id = $14::uuid
+          AND pen.partition_key = $15::text
+          AND pen.work_state <> 'canceled'
+      )
+    )
 ),
 -- Both of these aggregate to the CARD, not to the task, and are joined 1:0..1. Aggregating
 -- per task and joining that would multiply a two-operator pen and inflate its round's

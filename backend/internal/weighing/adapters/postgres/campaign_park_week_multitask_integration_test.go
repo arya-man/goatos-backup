@@ -209,7 +209,7 @@ func TestReadModelsReportBothCampaignsInOneParkWeek(t *testing.T) {
 		t.Fatalf("second task create: %v", err)
 	}
 
-	page, err := repo.ListCampaigns(ctx, repoTenant, repoPark, "", 100)
+	page, err := repo.ListCampaigns(ctx, repoTenant, repoPark, domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("list campaigns: %v", err)
 	}

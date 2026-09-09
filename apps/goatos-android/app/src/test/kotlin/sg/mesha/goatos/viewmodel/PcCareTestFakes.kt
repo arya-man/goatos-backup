@@ -1,6 +1,8 @@
 package sg.mesha.goatos.viewmodel
 
 import kotlinx.coroutines.flow.Flow
+import sg.mesha.goatos.core.network.dto.PcCareRoundCardPageDto
+import sg.mesha.goatos.core.data.PcCareRoundsWindow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -179,10 +181,12 @@ internal class FakePcCareRepository : PcCareRepository {
 
     var roundCards: List<PcCareRoundCardDto> = emptyList()
     private val roundCardsFlow = MutableStateFlow<List<PcCareRoundCardDto>>(emptyList())
-    override fun observeRoundCards(category: String, filter: String): Flow<List<PcCareRoundCardDto>> = roundCardsFlow
-    override suspend fun refreshRoundCards(category: String, filter: String) {
+    override fun observeRoundCards(category: String, filter: String, window: PcCareRoundsWindow): Flow<PcCareRoundCardPageDto> =
+        roundCardsFlow.map { PcCareRoundCardPageDto(items = it) }
+    override suspend fun refreshRoundCards(category: String, filter: String, window: PcCareRoundsWindow) {
         roundCardsFlow.value = roundCards
     }
+    override suspend fun appendRoundCards(category: String, filter: String, window: PcCareRoundsWindow): Int = 0
 
     var roundDetail: PcCareRoundDto = PcCareRoundDto()
     private val roundPensFlow = MutableStateFlow<List<PcCareTaskDto>>(emptyList())

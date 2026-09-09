@@ -138,7 +138,7 @@ type listScopeRepo struct {
 	listed     bool
 }
 
-func (r *listScopeRepo) ListCampaigns(_ context.Context, _, parkID, _ string, _ int) (domain.CampaignPage, error) {
+func (r *listScopeRepo) ListCampaigns(_ context.Context, _, parkID string, _ domain.CampaignListFilter, _ string, _ int) (domain.CampaignPage, error) {
 	r.listedPark = parkID
 	r.listed = true
 	return domain.CampaignPage{}, nil
@@ -149,7 +149,7 @@ func TestListCampaignsClampsTheParkFilterToTheActorsAuthority(t *testing.T) {
 		repo := &listScopeRepo{}
 		svc := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 		_, err := svc.ListCampaigns(plannerScopedContext(), plannerScopedActor(),
-			domain.CampaignListScopeAll, plannerScopeParkOthers, "", 20)
+			domain.CampaignListScopeAll, plannerScopeParkOthers, domain.CampaignListFilter{}, "", 20)
 		if !errors.Is(err, ports.ErrForbidden) {
 			t.Fatalf("list for another park err = %v, want ErrForbidden", err)
 		}
@@ -162,7 +162,7 @@ func TestListCampaignsClampsTheParkFilterToTheActorsAuthority(t *testing.T) {
 		repo := &listScopeRepo{}
 		svc := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 		if _, err := svc.ListCampaigns(plannerScopedContext(), plannerScopedActor(),
-			domain.CampaignListScopeAll, "", "", 20); err != nil {
+			domain.CampaignListScopeAll, "", domain.CampaignListFilter{}, "", 20); err != nil {
 			t.Fatalf("list with no park: %v", err)
 		}
 		// An empty park filter reaches the repository as "every campaign in the tenant".
@@ -266,7 +266,7 @@ func TestListCampaignsAsksMultiParkActorToChooseWithAnActionableError(t *testing
 		{Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: plannerScopeParkOthers},
 	})
 	_, err := NewService(&listScopeRepo{}).WithFeedWaterRemovalCutoff(eightPM).ListCampaigns(ctx, plannerScopedActor(),
-		domain.CampaignListScopeAll, "", "", 20)
+		domain.CampaignListScopeAll, "", domain.CampaignListFilter{}, "", 20)
 	if !errors.Is(err, ports.ErrParkSelectionRequired) {
 		t.Fatalf("multi-park list err = %v, want ErrParkSelectionRequired", err)
 	}

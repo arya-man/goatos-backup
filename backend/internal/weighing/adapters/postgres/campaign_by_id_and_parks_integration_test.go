@@ -37,7 +37,7 @@ func TestCampaignByIDResolvesATaskTheKeysetPageCannotReach(t *testing.T) {
 		lcpInsertBucket(t, ctx, pool, lcpUUID(15200+n), newer, lcpShedTwo, domain.CategoryIndividualAnimal, repoOperator, 1, "pending")
 	}
 
-	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 2)
+	page, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 2)
 	if err != nil {
 		t.Fatalf("list first page: %v", err)
 	}

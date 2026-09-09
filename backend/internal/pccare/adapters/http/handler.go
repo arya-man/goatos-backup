@@ -31,7 +31,7 @@ type Service interface {
 	// CreateRound plans a round covering one or more pens (maintainer decision 2026-09-05).
 	CreateRound(ctx context.Context, actor domain.Actor, in app.CreateRoundInput) (ports.RoundRow, error)
 	// ListRoundCards serves the planner's list at ROUND grain.
-	ListRoundCards(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, filter, cursor string, limit int, currentOrCarry bool) (ports.RoundCardPage, error)
+	ListRoundCards(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, filter, cursor string, limit int, currentOrCarry bool, window ports.RoundCardsWindow) (ports.RoundCardPage, error)
 	// GetRound reads one round with its pen buckets.
 	GetRound(ctx context.Context, actor domain.Actor, roundID string) (ports.RoundRow, error)
 	// RemovalPenProofs reads a round-grain removal card's per-pen evidence rows.

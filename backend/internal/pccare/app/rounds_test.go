@@ -280,7 +280,7 @@ func itoa(i int) string {
 func TestListRoundCardsAcceptsNoDateAndCarriesTheTab(t *testing.T) {
 	svc, rounds := roundSvc(pinnedIST(10, 9, 0))
 
-	if _, err := svc.ListRoundCards(plannerCtx(), plannerActor(), "", domain.CategoryDeworming, "", ports.RoundCardsFilterActive, "", 25, false); err != nil {
+	if _, err := svc.ListRoundCards(plannerCtx(), plannerActor(), "", domain.CategoryDeworming, "", ports.RoundCardsFilterActive, "", 25, false, ports.RoundCardsWindow{}); err != nil {
 		t.Fatalf("dateless list err = %v, want nil", err)
 	}
 	if rounds.lastCardsQuery.DueBusinessDate != "" {
@@ -291,7 +291,7 @@ func TestListRoundCardsAcceptsNoDateAndCarriesTheTab(t *testing.T) {
 	}
 
 	// A malformed date is still refused — dropping the axis must not drop the validation.
-	if _, err := svc.ListRoundCards(plannerCtx(), plannerActor(), "", domain.CategoryDeworming, "not-a-date", "", "", 25, false); !errors.Is(err, ports.ErrInvalidArgument) {
+	if _, err := svc.ListRoundCards(plannerCtx(), plannerActor(), "", domain.CategoryDeworming, "not-a-date", "", "", 25, false, ports.RoundCardsWindow{}); !errors.Is(err, ports.ErrInvalidArgument) {
 		t.Fatalf("malformed date err = %v, want ErrInvalidArgument", err)
 	}
 }

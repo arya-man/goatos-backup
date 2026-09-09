@@ -151,8 +151,6 @@
     <!-- ===================== Task board (WeighingTasksScreen) ===================== -->
     <string name="weighing_tasks_title">Tasks</string>
     <string name="weighing_tasks_refresh">Refresh weighing tasks</string>
-    <string name="weighing_tasks_tab_active_fmt">Active %1$d</string>
-    <string name="weighing_tasks_tab_completed_fmt">Completed %1$d</string>
     <string name="weighing_tasks_empty_completed">No completed tasks yet</string>
     <string name="weighing_tasks_empty_active">No active tasks</string>
     <string name="weighing_tasks_to_verify_fmt">%1$d to verify</string>

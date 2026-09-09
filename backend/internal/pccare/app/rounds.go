@@ -212,7 +212,27 @@ func (s *Service) CloseRound(ctx context.Context, actor domain.Actor, roundID, r
 // ListRoundCards is the PLANNER's list at ROUND grain: one card per round, and one card per
 // round-less legacy task. Same authority and same park clamp as the pen-grained list it sits
 // beside; the operator worklist is deliberately unchanged, because an operator works a pen.
-func (s *Service) ListRoundCards(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, filter, cursor string, limit int, currentOrCarry bool) (ports.RoundCardPage, error) {
+// validateRoundCardsWindow refuses a half-formed filter-bar narrowing (validate-or-reject):
+// a window needs both ends in order; a pen needs a real shed id.
+func validateRoundCardsWindow(w ports.RoundCardsWindow) (ports.RoundCardsWindow, error) {
+	w.DateFrom, w.DateTo = strings.TrimSpace(w.DateFrom), strings.TrimSpace(w.DateTo)
+	w.PenShedID, w.PenPartitionLabel = strings.TrimSpace(w.PenShedID), strings.TrimSpace(w.PenPartitionLabel)
+	if (w.DateFrom == "") != (w.DateTo == "") {
+		return ports.RoundCardsWindow{}, ports.ErrInvalidArgument
+	}
+	if w.DateFrom != "" && (!isBusinessDate(w.DateFrom) || !isBusinessDate(w.DateTo) || w.DateFrom > w.DateTo) {
+		return ports.RoundCardsWindow{}, ports.ErrInvalidArgument
+	}
+	if w.PenShedID != "" && !uuidutil.IsUUIDString(w.PenShedID) {
+		return ports.RoundCardsWindow{}, ports.ErrInvalidArgument
+	}
+	if w.PenShedID == "" {
+		w.PenPartitionLabel = ""
+	}
+	return w, nil
+}
+
+func (s *Service) ListRoundCards(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, filter, cursor string, limit int, currentOrCarry bool, window ports.RoundCardsWindow) (ports.RoundCardPage, error) {
 	if !actorHoldsAny(actor, monitorReadCapabilities) {
 		return ports.RoundCardPage{}, ports.ErrForbidden
 	}
@@ -236,6 +256,10 @@ func (s *Service) ListRoundCards(ctx context.Context, actor domain.Actor, parkID
 	if s.rounds == nil {
 		return ports.RoundCardPage{}, ports.ErrStoreUnavailable
 	}
+	window, err := validateRoundCardsWindow(window)
+	if err != nil {
+		return ports.RoundCardPage{}, err
+	}
 	return s.rounds.ListRoundCards(ctx, ports.ListRoundCardsQuery{
 		TenantID:          actor.TenantID,
 		AuthorizedParkIDs: authorizedParkSlice(parks),
@@ -245,6 +269,11 @@ func (s *Service) ListRoundCards(ctx context.Context, actor domain.Actor, parkID
 		DueBusinessDate:   dueBusinessDate,
 		CurrentOrCarry:    currentOrCarry,
 		Filter:            strings.TrimSpace(filter),
+		DateFrom:          window.DateFrom,
+		DateTo:            window.DateTo,
+		PenShedID:         window.PenShedID,
+		PenPartitionKey:   domain.PartitionMatchKey(window.PenPartitionLabel),
+		Today:             biztime.BusinessDate(s.now()),
 		Cursor:            strings.TrimSpace(cursor),
 		Limit:             limit,
 	})

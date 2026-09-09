@@ -24,6 +24,9 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.PcCareRepository
+import sg.mesha.goatos.core.data.PcCareRoundsWindow
+import sg.mesha.goatos.core.ui.filters.WorklistDateWindow
+import sg.mesha.goatos.core.ui.filters.WorklistPenOption
 import sg.mesha.goatos.core.data.PcCareWorklistQuery
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
@@ -70,6 +73,7 @@ class PcCarePlanViewModel @Inject constructor(
             today = todayIso(),
             selectedDate = todayIso(),
             emptyMessage = EMPTY_MESSAGE,
+            roundsWindow = WorklistDateWindow.default(LocalDate.parse(todayIso())),
         ),
     )
     val state: StateFlow<PcCarePlanUiState> = _state.asStateFlow()
@@ -78,8 +82,17 @@ class PcCarePlanViewModel @Inject constructor(
 
     private val monitorSelection = MutableStateFlow(MonitorSelection(date = todayIso()))
 
-    /** Which of the planner list's two tabs is showing. No date rides this: weighing has none. */
+    /** Which of the planner list's two tabs is showing. */
     private val roundsFilter = MutableStateFlow(PcCareRoundsTab.ACTIVE)
+
+    /**
+     * The filter bar's window and pen (maintainer request 2026-09-10). Default: today through
+     * the next seven days, every pen. Both are SERVER-SIDE and name the Room cache row with the
+     * tab, so a change re-points the observed cards and refreshes them.
+     */
+    private val roundsWindow = MutableStateFlow(
+        PcCareRoundsWindow(dateFrom = todayIso(), dateTo = LocalDate.parse(todayIso()).plusDays(WorklistDateWindow.DEFAULT_DAYS_AHEAD).toString()),
+    )
 
     /** Collects the OPEN card's pens; cancelled when another card opens or this one closes. */
     private var openRoundJob: Job? = null
@@ -121,17 +134,35 @@ class PcCarePlanViewModel @Inject constructor(
         // round, because the planner ticked those pens as ONE piece of work. Room renders it and
         // the refresh runs behind, so re-entering the screen never shows a blank wall.
         viewModelScope.launch {
-            combine(monitorSelection, roundsFilter) { sel, tab -> sel.category to tab }
-                .filter { (category, _) -> category.isNotBlank() }
-                .flatMapLatest { (category, tab) -> repository.observeRoundCards(category, tab.wireFilter()) }
-                .collect { cards ->
-                    _state.update { it.copy(roundCards = cards.map { dto -> dto.toRoundCardUi() }) }
+            combine(monitorSelection, roundsFilter, roundsWindow) { sel, tab, window -> Triple(sel.category, tab, window) }
+                .filter { (category, _, _) -> category.isNotBlank() }
+                .flatMapLatest { (category, tab, window) -> repository.observeRoundCards(category, tab.wireFilter(), window) }
+                .collect { page ->
+                    _state.update {
+                        it.copy(
+                            roundCards = page.items.map { dto -> dto.toRoundCardUi() },
+                            // Whole-window tallies and the pen vocabulary as the backend
+                            // answered them, cached beside the cards. Never counted from the
+                            // cards on screen.
+                            roundsPendingCount = page.counts.active,
+                            roundsCompletedCount = page.counts.completed,
+                            roundsPens = page.pens.map { pen ->
+                                WorklistPenOption(
+                                    shedId = pen.shedId,
+                                    partitionLabel = pen.partitionLabel,
+                                    label = pen.label,
+                                    parkName = pen.parkName,
+                                    count = pen.cardCount,
+                                )
+                            },
+                        )
+                    }
                 }
         }
         viewModelScope.launch {
-            combine(monitorSelection, roundsFilter) { sel, tab -> sel.category to tab }
-                .filter { (category, _) -> category.isNotBlank() }
-                .collect { (category, tab) -> repository.refreshRoundCards(category, tab.wireFilter()) }
+            combine(monitorSelection, roundsFilter, roundsWindow) { sel, tab, window -> Triple(sel.category, tab, window) }
+                .filter { (category, _, _) -> category.isNotBlank() }
+                .collect { (category, tab, window) -> repository.refreshRoundCards(category, tab.wireFilter(), window) }
         }
     }
 
@@ -191,6 +222,18 @@ class PcCarePlanViewModel @Inject constructor(
             is PcCarePlanEvent.SelectRoundsTab -> {
                 _state.update { it.copy(roundsTab = event.tab, openRoundCardKey = "", openRoundPens = emptyList()) }
                 roundsFilter.value = event.tab
+            }
+            is PcCarePlanEvent.SelectRoundsWindow -> {
+                _state.update { it.copy(roundsWindow = event.window, openRoundCardKey = "", openRoundPens = emptyList()) }
+                roundsWindow.value = roundsWindow.value.copy(dateFrom = event.window.fromIso, dateTo = event.window.toIso)
+            }
+            is PcCarePlanEvent.RoundCardVisible -> onRoundCardVisible(event.index)
+            is PcCarePlanEvent.SelectRoundsPen -> {
+                _state.update { it.copy(roundsPen = event.pen, openRoundCardKey = "", openRoundPens = emptyList()) }
+                roundsWindow.value = roundsWindow.value.copy(
+                    shedId = event.pen?.shedId.orEmpty(),
+                    partitionLabel = event.pen?.partitionLabel.orEmpty(),
+                )
             }
             PcCarePlanEvent.CloseCreate -> trackWizardInteraction("close_create")
             is PcCarePlanEvent.SelectDate -> selectCreateDate(event.date)
@@ -287,6 +330,30 @@ class PcCarePlanViewModel @Inject constructor(
     }
 
     // ---- Monitor -----------------------------------------------------------------------------
+
+    private var roundsAppendJob: Job? = null
+
+    /**
+     * Scroll-driven paging for the round list, the weighing task list's contract: one page per
+     * trigger, tail window only, no tappable load-more row.
+     */
+    private fun onRoundCardVisible(index: Int) {
+        val loaded = _state.value.roundCards.size
+        if (loaded == 0 || index < loaded - ROUND_CARDS_PREFETCH_DISTANCE) return
+        if (roundsAppendJob?.isActive == true) return
+        val sel = monitorSelection.value
+        if (sel.category.isBlank()) return
+        val tab = roundsFilter.value
+        val window = roundsWindow.value
+        roundsAppendJob = viewModelScope.launch {
+            _state.update { it.copy(roundsLoadingMore = true) }
+            try {
+                repository.appendRoundCards(sel.category, tab.wireFilter(), window)
+            } finally {
+                _state.update { it.copy(roundsLoadingMore = false) }
+            }
+        }
+    }
 
     private fun refresh() {
         loadCatalog()
@@ -852,7 +919,8 @@ internal fun PcCareRoundCardDto.toRoundCardUi(): PcCareRoundCardUi = PcCareRound
     // The chip reads WORK STATE first: closing leaves every pen's status at 'open' and moves
     // only its work_state, so a status-only chip called ended work "Open".
     statusLabel = pcCareCardStatusLabel(workState, status),
-    dateLabel = dueBusinessDate,
+    dateLabel = pcCareCardDate(dueBusinessDate),
+    dueDateIso = dueBusinessDate,
     pensLabel = penLabels.joinToString(" · "),
     penCountLabel = if (penCount == 1) "1 pen" else "$penCount pens",
     parkAndCrewLabel = listOf(parkName, assigneeNames.joinToString(", "))
@@ -875,3 +943,12 @@ internal fun pcCareCardStatusLabel(workState: String, status: String): String = 
     "completed" -> "Done"
     else -> pcCareStatusLabel(status)
 }
+
+private const val ROUND_CARDS_PREFETCH_DISTANCE = 3
+
+private val pcCareCardDateFormatter = java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.ENGLISH)
+
+/** "Mon 7 Sep" for the card chip; the raw value if it is not a date. */
+internal fun pcCareCardDate(iso: String): String =
+    // exception:exempt date parsing for display; a value that is not a date renders verbatim
+    runCatching { LocalDate.parse(iso).format(pcCareCardDateFormatter) }.getOrDefault(iso)

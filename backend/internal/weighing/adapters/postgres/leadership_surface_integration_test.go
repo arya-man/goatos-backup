@@ -375,7 +375,7 @@ func TestCampaignCountsWholeFilterTaskGrainOneToManyPageBoundaryParkScopeStatusM
 	// completed + closed; canceled is retracted work and counts in neither tab
 	const wantCompleted = 2
 
-	full, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
+	full, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("list campaigns: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestCampaignCountsWholeFilterTaskGrainOneToManyPageBoundaryParkScopeStatusM
 	}
 
 	// One row per page must not shrink the counts.
-	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 1)
+	page, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 1)
 	if err != nil {
 		t.Fatalf("list campaigns page: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestCampaignCountsWholeFilterTaskGrainOneToManyPageBoundaryParkScopeStatusM
 	}
 
 	// The park chip filters ROWS only; the tab numbers must stay still.
-	parked, err := repo.ListCampaigns(ctx, repoTenant, lsParkCPT, "", 100)
+	parked, err := repo.ListCampaigns(ctx, repoTenant, lsParkCPT, domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("list campaigns for park: %v", err)
 	}
@@ -427,11 +427,11 @@ func TestCampaignCountsFollowTheOperatorScopeHierarchy(t *testing.T) {
 	lcpInsertCampaign(t, ctx, pool, someoneElse, repoPark, "2026-11-02", domain.StatusPublished, repoOtherOp)
 	lcpInsertBucket(t, ctx, pool, lcpUUID(23011), someoneElse, lsFreeShed, domain.CategoryIndividualAnimal, repoOtherOp, 1, "pending")
 
-	all, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
+	all, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("list campaigns: %v", err)
 	}
-	mine, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 100)
+	mine, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("list campaigns for operator: %v", err)
 	}

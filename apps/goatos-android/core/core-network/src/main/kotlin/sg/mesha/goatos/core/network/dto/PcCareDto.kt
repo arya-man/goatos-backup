@@ -242,6 +242,26 @@ data class PcCareRoundCardDto(
 data class PcCareRoundCardPageDto(
     @SerialName("items") val items: List<PcCareRoundCardDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String = "",
+    /** Whole-filter CARD tally behind the Pending / Completed pills. Never derived from [items]. */
+    @SerialName("counts") val counts: PcCareRoundCardCountsDto = PcCareRoundCardCountsDto(),
+    /** The pen vocabulary behind the Pen filter (empty without a date window). */
+    @SerialName("pens") val pens: List<PcCareRoundPenOptionDto> = emptyList(),
+)
+
+@Serializable
+data class PcCareRoundCardCountsDto(
+    @SerialName("active") val active: Int = 0,
+    @SerialName("completed") val completed: Int = 0,
+)
+
+@Serializable
+data class PcCareRoundPenOptionDto(
+    @SerialName("shed_id") val shedId: String = "",
+    @SerialName("partition_label") val partitionLabel: String = "",
+    @SerialName("operational_location_display") val label: String = "",
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("park_name") val parkName: String = "",
+    @SerialName("card_count") val cardCount: Int = 0,
 )
 
 /**

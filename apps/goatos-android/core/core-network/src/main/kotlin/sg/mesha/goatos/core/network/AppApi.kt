@@ -555,6 +555,12 @@ interface AppApi {
         cursor: String? = null,
         limit: Int = WEIGHING_PAGE_SIZE,
         parkId: String? = null,
+        /** Filter bar: `pending` / `completed`, an inclusive date window, one pen. All optional. */
+        status: String? = null,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        shedId: String? = null,
+        partitionLabel: String? = null,
     ): WeighingCampaignListResponseDto
 
     /**
@@ -1413,6 +1419,11 @@ interface AppApi {
         filter: String?,
         cursor: String?,
         limit: Int?,
+        /** Filter bar: inclusive due-date window and one pen. All optional. */
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        shedId: String? = null,
+        partitionLabel: String? = null,
     ): PcCareRoundCardPageDto
 
     /** GET /app/pc-care/rounds/{round_id} — one round with its pen buckets. */
@@ -2184,6 +2195,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         cursor: String?,
         limit: Int,
         parkId: String?,
+        status: String?,
+        dateFrom: String?,
+        dateTo: String?,
+        shedId: String?,
+        partitionLabel: String?,
     ): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
 
     override suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto =
@@ -2933,6 +2949,10 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         filter: String?,
         cursor: String?,
         limit: Int?,
+        dateFrom: String?,
+        dateTo: String?,
+        shedId: String?,
+        partitionLabel: String?,
     ): PcCareRoundCardPageDto = PcCareRoundCardPageDto()
 
     override suspend fun getPcCareRound(roundId: String): PcCareRoundDto = PcCareRoundDto()

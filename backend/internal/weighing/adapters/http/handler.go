@@ -23,7 +23,7 @@ type Service interface {
 	CreateCampaign(ctx context.Context, actor domain.Actor, cmd domain.CreateCampaign) (domain.Campaign, error)
 	UpdateCampaign(ctx context.Context, actor domain.Actor, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error)
-	ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, parkID, cursor string, limit int) (domain.CampaignPage, error)
+	ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, parkID string, filter domain.CampaignListFilter, cursor string, limit int) (domain.CampaignPage, error)
 	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error)
 	PlannerParkBuckets(ctx context.Context, actor domain.Actor, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error)
 	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, observationsCursor string, limit int) (domain.RosterPage, error)
@@ -357,7 +357,21 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 	// park_id filters the ROWS only. counts stays a whole-scope aggregate on purpose, so the
 	// Active/Completed tab numbers do not move when the park chip changes or the user pages.
 	caller := actor(r)
-	page, err := h.service.ListCampaigns(r.Context(), caller, scope, r.URL.Query().Get("park_id"), r.URL.Query().Get("cursor"), limit)
+	// Filter bar (maintainer request 2026-09-10): status tab, inclusive date window, one pen.
+	// All optional; an APK predating the bar sends none and gets the list it always had.
+	status, ok := domain.ParseCampaignListStatus(r.URL.Query().Get("status"))
+	if !ok {
+		h.respond(w, r, nil, ports.ErrInvalidArgument)
+		return
+	}
+	filter := domain.CampaignListFilter{
+		Status:            status,
+		DateFrom:          r.URL.Query().Get("date_from"),
+		DateTo:            r.URL.Query().Get("date_to"),
+		PenShedID:         r.URL.Query().Get("shed_id"),
+		PenPartitionLabel: r.URL.Query().Get("partition_label"),
+	}
+	page, err := h.service.ListCampaigns(r.Context(), caller, scope, r.URL.Query().Get("park_id"), filter, r.URL.Query().Get("cursor"), limit)
 	// operator_summaries is the OPERATOR-grain roll-up the oversight surface renders.
 	// Unlike counts it IS narrowed by park_id, because the park chip is that screen's
 	// own filter: a summary naming people who hold no work in the selected park would
@@ -366,7 +380,11 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 	if summaries == nil {
 		summaries = []domain.OperatorSummary{}
 	}
-	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "operator_summaries": summaries, "capabilities": campaignCapabilities(caller), "trace_id": traceID(r)}, err)
+	pens := page.Pens
+	if pens == nil {
+		pens = []domain.CampaignPenOption{}
+	}
+	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "pens": pens, "operator_summaries": summaries, "capabilities": campaignCapabilities(caller), "trace_id": traceID(r)}, err)
 }
 
 // campaignCapabilities names which task-level writes THIS caller may attempt SOMEWHERE. Publish

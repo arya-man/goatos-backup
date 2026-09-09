@@ -102,6 +102,12 @@ type CampaignPage struct {
 	Items      []Campaign     `json:"items"`
 	NextCursor string         `json:"next_cursor,omitempty"`
 	Counts     CampaignCounts `json:"counts"`
+	// Pens is the PEN vocabulary behind the task list's Pen filter: every pen that holds a
+	// task inside the requested date window, whatever its status, with the number of tasks
+	// it appears on. Whole-filter (never page-derived) and status-blind on purpose, so the
+	// pen a reader picked on the Pending tab is still offered on the Completed tab. Empty
+	// when the caller sent no date window: the unfiltered list has no bounded pen set.
+	Pens []CampaignPenOption `json:"pens"`
 	// OperatorSummaries is the OPERATOR-grain roll-up behind the oversight surface:
 	// one row per person who holds weighing work in the requested scope, with the
 	// backend's own tallies of what that person's buckets hold. It is whole-filter,
@@ -181,6 +187,90 @@ type OperatorSummary struct {
 type CampaignCounts struct {
 	Active    int `json:"active"`
 	Completed int `json:"completed"`
+}
+
+// CampaignPenOption is one pen the task list's Pen filter can narrow to. Identity is the
+// bucket's own (location_id, partition_label) pair -- weighing knows a pen only as the place a
+// scanned string was captured in -- and Label is the bucket's display name VERBATIM, the same
+// spelling the task card shows.
+type CampaignPenOption struct {
+	ShedID         string `json:"shed_id"`
+	PartitionLabel string `json:"partition_label"`
+	// Label is the backend-composed operational location display, e.g. "Godel 1 - Part 3".
+	Label     string `json:"operational_location_display"`
+	ParkID    string `json:"park_id"`
+	ParkName  string `json:"park_name"`
+	TaskCount int    `json:"task_count"`
+}
+
+// CampaignListStatus is the task list's Pending / Completed tab as a wire token.
+type CampaignListStatus string
+
+const (
+	// CampaignListStatusAny is the legacy unfiltered read (an APK predating the filter bar).
+	CampaignListStatusAny CampaignListStatus = ""
+	// CampaignListStatusPending is every live status that is not finished: draft, published,
+	// in_progress, delayed. It is the Active tab under its farm name.
+	CampaignListStatusPending CampaignListStatus = "pending"
+	// CampaignListStatusCompleted is completed or closed work.
+	CampaignListStatusCompleted CampaignListStatus = "completed"
+)
+
+// ParseCampaignListStatus maps the wire value to a status token. Unknown values are refused
+// rather than defaulted: a misspelt status silently widening to "everything" would show a
+// reader work they asked not to see.
+func ParseCampaignListStatus(raw string) (CampaignListStatus, bool) {
+	switch CampaignListStatus(strings.TrimSpace(strings.ToLower(raw))) {
+	case CampaignListStatusAny:
+		return CampaignListStatusAny, true
+	case CampaignListStatusPending:
+		return CampaignListStatusPending, true
+	case CampaignListStatusCompleted:
+		return CampaignListStatusCompleted, true
+	default:
+		return "", false
+	}
+}
+
+// CampaignListFilter is what the phone's filter bar sends over the task list
+// (maintainer request 2026-09-10): a status tab, a business-date window and one pen.
+//
+// Every field is optional and the zero value is the pre-filter read, so an installed APK
+// keeps the list it always had. The window is INCLUSIVE on both ends and keyed on the task's
+// weigh date (period_start_date). Pending work planned BEFORE the window that is still open
+// is carried into a windowed Pending read -- a delayed task keeps its original planned date
+// (AGENTS.md, weighing assignment-card dates) and must not vanish because the reader is
+// looking at "today onwards".
+type CampaignListFilter struct {
+	Status CampaignListStatus
+	// DateFrom / DateTo are business dates ("2026-09-10"); both set or both empty.
+	DateFrom string
+	DateTo   string
+	// PenShedID / PenPartitionLabel name ONE pen (a bucket's location_id + partition_label
+	// pair). PenShedID empty means every pen.
+	PenShedID         string
+	PenPartitionLabel string
+	// Today is the caller's business date (Asia/Kolkata), filled by the service. The Pending
+	// carry rule applies only when the window STARTS on or before today: a reader looking
+	// from today onwards must see overdue work at the top, but a reader planning a future
+	// week asked about that week alone.
+	Today string
+}
+
+// HasWindow reports whether the filter carries a date window.
+func (f CampaignListFilter) HasWindow() bool {
+	return strings.TrimSpace(f.DateFrom) != "" && strings.TrimSpace(f.DateTo) != ""
+}
+
+// HasPen reports whether the filter narrows to one pen.
+func (f CampaignListFilter) HasPen() bool {
+	return strings.TrimSpace(f.PenShedID) != ""
+}
+
+// Ascending reports the list order the filter asks for: a Pending read is upcoming work and
+// reads soonest-first; every other read keeps the newest-first order the list always had.
+func (f CampaignListFilter) Ascending() bool {
+	return f.Status == CampaignListStatusPending
 }
 
 // CampaignCapabilities names which task-level writes the caller may actually attempt on ONE

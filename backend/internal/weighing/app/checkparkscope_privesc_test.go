@@ -227,11 +227,11 @@ func (r *parkScopeCheckRepo) WeighingParks(context.Context, string, []string) ([
 	return nil, nil
 }
 
-func (r *parkScopeCheckRepo) ListCampaigns(ctx context.Context, tenantID, parkID, cursor string, limit int) (domain.CampaignPage, error) {
+func (r *parkScopeCheckRepo) ListCampaigns(ctx context.Context, tenantID, parkID string, _ domain.CampaignListFilter, cursor string, limit int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
 
-func (r *parkScopeCheckRepo) ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID, cursor string, limit int) (domain.CampaignPage, error) {
+func (r *parkScopeCheckRepo) ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, _ domain.CampaignListFilter, cursor string, limit int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
 
