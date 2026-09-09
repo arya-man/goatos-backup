@@ -180,6 +180,8 @@ type farmValuationPayload struct {
 	TotalValueRupees float64                      `json:"total_value_rupees"`
 	TotalMeatKg      float64                      `json:"total_meat_kg"`
 	TotalAnimals     int                          `json:"total_animals"`
+	ValuedAnimals    int                          `json:"valued_animals"`
+	ExcludedAnimals  int                          `json:"excluded_animals"`
 	Buckets          []farmValuationBucketPayload `json:"buckets"`
 }
 
@@ -384,6 +386,8 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 			TotalValueRupees: o.FarmValuation.TotalValueRupees,
 			TotalMeatKg:      o.FarmValuation.TotalMeatKg,
 			TotalAnimals:     o.FarmValuation.TotalAnimals,
+			ValuedAnimals:    o.FarmValuation.ValuedAnimals,
+			ExcludedAnimals:  o.FarmValuation.ExcludedAnimals,
 			Buckets:          valuationBuckets,
 		},
 	}

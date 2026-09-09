@@ -6,6 +6,18 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
+  // SALES overview. These fixed keys ship with the farm-value card; keep the page alive if
+  // admin-web deploys one release before the backend copy contract.
+  sales: {
+    "kpi.farm_value": "Total farm value",
+    "kpi.farm_value.detail": "Live herd valuation from Sales target rates",
+    "kpi.total_meat": "Total meat",
+    "kpi.total_meat.detail": "Live herd kg from valuation buckets",
+    "value.excluded_animals": "excluded",
+    "value.live_animals": "live animals",
+    "value.valued_animals": "valued",
+    "value.weighed": "weighed",
+  },
   // SALES > Purchase and Born page. Its ~60 copy keys all arrived in one change, and admin-web and
   // the backend deploy separately: if the frontend lands first, every one of these throws and
   // takes the WHOLE Purchase and Born page down.

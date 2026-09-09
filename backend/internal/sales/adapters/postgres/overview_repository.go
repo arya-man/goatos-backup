@@ -169,6 +169,8 @@ func (r *Repository) farmValuation(ctx context.Context, tenantID, farm string) (
 	for rows.Next() {
 		var bucket domain.FarmValuationBucket
 		var totalAnimals int
+		var valuedAnimals int
+		var excludedAnimals int
 		if err := rows.Scan(
 			&bucket.Bucket,
 			&bucket.Label,
@@ -180,12 +182,16 @@ func (r *Repository) farmValuation(ctx context.Context, tenantID, farm string) (
 			&bucket.ActualWeight,
 			&bucket.WeighedAnimals,
 			&totalAnimals,
+			&valuedAnimals,
+			&excludedAnimals,
 		); err != nil {
 			return domain.FarmValuation{}, fmt.Errorf("sales farm valuation scan: %w", err)
 		}
 		out.TotalMeatKg += bucket.MeatKg
 		out.TotalValueRupees += bucket.ValueRupees
 		out.TotalAnimals = totalAnimals
+		out.ValuedAnimals = valuedAnimals
+		out.ExcludedAnimals = excludedAnimals
 		out.Buckets = append(out.Buckets, bucket)
 	}
 	if err := rows.Err(); err != nil {
@@ -489,20 +495,19 @@ const farmValuationSQL = `
 		ORDER BY tenant_id, goat_id, updated_at DESC NULLS LAST
 	),
 	idmap AS (
-		SELECT tenant_id, goat_id, animal_identifier_1 AS identifier
-		FROM public.procurement_load_goats
-		WHERE tenant_id = $1 AND btrim(coalesce(animal_identifier_1, '')) <> ''
-		UNION ALL
-		SELECT tenant_id, goat_id, animal_identifier_2 AS identifier
-		FROM public.procurement_load_goats
-		WHERE tenant_id = $1 AND btrim(coalesce(animal_identifier_2, '')) <> ''
+		SELECT tenant_id, goat_id, lower(btrim(identifier_value)) AS identifier
+		FROM public.goat_identifiers
+		WHERE tenant_id = $1
+			AND status = 'active'
+			AND identifier_type IN ('animal_identifier_1', 'animal_identifier_2')
+			AND btrim(identifier_value) <> ''
 	),
 	latest_weight AS (
-		SELECT DISTINCT ON (tenant_id, scanned_identifier)
-			tenant_id, scanned_identifier, weight_kg::float8 AS weight_kg, accepted_at
+		SELECT DISTINCT ON (tenant_id, lower(btrim(scanned_identifier)))
+			tenant_id, lower(btrim(scanned_identifier)) AS scanned_identifier, weight_kg::float8 AS weight_kg, accepted_at
 		FROM public.weighing_observations
-		WHERE tenant_id = $1 AND verification_status = 'verified'
-		ORDER BY tenant_id, scanned_identifier, accepted_at DESC
+		WHERE tenant_id = $1 AND verification_status = 'verified' AND btrim(coalesce(scanned_identifier, '')) <> ''
+		ORDER BY tenant_id, lower(btrim(scanned_identifier)), accepted_at DESC
 	),
 	goat_weight AS (
 		SELECT DISTINCT ON (i.tenant_id, i.goat_id)
@@ -556,7 +561,10 @@ const farmValuationSQL = `
 		GROUP BY bucket
 	),
 	total_inventory AS (
-		SELECT count(*)::int AS live_animals
+		SELECT
+			count(*)::int AS live_animals,
+			count(*) FILTER (WHERE bucket <> 'unmapped')::int AS valued_animals,
+			count(*) FILTER (WHERE bucket = 'unmapped')::int AS excluded_animals
 		FROM classified
 	)
 	SELECT
@@ -569,7 +577,9 @@ const farmValuationSQL = `
 		(coalesce(c.animal_count, 0) * coalesce(r.fixed_weight_kg, fw.avg_weight_kg, 0) * r.price_per_kg)::float8 AS value_rupees,
 		(r.fixed_weight_kg IS NULL) AS actual_weight,
 		CASE WHEN r.fixed_weight_kg IS NULL THEN coalesce(fw.weighed_animals, 0) ELSE 0 END AS weighed_animals,
-		ti.live_animals
+		ti.live_animals,
+		ti.valued_animals,
+		ti.excluded_animals
 	FROM rates r
 	LEFT JOIN counts c ON c.bucket = r.bucket
 	CROSS JOIN fattening_weight fw

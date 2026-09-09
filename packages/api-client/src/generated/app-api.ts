@@ -7678,7 +7678,12 @@ export interface components {
         SalesFarmValuation: {
             total_value_rupees: number;
             total_meat_kg: number;
+            /** @description Current live inventory in this farm filter, including animals excluded from valuation. */
             total_animals: number;
+            /** @description Live animals included in the listed valuation buckets. */
+            valued_animals: number;
+            /** @description Live animals outside Manju's listed valuation buckets, such as ICU kids. */
+            excluded_animals: number;
             buckets: components["schemas"]["SalesFarmValuationBucket"][];
         };
         /** @description One month with at least one closed deal. Months derive from sale_date. */
