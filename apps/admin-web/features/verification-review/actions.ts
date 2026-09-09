@@ -43,6 +43,11 @@ function verdictRequestFingerprint(value: unknown): string {
   return (hash >>> 0).toString(36);
 }
 
+// The backend's one-time refusal of an out-of-tolerance packing reading (see recordVerificationVerdictAction).
+const VARIANCE_CONFIRM_CODE = "measurement_confirmation_required";
+// Field errors on that refusal address each flagged entry box by its key.
+const VARIANCE_FIELD_PREFIX = "measurement.entries.";
+
 // readMeasurement pulls the verifier's reading out of the verdict form.
 //
 // A BLANK FIELD IS NOT A ZERO. Blank means she entered nothing -- the normal weighing case, where
@@ -52,7 +57,13 @@ function verdictRequestFingerprint(value: unknown): string {
 type MeasurementRead =
   | {
       ok: true;
-      measurement?: { value?: number; count?: number; reason?: string; entries?: { key: string; value: number }[] };
+      measurement?: {
+        value?: number;
+        count?: number;
+        reason?: string;
+        entries?: { key: string; value: number }[];
+        variance_acknowledged?: boolean;
+      };
     }
   | { ok: false; code: "invalid_measurement" | "invalid_measurement_count" };
 
@@ -76,7 +87,11 @@ function readMeasurement(formData: FormData): MeasurementRead {
   const countRaw = String(formData.get("measurement_count") ?? "").trim();
   if (raw === "" && countRaw === "" && entries.length === 0) return { ok: true };
   if (entries.length > 0) {
-    return { ok: true, measurement: { entries } };
+    // Her "I checked the video again" after a 422 measurement_confirmation_required (maintainer
+    // decision 2026-09-09). Sent only when ticked, and only with per-field readings -- the flag
+    // means nothing on its own.
+    const acknowledged = String(formData.get("variance_acknowledged") ?? "") === "1";
+    return { ok: true, measurement: { entries, ...(acknowledged ? { variance_acknowledged: true } : {}) } };
   }
   const value = Number(raw);
   if (raw === "" || !Number.isFinite(value) || value < 0) return { ok: false, code: "invalid_measurement" };
@@ -154,6 +169,22 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
   );
   revalidateVaccinationViews();
   if (!result.ok) {
+    if (result.error.code === VARIANCE_CONFIRM_CODE) {
+      // THE VERIFIER IS WARNED, NOT TOLD (maintainer decision 2026-09-09). The backend refused the
+      // approve ONCE because one or more packed weights sit more than 500 g from the plan; nothing
+      // was written and row_version is unchanged. The drawer remounts on this redirect, so the
+      // flagged keys AND the values she typed ride the URL: without them she would face empty boxes
+      // and a banner about numbers that are gone. Only a direction code travels -- never a figure.
+      const flagged = (result.error.fieldErrors ?? [])
+        .filter((fe) => fe.field.startsWith(VARIANCE_FIELD_PREFIX))
+        .map((fe) => `${fe.field.slice(VARIANCE_FIELD_PREFIX.length)}:${fe.code}`);
+      const typed = (measurementRead.measurement?.entries ?? []).map((entry) => `${entry.key}:${entry.value}`);
+      const bounced = withFeedback(url, "error", VARIANCE_CONFIRM_CODE);
+      const withDetail = new URL(bounced, "http://local");
+      if (flagged.length > 0) withDetail.searchParams.set("va_fields", flagged.join(","));
+      if (typed.length > 0) withDetail.searchParams.set("va_entries", typed.join(","));
+      redirect(`${withDetail.pathname}?${withDetail.searchParams.toString()}`);
+    }
     redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
   }
   // An APPROVAL advances to the next video instead of dropping back to the list (maintainer ask,

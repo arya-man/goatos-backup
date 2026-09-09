@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -911,5 +912,264 @@ FROM feed_packing_completions WHERE tenant_id = $1::uuid AND completion_id = $2:
 	}
 	if refreshedHeads == nil || *refreshedHeads != 12 || refreshedTotal != "24.000" {
 		t.Errorf("re-submit snapshot = (%v, %q), want (12, 24.000) -- the operator repacked against the corrected sheet", refreshedHeads, refreshedTotal)
+	}
+}
+
+// THE VERIFIER IS WARNED, NOT TOLD (maintainer decision 2026-09-09). The plan her 500 g confirm
+// guard checks against comes from the completion's OWN packed-against snapshot first -- the sheet
+// as it stood when the bag was filled -- and from the frozen issued sheet only for a row with no
+// snapshot; and the reading row records the plan it was checked against plus whether she confirmed.
+func TestPackingPlannedQuantitiesAndConfirmColumns(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+
+	// The frozen sheet for session 1: concentrate 2.000, hay 1.000.
+	issuedAt := time.Date(2026, 7, 21, 9, 0, 0, 0, biztime.DefaultLocation())
+	conc := "2.000"
+	hay := "1.000"
+	cells := []domain.StoredCell{
+		{
+			ParkID: fdPark, ParkLabel: "CBE", ShedID: fdShedA, ShedLabel: "Castro",
+			PartitionLabel: "", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", QuantityKg: &conc,
+			SessionTotalKg: "3.000", RowSeq: 0, ItemSeq: 0,
+		},
+		{
+			ParkID: fdPark, ParkLabel: "CBE", ShedID: fdShedA, ShedLabel: "Castro",
+			PartitionLabel: "", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Hay", FeedItemKey: "hay", QuantityKg: &hay,
+			SessionTotalKg: "3.000", RowSeq: 0, ItemSeq: 1,
+		},
+	}
+	if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+		TenantID: fdTenant, ParkID: fdPark, FeedDay: "2026-07-22", Workflow: domain.WorkflowNormal,
+		IssuedAt: issuedAt, Fingerprint: "fp-confirm",
+		IdempotencyKey: "issue:confirm:1", GeneratedBy: "test", Cells: cells,
+	}); err != nil {
+		t.Fatalf("PersistIssue: %v", err)
+	}
+
+	// Session 1: submitted by an older build with NO snapshot -> the frozen sheet answers.
+	noSnapshot, err := repo.CompletePacking(ctx, packingParams())
+	if err != nil {
+		t.Fatalf("CompletePacking (no snapshot): %v", err)
+	}
+	// Session 2: submitted WITH a snapshot whose concentrate figure differs from the sheet (the
+	// sheet has no session-2 rows at all here, which is the sharpest form of "the snapshot wins").
+	withSnap := packingParams()
+	withSnap.SessionNo = 2
+	withSnap.PackingProofRef = "proof-packing-0002"
+	withSnap.IdempotencyKey = "feed-packing-key-0002"
+	withSnap.PackedAgainst = &ports.PackedAgainstSnapshot{
+		HeadCount: 10, TotalKg: "3.400",
+		Items: []ports.PackedItemSnapshot{
+			{Key: "concentrate", Label: "Concentrate", QuantityKg: "2.400"},
+			{Key: "hay", Label: "Hay", QuantityKg: "1.000"},
+			{Key: "", Label: "keyless", QuantityKg: "9.000"},
+			{Key: "blocked", Label: "Blocked", QuantityKg: "0.000"},
+		},
+	}
+	snapshotted, err := repo.CompletePacking(ctx, withSnap)
+	if err != nil {
+		t.Fatalf("CompletePacking (snapshot): %v", err)
+	}
+
+	fromSheet, err := repo.PackingPlannedQuantities(ctx, fdTenant, noSnapshot.CompletionID)
+	if err != nil {
+		t.Fatalf("PackingPlannedQuantities (sheet): %v", err)
+	}
+	if len(fromSheet) != 2 || fromSheet["concentrate"] != 2 || fromSheet["hay"] != 1 {
+		t.Errorf("sheet fallback = %v, want concentrate 2 / hay 1 from the frozen sheet", fromSheet)
+	}
+	fromSnapshot, err := repo.PackingPlannedQuantities(ctx, fdTenant, snapshotted.CompletionID)
+	if err != nil {
+		t.Fatalf("PackingPlannedQuantities (snapshot): %v", err)
+	}
+	if len(fromSnapshot) != 2 || fromSnapshot["concentrate"] != 2.4 || fromSnapshot["hay"] != 1 {
+		t.Errorf("snapshot plan = %v, want concentrate 2.4 / hay 1 (keyless and zero items dropped)", fromSnapshot)
+	}
+	if _, err := repo.PackingPlannedQuantities(ctx, fdTenant, "fd000000-0000-4000-8000-00000000dead"); !errors.Is(err, ports.ErrPackingCompletionNotFound) {
+		t.Fatalf("unknown completion: want ErrPackingCompletionNotFound, got %v", err)
+	}
+
+	// The reading row keeps the plan it was checked against and whether she confirmed.
+	plan := 2.4
+	if err := repo.RecordPackingVerifiedQuantities(ctx, ports.RecordPackingVerifiedQuantitiesParams{
+		TenantID: fdTenant, CompletionID: snapshotted.CompletionID,
+		Entries: []ports.PackingVerifiedQuantity{
+			{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 3, PlannedKg: &plan, VarianceAcknowledged: true},
+			{FeedItemKey: "hay", FeedItemLabel: "Hay", EnteredKg: 1},
+		},
+		RecordedBy: fdActor, IdempotencyKey: "verdict-key-c1:measurement", TraceID: "trace-c-1",
+	}); err != nil {
+		t.Fatalf("RecordPackingVerifiedQuantities: %v", err)
+	}
+	readBack := func() map[string][2]string {
+		t.Helper()
+		rows, err := pool.Query(ctx, `
+SELECT feed_item_key, COALESCE(planned_kg::text, ''), variance_acknowledged::text
+FROM feed_packing_verified_quantities
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, snapshotted.CompletionID)
+		if err != nil {
+			t.Fatalf("read back: %v", err)
+		}
+		defer rows.Close()
+		out := map[string][2]string{}
+		for rows.Next() {
+			var key, planned, ack string
+			if err := rows.Scan(&key, &planned, &ack); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			out[key] = [2]string{planned, ack}
+		}
+		return out
+	}
+	got := readBack()
+	if got["concentrate"] != [2]string{"2.400", "true"} {
+		t.Errorf("concentrate row = %v, want planned 2.400 acknowledged", got["concentrate"])
+	}
+	if got["hay"] != [2]string{"", "false"} {
+		t.Errorf("hay row = %v, want no plan recorded (NULL, never 0) and not acknowledged", got["hay"])
+	}
+
+	// A fresh approve REPLACES the flags with the new reading's truth: corrected back inside the
+	// tolerance, the acknowledgement is gone rather than lingering from the earlier press.
+	if err := repo.RecordPackingVerifiedQuantities(ctx, ports.RecordPackingVerifiedQuantitiesParams{
+		TenantID: fdTenant, CompletionID: snapshotted.CompletionID,
+		Entries: []ports.PackingVerifiedQuantity{
+			{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 2.5, PlannedKg: &plan},
+			{FeedItemKey: "hay", FeedItemLabel: "Hay", EnteredKg: 1, PlannedKg: &[]float64{1}[0]},
+		},
+		RecordedBy: fdActor, IdempotencyKey: "verdict-key-c2:measurement", TraceID: "trace-c-2",
+	}); err != nil {
+		t.Fatalf("RecordPackingVerifiedQuantities (replace): %v", err)
+	}
+	got = readBack()
+	if got["concentrate"] != [2]string{"2.400", "false"} || got["hay"] != [2]string{"1.000", "false"} {
+		t.Errorf("after replace = %v, want plans kept and no acknowledgement", got)
+	}
+}
+
+// The plan read behind the verifier's 500 g confirm guard, proved adversarially on the four axes the
+// projection review names. Cardinality: a pen-session-item split over two ration/breed rows is ONE
+// plan (summed, never a duplicate key). Scope: the other park's sheet for the same day, the same
+// pen's other session, and the sibling pen on the same sheet must not leak into this completion's
+// plan. Status: issued, amended and locked sheets all answer -- the whole live-state set. Page
+// boundary: there is no page, so a 30-item bag returns all 30.
+func TestPackingPlannedQuantitiesOneToManyParkScopeStatusMatrixPageBoundary(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+	issuedAt := time.Date(2026, 7, 21, 9, 0, 0, 0, biztime.DefaultLocation())
+	kg := func(v string) *string { return &v }
+	cell := func(shedID string, session int32, key, label string, quantity *string, rowSeq, itemSeq int32, breed string) domain.StoredCell {
+		return domain.StoredCell{
+			ParkID: fdPark, ParkLabel: "CPT", ShedID: shedID, ShedLabel: "Shed",
+			PartitionLabel: "", ShedTag: "Non-Pregnant", Breed: breed,
+			RationGroup: breed, SessionNo: session, SessionLabel: "Session",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: label, FeedItemKey: key, QuantityKg: quantity,
+			SessionTotalKg: "0.000", RowSeq: rowSeq, ItemSeq: itemSeq,
+		}
+	}
+	blockedCell := func(c domain.StoredCell) domain.StoredCell {
+		reason := "missing_config"
+		c.BlockedReasonCode = &reason
+		return c
+	}
+	sheet := func() []domain.StoredCell {
+		cells := []domain.StoredCell{
+			// ONE item, TWO breed rows of the same pen-session: 1.5 + 0.5 is one plan of 2.0.
+			cell(fdShedA, 1, "concentrate", "Concentrate", kg("1.500"), 0, 0, "Beetal"),
+			cell(fdShedA, 1, "concentrate", "Concentrate", kg("0.500"), 1, 0, "Sirohi"),
+			cell(fdShedA, 1, "hay", "Hay", kg("1.000"), 0, 1, "Beetal"),
+			// Not directed for this bag: a blocked cell and a zero cell.
+			blockedCell(cell(fdShedA, 1, "blocked", "Blocked", nil, 0, 2, "Beetal")),
+			cell(fdShedA, 1, "zero", "Zero", kg("0.000"), 0, 3, "Beetal"),
+			// The same pen's OTHER session, and the SIBLING pen on the same sheet.
+			cell(fdShedA, 2, "evening_only", "Evening only", kg("5.000"), 2, 0, "Beetal"),
+			cell(fdShedB, 1, "shedb_only", "Shed B only", kg("7.000"), 3, 0, "Beetal"),
+		}
+		// A 30-item bag: the read has no page, so every item comes back.
+		for i := 0; i < 30; i++ {
+			cells = append(cells, cell(fdShedA, 1, fmt.Sprintf("item_%d", i), fmt.Sprintf("Item %d", i), kg("0.100"), 0, int32(10+i), "Beetal"))
+		}
+		return cells
+	}
+	persist := func(parkID, feedDay, key string, cells []domain.StoredCell) {
+		t.Helper()
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdTenant, ParkID: parkID, FeedDay: feedDay, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: "fp-" + key, IdempotencyKey: "issue:" + key,
+			GeneratedBy: "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("PersistIssue(%s): %v", key, err)
+		}
+	}
+	// Three feed days, one per live issue state.
+	for _, day := range []string{"2026-07-22", "2026-07-23", "2026-07-24"} {
+		persist(fdPark, day, "plan-"+day, sheet())
+	}
+	// The OTHER park's sheet for the first day names the same shed id with a very different
+	// concentrate figure; the completion's own park must win.
+	otherParkCells := []domain.StoredCell{cell(fdShedA, 1, "concentrate", "Concentrate", kg("9.000"), 0, 0, "Beetal")}
+	for i := range otherParkCells {
+		otherParkCells[i].ParkID = fdOtherPark
+		otherParkCells[i].ParkLabel = "CBE"
+	}
+	persist(fdOtherPark, "2026-07-22", "plan-other-park", otherParkCells)
+	setState := func(feedDay, state string) {
+		t.Helper()
+		// The table's shape checks want the matching instant beside the state.
+		if _, err := pool.Exec(ctx, `
+UPDATE feed_direction_issues
+SET state = $1,
+    amended_at = CASE WHEN $1 = 'amended' THEN now() ELSE amended_at END,
+    locked_at = CASE WHEN $1 = 'locked' THEN now() ELSE locked_at END
+WHERE tenant_id = $2::uuid AND park_id = $3::uuid AND feed_day = $4::date`,
+			state, fdTenant, fdPark, feedDay); err != nil {
+			t.Fatalf("set state %s on %s: %v", state, feedDay, err)
+		}
+	}
+	setState("2026-07-23", domain.IssueStateAmended)
+	setState("2026-07-24", domain.IssueStateLocked)
+
+	completionOn := func(day int) string {
+		t.Helper()
+		p := packingParams()
+		p.TargetDate = businessDay(2026, 7, day)
+		p.PackingProofRef = fmt.Sprintf("proof-plan-%d", day)
+		p.IdempotencyKey = fmt.Sprintf("feed-packing-plan-%d", day)
+		res, err := repo.CompletePacking(ctx, p)
+		if err != nil {
+			t.Fatalf("CompletePacking(day %d): %v", day, err)
+		}
+		return res.CompletionID
+	}
+	for _, tc := range []struct {
+		day   int
+		state string
+	}{{22, domain.IssueStateIssued}, {23, domain.IssueStateAmended}, {24, domain.IssueStateLocked}} {
+		planned, err := repo.PackingPlannedQuantities(ctx, fdTenant, completionOn(tc.day))
+		if err != nil {
+			t.Fatalf("PackingPlannedQuantities(%s): %v", tc.state, err)
+		}
+		if len(planned) != 32 {
+			t.Errorf("%s: %d planned items, want 32 (concentrate, hay, 30 bag items); got %v", tc.state, len(planned), planned)
+		}
+		if planned["concentrate"] != 2 {
+			t.Errorf("%s: concentrate = %v, want 2 (1.5 + 0.5 summed across breed rows, never the other park's 9)", tc.state, planned["concentrate"])
+		}
+		if planned["hay"] != 1 || planned["item_0"] != 0.1 || planned["item_29"] != 0.1 {
+			t.Errorf("%s: hay/item_0/item_29 = %v/%v/%v, want 1/0.1/0.1; planned = %v", tc.state, planned["hay"], planned["item_0"], planned["item_29"], planned)
+		}
+		for _, absent := range []string{"blocked", "zero", "evening_only", "shedb_only"} {
+			if _, leaked := planned[absent]; leaked {
+				t.Errorf("%s: %q must not be in this completion's plan: %v", tc.state, absent, planned)
+			}
+		}
 	}
 }

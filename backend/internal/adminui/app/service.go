@@ -1913,8 +1913,20 @@ func pageSpecificCopy(id string) map[string]string {
 			// video and no number at all. Reject stays available on purpose: a value that cannot
 			// be read off the clip is a rejection, never a guess.
 			"verdict.disabled_measurement_required": "Enter the weight you can read in the video, then accept. If it cannot be read, reject the video instead.",
-			"action.disabled_no_authority":          "Acting on the source task is limited to the park head, director, or CEO.",
-			"verdict.note":                          "Approving records that the video meets the standard. It does not close the work — an authority does that once every proof in the submission is approved.",
+			// THE VERIFIER IS WARNED, NOT TOLD (maintainer decision 2026-09-09): a packed weight more
+			// than 500 g away from the plan is refused once with a direction only -- never the
+			// planned figure, never the gap, so blind entry (2026-08-21) survives -- and lands when
+			// she ticks the confirmation and presses Accept again. The two direction sentences are
+			// keyed by the backend field-error codes feeddirection/domain.PackingEntryAbovePlan /
+			// PackingEntryBelowPlan and must read the same as that package's
+			// PackingEntryVarianceMessage, which is what the phone renders.
+			"feedback.measurement_confirmation_required": "One or more packed weights are more than 500 g away from the plan. Check the video again, and approve only if you are sure of your readings.",
+			"verdict.variance.above_plan":                "More than 500 g above the plan. Check the video again.",
+			"verdict.variance.below_plan":                "More than 500 g below the plan. Check the video again.",
+			"verdict.variance_confirm_label":             "I checked the video again and I am sure of these weights",
+			"verdict.disabled_variance_unconfirmed":      "Tick the confirmation above to accept with these weights, or correct them.",
+			"action.disabled_no_authority":               "Acting on the source task is limited to the park head, director, or CEO.",
+			"verdict.note":                               "Approving records that the video meets the standard. It does not close the work — an authority does that once every proof in the submission is approved.",
 			// CEO/PC-Director oversight analytics section copy (permissions.VerificationOversee,
 			// same capability as the oversight_analytics/oversight_filters controls). Language is
 			// CEO-plain by design: "videos waiting for review", not internal jargon.

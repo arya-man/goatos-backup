@@ -526,6 +526,11 @@ type verdictMeasurementRequest struct {
 	// `fields` (feed packing: one packed weight per feed item). Each key echoes a field's key
 	// verbatim; every declared field must be present for the approve to land.
 	Entries []verdictMeasurementEntryRequest `json:"entries,omitempty"`
+	// VarianceAcknowledged is the verifier's "I checked the video again, approve with these
+	// readings" after a 422 measurement_confirmation_required (maintainer decision 2026-09-09).
+	// Absent/false on the first press; the producer then refuses once, naming each flagged entry
+	// with a direction only. Meaningless without entries.
+	VarianceAcknowledged bool `json:"variance_acknowledged,omitempty"`
 }
 
 // verdictMeasurementEntryRequest is one filled entry box: the field's key plus the reading.
@@ -554,9 +559,10 @@ func (r *verdictRequest) toDomainMeasurement() *domain.VerdictMeasurement {
 		return nil
 	}
 	out := &domain.VerdictMeasurement{
-		Count:   r.Measurement.Count,
-		Reason:  strings.TrimSpace(r.Measurement.Reason),
-		Entries: entries,
+		Count:                r.Measurement.Count,
+		Reason:               strings.TrimSpace(r.Measurement.Reason),
+		Entries:              entries,
+		VarianceAcknowledged: r.Measurement.VarianceAcknowledged,
 	}
 	if r.Measurement.Value != nil {
 		out.Value = *r.Measurement.Value

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"math"
 	"strings"
 
@@ -63,6 +64,9 @@ type MeasurementApply struct {
 	// Fields is the item's own declared field list (key + display label), handed along so the
 	// producer can store display labels without re-reading its frozen source.
 	Fields []domain.MeasurementField
+	// VarianceAcknowledged is the verifier's confirmation after a MeasurementConfirmationRequired
+	// refusal (see that type). Verification carries it; only the producer knows what it confirms.
+	VarianceAcknowledged bool
 	// IdempotencyKey is derived from the verdict's own key, so a replayed approve re-applies the
 	// same reading instead of writing a second one.
 	IdempotencyKey string
@@ -279,14 +283,83 @@ func (s *Service) applyVerdictMeasurement(ctx context.Context, in domain.Verdict
 		Reason:     in.Measurement.Reason,
 		Entries:    in.Measurement.Entries,
 		Fields:     item.MeasurementFields,
+		// Her "I checked, approve anyway" after a confirmation refusal. Passed through untouched:
+		// verification does not know which producer tolerance she is confirming.
+		VarianceAcknowledged: in.Measurement.VarianceAcknowledged,
 		// Derived from the verdict's own key so a replayed approve re-applies the SAME reading
 		// rather than writing a second one. An approve with no key of its own gets none here
 		// either, and each producer's own idempotency rules take over.
 		IdempotencyKey: measurementIdempotencyKey(in.IdempotencyKey),
 	}); err != nil {
+		var confirm *MeasurementConfirmationRequired
+		if errors.As(err, &confirm) {
+			// NOTHING has been written: the producer refuses before its own write, and the verdict
+			// has not been recorded, so the item's row_version is unchanged and the same approve can
+			// be re-sent with variance_acknowledged once she has looked again.
+			return false, confirm.toError()
+		}
 		return false, mapRepoErr(err)
 	}
 	return true, nil
+}
+
+// MeasurementConfirmationRequired is a producer's answer that the readings are well-formed but need
+// the verifier's explicit confirmation before they may land (maintainer decision 2026-09-09: a feed
+// packing entry more than 500 g away from the plan is warned once, direction only, then accepted
+// when she confirms).
+//
+// It is returned from ApplyMeasurement BEFORE the producer writes anything, and verification turns it
+// into a 422 `measurement_confirmation_required` whose field errors name each flagged entry as
+// `measurement.entries.<key>` with the producer's own code and sentence. The client re-sends the
+// SAME approve with `measurement.variance_acknowledged = true`; the producer then records the
+// readings with the confirmation. Verification never learns the tolerance or the figures -- it holds
+// the envelope and the decision, the producer holds the rule, exactly as with every other seam here.
+type MeasurementConfirmationRequired struct {
+	// Message is the refusal's headline, farm language composed by the producer.
+	Message string
+	// Fields is one notice per flagged entry, in the item's field order.
+	Fields []MeasurementFieldNotice
+}
+
+// MeasurementFieldNotice is one flagged entry: the field's key (echoed as the field error's target),
+// the producer's stable code for what is wrong with it, and the sentence the client renders.
+type MeasurementFieldNotice struct {
+	Key     string
+	Code    string
+	Message string
+}
+
+func (e *MeasurementConfirmationRequired) Error() string {
+	return "measurement_confirmation_required: " + e.Message
+}
+
+// measurementConfirmationRequiredCode is the 422 code every client keys the confirm step on.
+const measurementConfirmationRequiredCode = "measurement_confirmation_required"
+
+// toError maps the producer's refusal onto the standard error envelope: one field error per
+// flagged entry, addressed `measurement.entries.<key>` so a client can put the sentence under the
+// box it is about.
+func (e *MeasurementConfirmationRequired) toError() *Error {
+	out := &Error{
+		Code:       measurementConfirmationRequiredCode,
+		Message:    strings.TrimSpace(e.Message),
+		HTTPStatus: 422,
+	}
+	if out.Message == "" {
+		out.Message = "check the video again, then approve only if you are sure of your readings"
+	}
+	for _, field := range e.Fields {
+		key := strings.TrimSpace(field.Key)
+		if key == "" {
+			continue
+		}
+		out.FieldErrors = append(out.FieldErrors, FieldError{
+			Field:   "measurement.entries." + key,
+			Code:    strings.TrimSpace(field.Code),
+			Message: strings.TrimSpace(field.Message),
+		})
+	}
+	return out
 }
 
 // measurementIdempotencyKey derives the producer write's key from the verdict's.

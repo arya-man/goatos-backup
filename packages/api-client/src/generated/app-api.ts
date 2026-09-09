@@ -14649,6 +14649,8 @@ export interface components {
             reason?: string;
             /** @description One reading per measurement_correction.fields entry, keys echoed VERBATIM. Every declared field must be present for the approve to land (422 measurement_required names the missing box); a key the item never declared is refused rather than dropped. ZERO IS VALID — "this item was not packed" is a real observation. */
             entries?: components["schemas"]["VerificationVerdictMeasurementEntry"][];
+            /** @description The verifier's "I checked the video again, approve with these readings" (maintainer decision 2026-09-09). A producer may refuse a per-field approve ONCE with 422 `measurement_confirmation_required` when an entry sits outside its confirm tolerance (feed packing: more than 500 g away from the plan); each flagged entry is named in `field_errors` as `measurement.entries.<key>` with code `above_plan` or `below_plan` and a direction-only sentence — never the planned figure, never the gap, so blind entry survives. Nothing is written by that refusal and row_version is unchanged; re-send the SAME approve with this flag true to record the readings with the confirmation. Ignored where nothing was flagged. */
+            variance_acknowledged?: boolean;
         };
         VerificationVerdictMeasurementEntry: {
             /** @description The field's key, echoed verbatim from measurement_correction.fields. */

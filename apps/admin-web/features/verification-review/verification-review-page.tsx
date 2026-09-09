@@ -46,7 +46,7 @@ const PATHNAME = "/verify";
 // feedback banner: all four describe the queue as it was BEFORE the change. Carrying a cursor
 // across a filter change is the worst of them — cursors are keyset positions in one filtered
 // sequence, so reusing one lands on an unrelated slice of the new queue.
-const RESET_ON_FILTER = { vi_row: null, vi_cursor: null, vi_trail: null, vi_open_first: null, va_status: null, va_code: null };
+const RESET_ON_FILTER = { vi_row: null, vi_cursor: null, vi_trail: null, vi_open_first: null, va_status: null, va_code: null, va_fields: null, va_entries: null };
 
 
 export async function VerificationReviewPage({
@@ -160,7 +160,10 @@ export async function VerificationReviewPage({
     (option): option is typeof option & { status: VerificationItemStatus } => Boolean(option.status),
   );
   const statusLabelRecord = Object.fromEntries(statusOptionsWithStatus.map((option) => [option.status, option.label]));
-  const feedback = { status: one(sp, "va_status"), code: one(sp, "va_code") };
+  // va_fields / va_entries ride only the 500 g confirm bounce (maintainer decision 2026-09-09): the
+  // flagged entry keys with their direction codes, and the readings she typed, so the remounted
+  // drawer can show the warning under the right box with her numbers still in it.
+  const feedback = { status: one(sp, "va_status"), code: one(sp, "va_code"), fields: one(sp, "va_fields"), entries: one(sp, "va_entries") };
   const columns = tableLabels(pageContract, "verification-actions");
   const tableContract = table(pageContract, "verification-actions");
   // Gates the CROSS-MODULE oversight chrome (module chips, capture-date range picker):
@@ -506,7 +509,7 @@ export async function VerificationReviewPage({
             <form action={PATHNAME} style={{ display: "contents" }}>
               {/* vd_from / vd_to are NOT excluded: the shed submit must preserve the selected
                   capture date, or applying a shed filter would silently reset the board to today. */}
-              {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "vi_trail", "va_status", "va_code"])}
+              {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "vi_trail", "va_status", "va_code", "va_fields", "va_entries"])}
               {/* Carries the sidebar's scope through the submit; without it, filtering by shed
                   would silently widen the queue back to every module. */}
               {category ? <input type="hidden" name="category" value={category} /> : null}
@@ -574,7 +577,7 @@ export async function VerificationReviewPage({
             {statusOptionsWithStatus.map((option) => (
               <Link
                 key={option.key}
-                href={hrefWith(sp, { status: option.status, vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null })}
+                href={hrefWith(sp, { status: option.status, vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null })}
                 replace
                 scroll={false}
                 className={`vr-lg${status === option.status ? " on" : ""}`}
@@ -646,6 +649,8 @@ export async function VerificationReviewPage({
                   vi_row: null,
                   va_status: null,
                   va_code: null,
+                  va_fields: null,
+                  va_entries: null,
                 })}
                 className="btn sm"
                 replace
@@ -667,6 +672,8 @@ export async function VerificationReviewPage({
                   vi_row: null,
                   va_status: null,
                   va_code: null,
+                  va_fields: null,
+                  va_entries: null,
                 })}
                 className="btn sm"
                 replace
@@ -708,7 +715,7 @@ function QueueRow({
   pageContract: AdminUiPageContract;
   statusLabels: Record<string, string>;
 }) {
-  const href = hrefWith(searchParams, { vi_row: item.item_id, va_status: null, va_code: null });
+  const href = hrefWith(searchParams, { vi_row: item.item_id, va_status: null, va_code: null, va_fields: null, va_entries: null });
   // The whole row opens the review overlay (mock: no Details column). Each cell wraps its content in
   // the same LocalOverlayLink, so it stays a client-local overlay (no route navigation) and remains
   // keyboard-reachable per cell instead of relying on a row onClick that a11y cannot follow.

@@ -89,7 +89,7 @@ interface OutboxStore {
      *  retry and a concurrent drain can never silently clobber each other. */
     suspend fun markInFlight(id: String, now: Long): Boolean
     suspend fun markSucceeded(id: String, resultJson: String, now: Long): Boolean
-    suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, now: Long): Boolean
+    suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, lastErrorCode: String?, now: Long): Boolean
 
     /** Re-arms a terminal FAILED row for another attempt: resets [OutboxEntity.attemptCount] to
      *  0, [OutboxEntity.conflict] to false, [OutboxEntity.status] back to QUEUED — the SAME
@@ -183,8 +183,9 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
         nextAttemptAt: Long,
         conflict: Boolean,
         lastError: String,
+        lastErrorCode: String?,
         now: Long,
-    ): Boolean = dao.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, now) > 0
+    ): Boolean = dao.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, lastErrorCode, now) > 0
 
     override suspend fun markRetryReady(id: String, now: Long): Boolean = dao.markRetryReady(id, now) > 0
 
@@ -226,6 +227,7 @@ fun OutboxEntity.toSyncQueueItem(): SyncQueueItem = SyncQueueItem(
     createdAt = createdAt,
     updatedAt = updatedAt,
     lastError = lastError,
+    lastErrorCode = lastErrorCode,
     localFilePath = proofLocalFilePath(),
     resultJson = resultJson,
 )

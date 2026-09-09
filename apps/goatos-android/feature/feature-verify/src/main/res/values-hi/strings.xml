@@ -49,6 +49,11 @@
     <string name="verify_detail_recorded_answer">रिकॉर्ड किया गया: %1$s</string>
     <string name="verify_detail_correction_reason_label">नोट (वैकल्पिक)</string>
     <string name="verify_detail_measurement_required">वीडियो में जो वज़न दिख रहा है वह दर्ज करें, फिर स्वीकार करें। अगर पढ़ा नहीं जा सकता, तो वीडियो अस्वीकार करें।</string>
+    <!-- THE VERIFIER IS WARNED, NOT TOLD (maintainer decision 2026-09-09): after the backend refused an
+         approve because a packed weight sits more than 500 g from the plan, this tick is what the next
+         Approve carries. The warning sentences themselves come from the backend. -->
+    <string name="verify_detail_variance_confirm_label">मैंने वीडियो फिर से देखा है और मुझे इन वज़नों पर पूरा भरोसा है</string>
+    <string name="verify_detail_variance_confirm_hint">इन वज़नों के साथ स्वीकार करने के लिए पुष्टि पर टिक करें, या उन्हें ठीक करें।</string>
     <string name="verify_detail_no_media">इस आइटम में कोई वीडियो संलग्न नहीं है</string>
     <string name="verify_detail_approve">स्वीकृत करें</string>
     <string name="verify_detail_reject">अस्वीकार करें</string>

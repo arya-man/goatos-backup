@@ -441,6 +441,14 @@ data class OutboxEntity(
      *  (exponential backoff). `Long.MAX_VALUE` marks a row terminal. */
     val nextAttemptAt: Long = 0L,
     val lastError: String? = null,
+    /**
+     * The SERVER's stable error code behind [lastError] on a definitive refusal (the envelope's
+     * `code`), null for transport failures and for rows written before OUTBOX_MIGRATION_4_5. It
+     * exists so a screen can react to WHAT was refused without parsing the sentence: the verifier's
+     * 500 g confirm guard (`measurement_confirmation_required`, maintainer decision 2026-09-09) is
+     * the first reader. [lastError] stays the operator-facing text and is rendered verbatim.
+     */
+    val lastErrorCode: String? = null,
     /** Raw JSON of the last successful app-api response — lets the UI layer decode the
      *  original server result on an idempotent-replay read without a second network call. */
     val resultJson: String? = null,

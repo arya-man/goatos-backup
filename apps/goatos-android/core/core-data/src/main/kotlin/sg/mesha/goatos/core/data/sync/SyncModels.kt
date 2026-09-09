@@ -32,6 +32,11 @@ data class SyncQueueItem(
     val createdAt: Long,
     val updatedAt: Long,
     val lastError: String?,
+    /** The server's stable error code behind [lastError] on a definitive refusal, null when the
+     *  server did not say (transport failure, or a row written before the column existed). Lets a
+     *  screen react to WHAT was refused -- the verifier's confirm guard keys on
+     *  `measurement_confirmation_required` -- without parsing the operator-facing sentence. */
+    val lastErrorCode: String? = null,
     val localFilePath: String? = null,
     /** Raw JSON of the last successful app-api response (mirrors
      *  [sg.mesha.goatos.core.database.outbox.OutboxEntity.resultJson]) — lets a caller decode

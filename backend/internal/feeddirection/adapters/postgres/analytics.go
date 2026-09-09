@@ -478,7 +478,8 @@ GROUP BY 1`
 // EVERY MEASURED BAG, difference reported as it stands (maintainer decision 2026-08-24, superseding
 // the beyond-tolerance flag that followed the original outliers-only rule). This comparison must
 // NEVER reach a verifier surface: she enters blind, and the page serving this payload is
-// leadership-gated.
+// leadership-gated. The one thing her screen may learn from the plan is a DIRECTION -- the 500 g
+// confirm guard in the packing measurement applier (2026-09-09) -- never a figure or a gap.
 //
 // scale-guard:ignore: 5k-50k-envelope -- bounded windowed comparison over the
 // same indexed date columns as the status counts above.

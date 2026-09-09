@@ -28,6 +28,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -239,6 +240,12 @@ data class VerifyMeasurementInput(
     val reason: String? = null,
     /** One reading per declared field (feed packing). Empty for single-value categories. */
     val entries: List<VerifyMeasurementEntry> = emptyList(),
+    /**
+     * Her confirmation after the backend warned that one or more entries sit more than 500 g from
+     * the plan (maintainer decision 2026-09-09). False on the first press; true only when she ticked
+     * "I checked the video again" on the screen. Per-field items only.
+     */
+    val varianceAcknowledged: Boolean = false,
 )
 
 /** One filled entry box travelling with the approve: the field's key plus the reading. */
@@ -280,6 +287,13 @@ data class VerifyDetailEntryUiState(
     val isRejectEnabled: Boolean = false,
     val decisionUnavailableReason: VerifyDecisionUnavailableReason = VerifyDecisionUnavailableReason.NONE,
     val isSubmitting: Boolean = false,
+    /**
+     * True after the backend refused this entry's approve because one or more packed weights sit
+     * more than 500 g from the plan (maintainer decision 2026-09-09). The server's direction-only
+     * warning is already on screen; the card adds the "I checked the video again" tick and holds
+     * Approve until it is ticked, and the next approve carries her confirmation.
+     */
+    val varianceConfirmRequired: Boolean = false,
 )
 
 @Immutable
@@ -598,6 +612,10 @@ private fun VerifyEntryCard(
     // feed item. Keyed by observation id like the single value above, so stepping to another item
     // starts blank instead of carrying one pen's readings onto the next pen's approve.
     val entryTexts = remember(correction?.observationId) { mutableStateMapOf<String, String>() }
+    // Her confirmation after the 500 g warning. Reset whenever the warning arrives or clears, so a
+    // tick from an earlier warning can never ride a later approve unnoticed.
+    var varianceAcknowledged by remember(entry.itemId, entry.varianceConfirmRequired) { mutableStateOf(false) }
+    val varianceUnconfirmed = entry.varianceConfirmRequired && !varianceAcknowledged
 
     val perFieldEntry = (correction?.fields?.size ?: 0) > 0
     // Blank is "she has not typed a number", NEVER a zero: for wastage an empty trough is a real
@@ -629,6 +647,7 @@ private fun VerifyEntryCard(
                     // Not-null by everyFieldFilled.
                     VerifyMeasurementEntry(key = field.key, value = fieldReadings[field.key] ?: 0.0)
                 },
+                varianceAcknowledged = entry.varianceConfirmRequired && varianceAcknowledged,
             )
         }
         valueIsUsable ->
@@ -725,13 +744,18 @@ private fun VerifyEntryCard(
                 countIsUsable = countIsUsable,
                 showRequiredHint = measurementMissing,
                 enabled = !entry.isSubmitting,
+                showVarianceConfirm = entry.varianceConfirmRequired,
+                varianceAcknowledged = varianceAcknowledged,
+                onVarianceAcknowledgedChange = { varianceAcknowledged = it },
             )
         }
         if (!isCloseMode) {
             DecisionRow(
                 // A malformed count would be refused by the write path, so it holds Approve here
                 // rather than travelling to be rejected.
-                approveEnabled = entry.isApproveEnabled && !entry.isSubmitting && !measurementMissing && countIsUsable,
+                // Held after the 500 g warning until she ticks that she looked again: "if you are
+                // sure" is a deliberate act, never the default.
+                approveEnabled = entry.isApproveEnabled && !entry.isSubmitting && !measurementMissing && countIsUsable && !varianceUnconfirmed,
                 // Reject is NEVER held on the number. A reading she cannot take off the clip is
                 // exactly the case that must be sent back, and blocking it would strand her with an
                 // item she can neither approve nor return.
@@ -780,6 +804,9 @@ private fun MeasurementCard(
     countIsUsable: Boolean,
     showRequiredHint: Boolean,
     enabled: Boolean,
+    showVarianceConfirm: Boolean = false,
+    varianceAcknowledged: Boolean = false,
+    onVarianceAcknowledgedChange: (Boolean) -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -811,6 +838,35 @@ private fun MeasurementCard(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
+            }
+            if (showVarianceConfirm) {
+                // THE VERIFIER IS WARNED, NOT TOLD (maintainer decision 2026-09-09). The backend
+                // refused her approve once because a reading sits more than 500 g from the plan; its
+                // direction-only sentences are on screen. Her readings stay in the boxes, and this
+                // tick is what the next Approve carries. Nothing here names the plan or the gap.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    Checkbox(
+                        checked = varianceAcknowledged,
+                        onCheckedChange = onVarianceAcknowledgedChange,
+                        enabled = enabled,
+                    )
+                    Text(
+                        text = stringResource(R.string.verify_detail_variance_confirm_label),
+                        color = MeshaColors.Ink,
+                        style = MeshaType.cta,
+                    )
+                }
+                if (!varianceAcknowledged) {
+                    Text(
+                        text = stringResource(R.string.verify_detail_variance_confirm_hint),
+                        color = MeshaColors.Danger,
+                        style = MeshaType.cta,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             }
         } else {
             OutlinedTextField(

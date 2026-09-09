@@ -63,6 +63,11 @@
          a video and no number at all), so Approve is held until she enters one. Reject stays open
          on purpose - a value that cannot be read off the clip is a rejection, never a guess. -->
     <string name="verify_detail_measurement_required">Enter the weight you can read in the video, then approve. If it cannot be read, reject the video instead.</string>
+    <!-- THE VERIFIER IS WARNED, NOT TOLD (maintainer decision 2026-09-09): after the backend refused an
+         approve because a packed weight sits more than 500 g from the plan, this tick is what the next
+         Approve carries. The warning sentences themselves come from the backend. -->
+    <string name="verify_detail_variance_confirm_label">I checked the video again and I am sure of these weights</string>
+    <string name="verify_detail_variance_confirm_hint">Tick the confirmation to approve with these weights, or correct them.</string>
     <!-- DOUBLE-SPEED PLAYBACK. Rendered only on clips longer than 20 seconds; the two strings are
          the toggle's OFF and ON states. -->
     <string name="verify_detail_speed_off">Play at 2x</string>

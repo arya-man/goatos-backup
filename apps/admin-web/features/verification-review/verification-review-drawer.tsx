@@ -64,7 +64,7 @@ export function VerificationReviewDrawer({
   // subtitle and the queue's ACTION TYPE column can never disagree.
   actionTypeLabels: Record<string, string>;
   searchParams: RouteSearchParams;
-  feedback: { status?: string; code?: string };
+  feedback: VerdictFeedback;
   pageContract: AdminUiPageContract;
   statusLabels: Record<string, string>;
 }) {
@@ -234,7 +234,7 @@ function VerificationReviewDrawerPanel({
   /** Keyset cursor/trail for the next page, used only when nextRowId is empty. */
   nextCursor: string;
   nextTrail: string;
-  feedback: { status?: string; code?: string };
+  feedback: VerdictFeedback;
   open: boolean;
   onClose: () => void;
   closeButtonRef: React.RefObject<HTMLButtonElement | null>;
@@ -289,10 +289,23 @@ function VerificationReviewDrawerPanel({
   // quantities). Controlled and KEYED BY item_id for the same reasons `measurement` above is: the
   // Accept button's enabled-ness depends on every box being filled, and stepping to the next item
   // must never carry one pen's readings onto another pen's Accept.
+  // THE VERIFIER IS WARNED, NOT TOLD (maintainer decision 2026-09-09). When the backend refused her
+  // approve because a reading sits more than 500 g from the plan, the bounce carried the flagged
+  // keys (direction codes only) and the values she typed. The drawer remounts on that redirect, so
+  // the entries are SEEDED from the bounce -- otherwise she would face empty boxes under a banner
+  // about numbers that were just wiped. A warning stays under a box only while it still holds the
+  // value that was flagged; editing it clears the warning, and the next Accept is checked afresh.
+  const varianceBounce = feedback.code === VARIANCE_CONFIRM_CODE;
+  const flaggedFields = varianceBounce ? parsePairs(feedback.fields) : {};
+  const bouncedEntries = varianceBounce ? parsePairs(feedback.entries) : {};
   const [entryValues, setEntryValues] = useState<{ itemId: string; values: Record<string, string> }>({
     itemId: item.item_id,
-    values: {},
+    values: bouncedEntries,
   });
+  // Her "I checked the video again" tick. Keyed by item like every other input here, and it is
+  // never seeded: the confirmation is a fresh act on the second press, not carried from the first.
+  const [varianceAcknowledgedFor, setVarianceAcknowledgedFor] = useState<string>("");
+  const varianceAcknowledged = varianceAcknowledgedFor === item.item_id;
   const entriesForItem = entryValues.itemId === item.item_id ? entryValues.values : {};
   const setEntryValue = useCallback(
     (key: string, value: string) =>
@@ -482,6 +495,13 @@ function VerificationReviewDrawerPanel({
   // verifier who agrees with the operator's weight still approves in one press. A per-field item
   // (feed packing) holds Accept until EVERY box is filled -- zero is a valid entry, blank is not.
   const measurementMissing = Boolean(correction?.required_for_approve) && (perFieldEntry ? !everyEntryFilled : !measurementEntered);
+  // Flagged boxes still holding the value that was flagged. Direction code per key, for the copy
+  // lookup below; the planned figure and the gap never reach this screen.
+  const activeVarianceWarnings: Record<string, string> = {};
+  for (const [key, code] of Object.entries(flaggedFields)) {
+    if ((entriesForItem[key] ?? "").trim() === (bouncedEntries[key] ?? "").trim()) activeVarianceWarnings[key] = code;
+  }
+  const varianceUnconfirmed = Object.keys(activeVarianceWarnings).length > 0 && !varianceAcknowledged;
 
   return (
       <div className={`vr-modal${open ? " on" : ""}`} aria-label={text("drawer.aria")} aria-hidden={!open} inert={!open}>
@@ -697,6 +717,13 @@ function VerificationReviewDrawerPanel({
                       onChange={(e) => setEntryValue(field.key, e.target.value)}
                       disabled={verdictSettled}
                     />
+                    {activeVarianceWarnings[field.key] ? (
+                      /* Direction only, backend-owned copy keyed by the field error's code
+                         (above_plan / below_plan). Never the planned figure, never the gap. */
+                      <div className="note" data-variance-warning={field.key}>
+                        {text(`verdict.variance.${activeVarianceWarnings[field.key]}`)}
+                      </div>
+                    ) : null}
                   </label>
                 ))
               ) : (
@@ -721,6 +748,23 @@ function VerificationReviewDrawerPanel({
                   />
                 </label>
               )}
+              {Object.keys(activeVarianceWarnings).length > 0 ? (
+                /* The confirmation the second Accept carries. Rendered only while a warning is
+                   showing; Accept below stays held until it is ticked, so "if you are sure" is a
+                   deliberate act and not the default. */
+                <label className="fld" style={{ marginBottom: 0, display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    form="verdict-form"
+                    type="checkbox"
+                    name="variance_acknowledged"
+                    value="1"
+                    checked={varianceAcknowledged}
+                    onChange={(e) => setVarianceAcknowledgedFor(e.target.checked ? item.item_id : "")}
+                    disabled={verdictSettled}
+                  />
+                  <span>{text("verdict.variance_confirm_label")}</span>
+                </label>
+              ) : null}
               {correction.count_label ? (
                 <label className="fld" style={{ marginBottom: 0 }}>
                   <span>{correction.count_label}</span>
@@ -751,6 +795,7 @@ function VerificationReviewDrawerPanel({
               {/* Named the same way the button below is: an Accept she cannot press needs to say
                   why, or it reads as a broken screen. */}
               {measurementMissing ? <div className="note">{text("verdict.disabled_measurement_required")}</div> : null}
+              {!measurementMissing && varianceUnconfirmed ? <div className="note">{text("verdict.disabled_variance_unconfirmed")}</div> : null}
             </div>
           ) : null}
 
@@ -860,7 +905,7 @@ function VerificationReviewDrawerPanel({
                 name="decision"
                 value="approved"
                 className="btn p"
-                disabled={verdictSettled || !hasEvidence || measurementMissing}
+                disabled={verdictSettled || !hasEvidence || measurementMissing || varianceUnconfirmed}
                 title={
                   !hasEvidence
                     ? text("verdict.disabled_no_evidence")
@@ -868,7 +913,9 @@ function VerificationReviewDrawerPanel({
                       ? text("verdict.disabled_not_pending")
                       : measurementMissing
                         ? text("verdict.disabled_measurement_required")
-                        : undefined
+                        : varianceUnconfirmed
+                          ? text("verdict.disabled_variance_unconfirmed")
+                          : undefined
                 }
               >
                 Accept
@@ -878,6 +925,28 @@ function VerificationReviewDrawerPanel({
         </div>
       </div>
   );
+}
+
+/** The redirect feedback the page parsed off the URL after a verdict Server Action. `fields` and
+ *  `entries` are present only on the 500 g confirm bounce (see parsePairs). */
+type VerdictFeedback = { status?: string; code?: string; fields?: string; entries?: string };
+
+/** The backend's one-time refusal code for a packing reading outside its confirm tolerance. */
+const VARIANCE_CONFIRM_CODE = "measurement_confirmation_required";
+
+/** Decodes the `key:value,key:value` list the server action put on the bounce URL. A pair with no
+ *  key or no value is dropped; nothing here is ever composed into copy. */
+function parsePairs(raw: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw) return out;
+  for (const pair of raw.split(",")) {
+    const separator = pair.indexOf(":");
+    if (separator <= 0) continue;
+    const key = pair.slice(0, separator).trim();
+    const value = pair.slice(separator + 1).trim();
+    if (key && value) out[key] = value;
+  }
+  return out;
 }
 
 function hrefWithout(params: RouteSearchParams, exclude: string[]): string {
@@ -897,7 +966,7 @@ function hrefWithout(params: RouteSearchParams, exclude: string[]): string {
 function hrefWithRow(params: RouteSearchParams, itemId: string): string {
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (key === "vi_row" || key === "va_status" || key === "va_code") continue;
+    if (key === "vi_row" || key === "va_status" || key === "va_code" || key === "va_fields" || key === "va_entries") continue;
     if (Array.isArray(value)) {
       for (const item of value) if (item) next.append(key, item);
     } else if (value) {

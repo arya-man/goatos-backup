@@ -281,6 +281,14 @@ type PackingVerifiedQuantity struct {
 	// FeedItemLabel is the display caption her entry box carried, denormalized for rendering.
 	FeedItemLabel string
 	EnteredKg     float64
+	// PlannedKg is the planned quantity this reading was checked against at approve time (the
+	// packed-against snapshot, falling back to the frozen sheet); nil when no plan was readable for
+	// the item. Frozen on the row so the record says what she was warned against.
+	PlannedKg *float64
+	// VarianceAcknowledged is true ONLY on a reading that sat more than the confirm tolerance
+	// (domain.PackingEntryConfirmToleranceKg) away from PlannedKg and that the verifier then
+	// confirmed (maintainer decision 2026-09-09). A reading inside the tolerance is never marked.
+	VarianceAcknowledged bool
 }
 
 // RecordPackingVerifiedQuantitiesParams stores one verifier's complete set of per-item readings
@@ -352,4 +360,12 @@ type PackingCompletionStore interface {
 	// consulted when an approve arrives without any, so an item measured by an earlier approve
 	// replay is not stranded unapprovable.
 	PackingVerifiedQuantitiesRecorded(ctx context.Context, tenantID, completionID string) (bool, error)
+
+	// PackingPlannedQuantities returns the planned quantity per feed item key for ONE completion:
+	// the packed-against snapshot frozen on the row at submit (migration 000222), falling back to
+	// the frozen issued sheet on the completion's own natural-key grain when the row carries no
+	// snapshot. Items the sheet never directed are absent. It exists for the verifier's 500 g
+	// confirm guard (maintainer decision 2026-09-09) and is READ by the measurement applier only;
+	// the figures never reach a verifier surface, only a direction does.
+	PackingPlannedQuantities(ctx context.Context, tenantID, completionID string) (map[string]float64, error)
 }

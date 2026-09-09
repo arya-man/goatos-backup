@@ -418,6 +418,9 @@ class SyncEngine(
             // any named field problems), never the transport's status line. A rejection the
             // server already explained arrives as NonRetryableSyncException carrying that copy.
             lastError = error.outboxLastError(),
+            // The server's own code beside its sentence, so a screen can key on WHAT was refused
+            // (the verifier's confirm guard) instead of parsing the wording. Null when it did not say.
+            lastErrorCode = error.serverErrorText()?.code?.takeIf { it.isNotBlank() },
             now = clock(),
         )
         // Report only what actually happened: a non-applied transition means another pass /
@@ -487,6 +490,8 @@ class SyncEngine(
             nextAttemptAt = nextAttemptAt,
             conflict = false,
             lastError = error.outboxLastError(),
+            // A proof still uploading is not a server refusal; there is no code to keep.
+            lastErrorCode = null,
             now = clock(),
         )
         if (applied) {

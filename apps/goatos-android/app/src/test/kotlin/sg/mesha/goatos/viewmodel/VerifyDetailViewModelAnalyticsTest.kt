@@ -45,6 +45,7 @@ import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
+import sg.mesha.goatos.feature.verify.VerifyMeasurementEntry
 import sg.mesha.goatos.feature.verify.VerifyMeasurementInput
 import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
@@ -132,6 +133,81 @@ class VerifyDetailViewModelAnalyticsTest {
         assertEquals("approved", verdict?.decision)
         assertEquals(42.5, verdict?.measurement?.value)
         assertEquals("scale reads 42.5", verdict?.measurement?.reason)
+    }
+
+    // THE VERIFIER IS WARNED, NOT TOLD (maintainer decision 2026-09-09). A per-field approve the
+    // backend refuses with measurement_confirmation_required is not a dead end: the entry is
+    // flagged for confirmation, the server's direction-only sentences are the error on screen, and
+    // the approve re-sent with her tick carries variance_acknowledged. Any other refusal flags
+    // nothing, so the tick can never appear for a reason the backend did not give.
+    @Test
+    fun `a confirmation refusal flags the entry and the acknowledged approve carries the tick`() = runTest(dispatcher) {
+        val repo = FakeVerifyDetailRepository()
+        val syncRepository = FakeVerifyDetailSyncRepository()
+        val vm = VerifyDetailViewModel(
+            repo = repo,
+            syncRepo = syncRepository,
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "feed_packing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        syncRepository.refuseWith = "Check the video again.\nConcentrate: more than 500 g above the plan." to "measurement_confirmation_required"
+        vm.onEvent(
+            VerifyDetailEvent.Approve(
+                itemId = "item-1",
+                measurement = VerifyMeasurementInput(entries = listOf(VerifyMeasurementEntry(key = "concentrate", value = 12.6))),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertTrue("the refused entry is flagged for confirmation", vm.state.value.entries.first().varianceConfirmRequired)
+        assertEquals("Check the video again.\nConcentrate: more than 500 g above the plan.", vm.state.value.errorMessage)
+        assertNull("the first press never carries an acknowledgement", syncRepository.lastVerdict?.measurement?.varianceAcknowledged)
+
+        syncRepository.refuseWith = null
+        vm.onEvent(
+            VerifyDetailEvent.Approve(
+                itemId = "item-1",
+                measurement = VerifyMeasurementInput(
+                    entries = listOf(VerifyMeasurementEntry(key = "concentrate", value = 12.6)),
+                    varianceAcknowledged = true,
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(true, syncRepository.lastVerdict?.measurement?.varianceAcknowledged)
+        assertTrue("a landed approve clears the flag", vm.state.value.entries.none { it.varianceConfirmRequired })
+    }
+
+    @Test
+    fun `any other refusal never offers the confirmation tick`() = runTest(dispatcher) {
+        val repo = FakeVerifyDetailRepository()
+        val syncRepository = FakeVerifyDetailSyncRepository()
+        val vm = VerifyDetailViewModel(
+            repo = repo,
+            syncRepo = syncRepository,
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "feed_packing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        syncRepository.refuseWith = "This item changed since it was loaded." to "row_version_conflict"
+        vm.onEvent(
+            VerifyDetailEvent.Approve(
+                itemId = "item-1",
+                measurement = VerifyMeasurementInput(entries = listOf(VerifyMeasurementEntry(key = "concentrate", value = 2.0))),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.entries.none { it.varianceConfirmRequired })
+        assertEquals("This item changed since it was loaded.", vm.state.value.errorMessage)
     }
 
     // A verifier may leave a note on an ACCEPTED video too (maintainer request 2026-09-08). It
@@ -650,6 +726,11 @@ private class FakeVerifyDetailSyncRepository : SyncRepository {
     var lastVerdict: RecordedVerdict? = null
         private set
 
+    /** When set, the enqueued verdict comes back as a terminal server refusal carrying this
+     *  (message, code) instead of SUCCEEDED -- the outbox row shape the sync engine writes for a
+     *  4xx. */
+    var refuseWith: Pair<String, String?>? = null
+
     override suspend fun enqueueVerificationVerdict(
         itemId: String,
         decision: String,
@@ -678,13 +759,14 @@ private class FakeVerifyDetailSyncRepository : SyncRepository {
                 idempotencyKey = "test-idempotency-key",
                 opType = "verification_verdict",
                 groupKey = "item-1",
-                status = SyncItemStatus.SUCCEEDED,
+                status = if (refuseWith != null) SyncItemStatus.FAILED else SyncItemStatus.SUCCEEDED,
                 attemptCount = 1,
                 maxAttempts = 3,
-                conflict = false,
+                conflict = refuseWith != null,
                 createdAt = 1,
                 updatedAt = 2,
-                lastError = null,
+                lastError = refuseWith?.first,
+                lastErrorCode = refuseWith?.second,
             ),
         )
 

@@ -596,3 +596,73 @@ reject-drops-entries, entries-refused-on-single-value-items),
 `TestPackingVarianceOneToManyParkScopeStatusMatrixPageBoundary` (grain, scope, status and window
 adversarial proofs), plus the packing enqueue tests asserting the item carries entry boxes and
 NEVER the planned quantities.
+
+## THE VERIFIER IS WARNED, NOT TOLD — 2026-09-09, EXTENDING blind entry (not retiring it)
+
+Maintainer decision 2026-09-09. A packed weight the verifier types that sits **more than 500 g away
+from the plan** is no longer accepted silently. The approve is refused ONCE, the screen says only
+that the entry is more than 500 g **above** or **below** the plan and asks her to check the video
+again, and if she is sure she ticks a confirmation and presses Accept/Approve once more. The
+confirmation is recorded with the reading.
+
+What was decided, and what was deliberately NOT:
+
+- **Direction only.** The warning never shows the planned figure and never the size of the gap.
+  Blind entry (2026-08-21) survives: a verifier who could see "off by 1.2 kg" could compute the plan.
+  The maintainer was offered "show the exact gap" and "show the plan" and chose direction only.
+- **Confirm, not block.** She can approve with her reading after ticking "I checked the video again
+  and I am sure of these weights". A hard block was offered and declined: the video is the evidence,
+  and a plan the afternoon correction may have rewritten is not grounds to refuse what she saw.
+- **Per feed item**, against that item's own plan — not the bag total. One flagged item flags the
+  approve; each flagged box carries its own sentence.
+- **Both surfaces, one rule.** The rule lives in the producer and nowhere else: neither client knows
+  the tolerance, the plan, or the gap; both render backend-owned sentences keyed by the field-error
+  codes `above_plan` / `below_plan`.
+
+Mechanics:
+
+- **The check runs in the producer's measurement applier, BEFORE its write.**
+  `PackingMeasurementApplier` reads the plan through `PackingPlannedQuantities` — the completion's
+  **packed-against snapshot** first (migration `000222`: the sheet as it stood when the bag was
+  filled, which is the honest comparison because the 14:00 correction can rewrite the sheet after
+  packing), falling back to the frozen issued sheet on the completion's own natural-key grain. A
+  reading more than `feeddirection/domain.PackingEntryConfirmToleranceKg` (0.5 kg, strictly
+  greater-than, with a microgram epsilon for decimal noise) from its plan returns
+  `verificationapp.MeasurementConfirmationRequired`; the verification service maps it to **422
+  `measurement_confirmation_required`** with one field error per flagged entry at
+  `measurement.entries.<key>`. Nothing is written by the refusal and `row_version` is unchanged, so
+  the same approve can be re-sent.
+- **The approve still carries the number — plus the tick.** `measurement.variance_acknowledged`
+  on the verdict request. Verification carries it to the producer verbatim and does not know what it
+  confirms. The applier then records the readings, marking exactly the flagged ones
+  `variance_acknowledged = true` and storing `planned_kg` on every reading that had a readable plan
+  (migration `000287`), so the record says what she was warned against, not only what she typed. A
+  reading inside the tolerance is never acknowledged; a later approve that corrects the reading
+  clears the flag rather than letting it linger.
+- **Two thresholds, two questions.** `PackingVarianceToleranceKg` (0.2 kg) is leadership's: which
+  measured bags deserve a second look on Feed Analytics. `PackingEntryConfirmToleranceKg` (0.5 kg)
+  is the verifier's guard against a slip of the finger. They are pinned distinct
+  (`TestPackingEntryConfirmToleranceIsItsOwnConstant`); merging them changes what both screens mean.
+- **Admin-web.** The Server Action bounces the refusal back onto the drawer URL with the flagged keys
+  (direction codes only) and the values she typed (`va_fields`, `va_entries`) — the drawer remounts
+  on the redirect, and empty boxes under a banner about wiped numbers would be the wrong screen. The
+  warning renders under the flagged box from the page contract's `verdict.variance.<code>` copy and
+  stays only while the box still holds the flagged value; the tick (`variance_acknowledged`) is a
+  fresh act per item and Accept is held until it is ticked.
+- **Android.** The verdict rides the outbox, so the refusal comes back as a terminal outbox failure.
+  The outbox now keeps the server's stable **error code** beside its sentence
+  (`OutboxEntity.lastErrorCode`, `OUTBOX_MIGRATION_4_5`, additive); the view-model keys on
+  `measurement_confirmation_required` to flag the entry, the server's direction-only lines are the
+  error on screen, the card shows the tick, and Approve is held until it is ticked. Any other refusal
+  flags nothing.
+
+Pinned by `TestPackingEntryVarianceIsSymmetricStrictAndDirectional`,
+`TestPackingEntryVarianceMessagesRevealDirectionOnly`, the five
+`packing_measurement_applier_test.go` cases (refuse-once with direction only; acknowledged lands and
+marks only the flagged; in-tolerance lands first press; no plan checks nothing; plan-read error stops
+the approve — mutation-tested by disabling the predicate),
+`TestConfirmationRefusalIsA422ThatRecordsNothing`, `TestAcknowledgedApproveReachesTheProducerWithTheFlagAndLands`,
+`TestAcknowledgementNeverRidesAReject`, `TestVerdictRequestCarriesVarianceAcknowledged`,
+`TestPackingPlannedQuantitiesAndConfirmColumns` (real Postgres: snapshot-first, sheet fallback,
+columns), the admin-web `packing-variance-confirm.test.mjs`, and the Android
+`VerifyDetailViewModelAnalyticsTest` confirm pair plus the outbox upgrade-crash test.

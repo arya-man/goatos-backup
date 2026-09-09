@@ -759,6 +759,10 @@ func (r *Repository) RecordPackingVerifiedQuantities(ctx context.Context, p port
 	keys := make([]string, 0, len(p.Entries))
 	labels := make([]string, 0, len(p.Entries))
 	kgs := make([]float64, 0, len(p.Entries))
+	// planned travels as text so a reading with no readable plan binds NULL, never 0: a zero plan
+	// would make every later reader believe the item was directed empty.
+	planned := make([]string, 0, len(p.Entries))
+	acknowledged := make([]bool, 0, len(p.Entries))
 	for _, entry := range p.Entries {
 		key := strings.TrimSpace(entry.FeedItemKey)
 		if key == "" {
@@ -770,6 +774,12 @@ func (r *Repository) RecordPackingVerifiedQuantities(ctx context.Context, p port
 		keys = append(keys, key)
 		labels = append(labels, strings.TrimSpace(entry.FeedItemLabel))
 		kgs = append(kgs, entry.EnteredKg)
+		plannedText := ""
+		if entry.PlannedKg != nil && !math.IsNaN(*entry.PlannedKg) && !math.IsInf(*entry.PlannedKg, 0) && *entry.PlannedKg >= 0 {
+			plannedText = strconv.FormatFloat(*entry.PlannedKg, 'f', 3, 64)
+		}
+		planned = append(planned, plannedText)
+		acknowledged = append(acknowledged, entry.VarianceAcknowledged)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -807,22 +817,35 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND feed_item_key <> ALL
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO feed_packing_verified_quantities (
-  tenant_id, completion_id, feed_item_key, feed_item_label, entered_kg, recorded_by
+  tenant_id, completion_id, feed_item_key, feed_item_label, entered_kg, recorded_by,
+  planned_kg, variance_acknowledged
 )
-SELECT $1::uuid, $2::uuid, k.feed_item_key, k.feed_item_label, k.entered_kg, $3::uuid
-FROM unnest($4::text[], $5::text[], $6::numeric[]) AS k(feed_item_key, feed_item_label, entered_kg)
+SELECT $1::uuid, $2::uuid, k.feed_item_key, k.feed_item_label, k.entered_kg, $3::uuid,
+       nullif(k.planned_kg, '')::numeric, k.variance_acknowledged
+FROM unnest($4::text[], $5::text[], $6::numeric[], $7::text[], $8::boolean[])
+     AS k(feed_item_key, feed_item_label, entered_kg, planned_kg, variance_acknowledged)
 ON CONFLICT (tenant_id, completion_id, feed_item_key) DO UPDATE
 SET feed_item_label = EXCLUDED.feed_item_label,
     entered_kg = EXCLUDED.entered_kg,
     recorded_by = EXCLUDED.recorded_by,
+    planned_kg = EXCLUDED.planned_kg,
+    variance_acknowledged = EXCLUDED.variance_acknowledged,
     recorded_at = now()`,
-		p.TenantID, p.CompletionID, strings.TrimSpace(p.RecordedBy), keys, labels, kgs); err != nil {
+		p.TenantID, p.CompletionID, strings.TrimSpace(p.RecordedBy), keys, labels, kgs, planned, acknowledged); err != nil {
 		return fmt.Errorf("feeddirection: upsert packed quantities: %w", err)
 	}
 
 	quantities := map[string]any{}
+	plannedByKey := map[string]any{}
+	acknowledgedKeys := make([]string, 0)
 	for i, key := range keys {
 		quantities[key] = kgs[i]
+		if planned[i] != "" {
+			plannedByKey[key] = planned[i]
+		}
+		if acknowledged[i] {
+			acknowledgedKeys = append(acknowledgedKeys, key)
+		}
 	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
 		TenantID:     p.TenantID,
@@ -837,6 +860,10 @@ SET feed_item_label = EXCLUDED.feed_item_label,
 			"park_id":     parkID,
 			"shed_id":     shedID,
 			"entered_kgs": quantities,
+			// What each reading was checked against and which flagged ones she confirmed
+			// (2026-09-09): the audit row must say she was warned, not only what she typed.
+			"planned_kgs":                plannedByKey,
+			"variance_acknowledged_keys": acknowledgedKeys,
 		},
 		Metadata: map[string]any{"source": "feed-packing-verification", "idempotency_key": strings.TrimSpace(p.IdempotencyKey)},
 		TraceID:  p.TraceID,
@@ -852,6 +879,106 @@ SET feed_item_label = EXCLUDED.feed_item_label,
 }
 
 // PackingVerifiedQuantitiesRecorded reports whether a completion already carries verifier readings.
+// packingCompletionPlanRowSQL reads one completion's packed-against snapshot and natural-key grain
+// (a PK lookup) for PackingPlannedQuantities.
+const packingCompletionPlanRowSQL = `
+SELECT packed_items, target_date, park_id::text, shed_id::text, partition_key, session_no, workflow
+FROM feed_packing_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`
+
+// packingFrozenSheetPlanSQL is the fallback plan for a completion with no snapshot: the frozen
+// issued sheet on the completion's own grain, summed to the (pen-session, item) grain. Bounded to
+// one pen-session's item list through the live-issue index on (tenant, park, feed_day).
+const packingFrozenSheetPlanSQL = `
+SELECT r.feed_item_key, SUM(r.quantity_kg)::float8
+FROM feed_direction_issues i
+JOIN feed_direction_issue_rows r
+  ON r.tenant_id = i.tenant_id AND r.feed_direction_issue_id = i.feed_direction_issue_id
+WHERE i.tenant_id = $1::uuid
+  AND i.park_id = $2::uuid
+  AND i.feed_day = $3::date
+  AND i.workflow = $4
+  AND i.state IN ('issued', 'amended', 'locked')
+  AND r.shed_id = $5::uuid
+  AND r.partition_key = $6
+  AND r.session_no = $7
+  AND r.quantity_kg IS NOT NULL
+GROUP BY r.feed_item_key
+HAVING SUM(r.quantity_kg) > 0`
+
+// PackingPlannedQuantities is the plan the verifier's 500 g confirm guard checks a reading against
+// (maintainer decision 2026-09-09). Source order:
+//
+//  1. The PACKED-AGAINST SNAPSHOT on the completion row (migration 000222): what the operator's card
+//     directed the moment THIS bag was filled. It is the honest comparison -- the afternoon
+//     correction can rewrite the sheet after the bag was packed, and a warning built on the corrected
+//     sheet would send her back to a video that matched the plan the packer actually had.
+//  2. The FROZEN ISSUED SHEET on the completion's own natural-key grain, for rows submitted before
+//     the snapshot existed or whose sheet was unreadable at submit. Same join the leadership variance
+//     read uses, pre-aggregated to the (pen-session, item) grain.
+//
+// An item with no readable plan is simply absent, and the caller checks nothing for it. The figures
+// stop in the applier: only a direction ever reaches a verifier surface.
+//
+// projection-review: membership=feed_direction_issue_rows at their natural key (tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key) under the at-most-one live issue per (tenant, park, feed_day, workflow); group_key=feed_item_key for ONE completion's (feed_day=target_date, park_id, shed_id, partition_key, session_no, workflow) -- the same columns feed_packing_completions_natural_uq makes unique, so the consumer's match set is the producer's unique set; join_cardinality=issues to rows 1:N by feed_direction_issue_id, the N side (ration/breed cells of one pen-session-item) SUMMED before anything compares it, matching the packer's worklist and the leadership variance read; pagination=none, one completion's bounded item list; scope=tenant_id on both tables plus the completion's own park/shed
+func (r *Repository) PackingPlannedQuantities(ctx context.Context, tenantID, completionID string) (map[string]float64, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var (
+		packedItems  []byte
+		targetDate   time.Time
+		parkID       string
+		shedID       string
+		partitionKey string
+		sessionNo    int32
+		workflow     string
+	)
+	err := r.pool.QueryRow(ctx, packingCompletionPlanRowSQL, tenantID, completionID).
+		Scan(&packedItems, &targetDate, &parkID, &shedID, &partitionKey, &sessionNo, &workflow)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrPackingCompletionNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("feeddirection: read packing completion plan: %w", err)
+	}
+	out := map[string]float64{}
+	if len(packedItems) > 0 {
+		var items []packedItemSnapshotJSON
+		if err := json.Unmarshal(packedItems, &items); err == nil {
+			for _, item := range items {
+				key := strings.TrimSpace(item.Key)
+				kg, parseErr := strconv.ParseFloat(strings.TrimSpace(item.QuantityKg), 64)
+				if key == "" || parseErr != nil || kg <= 0 {
+					continue
+				}
+				out[key] = kg
+			}
+		}
+		if len(out) > 0 {
+			return out, nil
+		}
+	}
+	rows, err := r.pool.Query(ctx, packingFrozenSheetPlanSQL, tenantID, parkID, targetDate, workflow, shedID, partitionKey, sessionNo)
+	if err != nil {
+		return nil, fmt.Errorf("feeddirection: read frozen sheet plan for packing completion: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var kg float64
+		if err := rows.Scan(&key, &kg); err != nil {
+			return nil, fmt.Errorf("feeddirection: scan frozen sheet plan: %w", err)
+		}
+		if key = strings.TrimSpace(key); key != "" {
+			out[key] = kg
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feeddirection: iterate frozen sheet plan: %w", err)
+	}
+	return out, nil
+}
+
 func (r *Repository) PackingVerifiedQuantitiesRecorded(ctx context.Context, tenantID, completionID string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

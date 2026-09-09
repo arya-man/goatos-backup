@@ -562,6 +562,11 @@ export type ApiUiError = {
   // left the CEO on a dead-end screen. Park options stay backend-owned (golden frontend rule);
   // this field only carries them through the Next.js hop intact.
   availableParks?: ParkScopeOption[];
+  // The envelope's named field problems, carried through so a Server Action can put a backend
+  // sentence under the exact box it is about (the verifier's 500 g confirm guard names each flagged
+  // packing entry as `measurement.entries.<key>` with `above_plan` / `below_plan`). Backend-owned
+  // copy; nothing here composes a message from the code.
+  fieldErrors?: { field: string; code: string; message: string }[];
 };
 
 export type ApiResult<T> =
@@ -5410,6 +5415,7 @@ function normalizeApiError(error: unknown): ApiUiError {
       message: envelope?.message ?? `Backend service returned ${error.status}.`,
       traceId: envelope?.trace_id,
       retryable: envelope?.retryable,
+      fieldErrors: envelopeFieldErrors(error.body),
     };
   }
   if (error instanceof TypeError) {
@@ -5440,6 +5446,27 @@ function parseParkScopeOptions(
     return [{ parkId, code: typeof code === "string" ? code : "", name }];
   });
   return parks;
+}
+
+// envelopeFieldErrors lifts the standard envelope's `field_errors` off a refused write, keeping only
+// well-formed entries. Absent or malformed means undefined, never an empty array that a caller might
+// read as "the server named no field" with confidence.
+function envelopeFieldErrors(body: unknown): ApiUiError["fieldErrors"] {
+  if (!body || typeof body !== "object") return undefined;
+  const raw = (body as { field_errors?: unknown }).field_errors;
+  if (!Array.isArray(raw)) return undefined;
+  const out: { field: string; code: string; message: string }[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = entry as { field?: unknown; code?: unknown; message?: unknown };
+    if (typeof candidate.field !== "string" || !candidate.field) continue;
+    out.push({
+      field: candidate.field,
+      code: typeof candidate.code === "string" ? candidate.code : "",
+      message: typeof candidate.message === "string" ? candidate.message : "",
+    });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 function parseEnvelope(body: unknown): ErrorEnvelope | null {

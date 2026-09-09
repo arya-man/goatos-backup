@@ -127,6 +127,10 @@ func (f *fakePackingStore) PackingVerifiedQuantitiesRecorded(_ context.Context, 
 	return false, nil
 }
 
+func (f *fakePackingStore) PackingPlannedQuantities(_ context.Context, _, _ string) (map[string]float64, error) {
+	return nil, nil
+}
+
 func (f *fakePackingStore) ReopenPackingForFeedChange(_ context.Context, p ports.ReopenPackingParams) (ports.ReopenPackingResult, error) {
 	f.reopenCalls = append(f.reopenCalls, p)
 	if f.reopenCallsErr != nil {

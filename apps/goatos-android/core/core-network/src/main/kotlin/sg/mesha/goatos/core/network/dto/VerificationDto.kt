@@ -286,6 +286,14 @@ data class VerificationVerdictMeasurementDto(
      */
     @SerialName("count") val count: Int? = null,
     @SerialName("reason") val reason: String? = null,
+    /**
+     * Her "I checked the video again, approve with these readings" after a 422
+     * `measurement_confirmation_required` (maintainer decision 2026-09-09): the backend refuses a
+     * per-field approve ONCE when a reading sits more than 500 g from the plan, naming each flagged
+     * box with a direction only. Null/false is the first press; true is the second, after she
+     * looked again. Meaningless without [entries], and omitted from the wire when false.
+     */
+    @SerialName("variance_acknowledged") val varianceAcknowledged: Boolean? = null,
 )
 
 /** One filled entry box on an approve: the field's key plus the reading. */

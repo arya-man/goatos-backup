@@ -80,6 +80,10 @@ func (f *fakeFeedStore) PackingVerifiedQuantitiesRecorded(context.Context, strin
 	return false, nil
 }
 
+func (f *fakeFeedStore) PackingPlannedQuantities(context.Context, string, string) (map[string]float64, error) {
+	return nil, nil
+}
+
 func (f *fakeFeedStore) CompleteWastage(context.Context, feedports.CompleteWastageParams) (feedports.CompleteWastageResult, error) {
 	return feedports.CompleteWastageResult{}, nil
 }

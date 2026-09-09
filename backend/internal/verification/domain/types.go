@@ -270,6 +270,12 @@ type VerdictMeasurement struct {
 	// (feed packing: one packed weight per feed item). Key echoes the field's Key verbatim.
 	// Empty for the single-value categories, whose reading travels on Value.
 	Entries []MeasurementEntry
+	// VarianceAcknowledged says the verifier was already warned that one or more entries sit
+	// outside the producer's confirm tolerance and is approving anyway (maintainer decision
+	// 2026-09-09, feed packing's 500 g guard). False -- the first press -- lets the producer refuse
+	// once with a direction-only warning; true is the second press after she checked the video.
+	// Verification carries it to the producer verbatim and does not know the tolerance itself.
+	VarianceAcknowledged bool
 }
 
 // MeasurementEntry is one filled per-item entry box on an approve: the field's key plus the

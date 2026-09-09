@@ -72,7 +72,19 @@ private data class VerifyDetailFlags(
      *  decided item no longer matches pending filter), but the empty state is not a final answer.
      *  This flag stays true until the refetch delivers the decided item with its new status. */
     val isDecisionResolving: Boolean = false,
+    /** The entry whose last approve the backend refused with `measurement_confirmation_required`
+     *  (maintainer decision 2026-09-09): one or more packed weights sit more than 500 g from the
+     *  plan. The card shows the server's direction-only warning (already in [errorMessage]) plus
+     *  the "I checked the video again" tick, and the next approve carries her confirmation. Null
+     *  once an approve lands or a different refusal arrives. */
+    val varianceConfirmItemId: String? = null,
 )
+
+/** The server's one-time refusal of an out-of-tolerance packing reading; see [VerifyDetailFlags.varianceConfirmItemId]. */
+private const val MEASUREMENT_CONFIRMATION_REQUIRED = "measurement_confirmation_required"
+
+/** Why a queued verdict did not land: the server's sentence, and its stable code when it gave one. */
+private data class DecisionFailure(val message: String, val code: String?)
 
 private const val VERIFY_DETAIL_PAGE_SIZE = 20
 
@@ -450,6 +462,9 @@ class VerifyDetailViewModel @Inject constructor(
                         entries = entries,
                         count = input.count?.takeIf { count -> count > 0 },
                         reason = input.reason?.takeIf(String::isNotBlank),
+                        // Her tick after the 500 g warning. Only with per-field readings, and only
+                        // when true -- false is the first press and stays off the wire.
+                        varianceAcknowledged = true.takeIf { input.varianceAcknowledged && entries.isNotEmpty() },
                     )
                 }
             },
@@ -474,7 +489,7 @@ class VerifyDetailViewModel @Inject constructor(
                     // awaitDecidedItemDelivered below clears it once the refetch actually returns
                     // the item, or after a bounded wait so the screen can never latch.
                     _flags.update {
-                        it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = closesGroup)
+                        it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = closesGroup, varianceConfirmItemId = null)
                     }
                     if (!closesGroup) {
                         awaitDecidedItemDelivered(targetItemId)
@@ -491,8 +506,13 @@ class VerifyDetailViewModel @Inject constructor(
                         it.copy(
                             isSubmitting = false,
                             awaitingBackendDecision = false,
-                            errorMessage = waitError,
+                            errorMessage = waitError.message,
                             isDecisionResolving = false,
+                            // THE VERIFIER IS WARNED, NOT TOLD (maintainer decision 2026-09-09):
+                            // this refusal is an invitation to look again, not a dead end. The
+                            // card keeps her readings, shows the server's direction-only lines,
+                            // and offers the confirmation tick for the next approve.
+                            varianceConfirmItemId = targetItemId.takeIf { waitError.code == MEASUREMENT_CONFIRMATION_REQUIRED },
                         )
                     }
                 }
@@ -652,7 +672,7 @@ class VerifyDetailViewModel @Inject constructor(
         _flags.update { it.copy(isDecisionResolving = false) }
     }
 
-    private suspend fun waitForBackendDecision(targetItemId: String, outboxItemId: String): String? {
+    private suspend fun waitForBackendDecision(targetItemId: String, outboxItemId: String): DecisionFailure? {
         repeat(30) {
             syncRepo.triggerDrain()
             delay(250)
@@ -668,7 +688,10 @@ class VerifyDetailViewModel @Inject constructor(
                             return null
                         }
                         item?.status == SyncItemStatus.FAILED && (item.conflict || item.isDeadLetter) ->
-                            return item.lastError ?: "Backend rejected the verification decision."
+                            return DecisionFailure(
+                                message = item.lastError ?: "The decision could not be recorded.",
+                                code = item.lastErrorCode,
+                            )
                     }
                 }
                 is AppResult.Err -> Unit
@@ -684,7 +707,7 @@ class VerifyDetailViewModel @Inject constructor(
             }
             delay(320)
         }
-        return "Decision saved locally; waiting for backend sync."
+        return DecisionFailure(message = "Decision saved. It will be recorded when the connection is back.", code = null)
     }
 
     private fun VerificationQueueItem.toEntry(flags: VerifyDetailFlags): VerifyDetailEntryUiState {
@@ -711,6 +734,7 @@ class VerifyDetailViewModel @Inject constructor(
         return VerifyDetailEntryUiState(
             itemId = itemId,
             subjectLabel = subjectLabel?.takeIf { it.isNotBlank() },
+            varianceConfirmRequired = flags.varianceConfirmItemId == itemId,
             // Backend-declared, or absent. Every string is carried straight through -- this
             // ViewModel composes none of the control's copy. Null (every category but weighing
             // today) means the card renders no correction control at all.

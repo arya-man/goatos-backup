@@ -1811,6 +1811,24 @@ NUMBER". Pinned by `backend/internal/verification/app/verdict_measurement_test.g
 the save-then-approve 409 reproduced as the defect being replaced) and the Android
 `VerifyDetailViewModelAnalyticsTest` approve/reject pair; each was mutation-tested when written.
 
+Confirmed THE VERIFIER IS WARNED, NOT TOLD rule (maintainer decision 2026-09-09, EXTENDING the
+2026-08-21 blind per-item entry for feed packing, not retiring it): a packed weight the verifier
+types that sits MORE THAN 500 g away from that feed item's plan is refused ONCE (422
+`measurement_confirmation_required`, one field error per flagged box at
+`measurement.entries.<key>` with code `above_plan` / `below_plan`), and the screen says only the
+DIRECTION -- never the planned figure, never the gap, so she still cannot compute the plan. If she
+is sure she ticks "I checked the video again" and presses Approve once more; the same approve
+re-sent with `measurement.variance_acknowledged = true` lands and the reading is stored with
+`planned_kg` and `variance_acknowledged` (migration `000287`). It is a CONFIRM, not a block (a hard
+block was offered and declined), it is PER FEED ITEM, and the rule lives ONLY in the producer's
+measurement applier BEFORE its write -- the plan is the completion's packed-against snapshot first,
+the frozen sheet second -- so neither client knows the tolerance or the plan. The threshold is
+`feeddirection/domain.PackingEntryConfirmToleranceKg` (0.5 kg) and is deliberately NOT the
+leadership 0.2 kg `PackingVarianceToleranceKg`; do not merge them. Android keeps the server's
+error CODE on the outbox row (`lastErrorCode`, `OUTBOX_MIGRATION_4_5`) so the screen keys on the
+code, never on the sentence. Canonical prose: the same decision doc -> "THE VERIFIER IS WARNED, NOT
+TOLD".
+
 Confirmed Approvals-on-mobile rule (maintainer decision 2026-08-05, SUPERSEDING the
 2026-07-21 decision that removed approvals from mobile and moved them to admin-web
 only): the birth/death/shifting approval queue is BACK on the phone, as its OWN
