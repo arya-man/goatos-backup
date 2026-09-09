@@ -15,7 +15,7 @@ import {
   numCompactWhole,
   resolveFarm,
   salesHref,
-  trimEmptyMonthlyEdges,
+  trimEmptyMonthlyStart,
 } from "./sales-format.ts";
 
 test("inrCompact speaks lakh and crore for chart labels", () => {
@@ -105,7 +105,7 @@ test("monthly chart totals are plain sums of the backend components", () => {
   assert.equal(monthlyAnimalsTotal(month), 7);
 });
 
-test("monthly charts trim zero-only edges per metric", () => {
+test("monthly charts trim zero-only starts per metric and keep the current tail", () => {
   const months = [
     { month: "2025-04", manure_kg: 0 },
     { month: "2026-02", manure_kg: 0 },
@@ -117,15 +117,9 @@ test("monthly charts trim zero-only edges per metric", () => {
   ];
 
   assert.deepEqual(
-    trimEmptyMonthlyEdges(months, (month) => month.manure_kg).map((month) => month.month),
-    ["2026-03", "2026-04", "2026-09", "2026-10"],
+    trimEmptyMonthlyStart(months, (month) => month.manure_kg).map((month) => month.month),
+    ["2026-03", "2026-04", "2026-09", "2026-10", "2026-11"],
   );
-});
-
-test("monthly columns use compact density for sparse ranges", () => {
-  const source = readFileSync(new URL("../../components/month-columns.tsx", import.meta.url), "utf8");
-  assert.match(source, /data\.length < 9 \? " compact" : ""/);
-  assert.match(source, /mcols\$\{density\}/);
 });
 
 test("marketLossPerKg is landed minus market, and null when either side is unrecorded", () => {

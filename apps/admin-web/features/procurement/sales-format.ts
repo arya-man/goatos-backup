@@ -167,13 +167,11 @@ export function monthlyAnimalRevenueTotal(month: MonthlyLike): number {
   return month.sheep_revenue + month.goat_revenue;
 }
 
-/** Drops leading/trailing zero-only months for a chart-specific metric while preserving gaps inside. */
-export function trimEmptyMonthlyEdges<T>(months: T[], valueOf: (month: T) => number): T[] {
+/** Drops leading zero-only months for a chart-specific metric while preserving the current tail. */
+export function trimEmptyMonthlyStart<T>(months: T[], valueOf: (month: T) => number): T[] {
   let first = 0;
   while (first < months.length && valueOf(months[first]) <= 0) first += 1;
-  let last = months.length - 1;
-  while (last >= first && valueOf(months[last]) <= 0) last -= 1;
-  return first <= last ? months.slice(first, last + 1) : [];
+  return first < months.length ? months.slice(first) : [];
 }
 
 /**
