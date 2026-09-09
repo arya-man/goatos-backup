@@ -32,6 +32,19 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
+import sg.mesha.goatos.core.ui.filters.WorklistDateWindow
+import sg.mesha.goatos.core.ui.filters.WorklistDateWindowSheet
+import sg.mesha.goatos.core.ui.filters.WorklistFilterBar
+import sg.mesha.goatos.core.ui.filters.WorklistPen
+import sg.mesha.goatos.core.ui.filters.WorklistPenOption
+import sg.mesha.goatos.core.ui.filters.WorklistPenSheet
+import sg.mesha.goatos.core.ui.filters.WorklistStatus
+import sg.mesha.goatos.core.ui.filters.worklistDateHeader
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import java.time.LocalDate
 
 // telemetry:exempt Planner task list is read-only; weighing state changes are tracked on the
 // execution and verification surfaces that own those writes.
@@ -47,6 +60,8 @@ enum class WeighingTasksTab { ACTIVE, COMPLETED }
  */
 data class WeighingTaskUiRow(
     val campaignId: String,
+    /** ISO weigh date, the key the list groups by when the window spans more than one day. */
+    val weighDate: String = "",
     val parkId: String,
     val parkName: String,
     val status: String,
@@ -68,6 +83,15 @@ data class WeighingTaskUiRow(
 
 data class WeighingTasksUiState(
     val tab: WeighingTasksTab = WeighingTasksTab.ACTIVE,
+    /**
+     * The filter bar (maintainer request 2026-09-10): the date window the list is read for
+     * (default today through the next seven days), the one pen it is narrowed to, and the
+     * backend's pen vocabulary for that window. [today] is the Asia/Kolkata business date.
+     */
+    val window: WorklistDateWindow = WorklistDateWindow.default(LocalDate.now()),
+    val pen: WorklistPen? = null,
+    val pens: List<WorklistPenOption> = emptyList(),
+    val today: LocalDate = LocalDate.now(),
     /** Whole-filter tallies from the backend. Never counted from [tasks]. */
     val activeCount: Int = 0,
     val completedCount: Int = 0,
@@ -96,6 +120,8 @@ fun WeighingTasksScreen(
     onRefresh: () -> Unit = {},
     onSelectTab: (WeighingTasksTab) -> Unit = {},
     onSelectPark: (String?) -> Unit = {},
+    onSelectWindow: (WorklistDateWindow) -> Unit = {},
+    onSelectPen: (WorklistPen?) -> Unit = {},
     onOpenTask: (String) -> Unit = {},
     /**
      * Null while starting a task from a previous one is not wired. The row then renders visibly
@@ -126,19 +152,45 @@ fun WeighingTasksScreen(
                     )
                 },
             )
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                WeighingFilterPill(
-                    label = stringResource(R.string.weighing_tasks_tab_active_fmt, state.activeCount),
-                    selected = state.tab == WeighingTasksTab.ACTIVE,
-                    onClick = { onSelectTab(WeighingTasksTab.ACTIVE) },
+            // The FILTER BAR (maintainer request 2026-09-10): Pending / Completed pills carrying
+            // the backend's whole-window counts, then the Date window and the Pen. Everything
+            // below it is the list it always was.
+            var dateSheetOpen by rememberSaveable { mutableStateOf(false) }
+            var penSheetOpen by rememberSaveable { mutableStateOf(false) }
+            WorklistFilterBar(
+                status = if (state.tab == WeighingTasksTab.COMPLETED) WorklistStatus.COMPLETED else WorklistStatus.PENDING,
+                pendingCount = state.activeCount,
+                completedCount = state.completedCount,
+                window = state.window,
+                today = state.today,
+                pen = state.pen,
+                onSelectStatus = { status ->
+                    onSelectTab(if (status == WorklistStatus.COMPLETED) WeighingTasksTab.COMPLETED else WeighingTasksTab.ACTIVE)
+                },
+                onOpenDate = { dateSheetOpen = true },
+                onOpenPen = { penSheetOpen = true },
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+            if (dateSheetOpen) {
+                WorklistDateWindowSheet(
+                    initial = state.window,
+                    today = state.today,
+                    onApply = { window ->
+                        dateSheetOpen = false
+                        onSelectWindow(window)
+                    },
+                    onDismiss = { dateSheetOpen = false },
                 )
-                WeighingFilterPill(
-                    label = stringResource(R.string.weighing_tasks_tab_completed_fmt, state.completedCount),
-                    selected = state.tab == WeighingTasksTab.COMPLETED,
-                    onClick = { onSelectTab(WeighingTasksTab.COMPLETED) },
+            }
+            if (penSheetOpen) {
+                WorklistPenSheet(
+                    options = state.pens,
+                    selected = state.pen,
+                    onSelect = { pen ->
+                        penSheetOpen = false
+                        onSelectPen(pen)
+                    },
+                    onDismiss = { penSheetOpen = false },
                 )
             }
             // Park chips narrow the COMPLETED history, matching the product model: the active tab
@@ -182,7 +234,8 @@ fun WeighingTasksScreen(
                         LaunchedEffect(task.campaignId, index, state.tasks.size) {
                             onTaskRowVisible(index)
                         }
-                        val previousMonth = state.tasks.getOrNull(index - 1)?.monthLabel
+                        val previous = state.tasks.getOrNull(index - 1)
+                        val previousMonth = previous?.monthLabel
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (state.tab == WeighingTasksTab.COMPLETED &&
                                 task.monthLabel.isNotBlank() &&
@@ -192,6 +245,17 @@ fun WeighingTasksScreen(
                                     text = task.monthLabel,
                                     color = MeshaColors.Muted,
                                     style = MeshaType.sectionLabel,
+                                )
+                            }
+                            // Pending work over a multi-day window is grouped by weigh date so a
+                            // card's day is obvious; a single-day window needs no header.
+                            if (state.tab == WeighingTasksTab.ACTIVE &&
+                                !state.window.isSingleDay &&
+                                task.weighDate.isNotBlank() &&
+                                task.weighDate != previous?.weighDate
+                            ) {
+                                WeighingTaskDateHeader(
+                                    label = worklistDateHeader(task.weighDate, state.today, stringResource(sg.mesha.goatos.core.ui.R.string.filters_today)),
                                 )
                             }
                             WeighingTaskCard(row = task, onOpen = { onOpenTask(task.campaignId) })
@@ -451,4 +515,18 @@ private fun taskStatusBg(status: String): Color = when (status.trim().lowercase(
     "completed", "closed" -> MeshaColors.OkX
     "delayed" -> MeshaColors.WarnX
     else -> MeshaColors.Surf3
+}
+
+/** "TODAY · THU 10 SEP" with a hairline, between cards of different weigh dates. */
+@Composable
+private fun WeighingTaskDateHeader(label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(text = label.uppercase(), color = MeshaColors.Muted, style = MeshaType.sectionLabel)
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(MeshaColors.Line),
+        )
+    }
 }

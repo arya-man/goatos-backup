@@ -83,6 +83,25 @@ type roundCardDTO struct {
 type roundCardPageDTO struct {
 	Items      []roundCardDTO `json:"items"`
 	NextCursor string         `json:"next_cursor,omitempty"`
+	// Counts is the whole-filter CARD tally behind the Pending / Completed pills; Pens is the
+	// pen vocabulary behind the Pen filter (empty without a date window). Neither is derived
+	// from the page.
+	Counts roundCardCountsDTO `json:"counts"`
+	Pens   []roundPenDTO      `json:"pens"`
+}
+
+type roundCardCountsDTO struct {
+	Active    int32 `json:"active"`
+	Completed int32 `json:"completed"`
+}
+
+type roundPenDTO struct {
+	ShedID         string `json:"shed_id"`
+	PartitionLabel string `json:"partition_label"`
+	Label          string `json:"operational_location_display"`
+	ParkID         string `json:"park_id"`
+	ParkName       string `json:"park_name"`
+	CardCount      int32  `json:"card_count"`
 }
 
 // GetRoundCards serves the planner's list at ROUND grain.
@@ -100,12 +119,31 @@ func (h *Handler) GetRoundCards(w http.ResponseWriter, r *http.Request) {
 		strings.TrimSpace(r.URL.Query().Get("cursor")),
 		intQuery(r, "limit", 25),
 		r.URL.Query().Get("current_or_carry") == "true",
+		// Filter bar (maintainer request 2026-09-10): inclusive date window + one pen. All
+		// optional; an APK predating the bar sends none and gets the list it always had.
+		ports.RoundCardsWindow{
+			DateFrom:          strings.TrimSpace(r.URL.Query().Get("date_from")),
+			DateTo:            strings.TrimSpace(r.URL.Query().Get("date_to")),
+			PenShedID:         strings.TrimSpace(r.URL.Query().Get("shed_id")),
+			PenPartitionLabel: strings.TrimSpace(r.URL.Query().Get("partition_label")),
+		},
 	)
 	if err != nil {
 		h.writeServiceError(w, r, "pc care round cards", err)
 		return
 	}
-	resp := roundCardPageDTO{Items: make([]roundCardDTO, 0, len(page.Cards)), NextCursor: page.NextCursor}
+	resp := roundCardPageDTO{
+		Items:      make([]roundCardDTO, 0, len(page.Cards)),
+		NextCursor: page.NextCursor,
+		Counts:     roundCardCountsDTO{Active: page.Counts.Active, Completed: page.Counts.Completed},
+		Pens:       make([]roundPenDTO, 0, len(page.Pens)),
+	}
+	for _, pen := range page.Pens {
+		resp.Pens = append(resp.Pens, roundPenDTO{
+			ShedID: pen.ShedID, PartitionLabel: pen.PartitionLabel, Label: pen.Label,
+			ParkID: pen.ParkID, ParkName: pen.ParkName, CardCount: pen.CardCount,
+		})
+	}
 	for _, c := range page.Cards {
 		resp.Items = append(resp.Items, roundCardDTO{
 			CardKey: c.CardKey, RoundID: c.RoundID, SingleTaskID: c.SingleTaskID,

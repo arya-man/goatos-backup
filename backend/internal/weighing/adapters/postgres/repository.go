@@ -570,12 +570,12 @@ func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, 
 	return c, r.commitAndInvalidateReadCache(ctx, tx)
 }
 
-func (r *Repository) ListCampaigns(ctx context.Context, tenantID, parkID string, cursor string, limit int) (domain.CampaignPage, error) {
-	return r.listCampaigns(ctx, tenantID, "", parkID, "", cursor, limit, nil)
+func (r *Repository) ListCampaigns(ctx context.Context, tenantID, parkID string, filter domain.CampaignListFilter, cursor string, limit int) (domain.CampaignPage, error) {
+	return r.listCampaigns(ctx, tenantID, "", parkID, "", filter, cursor, limit, nil)
 }
 
-func (r *Repository) ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, cursor string, limit int) (domain.CampaignPage, error) {
-	return r.listCampaigns(ctx, tenantID, operatorUserID, parkID, "", cursor, limit, nil)
+func (r *Repository) ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, filter domain.CampaignListFilter, cursor string, limit int) (domain.CampaignPage, error) {
+	return r.listCampaigns(ctx, tenantID, operatorUserID, parkID, "", filter, cursor, limit, nil)
 }
 
 // CampaignByID resolves ONE task by id, through the SAME query the list uses rather than a
@@ -590,7 +590,7 @@ func (r *Repository) ListCampaignsForOperator(ctx context.Context, tenantID, ope
 // would be a THIRD read of the same mutable column and would inherit the same gap -- the row that
 // is returned has to be the row that was authorized, and one query is the only way to say that.
 func (r *Repository) CampaignByID(ctx context.Context, tenantID, campaignID string, access ports.CampaignAccess) (domain.Campaign, error) {
-	page, err := r.listCampaigns(ctx, tenantID, "", "", campaignID, "", 1, &access)
+	page, err := r.listCampaigns(ctx, tenantID, "", "", campaignID, domain.CampaignListFilter{}, "", 1, &access)
 	if err != nil {
 		return domain.Campaign{}, err
 	}
@@ -608,7 +608,7 @@ func (r *Repository) CampaignByID(ctx context.Context, tenantID, campaignID stri
 // which is what lets authorization happen in the same statement as retrieval instead of in a
 // preceding one. The list paths pass nil and are untouched: their authority is already applied
 // as a park filter by the app layer before they get here.
-func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID, parkID, campaignID string, cursor string, limit int, access *ports.CampaignAccess) (domain.CampaignPage, error) {
+func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID, parkID, campaignID string, filter domain.CampaignListFilter, cursor string, limit int, access *ports.CampaignAccess) (domain.CampaignPage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
@@ -667,7 +667,29 @@ func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID
 	//   Identical key sets on both sides: hydrateCampaigns applies the SAME operator bucket predicate to the
 	//   rollups that it applies to the bucket rows, so an operator's remaining count can never be computed from
 	//   a sibling operator's completions against their own smaller expected set.
-	rows, err := r.pool.Query(ctx, `
+	// Filter bar arms (maintainer request 2026-09-10). Every one is a scalar bound even when
+	// unused, so the filtered and unfiltered reads run the SAME statement text: a status token
+	// ('' / pending / completed), an inclusive business-date window on the weigh date, and one
+	// pen named by the bucket's own (location_id, partition_label). A Pending read carries open
+	// work planned BEFORE the window (a delayed task keeps its original planned date and must not
+	// vanish behind "today onwards"); every other read is the window exactly. The Pending read is
+	// also the only one ordered soonest-first: upcoming work reads forward, history reads back.
+	statusFilter := string(filter.Status)
+	windowFrom, windowTo := "", ""
+	if filter.HasWindow() {
+		windowFrom, windowTo = strings.TrimSpace(filter.DateFrom), strings.TrimSpace(filter.DateTo)
+	}
+	penShed, penPartition := "", ""
+	if filter.HasPen() {
+		penShed = strings.TrimSpace(filter.PenShedID)
+		penPartition = strings.TrimSpace(filter.PenPartitionLabel)
+	}
+	ascending := filter.Ascending()
+	orderDirection := "DESC"
+	if ascending {
+		orderDirection = "ASC"
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 SELECT weighing_campaigns.campaign_id::text, weighing_campaigns.tenant_id::text, weighing_campaigns.park_id::text, COALESCE(park.name, '') AS park_name,
   weighing_campaigns.period_start_date::text, weighing_campaigns.period_end_date::text,
   weighing_campaigns.start_business_date::text, weighing_campaigns.status, weighing_campaigns.planned_cap_per_day,
@@ -739,13 +761,44 @@ WHERE weighing_campaigns.tenant_id=$1::uuid
       )
     )
   )
+  -- Status tab. '' is the legacy unfiltered read; the two tokens are disjoint and together
+  -- cover every live status, so a canceled task is in neither (it is retracted work).
+  AND (
+    $13::text = ''
+    OR ($13::text = 'pending' AND weighing_campaigns.status IN ('draft','published','in_progress','delayed'))
+    OR ($13::text = 'completed' AND weighing_campaigns.status IN ('completed','closed'))
+  )
+  -- Date window on the WEIGH DATE, inclusive. A Pending read also carries still-open work
+  -- planned before the window; Completed and unfiltered reads take the window exactly.
+  AND (
+    $14::date IS NULL
+    OR weighing_campaigns.period_start_date BETWEEN $14::date AND $15::date
+    OR ($13::text = 'pending' AND $14::date <= $19::date AND weighing_campaigns.period_start_date < $14::date
+        AND weighing_campaigns.status IN ('draft','published','in_progress','delayed'))
+  )
+  -- One pen: the task holds a live bucket at that (location_id, partition_label). Semijoin, so
+  -- a task with two buckets in the pen is still one row.
+  AND (
+    $16::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM weighing_campaign_sheds pen
+      WHERE pen.tenant_id=weighing_campaigns.tenant_id
+        AND pen.campaign_id=weighing_campaigns.campaign_id
+        AND pen.location_id=$16::uuid
+        AND COALESCE(BTRIM(pen.partition_label), '')=$17::text
+        AND pen.status <> 'canceled'
+    )
+  )
   AND (
     $2::date IS NULL
-    OR (weighing_campaigns.period_start_date, weighing_campaigns.created_at, weighing_campaigns.campaign_id) < ($2::date, $3::timestamptz, $4::uuid)
+    OR ($18::boolean AND (weighing_campaigns.period_start_date, weighing_campaigns.created_at, weighing_campaigns.campaign_id) > ($2::date, $3::timestamptz, $4::uuid))
+    OR (NOT $18::boolean AND (weighing_campaigns.period_start_date, weighing_campaigns.created_at, weighing_campaigns.campaign_id) < ($2::date, $3::timestamptz, $4::uuid))
   )
-ORDER BY weighing_campaigns.period_start_date DESC, weighing_campaigns.created_at DESC, weighing_campaigns.campaign_id DESC
-LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt), nullableString(cur.CampaignID), limit+1, nullableString(operatorFilter), nullableString(parkFilter), nullableString(campaignFilter),
-		accessApplies, accessUnrestricted, accessParkIDs, nullableString(accessAssignee))
+ORDER BY weighing_campaigns.period_start_date %[1]s, weighing_campaigns.created_at %[1]s, weighing_campaigns.campaign_id %[1]s
+LIMIT $5`, orderDirection), tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt), nullableString(cur.CampaignID), limit+1, nullableString(operatorFilter), nullableString(parkFilter), nullableString(campaignFilter),
+		accessApplies, accessUnrestricted, accessParkIDs, nullableString(accessAssignee),
+		statusFilter, nullableString(windowFrom), nullableString(windowTo), nullableString(penShed), penPartition, ascending,
+		nullableString(strings.TrimSpace(filter.Today)))
 	if err != nil {
 		return domain.CampaignPage{}, err
 	}
@@ -786,7 +839,11 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 		// pure cost on this path.
 		return domain.CampaignPage{Items: out, NextCursor: nextCursor}, nil
 	}
-	counts, err := r.campaignCounts(ctx, tenantID, operatorFilter, parkID)
+	counts, err := r.campaignCounts(ctx, tenantID, operatorFilter, parkID, filter)
+	if err != nil {
+		return domain.CampaignPage{}, err
+	}
+	pens, err := r.campaignPens(ctx, tenantID, operatorFilter, parkID, filter)
 	if err != nil {
 		return domain.CampaignPage{}, err
 	}
@@ -796,7 +853,7 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 	if err != nil {
 		return domain.CampaignPage{}, err
 	}
-	return domain.CampaignPage{Items: out, NextCursor: nextCursor, Counts: counts, OperatorSummaries: summaries}, nil
+	return domain.CampaignPage{Items: out, NextCursor: nextCursor, Counts: counts, OperatorSummaries: summaries, Pens: pens}, nil
 }
 
 // campaignCounts is the WHOLE-FILTER task tally behind the Active / Completed tabs.
@@ -825,12 +882,30 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 // Buckets are disjoint and exhaustive over the live statuses: completed/closed on one
 // side, draft/published/in_progress/delayed on the other. 'canceled' is retracted work
 // and belongs to neither tab, so it is counted in neither.
-func (r *Repository) campaignCounts(ctx context.Context, tenantID, operatorUserID, parkID string) (domain.CampaignCounts, error) {
+//
+// The filter bar's DATE WINDOW and PEN narrow both tallies (maintainer request 2026-09-10): the
+// numbers on the Pending / Completed pills must be the numbers the tabs list, and those tabs
+// are windowed. The STATUS tab itself does not narrow them -- each pill is its own bucket. The
+// Pending tally applies the same carry-over rule as the Pending list (open work planned before
+// the window counts), so a pill can never advertise a different total than its tab shows.
+func (r *Repository) campaignCounts(ctx context.Context, tenantID, operatorUserID, parkID string, filter domain.CampaignListFilter) (domain.CampaignCounts, error) {
 	var counts domain.CampaignCounts
+	windowFrom, windowTo := "", ""
+	if filter.HasWindow() {
+		windowFrom, windowTo = strings.TrimSpace(filter.DateFrom), strings.TrimSpace(filter.DateTo)
+	}
+	penShed, penPartition := "", ""
+	if filter.HasPen() {
+		penShed, penPartition = strings.TrimSpace(filter.PenShedID), strings.TrimSpace(filter.PenPartitionLabel)
+	}
 	err := r.pool.QueryRow(ctx, `
 SELECT
-  count(*) FILTER (WHERE wc.status IN ('draft','published','in_progress','delayed'))::int AS active,
-  count(*) FILTER (WHERE wc.status IN ('completed','closed'))::int AS completed
+  count(*) FILTER (WHERE wc.status IN ('draft','published','in_progress','delayed')
+                     AND ($4::date IS NULL
+                          OR wc.period_start_date BETWEEN $4::date AND $5::date
+                          OR ($4::date <= $8::date AND wc.period_start_date < $4::date)))::int AS active,
+  count(*) FILTER (WHERE wc.status IN ('completed','closed')
+                     AND ($4::date IS NULL OR wc.period_start_date BETWEEN $4::date AND $5::date))::int AS completed
 FROM weighing_campaigns wc
 WHERE wc.tenant_id=$1::uuid
   AND (
@@ -844,13 +919,101 @@ WHERE wc.tenant_id=$1::uuid
         AND scope.status <> 'canceled'
     )
   )
-  AND ($3::uuid IS NULL OR wc.park_id = $3::uuid)`,
-		tenantID, nullableString(strings.TrimSpace(operatorUserID)), nullableString(strings.TrimSpace(parkID))).
+  AND ($3::uuid IS NULL OR wc.park_id = $3::uuid)
+  AND (
+    $6::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM weighing_campaign_sheds pen
+      WHERE pen.tenant_id=wc.tenant_id
+        AND pen.campaign_id=wc.campaign_id
+        AND pen.location_id=$6::uuid
+        AND COALESCE(BTRIM(pen.partition_label), '')=$7::text
+        AND pen.status <> 'canceled'
+    )
+  )`,
+		tenantID, nullableString(strings.TrimSpace(operatorUserID)), nullableString(strings.TrimSpace(parkID)),
+		nullableString(windowFrom), nullableString(windowTo), nullableString(penShed), penPartition,
+		nullableString(strings.TrimSpace(filter.Today))).
 		Scan(&counts.Active, &counts.Completed)
 	if err != nil {
 		return domain.CampaignCounts{}, err
 	}
 	return counts, nil
+}
+
+// campaignPens is the PEN vocabulary behind the task list's Pen filter: every pen holding a
+// live bucket on a task inside the date window (or, for still-open work, planned before it --
+// the same carry-over rule the Pending tab applies), with how many tasks it sits on.
+//
+// GRAIN: one row per (location_id, partition_label) pair, the bucket's own pen identity.
+// task_count is count(DISTINCT campaign_id), so a task with two buckets in one pen counts once.
+// It is STATUS-BLIND on purpose: the pen a reader picked on Pending must still be offered on
+// Completed, or the pick would silently drop when they switch tabs. It is bounded by the farm's
+// pen catalog (a few hundred rows), never by herd size, and it is skipped entirely for a read
+// without a window -- an APK predating the filter bar has no Pen control to feed.
+//
+// Isolation: weighing_campaign_sheds and weighing_campaigns only; the label is the bucket's
+// display_name verbatim (the operational shed name the planner picked), never a herd table.
+//
+// projection-review: membership=weighing_campaign_sheds live buckets of in-window campaigns for one tenant (plus operator/park scope); group_key=(location_id, COALESCE(BTRIM(partition_label),”)) ; join_cardinality=weighing_campaigns 1:1 by (tenant_id,campaign_id) PK, locations park 0..1 by PK; task_count=count(DISTINCT campaign_id) so buckets never inflate tasks; pagination=none, bounded by the pen catalog and LIMIT 500; scope=tenant + same operator/park arms as the list.
+// campaignPensSQL is the pen vocabulary read behind campaignPens (hoisted so the guard and a
+// query-plan test can reach it).
+const campaignPensSQL = `
+SELECT pen.location_id::text,
+       COALESCE(BTRIM(pen.partition_label), '') AS partition_label,
+       MIN(pen.display_name) AS label,
+       wc.park_id::text,
+       COALESCE(MIN(park.name), '') AS park_name,
+       count(DISTINCT wc.campaign_id)::int AS task_count
+FROM weighing_campaign_sheds pen
+JOIN weighing_campaigns wc
+  ON wc.tenant_id=pen.tenant_id AND wc.campaign_id=pen.campaign_id
+LEFT JOIN locations park
+  ON park.tenant_id=wc.tenant_id AND park.location_id=wc.park_id
+WHERE pen.tenant_id=$1::uuid
+  AND pen.status <> 'canceled'
+  AND wc.status <> 'canceled'
+  AND (
+    wc.period_start_date BETWEEN $4::date AND $5::date
+    OR ($4::date <= $6::date AND wc.period_start_date < $4::date AND wc.status IN ('draft','published','in_progress','delayed'))
+  )
+  AND (
+    $2::uuid IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM weighing_campaign_sheds scope
+      WHERE scope.tenant_id=wc.tenant_id
+        AND scope.campaign_id=wc.campaign_id
+        AND scope.operator_user_id=$2::uuid
+        AND scope.status <> 'canceled'
+    )
+  )
+  AND ($3::uuid IS NULL OR wc.park_id = $3::uuid)
+GROUP BY pen.location_id, COALESCE(BTRIM(pen.partition_label), ''), wc.park_id
+ORDER BY park_name, label, partition_label
+LIMIT 500`
+
+func (r *Repository) campaignPens(ctx context.Context, tenantID, operatorUserID, parkID string, filter domain.CampaignListFilter) ([]domain.CampaignPenOption, error) {
+	pens := []domain.CampaignPenOption{}
+	if !filter.HasWindow() {
+		return pens, nil
+	}
+	rows, err := r.pool.Query(ctx, campaignPensSQL,
+		tenantID, nullableString(strings.TrimSpace(operatorUserID)), nullableString(strings.TrimSpace(parkID)),
+		strings.TrimSpace(filter.DateFrom), strings.TrimSpace(filter.DateTo), nullableString(strings.TrimSpace(filter.Today)))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var pen domain.CampaignPenOption
+		if err := rows.Scan(&pen.ShedID, &pen.PartitionLabel, &pen.Label, &pen.ParkID, &pen.ParkName, &pen.TaskCount); err != nil {
+			return nil, err
+		}
+		pen.Label = strings.TrimSpace(pen.Label)
+		pens = append(pens, pen)
+	}
+	return pens, rows.Err()
 }
 
 // PlannerCatalog returns the PARK-GRAIN planner vocabulary for ONE weigh date: EVERY active park

@@ -76,6 +76,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingScopeState
 import sg.mesha.goatos.core.data.weighing.WeighingTask
 import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
+import sg.mesha.goatos.core.data.weighing.WeighingTaskListFilter
 import sg.mesha.goatos.core.data.weighing.WeighingTaskLookup
 import sg.mesha.goatos.core.data.weighing.WeighingParkRef
 import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
@@ -3130,7 +3131,7 @@ class WeighingViewModelTest {
 
         // Cursor-append stubs. These fakes exercise the READ path; Ok(0) means "no further
         // page", which leaves every existing assertion about page CONTENTS unchanged.
-        override suspend fun appendTaskList(scope: String, parkId: String?): AppResult<Int> {
+        override suspend fun appendTaskList(scope: String, parkId: String?, filter: WeighingTaskListFilter): AppResult<Int> {
             val all = pagedTasks ?: return AppResult.Ok(0)
             val state = pagedTaskListState ?: return AppResult.Ok(0)
             if (pagedTasksLoaded >= all.size) return AppResult.Ok(0)
@@ -3221,13 +3222,14 @@ class WeighingViewModelTest {
         override fun observeTaskList(
             scope: String,
             parkId: String?,
+            filter: WeighingTaskListFilter,
             windowSize: Int,
         ): Flow<WeighingTaskListCache> {
             observedTaskListWindowSizes += windowSize
             return pagedTaskListState ?: MutableStateFlow(taskListCache)
         }
 
-        override suspend fun refreshTaskList(scope: String, parkId: String?, reset: Boolean): AppResult<Int> =
+        override suspend fun refreshTaskList(scope: String, parkId: String?, filter: WeighingTaskListFilter, reset: Boolean): AppResult<Int> =
             AppResult.Ok(0)
 
         override suspend fun getTask(campaignId: String): AppResult<WeighingTaskLookup> {

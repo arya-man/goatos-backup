@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="filters_status_pending_fmt">పెండింగ్ %1$d</string>
+    <string name="filters_status_completed_fmt">పూర్తయినవి %1$d</string>
+    <string name="filters_date_label">తేదీ</string>
+    <string name="filters_pen_label">పెన్</string>
+    <string name="filters_all_pens">అన్ని పెన్‌లు</string>
+    <string name="filters_today">ఈరోజు</string>
+    <string name="filters_next_7_days">తదుపరి 7 రోజులు</string>
+    <string name="filters_next_30_days">తదుపరి 30 రోజులు</string>
+    <string name="filters_last_7_days">గత 7 రోజులు</string>
+    <string name="filters_from">నుండి</string>
+    <string name="filters_to">వరకు</string>
+    <string name="filters_apply">వర్తించు</string>
+    <string name="filters_clear">తొలగించు</string>
+    <string name="filters_calendar_hint">మొదటి రోజు నొక్కి, తర్వాత చివరి రోజు · ఒక్క రోజుకే అదే రోజును రెండుసార్లు నొక్కండి</string>
+    <string name="filters_previous_month">మునుపటి నెల</string>
+    <string name="filters_next_month">తదుపరి నెల</string>
+    <string name="filters_pen_search">పెన్ వెతకండి</string>
+    <string name="filters_pen_none">ఈ తేదీ పరిధిలో ఏ పెన్‌కూ పని లేదు</string>
+    <string name="filters_clear_pen">పెన్ తీసివేయి</string>
+    <string name="filters_open_date">తేదీ పరిధి మార్చండి</string>
+    <string name="filters_open_pen">పెన్ మార్చండి</string>
+</resources>

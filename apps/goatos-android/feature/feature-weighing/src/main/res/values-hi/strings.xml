@@ -135,8 +135,6 @@
     <!-- Task board -->
     <string name="weighing_tasks_title">काम</string>
     <string name="weighing_tasks_refresh">वज़न के काम रीफ़्रेश करें</string>
-    <string name="weighing_tasks_tab_active_fmt">चालू %1$d</string>
-    <string name="weighing_tasks_tab_completed_fmt">पूर्ण %1$d</string>
     <string name="weighing_tasks_empty_completed">अभी कोई पूर्ण काम नहीं</string>
     <string name="weighing_tasks_empty_active">कोई चालू काम नहीं</string>
     <string name="weighing_tasks_to_verify_fmt">%1$d जाँचने हैं</string>

@@ -68,13 +68,13 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.CreateCampaign(context.Background(), growthDirector, cmd); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("growth director create err = %v, want forbidden", err)
 	}
-	if _, err := service.ListCampaigns(context.Background(), pcDirector, domain.CampaignListScopeAll, "", "", 20); err == nil {
+	if _, err := service.ListCampaigns(context.Background(), pcDirector, domain.CampaignListScopeAll, "", domain.CampaignListFilter{}, "", 20); err == nil {
 		t.Fatal("pc director monitored weighing; want forbidden")
 	}
-	if _, err := service.ListCampaigns(context.Background(), growthDirector, domain.CampaignListScopeAll, "", "", 20); err != nil {
+	if _, err := service.ListCampaigns(context.Background(), growthDirector, domain.CampaignListScopeAll, "", domain.CampaignListFilter{}, "", 20); err != nil {
 		t.Fatalf("growth director monitor errored: %v", err)
 	}
-	if _, err := service.ListCampaigns(context.Background(), operator, domain.CampaignListScopeMine, "", "", 20); err != nil {
+	if _, err := service.ListCampaigns(context.Background(), operator, domain.CampaignListScopeMine, "", domain.CampaignListFilter{}, "", 20); err != nil {
 		t.Fatalf("operator execution list errored: %v", err)
 	}
 	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
@@ -130,7 +130,7 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 	service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
-	page, err := service.ListCampaigns(context.Background(), operator, domain.CampaignListScopeMine, "", "", 20)
+	page, err := service.ListCampaigns(context.Background(), operator, domain.CampaignListScopeMine, "", domain.CampaignListFilter{}, "", 20)
 	if err != nil {
 		t.Fatalf("operator list campaigns: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 	}
 
 	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
-	page, err = service.ListCampaigns(context.Background(), monitor, domain.CampaignListScopeAll, "", "", 20)
+	page, err = service.ListCampaigns(context.Background(), monitor, domain.CampaignListScopeAll, "", domain.CampaignListFilter{}, "", 20)
 	if err != nil {
 		t.Fatalf("monitor list campaigns: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestListCampaignsMineIsAssigneeScopedForEveryExecutor(t *testing.T) {
 			service := NewService(repo).WithFeedWaterRemovalCutoff(eightPM)
 			actor := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{tc.role}}
 
-			if _, err := service.ListCampaigns(context.Background(), actor, domain.CampaignListScopeMine, "", "", 20); err != nil {
+			if _, err := service.ListCampaigns(context.Background(), actor, domain.CampaignListScopeMine, "", domain.CampaignListFilter{}, "", 20); err != nil {
 				t.Fatalf("scope=mine: %v", err)
 			}
 			if repo.operatorCalls != 1 || repo.monitorCalls != 0 {
@@ -216,7 +216,7 @@ func TestListCampaignsScopeAuthority(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service := NewService(&campaignListRepo{}).WithFeedWaterRemovalCutoff(eightPM)
-			_, err := service.ListCampaigns(context.Background(), tc.actor, tc.scope, "", "", 20)
+			_, err := service.ListCampaigns(context.Background(), tc.actor, tc.scope, "", domain.CampaignListFilter{}, "", 20)
 			if tc.wantAllow && err != nil {
 				t.Fatalf("scope %q: %v, want allowed", tc.scope, err)
 			}
@@ -232,7 +232,7 @@ func TestListCampaignsScopeAuthority(t *testing.T) {
 func TestListCampaignsRejectsUnknownScope(t *testing.T) {
 	service := NewService(&campaignListRepo{}).WithFeedWaterRemovalCutoff(eightPM)
 	actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
-	if _, err := service.ListCampaigns(context.Background(), actor, domain.CampaignListScope("everything"), "", "", 20); err == nil {
+	if _, err := service.ListCampaigns(context.Background(), actor, domain.CampaignListScope("everything"), "", domain.CampaignListFilter{}, "", 20); err == nil {
 		t.Fatal("unknown scope was accepted; want rejected")
 	}
 }
@@ -851,13 +851,13 @@ type campaignListRepo struct {
 	operatorCalls  int
 }
 
-func (r *campaignListRepo) ListCampaigns(_ context.Context, _, parkID string, _ string, _ int) (domain.CampaignPage, error) {
+func (r *campaignListRepo) ListCampaigns(_ context.Context, _, parkID string, _ domain.CampaignListFilter, _ string, _ int) (domain.CampaignPage, error) {
 	r.monitorCalls++
 	r.parkID = parkID
 	return r.monitorPage, nil
 }
 
-func (r *campaignListRepo) ListCampaignsForOperator(_ context.Context, _, operatorUserID, parkID string, _ string, _ int) (domain.CampaignPage, error) {
+func (r *campaignListRepo) ListCampaignsForOperator(_ context.Context, _, operatorUserID, parkID string, _ domain.CampaignListFilter, _ string, _ int) (domain.CampaignPage, error) {
 	r.operatorCalls++
 	r.operatorUserID = operatorUserID
 	r.parkID = parkID
@@ -873,14 +873,14 @@ func TestListCampaignsPassesParkFilterThroughAndRejectsAMalformedOne(t *testing.
 	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
 
 	const park = "00000000-0000-4000-8000-000000003001"
-	if _, err := service.ListCampaigns(context.Background(), monitor, domain.CampaignListScopeAll, park, "", 20); err != nil {
+	if _, err := service.ListCampaigns(context.Background(), monitor, domain.CampaignListScopeAll, park, domain.CampaignListFilter{}, "", 20); err != nil {
 		t.Fatalf("list with park filter: %v", err)
 	}
 	if repo.parkID != park {
 		t.Fatalf("repo park filter=%q, want %q", repo.parkID, park)
 	}
 
-	if _, err := service.ListCampaigns(context.Background(), monitor, domain.CampaignListScopeAll, "not-a-uuid", "", 20); !errors.Is(err, ports.ErrInvalidArgument) {
+	if _, err := service.ListCampaigns(context.Background(), monitor, domain.CampaignListScopeAll, "not-a-uuid", domain.CampaignListFilter{}, "", 20); !errors.Is(err, ports.ErrInvalidArgument) {
 		t.Fatalf("malformed park filter err=%v, want invalid argument", err)
 	}
 }
@@ -1027,10 +1027,10 @@ func (f fakeRepo) CampaignByID(context.Context, string, string, ports.CampaignAc
 func (f fakeRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
 	return nil, nil
 }
-func (f fakeRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
+func (f fakeRepo) ListCampaigns(context.Context, string, string, domain.CampaignListFilter, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
-func (f fakeRepo) ListCampaignsForOperator(context.Context, string, string, string, string, int) (domain.CampaignPage, error) {
+func (f fakeRepo) ListCampaignsForOperator(context.Context, string, string, string, domain.CampaignListFilter, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
 func (f fakeRepo) ListCampaignSheds(context.Context, string, string, string, int, ports.CampaignAccess) (domain.CampaignShedPage, error) {
@@ -1223,10 +1223,10 @@ func (r *scenarioRepo) CampaignByID(context.Context, string, string, ports.Campa
 func (r *scenarioRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
 	return nil, nil
 }
-func (r *scenarioRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
+func (r *scenarioRepo) ListCampaigns(context.Context, string, string, domain.CampaignListFilter, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{Items: []domain.Campaign{r.campaign}}, nil
 }
-func (r *scenarioRepo) ListCampaignsForOperator(_ context.Context, _ string, operatorUserID string, _ string, _ string, _ int) (domain.CampaignPage, error) {
+func (r *scenarioRepo) ListCampaignsForOperator(_ context.Context, _ string, operatorUserID string, _ string, _ domain.CampaignListFilter, _ string, _ int) (domain.CampaignPage, error) {
 	campaign := r.campaign
 	campaign.Sheds = nil
 	for _, shed := range r.campaign.Sheds {

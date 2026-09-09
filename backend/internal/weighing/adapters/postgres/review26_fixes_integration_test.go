@@ -350,7 +350,7 @@ VALUES ($1::uuid, $2::uuid, 'B21-OP-1', $3, 'active', 'operator')`,
 	}
 	assertShedHasOperatorDisplayName(t, campaign.Sheds, repoAnimalScope, operatorDisplayName)
 
-	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 0)
+	page, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 0)
 	if err != nil {
 		t.Fatalf("ListCampaigns: %v", err)
 	}

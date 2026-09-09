@@ -98,11 +98,11 @@ ON CONFLICT DO NOTHING`,
 		list func() ([]domain.Campaign, error)
 	}{
 		{"leadership", func() ([]domain.Campaign, error) {
-			page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
+			page, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 100)
 			return page.Items, err
 		}},
 		{"operator", func() ([]domain.Campaign, error) {
-			page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 100)
+			page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", domain.CampaignListFilter{}, "", 100)
 			return page.Items, err
 		}},
 	} {
@@ -196,7 +196,7 @@ func TestListCampaignsPageBoundaryTotalsIdenticalAcrossPageSizes(t *testing.T) {
 			if pages > 50 {
 				t.Fatalf("limit=%d: pagination did not terminate", limit)
 			}
-			page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", cursor, limit)
+			page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", domain.CampaignListFilter{}, cursor, limit)
 			if err != nil {
 				t.Fatalf("limit=%d cursor=%q: %v", limit, cursor, err)
 			}
@@ -301,7 +301,7 @@ ON CONFLICT DO NOTHING`,
 	lcpInsertCampaign(t, ctx, pool, otherParkCampaign, lcpParkCPT, "2026-10-01", domain.StatusPublished, repoOtherOp)
 	lcpInsertBucket(t, ctx, pool, lcpUUID(13031), otherParkCampaign, lcpShedCPT, domain.CategoryIndividualAnimal, repoOtherOp, 4, "pending")
 
-	operatorPage, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 100)
+	operatorPage, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("operator list: %v", err)
 	}
@@ -334,7 +334,7 @@ ON CONFLICT DO NOTHING`,
 		t.Fatalf("operator remaining=%d, want 0 (no lump-sum buckets in this campaign)", operatorRow.Progress.RemainingCount)
 	}
 
-	leadershipPage, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
+	leadershipPage, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("leadership list: %v", err)
 	}
@@ -410,7 +410,7 @@ ON CONFLICT DO NOTHING`,
 		lcpInsertBucket(t, ctx, pool, lcpUUID(14301+i), bucketMatrix, bucketSheds[i], domain.CategoryIndividualAnimal, repoOperator, 1, status)
 	}
 
-	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
+	page, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("leadership list: %v", err)
 	}
@@ -616,7 +616,7 @@ func TestWeighingObservationsCompletedCountMultipleDimensions(t *testing.T) {
 	lcpCapture(t, ctx, pool, repo, campaign, bucket2, lcpUUID(20402), "tag3", "idem3")
 	lcpCapture(t, ctx, pool, repo, campaign, bucket2, lcpUUID(20402), "tag4", "idem4")
 
-	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
+	page, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("ListCampaigns: %v", err)
 	}
@@ -657,7 +657,7 @@ func TestWeighingObservationsCompletedCountPaginationBoundary(t *testing.T) {
 	}
 
 	// List with page size 2
-	page1, err := repo.ListCampaigns(ctx, repoTenant, "", "", 2)
+	page1, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 2)
 	if err != nil {
 		t.Fatalf("ListCampaigns page 1: %v", err)
 	}
@@ -669,7 +669,7 @@ func TestWeighingObservationsCompletedCountPaginationBoundary(t *testing.T) {
 	}
 
 	// List with page size 3 (everything in one page)
-	page2, err := repo.ListCampaigns(ctx, repoTenant, "", "", 3)
+	page2, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 3)
 	if err != nil {
 		t.Fatalf("ListCampaigns page 2: %v", err)
 	}
@@ -715,7 +715,7 @@ func TestWeighingObservationsCompletedCountEveryStatus(t *testing.T) {
 			status, repoTenant, campaign)
 	}
 
-	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
+	page, err := repo.ListCampaigns(ctx, repoTenant, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("ListCampaigns: %v", err)
 	}
@@ -756,7 +756,7 @@ func TestListCampaignsSoonestFirstOrder(t *testing.T) {
 	}
 
 	// List campaigns and verify they come back in soonest-first order (ascending by date)
-	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 100)
+	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("ListCampaignsForOperator: %v", err)
 	}
@@ -817,7 +817,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6,
         'Yashoda 4', $7::uuid, '2026-07-30'::date, '2026-08-11'::date, 'delayed')`,
 		repoTenant, campaign, bucket, lcpParkCBE, repoOperator, domain.CategoryIndividualAnimal, lcpShedTwo)
 
-	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, lcpParkCBE, "", 100)
+	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, lcpParkCBE, domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("ListCampaignsForOperator: %v", err)
 	}
@@ -869,7 +869,7 @@ func TestListCampaignsOperatorScopingPreservedWithSoonestFirst(t *testing.T) {
 	}
 
 	// repoOperator should see only their own campaigns in soonest-first order
-	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 100)
+	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("ListCampaignsForOperator: %v", err)
 	}
@@ -895,7 +895,7 @@ func TestListCampaignsOperatorScopingPreservedWithSoonestFirst(t *testing.T) {
 	}
 
 	// repoOtherOp should NOT see repoOperator's campaigns
-	otherPage, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOtherOp, "", "", 100)
+	otherPage, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOtherOp, "", domain.CampaignListFilter{}, "", 100)
 	if err != nil {
 		t.Fatalf("ListCampaignsForOperator (other): %v", err)
 	}

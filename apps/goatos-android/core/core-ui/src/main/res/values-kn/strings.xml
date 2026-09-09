@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="filters_status_pending_fmt">ಬಾಕಿ %1$d</string>
+    <string name="filters_status_completed_fmt">ಪೂರ್ಣ %1$d</string>
+    <string name="filters_date_label">ದಿನಾಂಕ</string>
+    <string name="filters_pen_label">ಪೆನ್</string>
+    <string name="filters_all_pens">ಎಲ್ಲಾ ಪೆನ್‌ಗಳು</string>
+    <string name="filters_today">ಇಂದು</string>
+    <string name="filters_next_7_days">ಮುಂದಿನ 7 ದಿನ</string>
+    <string name="filters_next_30_days">ಮುಂದಿನ 30 ದಿನ</string>
+    <string name="filters_last_7_days">ಕಳೆದ 7 ದಿನ</string>
+    <string name="filters_from">ಇಂದ</string>
+    <string name="filters_to">ವರೆಗೆ</string>
+    <string name="filters_apply">ಅನ್ವಯಿಸಿ</string>
+    <string name="filters_clear">ತೆರವುಗೊಳಿಸಿ</string>
+    <string name="filters_calendar_hint">ಆರಂಭದ ದಿನ ಒತ್ತಿ, ನಂತರ ಕೊನೆಯ ದಿನ · ಒಂದೇ ದಿನಕ್ಕೆ ಅದೇ ದಿನವನ್ನು ಎರಡು ಬಾರಿ ಒತ್ತಿ</string>
+    <string name="filters_previous_month">ಹಿಂದಿನ ತಿಂಗಳು</string>
+    <string name="filters_next_month">ಮುಂದಿನ ತಿಂಗಳು</string>
+    <string name="filters_pen_search">ಪೆನ್ ಹುಡುಕಿ</string>
+    <string name="filters_pen_none">ಈ ದಿನಾಂಕ ವ್ಯಾಪ್ತಿಯಲ್ಲಿ ಯಾವ ಪೆನ್‌ಗೂ ಕೆಲಸವಿಲ್ಲ</string>
+    <string name="filters_clear_pen">ಪೆನ್ ತೆಗೆಯಿರಿ</string>
+    <string name="filters_open_date">ದಿನಾಂಕ ವ್ಯಾಪ್ತಿ ಬದಲಿಸಿ</string>
+    <string name="filters_open_pen">ಪೆನ್ ಬದಲಿಸಿ</string>
+</resources>

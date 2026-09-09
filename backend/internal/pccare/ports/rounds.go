@@ -142,8 +142,51 @@ type ListRoundCardsQuery struct {
 	// ended). Only consulted when DueBusinessDate is empty; a day-pinned read shows that day
 	// whole, exactly as it did before.
 	Filter string
+	// DateFrom / DateTo (both set or both empty) window the DATELESS read on the card's due
+	// date, inclusive (maintainer request 2026-09-10, the phone's filter bar). The active
+	// bucket carries still-open work due BEFORE the window -- a delayed round keeps its date
+	// and must not vanish behind "today onwards"; the completed bucket is the window exactly.
+	DateFrom string
+	DateTo   string
+	// PenShedID / PenPartitionKey name ONE pen; a card is kept when any of its pens is that
+	// pen, and the card still lists every pen it holds. PenShedID empty means every pen.
+	PenShedID       string
+	PenPartitionKey string
+	// Today is the caller's business date, filled by the service: the active carry rule
+	// applies only when the window starts on or before today (a future week is asked about
+	// alone).
+	Today  string
 	Cursor string
 	Limit  int
+}
+
+// RoundCardsWindow is the filter bar's optional narrowing of the planner's list, as the
+// service receives it from the wire: a business-date window and one pen.
+type RoundCardsWindow struct {
+	DateFrom          string
+	DateTo            string
+	PenShedID         string
+	PenPartitionLabel string
+}
+
+// RoundCardCounts is the WHOLE-FILTER card tally behind the Pending / Completed pills:
+// cards, never pens, over the same window and pen the list applies, status-split so each
+// pill is its own bucket. Never derived from a page.
+type RoundCardCounts struct {
+	Active    int32
+	Completed int32
+}
+
+// RoundPenOption is one pen the planner's list can be narrowed to: the pen's own identity
+// (shed + partition), its backend-composed display, and how many cards it sits on inside
+// the window. Status-blind on purpose so a pick survives switching tabs.
+type RoundPenOption struct {
+	ShedID         string
+	PartitionLabel string
+	Label          string
+	ParkID         string
+	ParkName       string
+	CardCount      int32
 }
 
 // Round card list filters. These are CONTRACT tokens, never user-facing copy.
@@ -251,4 +294,7 @@ type RoundCard struct {
 type RoundCardPage struct {
 	Cards      []RoundCard
 	NextCursor string
+	// Counts and Pens are whole-filter companions of the page (empty Pens without a window).
+	Counts RoundCardCounts
+	Pens   []RoundPenOption
 }

@@ -146,7 +146,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6,
         'Gandhi 1', $7::uuid, '2026-08-13'::date, '2026-08-13'::date, 'scheduled')`,
 		repoTenant, campaignID, bucketID, repoPark, repoOperator, domain.CategoryIndividualAnimal, repoExpectedShed)
 
-	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 50)
+	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", domain.CampaignListFilter{}, "", 50)
 	if err != nil {
 		t.Fatalf("list campaigns for operator: %v", err)
 	}

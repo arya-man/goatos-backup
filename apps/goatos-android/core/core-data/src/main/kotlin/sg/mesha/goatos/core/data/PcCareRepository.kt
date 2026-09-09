@@ -12,6 +12,7 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -37,6 +38,7 @@ import sg.mesha.goatos.core.network.dto.PcCareAnimalRowDto
 import sg.mesha.goatos.core.network.dto.PcCareCloseRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareRemovalPenDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundCardDto
+import sg.mesha.goatos.core.network.dto.PcCareRoundCardPageDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
@@ -77,7 +79,22 @@ private fun rosterCacheKey(taskId: String): String = "roster:$taskId"
 private fun removalPensCacheKey(taskId: String): String = "removal-pens:$taskId"
 
 /** The planner's ROUND-grained list for one (category, day). Its own namespace. */
-private fun roundCardsCacheKey(category: String, filter: String): String = "round-cards:$category:$filter"
+/**
+ * The planner list's FILTER BAR narrowing (maintainer request 2026-09-10): an inclusive
+ * due-date window and one pen. The zero value is the legacy dateless read. Each distinct
+ * window is its own Room cache row, so switching back to a window shows its cards at once.
+ */
+data class PcCareRoundsWindow(
+    val dateFrom: String = "",
+    val dateTo: String = "",
+    val shedId: String = "",
+    val partitionLabel: String = "",
+) {
+    fun cacheSuffix(): String = listOf(dateFrom, dateTo, shedId, partitionLabel).joinToString("|") { it.trim() }
+}
+
+private fun roundCardsCacheKey(category: String, filter: String, window: PcCareRoundsWindow): String =
+    "round-cards:v2:$category:$filter:${window.cacheSuffix()}"
 
 /** One round's pen buckets. Its own namespace beside the card list's. */
 private fun roundPensCacheKey(roundId: String): String = "round-pens:$roundId"
@@ -88,6 +105,9 @@ private fun roundPensCacheKey(roundId: String): String = "round-pens:$roundId"
  * first page and is a known follow-up, never a silent client-side rollup.
  */
 private const val PC_CARE_ROUND_CARDS_LIMIT = 20
+
+/** The most round cards the phone keeps for one filter; the same ceiling weighing's task window has. */
+const val PC_CARE_ROUND_CARDS_MAX = 100
 
 /** Bump whenever the cached task-row JSON changes shape incompatibly (see PACKING_CACHE_SHAPE's
  *  kdoc in FeedRepository.kt for why a stale-shape row must be orphaned, never leniently decoded). */
@@ -205,10 +225,22 @@ interface PcCareRepository {
      * The PLANNER's list at ROUND grain, from ROOM: one card per round, one per round-less
      * legacy task. The screen renders this and the refresh runs behind it.
      */
-    fun observeRoundCards(category: String, filter: String): Flow<List<PcCareRoundCardDto>>
+    fun observeRoundCards(
+        category: String,
+        filter: String,
+        window: PcCareRoundsWindow = PcCareRoundsWindow(),
+    ): Flow<PcCareRoundCardPageDto>
 
     /** Refreshes the planner's round cards into Room. Non-blocking: a failure leaves the cache. */
-    suspend fun refreshRoundCards(category: String, filter: String)
+    suspend fun refreshRoundCards(category: String, filter: String, window: PcCareRoundsWindow = PcCareRoundsWindow())
+
+    /**
+     * Fetches the NEXT keyset page of round cards behind the cached list and appends it, so a
+     * reader scrolling past the first page keeps going instead of hitting a wall the pill count
+     * says is not there. Bounded: the cached list never grows past [PC_CARE_ROUND_CARDS_MAX].
+     * Returns the number of cards appended (0 at the end, or when a page is already in flight).
+     */
+    suspend fun appendRoundCards(category: String, filter: String, window: PcCareRoundsWindow = PcCareRoundsWindow()): Int
 
     /**
      * One round's pens — the drill behind a round card — from ROOM, so re-opening a card shows
@@ -480,31 +512,40 @@ class DefaultPcCareRepository(
         )
     }
 
-    override fun observeRoundCards(category: String, filter: String): Flow<List<PcCareRoundCardDto>> =
-        detailDao.observe(roundCardsCacheKey(category, filter))
+    override fun observeRoundCards(category: String, filter: String, window: PcCareRoundsWindow): Flow<PcCareRoundCardPageDto> =
+        detailDao.observe(roundCardsCacheKey(category, filter, window))
             .map { entity ->
-                readCachedJson<List<PcCareRoundCardDto>>(
+                readCachedJson<PcCareRoundCardPageDto>(
                     json = json,
-                    cacheKey = roundCardsCacheKey(category, filter),
+                    cacheKey = roundCardsCacheKey(category, filter, window),
                     dtoJson = entity?.dtoJson,
                     updatedAt = entity?.updatedAt,
                     now = clock(),
                     quarantine = { detailDao.delete(it) },
-                ).data.orEmpty()
+                ).data ?: PcCareRoundCardPageDto()
             }
             .flowOn(Dispatchers.Default)
 
-    override suspend fun refreshRoundCards(category: String, filter: String) {
+    override suspend fun refreshRoundCards(category: String, filter: String, window: PcCareRoundsWindow) {
         // exception:exempt expected refresh failure (offline/timeout/5xx); the cached cards keep
         // serving and the next open/refresh repairs it — the non-blocking refresh contract.
         runCatching {
-            // No DATE: the planner's list is the live work, weighing's shape. The tab decides
-            // whether that means work still owed or work already finished.
-            val page = api.getPcCareRoundCards(null, category, null, filter, null, PC_CARE_ROUND_CARDS_LIMIT)
+            // No pinned DATE: the planner's list is the live work, weighing's shape. The tab
+            // decides whether that means work still owed or work already finished, and the
+            // filter bar's window + pen narrow it (both optional).
+            val page = api.getPcCareRoundCards(
+                null, category, null, filter, null, PC_CARE_ROUND_CARDS_LIMIT,
+                dateFrom = window.dateFrom.takeIf { it.isNotBlank() },
+                dateTo = window.dateTo.takeIf { it.isNotBlank() },
+                shedId = window.shedId.takeIf { it.isNotBlank() },
+                partitionLabel = window.partitionLabel.takeIf { window.shedId.isNotBlank() },
+            )
+            // The WHOLE page is cached -- cards, counts, pens AND the next cursor -- so the pills
+            // and the pen picker come back from Room with the cards, and a scroll can page on.
             detailDao.upsert(
                 PcCareTaskDetailCacheEntity(
-                    cacheKey = roundCardsCacheKey(category, filter),
-                    dtoJson = json.encodeToString(page.items),
+                    cacheKey = roundCardsCacheKey(category, filter, window),
+                    dtoJson = json.encodeToString(page),
                     updatedAt = clock(),
                 ),
             )
@@ -512,6 +553,46 @@ class DefaultPcCareRepository(
         }.onFailure {
             if (it is CancellationException) throw it
             android.util.Log.w(LOG_TAG, "pc_care_round_cards_refresh_failed filter=$filter", it)
+        }
+    }
+
+    override suspend fun appendRoundCards(category: String, filter: String, window: PcCareRoundsWindow): Int {
+        val key = roundCardsCacheKey(category, filter, window)
+        val cached = detailDao.observe(key).first()?.dtoJson
+            // exception:exempt a cache row this build cannot decode carries no cursor, so there is
+            // nothing to page from; the next refresh rewrites the row in the current shape
+            ?.let { runCatching { json.decodeFromString<PcCareRoundCardPageDto>(it) }.getOrNull() }
+            ?: return 0
+        val cursor = cached.nextCursor.takeIf { it.isNotBlank() } ?: return 0
+        if (cached.items.size >= PC_CARE_ROUND_CARDS_MAX) return 0
+        // exception:exempt expected page-fetch failure (offline/timeout/5xx); the cached list stays
+        // and the next scroll or refresh tries again — the non-blocking refresh contract.
+        return runCatching {
+            val page = api.getPcCareRoundCards(
+                null, category, null, filter, cursor, PC_CARE_ROUND_CARDS_LIMIT,
+                dateFrom = window.dateFrom.takeIf { it.isNotBlank() },
+                dateTo = window.dateTo.takeIf { it.isNotBlank() },
+                shedId = window.shedId.takeIf { it.isNotBlank() },
+                partitionLabel = window.partitionLabel.takeIf { window.shedId.isNotBlank() },
+            )
+            val seen = cached.items.mapTo(HashSet()) { it.cardKey }
+            val fresh = page.items.filter { seen.add(it.cardKey) }
+            val merged = (cached.items + fresh).take(PC_CARE_ROUND_CARDS_MAX)
+            detailDao.upsert(
+                PcCareTaskDetailCacheEntity(
+                    cacheKey = key,
+                    // Counts and pens are whole-window and unchanged by paging; keep the first
+                    // page's answer and only advance the cursor.
+                    dtoJson = json.encodeToString(cached.copy(items = merged, nextCursor = if (merged.size >= PC_CARE_ROUND_CARDS_MAX) "" else page.nextCursor)),
+                    updatedAt = clock(),
+                ),
+            )
+            detailDao.enforceCacheBounds()
+            fresh.size
+        }.getOrElse {
+            if (it is CancellationException) throw it
+            android.util.Log.w(LOG_TAG, "pc_care_round_cards_append_failed filter=$filter", it)
+            0
         }
     }
 

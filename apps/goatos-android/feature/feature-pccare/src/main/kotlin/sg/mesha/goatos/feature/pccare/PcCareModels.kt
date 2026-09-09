@@ -5,6 +5,9 @@ package sg.mesha.goatos.feature.pccare
 
 import androidx.compose.runtime.Immutable
 import java.time.LocalDate
+import sg.mesha.goatos.core.ui.filters.WorklistDateWindow
+import sg.mesha.goatos.core.ui.filters.WorklistPen
+import sg.mesha.goatos.core.ui.filters.WorklistPenOption
 
 // ---------------------------------------------------------------------------
 // UI models (feature-local; mapped from DTOs by the :app @HiltViewModels).
@@ -326,7 +329,10 @@ data class PcCareRoundCardUi(
     val singleTaskId: String,
     /** Backend-owned status chip copy, rendered verbatim. */
     val statusLabel: String,
+    /** The due date as shown on the card's chip ("Mon 7 Sep"). */
     val dateLabel: String,
+    /** The due date as ISO ("2026-09-07"), the key the list groups by inside a date window. */
+    val dueDateIso: String = "",
     /** "Castro 1 · Castro 2 · Castro 3" — backend-composed pen names, joined for the subtitle. */
     val pensLabel: String,
     /** "3 pens" / "1 pen". */
@@ -384,6 +390,18 @@ data class PcCarePlanUiState(
      * over the live work, and NO date strip — a planner reads what is outstanding, not a day.
      */
     val roundsTab: PcCareRoundsTab = PcCareRoundsTab.ACTIVE,
+    /**
+     * The FILTER BAR over the planner's list (maintainer request 2026-09-10): the due-date window
+     * (default today through the next seven days), the one pen, the backend's whole-window
+     * counts behind the two pills, and its pen vocabulary for the picker.
+     */
+    val roundsWindow: WorklistDateWindow = WorklistDateWindow.default(LocalDate.now()),
+    val roundsPen: WorklistPen? = null,
+    val roundsPendingCount: Int = 0,
+    val roundsCompletedCount: Int = 0,
+    val roundsPens: List<WorklistPenOption> = emptyList(),
+    /** True while the next page of round cards is in flight (passive footer, never a button). */
+    val roundsLoadingMore: Boolean = false,
     // Create wizard.
     val parks: List<PcCarePlanOption> = emptyList(),
     val operators: List<PcCarePlanOption> = emptyList(),
@@ -434,6 +452,12 @@ sealed interface PcCarePlanEvent {
     data class ReopenTask(val taskId: String) : PcCarePlanEvent
 
     data class SelectRoundsTab(val tab: PcCareRoundsTab) : PcCarePlanEvent
+    /** The filter bar's Date window was applied. */
+    data class SelectRoundsWindow(val window: WorklistDateWindow) : PcCarePlanEvent
+    /** The filter bar's Pen was picked; null is "all pens". */
+    data class SelectRoundsPen(val pen: WorklistPen?) : PcCarePlanEvent
+    /** A round card scrolled into view; near the tail this pages the next keyset page in. */
+    data class RoundCardVisible(val index: Int) : PcCarePlanEvent
 
     /** Open a round card to see its pens, or close the one that is open. */
     data class ToggleRoundCard(val cardKey: String, val roundId: String) : PcCarePlanEvent

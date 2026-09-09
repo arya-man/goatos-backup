@@ -402,7 +402,33 @@ func (s *Service) PublishCampaign(ctx context.Context, actor domain.Actor, campa
 // parkID is an OPTIONAL row filter on top of the chosen scope. It narrows the rows only: the
 // page's Active/Completed counts are whole-scope aggregates, so switching park chips never
 // makes the tab numbers jump.
-func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, parkID, cursor string, limit int) (domain.CampaignPage, error) {
+// ValidateCampaignListFilter normalises the filter bar's parameters and refuses a half-formed
+// one: a window needs BOTH ends in order, a pen needs a real shed id. Validate-or-reject, never
+// silently default -- a window with one end dropped would read as "everything" to the client
+// that asked for a week.
+func ValidateCampaignListFilter(filter domain.CampaignListFilter) (domain.CampaignListFilter, error) {
+	filter.DateFrom = strings.TrimSpace(filter.DateFrom)
+	filter.DateTo = strings.TrimSpace(filter.DateTo)
+	filter.PenShedID = strings.TrimSpace(filter.PenShedID)
+	filter.PenPartitionLabel = strings.TrimSpace(filter.PenPartitionLabel)
+	if (filter.DateFrom == "") != (filter.DateTo == "") {
+		return domain.CampaignListFilter{}, ports.ErrInvalidArgument
+	}
+	if filter.DateFrom != "" {
+		if !isBusinessDate(filter.DateFrom) || !isBusinessDate(filter.DateTo) || filter.DateFrom > filter.DateTo {
+			return domain.CampaignListFilter{}, ports.ErrInvalidArgument
+		}
+	}
+	if filter.PenShedID != "" && !uuidutil.IsUUIDString(filter.PenShedID) {
+		return domain.CampaignListFilter{}, ports.ErrInvalidArgument
+	}
+	if filter.PenShedID == "" {
+		filter.PenPartitionLabel = ""
+	}
+	return filter, nil
+}
+
+func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, parkID string, filter domain.CampaignListFilter, cursor string, limit int) (domain.CampaignPage, error) {
 	// NOTE: RolesAuthorize requires ALL of the permissions it is given, so an either/or surface
 	// is expressed as separate calls rather than a two-element slice.
 	var allowed bool
@@ -430,10 +456,15 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
 		return domain.CampaignPage{}, ports.ErrInvalidArgument
 	}
+	filter, err := ValidateCampaignListFilter(filter)
+	if err != nil {
+		return domain.CampaignPage{}, err
+	}
+	filter.Today = biztime.BusinessDate(s.now())
 	if scope == domain.CampaignListScopeMine {
 		// ScopeMine is already narrowed to the actor's OWN assignments, so it needs no park
 		// authority: an operator can only ever be assigned work in a park they work in.
-		return s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, parkID, strings.TrimSpace(cursor), limit)
+		return s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, parkID, filter, strings.TrimSpace(cursor), limit)
 	}
 	// ScopeAll and ScopeOperators page across EVERY campaign in the tenant -- the repository
 	// has no notion of the actor's scope, only the optional parkID row filter. So the park
@@ -474,7 +505,7 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 			}
 		}
 	}
-	return s.repo.ListCampaigns(ctx, actor.TenantID, parkID, strings.TrimSpace(cursor), limit)
+	return s.repo.ListCampaigns(ctx, actor.TenantID, parkID, filter, strings.TrimSpace(cursor), limit)
 }
 
 // PlannerCatalog returns the PARK-grain planner vocabulary for ONE weigh date: every park

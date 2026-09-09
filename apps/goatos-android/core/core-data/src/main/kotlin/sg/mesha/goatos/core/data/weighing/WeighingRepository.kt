@@ -11,6 +11,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
+import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheEntity
+import sg.mesha.goatos.core.data.cache.enforceCacheBounds
+import sg.mesha.goatos.core.network.dto.WeighingCampaignPenOptionDto
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
@@ -517,10 +521,40 @@ data class WeighingOperatorSummary(
  * backend answered with. [canLoadMore] is the cached cursor's own state, so a screen knows there is
  * another page without asking the network first.
  */
+/**
+ * The task list's FILTER BAR as the backend takes it (maintainer request 2026-09-10): a status
+ * tab (`pending` / `completed`), an inclusive business-date window on the weigh date, and one
+ * pen. The zero value is the legacy unfiltered read. Every distinct filter is its own Room
+ * keyset scope, so two windows never share a cursor.
+ */
+data class WeighingTaskListFilter(
+    val status: String? = null,
+    val dateFrom: String? = null,
+    val dateTo: String? = null,
+    val shedId: String? = null,
+    val partitionLabel: String? = null,
+) {
+    /** The part of the cache key this filter contributes; blank for the legacy read. */
+    fun cacheSuffix(): String =
+        listOf(status, dateFrom, dateTo, shedId, partitionLabel).joinToString("|") { it?.trim().orEmpty() }
+}
+
+/** One pen the backend offers the task list's Pen filter, with its in-window task count. */
+data class WeighingTaskPen(
+    val shedId: String,
+    val partitionLabel: String,
+    val label: String,
+    val parkId: String,
+    val parkName: String,
+    val taskCount: Int,
+)
+
 data class WeighingTaskListCache(
     val items: List<WeighingTask> = emptyList(),
     val activeCount: Int = 0,
     val completedCount: Int = 0,
+    /** The backend's whole-window pen vocabulary for this filter; empty on the legacy read. */
+    val pens: List<WeighingTaskPen> = emptyList(),
     val capabilities: WeighingCapabilities = WeighingCapabilities(),
     val canLoadMore: Boolean = false,
     /** True once a refresh has written this scope at least once. Distinguishes empty from unread. */
@@ -609,6 +643,7 @@ interface WeighingRepository {
     fun observeTaskList(
         scope: String = WEIGHING_SCOPE_ALL,
         parkId: String? = null,
+        filter: WeighingTaskListFilter = WeighingTaskListFilter(),
         windowSize: Int = WEIGHING_LEADERSHIP_PAGE_SIZE,
     ): Flow<WeighingTaskListCache>
 
@@ -621,6 +656,7 @@ interface WeighingRepository {
     suspend fun refreshTaskList(
         scope: String = WEIGHING_SCOPE_ALL,
         parkId: String? = null,
+        filter: WeighingTaskListFilter = WeighingTaskListFilter(),
         reset: Boolean = true,
     ): AppResult<Int>
 
@@ -649,7 +685,7 @@ interface WeighingRepository {
     suspend fun refreshTaskBuckets(campaignId: String, reset: Boolean = true): AppResult<Int>
 
     /** Appends the next page of task list using the stored cursor. */
-    suspend fun appendTaskList(scope: String, parkId: String?): AppResult<Int>
+    suspend fun appendTaskList(scope: String, parkId: String?, filter: WeighingTaskListFilter = WeighingTaskListFilter()): AppResult<Int>
 
     /** Appends the next page of task buckets using the stored cursor. */
     suspend fun appendTaskBuckets(campaignId: String): AppResult<Int>
@@ -832,6 +868,8 @@ class DefaultWeighingRepository(
      */
     private val taskDao: WeighingTaskDao? = database?.weighingTaskDao()
     private val taskKeyDao: WeighingTaskRemoteKeyDao? = database?.weighingTaskRemoteKeyDao()
+    /** The weighing JSON blob cache, reused for the task list's per-filter pen vocabulary. */
+    private val pensCacheDao: WeighingAlertsCacheDao? = database?.weighingAlertsCacheDao()
     private val bucketDao: WeighingTaskBucketDao? = database?.weighingTaskBucketDao()
     private val bucketKeyDao: WeighingTaskBucketRemoteKeyDao? = database?.weighingTaskBucketRemoteKeyDao()
     private val leadershipShedDao: WeighingLeadershipShedDao? = database?.weighingLeadershipShedDao()
@@ -951,18 +989,29 @@ class DefaultWeighingRepository(
 
     // --- Leadership reads: Room is the SSOT, the network only writes into it -----------
 
-    override fun observeTaskList(scope: String, parkId: String?, windowSize: Int): Flow<WeighingTaskListCache> {
+    override fun observeTaskList(scope: String, parkId: String?, filter: WeighingTaskListFilter, windowSize: Int): Flow<WeighingTaskListCache> {
         val rows = taskDao ?: return kotlinx.coroutines.flow.flowOf(WeighingTaskListCache())
         val keys = taskKeyDao ?: return kotlinx.coroutines.flow.flowOf(WeighingTaskListCache())
-        val key = taskListQueryKey(scope, parkId)
+        val key = taskListQueryKey(scope, parkId, filter)
+        // The pen vocabulary rides beside the keyset in the weighing JSON blob cache (its own
+        // key, one row per filter): a page-derived pen list would lose a pen the moment its
+        // rows paged out, and the backend answers the whole window in one read.
+        val pensFlow = pensCacheDao?.observe(taskPensCacheKey(key)) ?: kotlinx.coroutines.flow.flowOf(null)
         return combine(
             rows.observeWindow(key, windowSize.coerceIn(1, WEIGHING_LEADERSHIP_MAX_WINDOW)),
             keys.observe(key),
-        ) { cached, remoteKey ->
+            pensFlow,
+        ) { cached, remoteKey, pensRow ->
             WeighingTaskListCache(
                 items = cached.map { cacheJson.decodeFromString<WeighingCampaignDto>(it.dtoJson).toTask() },
                 activeCount = remoteKey?.activeCount ?: 0,
                 completedCount = remoteKey?.completedCount ?: 0,
+                pens = pensRow?.dtoJson
+                    // exception:exempt a pen blob this build cannot decode means the picker offers
+                    // no pens until the next refresh rewrites it; the task list itself is unaffected
+                    ?.let { runCatching { cacheJson.decodeFromString<List<WeighingCampaignPenOptionDto>>(it) }.getOrNull() }
+                    ?.map { it.toPen() }
+                    .orEmpty(),
                 capabilities = WeighingCapabilities(
                     canPublish = remoteKey?.canPublish ?: false,
                     canEnd = remoteKey?.canEnd ?: false,
@@ -976,13 +1025,13 @@ class DefaultWeighingRepository(
         }.flowOn(Dispatchers.Default)
     }
 
-    override suspend fun refreshTaskList(scope: String, parkId: String?, reset: Boolean): AppResult<Int> =
+    override suspend fun refreshTaskList(scope: String, parkId: String?, filter: WeighingTaskListFilter, reset: Boolean): AppResult<Int> =
         withContext(Dispatchers.IO) {
             val client = api ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
             val db = database ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
             val rows = taskDao ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
             val keys = taskKeyDao ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
-            val key = taskListQueryKey(scope, parkId)
+            val key = taskListQueryKey(scope, parkId, filter)
             val cursor = if (reset) null else keys.get(key)?.takeIf { !it.endReached }?.nextCursor?.takeIf { it.isNotBlank() }
                 ?: return@withContext AppResult.Ok(0)
             runCatching {
@@ -991,6 +1040,11 @@ class DefaultWeighingRepository(
                     cursor = cursor,
                     limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
                     parkId = parkId?.takeIf { it.isNotBlank() },
+                    status = filter.status?.takeIf { it.isNotBlank() },
+                    dateFrom = filter.dateFrom?.takeIf { it.isNotBlank() },
+                    dateTo = filter.dateTo?.takeIf { it.isNotBlank() },
+                    shedId = filter.shedId?.takeIf { it.isNotBlank() },
+                    partitionLabel = filter.partitionLabel?.takeIf { filter.shedId?.isNotBlank() == true },
                 )
                 val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
                 val now = clock()
@@ -1031,11 +1085,28 @@ class DefaultWeighingRepository(
                         rows.pruneOutsideNewestQueries(WEIGHING_CACHED_TASK_FILTERS)
                         keys.pruneOutsideNewestQueries(WEIGHING_CACHED_TASK_FILTERS)
                     }
+                    storeTaskPens(key, response.pens, now)
                 }
                 AppResult.Ok(response.items.size)
             // Room keeps whatever it already had: a failed page leaves the cached list on screen.
             }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing tasks.")) }
         }
+
+    /**
+     * Writes the filter's pen vocabulary beside its keyset. Bounded by the blob cache's own
+     * governance (row and byte caps), so a hundred filters cannot grow the table without end.
+     */
+    private suspend fun storeTaskPens(key: String, pens: List<WeighingCampaignPenOptionDto>, now: Long) {
+        val dao = pensCacheDao ?: return
+        dao.upsert(
+            WeighingAlertsCacheEntity(
+                cacheKey = taskPensCacheKey(key),
+                dtoJson = cacheJson.encodeToString(pens),
+                updatedAt = now,
+            ),
+        )
+        dao.enforceCacheBounds()
+    }
 
     override suspend fun getTask(campaignId: String): AppResult<WeighingTaskLookup> =
         withContext(Dispatchers.IO) {
@@ -1181,13 +1252,13 @@ class DefaultWeighingRepository(
             }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load this task.")) }
         }
 
-    override suspend fun appendTaskList(scope: String, parkId: String?): AppResult<Int> =
+    override suspend fun appendTaskList(scope: String, parkId: String?, filter: WeighingTaskListFilter): AppResult<Int> =
         withContext(Dispatchers.IO) {
             val client = api ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
             val db = database ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
             val rows = taskDao ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
             val keys = taskKeyDao ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
-            val key = taskListQueryKey(scope, parkId)
+            val key = taskListQueryKey(scope, parkId, filter)
             val cursor = keys.get(key)?.nextCursor?.takeIf { it.isNotBlank() }
                 ?: return@withContext AppResult.Ok(0)
             runCatching {
@@ -1196,6 +1267,11 @@ class DefaultWeighingRepository(
                     cursor = cursor,
                     limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
                     parkId = parkId?.takeIf { it.isNotBlank() },
+                    status = filter.status?.takeIf { it.isNotBlank() },
+                    dateFrom = filter.dateFrom?.takeIf { it.isNotBlank() },
+                    dateTo = filter.dateTo?.takeIf { it.isNotBlank() },
+                    shedId = filter.shedId?.takeIf { it.isNotBlank() },
+                    partitionLabel = filter.partitionLabel?.takeIf { filter.shedId?.isNotBlank() == true },
                 )
                 val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
                 val now = clock()
@@ -2643,8 +2719,20 @@ private const val WEIGHING_CACHED_TRANSITION_SCOPES = 50
 private const val WEIGHING_MAX_PLANNER_PARKS = 100
 
 /** Two filters are two independent keyset streams and must never interleave in one cache scope. */
-private fun taskListQueryKey(scope: String, parkId: String?): String =
-    "weighing-tasks:${scope.trim()}:${parkId?.trim().orEmpty()}"
+private fun taskListQueryKey(scope: String, parkId: String?, filter: WeighingTaskListFilter): String =
+    "weighing-tasks:${scope.trim()}:${parkId?.trim().orEmpty()}:${filter.cacheSuffix()}"
+
+private fun taskPensCacheKey(queryKey: String): String = "weighing-task-pens:$queryKey"
+
+private fun WeighingCampaignPenOptionDto.toPen(): WeighingTaskPen =
+    WeighingTaskPen(
+        shedId = shedId,
+        partitionLabel = partitionLabel,
+        label = label.ifBlank { operationalWeighingLocationLabel(shedId, partitionLabel) },
+        parkId = parkId,
+        parkName = parkName,
+        taskCount = taskCount,
+    )
 
 private fun WeighingCampaignShedDto.toTaskShed(): WeighingTaskShed =
     WeighingTaskShed(

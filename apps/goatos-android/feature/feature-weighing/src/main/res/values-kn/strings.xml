@@ -135,8 +135,6 @@
     <!-- Task board -->
     <string name="weighing_tasks_title">ಕೆಲಸಗಳು</string>
     <string name="weighing_tasks_refresh">ತೂಕದ ಕೆಲಸಗಳನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
-    <string name="weighing_tasks_tab_active_fmt">ಚಾಲ್ತಿ %1$d</string>
-    <string name="weighing_tasks_tab_completed_fmt">ಪೂರ್ಣ %1$d</string>
     <string name="weighing_tasks_empty_completed">ಇನ್ನೂ ಪೂರ್ಣ ಕೆಲಸಗಳಿಲ್ಲ</string>
     <string name="weighing_tasks_empty_active">ಚಾಲ್ತಿ ಕೆಲಸಗಳಿಲ್ಲ</string>
     <string name="weighing_tasks_to_verify_fmt">%1$d ಪರಿಶೀಲಿಸಬೇಕು</string>

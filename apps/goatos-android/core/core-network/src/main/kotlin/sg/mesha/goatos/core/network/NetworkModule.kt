@@ -360,6 +360,11 @@ interface AppApiService {
         @Query("cursor") cursor: String? = null,
         @Query("limit") limit: Int = WEIGHING_PAGE_SIZE,
         @Query("park_id") parkId: String? = null,
+        @Query("status") status: String? = null,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+        @Query("shed_id") shedId: String? = null,
+        @Query("partition_label") partitionLabel: String? = null,
     ): WeighingCampaignListResponseDto
 
     // Declared before the {campaign_id} pattern so the literal "parks" segment reads as what it
@@ -926,6 +931,10 @@ interface AppApiService {
         @Query("filter") filter: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+        @Query("shed_id") shedId: String? = null,
+        @Query("partition_label") partitionLabel: String? = null,
     ): PcCareRoundCardPageDto
 
     @GET("app/pc-care/rounds/{round_id}")
@@ -1694,8 +1703,16 @@ class RetrofitAppApi(
         cursor: String?,
         limit: Int,
         parkId: String?,
+        status: String?,
+        dateFrom: String?,
+        dateTo: String?,
+        shedId: String?,
+        partitionLabel: String?,
     ): WeighingCampaignListResponseDto =
-        service.listWeighingCampaigns(scope = scope, cursor = cursor, limit = limit, parkId = parkId)
+        service.listWeighingCampaigns(
+            scope = scope, cursor = cursor, limit = limit, parkId = parkId,
+            status = status, dateFrom = dateFrom, dateTo = dateTo, shedId = shedId, partitionLabel = partitionLabel,
+        )
 
     override suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto =
         service.getWeighingCampaign(campaignId)
@@ -2225,7 +2242,14 @@ class RetrofitAppApi(
         filter: String?,
         cursor: String?,
         limit: Int?,
-    ): PcCareRoundCardPageDto = service.getPcCareRoundCards(date, category, parkId, filter, cursor, limit)
+        dateFrom: String?,
+        dateTo: String?,
+        shedId: String?,
+        partitionLabel: String?,
+    ): PcCareRoundCardPageDto = service.getPcCareRoundCards(
+        date, category, parkId, filter, cursor, limit,
+        dateFrom = dateFrom, dateTo = dateTo, shedId = shedId, partitionLabel = partitionLabel,
+    )
 
     override suspend fun getPcCareRound(roundId: String): PcCareRoundDto = service.getPcCareRound(roundId)
 

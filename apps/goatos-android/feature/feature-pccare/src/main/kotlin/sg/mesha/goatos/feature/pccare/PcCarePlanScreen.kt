@@ -40,6 +40,18 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import sg.mesha.goatos.core.ui.filters.WorklistDateWindowSheet
+import sg.mesha.goatos.core.ui.filters.WorklistFilterBar
+import sg.mesha.goatos.core.ui.filters.WorklistPenSheet
+import sg.mesha.goatos.core.ui.filters.WorklistStatus
+import sg.mesha.goatos.core.ui.filters.worklistDateHeader
+import java.time.LocalDate
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
@@ -88,22 +100,53 @@ fun PcCareMonitorScreen(
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
-            // NO date strip. The planner's list mirrors weighing's: two tabs over the live
-            // work, because a planner reads what is outstanding rather than paging a calendar.
-            // Each card carries its own date, so nothing is lost by dropping the axis.
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                PcCareRoundsTabPill(
-                    label = "Active",
-                    selected = state.roundsTab == PcCareRoundsTab.ACTIVE,
-                    onClick = { onEvent(PcCarePlanEvent.SelectRoundsTab(PcCareRoundsTab.ACTIVE)) },
+            // The FILTER BAR (maintainer request 2026-09-10), the same one weighing's task list
+            // carries: Pending / Completed pills with the backend's whole-window counts, then
+            // the Date window (default today through the next seven days) and the Pen. It sits
+            // on every category tab; the cards below are the list they always were.
+            var dateSheetOpen by rememberSaveable { mutableStateOf(false) }
+            var penSheetOpen by rememberSaveable { mutableStateOf(false) }
+            // exception:exempt the business date is a backend string; an unparsable one falls
+            // back to the device's own date so the calendar still opens on a real month
+            val today = remember(state.today) { runCatching { LocalDate.parse(state.today) }.getOrDefault(LocalDate.now()) }
+            WorklistFilterBar(
+                status = if (state.roundsTab == PcCareRoundsTab.COMPLETED) WorklistStatus.COMPLETED else WorklistStatus.PENDING,
+                pendingCount = state.roundsPendingCount,
+                completedCount = state.roundsCompletedCount,
+                window = state.roundsWindow,
+                today = today,
+                pen = state.roundsPen,
+                onSelectStatus = { status ->
+                    onEvent(
+                        PcCarePlanEvent.SelectRoundsTab(
+                            if (status == WorklistStatus.COMPLETED) PcCareRoundsTab.COMPLETED else PcCareRoundsTab.ACTIVE,
+                        ),
+                    )
+                },
+                onOpenDate = { dateSheetOpen = true },
+                onOpenPen = { penSheetOpen = true },
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            if (dateSheetOpen) {
+                WorklistDateWindowSheet(
+                    initial = state.roundsWindow,
+                    today = today,
+                    onApply = { window ->
+                        dateSheetOpen = false
+                        onEvent(PcCarePlanEvent.SelectRoundsWindow(window))
+                    },
+                    onDismiss = { dateSheetOpen = false },
                 )
-                PcCareRoundsTabPill(
-                    label = "Completed",
-                    selected = state.roundsTab == PcCareRoundsTab.COMPLETED,
-                    onClick = { onEvent(PcCarePlanEvent.SelectRoundsTab(PcCareRoundsTab.COMPLETED)) },
+            }
+            if (penSheetOpen) {
+                WorklistPenSheet(
+                    options = state.roundsPens,
+                    selected = state.roundsPen,
+                    onSelect = { pen ->
+                        penSheetOpen = false
+                        onEvent(PcCarePlanEvent.SelectRoundsPen(pen))
+                    },
+                    onDismiss = { penSheetOpen = false },
                 )
             }
             LazyColumn(
@@ -134,6 +177,33 @@ fun PcCareMonitorScreen(
                 // legacy task is a round of one and renders the same way.
                 items(count = state.roundCards.size, key = { i -> state.roundCards[i].cardKey }) { index ->
                     val card = state.roundCards[index]
+                    // Tail-window prefetch: the next keyset page is already in flight while the
+                    // last cards are on screen, so scrolling never meets a wall the pill count
+                    // says is not there.
+                    LaunchedEffect(card.cardKey, index, state.roundCards.size) {
+                        onEvent(PcCarePlanEvent.RoundCardVisible(index))
+                    }
+                    // Pending work over a multi-day window is grouped by due date so a card's
+                    // day is obvious; a single-day window needs no header.
+                    val previous = state.roundCards.getOrNull(index - 1)
+                    if (state.roundsTab == PcCareRoundsTab.ACTIVE &&
+                        !state.roundsWindow.isSingleDay &&
+                        card.dueDateIso.isNotBlank() &&
+                        card.dueDateIso != previous?.dueDateIso
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = worklistDateHeader(card.dueDateIso, today, stringResource(sg.mesha.goatos.core.ui.R.string.filters_today)).uppercase(),
+                                color = MeshaColors.Muted,
+                                style = MeshaType.sectionLabel,
+                            )
+                            Box(modifier = Modifier.weight(1f).height(1.dp).background(MeshaColors.Line))
+                        }
+                    }
                     PcCareRoundCard(
                         card = card,
                         open = state.openRoundCardKey == card.cardKey,
@@ -158,6 +228,13 @@ fun PcCareMonitorScreen(
                         // for anyone else), so both follow planEnabled.
                         actionsEnabled = planEnabled,
                     )
+                }
+                if (state.roundsLoadingMore) {
+                    item(key = "round-cards-loading-more") {
+                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = MeshaColors.BrandD)
+                        }
+                    }
                 }
             }
         }
@@ -771,19 +848,3 @@ private fun PcCareRoundCard(
 }
 
 /** The planner list's Active/Completed pill, weighing's WeighingFilterPill shape. */
-@Composable
-private fun PcCareRoundsTabPill(label: String, selected: Boolean, onClick: () -> Unit) {
-    Text(
-        text = label,
-        style = MeshaType.caption,
-        color = if (selected) MeshaColors.PageBg else MeshaColors.Ink,
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(if (selected) MeshaColors.BrandD else MeshaColors.Surf2)
-            .clickable(onClick = onClick)
-            // A tab is tapped with a thumb in a shed: it gets a real touch target, not just
-            // the height of its own text.
-            .minimumInteractiveComponentSize()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    )
-}

@@ -122,6 +122,17 @@ data class WeighingCampaignCountsDto(
     @SerialName("completed") val completed: Int = 0,
 )
 
+/** One pen the task list can be narrowed to, as the backend names it. */
+@Serializable
+data class WeighingCampaignPenOptionDto(
+    @SerialName("shed_id") val shedId: String = "",
+    @SerialName("partition_label") val partitionLabel: String = "",
+    @SerialName("operational_location_display") val label: String = "",
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("park_name") val parkName: String = "",
+    @SerialName("task_count") val taskCount: Int = 0,
+)
+
 /**
  * Which task-level writes THIS caller may attempt.
  *
@@ -216,6 +227,12 @@ data class WeighingCampaignListResponseDto(
     @SerialName("items") val items: List<WeighingCampaignDto> = emptyList(),
     /** Whole-filter task tally behind the two task tabs. Never derived from [items]. */
     @SerialName("counts") val counts: WeighingCampaignCountsDto = WeighingCampaignCountsDto(),
+    /**
+     * The PEN vocabulary behind the task list's Pen filter: every pen holding work inside the
+     * requested date window, with its task count. Whole-filter and status-blind; empty when the
+     * request carried no window. Never derived from [items].
+     */
+    @SerialName("pens") val pens: List<WeighingCampaignPenOptionDto> = emptyList(),
     /** Backend-owned OPERATOR-grain roll-up behind the oversight surface. Never derived from [items]. */
     @SerialName("operator_summaries") val operatorSummaries: List<WeighingOperatorSummaryDto> = emptyList(),
     @SerialName("capabilities") val capabilities: WeighingCapabilitiesDto = WeighingCapabilitiesDto(),
