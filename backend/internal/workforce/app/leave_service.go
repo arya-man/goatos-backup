@@ -40,12 +40,37 @@ func NewLeaveService(repo ports.LeaveRepository, member interface {
 // and the CEO floor may decide either.
 type LeaveApprover struct {
 	ParkHeadParks []string
-	HR            bool
-	Any           bool
+	// ParkHeadOfHomePark marks a park_head grant that is NOT park-scoped (the live roster
+	// seats park heads on tenant-scoped grants); the service resolves the park from the
+	// caller's own workforce profile before any queue read or decision.
+	ParkHeadOfHomePark bool
+	HR                 bool
+	Any                bool
 }
 
 func (a LeaveApprover) mayApprove() bool {
-	return a.Any || a.HR || len(a.ParkHeadParks) > 0
+	return a.Any || a.HR || len(a.ParkHeadParks) > 0 || a.ParkHeadOfHomePark
+}
+
+// resolveApprover turns a home-park park head into an explicit park list, so every read and
+// decision below compares park ids and never a grant shape.
+func (s *LeaveService) resolveApprover(ctx context.Context, tenantID, actorID string, approver LeaveApprover) (LeaveApprover, error) {
+	if !approver.ParkHeadOfHomePark {
+		return approver, nil
+	}
+	member, err := s.member.GetMemberForActor(ctx, tenantID, actorID)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			approver.ParkHeadOfHomePark = false
+			return approver, nil
+		}
+		return approver, err
+	}
+	if member.PrimaryLocationID != nil && *member.PrimaryLocationID != "" {
+		approver.ParkHeadParks = append(approver.ParkHeadParks, *member.PrimaryLocationID)
+	}
+	approver.ParkHeadOfHomePark = false
+	return approver, nil
 }
 
 func (a LeaveApprover) headsPark(parkID string) bool {
@@ -215,10 +240,14 @@ func (s *LeaveService) TodayForMember(ctx context.Context, tenantID, memberID, b
 }
 
 // Queue is the approver's open queue.
-func (s *LeaveService) Queue(ctx context.Context, tenantID string, approver LeaveApprover, limit int, cursor, localeTag, traceID string) (*domain.LeaveRequestListResponse, error) {
+func (s *LeaveService) Queue(ctx context.Context, tenantID, actorID string, approver LeaveApprover, limit int, cursor, localeTag, traceID string) (*domain.LeaveRequestListResponse, error) {
 	copyMap := leaveCopyFor(localeTag)
 	if !approver.mayApprove() {
 		return nil, Forbidden("permission_denied", copyMap["error.not_approver"])
+	}
+	approver, err := s.resolveApprover(ctx, tenantID, actorID, approver)
+	if err != nil {
+		return nil, err
 	}
 	page, err := s.repo.ListLeaveQueue(ctx, ports.LeaveQueueParams{
 		TenantID:      tenantID,
@@ -256,6 +285,10 @@ func (s *LeaveService) Decide(ctx context.Context, tenantID, actorID, leaveReque
 	}
 	if len([]rune(note)) > domain.MaxLeaveReasonLength {
 		return nil, BadRequest("reason_too_long", "reason must be at most 2000 characters")
+	}
+	approver, err := s.resolveApprover(ctx, tenantID, actorID, approver)
+	if err != nil {
+		return nil, err
 	}
 	row, err := s.repo.GetLeaveRequest(ctx, tenantID, leaveRequestID)
 	if err != nil {
