@@ -36,34 +36,34 @@ var ErrLeaveConfigConflict = errors.New("leave approval config was changed by so
 // designation, park label, decider names). Label composition is the app
 // service's job.
 type LeaveRequestRow struct {
-	LeaveRequestID     string
-	WorkforceMemberID  string
-	PersonName         string
-	RoleHint           string
-	DesignationGrade   string
-	ParkID             string
-	ParkLabel          string
-	StartsOn           string
-	EndsOn             string
-	Reason             string
-	Status             string
-	ParkHeadRequired   bool
-	HRRequired         bool
-	ParkHeadDecision   string
-	ParkHeadDecidedBy  string
-	ParkHeadDeciderNm  string
-	ParkHeadDecidedAt  *time.Time
-	ParkHeadNote       string
-	HRDecision         string
-	HRDecidedBy        string
-	HRDeciderName      string
-	HRDecidedAt        *time.Time
-	HRNote             string
-	DecidedAt          *time.Time
-	AbsenceID          string
-	RaisedByUserID     string
-	RaisedAt           time.Time
-	RowVersion         int
+	LeaveRequestID    string
+	WorkforceMemberID string
+	PersonName        string
+	RoleHint          string
+	DesignationGrade  string
+	ParkID            string
+	ParkLabel         string
+	StartsOn          string
+	EndsOn            string
+	Reason            string
+	Status            string
+	ParkHeadRequired  bool
+	HRRequired        bool
+	ParkHeadDecision  string
+	ParkHeadDecidedBy string
+	ParkHeadDeciderNm string
+	ParkHeadDecidedAt *time.Time
+	ParkHeadNote      string
+	HRDecision        string
+	HRDecidedBy       string
+	HRDeciderName     string
+	HRDecidedAt       *time.Time
+	HRNote            string
+	DecidedAt         *time.Time
+	AbsenceID         string
+	RaisedByUserID    string
+	RaisedAt          time.Time
+	RowVersion        int
 }
 
 // CreateLeaveRequestCommand is the fully-resolved raise.
