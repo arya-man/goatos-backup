@@ -15,6 +15,7 @@ import {
   numCompactWhole,
   resolveFarm,
   salesHref,
+  trimEmptyMonthlyEdges,
 } from "./sales-format.ts";
 
 test("inrCompact speaks lakh and crore for chart labels", () => {
@@ -102,6 +103,23 @@ test("monthly chart totals are plain sums of the backend components", () => {
   };
   assert.equal(monthlyRevenueTotal(month), 400);
   assert.equal(monthlyAnimalsTotal(month), 7);
+});
+
+test("monthly charts trim zero-only edges per metric", () => {
+  const months = [
+    { month: "2025-04", manure_kg: 0 },
+    { month: "2026-02", manure_kg: 0 },
+    { month: "2026-03", manure_kg: 46800 },
+    { month: "2026-04", manure_kg: 94750 },
+    { month: "2026-09", manure_kg: 0 },
+    { month: "2026-10", manure_kg: 1200 },
+    { month: "2026-11", manure_kg: 0 },
+  ];
+
+  assert.deepEqual(
+    trimEmptyMonthlyEdges(months, (month) => month.manure_kg).map((month) => month.month),
+    ["2026-03", "2026-04", "2026-09", "2026-10"],
+  );
 });
 
 test("marketLossPerKg is landed minus market, and null when either side is unrecorded", () => {
