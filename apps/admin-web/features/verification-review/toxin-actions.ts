@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
-  getProofDownloadUrl,
+  getProofDownloadRoute,
   getToxinTask,
   recordToxinVerdict,
   type ToxinTaskDetail,
@@ -30,14 +30,13 @@ export type ToxinDetailLoad =
   | {
       ok: true;
       detail: ToxinTaskDetail;
-      /** Signed browser-usable URL per proof_ref (done steps + strip photo); null when unresolved. */
+      /** Authenticated backend proof route per proof_ref; it signs only when the reviewer opens it. */
       proofUrls: Record<string, string | null>;
     }
   | { ok: false; code: string };
 
-// loadToxinTaskDetailAction feeds the toxin drawer: the 7-step detail plus a signed download URL
-// per proof. Bounded fan-out — a task has at most 6 step proofs and 1 strip photo — resolved in
-// parallel. An unresolved proof degrades to a step row with no media link, never an error page.
+// loadToxinTaskDetailAction feeds the toxin drawer. It must not mint signed GCS URLs while the
+// drawer is loading; proof links stay as backend routes and sign only after an explicit click.
 export async function loadToxinTaskDetailAction(taskId: string): Promise<ToxinDetailLoad> {
   const detail = await getToxinTask(taskId);
   if (!detail.ok) return { ok: false, code: detail.error.code ?? detail.error.kind };
@@ -46,9 +45,7 @@ export async function loadToxinTaskDetailAction(taskId: string): Promise<ToxinDe
     if (step.proof_ref) refs.add(step.proof_ref);
   }
   if (detail.data.strip_photo_ref) refs.add(detail.data.strip_photo_ref);
-  const entries = await Promise.all(
-    [...refs].map(async (ref) => [ref, await getProofDownloadUrl(ref)] as const),
-  );
+  const entries = await Promise.all([...refs].map(async (ref) => [ref, await getProofDownloadRoute(ref)] as const));
   return { ok: true, detail: detail.data, proofUrls: Object.fromEntries(entries) };
 }
 

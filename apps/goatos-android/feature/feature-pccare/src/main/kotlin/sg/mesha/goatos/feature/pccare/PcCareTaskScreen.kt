@@ -551,6 +551,7 @@ private fun PcCareSlotChipRow(
             if (slot.previewPath.isNotBlank()) {
                 ProofMediaPreview(
                     path = slot.previewPath,
+                    mediaIdentity = slot.previewIdentity,
                     kind = when (slot.previewKind) {
                         PcCareProofPreviewKind.PHOTO -> ProofMediaPreviewKind.Photo
                         PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
@@ -650,6 +651,7 @@ private fun PcCareTaskProofAction(
             if (slot.previewPath.isNotBlank()) {
                 ProofMediaPreview(
                     path = slot.previewPath,
+                    mediaIdentity = slot.previewIdentity,
                     kind = when (slot.previewKind) {
                         PcCareProofPreviewKind.PHOTO -> ProofMediaPreviewKind.Photo
                         PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video

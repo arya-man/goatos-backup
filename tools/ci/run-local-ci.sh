@@ -526,6 +526,7 @@ run_common() {
 run_backend() {
   current_job="backend"
   step "backend-foundations-guard" make backend-foundations-guard
+  step "backend-proof-media-egress-guard" make backend-proof-media-egress-guard
   step "test-execution-integrity-guard" make test-execution-integrity-guard
   step "operator-cap-fail-closed-guard" make operator-cap-fail-closed-guard
   step "stg-operator-scope-guard" make stg-operator-scope-guard
@@ -677,6 +678,7 @@ run_admin_web() {
   step "admin-web typecheck"     npm --prefix apps/admin-web run typecheck
   step "admin-web unit tests"    npm --prefix apps/admin-web run test
   step "admin-web request reads" make admin-web-request-reads-guard
+  step "admin-web proof media egress" make admin-web-proof-media-egress-guard
   step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web local overlays" make admin-web-local-overlay-guard
   step "admin-web-date-format-guard" make admin-web-date-format-guard

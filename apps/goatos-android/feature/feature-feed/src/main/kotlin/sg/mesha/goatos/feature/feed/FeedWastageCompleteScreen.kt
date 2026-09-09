@@ -139,6 +139,7 @@ fun FeedWastageCompleteScreen(
                     captured = state.videoCaptured,
                     status = state.videoStatus,
                     previewPath = state.videoPreviewPath,
+                    previewIdentity = "feed-wastage:video",
                     previewKind = FeedDistPreviewKind.Video,
                     capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_wastage_video_recorded)),
                     loading = state.isCapturingVideo,

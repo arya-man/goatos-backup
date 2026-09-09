@@ -324,7 +324,11 @@ class PcCareTaskViewModel @Inject constructor(
                 mediaKind = event.mediaKind,
                 action = event.action,
                 tagKey = event.tagKey,
-            )
+            ).also {
+                if (event.action.startsWith("playback_failed")) {
+                    recoverProofPreviewUrl(event.slotFieldKey, event.tagKey)
+                }
+            }
             PcCareTaskEvent.Submit -> armSubmit()
             PcCareTaskEvent.ConfirmSubmit -> confirmSubmit()
             PcCareTaskEvent.DismissSubmitConfirmation ->
@@ -2080,41 +2084,22 @@ class PcCareTaskViewModel @Inject constructor(
                     now - cached.resolvedAtMs >= TASK_PROOF_PREVIEW_URL_TTL_MS
             }
         missing.forEach { proof ->
-            viewModelScope.launch {
-                when (val resolved = repository.proofDownloadUrl(proof.proofRef)) {
-                    is AppResult.Ok -> if (resolved.value.isNotBlank()) {
-                        val resolvedAtMs = System.currentTimeMillis()
-                        local.update { bits ->
-                            val cached = bits.taskProofPreviewUrls[proof.slotKey]
-                            if (
-                                cached?.proofRef == proof.proofRef &&
-                                cached.resolvedAtMs >= resolvedAtMs - TASK_PROOF_PREVIEW_URL_TTL_MS
-                            ) {
-                                bits
-                            } else {
-                                bits.copy(
-                                    taskProofPreviewUrls = bits.taskProofPreviewUrls + (
-                                        proof.slotKey to TaskProofPreviewUrl(
-                                            proofRef = proof.proofRef,
-                                            url = pcCareAbsoluteProofUrl(resolved.value),
-                                            resolvedAtMs = resolvedAtMs,
-                                        )
-                                    ),
-                                )
-                            }
-                        }
-                    }
-                    is AppResult.Err -> analytics.track(
-                        pcCareTaskProofPreviewEvent(detail),
-                        pcCareStockProofAnalyticsProps(
-                            fieldKey = proof.slotKey,
-                            status = detail?.status.orEmpty(),
-                            category = detail?.category.orEmpty(),
-                            captureMode = detail?.captureMode.orEmpty(),
-                            outcome = "failure",
-                            reason = "preview_url_unavailable",
-                            source = "proof_preview",
-                            serverProofId = proof.proofRef,
+            val resolvedAtMs = System.currentTimeMillis()
+            local.update { bits ->
+                val cached = bits.taskProofPreviewUrls[proof.slotKey]
+                if (
+                    cached?.proofRef == proof.proofRef &&
+                    cached.resolvedAtMs >= resolvedAtMs - TASK_PROOF_PREVIEW_URL_TTL_MS
+                ) {
+                    bits
+                } else {
+                    bits.copy(
+                        taskProofPreviewUrls = bits.taskProofPreviewUrls + (
+                            proof.slotKey to TaskProofPreviewUrl(
+                                proofRef = proof.proofRef,
+                                url = pcCareBackendProofUrl(proof.proofRef),
+                                resolvedAtMs = resolvedAtMs,
+                            )
                         ),
                     )
                 }
@@ -2137,47 +2122,43 @@ class PcCareTaskViewModel @Inject constructor(
                     ) {
                         return@forEach
                     }
-                    viewModelScope.launch {
-                        when (val resolved = repository.proofDownloadUrl(slot.proofRef)) {
-                            is AppResult.Ok -> if (resolved.value.isNotBlank()) {
-                                val resolvedAtMs = System.currentTimeMillis()
-                                local.update { bits ->
-                                    val existing = bits.animalProofPreviewUrls[cacheKey]
-                                    if (
-                                        existing?.proofRef == slot.proofRef &&
-                                        existing.resolvedAtMs >= resolvedAtMs - TASK_PROOF_PREVIEW_URL_TTL_MS
-                                    ) {
-                                        bits
-                                    } else {
-                                        bits.copy(
-                                            animalProofPreviewUrls = bits.animalProofPreviewUrls + (
-                                                cacheKey to TaskProofPreviewUrl(
-                                                    proofRef = slot.proofRef,
-                                                    url = pcCareAbsoluteProofUrl(resolved.value),
-                                                    resolvedAtMs = resolvedAtMs,
-                                                )
-                                            ),
-                                        )
-                                    }
-                                }
-                            }
-                            is AppResult.Err -> analytics.track(
-                                AnalyticsEvents.PC_CARE_SLOT_PROOF_PREVIEW,
-                                pcCareAnimalSlotAnalyticsProps(
-                                    tagKey = animal.normalizedTag,
-                                    tagVerbatim = animal.tagVerbatim,
-                                    slotFieldKey = slot.fieldKey,
-                                    slotKey = cacheKey,
-                                    outcome = "failure",
-                                    reason = "preview_url_unavailable",
-                                    serverProofId = slot.proofRef,
-                                    mediaKind = "video",
+                    val resolvedAtMs = System.currentTimeMillis()
+                    local.update { bits ->
+                        val existing = bits.animalProofPreviewUrls[cacheKey]
+                        if (
+                            existing?.proofRef == slot.proofRef &&
+                            existing.resolvedAtMs >= resolvedAtMs - TASK_PROOF_PREVIEW_URL_TTL_MS
+                        ) {
+                            bits
+                        } else {
+                            bits.copy(
+                                animalProofPreviewUrls = bits.animalProofPreviewUrls + (
+                                    cacheKey to TaskProofPreviewUrl(
+                                        proofRef = slot.proofRef,
+                                        url = pcCareBackendProofUrl(slot.proofRef),
+                                        resolvedAtMs = resolvedAtMs,
+                                    )
                                 ),
                             )
                         }
                     }
                 }
         }
+    }
+
+    private fun recoverProofPreviewUrl(slotFieldKey: String, tagKey: String?) {
+        if (tagKey.isNullOrBlank()) {
+            local.update { it.copy(taskProofPreviewUrls = it.taskProofPreviewUrls - slotFieldKey) }
+        } else {
+            local.update {
+                it.copy(
+                    animalProofPreviewUrls = it.animalProofPreviewUrls -
+                        pcCareSlotProofFieldKey(tagKey, slotFieldKey),
+                )
+            }
+        }
+        hydrateTaskProofPreviews(latestDetail)
+        hydrateAnimalProofPreviews(latestDetail, latestAnimals)
     }
 
     private fun trackProofPreviewAction(
@@ -2577,6 +2558,31 @@ internal fun pcCareSlotChip(
     val localRow = animalProofs
         .filter { it.fieldKey == slotKey }
         .maxByOrNull { it.capturedAtMs }
+    if (serverSlot != null && localRow?.processingStatus != ProofProcessingStatus.RECORD_AGAIN) {
+        val remotePreview = remotePreviewUrls[slotKey]?.takeIf { it.proofRef == serverSlot.proofRef }
+        val previewPath = remotePreview?.url.orEmpty().ifBlank { localRow?.previewUri().orEmpty() }
+        return PcCareSlotChipUi(
+            fieldKey = slot.fieldKey,
+            label = slot.label,
+            description = slot.description,
+            state = if (localRow?.serverProofId == serverSlot.proofRef) PcCareSlotState.SYNCED else PcCareSlotState.PEER,
+            statusLabel = if (localRow?.serverProofId == serverSlot.proofRef) {
+                "Video sent"
+            } else if (serverSlot.capturedByName.isNotBlank()) {
+                "Captured by ${serverSlot.capturedByName}"
+            } else {
+                "Captured by a teammate"
+            },
+            hintLabel = hint,
+            canRecord = false,
+            previewPath = previewPath,
+            previewIdentity = serverSlot.proofRef,
+            previewKind = localRow?.mimeType?.let(::pcCarePreviewKind) ?: PcCareProofPreviewKind.VIDEO,
+            localProofRowId = localRow?.id,
+            proofOutboxItemId = localRow?.outboxItemId,
+            serverProofId = serverSlot.proofRef,
+        )
+    }
     if (localRow != null) {
         val previewPath = localRow.processedUri ?: localRow.localUri
         val previewKind = pcCarePreviewKind(localRow.mimeType)
@@ -2592,6 +2598,7 @@ internal fun pcCareSlotChip(
                         hintLabel = hint,
                         canRecord = false,
                         previewPath = previewPath,
+                        previewIdentity = localRow.serverProofId ?: localRow.id,
                         previewKind = previewKind,
                         localProofRowId = localRow.id,
                         proofOutboxItemId = localRow.outboxItemId,
@@ -2607,6 +2614,7 @@ internal fun pcCareSlotChip(
                         hintLabel = hint,
                         canRecord = false,
                         previewPath = previewPath,
+                        previewIdentity = localRow.serverProofId ?: localRow.id,
                         previewKind = previewKind,
                         localProofRowId = localRow.id,
                         proofOutboxItemId = localRow.outboxItemId,
@@ -2623,6 +2631,7 @@ internal fun pcCareSlotChip(
                 hintLabel = hint,
                 canRecord = true,
                 previewPath = previewPath,
+                previewIdentity = localRow.id,
                 previewKind = previewKind,
                 localProofRowId = localRow.id,
                 proofOutboxItemId = localRow.outboxItemId,
@@ -2637,6 +2646,7 @@ internal fun pcCareSlotChip(
                 hintLabel = hint,
                 canRecord = localRow.syncStatus == CaptureSyncStatus.FAILED,
                 previewPath = previewPath,
+                previewIdentity = localRow.id,
                 previewKind = previewKind,
                 localProofRowId = localRow.id,
                 proofOutboxItemId = localRow.outboxItemId,
@@ -2659,6 +2669,7 @@ internal fun pcCareSlotChip(
             hintLabel = hint,
             canRecord = false,
             previewPath = remotePreview?.url.orEmpty(),
+            previewIdentity = serverSlot.proofRef,
             previewKind = PcCareProofPreviewKind.VIDEO,
             serverProofId = serverSlot.proofRef,
         )
@@ -2702,7 +2713,8 @@ internal fun pcCareBuildTaskProofSlot(
     val remotePreview = remotePreviewUrls[slot.fieldKey]
     val serverPreviewUrl = remotePreview?.url.orEmpty()
     val localInProgressPreview = localRow?.takeIf {
-        it.syncStatus != CaptureSyncStatus.FAILED &&
+        serverProof?.proofRef != it.serverProofId &&
+            it.syncStatus != CaptureSyncStatus.FAILED &&
             it.processingStatus != ProofProcessingStatus.UPLOADED &&
             it.processingStatus != ProofProcessingStatus.RECORD_AGAIN &&
             !it.previewUri().isNullOrBlank()
@@ -2717,6 +2729,7 @@ internal fun pcCareBuildTaskProofSlot(
             hintLabel = hint,
             canRecord = false,
             previewPath = localInProgressPreview.previewUri().orEmpty(),
+            previewIdentity = localInProgressPreview.id,
             previewKind = pcCarePreviewKind(localInProgressPreview.mimeType),
             localProofRowId = localInProgressPreview.id,
             proofOutboxItemId = localInProgressPreview.outboxItemId,
@@ -2737,6 +2750,7 @@ internal fun pcCareBuildTaskProofSlot(
             hintLabel = hint,
             canRecord = false,
             previewPath = localRow.previewUri().orEmpty(),
+            previewIdentity = localRow.serverProofId ?: localRow.id,
             previewKind = pcCarePreviewKind(localRow.mimeType),
             localProofRowId = localRow.id,
             proofOutboxItemId = localRow.outboxItemId,
@@ -2756,6 +2770,7 @@ internal fun pcCareBuildTaskProofSlot(
             hintLabel = hint,
             canRecord = true,
             previewPath = localRow.previewUri().orEmpty(),
+            previewIdentity = localRow.id,
             previewKind = pcCarePreviewKind(localRow.mimeType),
             localProofRowId = localRow.id,
             proofOutboxItemId = localRow.outboxItemId,
@@ -2783,6 +2798,7 @@ internal fun pcCareBuildTaskProofSlot(
             hintLabel = hint,
             canRecord = category.isPcCareRepeatableTaskProofCategory(),
             previewPath = serverPreviewUrl.ifBlank { previewRow?.previewUri().orEmpty() },
+            previewIdentity = serverProof.proofRef,
             previewKind = previewRow?.mimeType?.let(::pcCarePreviewKind) ?: expectedKind,
             localProofRowId = previewRow?.id,
             proofOutboxItemId = previewRow?.outboxItemId,
@@ -2804,6 +2820,7 @@ internal fun pcCareBuildTaskProofSlot(
                     ?.url
                     .orEmpty()
                     .ifBlank { localRow.previewUri().orEmpty() },
+                previewIdentity = localRow.serverProofId ?: localRow.id,
                 previewKind = pcCarePreviewKind(localRow.mimeType),
                 localProofRowId = localRow.id,
                 proofOutboxItemId = localRow.outboxItemId,
@@ -2818,6 +2835,7 @@ internal fun pcCareBuildTaskProofSlot(
                 hintLabel = hint,
                 canRecord = true,
                 previewPath = localRow.previewUri().orEmpty(),
+                previewIdentity = localRow.id,
                 previewKind = pcCarePreviewKind(localRow.mimeType),
                 localProofRowId = localRow.id,
                 proofOutboxItemId = localRow.outboxItemId,
@@ -2832,6 +2850,7 @@ internal fun pcCareBuildTaskProofSlot(
                 hintLabel = hint,
                 canRecord = localRow.syncStatus == CaptureSyncStatus.FAILED,
                 previewPath = localRow.previewUri().orEmpty(),
+                previewIdentity = localRow.id,
                 previewKind = pcCarePreviewKind(localRow.mimeType),
                 localProofRowId = localRow.id,
                 proofOutboxItemId = localRow.outboxItemId,
@@ -2868,6 +2887,9 @@ private fun pcCareAbsoluteProofUrl(raw: String): String {
         else -> trimmed
     }
 }
+
+private fun pcCareBackendProofUrl(proofRef: String): String =
+    pcCareAbsoluteProofUrl("/app/proofs/${proofRef.trim()}/download")
 
 internal data class TaskProofPreviewUrl(
     val proofRef: String,

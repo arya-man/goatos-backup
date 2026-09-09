@@ -1,9 +1,14 @@
 package sg.mesha.goatos.viewmodel
 
-import android.media.MediaPlayer
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,6 +23,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEventsVendors
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.VendorsRepository
+import sg.mesha.goatos.core.media.ProofPlayerFactory
 import sg.mesha.goatos.core.network.dto.VendorDto
 import sg.mesha.goatos.feature.vendors.VendorDetailEvent
 import sg.mesha.goatos.feature.vendors.VendorDetailUiState
@@ -30,8 +36,10 @@ import javax.inject.Inject
 /** One vendor's detail (L1), Room-first, with the voice note's on-demand playback. */
 @HiltViewModel
 class VendorDetailViewModel @Inject constructor(
+    @param:ApplicationContext private val appContext: Context,
     savedStateHandle: SavedStateHandle,
     private val repository: VendorsRepository,
+    private val proofPlayerFactory: ProofPlayerFactory,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
@@ -47,7 +55,10 @@ class VendorDetailViewModel @Inject constructor(
     )
 
     private val local = MutableStateFlow(Local())
-    private var player: MediaPlayer? = null
+    private var player: ExoPlayer? = null
+    private var playbackRequestId = 0
+    private var activeVoiceNoteProofRef: String = ""
+    private var activeVoiceNotePlayTracked = false
 
     init {
         refresh()
@@ -77,6 +88,7 @@ class VendorDetailViewModel @Inject constructor(
             VendorDetailEvent.Refresh -> refresh()
             VendorDetailEvent.PlayVoiceNote -> play()
             VendorDetailEvent.StopVoiceNote -> stop()
+            VendorDetailEvent.AppStopped -> stop()
             VendorDetailEvent.DismissMessage -> local.update { it.copy(message = null) }
             VendorDetailEvent.Back -> Unit
             // Navigation-owned: the host routes to the edit form.
@@ -96,47 +108,98 @@ class VendorDetailViewModel @Inject constructor(
     }
 
     private fun play() {
+        val requestId = ++playbackRequestId
         viewModelScope.launch {
             local.update { it.copy(playback = VoiceNotePlayback.LOADING, message = null) }
             val ref = repository.observeVendor(vendorId).first()?.voiceNoteProofRef.orEmpty()
             val url = repository.resolveVoiceNoteUrl(ref)?.let(::vendorsAbsoluteProofUrl)
+            if (requestId != playbackRequestId) {
+                resetStaleLoading()
+                return@launch
+            }
             if (url.isNullOrBlank()) {
                 local.update { it.copy(playback = VoiceNotePlayback.FAILED) }
                 analytics.track(AnalyticsEventsVendors.VENDORS_FAILURE, mapOf(AnalyticsEvents.Params.REASON to "voice_note_url"))
                 return@launch
             }
-            startPlayer(url)
+            // proof-media-egress:ignore Voice-note playback is explicit tap action and startPlayer uses ProofMediaHttp telemetry/auth.
+            startPlayer(url, ref)
         }
     }
 
-    private fun startPlayer(url: String) {
+    private fun resetStaleLoading() {
+        local.update { if (it.playback == VoiceNotePlayback.LOADING) it.copy(playback = VoiceNotePlayback.IDLE) else it }
+    }
+
+    // proof-media-egress:ignore Voice-note playback helper is explicit tap action and uses ProofMediaHttp telemetry/auth.
+    private fun startPlayer(url: String, proofRef: String) {
         stop()
+        activeVoiceNoteProofRef = proofRef.trim()
+        activeVoiceNotePlayTracked = false
         try {
-            val mediaPlayer = MediaPlayer()
-            mediaPlayer.setDataSource(url)
-            mediaPlayer.setOnPreparedListener {
-                it.start()
-                local.update { l -> l.copy(playback = VoiceNotePlayback.PLAYING, url = url) }
-            }
-            mediaPlayer.setOnCompletionListener { local.update { l -> l.copy(playback = VoiceNotePlayback.IDLE) } }
-            mediaPlayer.setOnErrorListener { _, _, _ ->
-                local.update { l -> l.copy(playback = VoiceNotePlayback.FAILED) }
-                true
-            }
-            mediaPlayer.prepareAsync()
+            val mediaPlayer = proofPlayerFactory.create(appContext)
+            mediaPlayer.addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_READY && mediaPlayer.playWhenReady) {
+                        local.update { l -> l.copy(playback = VoiceNotePlayback.PLAYING, url = url) }
+                        if (!activeVoiceNotePlayTracked) {
+                            activeVoiceNotePlayTracked = true
+                            trackVoiceNotePlayback("play")
+                        }
+                    }
+                    if (playbackState == Player.STATE_ENDED) {
+                        trackVoiceNotePlayback("complete")
+                        activeVoiceNoteProofRef = ""
+                        activeVoiceNotePlayTracked = false
+                        local.update { l -> l.copy(playback = VoiceNotePlayback.IDLE) }
+                    }
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    crashReporter.recordException(error, "vendor voice note playback failed")
+                    trackVoiceNotePlayback("failure")
+                    activeVoiceNoteProofRef = ""
+                    activeVoiceNotePlayTracked = false
+                    local.update { l -> l.copy(playback = VoiceNotePlayback.FAILED) }
+                }
+            })
+            // proof-media-egress:ignore Voice-note playback is tap-started and goes through ProofMediaHttp auth/telemetry before release on stop/background.
+            mediaPlayer.setMediaItem(MediaItem.fromUri(url))
+            mediaPlayer.playWhenReady = true
+            mediaPlayer.prepare()
             player = mediaPlayer
         } catch (e: Exception) {
             crashReporter.recordException(e, "vendor voice note playback failed")
+            trackVoiceNotePlayback("failure")
+            activeVoiceNoteProofRef = ""
+            activeVoiceNotePlayTracked = false
             local.update { it.copy(playback = VoiceNotePlayback.FAILED) }
         }
     }
 
     private fun stop() {
+        playbackRequestId += 1
         // exception:exempt a player that never prepared throws on stop(); release regardless.
         runCatching { player?.stop() }
         runCatching { player?.release() }
         player = null
+        if (activeVoiceNoteProofRef.isNotBlank()) {
+            trackVoiceNotePlayback("stop")
+            activeVoiceNoteProofRef = ""
+        }
+        activeVoiceNotePlayTracked = false
         local.update { if (it.playback == VoiceNotePlayback.PLAYING) it.copy(playback = VoiceNotePlayback.IDLE) else it }
+    }
+
+    private fun trackVoiceNotePlayback(action: String) {
+        analytics.track(
+            AnalyticsEventsVendors.VENDORS_VOICE_NOTE_PLAYBACK,
+            mapOf(
+                "vendor_id" to vendorId.take(80),
+                "proof_ref" to activeVoiceNoteProofRef.take(80),
+                "action" to action,
+            ),
+        )
     }
 
     override fun onCleared() {

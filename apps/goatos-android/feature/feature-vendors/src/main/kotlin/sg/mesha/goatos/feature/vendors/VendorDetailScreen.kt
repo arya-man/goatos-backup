@@ -28,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -45,6 +47,7 @@ fun VendorDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     RefreshOnResume { onEvent(VendorDetailEvent.Refresh) }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { onEvent(VendorDetailEvent.AppStopped) }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = state.title,

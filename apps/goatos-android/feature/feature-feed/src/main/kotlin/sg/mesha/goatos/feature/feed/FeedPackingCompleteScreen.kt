@@ -146,6 +146,7 @@ fun FeedPackingCompleteScreen(
                     captured = state.videoCaptured,
                     status = state.videoStatus,
                     previewPath = state.videoPreviewPath,
+                    previewIdentity = "feed-packing:video",
                     previewKind = FeedDistPreviewKind.Video,
                     capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_pack_complete_video_recorded)),
                     loading = state.isCapturingVideo,

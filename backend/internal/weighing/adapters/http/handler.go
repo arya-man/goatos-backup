@@ -549,9 +549,6 @@ func (h *Handler) ListLeadershipSheds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) resolveLeadershipMedia(ctx context.Context, tenantID string, result *domain.LeadershipShedVideos) error {
-	if h.media == nil {
-		return errors.New("weighing media resolver is unavailable")
-	}
 	resolve := func(observation *domain.Observation) error {
 		ids := observation.ProofArtifactIDs
 		if len(ids) == 0 && observation.ProofArtifactID != "" {
@@ -559,11 +556,11 @@ func (h *Handler) resolveLeadershipMedia(ctx context.Context, tenantID string, r
 		}
 		observation.Media = make([]domain.ProofMedia, 0, len(ids))
 		for _, proofID := range ids {
-			url, err := h.media.DownloadURL(ctx, tenantID, proofID)
-			if err != nil {
-				return err
+			proofID = strings.TrimSpace(proofID)
+			if proofID == "" {
+				continue
 			}
-			observation.Media = append(observation.Media, domain.ProofMedia{ProofID: proofID, DownloadURL: url})
+			observation.Media = append(observation.Media, domain.ProofMedia{ProofID: proofID, DownloadURL: "/app/proofs/" + proofID + "/download"})
 		}
 		return nil
 	}

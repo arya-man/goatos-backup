@@ -120,6 +120,7 @@ class LeadershipTaskDetailViewModel @Inject constructor(
                 changeStatus(STATUS_CANCELLED)
             }
             is LeadershipTaskDetailEvent.OpenAttachment -> openAttachment(event.listKey)
+            is LeadershipTaskDetailEvent.PreviewAttachment -> trackAttachmentPreview(event.listKey, event.action)
             is LeadershipTaskDetailEvent.CommentChanged -> local.update { it.copy(commentDraft = event.value.take(MAX_COMMENT_CHARS), commentKey = null) }
             LeadershipTaskDetailEvent.SaveComment -> saveComment()
             LeadershipTaskDetailEvent.DismissMessage -> local.update { it.copy(message = null) }
@@ -128,6 +129,17 @@ class LeadershipTaskDetailViewModel @Inject constructor(
 
     /** The row version the edit route should carry, from the freshest task known here. */
     fun currentTask(): LeadershipTaskDto? = latest
+
+    private fun trackAttachmentPreview(listKey: String, action: String) {
+        analytics.track(
+            AnalyticsEventsLeadershipTasks.ATTACHMENT_PREVIEW_ACTION,
+            mapOf(
+                "task_id" to taskId,
+                "attachment_key" to listKey,
+                "preview_action" to action,
+            ),
+        )
+    }
 
     private fun refresh() {
         if (taskId.isBlank()) return

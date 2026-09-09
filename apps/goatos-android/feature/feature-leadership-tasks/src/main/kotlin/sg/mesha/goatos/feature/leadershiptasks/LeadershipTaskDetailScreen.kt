@@ -346,17 +346,24 @@ private fun LeadershipAttachmentRow(
                 LeadershipAttachmentKind.PHOTO -> ProofMediaPreview(
                     path = attachment.localPath,
                     kind = ProofMediaPreviewKind.Photo,
+                    mediaIdentity = attachment.listKey,
                     modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp)),
                     expandable = true,
+                    onPreviewAction = { action -> onEvent(LeadershipTaskDetailEvent.PreviewAttachment(attachment.listKey, action)) },
                 )
                 // proof-preview-analytics:ignore leadership attachment viewer, not proof capture/outbox media.
                 LeadershipAttachmentKind.VIDEO -> ProofMediaPreview(
                     path = attachment.localPath,
                     kind = ProofMediaPreviewKind.Video,
+                    mediaIdentity = attachment.listKey,
                     modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp)),
                     expandable = true,
+                    onPreviewAction = { action -> onEvent(LeadershipTaskDetailEvent.PreviewAttachment(attachment.listKey, action)) },
                 )
-                LeadershipAttachmentKind.AUDIO -> LeadershipAudioPlayerRow(localPath = attachment.localPath)
+                LeadershipAttachmentKind.AUDIO -> LeadershipAudioPlayerRow(
+                    localPath = attachment.localPath,
+                    onAction = { action -> onEvent(LeadershipTaskDetailEvent.PreviewAttachment(attachment.listKey, action)) },
+                )
                 LeadershipAttachmentKind.FILE -> Unit
             }
         }

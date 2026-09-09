@@ -1004,22 +1004,7 @@ func primaryActionKey(p domain.ExecutionProjection, workState domain.WorkState, 
 // ScanRoster returns per-animal vaccination obligations for a shed with RFID tags and vaccine labels.
 // Used by the mobile scan screen to match keyboard-wedge tag captures.
 func (s *Service) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
-	result, err := s.repo.ScanRoster(ctx, q)
-	if err != nil || s.proofURLs == nil {
-		return result, err
-	}
-	for i := range result.Rows {
-		row := &result.Rows[i]
-		if row.LatestProofID == nil || strings.TrimSpace(*row.LatestProofID) == "" {
-			continue
-		}
-		url, err := s.proofURLs.ResolveProofDownloadURL(ctx, q.TenantID, strings.TrimSpace(*row.LatestProofID))
-		if err != nil || strings.TrimSpace(url) == "" {
-			continue
-		}
-		row.LatestProofDownloadURL = &url
-	}
-	return result, nil
+	return s.repo.ScanRoster(ctx, q)
 }
 
 func (s *Service) TaskOptionValues(ctx context.Context, tenantID, taskID string) (domain.TaskOptionValuesResponse, error) {

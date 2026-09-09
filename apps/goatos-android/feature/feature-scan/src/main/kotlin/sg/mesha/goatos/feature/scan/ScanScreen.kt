@@ -1213,6 +1213,7 @@ private fun FeedRow(
                 ProofMediaPreview(
                     path = path,
                     kind = ProofMediaPreviewKind.Video,
+                    mediaIdentity = entry.stableProofPreviewIdentity(),
                     modifier = Modifier.fillMaxWidth(),
                     onPreviewAction = onPreviewAction,
                 )
@@ -1227,6 +1228,7 @@ private fun VaccinationProofPreview(row: RosterRow, onPreviewAction: (String) ->
         ProofMediaPreview(
             path = path,
             kind = ProofMediaPreviewKind.Video,
+            mediaIdentity = row.stableProofPreviewIdentity(),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 10.dp),
@@ -1288,12 +1290,30 @@ private fun ProofNeededFeedRow(
             ProofMediaPreview(
                 path = path,
                 kind = ProofMediaPreviewKind.Video,
+                mediaIdentity = row.stableProofPreviewIdentity(),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 onPreviewAction = onPreviewAction,
             )
         }
     }
 }
+
+private fun RosterRow.stableProofPreviewIdentity(): String =
+    proofPreviewServerId?.takeIf { it.isNotBlank() }
+        ?: proofPreviewId?.takeIf { it.isNotBlank() }
+        ?: proofPreviewOutboxItemId?.takeIf { it.isNotBlank() }
+        ?: listOf("scan-proof", goatId, obligationId, obligationRowVersion.toString())
+            .filter { it.isNotBlank() }
+            .joinToString(":")
+            .ifBlank { "scan-proof:${primaryTag}:${vaccineLabel}" }
+
+private fun ScanFeedEntry.stableProofPreviewIdentity(): String =
+    proofPreviewServerId?.takeIf { it.isNotBlank() }
+        ?: proofPreviewId?.takeIf { it.isNotBlank() }
+        ?: proofPreviewOutboxItemId?.takeIf { it.isNotBlank() }
+        ?: listOf("scan-feed-proof", goatId, primaryTag, vaccineLabel)
+            .filter { it.isNotBlank() }
+            .joinToString(":")
 
 @Composable
 private fun ScanRosterFlatRow(

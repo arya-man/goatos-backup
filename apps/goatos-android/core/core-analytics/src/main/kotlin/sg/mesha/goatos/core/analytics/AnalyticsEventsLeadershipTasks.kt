@@ -30,6 +30,9 @@ object AnalyticsEventsLeadershipTasks {
     /** An attachment was added to a draft; [AnalyticsEvents.Params.KIND] carries its kind. */
     const val ATTACHMENT_ADDED = "leadership_task_attachment_added"
 
+    /** A stored attachment preview was opened, played, paused, shared, completed, or failed. */
+    const val ATTACHMENT_PREVIEW_ACTION = "leadership_task_attachment_preview_action"
+
     /** A voice note was recorded in the app and kept on the draft. */
     const val AUDIO_RECORDED = "leadership_task_audio_recorded"
 

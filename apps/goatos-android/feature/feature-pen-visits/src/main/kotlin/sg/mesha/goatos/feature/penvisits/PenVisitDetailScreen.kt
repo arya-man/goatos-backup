@@ -160,6 +160,7 @@ private fun PenVisitVideoSection(
                 ProofMediaPreview(
                     path = state.previewPath,
                     kind = ProofMediaPreviewKind.Video,
+                    mediaIdentity = "pen_visit:${state.taskId}:visit_video",
                     onPreviewAction = { action -> onEvent(PenVisitDetailEvent.ProofPreviewAction(action)) },
                 )
             }

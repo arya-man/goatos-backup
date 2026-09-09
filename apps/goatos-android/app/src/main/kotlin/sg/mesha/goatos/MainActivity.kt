@@ -51,7 +51,9 @@ import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
 import sg.mesha.goatos.core.media.LocalProofPlayerFactory
+import sg.mesha.goatos.core.media.LocalProofRemoteImageLoader
 import sg.mesha.goatos.core.media.ProofPlayerFactory
+import sg.mesha.goatos.core.media.ProofRemoteImageLoader
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.feature.auth.LoginScreen
 import sg.mesha.goatos.push.PendingNavigation
@@ -92,6 +94,10 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var proofPlayerFactory: ProofPlayerFactory
 
+    /** Loads tap-opened remote proof photos over the same authenticated media client as videos. */
+    @Inject
+    lateinit var proofRemoteImageLoader: ProofRemoteImageLoader
+
     /** Session-boundary + force-update-gate analytics owned directly by this Activity (app
      *  open/backgrounded and the force-update gate both render here, above any ViewModel that
      *  already holds an [AnalyticsPort]). */
@@ -116,7 +122,10 @@ class MainActivity : ComponentActivity() {
                 // Proof-video players below this point fetch over the app's instrumented OkHttp
                 // client, so a 403/404/500 on a signed playback URL produces the same logcat +
                 // Crashlytics + api_call_failure signal a failed API call does (W-22).
-                CompositionLocalProvider(LocalProofPlayerFactory provides proofPlayerFactory) {
+                CompositionLocalProvider(
+                    LocalProofPlayerFactory provides proofPlayerFactory,
+                    LocalProofRemoteImageLoader provides proofRemoteImageLoader,
+                ) {
                 // Force-update gate sits ABOVE auth + bootstrap: an out-of-date build is
                 // blocked whether or not anyone is signed in. Fails open, so an
                 // unconfigured environment (e.g. the dev flavor) renders the app normally.
@@ -273,7 +282,7 @@ class MainActivity : ComponentActivity() {
                 }
                     } // UpdateGateUiState.Allowed
                 } // when (updateGate)
-                } // CompositionLocalProvider(LocalProofPlayerFactory)
+                } // CompositionLocalProvider(LocalProofPlayerFactory, LocalProofRemoteImageLoader)
                 } // ProvideAppLocale
             }
         }

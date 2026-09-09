@@ -14,5 +14,5 @@ export async function GET(
       { status: 404 },
     );
   }
-  return NextResponse.redirect(result.data.download_url);
+  return NextResponse.redirect(result.data.download_url); // admin-proof-media-egress:ignore explicit attachment download route after task/proof selection.
 }

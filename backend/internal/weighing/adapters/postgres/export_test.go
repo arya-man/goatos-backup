@@ -503,9 +503,8 @@ func (s stubProofURLResolver) ResolveProofDownloadURL(_ context.Context, _, proo
 	return s.urls[proofID], nil
 }
 
-// TestResolveProofVideoURLResolvable asserts that a proof with a working resolver and a linked
-// proof id yields an absolute, clickable URL and no note -- the maintainer-facing contract this
-// fix exists for.
+// TestResolveProofVideoURLResolvable asserts that a proof with a linked proof id yields the
+// backend download route and no note. Export must not bulk-mint signed GCS URLs.
 func TestResolveProofVideoURLResolvable(t *testing.T) {
 	repo := (&Repository{}).WithProofURLResolver(stubProofURLResolver{
 		urls: map[string]string{
@@ -515,17 +514,16 @@ func TestResolveProofVideoURLResolvable(t *testing.T) {
 
 	url, note := repo.resolveProofVideoURL(context.Background(), "tenant-1", "proof-1", "some/object/key.mp4")
 
-	if url != "http://127.0.0.1:8090/app/proofs/proof-1/download/signed?tenant_id=t&expires=1&sig=abc" {
-		t.Errorf("expected absolute clickable URL, got %q", url)
+	if url != "/app/proofs/proof-1/download" {
+		t.Errorf("expected backend proof route, got %q", url)
 	}
 	if note != "" {
 		t.Errorf("expected no note for a resolvable proof, got %q", note)
 	}
 }
 
-// TestResolveProofVideoURLUnresolvable covers the three ways resolution can fail -- no proof
-// linked, no resolver configured, and the resolver erroring -- and asserts EVERY case yields an
-// empty URL (never a half-path that looks like a link) plus a reason in the neighbouring column.
+// TestResolveProofVideoURLUnresolvable covers missing proof references and resolver behavior.
+// Once a proof id exists, export returns the backend download route without bulk-signing anything.
 func TestResolveProofVideoURLUnresolvable(t *testing.T) {
 	t.Run("no proof reference at all", func(t *testing.T) {
 		repo := &Repository{}
@@ -546,40 +544,40 @@ func TestResolveProofVideoURLUnresolvable(t *testing.T) {
 		}
 	})
 
-	t.Run("no resolver configured", func(t *testing.T) {
+	t.Run("no resolver configured still returns backend route", func(t *testing.T) {
 		repo := &Repository{}
 		url, note := repo.resolveProofVideoURL(context.Background(), "tenant-1", "proof-1", "some/object/key.mp4")
-		if url != "" {
-			t.Errorf("expected empty URL, got %q", url)
+		if url != "/app/proofs/proof-1/download" {
+			t.Errorf("expected backend proof route, got %q", url)
 		}
-		if note == "" {
-			t.Error("expected a reason when no resolver is configured")
+		if note != "" {
+			t.Errorf("expected no resolver note, got %q", note)
 		}
 	})
 
-	t.Run("resolver errors", func(t *testing.T) {
+	t.Run("resolver errors do not matter during export", func(t *testing.T) {
 		repo := (&Repository{}).WithProofURLResolver(stubProofURLResolver{
 			errs: map[string]error{"proof-1": errObjectMissingForTest},
 		})
 		url, note := repo.resolveProofVideoURL(context.Background(), "tenant-1", "proof-1", "some/object/key.mp4")
-		if url != "" {
-			t.Errorf("expected empty URL, got %q", url)
+		if url != "/app/proofs/proof-1/download" {
+			t.Errorf("expected backend proof route, got %q", url)
 		}
-		if note == "" {
-			t.Error("expected a reason when the resolver errors")
+		if note != "" {
+			t.Errorf("expected no resolver note, got %q", note)
 		}
 	})
 
-	t.Run("resolver returns non-absolute value", func(t *testing.T) {
+	t.Run("resolver returns non-absolute value does not matter during export", func(t *testing.T) {
 		repo := (&Repository{}).WithProofURLResolver(stubProofURLResolver{
 			urls: map[string]string{"proof-1": "/app/proofs/proof-1/download/signed?sig=abc"},
 		})
 		url, note := repo.resolveProofVideoURL(context.Background(), "tenant-1", "proof-1", "some/object/key.mp4")
-		if url != "" {
-			t.Errorf("expected empty URL for a non-absolute value, got %q", url)
+		if url != "/app/proofs/proof-1/download" {
+			t.Errorf("expected backend proof route, got %q", url)
 		}
-		if note == "" {
-			t.Error("expected a reason when the resolver does not return an absolute URL")
+		if note != "" {
+			t.Errorf("expected no resolver note, got %q", note)
 		}
 	})
 }
@@ -607,7 +605,7 @@ func TestProofVideoColumnsJoinsMultipleProofs(t *testing.T) {
 	if refs != "gs://goatos-stg-proofs/weighing/a.mp4 | gs://goatos-stg-proofs/weighing/b.mp4" {
 		t.Fatalf("unexpected refs: %q", refs)
 	}
-	if urls != "https://storage.example/proof-1 | https://storage.example/proof-2" {
+	if urls != "/app/proofs/proof-1/download | /app/proofs/proof-2/download" {
 		t.Fatalf("unexpected urls: %q", urls)
 	}
 	if notes != "" {

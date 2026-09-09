@@ -64,6 +64,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
@@ -436,6 +437,13 @@ sealed interface VerifyDetailEvent {
         /** [PLAY_INTENT] only: `"play"` or `"pause"`, whichever the tap requested. */
         val targetAction: String? = null,
     ) : VerifyDetailEvent
+    data class PhotoPreview(
+        val proofSubject: String,
+        val mimeType: String,
+        val action: String,
+        val outcome: String? = null,
+        val reason: String? = null,
+    ) : VerifyDetailEvent
 }
 
 @Composable
@@ -707,7 +715,11 @@ private fun VerifyEntryCard(
                 // The branch keys on the BACKEND-supplied mime, never on a label or a proof name --
                 // the label is farm copy that can change, the mime is what the bytes are.
                 if (media.isPhoto) {
-                    VerifyProofPhoto(media = media, modifier = Modifier.fillMaxWidth())
+                    VerifyProofPhoto(
+                        media = media,
+                        onPreview = { onPlayback(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 } else {
                     VerifyVideoPlayer(
                         media = media,
@@ -986,32 +998,97 @@ private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {
 @Composable
 private fun VerifyProofPhoto(
     media: VerifyMediaItem,
+    onPreview: (VerifyDetailEvent.PhotoPreview) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     // Tap to enlarge. A feed-weight photo is judged by READING A NUMBER off a scale, and at card
     // width on a phone that number is often a few pixels tall — a photo proof that cannot be
     // enlarged is a proof the verifier has to approve on faith.
+    var loadPhoto by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
     var isFullscreen by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(MeshaColors.Surf2)
             .aspectRatio(16f / 9f)
-            .clickable { isFullscreen = true },
+            .clickable {
+                if (loadPhoto) {
+                    onPreview(
+                        VerifyDetailEvent.PhotoPreview(
+                            proofSubject = media.proofSubject,
+                            mimeType = media.mimeType,
+                            action = "fullscreen_open",
+                            outcome = "attempt",
+                        ),
+                    )
+                    isFullscreen = true
+                } else {
+                    onPreview(
+                        VerifyDetailEvent.PhotoPreview(
+                            proofSubject = media.proofSubject,
+                            mimeType = media.mimeType,
+                            action = "open",
+                            outcome = "attempt",
+                        ),
+                    )
+                    loadPhoto = true
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
-        AsyncImage(
-            model = media.signedUrl,
-            // Farm language, and it describes the EVIDENCE rather than the file: a screen reader user
-            // verifying feed hears what they are being asked to judge.
-            contentDescription = stringResource(R.string.verify_detail_photo_description),
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (loadPhoto) {
+            AsyncImage(
+                // proof-media-egress:ignore Photo is tap-armed and Coil cache-keyed by stable proof id.
+                model = ImageRequest.Builder(context)
+                    .data(media.signedUrl)
+                    .memoryCacheKey("verify-proof-photo-${media.proofSubject}")
+                    .diskCacheKey("verify-proof-photo-${media.proofSubject}")
+                    .build(),
+                onSuccess = {
+                    onPreview(
+                        VerifyDetailEvent.PhotoPreview(
+                            proofSubject = media.proofSubject,
+                            mimeType = media.mimeType,
+                            action = "load",
+                            outcome = "success",
+                        ),
+                    )
+                },
+                onError = { result ->
+                    onPreview(
+                        VerifyDetailEvent.PhotoPreview(
+                            proofSubject = media.proofSubject,
+                            mimeType = media.mimeType,
+                            action = "load",
+                            outcome = "failure",
+                            reason = result.result.throwable.message ?: result.result.throwable::class.simpleName,
+                        ),
+                    )
+                },
+                // Farm language, and it describes the EVIDENCE rather than the file: a screen reader user
+                // verifying feed hears what they are being asked to judge.
+                contentDescription = stringResource(R.string.verify_detail_photo_description),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            Icon(MeshaIcons.EyeOff, contentDescription = null, tint = MeshaColors.Muted)
+        }
     }
     if (isFullscreen) {
         Dialog(
-            onDismissRequest = { isFullscreen = false },
+            onDismissRequest = {
+                onPreview(
+                    VerifyDetailEvent.PhotoPreview(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = "fullscreen_close",
+                        outcome = "success",
+                    ),
+                )
+                isFullscreen = false
+            },
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
             Box(
@@ -1019,11 +1096,47 @@ private fun VerifyProofPhoto(
                     .fillMaxSize()
                     .background(MeshaColors.Ink)
                     // Tap anywhere to close, matching how the fullscreen video overlay dismisses.
-                    .clickable { isFullscreen = false },
+                    .clickable {
+                        onPreview(
+                            VerifyDetailEvent.PhotoPreview(
+                                proofSubject = media.proofSubject,
+                                mimeType = media.mimeType,
+                                action = "fullscreen_close",
+                                outcome = "success",
+                            ),
+                        )
+                        isFullscreen = false
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 AsyncImage(
-                    model = media.signedUrl,
+                    // proof-media-egress:ignore Photo is tap-armed and Coil cache-keyed by stable proof id.
+                    model = ImageRequest.Builder(context)
+                        .data(media.signedUrl)
+                        .memoryCacheKey("verify-proof-photo-${media.proofSubject}")
+                        .diskCacheKey("verify-proof-photo-${media.proofSubject}")
+                        .build(),
+                    onSuccess = {
+                        onPreview(
+                            VerifyDetailEvent.PhotoPreview(
+                                proofSubject = media.proofSubject,
+                                mimeType = media.mimeType,
+                                action = "fullscreen_load",
+                                outcome = "success",
+                            ),
+                        )
+                    },
+                    onError = { result ->
+                        onPreview(
+                            VerifyDetailEvent.PhotoPreview(
+                                proofSubject = media.proofSubject,
+                                mimeType = media.mimeType,
+                                action = "fullscreen_load",
+                                outcome = "failure",
+                                reason = result.result.throwable.message ?: result.result.throwable::class.simpleName,
+                            ),
+                        )
+                    },
                     contentDescription = stringResource(R.string.verify_detail_photo_description),
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
@@ -1091,24 +1204,12 @@ private fun VerifyVideoPlayer(
                 refreshedUri = media.signedUrl,
             )
         ) {
+            // proof-media-egress:ignore Refreshed URL is adopted only for this proof-id keyed, tap-armed player.
             player.setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
         }
     }
-    // Prepare visible proofs enough to paint their first frame and duration. The verifier should
-    // not see a black ExoPlayer box that reads 0:00 / 0:00 and have to guess whether evidence exists.
-    // Playback ownership is still only claimed on an actual play tap; this is just preview readiness.
-    LaunchedEffect(rowBounds, viewportBounds, activeProofSubject, armed, player) {
-        val row = rowBounds ?: return@LaunchedEffect
-        val viewport = viewportBounds ?: return@LaunchedEffect
-        if (
-            !armed &&
-            isRowVisibleInViewport(row, viewport) &&
-            player.playbackState == Player.STATE_IDLE
-        ) {
-            armed = true
-            player.prepare()
-        }
-    }
+    // Remote proof media is paid egress. A visible row must not prepare/stream a signed URL just to
+    // paint a first frame; only an explicit play/fullscreen action may start reading bytes.
     // prepare() (the call that allocates the hardware decoder) is fired synchronously from the
     // play/pause click handler's STATE_IDLE branch below, in the same tap that flips `armed` to
     // true — there is no other path that sets `armed`, so a LaunchedEffect(armed, ...) mirroring
@@ -1203,9 +1304,10 @@ private fun VerifyVideoPlayer(
     // for transient overlays like a permission dialog) matches the ExoPlayer-recommended pause
     // point and keeps a proof clip from playing audio behind a locked screen.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        if (armed && player.isPlaying) {
+        if (armed && player.playbackState != Player.STATE_IDLE) {
             player.playWhenReady = false
             player.stop()
+            armed = false
             if (activeProofSubject == media.proofSubject) {
                 onActiveProofSubjectChange(null)
             }
@@ -1649,6 +1751,7 @@ private fun FullscreenVideoDialog(
     // would restart the proof from zero (or blank it, before the rebind below existed).
     val player = remember(media.proofSubject) {
         playerFactory.create(context).apply {
+            // proof-media-egress:ignore Fullscreen player opens only after explicit tap from a stable proof id keyed row; lifecycle owns release.
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)), startPositionMs.coerceAtLeast(0L))
             prepare()
             playWhenReady = true
@@ -1700,9 +1803,9 @@ private fun FullscreenVideoDialog(
     // Same background-pause rule as the inline player above — a fullscreen proof clip must not
     // keep playing (with audio) behind a locked screen or after a task switch.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        if (player.isPlaying) {
+        if (player.playbackState != Player.STATE_IDLE) {
             player.playWhenReady = false
-            player.pause()
+            player.stop()
         }
     }
 

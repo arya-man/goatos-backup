@@ -17,6 +17,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.PUT
@@ -580,6 +581,7 @@ interface AppApiService {
         @Query("limit") limit: Int?,
     ): UploadedProofListResponseDto
 
+    @Headers("Accept: application/json")
     @GET("app/proofs/{proof_id}/download")
     suspend fun getProofDownloadUrl(
         @Path("proof_id") proofId: String,

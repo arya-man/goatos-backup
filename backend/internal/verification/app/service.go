@@ -497,57 +497,31 @@ func (s *Service) ListReadyVaccinationBatchClosures(ctx context.Context, params 
 	return closures, nil
 }
 
-// resolveMedia batch-resolves every distinct proof id referenced on the page in ONE call to the proof
-// storage signed-URL port (never a per-row lookup — bounded by page size x media-per-item).
+// resolveMedia attaches stable proof download API paths without minting signed GCS URLs on a
+// queue/list read. The signed URL is created only when the client explicitly opens
+// /app/proofs/{proof_id}/download.
 // Resolution is per-item: an item whose own media refs all resolve keeps its media and
 // evidence_available=true; an item with any unresolvable ref of its OWN gets empty media +
 // evidence_available=false. The resolver reports per-ID failures as empty MediaItems with DownloadURL="",
 // which the service layer detects to fail-close only that item (not the whole page).
 //
 // It deliberately does NOT verify that each stored object is retrievable. Doing so would cost one
-// stat/HEAD per proof per row: on GCS (the production provider) a signed HEAD is ~20-50ms, so a
-// 20-item page with ~3 proofs each is ~60 sequential round trips (~1.2-3s) — far past the sub-500ms
-// operator hot-read budget, and an N+1 on a queue read. The honest contract is therefore
-// EvidenceLinkResolved ("a link was issued for every media_ref"), and terminal unavailability is
-// reported by the download route as 410 proof_object_missing / retryable=false for the client to
-// render as "evidence unavailable".
+// stat/HEAD per proof per row. The honest contract is therefore MediaRefsPresent ("there are proof
+// refs to open"), and terminal unavailability is reported by the download route as 410
+// proof_object_missing / retryable=false for the client to render as "evidence unavailable".
 func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []domain.Item) []domain.QueueRow {
 	rows := make([]domain.QueueRow, len(items))
-	allProofIDs := make([]string, 0, len(items)*3)
-	seen := map[string]struct{}{}
-	for _, it := range items {
-		for _, id := range it.MediaRefs {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			allProofIDs = append(allProofIDs, id)
-		}
-	}
-	mediaByID := map[string]domain.MediaItem{}
-	if len(allProofIDs) > 0 && s.media != nil {
-		resolved, err := s.media.ResolveMedia(ctx, tenantID, allProofIDs)
-		if err == nil && len(resolved) == len(allProofIDs) {
-			for _, m := range resolved {
-				mediaByID[m.ProofID] = m
-			}
-		}
-		// On error, mediaByID stays empty; all items fail-close below.
-	}
 	for i, it := range items {
 		media := make([]domain.MediaItem, 0, len(it.MediaRefs))
-		allResolved := true
 		for _, id := range it.MediaRefs {
-			if m, ok := mediaByID[id]; ok && m.DownloadURL != "" {
-				media = append(media, m)
-			} else {
-				// This item's ref did not resolve (not in mediaByID or has empty URL)
-				allResolved = false
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
 			}
+			media = append(media, domain.MediaItem{ProofID: id, DownloadURL: "/app/proofs/" + id + "/download"})
 		}
 		labelMedia(media, s.categoryFor(it.Category))
-		// evidence_available is true ONLY when this item's own refs all resolved AND there is actual media to show
-		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceLinkResolved: allResolved && len(media) > 0}
+		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceLinkResolved: len(media) > 0}
 	}
 	return rows
 }
@@ -741,15 +715,9 @@ func (s *Service) autoCloseSubmissionWhenFullyApproved(ctx context.Context, in d
 
 // assertEvidenceApprovable is the REAL evidence gate for a single approve.
 //
-// Two layers, because they answer two different questions:
-//  1. ResolveMedia — can a signed link be issued for every media_ref? (row-level completeness)
-//  2. EnsureEvidenceAvailable — do the stored objects still EXIST? (byte-level truth)
-//
-// Layer 2 is the one that matters and the one that used to be missing: RecordVerdict called the
-// same non-statting resolver the queue read uses, so the gate was a tautology — if the DB row
-// existed it passed, and an approve could be recorded against an object that had been deleted or
-// relocated (the download route then answers 410 proof_object_missing to a verifier who has
-// already, irreversibly, approved it).
+// The approve-time gate must confirm the stored objects still EXIST. It must not mint signed
+// download URLs: approving evidence is not an operator open/play action, and URL minting here
+// creates unattributed egress risk while answering the wrong question.
 //
 // The N+1 objection that ListQueue/resolveMedia correctly raises does NOT apply here: this is ONE
 // item at decision time, not ~20 rows x ~3 proofs on a hot read. Paying a handful of stats once,
@@ -757,10 +725,6 @@ func (s *Service) autoCloseSubmissionWhenFullyApproved(ctx context.Context, in d
 // queue path, and do not delete it to "make approve faster".
 func (s *Service) assertEvidenceApprovable(ctx context.Context, tenantID string, item domain.Item) error {
 	if s.media == nil || len(item.MediaRefs) == 0 {
-		return evidenceMissingErr()
-	}
-	resolved, err := s.media.ResolveMedia(ctx, tenantID, item.MediaRefs)
-	if err != nil || len(resolved) != len(item.MediaRefs) {
 		return evidenceMissingErr()
 	}
 	checker, ok := s.media.(ports.EvidenceAvailabilityChecker)

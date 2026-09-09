@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 )
 
 // Page sizes: a phone renders ~20 rows; nothing on this list needs more.
@@ -186,18 +187,24 @@ func (s *Service) MarkSeen(ctx context.Context, tenantID string, actor domain.Ac
 	return s.repo.MarkSeen(ctx, tenantID, taskID, actor.UserID)
 }
 
-// AttachmentDownloadURL returns a URL only when the caller can read the task and the proof
-// is one of that task's stored attachments.
-func (s *Service) AttachmentDownloadURL(ctx context.Context, tenantID string, actor domain.Actor, taskID, proofID string) (string, error) {
+// AttachmentDownload carries the selected proof artifact plus its explicit-open URL.
+type AttachmentDownload struct {
+	Artifact proofdomain.Artifact
+	URL      string
+}
+
+// AttachmentDownloadURL returns an artifact and URL only when the caller can read the task and
+// the proof is one of that task's stored attachments.
+func (s *Service) AttachmentDownloadURL(ctx context.Context, tenantID string, actor domain.Actor, taskID, proofID string) (AttachmentDownload, error) {
 	if !uuidutil.IsUUIDString(proofID) {
-		return "", ports.ErrTaskNotFound
+		return AttachmentDownload{}, ports.ErrTaskNotFound
 	}
 	task, err := s.GetTask(ctx, tenantID, actor, taskID)
 	if err != nil {
-		return "", err
+		return AttachmentDownload{}, err
 	}
 	if s.downloader == nil {
-		return "", ports.ErrInvalidAttachment
+		return AttachmentDownload{}, ports.ErrInvalidAttachment
 	}
 	proofID = strings.TrimSpace(proofID)
 	found := false
@@ -208,9 +215,13 @@ func (s *Service) AttachmentDownloadURL(ctx context.Context, tenantID string, ac
 		}
 	}
 	if !found {
-		return "", ports.ErrTaskNotFound
+		return AttachmentDownload{}, ports.ErrTaskNotFound
 	}
-	return s.downloader.DownloadURL(ctx, tenantID, proofID) // scale-guard:ignore: proofID is validated against this one task's already-loaded attachment set; only the selected attachment receives a signed URL.
+	artifact, url, err := s.downloader.DownloadArtifact(ctx, tenantID, proofID) // scale-guard:ignore: proofID is validated against this one task's already-loaded attachment set; only the selected attachment receives a signed URL.
+	if err != nil {
+		return AttachmentDownload{}, err
+	}
+	return AttachmentDownload{Artifact: artifact, URL: url}, nil
 }
 
 // UnseenCount answers the drawer badge.

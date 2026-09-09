@@ -55,6 +55,8 @@ private const val LEADERSHIP_TASK_CACHE_SHAPE = "task-v1"
 
 /** Attachment bytes live under this app-private cache subdirectory, one file per proof id. */
 private const val ATTACHMENT_CACHE_DIR = "leadership-task-attachments"
+private const val ATTACHMENT_DOWNLOAD_TIMEOUT_MS = 15_000
+private const val LEADERSHIP_ATTACHMENT_MAX_BYTES = 64L * 1024L * 1024L
 
 /**
  * The whole-page facts the backend composes beside the rows on every list refresh: its title,
@@ -287,14 +289,44 @@ class DefaultLeadershipTasksRepository(
             if (target.isFile && target.length() > 0L) return@withContext target.absolutePath
             val url = api.getLeadershipTaskAttachmentDownloadUrl(taskId, proofId)
             val partial = File(dir, "${target.name}.part")
-            URL(url).openStream().use { input ->
-                partial.outputStream().use { output -> input.copyTo(output) }
+            // proof-media-egress:ignore Explicit tap-triggered attachment fetch; byte-capped, timeout-bounded, and cached to app-private storage by proof id.
+            val connection = URL(url).openConnection().apply {
+                connectTimeout = ATTACHMENT_DOWNLOAD_TIMEOUT_MS
+                readTimeout = ATTACHMENT_DOWNLOAD_TIMEOUT_MS
             }
-            if (!partial.renameTo(target)) {
-                partial.copyTo(target, overwrite = true)
+            val length = connection.contentLengthLong
+            if (length > LEADERSHIP_ATTACHMENT_MAX_BYTES) {
+                throw IllegalStateException("leadership attachment exceeds ${LEADERSHIP_ATTACHMENT_MAX_BYTES} bytes")
+            }
+            try {
+                connection.getInputStream().use { input ->
+                    partial.outputStream().use { output ->
+                        copyBounded(input, output, LEADERSHIP_ATTACHMENT_MAX_BYTES)
+                    }
+                }
+                if (!partial.renameTo(target)) {
+                    partial.copyTo(target, overwrite = true)
+                    partial.delete()
+                }
+            } catch (t: Throwable) {
                 partial.delete()
+                throw t
             }
             target.absolutePath
+        }
+    }
+
+    private fun copyBounded(input: java.io.InputStream, output: java.io.OutputStream, maxBytes: Long) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var copied = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) return
+            copied += read
+            if (copied > maxBytes) {
+                throw IllegalStateException("leadership attachment exceeded ${maxBytes} bytes")
+            }
+            output.write(buffer, 0, read)
         }
     }
 

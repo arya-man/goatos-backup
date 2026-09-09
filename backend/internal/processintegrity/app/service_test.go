@@ -462,20 +462,14 @@ func TestProtocolAdherenceDoesNotShowCapacityShortfallWhenAssignedWithinSlots(t 
 	}
 }
 
-func TestProtocolAdherenceResolvesProofMedia(t *testing.T) {
+func TestProtocolAdherenceUsesBackendProofDownloadPath(t *testing.T) {
 	due := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
 	row := processRow("media-row", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
 	row.Evidence.ProofIDs = []string{"70000000-0000-4000-8000-000000000001"}
 	row.Evidence.EvidenceCount = 1
-	duration := int64(42000)
 	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).
 		WithClock(func() time.Time { return due }).
-		WithMediaResolver(fakeMediaResolver{items: []verificationdomain.MediaItem{{
-			ProofID:     "70000000-0000-4000-8000-000000000001",
-			DownloadURL: "/app/proofs/70000000-0000-4000-8000-000000000001/download/signed?sig=ok",
-			MimeType:    "video/mp4",
-			DurationMS:  &duration,
-		}}})
+		WithMediaResolver(fakeMediaResolver{err: errors.New("signed url unavailable")})
 
 	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
 	if err != nil {
@@ -485,12 +479,12 @@ func TestProtocolAdherenceResolvesProofMedia(t *testing.T) {
 		t.Fatalf("media = %+v", got.Rows)
 	}
 	media := got.Rows[0].Evidence.Media[0]
-	if media.ProofID != row.Evidence.ProofIDs[0] || media.MimeType != "video/mp4" || media.DurationMS == nil || *media.DurationMS != duration {
+	if media.ProofID != row.Evidence.ProofIDs[0] || media.DownloadURL != "/app/proofs/70000000-0000-4000-8000-000000000001/download" || media.MimeType != "" || media.DurationMS != nil {
 		t.Fatalf("media metadata = %+v", media)
 	}
 }
 
-func TestProtocolAdherenceMarksProofMediaResolutionError(t *testing.T) {
+func TestProtocolAdherenceDoesNotFailListWhenSigningUnavailable(t *testing.T) {
 	due := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
 	row := processRow("media-error-row", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
 	row.Evidence.ProofIDs = []string{"70000000-0000-4000-8000-000000000001"}
@@ -503,11 +497,11 @@ func TestProtocolAdherenceMarksProofMediaResolutionError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("adherence: %v", err)
 	}
-	if len(got.Rows) != 1 || got.Rows[0].Evidence.MediaResolutionError == nil {
-		t.Fatalf("media resolution error missing: %+v", got.Rows)
+	if len(got.Rows) != 1 || got.Rows[0].Evidence.MediaResolutionError != nil {
+		t.Fatalf("media resolution error should be nil on metadata-only list read: %+v", got.Rows)
 	}
-	if len(got.Rows[0].Evidence.Media) != 0 {
-		t.Fatalf("media should not be populated on resolver error: %+v", got.Rows[0].Evidence.Media)
+	if len(got.Rows[0].Evidence.Media) != 1 {
+		t.Fatalf("media should carry backend download path despite resolver error: %+v", got.Rows[0].Evidence.Media)
 	}
 }
 

@@ -115,6 +115,8 @@ data class PcCareSlotChipUi(
     val description: String = "",
     /** Local captured proof preview, preferring the processed overlay artifact when available. */
     val previewPath: String = "",
+    /** Stable proof/slot identity used to keep refreshed signed URLs from resetting preview players. */
+    val previewIdentity: String = fieldKey,
     val previewKind: PcCareProofPreviewKind = PcCareProofPreviewKind.VIDEO,
     val localProofRowId: String? = null,
     val proofOutboxItemId: String? = null,

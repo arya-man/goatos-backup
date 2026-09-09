@@ -16,7 +16,11 @@ class ProofMediaPreviewContractTest {
         assertTrue(source.contains("MediaMetadataRetriever.METADATA_KEY_DURATION"))
         assertTrue(source.contains("SystemClock.elapsedRealtime()"))
         assertTrue(source.contains("playStartedPositionMs + elapsed"))
-        assertTrue(source.contains("playRequested by remember(path)"))
+        assertTrue(source.contains("mediaIdentity: String,"))
+        assertTrue(source.contains("stableProofMediaIdentity(mediaIdentity)"))
+        assertTrue(source.contains("playRequested by remember(mediaKey)"))
+        assertTrue(source.contains("LaunchedEffect(path, player)"))
+        assertTrue(source.contains("currentPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(path)))"))
         assertTrue(source.contains("playWhenReady = playRequested"))
         assertTrue(source.contains("currentPlayer.play()"))
         assertTrue(source.contains("currentPlayer.pause()"))
@@ -36,10 +40,11 @@ class ProofMediaPreviewContractTest {
         assertTrue(source.contains("ProofInlinePlayButtonSize = 30.dp"))
         assertTrue(source.contains("ProofInlinePlayIconSize = 16.dp"))
         assertTrue(source.contains("LocalProofPlayerFactory.current"))
+        assertTrue(source.contains("onGloballyPositioned"))
+        assertTrue(source.contains("boundsInWindow()"))
+        assertTrue(source.contains("LaunchedEffect(isInWindow, player)"))
         assertTrue(source.contains("withContext(Dispatchers.IO)"))
         assertTrue(source.contains("withTimeoutOrNull(PROOF_POSTER_LOAD_TIMEOUT_MS)"))
-        assertTrue(source.contains("remoteProofPreviewLooksReadable(path)"))
-        assertTrue(source.contains("PROOF_REMOTE_PROBE_TIMEOUT_MS"))
         assertTrue(source.contains("extractFrame()"))
         assertTrue(source.contains("ProofPreviewLoad.ReadableWithoutPoster"))
         assertTrue(source.contains("isRemote && remoteReadable -> ProofPreviewLoad.ReadableWithoutPoster"))
@@ -55,8 +60,28 @@ class ProofMediaPreviewContractTest {
             source.contains("ExoPlayer.Builder(context).build()"),
         )
         assertFalse(
+            "Remote proof previews must not make raw paid object reads from composition.",
+            source.contains("URL(path).openStream()"),
+        )
+        assertFalse(
+            "Remote video metadata/poster probing must not use a signed URL as a MediaMetadataRetriever source.",
+            source.contains("setDataSource(path, emptyMap())") || source.contains("setDataSource(signedUrl, emptyMap())"),
+        )
+        assertFalse(
+            "Proof preview readability must not probe signed GCS URLs with byte-range requests.",
+            source.contains("setRequestProperty(\"Range\""),
+        )
+        assertFalse(
             "Video poster extraction must never run synchronously from remember/composition.",
             source.contains("remember(path) { extractFrame() }"),
+        )
+        assertFalse(
+            "Signed URLs must not be used as the player state key.",
+            source.contains("remember(media.url)") || source.contains("remember(signedUrl)") || source.contains("remember(downloadUrl)"),
+        )
+        assertFalse(
+            "Proof preview callers must pass a stable proof identity instead of falling back to the rotating signed URL.",
+            source.contains("mediaIdentity: String = path"),
         )
         assertFalse(
             "The proof preview must not regress to a large text pill that covers the video frame.",

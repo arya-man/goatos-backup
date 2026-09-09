@@ -476,6 +476,9 @@ private fun FastingProofAction(
                 ProofMediaPreview(
                     path = previewToShow,
                     kind = ProofMediaPreviewKind.Video,
+                    mediaIdentity = slot.serverProofId?.takeIf { it.isNotBlank() }
+                        ?: slot.localProofRowId?.takeIf { it.isNotBlank() }
+                        ?: slot.fieldKey,
                     onPlaybackFailure = {
                         if (previewToShow == slot.previewPath) localPreviewFailed = true
                     },

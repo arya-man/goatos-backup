@@ -21,6 +21,9 @@ object AnalyticsEventsVendors {
     /** A voice note was recorded and durably captured (before the vendor write drains). */
     const val VENDORS_VOICE_NOTE_CAPTURED = "vendors_voice_note_captured"
 
+    /** A recorded voice note proof was explicitly played, completed, failed, or stopped. */
+    const val VENDORS_VOICE_NOTE_PLAYBACK = "vendors_voice_note_playback"
+
     /** A vendor write was durably queued on the outbox. */
     const val VENDORS_VENDOR_QUEUED = "vendors_vendor_queued"
 

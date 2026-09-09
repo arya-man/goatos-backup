@@ -98,20 +98,15 @@ test("the verdict is idempotent, version-fenced, and reject requires a reason", 
   assert.match(listSource, /disabled=\{!reason\.trim\(\)\}/);
 });
 
-// The strip-photo evidence box must be a POSITIONED, SIZED container. `.vr-image-link` is
-// `position:absolute; inset:0; background:#000` and `.vr-image-proof` is width/height 100% --
-// both are built to fill the verification drawer's positioned `.vr-player`. Used without such a
-// parent the link escaped to the nearest positioned ancestor (the modal) and painted the WHOLE
-// drawer black: the reviewer saw no steps, no reading, and no Accept button, only a stray Reject.
-// Caught by opening the drawer in a browser; pinned here so the wrapper cannot be dropped again.
-test("the strip photo is bounded by a positioned, sized media box", () => {
-  const link = listSource.indexOf('className="vr-image-link"');
-  assert.ok(link > 0, "the strip photo still uses vr-image-link");
-  const before = listSource.slice(Math.max(0, link - 700), link);
-  const box = before.lastIndexOf("<div style={{");
-  assert.ok(box >= 0, "vr-image-link must sit inside a style-bounded box");
-  const decl = before.slice(box);
-  for (const need of ['position: "relative"', "height: 320", 'overflow: "hidden"']) {
-    assert.ok(decl.includes(need), `the media box must declare ${need}`);
-  }
+// The strip-photo remains reviewable, but the toxin drawer must not render it through <img src>
+// during detail hydration. That old shape starts a proof-media download just because a drawer is
+// visible. The safe shape is an explicit open link to the backend proof route.
+test("the strip photo is an explicit open link, not an auto-fetching image", () => {
+  const anchor = listSource.indexOf("toxin.drawer.strip_photo");
+  assert.ok(anchor > 0, "strip photo section must still render");
+  const stripSection = listSource.slice(Math.max(0, anchor - 400), anchor + 700);
+  assert.match(stripSection, /<a className="lk"/);
+  assert.match(stripSection, /drawer\.media\.open/);
+  assert.doesNotMatch(stripSection, /<img\b/);
+  assert.doesNotMatch(stripSection, /vr-image-proof/);
 });

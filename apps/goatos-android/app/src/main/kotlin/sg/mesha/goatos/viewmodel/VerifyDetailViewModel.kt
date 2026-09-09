@@ -334,6 +334,7 @@ class VerifyDetailViewModel @Inject constructor(
                 AnalyticsFunnels.trackVerifyRejectBlockedEmptyReason(analytics, event.itemId)
             is VerifyDetailEvent.ApproveDialogOpened -> AnalyticsFunnels.trackVerifyApproveDialogOpened(analytics, event.itemId)
             is VerifyDetailEvent.ApproveDialogCancelled -> AnalyticsFunnels.trackVerifyApproveDialogCancelled(analytics, event.itemId)
+            is VerifyDetailEvent.PhotoPreview -> trackPhotoPreview(event)
         }
     }
 
@@ -631,6 +632,29 @@ class VerifyDetailViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    private fun trackPhotoPreview(event: VerifyDetailEvent.PhotoPreview) {
+        val targetItemId = itemIdForProof(event.proofSubject)
+        analytics.track(
+            "verify_photo_preview_action",
+            mapOf(
+                AnalyticsFunnels.Params.ITEM_ID to itemId,
+                AnalyticsFunnels.Params.PROOF_ID to event.proofSubject,
+                "mime_type" to event.mimeType,
+                "action" to event.action,
+                "outcome" to (event.outcome ?: "unknown"),
+                "reason" to (event.reason ?: ""),
+            ),
+        )
+        recordBackendReviewEvent(
+            eventType = "photo_preview",
+            targetItemId = targetItemId,
+            proofId = event.proofSubject,
+            payload = VerificationReviewEventPayloadDto(
+                status = listOfNotNull(event.action, event.outcome, event.reason).joinToString(":").ifBlank { event.action },
+            ),
+        )
     }
 
     private fun itemIdForProof(proofSubject: String): String =

@@ -169,6 +169,7 @@ internal fun LeadershipAttachmentGlyph(kind: LeadershipAttachmentKind, modifier:
 internal fun LeadershipAudioPlayerRow(
     localPath: String,
     modifier: Modifier = Modifier,
+    onAction: (String) -> Unit = {},
 ) {
     var player by remember(localPath) { mutableStateOf<MediaPlayer?>(null) }
     var playing by remember(localPath) { mutableStateOf(false) }
@@ -184,10 +185,12 @@ internal fun LeadershipAudioPlayerRow(
                 setOnCompletionListener {
                     playing = false
                     positionMs = 0
+                    onAction("audio_completed")
                 }
             }
         }.getOrNull()
         player = created
+        if (created == null) onAction("audio_failed:prepare")
         durationMs = created?.duration?.coerceAtLeast(0) ?: 0
         onDispose {
             // exception:exempt best-effort MediaPlayer cleanup while leaving the screen; nothing
@@ -226,9 +229,11 @@ internal fun LeadershipAudioPlayerRow(
                     if (playing) {
                         current.pause()
                         playing = false
+                        onAction("audio_pause")
                     } else {
                         current.start()
                         playing = true
+                        onAction("audio_play")
                     }
                 },
             contentAlignment = Alignment.Center,

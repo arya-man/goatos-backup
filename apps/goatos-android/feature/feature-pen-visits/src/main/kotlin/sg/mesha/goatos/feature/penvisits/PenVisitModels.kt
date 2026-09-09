@@ -106,6 +106,7 @@ sealed interface PenVisitListEvent {
 data class PenVisitDetailUiState(
     /** True until the first cached/fetched detail lands. */
     val loading: Boolean = true,
+    val taskId: String = "",
     val title: String = "",
     val penLabel: String = "",
     /** The backend's park name, VERBATIM. */

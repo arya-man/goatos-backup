@@ -520,13 +520,11 @@ func (r *Repository) writeLumpSumObservationToCSV(ctx context.Context, tenantID 
 	return 1, nil
 }
 
-// resolveProofVideoURL resolves the CLICKABLE, PLAYABLE URL for a proof, using the same signed-URL
-// path the mobile app uses to open proof media (proof.app.Service.DownloadURL, injected via
-// WithProofURLResolver) -- never a second signing scheme invented here.
+// resolveProofVideoURL returns the backend proof download route, not a bulk-signed GCS URL.
 //
-// It never writes a half-path that only looks like a link: any failure to resolve returns an
-// empty URL plus a plain-English reason in the neighbouring column, so the raw reference column
-// stays the only thing a reader can act on for that row.
+// Export generation can touch many proofs at once, so it must not mint short-lived signed URLs or
+// bypass download attribution logs. The route below performs auth and issues the signed URL only
+// when a person explicitly opens the proof.
 func (r *Repository) resolveProofVideoURL(ctx context.Context, tenantID, proofID, proofRef string) (url, note string) {
 	if proofRef == "" {
 		return "", ""
@@ -534,20 +532,9 @@ func (r *Repository) resolveProofVideoURL(ctx context.Context, tenantID, proofID
 	if strings.TrimSpace(proofID) == "" {
 		return "", "no proof artifact linked to this observation"
 	}
-	if r.proofURLs == nil {
-		return "", "proof URL resolver not configured"
-	}
-	resolved, err := r.proofURLs.ResolveProofDownloadURL(ctx, tenantID, proofID)
-	if err != nil {
-		return "", "proof link unavailable: " + err.Error()
-	}
-	resolved = strings.TrimSpace(resolved)
-	if resolved == "" || !strings.HasPrefix(resolved, "http") {
-		// Anything that isn't an absolute http(s) URL is not clickable -- refuse to emit it
-		// rather than write something that looks like a link but is not.
-		return "", "proof link unavailable: resolver did not return an absolute URL"
-	}
-	return resolved, ""
+	_ = ctx
+	_ = tenantID
+	return "/app/proofs/" + strings.TrimSpace(proofID) + "/download", ""
 }
 
 func (r *Repository) proofVideoColumns(ctx context.Context, tenantID, proofIDs, proofProviders, proofObjectKeys string) (types, refs, urls, notes string) {

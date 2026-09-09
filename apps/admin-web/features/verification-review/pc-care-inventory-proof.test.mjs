@@ -13,8 +13,8 @@ test("pc care inventory verification items use the generic media drawer path", (
   );
   assert.match(
     drawerSource,
-    /activeMedia\?\.mime_type\?\.startsWith\("video\/"\)[\s\S]{0,240}<ReviewVideoPlayer/,
-    "a fridge stock video must render through the generic video proof player",
+    /activeMedia\?\.mime_type\?\.startsWith\("video\/"\)[\s\S]{0,500}resolvedMediaUrls\[activeMedia\.proof_id\][\s\S]{0,500}<ReviewVideoPlayer/,
+    "a fridge stock video must render through the generic video proof player after explicit URL resolution",
   );
   assert.match(
     drawerSource,
@@ -23,8 +23,8 @@ test("pc care inventory verification items use the generic media drawer path", (
   );
   assert.match(
     drawerSource,
-    /<img[\s\S]{0,260}src=\{activeMedia\.download_url\}/,
-    "the generic image proof branch must point at the proof's own download URL",
+    /<img[\s\S]{0,260}src=\{resolvedMediaUrls\[activeMedia\.proof_id\]\}/,
+    "the generic image proof branch must point at the click-resolved proof URL",
   );
 });
 

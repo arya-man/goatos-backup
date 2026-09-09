@@ -13,6 +13,10 @@ function isProductionAndroidSource(rel) {
   return rel.startsWith(`${ROOT}/`) && rel.includes("/src/main/") && /\.(kt|java)$/.test(rel);
 }
 
+function isGeneratedOrBuildPath(rel) {
+  return rel === `${ROOT}/build` || rel.includes("/build/") || rel.includes("/.gradle/");
+}
+
 function walk(dir, acc = []) {
   let entries;
   try {
@@ -22,10 +26,16 @@ function walk(dir, acc = []) {
   }
   for (const entry of entries) {
     const path = join(dir, entry);
-    const stat = statSync(path);
+    const rel = relative(repo, path);
+    if (isGeneratedOrBuildPath(rel)) continue;
+    let stat;
+    try {
+      stat = statSync(path);
+    } catch {
+      continue;
+    }
     if (stat.isDirectory()) walk(path, acc);
     else {
-      const rel = relative(repo, path);
       if (isProductionAndroidSource(rel)) acc.push(rel);
     }
   }

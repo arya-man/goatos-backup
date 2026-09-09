@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/proof/domain"
 	"github.com/vgoats/goatos/backend/internal/proof/ports"
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
@@ -237,7 +239,7 @@ func TestCreateAndCompleteStripReservedMetadata(t *testing.T) {
 	}
 }
 
-func TestDownloadArtifactUsesLongReviewTTL(t *testing.T) {
+func TestDownloadArtifactUsesPlaybackSizedTTL(t *testing.T) {
 	proof := baseProof()
 	storage := &fakeProofStorage{}
 	service := NewService(&fakeProofRepo{proof: proof}, storage)
@@ -247,6 +249,37 @@ func TestDownloadArtifactUsesLongReviewTTL(t *testing.T) {
 	}
 	if storage.downloadTTL != defaultDownloadSignedURLTTL {
 		t.Fatalf("download TTL = %s, want %s", storage.downloadTTL, defaultDownloadSignedURLTTL)
+	}
+}
+
+func TestDownloadArtifactForActorAllowsUploader(t *testing.T) {
+	proof := baseProof()
+	proof.UploadedBy = stringPtr(proofTestActor)
+	storage := &fakeProofStorage{}
+	service := NewService(&fakeProofRepo{proof: proof}, storage)
+	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{{
+		Role: permissions.RoleOperator, ScopeType: "park", ScopeID: proofTestID2,
+	}})
+
+	if _, _, err := service.DownloadArtifactForActor(ctx, proofTestTenant, proofTestActor, proofTestID); err != nil {
+		t.Fatalf("uploader download should be allowed, got %v", err)
+	}
+}
+
+func TestDownloadArtifactForActorDeniesScopedCallerOutsideProofScope(t *testing.T) {
+	proof := baseProof()
+	proof.UploadedBy = stringPtr(proofTestID2)
+	storage := &fakeProofStorage{}
+	service := NewService(&fakeProofRepo{proof: proof}, storage)
+	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{{
+		Role: permissions.RoleOperator, ScopeType: "park", ScopeID: proofTestShed,
+	}})
+
+	if _, _, err := service.DownloadArtifactForActor(ctx, proofTestTenant, proofTestActor, proofTestID); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("scoped non-uploader task proof download error = %v, want ErrForbidden", err)
+	}
+	if storage.downloadTTL != 0 {
+		t.Fatalf("forbidden download must not mint signed URL, TTL recorded %s", storage.downloadTTL)
 	}
 }
 

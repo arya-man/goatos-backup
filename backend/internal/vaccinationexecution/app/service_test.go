@@ -146,7 +146,7 @@ func (r fakeRepo) TaskOptionValues(_ context.Context, _, _ string) (domain.TaskO
 	return domain.TaskOptionValuesResponse{}, r.err
 }
 
-func TestScanRosterResolvesLatestProofDownloadURL(t *testing.T) {
+func TestScanRosterKeepsBackendProofDownloadPath(t *testing.T) {
 	t.Parallel()
 
 	proofID := "10000000-0000-4000-8000-000000000001"
@@ -169,9 +169,10 @@ func TestScanRosterResolvesLatestProofDownloadURL(t *testing.T) {
 	if len(got.Rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(got.Rows))
 	}
-	if got.Rows[0].LatestProofDownloadURL == nil || *got.Rows[0].LatestProofDownloadURL != signedURL {
-		t.Fatalf("LatestProofDownloadURL = %v, want signed stream URL", got.Rows[0].LatestProofDownloadURL)
+	if got.Rows[0].LatestProofDownloadURL == nil || *got.Rows[0].LatestProofDownloadURL != placeholder {
+		t.Fatalf("LatestProofDownloadURL = %v, want backend download path without eager signed URL %q", got.Rows[0].LatestProofDownloadURL, placeholder)
 	}
+	_ = signedURL
 }
 
 func (r fakeRepo) VaccinationOperations(_ context.Context, _ domain.OperationsQuery) ([]domain.OperationsRow, error) {

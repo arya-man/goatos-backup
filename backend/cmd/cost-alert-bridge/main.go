@@ -133,7 +133,7 @@ func run() error {
 		channelID:    channelID,
 		token:        strings.TrimSpace(os.Getenv("GOATOS_COST_ALERT_SHARED_TOKEN")),
 		console:      envDefault("GOATOS_COST_ALERT_CONSOLE_URL", "https://console.cloud.google.com/billing/01FEDE-96BCB3-76D992/reports?project=goatos-stg"),
-		queryHint:    envDefault("GOATOS_COST_ALERT_FIRST_QUERY", "Open Billing Reports grouped by project, service, then SKU for today and yesterday; for media spikes also open Cloud Logging for proof_download_redirect in goatos-api-stg."),
+		queryHint:    envDefault("GOATOS_COST_ALERT_FIRST_QUERY", "Open Billing Reports grouped by project, service, then SKU for today and yesterday; for media spikes also open Cloud Logging for proof_download_url_issued or proof_download_redirect in goatos-api-stg."),
 		billingTable: strings.TrimSpace(os.Getenv("GOATOS_BILLING_EXPORT_TABLE")),
 		projects:     splitCSV(envDefault("GOATOS_BILLING_MONITORED_PROJECTS", "goatos-stg,goatos-sheets,goatos-dev")),
 		oidcAudience: strings.TrimSpace(os.Getenv("GOATOS_COST_ALERT_OIDC_AUDIENCE")),
@@ -325,7 +325,7 @@ func (s *server) authorized(r *http.Request) bool {
 	if s.authorizedGoogleOIDC(r, bearer) {
 		return true
 	}
-	return s.token == "" && len(s.oidcEmails) == 0
+	return false
 }
 
 func (s *server) authorizedGoogleOIDC(r *http.Request, bearer string) bool {
@@ -464,7 +464,7 @@ func (s *server) queryFor(policy, condition string) string {
 	text := strings.ToLower(policy + " " + condition)
 	switch {
 	case strings.Contains(text, "readobject"), strings.Contains(text, "media bucket"):
-		return `resource.type="cloud_run_revision" AND resource.labels.service_name="goatos-api-stg" AND jsonPayload.event="proof_download_redirect"; then group GCS metrics by method/response_code on goatos-stg-media`
+		return `resource.type="cloud_run_revision" AND resource.labels.service_name="goatos-api-stg" AND jsonPayload.event=("proof_download_url_issued" OR "proof_download_redirect"); then group GCS metrics by method/response_code on goatos-stg-media`
 	case strings.Contains(text, "cloud storage"):
 		return `Billing Reports: project=goatos-stg, service="Cloud Storage", group by SKU, compare today vs previous 7 days`
 	case strings.Contains(text, "cloud run"):

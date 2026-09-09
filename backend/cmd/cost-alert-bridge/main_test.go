@@ -4,9 +4,25 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestAuthorizedFailsClosedWithoutSharedToken(t *testing.T) {
+	req := httptest.NewRequest("POST", "/monitoring?token=anything", nil)
+	if (&server{}).authorized(req) {
+		t.Fatal("empty shared token must not authorize a public alert bridge request")
+	}
+}
+
+func TestAuthorizedAcceptsConfiguredSharedToken(t *testing.T) {
+	req := httptest.NewRequest("POST", "/monitoring", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	if !(&server{token: "secret-token"}).authorized(req) {
+		t.Fatal("configured shared token should authorize bearer requests")
+	}
+}
 
 func TestFormatMonitoringIncludesInvestigationFields(t *testing.T) {
 	s := &server{console: "https://console.example", queryHint: "billing query"}

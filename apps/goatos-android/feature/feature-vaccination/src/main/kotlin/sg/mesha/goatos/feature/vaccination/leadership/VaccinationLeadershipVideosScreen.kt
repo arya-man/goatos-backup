@@ -46,12 +46,17 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -648,7 +653,13 @@ private fun VaccinationLeadershipProofDetailScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val media = item.media.ifEmpty {
-                item.videoUrls.mapIndexed { idx, url -> VaccinationLeadershipMediaUi(proofId = "$idx", url = url, mimeType = "video/mp4") }
+                item.videoUrls.mapIndexed { idx, url ->
+                    VaccinationLeadershipMediaUi(
+                        proofId = stableLegacyVaccinationVideoIdentity(item.id, idx),
+                        url = url,
+                        mimeType = "video/mp4",
+                    )
+                }
             }
             items(media, key = { it.proofId }) { m ->
                 VaccinationLeadershipVideoPlayer(media = m, onPlayback = onPlayback)
@@ -659,6 +670,9 @@ private fun VaccinationLeadershipProofDetailScreen(
         }
     }
 }
+
+private fun stableLegacyVaccinationVideoIdentity(itemId: String, index: Int): String =
+    "vaccination-leadership-legacy:${itemId.ifBlank { "item" }}:$index"
 
 @Composable
 private fun VaccinationLeadershipContextCard(item: VaccinationLeadershipItemUi) {
@@ -696,93 +710,142 @@ private fun VaccinationLeadershipVideoPlayer(
     onPlayback: (VaccinationLeadershipVideoPlaybackEvent) -> Unit,
 ) {
     val context = LocalContext.current
+    val rootView = LocalView.current
     val playerFactory = LocalProofPlayerFactory.current
     val currentOnPlayback by rememberUpdatedState(onPlayback)
     var playStartReported by remember(media.proofId) { mutableStateOf(false) }
     var watchTimeMs by remember(media.proofId) { mutableLongStateOf(0L) }
     var lastResumeAtMs by remember(media.proofId) { mutableStateOf<Long?>(null) }
-
-    val player = remember(media.url) {
-        playerFactory.create(context).apply {
-            // Media3's default seek increments are 5s back / 15s forward -- exactly what this
-            // surface's spec calls for -- so the native PlayerView controller needs no override.
-            setMediaItem(MediaItem.fromUri(Uri.parse(media.url)))
-            playWhenReady = false
-            prepare()
-        }
-    }
-
-    DisposableEffect(player) {
-        val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(isPlayingNow: Boolean) {
-                val now = System.currentTimeMillis()
-                if (isPlayingNow) {
-                    lastResumeAtMs = now
-                    if (!playStartReported) {
-                        playStartReported = true
-                        currentOnPlayback(
-                            VaccinationLeadershipVideoPlaybackEvent(
-                                action = VaccinationLeadershipVideoPlaybackAction.PLAY_STARTED,
-                                proofId = media.proofId,
-                                mimeType = media.mimeType,
-                                durationMs = player.duration.coerceAtLeast(0L),
-                            ),
-                        )
-                    }
-                } else {
-                    lastResumeAtMs?.let { watchTimeMs += (now - it).coerceAtLeast(0L) }
-                    lastResumeAtMs = null
-                }
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                currentOnPlayback(
-                    VaccinationLeadershipVideoPlaybackEvent(
-                        action = VaccinationLeadershipVideoPlaybackAction.PLAYBACK_ERROR,
-                        proofId = media.proofId,
-                        mimeType = media.mimeType,
-                        reason = error.message ?: error.errorCodeName,
-                    ),
-                )
-            }
-        }
-        player.addListener(listener)
-        onDispose {
-            lastResumeAtMs?.let { watchTimeMs += (System.currentTimeMillis() - it).coerceAtLeast(0L) }
-            val durationMs = player.duration.coerceAtLeast(0L)
-            if (playStartReported) {
-                currentOnPlayback(
-                    VaccinationLeadershipVideoPlaybackEvent(
-                        action = VaccinationLeadershipVideoPlaybackAction.WATCH_SUMMARY,
-                        proofId = media.proofId,
-                        mimeType = media.mimeType,
-                        durationMs = durationMs,
-                        watchTimeMs = watchTimeMs,
-                        positionMs = player.currentPosition.coerceAtLeast(0L),
-                        percentWatched = if (durationMs > 0) (watchTimeMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
-                    ),
-                )
-            }
-            player.removeListener(listener)
-            player.release()
-        }
-    }
+    var armed by remember(media.proofId) { mutableStateOf(false) }
+    var isInWindow by remember(media.proofId) { mutableStateOf(true) }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
+            .onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInWindow()
+                val rootWidth = rootView.width.toFloat()
+                val rootHeight = rootView.height.toFloat()
+                isInWindow = rootWidth <= 0f ||
+                    rootHeight <= 0f ||
+                    (bounds.right > 0f && bounds.left < rootWidth && bounds.bottom > 0f && bounds.top < rootHeight)
+            }
             .clip(RoundedCornerShape(14.dp))
             .background(MeshaColors.Bg),
+        contentAlignment = Alignment.Center,
     ) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    this.player = player
-                    useController = true
+        if (!armed) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable { armed = true },
+            ) {
+                Spacer(Modifier.weight(1f))
+                Icon(MeshaIcons.Play, contentDescription = null, tint = MeshaColors.Ink, modifier = Modifier.size(36.dp))
+                Text(text = "Play video", color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
+                Spacer(Modifier.weight(1f))
+            }
+        } else {
+            val player = remember(media.proofId) {
+                playerFactory.create(context).apply {
+                    // Media3's default seek increments are 5s back / 15s forward -- exactly what this
+                    // surface's spec calls for -- so the native PlayerView controller needs no override.
+                    // proof-media-egress:ignore Player exists only after explicit tap on a stable proof id keyed card; lifecycle stop releases it.
+                    setMediaItem(MediaItem.fromUri(Uri.parse(media.url)))
+                    playWhenReady = false
+                    prepare()
                 }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+            }
+            LaunchedEffect(media.url, player) {
+                if (
+                    player.playbackState == Player.STATE_IDLE &&
+                    player.currentMediaItem?.localConfiguration?.uri?.toString() != media.url
+                ) {
+                    player.setMediaItem(MediaItem.fromUri(Uri.parse(media.url)))
+                }
+            }
+            LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+                player.playWhenReady = false
+                player.pause()
+                player.stop()
+                armed = false
+            }
+            LaunchedEffect(isInWindow, player) {
+                if (!isInWindow) {
+                    player.playWhenReady = false
+                    player.stop()
+                    armed = false
+                }
+            }
+
+            DisposableEffect(player) {
+                val listener = object : Player.Listener {
+                    override fun onIsPlayingChanged(isPlayingNow: Boolean) {
+                        val now = System.currentTimeMillis()
+                        if (isPlayingNow) {
+                            lastResumeAtMs = now
+                            if (!playStartReported) {
+                                playStartReported = true
+                                currentOnPlayback(
+                                    VaccinationLeadershipVideoPlaybackEvent(
+                                        action = VaccinationLeadershipVideoPlaybackAction.PLAY_STARTED,
+                                        proofId = media.proofId,
+                                        mimeType = media.mimeType,
+                                        durationMs = player.duration.coerceAtLeast(0L),
+                                    ),
+                                )
+                            }
+                        } else {
+                            lastResumeAtMs?.let { watchTimeMs += (now - it).coerceAtLeast(0L) }
+                            lastResumeAtMs = null
+                        }
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        currentOnPlayback(
+                            VaccinationLeadershipVideoPlaybackEvent(
+                                action = VaccinationLeadershipVideoPlaybackAction.PLAYBACK_ERROR,
+                                proofId = media.proofId,
+                                mimeType = media.mimeType,
+                                reason = error.message ?: error.errorCodeName,
+                            ),
+                        )
+                    }
+                }
+                player.addListener(listener)
+                onDispose {
+                    lastResumeAtMs?.let { watchTimeMs += (System.currentTimeMillis() - it).coerceAtLeast(0L) }
+                    val durationMs = player.duration.coerceAtLeast(0L)
+                    if (playStartReported) {
+                        currentOnPlayback(
+                            VaccinationLeadershipVideoPlaybackEvent(
+                                action = VaccinationLeadershipVideoPlaybackAction.WATCH_SUMMARY,
+                                proofId = media.proofId,
+                                mimeType = media.mimeType,
+                                durationMs = durationMs,
+                                watchTimeMs = watchTimeMs,
+                                positionMs = player.currentPosition.coerceAtLeast(0L),
+                                percentWatched = if (durationMs > 0) (watchTimeMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
+                            ),
+                        )
+                    }
+                    player.removeListener(listener)
+                    player.release()
+                }
+            }
+
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = player
+                        useController = true
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
