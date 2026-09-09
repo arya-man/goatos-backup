@@ -39,6 +39,8 @@ const (
 	DesignationParkHead            = "park_head"
 	DesignationVerifier            = "verifier"
 	DesignationOperator            = "operator"
+	// DesignationHR is the per-person `hr` role (maintainer decision 2026-09-10).
+	DesignationHR = "hr"
 )
 
 // Scope is where a designation's seat lives: a tenant-wide desk (a director) or a park desk (a
@@ -85,6 +87,7 @@ var Modules = []Module{
 	{Key: "counts", Label: "Herd Operations"},
 	{Key: "procurement", Label: "Procurement"},
 	{Key: "leadership", Label: "Leadership Tasks"},
+	{Key: "leave", Label: "Leave"},
 }
 
 // Alert is one configurable notification and its default audience.
@@ -124,6 +127,8 @@ const (
 	AlertLeadershipTaskDone     = "leadership.task_done"
 	AlertFeedSaleReduce         = "feed.sale_reduce"
 	AlertProcurementLoadOverdue = "procurement.load_overdue"
+	AlertLeaveRequestRaised     = "leave.request_raised"
+	AlertLeaveRequestDecided    = "leave.request_decided"
 )
 
 // Proof-lifecycle alert suffixes. The generic verification vertical is shared by several owning
@@ -307,6 +312,18 @@ var catalog = func() []Alert {
 			Label:               "Load held past 90 days",
 			Blurb:               "A purchased load bought more than 90 days ago still holds animals. Sent once a day per load.",
 			DefaultDesignations: []string{DesignationCEO},
+		},
+		{
+			Key: AlertLeaveRequestRaised, Module: "leave",
+			Label:               "Leave requested",
+			Blurb:               "Someone asked for leave from the Clock screen. Sent to the park head of their park and to HR, the two who must approve it; any other ticked job title receives a copy.",
+			DefaultDesignations: []string{DesignationParkHead, DesignationHR},
+		},
+		{
+			Key: AlertLeaveRequestDecided, Module: "leave",
+			Label:               "Leave approved or rejected",
+			Blurb:               "A leave request reached its final answer. Sent to the person who asked; any other ticked job title receives a copy.",
+			DefaultDesignations: []string{DesignationOperator},
 		},
 	}
 	all := append(base, proofAlerts()...)

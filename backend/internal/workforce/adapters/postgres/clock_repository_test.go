@@ -126,7 +126,9 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'Clock Test Member', 'active', 'operat
 	}
 
 	// Member 2 opens dayOne and never clocks out; their NEXT day's clock-in
-	// auto-closes the stale day with NO invented hours.
+	// auto-closes the stale day at 23:59:59 IST of dayOne with the hours
+	// counted to that instant (maintainer decision 2026-09-10, superseding D4's
+	// no-invented-hours half): 08:12 -> 23:59:59 is 947 whole minutes.
 	if _, err := repo.RecordClockPunch(ctx, clockPunch(clockMember2, clockActor2, "clock_in", "m2-in-1", dayOne, in)); err != nil {
 		t.Fatalf("m2 clock_in: %v", err)
 	}
@@ -134,16 +136,39 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'Clock Test Member', 'active', 'operat
 	if _, err := repo.RecordClockPunch(ctx, clockPunch(clockMember2, clockActor2, "clock_in", "m2-in-2", dayTwo, in.Add(24*time.Hour))); err != nil {
 		t.Fatalf("m2 next-day clock_in: %v", err)
 	}
-	var status string
+	var status, outAt string
 	var worked *int
 	if err := pool.QueryRow(ctx, `
-SELECT status, worked_minutes FROM workforce_clock_entries
+SELECT status, worked_minutes, (clock_out_at AT TIME ZONE 'Asia/Kolkata')::text FROM workforce_clock_entries
 WHERE tenant_id=$1 AND workforce_member_id=$2 AND business_date=$3::date`,
-		clockTenant, clockMember2, dayOne).Scan(&status, &worked); err != nil {
+		clockTenant, clockMember2, dayOne).Scan(&status, &worked, &outAt); err != nil {
 		t.Fatalf("read stale day: %v", err)
 	}
-	if status != "auto_closed" || worked != nil {
-		t.Fatalf("stale open day: want auto_closed with NULL minutes, got %s %v", status, worked)
+	if status != "auto_closed" || worked == nil || *worked != 947 || outAt != "2026-08-27 23:59:59" {
+		t.Fatalf("stale open day: want auto_closed at 23:59:59 IST with 947 minutes, got %s %v %s", status, worked, outAt)
+	}
+
+	// The midnight sweeper does the same for people who never punched again:
+	// member 1 opens dayTwo and is left open (member 2's dayTwo is open too),
+	// and the sweep for dayThree closes both.
+	if _, err := repo.RecordClockPunch(ctx, clockPunch(clockMember, clockActor, "clock_in", "m1-in-2", dayTwo, in.Add(24*time.Hour))); err != nil {
+		t.Fatalf("m1 dayTwo clock_in: %v", err)
+	}
+	closed1, err := repo.AutoCloseStaleClockEntries(ctx, clockTenant, "2026-08-29", 200)
+	if err != nil || closed1 != 2 {
+		t.Fatalf("sweeper: closed=%d err=%v (both members' dayTwo were still open)", closed1, err)
+	}
+	if again, err := repo.AutoCloseStaleClockEntries(ctx, clockTenant, "2026-08-29", 200); err != nil || again != 0 {
+		t.Fatalf("sweeper must be idempotent: closed=%d err=%v", again, err)
+	}
+	if err := pool.QueryRow(ctx, `
+SELECT status, worked_minutes, (clock_out_at AT TIME ZONE 'Asia/Kolkata')::text FROM workforce_clock_entries
+WHERE tenant_id=$1 AND workforce_member_id=$2 AND business_date=$3::date`,
+		clockTenant, clockMember, dayTwo).Scan(&status, &worked, &outAt); err != nil {
+		t.Fatalf("read swept day: %v", err)
+	}
+	if status != "auto_closed" || worked == nil || *worked != 947 || outAt != "2026-08-28 23:59:59" {
+		t.Fatalf("swept day: want auto_closed at 23:59:59 IST with 947 minutes, got %s %v %s", status, worked, outAt)
 	}
 
 	// The presence read agrees with the writes: one page, whole-roster grain.

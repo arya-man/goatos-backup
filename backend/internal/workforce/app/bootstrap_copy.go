@@ -381,6 +381,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// labelKey reuses the pre-existing "nav.approval" key rather than minting a new one:
 			// it survived the 2026-07-21 removal already translated into all four locales.
 			{key: "approvals", labelKey: "nav.approval", href: "/counts/approvals", shared_key: "", priority: 1, requiredPermission: permissions.CountsApproveAccess}, //nav-composition:ignore: registry entry
+			// Leave requests (maintainer decision 2026-09-10): the park head + HR queue lives
+			// INSIDE this module as its second tab, gated on its own permission so a park head
+			// or HR holder sees Approvals with only Leave, and a counts approver only Approval.
+			{key: "leave", labelKey: "nav.leave", href: "/leave/approvals", shared_key: "", priority: 2, requiredPermission: permissions.LeaveApprove}, //nav-composition:ignore: registry entry
 		},
 	},
 	// "toxin" is the aflatoxin strip-test module (maintainer decision 2026-08-25): one
@@ -797,8 +801,12 @@ func renderableModuleKeys(keys []string) []string {
 }
 
 func renderableModuleKey(key string) string {
-	if key == "pc_trimming" {
+	switch key {
+	case "pc_trimming":
 		return "pc_care"
+	case "leave_approvals":
+		// The leave capability module renders as the Leave tab inside Approvals.
+		return "approvals"
 	}
 	return key
 }
@@ -946,7 +954,7 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	// design exists to avoid.
 	//
 	// The CEO tier reaches this through ceo_internal, which carries the same permission directly.
-	if grantsHavePermission(grants, permissions.CountsApproveAccess) {
+	if grantsHavePermission(grants, permissions.CountsApproveAccess) || grantsHavePermission(grants, permissions.LeaveApprove) {
 		keys = appendMissing(keys, "approvals")
 	}
 	// Toxin is offered the SAME per-person way (maintainer decision 2026-08-25): the
@@ -1008,6 +1016,13 @@ func permissionOfferedModuleKeys(grants []domain.GrantSummary) []string {
 	// holds no such permission and is offered nothing.
 	if grantsHavePermission(grants, permissions.LeadershipTasksRead) {
 		keys = append(keys, "leadership_tasks")
+	}
+	// Leave approvals (maintainer decision 2026-09-10): a park head is not a leadership
+	// principal and belongs to no department with an approvals module grant row, and an
+	// `hr` holder may have no job role at all -- both are offered the Approvals module on
+	// the permission, where the Leave tab is the only item they can render.
+	if grantsHavePermission(grants, permissions.LeaveApprove) {
+		keys = append(keys, "approvals")
 	}
 	return keys
 }
@@ -1685,6 +1700,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_transport":    "Feed Transport",
 		"nav.birth_death":       "Birth/Death",
 		"nav.approval":          "Approval",
+		"nav.leave":             "Leave",
 		"nav.weighing":          "Weighing",
 		"nav.videos":            "Videos",
 		"nav.you":               "You",
@@ -1746,6 +1762,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_transport":    "फ़ीड परिवहन",
 		"nav.birth_death":       "जन्म/मृत्यु",
 		"nav.approval":          "अनुमोदन",
+		"nav.leave":             "छुट्टी",
 		"nav.weighing":          "वजन",
 		"nav.videos":            "वीडियो",
 		"nav.you":               "आप",
@@ -1807,6 +1824,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_transport":    "ಆಹಾರ ಸಾಗಣೆ",
 		"nav.birth_death":       "ಜನನ/ಮರಣ",
 		"nav.approval":          "ಅನುಮೋದನೆ",
+		"nav.leave":             "ರಜೆ",
 		"nav.weighing":          "ತೂಕ",
 		"nav.videos":            "ವೀಡಿಯೊಗಳು",
 		"nav.you":               "ನೀವು",
@@ -1868,6 +1886,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_transport":    "ఫీడ్ రవాణా",
 		"nav.birth_death":       "జననం/మరణం",
 		"nav.approval":          "ఆమోదం",
+		"nav.leave":             "సెలవు",
 		"nav.weighing":          "బరువు",
 		"nav.videos":            "వీడియోలు",
 		"nav.you":               "మీరు",

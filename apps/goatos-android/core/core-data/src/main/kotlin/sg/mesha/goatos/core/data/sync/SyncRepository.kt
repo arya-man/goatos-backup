@@ -45,6 +45,8 @@ import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
+import sg.mesha.goatos.core.network.dto.LeaveDecisionRequestDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestCreateDto
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -267,6 +269,34 @@ interface SyncRepository {
         idempotencyKey: String,
         request: ClockPunchRequestDto,
     ): AppResult<String> = AppResult.Err("clock punch sync is not configured")
+
+    /**
+     * Enqueues a leave request (`POST /app/leave/requests`; docs/features/leave-requests/plan.md).
+     * [idempotencyKey] is minted ONCE per form submission and persisted, so a retry replays the
+     * same request instead of raising a second one the overlap guard would then refuse.
+     */
+    suspend fun enqueueLeaveRequest(
+        idempotencyKey: String,
+        request: LeaveRequestCreateDto,
+    ): AppResult<String> = AppResult.Err("leave request sync is not configured")
+
+    /** Enqueues the requester's own withdrawal (`POST /app/leave/requests/{id}/withdraw`). */
+    suspend fun enqueueLeaveWithdraw(
+        leaveRequestId: String,
+        idempotencyKey: String,
+    ): AppResult<String> = AppResult.Err("leave withdraw sync is not configured")
+
+    /**
+     * Enqueues an approver's decision (`POST /app/leave/approvals/{id}/{approve,reject}`). The
+     * request id is the group key so two decisions on one request drain in order; [reason] is
+     * REQUIRED when rejecting and enforced by the caller before this is reached.
+     */
+    suspend fun enqueueLeaveDecision(
+        leaveRequestId: String,
+        approve: Boolean,
+        reason: String?,
+        idempotencyKey: String,
+    ): AppResult<String> = AppResult.Err("leave decision sync is not configured")
 
     /**
      * Enqueues a birth write (`POST /app/counts/birth-events`). [groupKey] is the newborn's
@@ -1228,6 +1258,43 @@ class DefaultSyncRepository(
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(CountsShiftingPayload(request = request)),
+    )
+
+    override suspend fun enqueueLeaveRequest(
+        idempotencyKey: String,
+        request: LeaveRequestCreateDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.LEAVE_REQUEST_CREATE,
+        groupKey = "leave:" + idempotencyKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(LeaveRequestCreatePayload(request = request)),
+    )
+
+    override suspend fun enqueueLeaveWithdraw(
+        leaveRequestId: String,
+        idempotencyKey: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.LEAVE_REQUEST_WITHDRAW,
+        groupKey = "leave:" + leaveRequestId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(LeaveRequestWithdrawPayload(leaveRequestId = leaveRequestId)),
+    )
+
+    override suspend fun enqueueLeaveDecision(
+        leaveRequestId: String,
+        approve: Boolean,
+        reason: String?,
+        idempotencyKey: String,
+    ): AppResult<String> = enqueue(
+        opType = if (approve) OutboxOpType.LEAVE_APPROVE else OutboxOpType.LEAVE_REJECT,
+        groupKey = "leave:" + leaveRequestId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            LeaveDecisionPayload(
+                leaveRequestId = leaveRequestId,
+                request = LeaveDecisionRequestDto(reason = reason?.trim()?.ifBlank { null }),
+            ),
+        ),
     )
 
     override suspend fun enqueueClockPunch(

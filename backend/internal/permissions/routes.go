@@ -172,6 +172,23 @@ var protectedRoutes = []Route{
 	{OperationID: "getAppClockPresencePerson", Method: "GET", Pattern: "/app/clock/presence/{workforce_member_id}", Permissions: []string{ClockPresenceRead}},
 	{OperationID: "listAdminClockEntries", Method: "GET", Pattern: "/admin/workforce/clock-entries", Permissions: []string{ClockPresenceRead}},
 	{OperationID: "getAdminClockEntry", Method: "GET", Pattern: "/admin/workforce/clock-entries/{clock_entry_id}", Permissions: []string{ClockPresenceRead}},
+	// Leave requests (docs/features/leave-requests/plan.md, maintainer decisions
+	// 2026-09-10). Raise / withdraw / own history ride AppBootstrap like the
+	// punches; the approver queue and verbs are LeaveApprove on BOTH prefixes
+	// (one handler, one idempotency scope); the People list is LeaveRead; the
+	// routing flags are CEO-only LeaveApprovalConfigure.
+	{OperationID: "createAppLeaveRequest", Method: "POST", Pattern: "/app/leave/requests", Permissions: []string{AppBootstrap}},
+	{OperationID: "listAppLeaveRequests", Method: "GET", Pattern: "/app/leave/requests", Permissions: []string{AppBootstrap}},
+	{OperationID: "withdrawAppLeaveRequest", Method: "POST", Pattern: "/app/leave/requests/{leave_request_id}/withdraw", Permissions: []string{AppBootstrap}},
+	{OperationID: "listAppLeaveApprovals", Method: "GET", Pattern: "/app/leave/approvals", Permissions: []string{LeaveApprove}},
+	{OperationID: "approveAppLeaveRequest", Method: "POST", Pattern: "/app/leave/approvals/{leave_request_id}/approve", Permissions: []string{LeaveApprove}},
+	{OperationID: "rejectAppLeaveRequest", Method: "POST", Pattern: "/app/leave/approvals/{leave_request_id}/reject", Permissions: []string{LeaveApprove}},
+	{OperationID: "listAdminWebLeaveApprovals", Method: "GET", Pattern: "/admin-web/leave/approvals", Permissions: []string{LeaveApprove}},
+	{OperationID: "approveAdminWebLeaveRequest", Method: "POST", Pattern: "/admin-web/leave/approvals/{leave_request_id}/approve", Permissions: []string{LeaveApprove}},
+	{OperationID: "rejectAdminWebLeaveRequest", Method: "POST", Pattern: "/admin-web/leave/approvals/{leave_request_id}/reject", Permissions: []string{LeaveApprove}},
+	{OperationID: "listAdminLeaveRequests", Method: "GET", Pattern: "/admin/leave/requests", Permissions: []string{LeaveRead}},
+	{OperationID: "getLeaveApprovalConfig", Method: "GET", Pattern: "/admin/leave/approval-config", Permissions: []string{LeaveApprovalConfigure}},
+	{OperationID: "setLeaveApprovalConfig", Method: "PUT", Pattern: "/admin/leave/approval-config", Permissions: []string{LeaveApprovalConfigure}},
 	// Mobile live remote-config poll (docs/mobile/backend-driven-config.md): ETag/revision +
 	// cache_policy, presentation feature flags/owned-module registry, and bounded client runtime
 	// knobs. Same AppBootstrap "any authenticated app principal" gate as /app/bootstrap.

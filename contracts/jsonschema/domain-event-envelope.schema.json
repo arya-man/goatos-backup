@@ -124,6 +124,10 @@
         "vaccination.roster.changed",
         "vaccination.leave.changed",
         "procurement.feed_purchase.reached",
+        "workforce.leave.requested",
+        "workforce.leave.approved",
+        "workforce.leave.rejected",
+        "workforce.leave.withdrawn",
         "leadership_task.raised",
         "leadership_task.status_changed",
         "pen_visit.created",
@@ -172,7 +176,8 @@
         "feed_purchase",
         "leadership_task",
         "sales_deal",
-        "pen_visit_task"
+        "pen_visit_task",
+        "leave_request"
       ]
     },
     "aggregate_id": {
@@ -206,7 +211,8 @@
         "feed_purchase",
         "leadership_task",
         "sales_deal",
-        "pen_visit_task"
+        "pen_visit_task",
+        "leave_request"
       ]
     },
     "subject_id": {

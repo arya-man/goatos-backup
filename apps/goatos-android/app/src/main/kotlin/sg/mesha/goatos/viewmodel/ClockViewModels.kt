@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsClock
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.clock.ClockPunchDirection
 import sg.mesha.goatos.core.data.ClockPunchOutcome
 import sg.mesha.goatos.core.data.ClockRepository
@@ -40,6 +41,7 @@ import sg.mesha.goatos.feature.clock.ClockTeamRowUi
 import sg.mesha.goatos.feature.clock.ClockTeamSectionUi
 import sg.mesha.goatos.feature.clock.ClockTeamTileUi
 import sg.mesha.goatos.feature.clock.ClockUiState
+import sg.mesha.goatos.feature.clock.LeaveSectionUi
 import java.time.Duration
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -131,6 +133,8 @@ class ClockViewModel @Inject constructor(
     private val _refusal = MutableStateFlow<ClockRefusalUi?>(null)
     private val _punchInFlight = MutableStateFlow(false)
     private var pendingWatch: Job? = null
+    /** The leave request whose withdraw is on the outbox (maintainer decisions 2026-09-10). */
+    private val _withdrawing = MutableStateFlow<String?>(null)
 
     val state: StateFlow<ClockUiState> = combine(
         repo.observeStatus(),
@@ -142,9 +146,58 @@ class ClockViewModel @Inject constructor(
         combine(repo.observePendingPunch(), _punchInFlight) { queued, inFlight ->
             if (inFlight) "in_flight" else queued
         },
-    ) { dto, refreshing, refusal, pending ->
-        composeState(dto, refreshing, refusal, pending)
+        _withdrawing,
+    ) { dto, refreshing, refusal, pending, withdrawing ->
+        composeState(dto, refreshing, refusal, pending).let { base ->
+            base.copy(leave = composeLeave(dto, withdrawing))
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ClockUiState())
+
+    fun onLeaveFormOpened() {
+        analytics.track(AnalyticsEventsClock.CLOCK_LEAVE_FORM_OPENED)
+    }
+
+    /** Withdraws the person's own pending leave request through the durable outbox. */
+    fun withdrawLeave(requestId: String) {
+        if (_withdrawing.value != null) return
+        _withdrawing.value = requestId
+        viewModelScope.launch {
+            when (val result = repo.withdrawLeave(requestId)) {
+                is AppResult.Ok -> {
+                    analytics.track(AnalyticsEventsClock.CLOCK_LEAVE_WITHDRAWN)
+                    syncRepository.observeItem(result.value).collect { item ->
+                        when (item?.status) {
+                            null, SyncItemStatus.SUCCEEDED, SyncItemStatus.FAILED -> {
+                                _withdrawing.value = null
+                                repo.refreshStatus()
+                                return@collect
+                            }
+                            else -> Unit
+                        }
+                    }
+                }
+                is AppResult.Err -> {
+                    _withdrawing.value = null
+                    crashReporter.recordException(IllegalStateException(result.message), "leave withdraw enqueue failed")
+                    analytics.track(AnalyticsEventsClock.CLOCK_LEAVE_FAILURE, mapOf(AnalyticsEvents.Params.REASON to result.message))
+                    refresh()
+                }
+            }
+        }
+    }
+
+    private fun composeLeave(dto: ClockStatusResponseDto?, withdrawing: String?): LeaveSectionUi {
+        val copy = dto?.leaveCopy.orEmpty()
+        return LeaveSectionUi(
+            title = copy["list.title"].orEmpty(),
+            empty = copy["list.empty"].orEmpty(),
+            requestLabel = copy["request.title"].orEmpty(),
+            withdrawLabel = copy["request.withdraw"].orEmpty(),
+            todayLabel = dto?.leaveToday?.takeIf { it.onLeave }?.label.orEmpty(),
+            rows = dto?.leaveRequests.orEmpty().map { it.toRowUi() },
+            withdrawingRequestId = withdrawing,
+        )
+    }
 
     fun refresh() {
         if (_isRefreshing.value) return

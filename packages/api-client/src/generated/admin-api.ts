@@ -1688,6 +1688,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/leave/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every leave request (People / HRMS list).
+         * @description One row per request, newest first, optionally filtered by status and park. Keyset page of at most 20. leave.read (CEO and HR).
+         */
+        get: operations["listAdminLeaveRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/leave/approval-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who must approve leave (CEO only). */
+        get: operations["getLeaveApprovalConfig"];
+        /**
+         * Set who must approve leave (CEO only).
+         * @description At least one approver must stay ticked. Optimistically locked on row_version; a stale version is 409 leave_config_conflict.
+         */
+        put: operations["setLeaveApprovalConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/workforce/clock-entries": {
         parameters: {
             query?: never;
@@ -4302,6 +4343,106 @@ export interface components {
         ClockFlag: {
             key: string;
             label: string;
+        };
+        LeaveTodaySummary: {
+            on_leave: boolean;
+            label?: string;
+        };
+        LeaveSlotDecision: {
+            /** @enum {string} */
+            slot: "park_head" | "hr";
+            /** @enum {string} */
+            decision: "approved" | "rejected";
+            decided_by_name?: string;
+            /** Format: date-time */
+            decided_at: string;
+            note?: string;
+        };
+        LeaveRequest: {
+            /** Format: uuid */
+            leave_request_id: string;
+            /** Format: uuid */
+            workforce_member_id: string;
+            person_name: string;
+            designation?: string;
+            /** Format: uuid */
+            park_id?: string;
+            park_label?: string;
+            /** @description Inclusive first business date (YYYY-MM-DD). */
+            starts_on: string;
+            /** @description Inclusive last business date (YYYY-MM-DD). */
+            ends_on: string;
+            day_count: number;
+            /** @description Backend-composed window, e.g. "12–14 Sep 2026 · 3 days". */
+            dates_label: string;
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected" | "withdrawn";
+            status_label: string;
+            /** @description Where the request stands, in farm words. */
+            status_line: string;
+            park_head_required: boolean;
+            hr_required: boolean;
+            park_head?: components["schemas"]["LeaveSlotDecision"];
+            hr?: components["schemas"]["LeaveSlotDecision"];
+            /** Format: date-time */
+            raised_at: string;
+            raised_at_label: string;
+            /** Format: date-time */
+            decided_at?: string;
+            can_withdraw: boolean;
+            /** @description The slot the CALLER decides on this row (approver queue only). */
+            my_slot?: string;
+            my_slot_label?: string;
+            row_version: number;
+        };
+        LeaveApprovalConfig: {
+            park_head_required: boolean;
+            hr_required: boolean;
+            updated_at?: string;
+            updated_by_name?: string;
+            row_version: number;
+        };
+        LeaveApprovalConfigResponse: {
+            config: components["schemas"]["LeaveApprovalConfig"];
+            copy: {
+                [key: string]: string;
+            };
+            trace_id: string;
+        };
+        LeaveApprovalConfigUpdate: {
+            park_head_required: boolean;
+            hr_required: boolean;
+            row_version: number;
+        };
+        LeaveRequestCreate: {
+            idempotency_key?: string;
+            starts_on: string;
+            ends_on: string;
+            reason: string;
+        };
+        LeaveDecisionRequest: {
+            idempotency_key?: string;
+            /** @description REQUIRED when rejecting; optional when approving. */
+            reason?: string;
+            /**
+             * @description Honoured only for a caller who may decide either slot (CEO).
+             * @enum {string}
+             */
+            slot?: "park_head" | "hr";
+        };
+        LeaveRequestResponse: {
+            request: components["schemas"]["LeaveRequest"];
+            idempotent_replay: boolean;
+            trace_id: string;
+        };
+        LeaveRequestListResponse: {
+            items: components["schemas"]["LeaveRequest"][];
+            next_cursor: string;
+            copy: {
+                [key: string]: string;
+            };
+            trace_id: string;
         };
         ClockEntry: {
             /** @description Empty for a not-clocked-in roster row (no entry exists yet). */
@@ -7800,6 +7941,87 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listAdminLeaveRequests: {
+        parameters: {
+            query?: {
+                status?: "pending" | "approved" | "rejected" | "withdrawn";
+                park_id?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The list page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getLeaveApprovalConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The routing flags. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveApprovalConfigResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setLeaveApprovalConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveApprovalConfigUpdate"];
+            };
+        };
+        responses: {
+            /** @description The saved flags. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveApprovalConfigResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
         };
     };
     listAdminClockEntries: {

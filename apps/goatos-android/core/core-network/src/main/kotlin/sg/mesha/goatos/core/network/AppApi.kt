@@ -11,6 +11,11 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPersonDayResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPresenceResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
+import sg.mesha.goatos.core.network.dto.LeaveDecisionRequestDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestCreateDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestListResponseDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPunchResponseDto
 import sg.mesha.goatos.core.network.dto.ClockStatusResponseDto
 import sg.mesha.goatos.core.network.dto.ClockEntryDto
@@ -2038,6 +2043,41 @@ interface AppApi {
         workforceMemberId: String,
         date: String? = null,
     ): ClockPersonDayResponseDto
+
+    // --- Leave requests (docs/features/leave-requests/plan.md, maintainer decisions 2026-09-10) ---
+
+    /** POST /app/leave/requests — ask for leave (inclusive business-date window + reason). Drained
+     *  through the outbox under a stable [idempotencyKey]; 409 leave_overlap / 422 are terminal. */
+    suspend fun createLeaveRequest(
+        idempotencyKey: String,
+        request: LeaveRequestCreateDto,
+    ): LeaveRequestResponseDto
+
+    /** POST /app/leave/requests/{id}/withdraw — the requester's own pending request. */
+    suspend fun withdrawLeaveRequest(
+        leaveRequestId: String,
+        idempotencyKey: String,
+    ): LeaveRequestResponseDto
+
+    /** GET /app/leave/approvals — the caller's open queue (park head / HR / CEO), keyset ~20. */
+    suspend fun listLeaveApprovals(
+        limit: Int? = null,
+        cursor: String? = null,
+    ): LeaveRequestListResponseDto
+
+    /** POST /app/leave/approvals/{id}/approve — signs the caller's slot. */
+    suspend fun approveLeaveRequest(
+        leaveRequestId: String,
+        idempotencyKey: String,
+        request: LeaveDecisionRequestDto,
+    ): LeaveRequestResponseDto
+
+    /** POST /app/leave/approvals/{id}/reject — ends the request; reason REQUIRED. */
+    suspend fun rejectLeaveRequest(
+        leaveRequestId: String,
+        idempotencyKey: String,
+        request: LeaveDecisionRequestDto,
+    ): LeaveRequestResponseDto
 }
 
 /**
@@ -3287,6 +3327,39 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): ClockPersonDayResponseDto = ClockPersonDayResponseDto(
         personName = "Fake Person",
         businessDate = date ?: "2026-08-28",
+    )
+
+    override suspend fun createLeaveRequest(
+        idempotencyKey: String,
+        request: LeaveRequestCreateDto,
+    ): LeaveRequestResponseDto = LeaveRequestResponseDto(
+        request = LeaveRequestDto(leaveRequestId = "fake-leave", startsOn = request.startsOn, endsOn = request.endsOn, reason = request.reason, status = "pending"),
+    )
+
+    override suspend fun withdrawLeaveRequest(
+        leaveRequestId: String,
+        idempotencyKey: String,
+    ): LeaveRequestResponseDto = LeaveRequestResponseDto(
+        request = LeaveRequestDto(leaveRequestId = leaveRequestId, status = "withdrawn"),
+    )
+
+    override suspend fun listLeaveApprovals(limit: Int?, cursor: String?): LeaveRequestListResponseDto =
+        LeaveRequestListResponseDto()
+
+    override suspend fun approveLeaveRequest(
+        leaveRequestId: String,
+        idempotencyKey: String,
+        request: LeaveDecisionRequestDto,
+    ): LeaveRequestResponseDto = LeaveRequestResponseDto(
+        request = LeaveRequestDto(leaveRequestId = leaveRequestId, status = "approved"),
+    )
+
+    override suspend fun rejectLeaveRequest(
+        leaveRequestId: String,
+        idempotencyKey: String,
+        request: LeaveDecisionRequestDto,
+    ): LeaveRequestResponseDto = LeaveRequestResponseDto(
+        request = LeaveRequestDto(leaveRequestId = leaveRequestId, status = "rejected"),
     )
 
     private fun fakeClockEntry(status: String): ClockEntryDto = ClockEntryDto(

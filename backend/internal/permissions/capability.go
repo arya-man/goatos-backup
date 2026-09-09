@@ -237,6 +237,25 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// Leave requests (maintainer decision 2026-09-10): an operator asks for leave from
+		// the Clock screen; the park head AND HR both sign it. Its OWN capability module,
+		// kept apart from the counts `approvals` module above so ticking someone to decide
+		// leave never hands them birth/death/shifting authority (or the reverse). On the
+		// phone it renders as the Leave tab INSIDE the Approvals module (renderableModuleKey);
+		// on the web it is the /leave page. Configure is the CEO-only routing flag.
+		Key:      "leave_approvals",
+		Label:    "Leave approvals",
+		Blurb:    "Deciding leave requests raised from the Clock screen, and who must approve them.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			// View is the cross-person list on People / HRMS; Oversee is deciding a request.
+			// Kept apart so a park head (oversee, phone) never reads every park's leave.
+			LevelView:      {LeaveRead},
+			LevelOversee:   {LeaveApprove},
+			LevelConfigure: {LeaveApprove, LeaveRead, LeaveApprovalConfigure},
+		},
+	},
+	{
 		// The kid-milk round: prepare the feed, then give it. Its OWN module rather than a
 		// level on Herd Operations (maintainer decision 2026-07-31, which split it out of
 		// Counts on the phone and gave it its own admin-web group): Counts owns the

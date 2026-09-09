@@ -176,4 +176,10 @@ type ClockRepository interface {
 	ClockPersonDayDetail(ctx context.Context, tenantID, workforceMemberID, businessDate string) (ClockPersonDay, error)
 	// ClockEntryDetail resolves an entry id to its day detail (admin drawer).
 	ClockEntryDetail(ctx context.Context, tenantID, clockEntryID string) (ClockPersonDay, error)
+	// AutoCloseStaleClockEntries clocks out, at 23:59:59 IST of their own
+	// business day, up to limit entries still open from a business date BEFORE
+	// beforeDate (maintainer decision 2026-09-10). Returns the number closed;
+	// the caller loops until zero. Chunked and SKIP LOCKED so a punch landing
+	// mid-sweep is never blocked.
+	AutoCloseStaleClockEntries(ctx context.Context, tenantID, beforeDate string, limit int) (int, error)
 }

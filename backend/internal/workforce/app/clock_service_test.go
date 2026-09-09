@@ -46,6 +46,10 @@ func (f *fakeClockRepo) ClockEntryDetail(context.Context, string, string) (ports
 	return ports.ClockPersonDay{}, ports.ErrNotFound
 }
 
+func (f *fakeClockRepo) AutoCloseStaleClockEntries(context.Context, string, string, int) (int, error) {
+	return 0, nil
+}
+
 type fakeClockPeople struct{}
 
 func (fakeClockPeople) ListPeople(context.Context, ports.ListPeopleParams) ([]domain.PersonSummary, string, error) {

@@ -239,6 +239,12 @@ func run(ctx context.Context, args []string) error {
 		supervisor.RegisterCadence("housekeeping", 1*time.Hour,
 			kernelstages.NewProcessedEventSweeperStage(deps, tenantID),
 			kernelstages.NewIdempotencyKeySweeperStage(deps, tenantID),
+			// Forgotten clock-outs (maintainer decision 2026-09-10): every entry
+			// still open from an earlier IST business day is clocked out at
+			// 23:59:59 of that day. Hourly is fine -- the first tick after
+			// midnight IST closes yesterday, and the value written is the day's
+			// last second regardless of when the tick runs.
+			kernelstages.NewClockAutoCloseStage(deps, tenantID),
 			kernelstages.NewProofRetentionSweeperStage(deps),
 			kernelstages.NewCalendarReconcilerStage(deps, tenantID),
 			// BUG-016: scheduled recovery for a LOST goat.created event — the sole

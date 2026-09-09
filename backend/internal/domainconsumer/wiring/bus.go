@@ -109,6 +109,9 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	// cmd/outbox-relay -- this builder is also the bus the kernel E2E fixture relays through, so a
 	// consumer missing here is invisible to the story suite.
 	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
+	// Leave requests (maintainer decision 2026-09-10): raise -> the park head + HR who must sign it;
+	// final approve/reject -> the requester. Registered on every bus builder (cascade-event-wiring guard).
+	notificationbridge.NewLeaveRequestNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	// Sale -> Feed Director notice (maintainer decision 2026-09-07): goat.sale_allocated, emitted once
 	// per confirm with the pen-by-pen breakdown, pushes the pens and the feed day to reduce from.
 	notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithFeedClocks(feeddirectionpg.NewRepository(pool, queryTimeout)).Register(bus)

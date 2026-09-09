@@ -80,6 +80,7 @@ var modulePages = []ModulePage{
 	{Key: "workflows", Module: "vaccination", Label: "Workflows", Href: "/workflows", Permissions: []string{ObligationRead, VaccinationRead}, HiddenFromNav: true},
 	{Key: "calendar", Module: "calendar", Label: "Calendar", Href: "/calendar", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}, HiddenFromNav: true},
 	{Key: "approvals", Module: "counts", Label: "Approvals", Href: "/approvals", Permissions: []string{CountsApproveAccess}},
+	{Key: "leave", Module: "leave_approvals", Label: "Leave", Href: "/leave", Permissions: []string{LeaveApprove}},
 	{Key: "leadership-tasks", Module: "leadership_tasks", Label: "Tasks", Href: "/tasks", Permissions: []string{LeadershipTasksRead}, HiddenFromNav: true},
 	{Key: "verification-actions", Module: "verification", Label: "Verify", Href: "/verify", Permissions: []string{VerificationReview}},
 
@@ -173,6 +174,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/health":                     "aas_health",
 	"/operations":                 "operations",
 	"/people":                     "people",
+	"/leave":                      "leave_approvals",
 }
 
 var modulePageIndex = func() map[string]ModulePage {
