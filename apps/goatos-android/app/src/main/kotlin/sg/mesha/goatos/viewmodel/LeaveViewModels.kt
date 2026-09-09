@@ -10,10 +10,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsClock
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -132,27 +134,23 @@ class LeaveRequestViewModel @Inject constructor(
     private fun watchOutbox(itemId: String) {
         watch?.cancel()
         watch = viewModelScope.launch {
-            syncRepository.observeItem(itemId).filterNotNull().collect { item ->
-                when {
-                    item.status == SyncItemStatus.SUCCEEDED -> {
-                        clearDraft()
-                        _form.update { it.copy(submitting = false, submitted = true) }
-                        watch?.cancel()
-                    }
-                    item.isTerminalFailure -> {
-                        // The key is spent; the next attempt mints a fresh one.
-                        savedStateHandle.remove<String>(KEY_IDEMPOTENCY)
-                        analytics.track(AnalyticsEventsClock.CLOCK_LEAVE_FAILURE, mapOf(AnalyticsEvents.Params.REASON to (item.lastError ?: "rejected")))
-                        _form.update { it.copy(submitting = false, message = item.lastError ?: "", isError = true) }
-                        watch?.cancel()
-                    }
-                    // Still queued (offline): the write is durable, so let the person go. The Clock
-                    // screen shows the request once the status refreshes after drain.
-                    else -> {
-                        clearDraft()
-                        _form.update { it.copy(submitting = false, submitted = true) }
-                        watch?.cancel()
-                    }
+            // Give an ONLINE drain a moment to answer, so an overlap or a past date is seen on
+            // the form. Past the grace window the write is durable on the outbox (offline), so
+            // let the person go; the Clock screen shows the request once the status refreshes.
+            val settled = withTimeoutOrNull(DRAIN_GRACE_MS) {
+                syncRepository.observeItem(itemId).filterNotNull()
+                    .first { it.status == SyncItemStatus.SUCCEEDED || it.isTerminalFailure }
+            }
+            when {
+                settled == null || settled.status == SyncItemStatus.SUCCEEDED -> {
+                    clearDraft()
+                    _form.update { it.copy(submitting = false, submitted = true) }
+                }
+                else -> {
+                    // The key is spent; the next attempt mints a fresh one.
+                    savedStateHandle.remove<String>(KEY_IDEMPOTENCY)
+                    analytics.track(AnalyticsEventsClock.CLOCK_LEAVE_FAILURE, mapOf(AnalyticsEvents.Params.REASON to (settled.lastError ?: "rejected")))
+                    _form.update { it.copy(submitting = false, message = settled.lastError ?: "", isError = true) }
                 }
             }
         }
@@ -177,6 +175,7 @@ class LeaveRequestViewModel @Inject constructor(
         const val KEY_STARTS = "leaveRequest.startsOn"
         const val KEY_ENDS = "leaveRequest.endsOn"
         const val KEY_REASON = "leaveRequest.reason"
+        const val DRAIN_GRACE_MS = 6_000L
     }
 }
 

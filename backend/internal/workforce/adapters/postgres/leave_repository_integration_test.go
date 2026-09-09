@@ -58,6 +58,13 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $4, 'active', $5, $6::uuid)`, m[0], le
 VALUES ($1::uuid, $2::uuid, 'park_head', 'park', $3::uuid, 'active', now() - interval '1 day')`, leaveTenant, leaveHeadUser, leavePark)
 	mustExec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES ($1::uuid, $2::uuid, 'hr', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, leaveTenant, leaveHRUser)
+	// The live roster seats park heads on TENANT-scoped grants: one seated (primary_location_id)
+	// at the OTHER park must not resolve for this park.
+	mustExec(`
+INSERT INTO workforce_members (workforce_member_id, tenant_id, user_id, display_code, display_name, status, primary_role_hint, primary_location_id)
+VALUES ('97000000-0000-4000-8000-000000000304'::uuid, $1::uuid, '91000000-0000-4000-8000-000000000304'::uuid, 'Other Head', 'Other Head', 'active', 'park_head', $2::uuid)`, leaveTenant, leaveOtherPark)
+	mustExec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, '91000000-0000-4000-8000-000000000304'::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, leaveTenant)
 
 	repo := NewRepository(pool, 5*time.Second)
 
@@ -70,8 +77,8 @@ VALUES ($1::uuid, $2::uuid, 'hr', 'tenant', $1::uuid, 'active', now() - interval
 		t.Fatalf("approvers = %+v", approvers)
 	}
 	other, err := repo.ResolveLeaveApproverMembers(ctx, leaveTenant, leaveOtherPark)
-	if err != nil || len(other.ParkHead) != 0 {
-		t.Fatalf("another park must resolve no park head: %+v %v", other, err)
+	if err != nil || len(other.ParkHead) != 1 || other.ParkHead[0] != "97000000-0000-4000-8000-000000000304" {
+		t.Fatalf("the other park must resolve ONLY its tenant-scoped head seated there: %+v %v", other, err)
 	}
 
 	raise := func(key, starts, ends string) (ports.LeaveRequestWrite, error) {

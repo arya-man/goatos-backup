@@ -232,8 +232,9 @@ WHERE workforce_leave_approval_config.row_version = $5
 RETURNING row_version`
 
 	// Approver members: ACTIVE role grants -> active profiles. A park desk is a
-	// park-scoped park_head grant (most holders carry no workforce_positions
-	// seat, found 2026-09-08); HR is a tenant-scoped per-person grant.
+	// park_head grant either scoped to the park or -- the shape the live roster
+	// actually carries -- tenant-scoped and seated by the holder's own
+	// primary_location_id; HR is a tenant-scoped per-person grant.
 	sqlLeaveApprovers = `
 SELECT DISTINCT m.workforce_member_id::text, g.role
 FROM user_scope_grants g
@@ -243,7 +244,10 @@ WHERE g.tenant_id = $1::uuid
   AND g.status = 'active'
   AND g.valid_from <= now() AND (g.valid_to IS NULL OR g.valid_to > now())
   AND (
-    (g.role = 'park_head' AND g.scope_type = 'park' AND $2 <> '' AND g.scope_id = $2::uuid)
+    (g.role = 'park_head' AND $2 <> '' AND (
+      (g.scope_type = 'park' AND g.scope_id = $2::uuid)
+      OR (g.scope_type = 'tenant' AND m.primary_location_id = $2::uuid)
+    ))
     OR g.role = 'hr'
   )
 LIMIT 500`

@@ -78,7 +78,7 @@ func (h *LeaveHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 
 func (h *LeaveHandler) Queue(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	result, err := h.service.Queue(r.Context(), tenantID(r), leaveApprover(r),
+	result, err := h.service.Queue(r.Context(), tenantID(r), actorID(r), leaveApprover(r),
 		parseLimit(q.Get("limit")), q.Get("cursor"), httpmiddleware.LocaleTagFromRequest(r), traceID(r))
 	h.respond(w, r, result, err)
 }
@@ -139,6 +139,11 @@ func leaveApprover(r *http.Request) app.LeaveApprover {
 		case permissions.RoleParkHead:
 			if grant.ScopeType == "park" && grant.ScopeID != "" {
 				out.ParkHeadParks = append(out.ParkHeadParks, grant.ScopeID)
+			} else {
+				// A tenant-scoped park_head grant (the shape the live roster actually carries)
+				// heads the park the roster assigns them; the service resolves it from
+				// workforce_members.primary_location_id.
+				out.ParkHeadOfHomePark = true
 			}
 		case permissions.RoleHR:
 			out.HR = true
