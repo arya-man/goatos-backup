@@ -117,6 +117,18 @@ function OverviewSections({
           {/* 1 — headline figures, verbatim from the overview summary. */}
           <section className="grid g5 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
             <div className="kpi">
+              <div className="lab">{copy(pageContract, "kpi.farm_value")}</div>
+              <div className="val">{inr(overview.farm_valuation.total_value_rupees)}</div>
+              <div className="dl">{copy(pageContract, "kpi.farm_value.detail")}</div>
+            </div>
+            <div className="kpi">
+              <div className="lab">{copy(pageContract, "kpi.total_meat")}</div>
+              <div className="val">
+                {num(overview.farm_valuation.total_meat_kg, 1)} {kgSuffix}
+              </div>
+              <div className="dl">{copy(pageContract, "kpi.total_meat.detail")}</div>
+            </div>
+            <div className="kpi">
               <div className="lab">{copy(pageContract, "kpi.revenue")}</div>
               <div className="val">{inr(summary.revenue)}</div>
               <div className="dl">
@@ -173,6 +185,28 @@ function OverviewSections({
               applyLabel={copy(pageContract, "kpi.over35.apply")}
             />
           ) : null}
+
+          <section className="card sales-card" aria-label={copy(pageContract, "kpi.farm_value")}>
+            <div className="hd">
+              <h3>{copy(pageContract, "kpi.farm_value")}</h3>
+              <Tag tone={overview.farm_valuation.total_value_rupees > 0 ? "info" : "mut"}>
+                {num(overview.farm_valuation.total_animals)} {copy(pageContract, "value.live_animals")}
+              </Tag>
+            </div>
+            <div className="grid g4">
+              {overview.farm_valuation.buckets.map((bucket) => (
+                <div className="kpi mini" key={bucket.bucket}>
+                  <div className="lab">{bucket.label}</div>
+                  <div className="val">{inr(bucket.value_rupees)}</div>
+                  <div className="dl">
+                    {num(bucket.meat_kg, 1)} {kgSuffix} · {num(bucket.animal_count)}{" "}
+                    {copy(pageContract, "value.live_animals")}
+                    {bucket.actual_weight ? ` · ${num(bucket.weighed_animals)} ${copy(pageContract, "value.weighed")}` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
 
 
           {/* Sold animals by weight (maintainer decision 2026-09-08; placed ABOVE the monthly charts at the maintainer's request): the weight recorded when

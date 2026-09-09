@@ -173,6 +173,26 @@ type overviewPayload struct {
 	// sold_weight_bands (maintainer decision 2026-09-08): sold animals by the weight recorded
 	// at tagging. Disjoint bands plus the unweighed remainder; they sum to total.
 	SoldWeightBands soldWeightBandsPayload `json:"sold_weight_bands"`
+	FarmValuation   farmValuationPayload   `json:"farm_valuation"`
+}
+
+type farmValuationPayload struct {
+	TotalValueRupees float64                      `json:"total_value_rupees"`
+	TotalMeatKg      float64                      `json:"total_meat_kg"`
+	TotalAnimals     int                          `json:"total_animals"`
+	Buckets          []farmValuationBucketPayload `json:"buckets"`
+}
+
+type farmValuationBucketPayload struct {
+	Bucket         string  `json:"bucket"`
+	Label          string  `json:"label"`
+	AnimalCount    int     `json:"animal_count"`
+	WeightKg       float64 `json:"weight_kg"`
+	PricePerKg     float64 `json:"price_per_kg"`
+	MeatKg         float64 `json:"meat_kg"`
+	ValueRupees    float64 `json:"value_rupees"`
+	ActualWeight   bool    `json:"actual_weight"`
+	WeighedAnimals int     `json:"weighed_animals"`
 }
 
 type soldWeightBandsPayload struct {
@@ -315,6 +335,15 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 			LandingCostPerKg: b.LandingCostPerKg, MarketPricePerKg: b.MarketPricePerKg,
 		})
 	}
+	valuationBuckets := make([]farmValuationBucketPayload, 0, len(o.FarmValuation.Buckets))
+	for _, b := range o.FarmValuation.Buckets {
+		valuationBuckets = append(valuationBuckets, farmValuationBucketPayload{
+			Bucket: b.Bucket, Label: b.Label, AnimalCount: b.AnimalCount,
+			WeightKg: b.WeightKg, PricePerKg: b.PricePerKg, MeatKg: b.MeatKg,
+			ValueRupees: b.ValueRupees, ActualWeight: b.ActualWeight,
+			WeighedAnimals: b.WeighedAnimals,
+		})
+	}
 	return overviewPayload{
 		Summary: summaryPayload{
 			Revenue: o.Summary.Revenue, LiveRevenue: o.Summary.LiveRevenue, Deals: o.Summary.Deals,
@@ -350,6 +379,12 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 			Total: o.SoldWeightBands.Total, Under20: o.SoldWeightBands.Under20,
 			From20To35: o.SoldWeightBands.From20To35, From35To40: o.SoldWeightBands.From35To40,
 			AtOrAbove40: o.SoldWeightBands.AtOrAbove40, Unweighed: o.SoldWeightBands.Unweighed,
+		},
+		FarmValuation: farmValuationPayload{
+			TotalValueRupees: o.FarmValuation.TotalValueRupees,
+			TotalMeatKg:      o.FarmValuation.TotalMeatKg,
+			TotalAnimals:     o.FarmValuation.TotalAnimals,
+			Buckets:          valuationBuckets,
 		},
 	}
 }

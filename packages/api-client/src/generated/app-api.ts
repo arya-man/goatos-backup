@@ -7659,6 +7659,28 @@ export interface components {
             /** @description Latest closed sale date in scope (YYYY-MM-DD); empty when none. */
             period_to: string;
         };
+        /** @description One mutually-exclusive live-herd valuation bucket for the Sales farm-value cards. */
+        SalesFarmValuationBucket: {
+            bucket: string;
+            label: string;
+            animal_count: number;
+            /** @description Fixed formula weight, except fattening where this is the current actual average. */
+            weight_kg: number;
+            price_per_kg: number;
+            meat_kg: number;
+            value_rupees: number;
+            /** @description True when weight_kg came from verified weighing data rather than a fixed formula. */
+            actual_weight: boolean;
+            /** @description Count of animals behind the actual-weight average; 0 for fixed-weight buckets. */
+            weighed_animals: number;
+        };
+        /** @description Live-herd valuation under Sales, separate from closed sales revenue. */
+        SalesFarmValuation: {
+            total_value_rupees: number;
+            total_meat_kg: number;
+            total_animals: number;
+            buckets: components["schemas"]["SalesFarmValuationBucket"][];
+        };
         /** @description One month with at least one closed deal. Months derive from sale_date. */
         SalesOverviewMonthly: {
             /** @description YYYY-MM */
@@ -7754,6 +7776,7 @@ export interface components {
             weight_audit: components["schemas"]["SalesWeightAudit"];
             market_benchmarks: components["schemas"]["SalesMarketBenchmark"][];
             sold_weight_bands: components["schemas"]["SalesSoldWeightBands"];
+            farm_valuation: components["schemas"]["SalesFarmValuation"];
         };
         /** @description Every animal tagged sold, counted by the live weight recorded at tagging (maintainer decision 2026-09-08). The four bands are disjoint -- a weight sits in the lowest band whose upper edge is above it, so exactly 20 kg is 20-35 and exactly 40 kg is 40+ -- and `unweighed` is the remainder tagged before a weight was recorded. Bands plus unweighed equal total. Whole register, no window. */
         SalesSoldWeightBands: {
