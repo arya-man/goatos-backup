@@ -66,13 +66,11 @@ type ModulePage struct {
 // describes vaccination process gaps today, and giving them a module of their own would
 // have created a module nobody's backfilled role holds.
 var modulePages = []ModulePage{
-	{Key: "control-tower", Module: "vaccination", Label: "Control Tower", Href: "/", Permissions: []string{ObligationRead, VaccinationRead}},
-	{Key: "action-center", Module: "vaccination", Label: "Action Center", Href: "/action-center", Permissions: []string{ObligationRead, VaccinationRead}},
-	{Key: "protocol-adherence", Module: "vaccination", Label: "Protocol Adherence", Href: "/protocol-adherence", Permissions: []string{ObligationRead, VaccinationRead}},
-	{Key: "workflows", Module: "vaccination", Label: "Workflows", Href: "/workflows", Permissions: []string{ObligationRead, VaccinationRead}},
-	{Key: "calendar", Module: "calendar", Label: "Calendar", Href: "/calendar", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
+	// Control Tower, Action Center, Protocol Adherence, Workflows, Calendar, Tasks and DLQ
+	// Center are parked from the sidebar (maintainer request 2026-09-09), so they have no
+	// catalog row: a tickable page must be a nav leaf (the weighing-weights precedent below).
+	// The pages stay served at their routes for deep links.
 	{Key: "approvals", Module: "counts", Label: "Approvals", Href: "/approvals", Permissions: []string{CountsApproveAccess}},
-	{Key: "leadership-tasks", Module: "leadership_tasks", Label: "Tasks", Href: "/tasks", Permissions: []string{LeadershipTasksRead}},
 	{Key: "verification-actions", Module: "verification", Label: "Verify", Href: "/verify", Permissions: []string{VerificationReview}},
 
 	{Key: "preventive-care-vaccination", Module: "vaccination", Label: "Vaccination", Href: "/vaccination", Permissions: []string{ObligationRead, VaccinationRead}},
@@ -125,7 +123,6 @@ var modulePages = []ModulePage{
 	{Key: "health-config", Module: "aas_health", Label: "Health Config", Href: "/health/config", Permissions: []string{HealthConfigRead}},
 
 	{Key: "audit-log", Module: "operations", Label: "Audit Log", Href: "/operations/audit", Permissions: []string{OperatorsViewAudit}},
-	{Key: "dlq-center", Module: "operations", Label: "DLQ Center", Href: "/operations/dlq", Permissions: []string{OperatorsViewAudit}},
 	{Key: "people", Module: "people", Label: "People / HRMS", Href: "/people", Permissions: []string{OperatorsRead}},
 }
 

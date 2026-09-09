@@ -16,8 +16,18 @@ function firstEnabledPublishedHref(contract: Awaited<ReturnType<typeof getAdminW
   return enabledPublished.find((item) => item.href === "/verify")?.href ?? enabledPublished[0]?.href ?? null;
 }
 
+// ADG Analytics is the landing page (maintainer request 2026-09-09): whoever holds its
+// page contract lands there after login and on "/". Control Tower is parked from the
+// sidebar and only renders here for a principal whose contract carries no ADG page (the
+// verifier lens, for one, drops every module page and keeps its own landing).
+const LANDING_ROUTE_ID = "weighing-analytics";
+
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const [sp, contract] = await Promise.all([searchParams, getAdminWebBootstrap()]);
+  const landing = contract.ok ? contract.data.pages.find((item) => item.route_id === LANDING_ROUTE_ID) : null;
+  if (landing?.href) {
+    redirect(landing.href);
+  }
   const controlTower = contract.ok ? contract.data.pages.find((item) => item.route_id === "control-tower") : null;
   if (!controlTower) {
     redirect(firstEnabledPublishedHref(contract) ?? "/vaccination");

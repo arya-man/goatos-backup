@@ -99,10 +99,11 @@ func navLeafDomain(id, label, href, module string, extra map[string]string) doma
 func navigation() domain.NavigationContract {
 	return domain.NavigationContract{
 		Primary: []domain.NavigationItem{
-			// Control Tower, Action Center, Protocol Adherence and Workflows moved into the
-			// "Others" group (maintainer request 2026-09-08). They remain top-level command
-			// lenses at their own routes; only their sidebar placement changed.
-			navItem("calendar", "Calendar", "/calendar", "calendar-days", ""),
+			// Calendar and Tasks are parked from the sidebar (maintainer request 2026-09-09,
+			// together with the four command lenses and DLQ Center below). The pages stay
+			// served at their routes for deep links; keep the restore lines so scope guards
+			// can tell they are withheld deliberately, not lost.
+			// navItem("calendar", "Calendar", "/calendar", "calendar-days", ""),
 			// Approvals is a top-level decision surface (maintainer decision 2026-07-21): the queue of
 			// pending birth/death/shifting requests, approved or rejected here. Moved off mobile;
 			// access is gated server-side by counts.approve_access (the four org tiers + admin +
@@ -117,7 +118,7 @@ func navigation() domain.NavigationContract {
 			// "Actions", the vaguest possible label for a screen that does exactly one thing: open a
 			// proof video, check it against the facts, accept or reject.
 			navItemDomain("verification-actions", "Verify", "/verify", "clipboard-check", "", "admin.verification"),
-			navItem("leadership-tasks", "Tasks", "/tasks", "clipboard-list", ""),
+			// navItem("leadership-tasks", "Tasks", "/tasks", "clipboard-list", ""),
 		},
 		Groups: []domain.NavigationGroup{
 			{
@@ -195,15 +196,20 @@ func navigation() domain.NavigationContract {
 			{
 				ID: "others", Label: "Others", Icon: "edit-3", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
-					navLeaf("control-tower", "Control Tower", "/", nil),
-					navLeaf("action-center", "Action Center", "/action-center", nil),
-					navLeaf("protocol-adherence", "Protocol Adherence", "/protocol-adherence", nil),
-					navLeaf("workflows", "Workflows", "/workflows", nil),
+					// The four command lenses moved here from the primary bar (maintainer request
+					// 2026-09-08) and were then parked from the sidebar altogether (maintainer
+					// request 2026-09-09). They remain top-level command lenses at their own
+					// routes; ADG Analytics is the landing page, so "/" now redirects there.
+					// navLeaf("control-tower", "Control Tower", "/", nil),
+					// navLeaf("action-center", "Action Center", "/action-center", nil),
+					// navLeaf("protocol-adherence", "Protocol Adherence", "/protocol-adherence", nil),
+					// navLeaf("workflows", "Workflows", "/workflows", nil),
 					navLeaf("milk-preparation", "Milk Preparation", "/counts/milk-preparation", nil),
 					navLeaf("milk-sops", "Milk SOP", "/milk/sops", nil),
 					navLeafDomain("herd-signals", "Live Monitor", "/herd-signals", "herd_signals.live", nil),
 					navLeafDomain("audit-log", "Audit Log", "/operations/audit", "admin.audit", nil),
-					navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
+					// Parked from the sidebar (maintainer request 2026-09-09); /operations/dlq stays served.
+					// navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
 					navLeafDomain("people", "People / HRMS", "/people", "admin.people", nil),
 				},
 			},
