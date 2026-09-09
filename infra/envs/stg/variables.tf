@@ -229,6 +229,17 @@ variable "monitoring_alert_email_addresses" {
   }
 }
 
+variable "cost_alert_bridge_shared_token" {
+  description = "Shared token appended to Cloud Monitoring and Pub/Sub push URLs for the goatos-stg cost-alert bridge. Supply through private tfvars or -var, never commit it."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = length(trimspace(var.cost_alert_bridge_shared_token)) >= 24
+    error_message = "cost_alert_bridge_shared_token must be at least 24 characters."
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Kernel-worker cutover control (KERN-01 safety: two-phase legacy job retirement)
 # ---------------------------------------------------------------------------

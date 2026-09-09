@@ -25,6 +25,16 @@ resource "google_pubsub_topic" "outbox_events_dlq" {
   labels = local.labels
 }
 
+resource "google_pubsub_topic" "cost_alert_budget_notifications" {
+  name = "goatos-stg-cost-alert-budget-notifications"
+
+  message_storage_policy {
+    allowed_persistence_regions = [var.region]
+  }
+
+  labels = local.labels
+}
+
 resource "google_pubsub_subscription" "analytics_export" {
   name  = "goatos-stg-analytics-export"
   topic = google_pubsub_topic.outbox_events.id
@@ -66,6 +76,37 @@ resource "google_pubsub_subscription" "outbox_events_dlq_inspect" {
   retain_acked_messages      = false
 
   labels = local.labels
+}
+
+resource "google_pubsub_subscription" "cost_alert_budget_push" {
+  name  = "goatos-stg-cost-alert-budget-push"
+  topic = google_pubsub_topic.cost_alert_budget_notifications.id
+
+  ack_deadline_seconds       = 60
+  message_retention_duration = "604800s"
+  retain_acked_messages      = false
+
+  push_config {
+    push_endpoint = "${google_cloud_run_v2_service.cost_alert_bridge.uri}/budget-pubsub?token=${var.cost_alert_bridge_shared_token}"
+
+    oidc_token {
+      service_account_email = google_service_account.runtime["cost_alert_bridge"].email
+    }
+  }
+
+  labels = local.labels
+}
+
+resource "google_pubsub_topic_iam_member" "billing_budget_cost_alert_publisher" {
+  topic  = google_pubsub_topic.cost_alert_budget_notifications.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:billing-budget-alert@system.gserviceaccount.com"
+}
+
+resource "google_service_account_iam_member" "pubsub_cost_alert_bridge_token_creator" {
+  service_account_id = google_service_account.runtime["cost_alert_bridge"].name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_project_service_identity.pubsub.email}"
 }
 
 # The kernel worker's outbox-relay stage publishes domain events.

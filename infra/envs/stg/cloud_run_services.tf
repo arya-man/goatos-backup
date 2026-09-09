@@ -506,6 +506,111 @@ resource "google_cloud_run_v2_service" "mcp" {
   depends_on = [google_project_service.enabled]
 }
 
+resource "google_cloud_run_v2_service" "cost_alert_bridge" {
+  name                = "goatos-stg-cost-alert-bridge"
+  location            = var.region
+  deletion_protection = false
+  ingress             = "INGRESS_TRAFFIC_ALL"
+  labels              = local.labels
+
+  template {
+    service_account = google_service_account.runtime["cost_alert_bridge"].email
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 2
+    }
+
+    containers {
+      image   = local.backend_image
+      command = ["/app/bin/cost-alert-bridge"]
+
+      ports {
+        container_port = 8080
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "256Mi"
+        }
+      }
+
+      env {
+        name  = "GOATOS_ENV"
+        value = "stg"
+      }
+
+      env {
+        name  = "GOATOS_HTTP_ADDR"
+        value = ":8080"
+      }
+
+      env {
+        name = "GOATOS_COST_ALERT_SHARED_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["cost_alert_bridge_shared_token"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "GOATOS_COST_ALERT_SLACK_BOT_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["cost_alert_slack_bot_token"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name  = "GOATOS_COST_ALERT_SLACK_CHANNEL_ID"
+        value = "C0C1HLFEYAU"
+      }
+
+      env {
+        name  = "GOATOS_BILLING_QUERY_PROJECT_ID"
+        value = var.project_id
+      }
+
+      env {
+        name  = "GOATOS_BILLING_EXPORT_TABLE"
+        value = "${var.project_id}.${google_bigquery_dataset.billing_export.dataset_id}.gcp_billing_export_v1_01FEDE_96BCB3_76D992"
+      }
+
+      env {
+        name  = "GOATOS_BILLING_MONITORED_PROJECTS"
+        # "GoatOS" is the display name of project_id goatos-stg.
+        value = "goatos-stg,goatos-sheets,goatos-dev"
+      }
+    }
+  }
+
+  depends_on = [
+    google_project_service.enabled,
+    google_bigquery_dataset.billing_export,
+  ]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "cost_alert_bridge_public_invoker" {
+  project  = var.project_id
+  location = google_cloud_run_v2_service.cost_alert_bridge.location
+  name     = google_cloud_run_v2_service.cost_alert_bridge.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "cost_alert_bridge_scheduler_invoker" {
+  project  = var.project_id
+  location = google_cloud_run_v2_service.cost_alert_bridge.location
+  name     = google_cloud_run_v2_service.cost_alert_bridge.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.runtime["scheduler"].email}"
+}
+
 resource "google_cloud_run_v2_service_iam_member" "mcp_public_invoker" {
   project  = var.project_id
   location = google_cloud_run_v2_service.mcp.location

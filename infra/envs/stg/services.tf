@@ -5,6 +5,7 @@ locals {
     "bigquery.googleapis.com",
     "cloudbuild.googleapis.com",
     "clouddeploy.googleapis.com",
+    "cloudscheduler.googleapis.com",
     "cloudtasks.googleapis.com",
     "cloudtrace.googleapis.com",
     "fcm.googleapis.com",
@@ -43,6 +44,15 @@ resource "google_project_service_identity" "clouddeploy" {
 
   project = var.project_id
   service = "clouddeploy.googleapis.com"
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_project_service_identity" "cloudscheduler" {
+  provider = google-beta
+
+  project = var.project_id
+  service = "cloudscheduler.googleapis.com"
 
   depends_on = [google_project_service.enabled]
 }

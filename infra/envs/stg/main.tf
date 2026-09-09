@@ -30,6 +30,10 @@ locals {
       account_id   = "goatos-kernel-worker-stg"
       display_name = "Goat OS staging kernel worker runtime"
     }
+    cost_alert_bridge = {
+      account_id   = "goatos-cost-alert-stg"
+      display_name = "Goat OS staging cost alert Slack bridge"
+    }
     herd_signals_mqtt_bridge = {
       account_id   = "goatos-hs-mqtt-bridge-stg"
       display_name = "Goat OS staging herd signals MQTT bridge runtime"
@@ -167,6 +171,18 @@ locals {
       secret_id = "goatos-stg-notification-incident-webhook-url"
       accessors = [
         "kernel_worker",
+      ]
+    }
+    cost_alert_slack_bot_token = {
+      secret_id = "goatos-stg-cost-alert-slack-bot-token"
+      accessors = [
+        "cost_alert_bridge",
+      ]
+    }
+    cost_alert_bridge_shared_token = {
+      secret_id = "goatos-stg-cost-alert-bridge-shared-token"
+      accessors = [
+        "cost_alert_bridge",
       ]
     }
     mesha_ceo_readonly_db_url = {

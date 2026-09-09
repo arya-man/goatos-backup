@@ -2,6 +2,11 @@ locals {
   monitoring_notification_channel_names = [
     for channel in google_monitoring_notification_channel.ops_email : channel.name
   ]
+
+  cost_alert_notification_channel_names = concat(
+    local.monitoring_notification_channel_names,
+    [google_monitoring_notification_channel.cost_alert_bridge.name],
+  )
 }
 
 resource "google_monitoring_notification_channel" "ops_email" {
@@ -16,6 +21,21 @@ resource "google_monitoring_notification_channel" "ops_email" {
   }
 
   depends_on = [google_project_service.enabled]
+}
+
+resource "google_monitoring_notification_channel" "cost_alert_bridge" {
+  display_name = "goatos-stg cost alerts Slack bridge"
+  type         = "webhook_tokenauth"
+  enabled      = true
+
+  labels = {
+    url = "${google_cloud_run_v2_service.cost_alert_bridge.uri}/monitoring-webhook?token=${var.cost_alert_bridge_shared_token}"
+  }
+
+  depends_on = [
+    google_cloud_run_v2_service.cost_alert_bridge,
+    google_cloud_run_v2_service_iam_member.cost_alert_bridge_public_invoker,
+  ]
 }
 
 resource "google_monitoring_alert_policy" "cloud_run_errors" {
@@ -129,6 +149,280 @@ resource "google_monitoring_alert_policy" "cloud_sql_cpu" {
         per_series_aligner = "ALIGN_MEAN"
       }
     }
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_monitoring_alert_policy" "media_bucket_read_egress_warning" {
+  display_name          = "goatos-stg media bucket ReadObject egress warning"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = local.cost_alert_notification_channel_names
+  user_labels           = local.labels
+
+  conditions {
+    display_name = "goatos-stg-media served more than 5 GiB in 1 hour"
+
+    condition_monitoring_query_language {
+      query = trimspace(<<-EOT
+        fetch gcs_bucket
+        | metric 'storage.googleapis.com/network/sent_bytes_count'
+        | filter resource.project_id == '${var.project_id}'
+        | filter resource.bucket_name == 'goatos-stg-media'
+        | filter metric.method == 'ReadObject'
+        | filter metric.response_code == 'OK'
+        | align delta(1h)
+        | every 1h
+        | group_by [], [egress_bytes: sum(value.sent_bytes_count)]
+        | condition cast_units(egress_bytes, "") > 5368709120
+      EOT
+      )
+      duration = "0s"
+    }
+  }
+
+  alert_strategy {
+    auto_close = "604800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Possible proof media download loop. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject OK egress. Delta: 5 GiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; then group by user, device, screen, proof_id, object_key."
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_monitoring_alert_policy" "media_bucket_read_egress_critical" {
+  display_name          = "goatos-stg media bucket ReadObject egress critical"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = local.cost_alert_notification_channel_names
+  user_labels           = local.labels
+
+  conditions {
+    display_name = "goatos-stg-media served more than 15 GiB in 1 hour"
+
+    condition_monitoring_query_language {
+      query = trimspace(<<-EOT
+        fetch gcs_bucket
+        | metric 'storage.googleapis.com/network/sent_bytes_count'
+        | filter resource.project_id == '${var.project_id}'
+        | filter resource.bucket_name == 'goatos-stg-media'
+        | filter metric.method == 'ReadObject'
+        | filter metric.response_code == 'OK'
+        | align delta(1h)
+        | every 1h
+        | group_by [], [egress_bytes: sum(value.sent_bytes_count)]
+        | condition cast_units(egress_bytes, "") > 16106127360
+      EOT
+      )
+      duration = "0s"
+    }
+  }
+
+  alert_strategy {
+    auto_close = "604800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Critical proof media egress spike. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject OK egress. Delta: 15 GiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; group by user, device, screen, proof_id, object_key."
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_monitoring_alert_policy" "media_bucket_daily_read_egress_critical" {
+  display_name          = "goatos-stg media bucket daily ReadObject egress critical"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = local.cost_alert_notification_channel_names
+  user_labels           = local.labels
+
+  conditions {
+    display_name = "goatos-stg-media served more than 40 GiB in 24 hours"
+
+    condition_threshold {
+      filter          = "resource.type=\"gcs_bucket\" AND resource.labels.project_id=\"${var.project_id}\" AND resource.labels.bucket_name=\"goatos-stg-media\" AND metric.type=\"storage.googleapis.com/network/sent_bytes_count\" AND metric.labels.method=\"ReadObject\" AND metric.labels.response_code=\"OK\""
+      comparison      = "COMPARISON_GT"
+      duration        = "0s"
+      threshold_value = 42949672960
+
+      aggregations {
+        alignment_period     = "86400s"
+        per_series_aligner   = "ALIGN_DELTA"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+
+  alert_strategy {
+    auto_close = "604800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Daily proof media egress crossed the emergency threshold. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject OK egress. Delta: 40 GiB/day threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; then inspect docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md."
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_monitoring_alert_policy" "media_bucket_cancelled_read_egress_warning" {
+  display_name          = "goatos-stg media bucket cancelled ReadObject egress warning"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = local.cost_alert_notification_channel_names
+  user_labels           = local.labels
+
+  conditions {
+    display_name = "goatos-stg-media cancelled reads exceeded 512 MiB in 1 hour"
+
+    condition_monitoring_query_language {
+      query = trimspace(<<-EOT
+        fetch gcs_bucket
+        | metric 'storage.googleapis.com/network/sent_bytes_count'
+        | filter resource.project_id == '${var.project_id}'
+        | filter resource.bucket_name == 'goatos-stg-media'
+        | filter metric.method == 'ReadObject'
+        | filter metric.response_code == 'CANCELLED'
+        | align delta(1h)
+        | every 1h
+        | group_by [], [egress_bytes: sum(value.sent_bytes_count)]
+        | condition cast_units(egress_bytes, "") > 536870912
+      EOT
+      )
+      duration = "0s"
+    }
+  }
+
+  alert_strategy {
+    auto_close = "604800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Cancelled GCS reads can mean proof players are starting streams and abandoning them. Project: goatos-stg. Service: Cloud Storage. Usage: CANCELLED ReadObject egress. Delta: 512 MiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; compare with Android proof preview analytics."
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_monitoring_alert_policy" "media_bucket_cancelled_read_egress_critical" {
+  display_name          = "goatos-stg media bucket cancelled ReadObject egress critical"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = local.cost_alert_notification_channel_names
+  user_labels           = local.labels
+
+  conditions {
+    display_name = "goatos-stg-media cancelled reads exceeded 2 GiB in 1 hour"
+
+    condition_monitoring_query_language {
+      query = trimspace(<<-EOT
+        fetch gcs_bucket
+        | metric 'storage.googleapis.com/network/sent_bytes_count'
+        | filter resource.project_id == '${var.project_id}'
+        | filter resource.bucket_name == 'goatos-stg-media'
+        | filter metric.method == 'ReadObject'
+        | filter metric.response_code == 'CANCELLED'
+        | align delta(1h)
+        | every 1h
+        | group_by [], [egress_bytes: sum(value.sent_bytes_count)]
+        | condition cast_units(egress_bytes, "") > 2147483648
+      EOT
+      )
+      duration = "0s"
+    }
+  }
+
+  alert_strategy {
+    auto_close = "604800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Critical cancelled-read egress spike. Project: goatos-stg. Service: Cloud Storage. Usage: CANCELLED ReadObject egress. Delta: 2 GiB/hr threshold. Top SKU/metric: storage.googleapis.com/network/sent_bytes_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; group by user, device, screen, proof_id, object_key."
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_monitoring_alert_policy" "media_bucket_read_request_storm" {
+  display_name          = "goatos-stg media bucket ReadObject request storm"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = local.cost_alert_notification_channel_names
+  user_labels           = local.labels
+
+  conditions {
+    display_name = "goatos-stg-media had more than 1,000 ReadObject requests in 10 minutes"
+
+    condition_monitoring_query_language {
+      query = trimspace(<<-EOT
+        fetch gcs_bucket
+        | metric 'storage.googleapis.com/api/request_count'
+        | filter resource.project_id == '${var.project_id}'
+        | filter resource.bucket_name == 'goatos-stg-media'
+        | filter metric.method == 'ReadObject'
+        | align delta(10m)
+        | every 10m
+        | group_by [], [request_count: sum(value.request_count)]
+        | condition cast_units(request_count, "") > 1000
+      EOT
+      )
+      duration = "0s"
+    }
+  }
+
+  alert_strategy {
+    auto_close = "604800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "High ReadObject count can catch proof preview loops before the bill becomes visible. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject request count. Delta: 1,000 requests/10 min threshold. Top SKU/metric: storage.googleapis.com/api/request_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; compare top proof/user/device counts."
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_monitoring_alert_policy" "media_bucket_read_request_storm_critical" {
+  display_name          = "goatos-stg media bucket ReadObject request storm critical"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = local.cost_alert_notification_channel_names
+  user_labels           = local.labels
+
+  conditions {
+    display_name = "goatos-stg-media had more than 3,000 ReadObject requests in 10 minutes"
+
+    condition_monitoring_query_language {
+      query = trimspace(<<-EOT
+        fetch gcs_bucket
+        | metric 'storage.googleapis.com/api/request_count'
+        | filter resource.project_id == '${var.project_id}'
+        | filter resource.bucket_name == 'goatos-stg-media'
+        | filter metric.method == 'ReadObject'
+        | align delta(10m)
+        | every 10m
+        | group_by [], [request_count: sum(value.request_count)]
+        | condition cast_units(request_count, "") > 3000
+      EOT
+      )
+      duration = "0s"
+    }
+  }
+
+  alert_strategy {
+    auto_close = "604800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Critical ReadObject request storm. Project: goatos-stg. Service: Cloud Storage. Usage: ReadObject request count. Delta: 3,000 requests/10 min threshold. Top SKU/metric: storage.googleapis.com/api/request_count. Console: https://console.cloud.google.com/monitoring/metrics-explorer?project=goatos-stg. First query: Cloud Logging filter `resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"goatos-api-stg\" AND jsonPayload.event=\"proof_download_redirect\"`; find looping screen/device before egress grows."
   }
 
   depends_on = [google_project_service.enabled]
