@@ -3,7 +3,8 @@ data "google_project" "current" {
 }
 
 locals {
-  cost_alert_bridge_audience = "https://${google_cloud_run_v2_service.cost_alert_bridge.name}-${data.google_project.current.number}.${var.region}.run.app"
+  cost_alert_bridge_name     = "goatos-stg-cost-alert-bridge"
+  cost_alert_bridge_audience = "https://${local.cost_alert_bridge_name}-${data.google_project.current.number}.${var.region}.run.app"
 }
 
 resource "google_bigquery_dataset" "billing_export" {

@@ -507,7 +507,7 @@ resource "google_cloud_run_v2_service" "mcp" {
 }
 
 resource "google_cloud_run_v2_service" "cost_alert_bridge" {
-  name                = "goatos-stg-cost-alert-bridge"
+  name                = local.cost_alert_bridge_name
   location            = var.region
   deletion_protection = false
   ingress             = "INGRESS_TRAFFIC_ALL"
