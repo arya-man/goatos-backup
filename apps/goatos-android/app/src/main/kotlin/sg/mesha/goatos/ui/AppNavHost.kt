@@ -92,6 +92,9 @@ import sg.mesha.goatos.feature.clock.ClockEvent
 import sg.mesha.goatos.feature.clock.ClockPersonDayEvent
 import sg.mesha.goatos.feature.clock.ClockPersonDayScreen
 import sg.mesha.goatos.feature.clock.ClockScreen
+import sg.mesha.goatos.feature.clock.LeaveRequestFormScreen
+import sg.mesha.goatos.feature.clock.LeaveRequestFormEvent
+import sg.mesha.goatos.feature.clock.LeaveApprovalScreen
 import sg.mesha.goatos.feature.clock.ClockTeamEvent
 import sg.mesha.goatos.feature.clock.ClockTeamScreen
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskComposeEvent
@@ -246,6 +249,8 @@ import sg.mesha.goatos.viewmodel.PcCareWorklistViewModel
 import sg.mesha.goatos.viewmodel.ClockPersonDayViewModel
 import sg.mesha.goatos.viewmodel.ClockTeamViewModel
 import sg.mesha.goatos.viewmodel.ClockViewModel
+import sg.mesha.goatos.viewmodel.LeaveRequestViewModel
+import sg.mesha.goatos.viewmodel.LeaveApprovalViewModel
 import sg.mesha.goatos.viewmodel.ToxinTaskDetailViewModel
 import sg.mesha.goatos.viewmodel.ToxinTaskListViewModel
 import sg.mesha.goatos.viewmodel.LeadershipTaskComposeViewModel
@@ -733,6 +738,13 @@ object Routes {
 
     fun clockPersonRoute(memberId: String, date: String): String =
         "/clock/team/person/${Uri.encode(memberId)}?$CLOCK_PERSON_DATE_ARG=${Uri.encode(date)}"
+
+    // Leave requests (maintainer decisions 2026-09-10, docs/features/leave-requests/plan.md).
+    // The Request leave form is a hosted drill under the Clock root (Up/Back, no root chrome);
+    // the approver queue is the Leave tab of the Approvals module -- an L0 bottom-bar root whose
+    // href matches the backend nav item VERBATIM ({key:"leave", href:"/leave/approvals"}).
+    const val CLOCK_LEAVE_NEW = "/clock/leave/new"
+    const val LEAVE_APPROVALS = "/leave/approvals"
 
     fun pcTaskRoute(
         taskId: String,
@@ -3957,9 +3969,44 @@ fun AppNavHost(
                         ClockEvent.Refresh -> vm.refresh()
                         ClockEvent.Punch -> vm.punch()
                         ClockEvent.CheckAgain -> vm.checkAgain()
+                        ClockEvent.RequestLeave -> {
+                            vm.onLeaveFormOpened()
+                            navController.navigate(Routes.CLOCK_LEAVE_NEW) { launchSingleTop = true }
+                        }
+                        is ClockEvent.WithdrawLeave -> vm.withdrawLeave(event.requestId)
                     }
                 },
             )
+        }
+
+        // The Request leave form (L1 drill under Clock): dates + reason, durable on the outbox,
+        // pops back to the Clock screen once queued (maintainer decisions 2026-09-10).
+        composable(Routes.CLOCK_LEAVE_NEW) {
+            val vm: LeaveRequestViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.submitted) {
+                if (state.submitted) navController.popBackStack()
+            }
+            LeaveRequestFormScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is LeaveRequestFormEvent.PickStart -> vm.pickStart(event.date)
+                        is LeaveRequestFormEvent.PickEnd -> vm.pickEnd(event.date)
+                        is LeaveRequestFormEvent.EditReason -> vm.editReason(event.value)
+                        LeaveRequestFormEvent.Submit -> vm.submit()
+                        LeaveRequestFormEvent.Back -> navController.popBackStack()
+                    }
+                },
+            )
+        }
+
+        // The approver's Leave tab inside the Approvals module (L0 root; backend nav item
+        // {key:"leave", href:"/leave/approvals"} gated on leave.approve).
+        composable(Routes.LEAVE_APPROVALS) {
+            val vm: LeaveApprovalViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            LeaveApprovalScreen(state = state, onEvent = vm::onEvent)
         }
 
         composable(Routes.CLOCK_TEAM) {
@@ -4537,6 +4584,9 @@ private val supportedRootDestinations = setOf(
 	// cleared (E2E finding 2026-08-28: the operator could never review hours).
 	Routes.CLOCK,
 	Routes.CLOCK_TEAM,
+	// Leave approvals (maintainer decisions 2026-09-10): the Leave tab of the Approvals module
+	// is a backend-composed bar item, so it is a root exactly like the tab beside it.
+	Routes.LEAVE_APPROVALS,
 	// Leadership Tasks (maintainer request 2026-09-04): the module's "Raised by me" leaf.
 	Routes.LEADERSHIP_TASKS,
 	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" leaf — a real

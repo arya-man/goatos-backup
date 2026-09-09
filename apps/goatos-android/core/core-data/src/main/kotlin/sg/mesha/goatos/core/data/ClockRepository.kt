@@ -26,6 +26,8 @@ import sg.mesha.goatos.core.network.dto.ClockPersonDayResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPresenceResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
 import sg.mesha.goatos.core.network.dto.ClockStatusResponseDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestCreateDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestListResponseDto
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
@@ -113,6 +115,26 @@ interface ClockRepository {
 
     /** One person-day detail; network-first with blob-cache fallback. */
     suspend fun fetchPersonDay(workforceMemberId: String, date: String?): Result<ClockPersonDayResponseDto>
+
+    /**
+     * Ask for leave (docs/features/leave-requests/plan.md): an inclusive business-date window
+     * plus a reason, enqueued under the caller-minted stable [idempotencyKey]. Returns the outbox
+     * item id to observe.
+     */
+    suspend fun requestLeave(idempotencyKey: String, startsOn: String, endsOn: String, reason: String): AppResult<String>
+
+    /** Withdraw the person's own pending request. */
+    suspend fun withdrawLeave(leaveRequestId: String): AppResult<String>
+
+    /**
+     * The approver's open leave queue. Network-first; the FIRST page is blob-cached so re-entering
+     * the Leave tab offline shows the last queue. [Result.failure] only when the network failed AND
+     * no cache covers the first page.
+     */
+    suspend fun fetchLeaveQueue(cursor: String?): Result<LeaveRequestListResponseDto>
+
+    /** An approver's decision on one request; [reason] REQUIRED when rejecting. */
+    suspend fun decideLeave(leaveRequestId: String, approve: Boolean, reason: String?, idempotencyKey: String): AppResult<String>
 
     /**
      * The punch still sitting on the outbox, or null. Durable: read from the outbox table itself,
@@ -237,6 +259,28 @@ class DefaultClockRepository(
             .recoverCatching { failure -> readBlob<ClockPersonDayResponseDto>(cacheKey) ?: throw failure }
     }
 
+    override suspend fun requestLeave(idempotencyKey: String, startsOn: String, endsOn: String, reason: String): AppResult<String> =
+        syncRepository.enqueueLeaveRequest(
+            idempotencyKey = idempotencyKey,
+            request = LeaveRequestCreateDto(idempotencyKey = idempotencyKey, startsOn = startsOn, endsOn = endsOn, reason = reason),
+        )
+
+    override suspend fun withdrawLeave(leaveRequestId: String): AppResult<String> =
+        syncRepository.enqueueLeaveWithdraw(leaveRequestId = leaveRequestId, idempotencyKey = "leave-withdraw:$leaveRequestId")
+
+    override suspend fun fetchLeaveQueue(cursor: String?): Result<LeaveRequestListResponseDto> { // offline-first-guard:ignore: network-first with Room blob-cache write on success and cache fallback on failure via the upsert()/readBlob() helpers; first page is the offline queue
+        val firstPage = cursor.isNullOrBlank()
+        return runCatching { api.listLeaveApprovals(limit = PAGE_SIZE, cursor = cursor) }
+            .onSuccess { dto -> if (firstPage) upsert(LEAVE_QUEUE_KEY, json.encodeToString(LeaveRequestListResponseDto.serializer(), dto)) }
+            .recoverCatching { failure ->
+                if (!firstPage) throw failure
+                readBlob<LeaveRequestListResponseDto>(LEAVE_QUEUE_KEY) ?: throw failure
+            }
+    }
+
+    override suspend fun decideLeave(leaveRequestId: String, approve: Boolean, reason: String?, idempotencyKey: String): AppResult<String> =
+        syncRepository.enqueueLeaveDecision(leaveRequestId = leaveRequestId, approve = approve, reason = reason, idempotencyKey = idempotencyKey)
+
     override fun observePendingPunch(): Flow<String?> {
         return combine(
             activePunchGroups("CLOCK_IN"),
@@ -279,6 +323,7 @@ class DefaultClockRepository(
 
     private companion object {
         const val STATUS_KEY = "status"
+        const val LEAVE_QUEUE_KEY = "leave_queue"
 
         /** Mobile page size (docs/decisions/mobile-data-fetch-anti-patterns.md): ~20, never more. */
         const val PAGE_SIZE = 20

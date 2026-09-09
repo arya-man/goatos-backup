@@ -341,6 +341,19 @@ enum class OutboxOpType {
     CLOCK_OUT,
 
     /**
+     * Leave requests (`POST /app/leave/requests`, `.../withdraw`, `POST /app/leave/approvals/{id}/
+     * {approve,reject}`; docs/features/leave-requests/plan.md, maintainer decisions 2026-09-10).
+     * The raise's key is minted ONCE per form submission and persisted in SavedStateHandle, so a
+     * retry replays rather than raising twice; withdraw and the two decisions are keyed per
+     * request + verb. 409 leave_overlap / leave_not_pending / leave_slot_decided and 422 are
+     * definitive server answers, terminal by `isTerminalAppApiError`.
+     */
+    LEAVE_REQUEST_CREATE,
+    LEAVE_REQUEST_WITHDRAW,
+    LEAVE_APPROVE,
+    LEAVE_REJECT,
+
+    /**
      * Vendors module (maintainer decision 2026-09-03): a vendor recorded on the phone
      * (`POST /procurement/vendors`). Its optional voice note rides ahead of it as a PROOF_UPLOAD
      * on the same per-vendor group, so the upload drains first and the dispatcher resolves the

@@ -39,4 +39,23 @@ object AnalyticsEventsClock {
 
     /** The leadership presence board (Team page) was opened. */
     const val CLOCK_TEAM_OPENED = "clock_team_opened"
+
+    // Leave requests (docs/features/leave-requests/plan.md, maintainer decisions 2026-09-10).
+    /** The Request leave form was opened from the Clock screen. */
+    const val CLOCK_LEAVE_FORM_OPENED = "clock_leave_form_opened"
+
+    /** A leave request became DURABLE on the outbox. */
+    const val CLOCK_LEAVE_REQUESTED = "clock_leave_requested"
+
+    /** The requester withdrew a pending request (durable on the outbox). */
+    const val CLOCK_LEAVE_WITHDRAWN = "clock_leave_withdrawn"
+
+    /** The approver's Leave queue was opened. */
+    const val CLOCK_LEAVE_QUEUE_VIEWED = "clock_leave_queue_viewed"
+
+    /** An approver's decision became DURABLE on the outbox (param decision=approved|rejected). */
+    const val CLOCK_LEAVE_DECIDED = "clock_leave_decided"
+
+    /** A leave write could not be queued or was refused terminally (param reason). */
+    const val CLOCK_LEAVE_FAILURE = "clock_leave_failure"
 }

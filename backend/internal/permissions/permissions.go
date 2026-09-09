@@ -119,6 +119,13 @@ const (
 	// Catalog row: migration 000247 (tier 'director', vertical 'breeding', is_legacy like the
 	// other live name_director keys). Designation row in the same migration.
 	RoleBreedingDirector = "breeding_director"
+	// RoleHR is the HR desk (maintainer decision 2026-09-10), a PER-PERSON authority in the
+	// counts_approver shape: HR is whoever the maintainer names in perPersonGrants, never a job
+	// the roster derives. Its first authority is deciding the HR line of a leave request
+	// (LeaveApprove) beside the requester's park head; more approval kinds will be added to
+	// this role later. It carries NO park-scoped authority and no module of its own beyond the
+	// approvals surface. Catalog row: migration 000287.
+	RoleHR = "hr"
 
 	GoatRead          = "goat.read"
 	GoatWriteIdentity = "goat.write_identity"
@@ -453,6 +460,22 @@ const (
 	// GET /app/clock/status ride AppBootstrap — the "any authenticated app
 	// user" permission — exactly like device registration.
 	ClockPresenceRead = "clock.presence.read"
+	// Leave requests (docs/features/leave-requests/plan.md, maintainer decisions
+	// 2026-09-10). RAISING and WITHDRAWING ride AppBootstrap exactly like the
+	// clock punches: everyone with an app login may ask for leave.
+	//
+	// LeaveApprove decides a request: the park_head JOB decides the park-head line
+	// for the parks it heads, the per-person `hr` role decides the HR line, and
+	// ceo_internal (the CEO floor) may sign either. WHICH line a caller signs is
+	// derived from their grants server-side, never from the body.
+	LeaveApprove = "leave.approve"
+	// LeaveRead is the cross-person list on People / HRMS (every request, every
+	// status). ceo_internal and hr.
+	LeaveRead = "leave.read"
+	// LeaveApprovalConfigure sets WHO must approve (park head / HR flags). CEO ONLY --
+	// the maintainer's "feature flag in HRM, only I should set whom it goes to". One
+	// capability gates the control AND the route (role-scoped-UI lock).
+	LeaveApprovalConfigure = "leave.approval.configure"
 	RosterRead        = "roster.read"
 	RosterManage      = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
@@ -858,6 +881,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		CountsWrite: {},
+		// Leave requests (maintainer decision 2026-09-10): the park head signs the park-head
+		// line of their own park's leave requests. This is NOT the counts approval authority
+		// removed below -- a different request kind, decided in the same Approvals module.
+		LeaveApprove: {},
 		// Approvals moved off the park head (maintainer decision 2026-07-21): approve/reject now
 		// belongs to the four org tiers (director/head/manager/am) plus admin and ceo_internal, on
 		// the admin-web Approvals page only. A park head no longer holds ANY counts.approve_*
@@ -1172,6 +1199,13 @@ var rolePermissions = map[string]map[string]struct{}{
 		PCCareMonitor:      {},
 		PCCarePlanTrimming: {},
 	},
+	RoleHR: {
+		// The HR desk (maintainer decision 2026-09-10): decides the HR line of a leave
+		// request and reads the leave list on People / HRMS. It carries both bootstraps
+		// because, unlike counts_approver, HR may be a person with no other job role in the
+		// app; it carries NOTHING park-scoped.
+		LeaveApprove: {}, LeaveRead: {}, AppBootstrap: {}, AdminWebBootstrap: {},
+	},
 	RoleCountsApprover: {
 		CountsApproveAccess:    {},
 		CountsApproveLifecycle: {},
@@ -1229,6 +1263,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Clock In / Out presence oversight (maintainer decision 2026-08-28):
 		// the CEO/CXO sees who is working; everyone else only punches.
 		ClockPresenceRead: {},
+		// Leave requests (maintainer decision 2026-09-10): the CEO floor sees every
+		// request, may sign either approver line, and alone sets who must approve.
+		LeaveApprove: {}, LeaveRead: {}, LeaveApprovalConfigure: {},
 		GoatRead:          {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
 		// The ONLY holder of the whole-pen cohort reclassification. See the constant's doc comment:
 		// it applies immediately, with no approval and no proof, and flips kid/adult for the whole

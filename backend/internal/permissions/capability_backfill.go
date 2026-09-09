@@ -90,6 +90,9 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// feed on his own ground, captures counts. Deliberately NOT admin-web.
 	RoleParkHead: rows(
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee)),
+		// Leave approvals (maintainer decision 2026-09-10): the park head signs their park's
+		// leave from the PHONE Approvals module; park heads hold no admin-web bootstrap.
+		one(assign("leave_approvals", SurfaceMobile, LevelOversee)),
 		one(assign("vaccination", SurfaceMobile, LevelView, LevelOversee)),
 		one(assign("counts", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("milk", SurfaceMobile, LevelDo)),
@@ -204,6 +207,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// queue back on the phone as a separate module rather than a tab inside Counts). The
 	// `counts` row is kept alongside it because the retired role's three approve permissions
 	// resolve from either -- dropping it would change what this person holds.
+	RoleHR: rows(bothSurfaces("leave_approvals", LevelView, LevelOversee)),
 	RoleCountsApprover: rows(
 		bothSurfaces("counts", LevelOversee),
 		bothSurfaces("approvals", LevelOversee),
@@ -230,6 +234,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleCEOInternal: rows(
 		// Leadership Tasks: the CEO/CXO desk can assign work downward and answer asks sent to it.
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee, LevelConfigure)),
+		bothSurfaces("leave_approvals", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("weighing", LevelView, LevelConfigure),
 		bothSurfaces("pc_care", LevelView, LevelConfigure),

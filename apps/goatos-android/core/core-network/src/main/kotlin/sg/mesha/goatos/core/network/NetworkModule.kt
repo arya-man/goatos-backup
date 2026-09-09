@@ -27,6 +27,10 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPersonDayResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPresenceResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
+import sg.mesha.goatos.core.network.dto.LeaveDecisionRequestDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestCreateDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestListResponseDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPunchResponseDto
 import sg.mesha.goatos.core.network.dto.ClockStatusResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
@@ -1535,6 +1539,39 @@ interface AppApiService {
         @Path("workforce_member_id") workforceMemberId: String,
         @Query("date") date: String?,
     ): ClockPersonDayResponseDto
+
+    // --- Leave requests (docs/features/leave-requests/plan.md) ------------------------------
+    @POST("app/leave/requests")
+    suspend fun createLeaveRequest(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: LeaveRequestCreateDto,
+    ): LeaveRequestResponseDto
+
+    @POST("app/leave/requests/{leave_request_id}/withdraw")
+    suspend fun withdrawLeaveRequest(
+        @Path("leave_request_id") leaveRequestId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+    ): LeaveRequestResponseDto
+
+    @GET("app/leave/approvals")
+    suspend fun listLeaveApprovals(
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): LeaveRequestListResponseDto
+
+    @POST("app/leave/approvals/{leave_request_id}/approve")
+    suspend fun approveLeaveRequest(
+        @Path("leave_request_id") leaveRequestId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: LeaveDecisionRequestDto,
+    ): LeaveRequestResponseDto
+
+    @POST("app/leave/approvals/{leave_request_id}/reject")
+    suspend fun rejectLeaveRequest(
+        @Path("leave_request_id") leaveRequestId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: LeaveDecisionRequestDto,
+    ): LeaveRequestResponseDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic.
@@ -2612,6 +2649,31 @@ class RetrofitAppApi(
     ): ClockPunchResponseDto = service.recordClockOut(idempotencyKey, request)
 
     override suspend fun getClockStatus(): ClockStatusResponseDto = service.getClockStatus()
+
+    override suspend fun createLeaveRequest(
+        idempotencyKey: String,
+        request: LeaveRequestCreateDto,
+    ): LeaveRequestResponseDto = service.createLeaveRequest(idempotencyKey, request)
+
+    override suspend fun withdrawLeaveRequest(
+        leaveRequestId: String,
+        idempotencyKey: String,
+    ): LeaveRequestResponseDto = service.withdrawLeaveRequest(leaveRequestId, idempotencyKey)
+
+    override suspend fun listLeaveApprovals(limit: Int?, cursor: String?): LeaveRequestListResponseDto =
+        service.listLeaveApprovals(limit, cursor)
+
+    override suspend fun approveLeaveRequest(
+        leaveRequestId: String,
+        idempotencyKey: String,
+        request: LeaveDecisionRequestDto,
+    ): LeaveRequestResponseDto = service.approveLeaveRequest(leaveRequestId, idempotencyKey, request)
+
+    override suspend fun rejectLeaveRequest(
+        leaveRequestId: String,
+        idempotencyKey: String,
+        request: LeaveDecisionRequestDto,
+    ): LeaveRequestResponseDto = service.rejectLeaveRequest(leaveRequestId, idempotencyKey, request)
 
     override suspend fun listClockPresence(
         date: String?,

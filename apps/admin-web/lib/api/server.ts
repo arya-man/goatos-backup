@@ -1719,6 +1719,15 @@ export type SaveNotificationAudienceRequest =
 export type WorkforcePersonResponse =
   AdminApiComponents["schemas"]["PersonResponse"];
 
+// Leave requests (maintainer decisions 2026-09-10, docs/features/leave-requests/plan.md):
+// the park head + HR approver queue (served on the /admin-web/* prefix by the SAME handler the
+// phone uses), the People / HRMS list, and the CEO-only routing flags.
+export type LeaveRequest = AdminApiComponents["schemas"]["LeaveRequest"];
+export type LeaveRequestList = AdminApiComponents["schemas"]["LeaveRequestListResponse"];
+export type LeaveRequestResult = AdminApiComponents["schemas"]["LeaveRequestResponse"];
+export type LeaveApprovalConfig = AdminApiComponents["schemas"]["LeaveApprovalConfig"];
+export type LeaveApprovalConfigResult = AdminApiComponents["schemas"]["LeaveApprovalConfigResponse"];
+
 // Clock In / Out (maintainer decisions 2026-08-27/28): the People/HRMS
 // attendance tab. Reads the same repository page as the phone presence board.
 export type ClockEntry = AdminApiComponents["schemas"]["ClockEntry"];
@@ -1748,6 +1757,90 @@ export async function listAdminClockEntries(
     client.request<ClockEntriesList>("/admin/workforce/clock-entries", {
       cache: "no-store",
       query: compactQuery(params),
+    }),
+  );
+}
+
+/** The caller's open leave-approval queue (GET /admin-web/leave/approvals, leave.approve). */
+export async function listAdminWebLeaveApprovals(
+  params: { limit?: number; cursor?: string } = {},
+): Promise<ApiResult<LeaveRequestList>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = "/admin-web/leave/approvals" as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<LeaveRequestList>(path, {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * Sign the caller's slot on a leave request (POST /admin-web/leave/approvals/{id}/approve|reject).
+ * Carries the mandatory Idempotency-Key; the backend derives WHICH slot from the caller's grants.
+ */
+export async function decideAdminWebLeave(args: {
+  requestId: string;
+  approve: boolean;
+  reason: string;
+  idempotencyKey: string;
+}): Promise<ApiResult<LeaveRequestResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const verb = args.approve ? "approve" : "reject";
+  const path = `/admin-web/leave/approvals/${encodeURIComponent(args.requestId)}/${verb}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<LeaveRequestResult>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": args.idempotencyKey },
+      body: { reason: args.reason },
+    }),
+  );
+}
+
+/** Every leave request, newest first (GET /admin/leave/requests, leave.read). */
+export async function listAdminLeaveRequests(
+  params: { status?: string; park_id?: string; limit?: number; cursor?: string } = {},
+): Promise<ApiResult<LeaveRequestList>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LeaveRequestList>("/admin/leave/requests", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/** Who must approve leave (GET /admin/leave/approval-config, CEO only). */
+export async function getLeaveApprovalConfig(): Promise<ApiResult<LeaveApprovalConfigResult>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LeaveApprovalConfigResult>("/admin/leave/approval-config", { cache: "no-store" }),
+  );
+}
+
+/** Set who must approve leave (PUT /admin/leave/approval-config, CEO only, optimistic on row_version). */
+export async function setLeaveApprovalConfig(body: {
+  park_head_required: boolean;
+  hr_required: boolean;
+  row_version: number;
+}): Promise<ApiResult<LeaveApprovalConfigResult>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LeaveApprovalConfigResult>("/admin/leave/approval-config", {
+      method: "PUT",
+      cache: "no-store",
+      body,
     }),
   );
 }

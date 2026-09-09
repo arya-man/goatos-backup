@@ -3533,6 +3533,98 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /admin/leave/requests:
+    get:
+      tags:
+        - People
+      operationId: listAdminLeaveRequests
+      summary: Every leave request (People / HRMS list).
+      description: >-
+        One row per request, newest first, optionally filtered by status and park. Keyset
+        page of at most 20. leave.read (CEO and HR).
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected, withdrawn]
+        - name: park_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The list page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaveRequestListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/leave/approval-config:
+    get:
+      tags:
+        - People
+      operationId: getLeaveApprovalConfig
+      summary: Who must approve leave (CEO only).
+      responses:
+        "200":
+          description: The routing flags.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaveApprovalConfigResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - People
+      operationId: setLeaveApprovalConfig
+      summary: Set who must approve leave (CEO only).
+      description: >-
+        At least one approver must stay ticked. Optimistically locked on row_version; a
+        stale version is 409 leave_config_conflict.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeaveApprovalConfigUpdate"
+      responses:
+        "200":
+          description: The saved flags.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaveApprovalConfigResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /admin/workforce/clock-entries:
     get:
       tags:
@@ -11362,6 +11454,234 @@ components:
         key:
           type: string
         label:
+          type: string
+    LeaveTodaySummary:
+      type: object
+      additionalProperties: false
+      required:
+        - on_leave
+      properties:
+        on_leave:
+          type: boolean
+        label:
+          type: string
+    LeaveSlotDecision:
+      type: object
+      additionalProperties: false
+      required:
+        - slot
+        - decision
+        - decided_at
+      properties:
+        slot:
+          type: string
+          enum: [park_head, hr]
+        decision:
+          type: string
+          enum: [approved, rejected]
+        decided_by_name:
+          type: string
+        decided_at:
+          type: string
+          format: date-time
+        note:
+          type: string
+    LeaveRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - leave_request_id
+        - workforce_member_id
+        - person_name
+        - starts_on
+        - ends_on
+        - day_count
+        - dates_label
+        - reason
+        - status
+        - status_label
+        - status_line
+        - park_head_required
+        - hr_required
+        - raised_at
+        - raised_at_label
+        - can_withdraw
+        - row_version
+      properties:
+        leave_request_id:
+          type: string
+          format: uuid
+        workforce_member_id:
+          type: string
+          format: uuid
+        person_name:
+          type: string
+        designation:
+          type: string
+        park_id:
+          type: string
+          format: uuid
+        park_label:
+          type: string
+        starts_on:
+          type: string
+          description: Inclusive first business date (YYYY-MM-DD).
+        ends_on:
+          type: string
+          description: Inclusive last business date (YYYY-MM-DD).
+        day_count:
+          type: integer
+        dates_label:
+          type: string
+          description: Backend-composed window, e.g. "12–14 Sep 2026 · 3 days".
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected, withdrawn]
+        status_label:
+          type: string
+        status_line:
+          type: string
+          description: Where the request stands, in farm words.
+        park_head_required:
+          type: boolean
+        hr_required:
+          type: boolean
+        park_head:
+          $ref: "#/components/schemas/LeaveSlotDecision"
+        hr:
+          $ref: "#/components/schemas/LeaveSlotDecision"
+        raised_at:
+          type: string
+          format: date-time
+        raised_at_label:
+          type: string
+        decided_at:
+          type: string
+          format: date-time
+        can_withdraw:
+          type: boolean
+        my_slot:
+          type: string
+          description: The slot the CALLER decides on this row (approver queue only).
+        my_slot_label:
+          type: string
+        row_version:
+          type: integer
+    LeaveApprovalConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - park_head_required
+        - hr_required
+        - row_version
+      properties:
+        park_head_required:
+          type: boolean
+        hr_required:
+          type: boolean
+        updated_at:
+          type: string
+        updated_by_name:
+          type: string
+        row_version:
+          type: integer
+    LeaveApprovalConfigResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - config
+        - copy
+        - trace_id
+      properties:
+        config:
+          $ref: "#/components/schemas/LeaveApprovalConfig"
+        copy:
+          type: object
+          additionalProperties:
+            type: string
+        trace_id:
+          type: string
+    LeaveApprovalConfigUpdate:
+      type: object
+      additionalProperties: false
+      required:
+        - park_head_required
+        - hr_required
+        - row_version
+      properties:
+        park_head_required:
+          type: boolean
+        hr_required:
+          type: boolean
+        row_version:
+          type: integer
+    LeaveRequestCreate:
+      type: object
+      additionalProperties: false
+      required:
+        - starts_on
+        - ends_on
+        - reason
+      properties:
+        idempotency_key:
+          type: string
+        starts_on:
+          type: string
+        ends_on:
+          type: string
+        reason:
+          type: string
+          maxLength: 2000
+    LeaveDecisionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        idempotency_key:
+          type: string
+        reason:
+          type: string
+          maxLength: 2000
+          description: REQUIRED when rejecting; optional when approving.
+        slot:
+          type: string
+          enum: [park_head, hr]
+          description: Honoured only for a caller who may decide either slot (CEO).
+    LeaveRequestResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - request
+        - idempotent_replay
+        - trace_id
+      properties:
+        request:
+          $ref: "#/components/schemas/LeaveRequest"
+        idempotent_replay:
+          type: boolean
+        trace_id:
+          type: string
+    LeaveRequestListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - copy
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeaveRequest"
+        next_cursor:
+          type: string
+        copy:
+          type: object
+          additionalProperties:
+            type: string
+        trace_id:
           type: string
     ClockEntry:
       type: object

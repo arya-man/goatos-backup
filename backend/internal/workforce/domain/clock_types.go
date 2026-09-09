@@ -132,7 +132,17 @@ type ClockStatusResponse struct {
 	Copy             map[string]string `json:"copy"`
 	// RecentEntries are this person's latest days, newest first (bounded).
 	RecentEntries []ClockEntry `json:"recent_entries"`
-	TraceID       string       `json:"trace_id"`
+	// LeaveToday is set when an APPROVED leave request covers the business
+	// date (maintainer decision 2026-09-10). The reminder banner is suppressed
+	// on such a day; a punch is still accepted and recorded.
+	LeaveToday *LeaveTodaySummary `json:"leave_today,omitempty"`
+	// LeaveRequests are this person's leave requests -- pending, upcoming and
+	// the most recent decided ones -- rendered beside the past clockings.
+	LeaveRequests []LeaveRequest `json:"leave_requests"`
+	// LeaveCopy is the backend-owned copy for the leave section and the
+	// request form (titles, hints, buttons, status labels).
+	LeaveCopy map[string]string `json:"leave_copy"`
+	TraceID   string            `json:"trace_id"`
 }
 
 // ClockPunchResponse is the result of a punch write.

@@ -70,16 +70,11 @@ func (r *Repository) RecordClockPunch(ctx context.Context, cmd ports.ClockPunchC
 		return ports.ClockPunchRecord{Entry: snap.Entry, Replayed: true}, nil
 	}
 
-	// Self-healing auto-close (maintainer decision D4): the member's stale
-	// open days from BEFORE this punch's business day close now, with NO
-	// invented end time — worked_minutes stays NULL forever.
-	if _, err := tx.Exec(ctx, `
-UPDATE workforce_clock_entries
-SET status = 'auto_closed', row_version = row_version + 1, updated_at = now()
-WHERE tenant_id = $1::uuid
-  AND workforce_member_id = $2::uuid
-  AND status = 'open'
-  AND business_date < $3::date`,
+	// Self-healing auto-close (maintainer decision 2026-09-10, superseding D4's
+	// no-invented-hours half): the member's stale open days from BEFORE this
+	// punch's business day are clocked out at 23:59:59 IST of their own day,
+	// hours counted to that instant, exactly as the midnight sweeper does.
+	if _, err := tx.Exec(ctx, sqlClockAutoCloseMember,
 		cmd.TenantID, cmd.WorkforceMemberID, cmd.BusinessDate); err != nil {
 		return ports.ClockPunchRecord{}, err
 	}
@@ -532,4 +527,54 @@ ORDER BY recorded_at`,
 		items = append(items, e)
 	}
 	return items, rows.Err()
+}
+
+// Forgotten clock-outs (maintainer decision 2026-09-10): "there is nothing we
+// can do, so clock them out automatically" -- at 23:59:59 IST of the business
+// day the person clocked in on, with the hours counted to that instant. The
+// row keeps status auto_closed so every surface still shows it was not the
+// person's own punch. Both statements share the same arithmetic so the
+// sweeper and the next-punch self-heal can never disagree on the hours.
+const (
+	clockAutoCloseSetSQL = `
+SET status = 'auto_closed',
+    clock_out_at = ((e.business_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second',
+    worked_minutes = GREATEST(0, floor(extract(epoch FROM (((e.business_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' - e.clock_in_at)) / 60))::int,
+    row_version = e.row_version + 1,
+    updated_at = now()`
+
+	sqlClockAutoCloseMember = `
+UPDATE workforce_clock_entries e` + clockAutoCloseSetSQL + `
+WHERE e.tenant_id = $1::uuid
+  AND e.workforce_member_id = $2::uuid
+  AND e.status = 'open'
+  AND e.business_date < $3::date`
+
+	// Keyset-chunked, SKIP LOCKED: the sweeper never waits on a row a live
+	// punch is closing, and each tick is bounded by the limit.
+	sqlClockAutoCloseStale = `
+WITH stale AS (
+  SELECT clock_entry_id
+  FROM workforce_clock_entries
+  WHERE tenant_id = $1::uuid AND status = 'open' AND business_date < $2::date
+  ORDER BY business_date, clock_entry_id
+  LIMIT $3
+  FOR UPDATE SKIP LOCKED
+)
+UPDATE workforce_clock_entries e` + clockAutoCloseSetSQL + `
+FROM stale
+WHERE e.clock_entry_id = stale.clock_entry_id`
+)
+
+func (r *Repository) AutoCloseStaleClockEntries(ctx context.Context, tenantID, beforeDate string, limit int) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	tag, err := r.pool.Exec(ctx, sqlClockAutoCloseStale, tenantID, beforeDate, limit)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
 }

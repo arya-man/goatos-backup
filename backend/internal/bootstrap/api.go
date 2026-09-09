@@ -498,7 +498,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	rosterHandler := workforcehttp.NewRosterHandler(rosterService, log)
 	// Clock In / Out (docs/features/clock-in-out/plan.md): punches + presence.
-	clockService := workforceapp.NewClockService(workforceRepo, workforceRepo, workforceRepo)
+	// Leave requests (docs/features/leave-requests/plan.md): raise, withdraw,
+	// park head + HR approval, CEO routing config. The clock status read
+	// carries the requester's leave beside their clockings.
+	leaveService := workforceapp.NewLeaveService(workforceRepo, workforceRepo)
+	leaveHandler := workforcehttp.NewLeaveHandler(leaveService, log)
+	clockService := workforceapp.NewClockService(workforceRepo, workforceRepo, workforceRepo).WithLeave(leaveService)
 	clockHandler := workforcehttp.NewClockHandler(clockService, log)
 	proofStorage, err := buildProofStorage()
 	if err != nil {
@@ -1091,6 +1096,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
 	// Leadership Tasks: raised and every status change, gated per designation (2026-09-08).
 	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewLeaveRequestNotifyConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
 	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).WithLocationNames(locationNames).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
@@ -1199,6 +1205,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforcehttp.RegisterAccess(protectedMux, accessHandler)
 	notificationaudiencehttp.Register(protectedMux, notificationAudienceHandler)
 	workforcehttp.RegisterClock(protectedMux, clockHandler)
+	workforcehttp.RegisterLeave(protectedMux, leaveHandler)
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)

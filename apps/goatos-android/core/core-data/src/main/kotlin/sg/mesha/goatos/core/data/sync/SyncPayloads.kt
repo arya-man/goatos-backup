@@ -8,6 +8,8 @@ import sg.mesha.goatos.core.network.dto.HealthObservationFindingsDto
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
+import sg.mesha.goatos.core.network.dto.LeaveDecisionRequestDto
+import sg.mesha.goatos.core.network.dto.LeaveRequestCreateDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
@@ -556,4 +558,27 @@ data class MilkFeedingSubmitPayload(
 @Serializable
 data class ClockPunchPayload(
     @SerialName("request") val request: ClockPunchRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.LEAVE_REQUEST_CREATE]. */
+@Serializable
+data class LeaveRequestCreatePayload(
+    @SerialName("request") val request: LeaveRequestCreateDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.LEAVE_REQUEST_WITHDRAW]. */
+@Serializable
+data class LeaveRequestWithdrawPayload(
+    @SerialName("leave_request_id") val leaveRequestId: String,
+)
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.LEAVE_APPROVE] /
+ * [sg.mesha.goatos.core.database.outbox.OutboxOpType.LEAVE_REJECT]. The request id is the group
+ * key so two decisions on one request never drain concurrently.
+ */
+@Serializable
+data class LeaveDecisionPayload(
+    @SerialName("leave_request_id") val leaveRequestId: String,
+    @SerialName("request") val request: LeaveDecisionRequestDto,
 )

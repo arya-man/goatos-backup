@@ -881,6 +881,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].OptionGroups = compileDLQOptionGroups(out[i].OptionGroups, input)
 		case "verification-review":
 			out[i].Controls = compileVerificationReviewControls(out[i].Controls, input, out[i].Copy)
+		case "leave":
+			out[i].Controls = compileLeaveControls(out[i].Controls, input, out[i].Copy)
 		case "health-config":
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
 		case "sales":
@@ -1339,6 +1341,48 @@ func compileCountsBreakdownControls(controls []domain.Control, input BootstrapIn
 		Enabled:        mayChange,
 		DisabledReason: reason,
 		Action:         "POST /admin/goats/shed-stage/commit",
+	})
+}
+
+// compileLeaveControls gates the two halves of /leave that are narrower than the page
+// (maintainer decision 2026-09-10). decide_leave follows leave.approve (the page gate);
+// leave_list follows leave.read (CEO + HR: every request, not just the caller's queue);
+// leave_config follows leave.approval.configure (CEO ONLY -- "only I should set whom it
+// goes to"). Each is the UI half of a capability the route also enforces.
+func compileLeaveControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	ungated := len(input.Grants) == 0
+	mayDecide := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.LeaveApprove})
+	mayList := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.LeaveRead})
+	mayConfigure := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.LeaveApprovalConfigure})
+	listReason, configReason := "", ""
+	if !mayList {
+		listReason = controlCopy(copy, "list.disabled_no_access", "Seeing every leave request is limited to the CEO and HR.")
+	}
+	if !mayConfigure {
+		configReason = controlCopy(copy, "config.disabled_no_access", "Setting who approves leave is limited to the CEO.")
+	}
+	out := upsertControl(controls, domain.Control{
+		ID:      "decide_leave",
+		Label:   controlCopy(copy, "action.approve", "Approve"),
+		Kind:    "primary_action",
+		Enabled: mayDecide,
+		Action:  "POST /admin-web/leave/approvals/{leave_request_id}/approve",
+	})
+	out = upsertControl(out, domain.Control{
+		ID:             "leave_list",
+		Label:          controlCopy(copy, "list.title", "All leave requests"),
+		Kind:           "visibility",
+		Enabled:        mayList,
+		DisabledReason: listReason,
+		Action:         "GET /admin/leave/requests",
+	})
+	return upsertControl(out, domain.Control{
+		ID:             "leave_config",
+		Label:          controlCopy(copy, "config.title", "Who approves leave"),
+		Kind:           "visibility",
+		Enabled:        mayConfigure,
+		DisabledReason: configReason,
+		Action:         "GET /admin/leave/approval-config",
 	})
 }
 
@@ -1981,6 +2025,11 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.ProtocolRead}
 	case "sop-library":
 		return []string{permissions.SOPRead}
+	case "leave":
+		// Leave approvals (maintainer decision 2026-09-10): the page opens for anyone who decides
+		// a slot (park head, HR, CEO); the cross-person list and the routing flags are separate
+		// controls on their own permissions (compileLeaveControls).
+		return []string{permissions.LeaveApprove}
 	case "approvals":
 		// Coarse surface gate for the Approvals page (maintainer decision 2026-07-21). Held by the
 		// four org tiers + admin + ceo_internal; park_head no longer holds it, so its nav item is

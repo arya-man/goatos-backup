@@ -101,6 +101,13 @@ data class ClockStatusResponseDto(
     /** The module's whole label set — every visible word on the clock screens comes from here. */
     @SerialName("copy") val copy: Map<String, String> = emptyMap(),
     @SerialName("recent_entries") val recentEntries: List<ClockEntryDto> = emptyList(),
+    /** Set when an APPROVED leave covers today (maintainer decision 2026-09-10); the banner is
+     *  suppressed server-side on such a day. */
+    @SerialName("leave_today") val leaveToday: LeaveTodaySummaryDto? = null,
+    /** The person's leave requests beside their clockings -- pending, upcoming, recent decided. */
+    @SerialName("leave_requests") val leaveRequests: List<LeaveRequestDto> = emptyList(),
+    /** Backend-owned copy for the leave section and the request form. */
+    @SerialName("leave_copy") val leaveCopy: Map<String, String> = emptyMap(),
     @SerialName("trace_id") val traceId: String = "",
 )
 

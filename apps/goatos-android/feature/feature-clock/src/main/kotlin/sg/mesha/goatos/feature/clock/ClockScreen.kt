@@ -85,12 +85,18 @@ data class ClockUiState(
     val checkAgainLabel: String = "",
     /** Backend copy `refusal.location` — the location-is-mandatory punch refusal. */
     val locationRequiredMessage: String = "",
+    /** Leave requests beside the clockings (maintainer decisions 2026-09-10). */
+    val leave: LeaveSectionUi = LeaveSectionUi(),
 )
 
 sealed interface ClockEvent {
     data object Refresh : ClockEvent
     data object Punch : ClockEvent
     data object CheckAgain : ClockEvent
+    /** Opens the Request leave form (hosted drill `/clock/leave/new`). */
+    data object RequestLeave : ClockEvent
+    /** Withdraws the person's own pending request. */
+    data class WithdrawLeave(val requestId: String) : ClockEvent
 }
 
 /**
@@ -195,6 +201,12 @@ fun ClockScreen(
             items(state.recent, key = { it.listKey }) { entry ->
                 ClockRecentEntryRow(entry)
             }
+            leaveSection(
+                leave = state.leave,
+                hasStatus = state.hasStatus,
+                onRequestLeave = { onEvent(ClockEvent.RequestLeave) },
+                onWithdraw = { onEvent(ClockEvent.WithdrawLeave(it)) },
+            )
         }
     }
 }

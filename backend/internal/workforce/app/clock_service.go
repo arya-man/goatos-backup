@@ -27,6 +27,16 @@ type ClockService struct {
 	member interface {
 		GetMemberForActor(ctx context.Context, tenantID, actorID string) (domain.OperatorProfile, error)
 	}
+	// leave, when wired, adds the requester's leave requests and today's
+	// approved-leave state to the status read (maintainer decision 2026-09-10).
+	leave *LeaveService
+}
+
+// WithLeave attaches the leave-request service so GET /app/clock/status
+// carries the person's leave beside their clockings.
+func (s *ClockService) WithLeave(leave *LeaveService) *ClockService {
+	s.leave = leave
+	return s
 }
 
 func NewClockService(repo ports.ClockRepository, people ports.PeopleRepository, member interface {
@@ -171,6 +181,8 @@ func (s *ClockService) Status(ctx context.Context, tenantID, actorID, localeTag,
 		PunchRefusedCopy: copyMap["refusal.mock_named"],
 		Copy:             copyMap,
 		RecentEntries:    []domain.ClockEntry{},
+		LeaveRequests:    []domain.LeaveRequest{},
+		LeaveCopy:        map[string]string{},
 		TraceID:          traceID,
 	}
 	if day != nil {
@@ -185,6 +197,27 @@ func (s *ClockService) Status(ctx context.Context, tenantID, actorID, localeTag,
 	}
 	for _, row := range recent {
 		resp.RecentEntries = append(resp.RecentEntries, s.composeEntry(row, member.DisplayName, "", "", nil, nil, copyMap))
+	}
+	if s.leave != nil {
+		// Leave beside the clockings (maintainer decision 2026-09-10). An
+		// approved leave day suppresses the reminder banner -- nobody is
+		// chased to clock in on a day the farm agreed they are away -- but a
+		// punch on that day is still accepted (assumption A1 in the plan).
+		leaveToday, err := s.leave.TodayForMember(ctx, tenantID, member.OperatorID, today, localeTag)
+		if err != nil {
+			return nil, err
+		}
+		if leaveToday.OnLeave {
+			summary := leaveToday
+			resp.LeaveToday = &summary
+			resp.BannerText = ""
+		}
+		rows, err := s.leave.MyRequestRows(ctx, tenantID, member.OperatorID)
+		if err != nil {
+			return nil, err
+		}
+		resp.LeaveRequests = s.leave.ComposeForMember(rows, member.OperatorID, localeTag)
+		resp.LeaveCopy = leaveCopyFor(localeTag)
 	}
 	return resp, nil
 }
@@ -465,7 +498,14 @@ func (s *ClockService) composeEntry(row ports.ClockEntryRow, personName, designa
 	if row.LocationMissing {
 		entry.Flags = append(entry.Flags, domain.ClockFlag{Key: "no_location", Label: copyMap["flag.no_location"]})
 	}
-	if row.Status == "auto_closed" || (row.Status == "open" && row.BusinessDate < today) {
+	// A forgotten clock-out (maintainer decision 2026-09-10, superseding D4's
+	// "no invented hours"): the midnight sweeper clocks the person out at
+	// 23:59:59 IST and counts the hours to that instant, and the row says so.
+	// A still-open earlier day is one the sweeper has not reached yet.
+	switch {
+	case row.Status == "auto_closed":
+		entry.Flags = append(entry.Flags, domain.ClockFlag{Key: "auto_clocked_out", Label: copyMap["flag.auto_clocked_out"]})
+	case row.Status == "open" && row.BusinessDate < today:
 		entry.Flags = append(entry.Flags, domain.ClockFlag{Key: "not_clocked_out", Label: copyMap["flag.not_clocked_out"]})
 	}
 	return entry
@@ -588,6 +628,8 @@ var clockCopyEN = map[string]string{
 	"flag.offline":            "Recorded offline",
 	"flag.no_location":        "No location",
 	"flag.not_clocked_out":    "Not clocked out",
+	"flag.auto_clocked_out":   "Auto clocked out at 11:59 PM",
+	"state.on_leave":          "On leave",
 	"refusal.mock":            "This phone has an app that fakes its location. Remove it, then clock in.",
 	"refusal.location":        "Turn on location to clock in — your location is required.",
 	"refusal.mock_named":      "Remove %s to clock in — it changes this phone's location.",
@@ -653,6 +695,8 @@ var clockCopyHI = map[string]string{
 	"flag.offline":            "ऑफ़लाइन दर्ज",
 	"flag.no_location":        "लोकेशन नहीं",
 	"flag.not_clocked_out":    "क्लॉक आउट नहीं",
+	"flag.auto_clocked_out":   "रात 11:59 बजे अपने आप क्लॉक आउट",
+	"state.on_leave":          "छुट्टी पर",
 	"refusal.mock":            "इस फ़ोन में लोकेशन बदलने वाला ऐप है। उसे हटाएँ, फिर क्लॉक इन करें।",
 	"refusal.location":        "क्लॉक इन के लिए लोकेशन चालू करें — आपकी लोकेशन ज़रूरी है।",
 	"refusal.mock_named":      "क्लॉक इन के लिए %s हटाएँ — यह फ़ोन की लोकेशन बदलता है।",
@@ -718,6 +762,8 @@ var clockCopyKN = map[string]string{
 	"flag.offline":            "ಆಫ್‌ಲೈನ್ ದಾಖಲೆ",
 	"flag.no_location":        "ಸ್ಥಳ ಇಲ್ಲ",
 	"flag.not_clocked_out":    "ಕ್ಲಾಕ್ ಔಟ್ ಇಲ್ಲ",
+	"flag.auto_clocked_out":   "ರಾತ್ರಿ 11:59ಕ್ಕೆ ಸ್ವಯಂ ಕ್ಲಾಕ್ ಔಟ್",
+	"state.on_leave":          "ರಜೆಯಲ್ಲಿ",
 	"refusal.mock":            "ಈ ಫೋನ್‌ನಲ್ಲಿ ಸ್ಥಳ ಬದಲಿಸುವ ಆ್ಯಪ್ ಇದೆ. ಅದನ್ನು ತೆಗೆದುಹಾಕಿ, ನಂತರ ಕ್ಲಾಕ್ ಇನ್ ಮಾಡಿ.",
 	"refusal.location":        "ಕ್ಲಾಕ್ ಇನ್ ಮಾಡಲು ಸ್ಥಳ (ಲೊಕೇಶನ್) ಆನ್ ಮಾಡಿ — ನಿಮ್ಮ ಸ್ಥಳ ಅಗತ್ಯವಿದೆ.",
 	"refusal.mock_named":      "ಕ್ಲಾಕ್ ಇನ್ ಮಾಡಲು %s ತೆಗೆದುಹಾಕಿ — ಅದು ಫೋನ್‌ನ ಸ್ಥಳ ಬದಲಿಸುತ್ತದೆ.",
@@ -783,6 +829,8 @@ var clockCopyTE = map[string]string{
 	"flag.offline":            "ఆఫ్‌లైన్ నమోదు",
 	"flag.no_location":        "లొకేషన్ లేదు",
 	"flag.not_clocked_out":    "క్లాక్ అవుట్ లేదు",
+	"flag.auto_clocked_out":   "రాత్రి 11:59కి ఆటో క్లాక్ అవుట్",
+	"state.on_leave":          "సెలవులో",
 	"refusal.mock":            "ఈ ఫోన్‌లో లొకేషన్ మార్చే యాప్ ఉంది. దాన్ని తీసివేసి, తర్వాత క్లాక్ ఇన్ చేయండి.",
 	"refusal.location":        "క్లాక్ ఇన్ చేయడానికి లొకేషన్ ఆన్ చేయండి — మీ లొకేషన్ తప్పనిసరి.",
 	"refusal.mock_named":      "క్లాక్ ఇన్ చేయడానికి %s తీసివేయండి — అది ఫోన్ లొకేషన్ మారుస్తుంది.",

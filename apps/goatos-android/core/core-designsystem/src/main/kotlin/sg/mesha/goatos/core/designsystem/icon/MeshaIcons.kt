@@ -441,6 +441,8 @@ object MeshaIcons {
         "shifting" -> Transfer
         // The approver's queue: a decision to be made, not a record to be captured.
         "approval", "approvals" -> CheckCircle
+        // The Leave tab of the Approvals module (maintainer decisions 2026-09-10): days away.
+        "leave" -> Calendar
         // Leadership weight history. Falls to the generic Module glyph without this, which is
         // the SAME grid icon the Tasks tab uses -- two tabs, one icon, in the same bar.
         // Growth is a TREND, not a snapshot -- and without its own glyph it fell through to the

@@ -212,6 +212,13 @@ func navigation() domain.NavigationContract {
 					// Parked from the sidebar (maintainer request 2026-09-09); /operations/dlq stays served.
 					// navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
 					navLeafDomain("people", "People / HRMS", "/people", "admin.people", nil),
+					// Leave (maintainer decision 2026-09-10): the park head + HR queue for leave
+					// raised from the phone Clock screen, the list of every request, and the
+					// CEO-only "who approves" flags. Sits beside People / HRMS rather than in the
+					// primary bar, whose two decision surfaces (Approvals, Verify) are pinned.
+					// Gated server-side by leave.approve (permissionsForNav); the list and the
+					// flags are page-contract controls on leave.read / leave.approval.configure.
+					navLeafDomain("leave", "Leave", "/leave", "admin.people", nil),
 				},
 			},
 		},
@@ -228,6 +235,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/workflows/{row_id}", Label: "Workflow record", Match: "pattern"},
 		{Pattern: "/workflows", Label: "Workflows", Match: "exact"},
 		{Pattern: "/approvals", Label: "Approvals", Match: "exact"},
+		{Pattern: "/leave", Label: "Leave", Match: "exact"},
 		{Pattern: "/tasks", Label: "Tasks", Match: "exact"},
 		{Pattern: "/verify", Label: "Verify", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
@@ -376,6 +384,11 @@ func pages() []domain.PageContract {
 		page("workflow-record", "/workflows/{row_id}", "/workflows/{row_id}", "Workflow drilldown", "One vaccination workflow chain reaction record.", "record-drilldown", nil),
 		page("approvals", "/approvals", "/approvals", "Approvals", "Pending birth, death, and shifting requests raised from the field. Approve to apply the change, or reject with a reason.", "authority-screen",
 			[]domain.TableContract{table("approval-requests", "Approval requests", "/admin-web/counts/approvals", []string{"request_type", "subject", "raised_at", "status", "action"}, "approval_request_id")}),
+		page("leave", "/leave", "/leave", "Leave", "Leave requests raised from the Clock screen. The park head and HR both approve; either can reject with a reason.", "authority-screen",
+			[]domain.TableContract{
+				table("leave-approvals", "Waiting for you", "/admin-web/leave/approvals", []string{"person", "dates", "reason", "status", "action"}, "leave_request_id"),
+				table("leave-requests", "All leave requests", "/admin/leave/requests", []string{"person", "park", "dates", "reason", "status", "raised_at"}, "leave_request_id"),
+			}),
 		page("leadership-tasks", "/tasks", "/tasks", "Tasks", "Manual tasks raised across directors, park heads, and employees, with notes and attachments.", "monitoring-screen",
 			[]domain.TableContract{table("leadership-task-progress", "Team progress", "/app/leadership-tasks", []string{"task", "assignee", "raised_by", "status", "evidence", "priority"}, "task_id")}),
 		page("verification-review", "/verify", "/verify", "Verify", "Open a video, check it against the facts, and accept or reject it.", "authority-screen",
@@ -1746,6 +1759,37 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.empty_placeholder":          "—",
 			"section.work_board.aria":          "Action Center work board",
 			"error.unavailable_prefix":         "Workflow record unavailable",
+		}
+	case "leave":
+		return map[string]string{
+			"queue.title":              "Waiting for you",
+			"queue.empty":              "No leave requests are waiting for your decision.",
+			"list.title":               "All leave requests",
+			"list.empty":               "No leave requests yet.",
+			"column.person":            "Person",
+			"column.park":              "Park",
+			"column.dates":             "Dates",
+			"column.reason":            "Reason",
+			"column.status":            "Status",
+			"column.raised_at":         "Asked on",
+			"column.action":            "Decision",
+			"filter.status":            "Status",
+			"filter.status.all":        "All",
+			"action.approve":           "Approve",
+			"action.reject":            "Reject",
+			"reject.reason":            "Reason for rejecting",
+			"reject.reason_hint":       "Tell the person why. They will see this.",
+			"feedback.approved":        "Approved. The request moves on when every approver has signed.",
+			"feedback.rejected":        "Rejected. The person has been told.",
+			"feedback.already_decided": "This request was already decided.",
+			"config.title":             "Who approves leave",
+			"config.help":              "Every ticked approver must accept before leave is granted. Any one of them can reject.",
+			"config.park_head":         "Park head of the person's park",
+			"config.hr":                "HR",
+			"config.save":              "Save",
+			"config.saved":             "Saved.",
+			"config.disabled_no_access": "Setting who approves leave is limited to the CEO.",
+			"list.disabled_no_access":  "Seeing every leave request is limited to the CEO and HR.",
 		}
 	case "verification-review":
 		return map[string]string{

@@ -199,6 +199,13 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
             terminalFailure = OutboxTerminalFailurePolicy.RELOAD_SERVER_TRUTH,
             processDeath = OutboxProcessDeathPolicy.OUTBOX_REPLAY,
         )
+        // Leave requests (maintainer decisions 2026-09-10): the form holds until the raise lands
+        // or fails terminally, then the Clock screen re-reads the status blob; a decision drops
+        // the row and the queue re-reads; a withdraw re-reads the status blob.
+        OutboxOpType.LEAVE_REQUEST_CREATE -> exactItemPostSuccessRefreshLifecycle()
+        OutboxOpType.LEAVE_REQUEST_WITHDRAW -> exactItemPostSuccessRefreshLifecycle()
+        OutboxOpType.LEAVE_APPROVE -> optimisticRefreshLifecycle()
+        OutboxOpType.LEAVE_REJECT -> optimisticRefreshLifecycle()
     }
 
 private fun exactItemLifecycle() = lifecycle(

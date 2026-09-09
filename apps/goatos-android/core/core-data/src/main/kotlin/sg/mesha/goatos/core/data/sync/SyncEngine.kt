@@ -591,6 +591,10 @@ class SyncEngine(
         OutboxOpType.PEN_VISIT_SUBMIT -> dispatchPenVisitSubmit(item)
         OutboxOpType.CLOCK_IN -> dispatchClockPunch(item, clockIn = true)
         OutboxOpType.CLOCK_OUT -> dispatchClockPunch(item, clockIn = false)
+        OutboxOpType.LEAVE_REQUEST_CREATE -> dispatchLeaveRequestCreate(item)
+        OutboxOpType.LEAVE_REQUEST_WITHDRAW -> dispatchLeaveRequestWithdraw(item)
+        OutboxOpType.LEAVE_APPROVE -> dispatchLeaveDecision(item, approve = true)
+        OutboxOpType.LEAVE_REJECT -> dispatchLeaveDecision(item, approve = false)
         OutboxOpType.VENDOR_CREATE -> dispatchVendorCreate(item)
         OutboxOpType.VENDOR_UPDATE -> dispatchVendorUpdate(item)
         OutboxOpType.FEED_PURCHASE_CREATE -> dispatchFeedPurchaseCreate(item)
@@ -1222,6 +1226,33 @@ class SyncEngine(
             else -> error("unknown sales pipeline kind ${payload.kind}")
         }
         return "{}"
+    }
+
+    /**
+     * Leave requests (docs/features/leave-requests/plan.md). Same stored-key replay contract as
+     * every other dispatch here: the raise replays the original request, a withdraw or decision on
+     * a request that already moved on is a 409 -- terminal, surfaced once, never retried.
+     */
+    private suspend fun dispatchLeaveRequestCreate(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<LeaveRequestCreatePayload>(item.payloadJson)
+        val response = api.createLeaveRequest(item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchLeaveRequestWithdraw(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<LeaveRequestWithdrawPayload>(item.payloadJson)
+        val response = api.withdrawLeaveRequest(payload.leaveRequestId, item.idempotencyKey)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchLeaveDecision(item: OutboxEntity, approve: Boolean): String {
+        val payload = syncJson.decodeFromString<LeaveDecisionPayload>(item.payloadJson)
+        val response = if (approve) {
+            api.approveLeaveRequest(payload.leaveRequestId, item.idempotencyKey, payload.request)
+        } else {
+            api.rejectLeaveRequest(payload.leaveRequestId, item.idempotencyKey, payload.request)
+        }
+        return syncJson.encodeToString(response)
     }
 
     private suspend fun dispatchClockPunch(item: OutboxEntity, clockIn: Boolean): String {

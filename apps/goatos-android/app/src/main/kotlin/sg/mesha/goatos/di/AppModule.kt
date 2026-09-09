@@ -1014,6 +1014,13 @@ object AppModule {
             // shell reminder banner flip to server truth the moment the write lands (plan §4.3).
             OutboxOpType.CLOCK_IN to PostSuccessRefreshHook { clockRepositoryProvider.get().refreshStatus() },
             OutboxOpType.CLOCK_OUT to PostSuccessRefreshHook { clockRepositoryProvider.get().refreshStatus() },
+            // Leave (maintainer decisions 2026-09-10): a drained raise / withdraw re-fetches the
+            // status blob so the Clock screen's leave section flips to server truth; a drained
+            // decision re-fetches the approver's first queue page so the row leaves the tab.
+            OutboxOpType.LEAVE_REQUEST_CREATE to PostSuccessRefreshHook { clockRepositoryProvider.get().refreshStatus() },
+            OutboxOpType.LEAVE_REQUEST_WITHDRAW to PostSuccessRefreshHook { clockRepositoryProvider.get().refreshStatus() },
+            OutboxOpType.LEAVE_APPROVE to PostSuccessRefreshHook { clockRepositoryProvider.get().fetchLeaveQueue(null) },
+            OutboxOpType.LEAVE_REJECT to PostSuccessRefreshHook { clockRepositoryProvider.get().fetchLeaveQueue(null) },
         ),
         preSuccessRefreshHooks = mapOf(
             OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),

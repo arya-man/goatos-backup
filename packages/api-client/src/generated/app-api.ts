@@ -5612,6 +5612,104 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/leave/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's own leave requests (bounded, newest window first). */
+        get: operations["listAppLeaveRequests"];
+        put?: never;
+        /**
+         * Ask for leave (from the Clock screen).
+         * @description Raises a leave request for the caller's own profile: an inclusive window of business dates and a reason. Routed to the approvers the CEO configured -- the park head of the caller's park and HR by default -- and BOTH must approve; either one rejecting ends it. A window overlapping the caller's own pending or approved request is refused 409 leave_overlap; a window starting on a past day is 422. Idempotent on the Idempotency-Key header (or body idempotency_key).
+         */
+        post: operations["createAppLeaveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leave/requests/{leave_request_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw the caller's own pending request. */
+        post: operations["withdrawAppLeaveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leave/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's open leave-approval queue.
+         * @description One row per pending request on which the caller decides an OPEN slot: a park head sees the park-head slot of their parks' requests, HR sees the HR slot, the CEO sees both. my_slot names the slot the caller signs. Keyset page of at most 20.
+         */
+        get: operations["listAppLeaveApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leave/approvals/{leave_request_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign the caller's slot on a leave request.
+         * @description Records the caller's approval on the slot their grants give them (park head of the request's park, HR, or -- for the CEO -- the slot named in the body). When the LAST required slot approves, the request flips to approved and one workforce_absences row is written in the same transaction. Idempotent on the Idempotency-Key header; a second decision on an already-decided slot is 409 leave_slot_decided.
+         */
+        post: operations["approveAppLeaveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/leave/approvals/{leave_request_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a leave request (reason required).
+         * @description Records the caller's rejection on their slot and ends the request at once -- either approver rejecting is final. A rejection without a reason is 422.
+         */
+        post: operations["rejectAppLeaveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/clock/presence": {
         parameters: {
             query?: never;
@@ -16259,6 +16357,92 @@ export interface components {
                 [key: string]: string;
             };
             recent_entries: components["schemas"]["ClockEntry"][];
+            leave_today?: components["schemas"]["LeaveTodaySummary"];
+            leave_requests: components["schemas"]["LeaveRequest"][];
+            leave_copy: {
+                [key: string]: string;
+            };
+            trace_id: string;
+        };
+        LeaveTodaySummary: {
+            on_leave: boolean;
+            label?: string;
+        };
+        LeaveSlotDecision: {
+            /** @enum {string} */
+            slot: "park_head" | "hr";
+            /** @enum {string} */
+            decision: "approved" | "rejected";
+            decided_by_name?: string;
+            /** Format: date-time */
+            decided_at: string;
+            note?: string;
+        };
+        LeaveRequest: {
+            /** Format: uuid */
+            leave_request_id: string;
+            /** Format: uuid */
+            workforce_member_id: string;
+            person_name: string;
+            designation?: string;
+            /** Format: uuid */
+            park_id?: string;
+            park_label?: string;
+            /** @description Inclusive first business date (YYYY-MM-DD). */
+            starts_on: string;
+            /** @description Inclusive last business date (YYYY-MM-DD). */
+            ends_on: string;
+            day_count: number;
+            /** @description Backend-composed window, e.g. "12–14 Sep 2026 · 3 days". */
+            dates_label: string;
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected" | "withdrawn";
+            status_label: string;
+            /** @description Where the request stands, in farm words. */
+            status_line: string;
+            park_head_required: boolean;
+            hr_required: boolean;
+            park_head?: components["schemas"]["LeaveSlotDecision"];
+            hr?: components["schemas"]["LeaveSlotDecision"];
+            /** Format: date-time */
+            raised_at: string;
+            raised_at_label: string;
+            /** Format: date-time */
+            decided_at?: string;
+            can_withdraw: boolean;
+            /** @description The slot the CALLER decides on this row (approver queue only). */
+            my_slot?: string;
+            my_slot_label?: string;
+            row_version: number;
+        };
+        LeaveRequestCreate: {
+            idempotency_key?: string;
+            starts_on: string;
+            ends_on: string;
+            reason: string;
+        };
+        LeaveDecisionRequest: {
+            idempotency_key?: string;
+            /** @description REQUIRED when rejecting; optional when approving. */
+            reason?: string;
+            /**
+             * @description Honoured only for a caller who may decide either slot (CEO).
+             * @enum {string}
+             */
+            slot?: "park_head" | "hr";
+        };
+        LeaveRequestResponse: {
+            request: components["schemas"]["LeaveRequest"];
+            idempotent_replay: boolean;
+            trace_id: string;
+        };
+        LeaveRequestListResponse: {
+            items: components["schemas"]["LeaveRequest"][];
+            next_cursor: string;
+            copy: {
+                [key: string]: string;
+            };
             trace_id: string;
         };
         ClockPresenceSummary: {
@@ -26531,6 +26715,188 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppLeaveRequests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Own requests with backend-owned labels and copy. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createAppLeaveRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveRequestCreate"];
+            };
+        };
+        responses: {
+            /** @description The request as raised (or replayed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    withdrawAppLeaveRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                leave_request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The withdrawn request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppLeaveApprovals: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The queue page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    approveAppLeaveRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                leave_request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["LeaveDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description The request after the decision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    rejectAppLeaveRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                leave_request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description The rejected request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

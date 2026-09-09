@@ -1551,6 +1551,97 @@
       ]
     },
     {
+      "eventType": "workforce.leave.requested",
+      "producer": "workforce CreateLeaveRequest write transaction: the outbox emit rides the same transaction as the request insert and its idempotency completion; the approver member ids (park_head grants scoped to the requester's park, tenant hr grants) are resolved inside that transaction and carried on the payload.",
+      "producerFiles": [
+        "backend/internal/workforce/adapters/postgres/leave_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notificationbridge",
+          "file": "backend/internal/notificationbridge/leave_request_notify_consumer.go",
+          "notes": "One FCM push per approver device (park head of the requester's park + every hr holder), resolved by member id through the roster device registry, idempotent on workforce.leave.requested:<leave_request_id>. Maintainer decision 2026-09-10."
+        }
+      ],
+      "owningDoc": "docs/decisions/leave-requests.md",
+      "e2eProof": [
+        "backend/internal/workforce/adapters/postgres/leave_repository_integration_test.go",
+        "backend/internal/notificationbridge/leave_request_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "workforce.leave.approved",
+      "producer": "workforce DecideLeaveRequest write transaction, emitted only when the LAST required slot approves: the same transaction writes the slot decision, flips status to approved and mirrors one workforce_absences row (status approved, no replacement).",
+      "producerFiles": [
+        "backend/internal/workforce/adapters/postgres/leave_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notificationbridge",
+          "file": "backend/internal/notificationbridge/leave_request_notify_consumer.go",
+          "notes": "One FCM push to the requester (member id -> device registry) naming the window and who approved, idempotent on workforce.leave.approved:<leave_request_id>:<event_id>."
+        }
+      ],
+      "owningDoc": "docs/decisions/leave-requests.md",
+      "e2eProof": [
+        "backend/internal/workforce/adapters/postgres/leave_repository_integration_test.go",
+        "backend/internal/notificationbridge/leave_request_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "workforce.leave.rejected",
+      "producer": "workforce DecideLeaveRequest write transaction, emitted when EITHER slot rejects: the slot decision and the final status flip commit together.",
+      "producerFiles": [
+        "backend/internal/workforce/adapters/postgres/leave_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notificationbridge",
+          "file": "backend/internal/notificationbridge/leave_request_notify_consumer.go",
+          "notes": "One FCM push to the requester naming the window, the rejecting slot, the decider and the reason, idempotent on workforce.leave.rejected:<leave_request_id>:<event_id>."
+        }
+      ],
+      "owningDoc": "docs/decisions/leave-requests.md",
+      "e2eProof": [
+        "backend/internal/workforce/adapters/postgres/leave_repository_integration_test.go",
+        "backend/internal/notificationbridge/leave_request_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "workforce.leave.withdrawn",
+      "producer": "workforce WithdrawLeaveRequest write transaction: the requester's own withdrawal of a pending request, committed with the status flip.",
+      "producerFiles": [
+        "backend/internal/workforce/adapters/postgres/leave_repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "docs/decisions/leave-requests.md",
+      "e2eProof": [
+        "backend/internal/workforce/adapters/postgres/leave_repository_integration_test.go",
+        "backend/internal/notificationbridge/leave_request_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "consumerNote": "A withdrawal is the requester's own act; nobody is pushed. The Clock screen and the People / HRMS list read the row status directly."
+    },
+    {
       "eventType": "leadership_task.raised",
       "producer": "leadershiptasks Raise write transaction: the outbox emit rides the same transaction as the task insert, its number mint and its attachment rows, so a committed task always announces itself and a rolled-back one never does.",
       "producerFiles": [
