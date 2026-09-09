@@ -105,7 +105,7 @@ output "observability_cloud_run_services" {
 }
 
 output "observability_service_accounts" {
-  description = "Runtime service account emails for the observability stack. There is no dedicated otel_collector or gmp_frontend SA: both run as sidecars under their host revision's SA (grafana and grafana for the respective services, or the kernel/api producer SAs for the collector) — see docs/observability/INFRA.md 'Sidecar collector decision'."
+  description = "Active runtime service account emails for the observability stack. There is no dedicated otel_collector runtime SA; the retained gmp_frontend SA is currently unused because GMP query-frontend runs as a sidecar under the grafana SA, and collector sidecars run under their host revision SAs — see docs/observability/INFRA.md 'Sidecar collector decision'."
   value = {
     grafana          = google_service_account.grafana.email
     grafana_alloy    = google_service_account.grafana_alloy.email

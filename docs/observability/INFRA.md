@@ -17,7 +17,7 @@ be region-pinned by design (GMP, Cloud Trace).
 
 | File | What it declares |
 |---|---|
-| `infra/envs/stg/observability.tf` | 4 service accounts (grafana, grafana_alloy, gmp_frontend, analytics_rollup — no dedicated `otel_collector` SA, see section 12), their IAM bindings (including 3 GMP/Trace/Logging write roles granted directly to every OTel Collector sidecar host: `runtime["api"]`, every kernel job SA, and `grafana_alloy`), 3 Cloud Run v2 services (GMP query-frontend, Grafana, Grafana Alloy — Grafana Alloy carries an OTel Collector sidecar container; there is no standalone OTel Collector service), invoker IAM, and the 2 GCS buckets + objects that deliver static config/provisioning (the collector config now feeds 3 different sidecars: api, every kernel job, and grafana_alloy). |
+| `infra/envs/stg/observability.tf` | 4 service accounts (grafana, grafana_alloy, retained-but-unused gmp_frontend, analytics_rollup — no dedicated `otel_collector` SA, see section 12), their IAM bindings (including 3 GMP/Trace/Logging write roles granted directly to every OTel Collector sidecar host: `runtime["api"]`, every kernel job SA, and `grafana_alloy`), 2 standalone Cloud Run v2 services (Grafana, Grafana Alloy — Grafana carries the GMP query-frontend sidecar; Grafana Alloy carries an OTel Collector sidecar), invoker IAM, and the 2 GCS buckets + objects that deliver static config/provisioning (the collector config now feeds 3 different sidecars: api, every kernel job, and grafana_alloy). |
 | `infra/envs/stg/secrets.tf` (edited) | Adds `goatos-stg-grafana-admin-password` and `goatos-stg-grafana-postgres-datasource-password` Secret Manager containers + accessor IAM for the `grafana` SA. |
 | `infra/envs/stg/monitoring.tf` (edited) | Adds 5 SLO/burn alert policies: API 5xx error-rate burn, API read-path p99 burn, API write-path p99 burn, consumer-lag, notification-failure-rate. Existing 4 policies (Cloud Run errors, outbox DLQ, Pub/Sub DLQ backlog, Cloud SQL CPU) are untouched. |
 | `infra/envs/stg/cloud_sql.tf` (edited) | Adds `insights_config` (Query Insights) to `google_sql_database_instance.core`. |
@@ -41,8 +41,8 @@ be region-pinned by design (GMP, Cloud Trace).
 Service accounts:  goatos-stg-grafana, goatos-stg-grafana-alloy,
                     goatos-stg-gmp-frontend, goatos-stg-analytics-rollup
                     (no dedicated otel-collector SA — see section 12)
-Cloud Run services: goatos-stg-gmp-frontend     (internal, port 9090)
-                     goatos-stg-grafana          (internal, port 3000, Cloud Run IAM)
+Cloud Run services: goatos-stg-grafana          (internal, port 3000, Cloud Run IAM;
+                                                  + GMP query-frontend sidecar, loopback 9090)
                      goatos-stg-grafana-alloy    (public, port 12347, Faro ingest;
                                                   + OTel Collector sidecar, loopback 4318)
 Cloud Run Job:       goatos-stg-analytics-rollup
@@ -76,24 +76,25 @@ Scheduler exception is manually managed outside Terraform.
 
 ---
 
-## 3. Why 5 GCP components exist for 3 named services
+## 3. Why the service count is 2
 
-The task named exactly 3 Cloud Run services (OTel Collector, Grafana, Grafana
-Alloy). Two more were added because the named 3 cannot actually deliver what
-the design doc asks for without them — both are called out explicitly so
-they can be descoped if unwanted:
+The task originally named 3 Cloud Run services (OTel Collector, Grafana,
+Grafana Alloy). Terraform now declares 2 standalone Cloud Run services because
+two components moved to sidecars:
 
-1. **`goatos-stg-gmp-frontend`** — Grafana's plain `prometheus` datasource
+1. **GMP query-frontend sidecar inside `goatos-stg-grafana`** — Grafana's plain `prometheus` datasource
    type has no way to attach a GCP OAuth bearer token to each HTTP request,
    which is required to query Google Managed Service for Prometheus (GMP).
    Google's own reference architecture for "query GMP with a
    Prometheus-compatible client" is exactly this: run the small
-   `gke.gcr.io/prometheus-engine/frontend` proxy, which holds
-   `roles/monitoring.viewer` and injects the token server-side, and point
-   the Prometheus datasource at the proxy instead of
-   `monitoring.googleapis.com` directly. Internal-only, invoker restricted
-   to the `grafana` service account.
-2. **Google Cloud Monitoring (`stackdriver`) datasource** (in
+   `gke.gcr.io/prometheus-engine/frontend` proxy, inject the token
+   server-side, and point the Prometheus datasource at the proxy instead of
+   `monitoring.googleapis.com` directly. It runs on Grafana loopback
+   (`http://localhost:9090`), not as `google_cloud_run_v2_service.gmp_frontend`.
+2. **OTel Collector sidecars inside producers** — the collector runs beside
+   `goatos-api-stg`, the kernel worker, and `goatos-stg-grafana-alloy`, so it
+   is not a standalone Cloud Run service.
+3. **Google Cloud Monitoring (`stackdriver`) datasource** (in
    `datasources.yaml`, not a new Cloud Run service) — the DB dashboard needs
    native Cloud SQL infra metrics (`cloudsql.googleapis.com/database/cpu|memory|...`)
    and these live in a completely different metric namespace than GMP/OTLP
@@ -101,9 +102,9 @@ they can be descoped if unwanted:
    extra cost/plugin and needs no extra IAM beyond `roles/monitoring.viewer`
    already granted to `grafana`.
 
-If you want to strictly cap this to only the 3 named Cloud Run services,
-remove `observability.tf`'s `gmp_frontend` SA/service/IAM block and switch
-the "Google Managed Prometheus" datasource in `datasources.yaml` to
+If you want to avoid the retained unused `gmp_frontend` service account,
+remove `observability.tf`'s `gmp_frontend` SA placeholder and switch the
+"Google Managed Prometheus" datasource in `datasources.yaml` to
 `type: stackdriver` with `jsonData.gceDefaultProject`'s PromQL query mode
 (Grafana's native Cloud Monitoring datasource can query GMP data directly,
 just with a different query UI than a "real" Prometheus datasource).
@@ -207,7 +208,7 @@ terraform plan \
   -var='stg_sweeper_actor_id=<reviewed workforce_member_id>' \
   -var='observability_operator_members=["user:ravi@mesha.sg"]' \
   -out=observability.tfplan
-# review the plan — it should show ONLY additive resources (4 SAs, 3 Cloud
+# review the plan — it should show ONLY additive resources (4 SAs, 2 Cloud
 # Run services, 1 manual Cloud Run Job, 2 GCS buckets + objects,
 # 1 BigQuery dataset, 2 secrets, 1 cloud_sql_database_instance UPDATE
 # in-place for insights_config, 5 new alert policies) PLUS in-place updates
@@ -222,11 +223,10 @@ Recommended sub-order if you want to stage it instead of one big apply:
 
 1. `terraform apply -target=google_secret_manager_secret.grafana_admin_password -target=google_secret_manager_secret.grafana_postgres_datasource_password` — then populate secret *versions* out-of-band (`gcloud secrets versions add ...`), same discipline as every other secret in this repo.
 2. `terraform apply -target=google_sql_database_instance.core` — enables Query Insights alone; low blast radius, quick to verify in the console.
-3. `terraform apply -target=google_cloud_run_v2_service.gmp_frontend` — verify it boots before wiring Grafana's Prometheus datasource at it.
-4. `terraform apply -target=google_cloud_run_v2_service.grafana` — sign in, confirm datasources green (Cloud Trace/Logging/BigQuery/Cloud Monitoring should test-connect immediately via ADC; Postgres needs the `goatos_grafana_ro` role to exist first; GMP needs the frontend proxy reachable).
-5. `terraform apply -target=google_cloud_run_v2_service.grafana_alloy` — this revision now includes the OTel Collector sidecar (section 12); check the new revision's logs for BOTH containers — Alloy should show its faro.receiver listening, and the sidecar should show "Everything is ready" — before wiring admin-web's `faro-web-sdk` `url` to this service's public URL (output `observability_cloud_run_services.grafana_alloy`).
-6. `terraform apply -target=google_cloud_run_v2_service.api -target=google_cloud_run_v2_job.kernel` — this is what actually lands the OTel Collector sidecar + `GOATOS_OTLP_ENDPOINT=http://localhost:4318` onto api and every kernel Job (section 12). Confirm the new api revision's `otel-collector` container log shows "Everything is ready" before assuming telemetry flows; `GOATOS_OBS_SINK=otlp` must already be set (it is, in cloud_run_services.tf/cloud_run_jobs.tf) for `SetupTelemetry` to activate at all.
-7. `terraform apply` (full) — picks up the analytics rollup + remaining alert policies.
+3. `terraform apply -target=google_cloud_run_v2_service.grafana` — sign in, confirm datasources green (Cloud Trace/Logging/BigQuery/Cloud Monitoring should test-connect immediately via ADC; Postgres needs the `goatos_grafana_ro` role to exist first; GMP needs the frontend proxy sidecar reachable on loopback).
+4. `terraform apply -target=google_cloud_run_v2_service.grafana_alloy` — this revision now includes the OTel Collector sidecar (section 12); check the new revision's logs for BOTH containers — Alloy should show its faro.receiver listening, and the sidecar should show "Everything is ready" — before wiring admin-web's `faro-web-sdk` `url` to this service's public URL (output `observability_cloud_run_services.grafana_alloy`).
+5. `terraform apply -target=google_cloud_run_v2_service.api -target=google_cloud_run_v2_job.kernel` — this is what actually lands the OTel Collector sidecar + `GOATOS_OTLP_ENDPOINT=http://localhost:4318` onto api and every kernel Job (section 12). Confirm the new api revision's `otel-collector` container log shows "Everything is ready" before assuming telemetry flows; `GOATOS_OBS_SINK=otlp` must already be set (it is, in cloud_run_services.tf/cloud_run_jobs.tf) for `SetupTelemetry` to activate at all.
+6. `terraform apply` (full) — picks up the analytics rollup + remaining alert policies.
 
 There is no longer a step "redeploy backend api + kernel jobs with a new
 `GOATOS_OTLP_ENDPOINT` output value" — the endpoint is now the Terraform-fixed
@@ -347,8 +347,9 @@ stg with the mobile/backend lane before doing this if it differs).
    backend-lane-owned; this infra pass only wires the Postgres datasource and
    the manual Cloud Run Job shell that will eventually populate them.
 4. **GMP query-frontend and Cloud Monitoring datasource are additions**
-   beyond the literal 3-named-service scope (section 3) — remove them if
-   the reviewer wants to hold strictly to 3 Cloud Run services and accept a
+   beyond the original named-service scope (section 3) — remove them if
+   the reviewer wants to avoid the retained unused `gmp_frontend` service
+   account and accept a
    non-functional Prometheus datasource / no Cloud SQL infra-metric panels
    instead.
 5. **`insights_config.record_client_address = true`** — Goat OS's own
@@ -523,8 +524,8 @@ would only exist to serve one caller.
   instead of as its own `INGRESS_TRAFFIC_INTERNAL_ONLY` service. Grafana
   queries it via `http://localhost:9090` (loopback, no TLS, no auth), avoiding
   the internal-ingress reachability gap entirely. The standalone
-  `google_cloud_run_v2_service.gmp_frontend` service and its dedicated SA are
-  retired; the Prometheus datasource is now fully functional.
+  `google_cloud_run_v2_service.gmp_frontend` service is retired; the
+  `gmp_frontend` service account is retained but currently unused.
 
 ---
 
