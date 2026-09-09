@@ -36,7 +36,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
     return <ControlTowerPage searchParams={sp} pageContract={controlTower} />;
   }
   if (controlTower?.href && !landing?.href) {
-    redirect(controlTower.href);
+    redirect(scopeHref(controlTower.href, parseScope(sp)));
   }
   redirect(firstEnabledPublishedHref(contract) ?? "/vaccination");
 }

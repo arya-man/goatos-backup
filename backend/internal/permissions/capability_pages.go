@@ -59,6 +59,10 @@ type ModulePage struct {
 	// even see it" case this model exists to remove. A page whose permissions the person's
 	// capabilities do not produce is never ticked, so it is never shown.
 	Permissions []string
+	// HiddenFromNav means the page is deliberately parked from the sidebar while remaining
+	// a page-grain access contract. A hidden page is still tickable/withholdable and typed
+	// URLs must fail closed when the person does not hold its tick.
+	HiddenFromNav bool
 }
 
 // modulePages is the catalog, in sidebar order. Command lenses (Control Tower, Action
@@ -67,10 +71,16 @@ type ModulePage struct {
 // have created a module nobody's backfilled role holds.
 var modulePages = []ModulePage{
 	// Control Tower, Action Center, Protocol Adherence, Workflows, Calendar, Tasks and DLQ
-	// Center are parked from the sidebar (maintainer request 2026-09-09), so they have no
-	// catalog row: a tickable page must be a nav leaf (the weighing-weights precedent below).
-	// The pages stay served at their routes for deep links.
+	// Center are parked from the sidebar (maintainer request 2026-09-09), but they stay in
+	// the page catalog: page ticks are also what make typed URLs fail closed for withheld
+	// pages.
+	{Key: "control-tower", Module: "vaccination", Label: "Control Tower", Href: "/?lens=control-tower", Permissions: []string{ObligationRead, VaccinationRead}, HiddenFromNav: true},
+	{Key: "action-center", Module: "vaccination", Label: "Action Center", Href: "/action-center", Permissions: []string{ObligationRead, VaccinationRead}, HiddenFromNav: true},
+	{Key: "protocol-adherence", Module: "vaccination", Label: "Protocol Adherence", Href: "/protocol-adherence", Permissions: []string{ObligationRead, VaccinationRead}, HiddenFromNav: true},
+	{Key: "workflows", Module: "vaccination", Label: "Workflows", Href: "/workflows", Permissions: []string{ObligationRead, VaccinationRead}, HiddenFromNav: true},
+	{Key: "calendar", Module: "calendar", Label: "Calendar", Href: "/calendar", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}, HiddenFromNav: true},
 	{Key: "approvals", Module: "counts", Label: "Approvals", Href: "/approvals", Permissions: []string{CountsApproveAccess}},
+	{Key: "leadership-tasks", Module: "leadership_tasks", Label: "Tasks", Href: "/tasks", Permissions: []string{LeadershipTasksRead}, HiddenFromNav: true},
 	{Key: "verification-actions", Module: "verification", Label: "Verify", Href: "/verify", Permissions: []string{VerificationReview}},
 
 	{Key: "preventive-care-vaccination", Module: "vaccination", Label: "Vaccination", Href: "/vaccination", Permissions: []string{ObligationRead, VaccinationRead}},
@@ -123,6 +133,7 @@ var modulePages = []ModulePage{
 	{Key: "health-config", Module: "aas_health", Label: "Health Config", Href: "/health/config", Permissions: []string{HealthConfigRead}},
 
 	{Key: "audit-log", Module: "operations", Label: "Audit Log", Href: "/operations/audit", Permissions: []string{OperatorsViewAudit}},
+	{Key: "dlq-center", Module: "operations", Label: "DLQ Center", Href: "/operations/dlq", Permissions: []string{OperatorsViewAudit}, HiddenFromNav: true},
 	{Key: "people", Module: "people", Label: "People / HRMS", Href: "/people", Permissions: []string{OperatorsRead}},
 }
 
@@ -269,7 +280,7 @@ func (a PageAccess) Allows(pageKey, href string) bool {
 	// this is what withholds /feed/config from someone who holds Feed. A route that is not
 	// a tickable page (a drilldown) rides with the module.
 	for _, p := range pagesByModule[module] {
-		if p.Href == hrefPath(href) {
+		if hrefPath(p.Href) == hrefPath(href) {
 			_, ok := a.Pages[p.Key]
 			return ok
 		}

@@ -23,7 +23,7 @@ test("admin root route keeps explicit Control Tower deep links reachable", () =>
   assert.doesNotMatch(rootPageSource, /requireAdminWebPageContract\("control-tower"\)/);
   assert.match(rootPageSource, /route_id === "control-tower"/);
   assert.match(rootPageSource, /if \(requestedControlTower && controlTower\) \{\s*return <ControlTowerPage searchParams=\{sp\} pageContract=\{controlTower\} \/>;/);
-  assert.match(rootPageSource, /if \(controlTower\?\.href && !landing\?\.href\) \{\s*redirect\(controlTower\.href\);/);
+  assert.match(rootPageSource, /if \(controlTower\?\.href && !landing\?\.href\) \{\s*redirect\(scopeHref\(controlTower\.href, parseScope\(sp\)\)\);/);
   assert.match(rootPageSource, /enabledPublished\.find\(\(item\) => item\.href === "\/verify"\)/);
   assert.match(rootPageSource, /redirect\(firstEnabledPublishedHref\(contract\) \?\? "\/vaccination"\)/);
 });
