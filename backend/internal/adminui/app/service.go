@@ -3469,6 +3469,10 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// Headline KPI labels.
 			"kpi.revenue":             "Recorded sales revenue",
+			"kpi.farm_value":          "Total farm value",
+			"kpi.farm_value.detail":   "Live herd valuation from Sales target rates",
+			"kpi.total_meat":          "Total meat",
+			"kpi.total_meat.detail":   "Live herd kg from valuation buckets",
 			"kpi.animals":             "Animals sold",
 			"kpi.animals.detail":      "sheep and goats, closed deals",
 			"kpi.realized_price":      "Realized price per kg",
@@ -3488,6 +3492,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.over35.apply":         "Apply",
 			"disabled.weights":         "Your current role can view sales but not weighing.",
 			"value.kg_suffix":          "kg",
+			"value.live_animals":       "live animals",
+			"value.weighed":            "weighed",
 			"value.per_kg_suffix":      "per kg",
 			"value.none":               "Not recorded",
 			"value.farm_all":           "Both farms",

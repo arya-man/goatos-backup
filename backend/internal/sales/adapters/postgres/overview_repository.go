@@ -41,6 +41,7 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 		weightAudit      domain.WeightAuditSummary
 		marketBenchmarks []domain.MarketBenchmark
 		soldWeightBands  domain.SoldWeightBands
+		farmValuation    domain.FarmValuation
 	)
 
 	group, gctx := errgroup.WithContext(ctx)
@@ -79,6 +80,11 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 		soldWeightBands, err = r.soldWeightBands(gctx, tenantID, farm)
 		return err
 	})
+	group.Go(func() error {
+		var err error
+		farmValuation, err = r.farmValuation(gctx, tenantID, farm)
+		return err
+	})
 	if err := group.Wait(); err != nil {
 		return domain.Overview{}, err
 	}
@@ -89,6 +95,7 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 	overview.WeightAudit = weightAudit
 	overview.MarketBenchmarks = marketBenchmarks
 	overview.SoldWeightBands = soldWeightBands
+	overview.FarmValuation = farmValuation
 	return overview, nil
 }
 
@@ -131,6 +138,60 @@ func (r *Repository) soldWeightBands(ctx context.Context, tenantID, farm string)
 		return domain.SoldWeightBands{}, fmt.Errorf("sales sold weight bands rows: %w", err)
 	}
 	return bands, nil
+}
+
+// farmValuation computes Manju's Sales farm-value cards from current live herd inventory, not the
+// closed sales ledger. F2/F2-Male/F2-Female are the current fattening vocabulary; their formula
+// uses the average of the latest verified RFID-linked weights and applies it to the bucket count.
+//
+// projection-review: membership=goats at one row per current animal, filtered to non-terminal and
+// non-merged; latest_purpose is distinct on (tenant_id, goat_id), idmap is reduced by latest_weight
+// back to one row per goat before joining, so RFID aliases cannot fan out animals; group_key=the
+// mutually-exclusive CASE bucket; farm scope joins locations 1:1 by goat park_id/farm_id and matches
+// the same CBE/CPT code the Sales filter carries; pagination=none, this is a whole-current-inventory card;
+// scope=tenant_id and optional farm code.
+func (r *Repository) farmValuation(ctx context.Context, tenantID, farm string) (domain.FarmValuation, error) {
+	args := []any{tenantID}
+	farmPredicate := ""
+	if farm != "" {
+		args = append(args, farm)
+		farmPredicate = "AND upper(coalesce(park.location_code, farm.location_code, '')) = upper($2)"
+	}
+
+	query := fmt.Sprintf(farmValuationSQL, farmPredicate)
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return domain.FarmValuation{}, fmt.Errorf("sales farm valuation: %w", err)
+	}
+	defer rows.Close()
+
+	out := domain.FarmValuation{Buckets: []domain.FarmValuationBucket{}}
+	for rows.Next() {
+		var bucket domain.FarmValuationBucket
+		var totalAnimals int
+		if err := rows.Scan(
+			&bucket.Bucket,
+			&bucket.Label,
+			&bucket.AnimalCount,
+			&bucket.WeightKg,
+			&bucket.PricePerKg,
+			&bucket.MeatKg,
+			&bucket.ValueRupees,
+			&bucket.ActualWeight,
+			&bucket.WeighedAnimals,
+			&totalAnimals,
+		); err != nil {
+			return domain.FarmValuation{}, fmt.Errorf("sales farm valuation scan: %w", err)
+		}
+		out.TotalMeatKg += bucket.MeatKg
+		out.TotalValueRupees += bucket.ValueRupees
+		out.TotalAnimals = totalAnimals
+		out.Buckets = append(out.Buckets, bucket)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.FarmValuation{}, fmt.Errorf("sales farm valuation rows: %w", err)
+	}
+	return out, nil
 }
 
 // closedDeals loads every closed deal in the filter -- the ONE bounded read behind the summary,
@@ -416,3 +477,101 @@ const soldWeightBandsSQL = `
 		JOIN public.sales_deals d ON d.id = a.sales_deal_id AND d.tenant_id = a.tenant_id
 		WHERE %s AND a.tenant_id = $1 AND a.status = 'tagged'
 		GROUP BY a.weight_kg`
+
+// farmValuationSQL is the one live-inventory rollup behind the Farm Value cards. %s is the optional
+// farm-code predicate.
+const farmValuationSQL = `
+	WITH latest_purpose AS (
+		SELECT DISTINCT ON (tenant_id, goat_id)
+			tenant_id, goat_id, purpose
+		FROM public.procurement_load_goats
+		WHERE tenant_id = $1
+		ORDER BY tenant_id, goat_id, updated_at DESC NULLS LAST
+	),
+	idmap AS (
+		SELECT tenant_id, goat_id, animal_identifier_1 AS identifier
+		FROM public.procurement_load_goats
+		WHERE tenant_id = $1 AND btrim(coalesce(animal_identifier_1, '')) <> ''
+		UNION ALL
+		SELECT tenant_id, goat_id, animal_identifier_2 AS identifier
+		FROM public.procurement_load_goats
+		WHERE tenant_id = $1 AND btrim(coalesce(animal_identifier_2, '')) <> ''
+	),
+	latest_weight AS (
+		SELECT DISTINCT ON (tenant_id, scanned_identifier)
+			tenant_id, scanned_identifier, weight_kg::float8 AS weight_kg, accepted_at
+		FROM public.weighing_observations
+		WHERE tenant_id = $1 AND verification_status = 'verified'
+		ORDER BY tenant_id, scanned_identifier, accepted_at DESC
+	),
+	goat_weight AS (
+		SELECT DISTINCT ON (i.tenant_id, i.goat_id)
+			i.tenant_id, i.goat_id, w.weight_kg
+		FROM idmap i
+		JOIN latest_weight w ON w.tenant_id = i.tenant_id AND w.scanned_identifier = i.identifier
+		ORDER BY i.tenant_id, i.goat_id, w.accepted_at DESC
+	),
+	classified AS (
+		SELECT
+			CASE
+				WHEN coalesce(lp.purpose, '') = 'fattening' OR g.management_stage IN ('F2', 'F2-Male', 'F2-Female') THEN 'fattening'
+				WHEN g.age_band = 'adult' AND g.sex = 'female' THEN 'adult_female'
+				WHEN g.age_band = 'adult' AND g.sex = 'male' THEN 'adult_male_buck'
+				WHEN g.milk_cohort = 'K1' OR g.management_stage = 'K1' THEN 'K1'
+				WHEN g.milk_cohort = 'K2' OR g.management_stage = 'K2' THEN 'K2'
+				WHEN g.milk_cohort = 'K3' OR g.management_stage = 'K3' THEN 'K3'
+				WHEN g.milk_cohort = 'K0' OR g.management_stage = 'K0' THEN 'K0'
+				ELSE 'unmapped'
+			END AS bucket,
+			gw.weight_kg
+		FROM public.goats g
+		LEFT JOIN latest_purpose lp ON lp.tenant_id = g.tenant_id AND lp.goat_id = g.goat_id
+		LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id
+		LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+		LEFT JOIN public.locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id
+		WHERE g.tenant_id = $1
+			AND g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')
+			AND g.merged_into_goat_id IS NULL
+			%s
+	),
+	fattening_weight AS (
+		SELECT avg(weight_kg) AS avg_weight_kg, count(weight_kg)::int AS weighed_animals
+		FROM classified
+		WHERE bucket = 'fattening'
+	),
+	rates(bucket, label, fixed_weight_kg, price_per_kg, display_order) AS (
+		VALUES
+			('fattening', 'Fattening animals', NULL::float8, 450::float8, 1),
+			('adult_female', 'Adult females', 40::float8, 600::float8, 2),
+			('adult_male_buck', 'Adult males / bucks', 60::float8, 500::float8, 3),
+			('K0', 'K0', 3::float8, 500::float8, 4),
+			('K1', 'K1', 3::float8, 500::float8, 5),
+			('K2', 'K2', 8::float8, 500::float8, 6),
+			('K3', 'K3', 15::float8, 500::float8, 7)
+	),
+	counts AS (
+		SELECT bucket, count(*)::int AS animal_count
+		FROM classified
+		WHERE bucket <> 'unmapped'
+		GROUP BY bucket
+	),
+	total_inventory AS (
+		SELECT count(*)::int AS live_animals
+		FROM classified
+	)
+	SELECT
+		r.bucket,
+		r.label,
+		coalesce(c.animal_count, 0) AS animal_count,
+		coalesce(r.fixed_weight_kg, fw.avg_weight_kg, 0)::float8 AS weight_kg,
+		r.price_per_kg,
+		(coalesce(c.animal_count, 0) * coalesce(r.fixed_weight_kg, fw.avg_weight_kg, 0))::float8 AS meat_kg,
+		(coalesce(c.animal_count, 0) * coalesce(r.fixed_weight_kg, fw.avg_weight_kg, 0) * r.price_per_kg)::float8 AS value_rupees,
+		(r.fixed_weight_kg IS NULL) AS actual_weight,
+		CASE WHEN r.fixed_weight_kg IS NULL THEN coalesce(fw.weighed_animals, 0) ELSE 0 END AS weighed_animals,
+		ti.live_animals
+	FROM rates r
+	LEFT JOIN counts c ON c.bucket = r.bucket
+	CROSS JOIN fattening_weight fw
+	CROSS JOIN total_inventory ti
+	ORDER BY r.display_order`

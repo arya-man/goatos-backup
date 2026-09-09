@@ -431,6 +431,32 @@ type Overview struct {
 	// weight recorded at tagging. Whole register, no window -- the Sales page carries no date
 	// filter, and the maintainer asked for all of it.
 	SoldWeightBands SoldWeightBands
+	// FarmValuation is the live-herd valuation block behind the "Farm Value under Sales" cards.
+	// It is deliberately separate from closed-deal revenue: these animals are current inventory,
+	// not sold rows.
+	FarmValuation FarmValuation
+}
+
+// FarmValuation is a whole-filter valuation of the current live herd. Bucket weights and prices
+// mirror the Sales target card from 2026-09-10; animals are filed into exactly one bucket.
+type FarmValuation struct {
+	TotalValueRupees float64
+	TotalMeatKg      float64
+	TotalAnimals     int
+	Buckets          []FarmValuationBucket
+}
+
+// FarmValuationBucket is one row of the valuation formula.
+type FarmValuationBucket struct {
+	Bucket         string
+	Label          string
+	AnimalCount    int
+	WeightKg       float64
+	PricePerKg     float64
+	MeatKg         float64
+	ValueRupees    float64
+	ActualWeight   bool
+	WeighedAnimals int
 }
 
 // SoldWeightBands counts sold animals by the weight recorded when they were tagged to a sale.

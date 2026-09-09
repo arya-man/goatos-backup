@@ -139,3 +139,12 @@ test("the Over 35 kg card asks for six weeks, and the backend floors it", () => 
   // No anchor date lives on this page: a client-side floor would drift from the server's.
   assert.doesNotMatch(source, /2026-08-0\d/);
 });
+
+test("farm value cards render the backend valuation contract", () => {
+  const source = readFileSync(new URL("./sales.tsx", import.meta.url), "utf8");
+  assert.match(source, /overview\.farm_valuation\.total_value_rupees/);
+  assert.match(source, /overview\.farm_valuation\.total_meat_kg/);
+  assert.match(source, /overview\.farm_valuation\.total_animals/);
+  assert.match(source, /overview\.farm_valuation\.buckets\.map/);
+  assert.doesNotMatch(source, /farm_valuation\.buckets\.reduce/);
+});
