@@ -190,6 +190,11 @@ function OverviewSections({
             <div className="hd">
               <h3>{copy(pageContract, "kpi.farm_value")}</h3>
               <Tag tone={overview.farm_valuation.total_value_rupees > 0 ? "info" : "mut"}>
+                {num(overview.farm_valuation.valued_animals)} {copy(pageContract, "value.valued_animals")}
+                {overview.farm_valuation.excluded_animals > 0
+                  ? ` · ${num(overview.farm_valuation.excluded_animals)} ${copy(pageContract, "value.excluded_animals")}`
+                  : ""}
+                {" · "}
                 {num(overview.farm_valuation.total_animals)} {copy(pageContract, "value.live_animals")}
               </Tag>
             </div>

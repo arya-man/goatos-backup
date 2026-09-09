@@ -145,6 +145,25 @@ test("farm value cards render the backend valuation contract", () => {
   assert.match(source, /overview\.farm_valuation\.total_value_rupees/);
   assert.match(source, /overview\.farm_valuation\.total_meat_kg/);
   assert.match(source, /overview\.farm_valuation\.total_animals/);
+  assert.match(source, /overview\.farm_valuation\.valued_animals/);
+  assert.match(source, /overview\.farm_valuation\.excluded_animals/);
   assert.match(source, /overview\.farm_valuation\.buckets\.map/);
   assert.doesNotMatch(source, /farm_valuation\.buckets\.reduce/);
+});
+
+test("farm value copy keys have rollout fallbacks", () => {
+  const source = readFileSync(new URL("../../lib/admin-ui-contract.ts", import.meta.url), "utf8");
+  assert.match(source, /sales:\s*{/);
+  for (const key of [
+    "kpi.farm_value",
+    "kpi.farm_value.detail",
+    "kpi.total_meat",
+    "kpi.total_meat.detail",
+    "value.excluded_animals",
+    "value.live_animals",
+    "value.valued_animals",
+    "value.weighed",
+  ]) {
+    assert.match(source, new RegExp(`"${key.replaceAll(".", "\\.")}"`));
+  }
 });

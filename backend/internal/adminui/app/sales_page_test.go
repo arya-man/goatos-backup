@@ -57,7 +57,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		"chart.monthly_animals.sub", "chart.monthly_manure.sub",
 		"evidence.audit.within_0_3", "evidence.audit.within_1", "evidence.audit.over_1",
 		"kpi.farm_value", "kpi.farm_value.detail", "kpi.total_meat", "kpi.total_meat.detail",
-		"value.live_animals", "value.weighed",
+		"value.excluded_animals", "value.live_animals", "value.valued_animals", "value.weighed",
 		"action.record_sale.label", "field.sale_date", "field.farm", "field.product_type",
 		"section.payments.title", "payments.received_so_far", "payments.balance", "payments.empty",
 		"payments.column.received_on", "payments.column.amount", "payments.column.note",

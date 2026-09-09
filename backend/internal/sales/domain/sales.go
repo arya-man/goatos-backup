@@ -443,6 +443,8 @@ type FarmValuation struct {
 	TotalValueRupees float64
 	TotalMeatKg      float64
 	TotalAnimals     int
+	ValuedAnimals    int
+	ExcludedAnimals  int
 	Buckets          []FarmValuationBucket
 }
 
