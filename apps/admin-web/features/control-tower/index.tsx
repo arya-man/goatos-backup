@@ -127,7 +127,8 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
   const nextHref = nextCursor ? hrefWithPagedCursor(CT_PATH, sp, "ct_cursor", nextCursor, "ct_page", "ct_cursor_stack") : null;
   const prevHref = hrefPreviousPagedCursor(CT_PATH, sp, "ct_cursor", "ct_page", "ct_cursor_stack");
   if (result.ok && ctPage > 1 && !ctCursor && !ctCursorStack) {
-    redirect(scopeHref("/", scope, {}, {
+    redirect(scopeHref(CT_PATH, scope, {}, {
+      lens: "control-tower",
       ct_severity: severityFilter,
       ct_state: stateFilter,
       ct_page: "1",
@@ -139,7 +140,8 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
 
   // Filter/page-size changes reset to page 1 and drop the cursor stack (keyset restart).
   function hrefWith(overrides: Record<string, string | undefined>): string {
-    return scopeHref("/", scope, {}, {
+    return scopeHref(CT_PATH, scope, {}, {
+      lens: "control-tower",
       ct_severity: severityFilter,
       ct_state: stateFilter,
       ct_page: String(paged.page),

@@ -138,7 +138,7 @@ async function verifyShell(page) {
   await openAllSidebarGroups(page);
 
   for (const [label, path] of [
-    ["Control Tower", "/"],
+    ["Control Tower", "/?lens=control-tower"],
     ["Action Center", "/action-center"],
     ["Calendar", "/calendar"],
     ["Protocol Adherence", "/protocol-adherence"],

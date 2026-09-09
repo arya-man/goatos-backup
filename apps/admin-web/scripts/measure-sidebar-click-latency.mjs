@@ -339,7 +339,7 @@ if (bearerToken) {
       name: "goatos_firebase_id_token",
       value: bearerToken,
       domain: url.hostname,
-      path: "/",
+      path: "/?lens=control-tower",
       httpOnly: true,
       sameSite: "Lax",
       expires: Math.floor(Date.now() / 1000) + 3600,
@@ -350,7 +350,7 @@ const page = await context.newPage();
 const rows = [];
 
 try {
-  await page.goto(`${baseUrl}${scoped("/")}`, { waitUntil: "networkidle", timeout });
+  await page.goto(`${baseUrl}${scoped("/")}&lens=control-tower`, { waitUntil: "networkidle", timeout });
   await waitUsable(page, pathnameOf("/"));
   const firstProblem = await pageProblem(page);
   if (firstProblem.problem) throw new Error(`initial page rendered ${firstProblem.problem}`);
@@ -359,7 +359,7 @@ try {
     if (!onlyTabs) {
       for (const route of routes) {
         if (page.url() === `${baseUrl}${scoped(route)}`) {
-          await page.goto(`${baseUrl}${scoped("/")}`, { waitUntil: "networkidle", timeout });
+          await page.goto(`${baseUrl}${scoped("/")}&lens=control-tower`, { waitUntil: "networkidle", timeout });
         }
         const started = performance.now();
         let row;

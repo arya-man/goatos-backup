@@ -199,8 +199,9 @@ func navigation() domain.NavigationContract {
 					// The four command lenses moved here from the primary bar (maintainer request
 					// 2026-09-08) and were then parked from the sidebar altogether (maintainer
 					// request 2026-09-09). They remain top-level command lenses at their own
-					// routes; ADG Analytics is the landing page, so "/" now redirects there.
-					// navLeaf("control-tower", "Control Tower", "/", nil),
+					// routes; ADG Analytics is the landing page, so Control Tower keeps an explicit
+					// /?lens=control-tower deep link.
+					// navLeaf("control-tower", "Control Tower", "/?lens=control-tower", nil),
 					// navLeaf("action-center", "Action Center", "/action-center", nil),
 					// navLeaf("protocol-adherence", "Protocol Adherence", "/protocol-adherence", nil),
 					// navLeaf("workflows", "Workflows", "/workflows", nil),
@@ -355,7 +356,7 @@ func chromeCopy() map[string]string {
 
 func pages() []domain.PageContract {
 	return []domain.PageContract{
-		page("control-tower", "/", "/", "Control Tower", "Process-intact / not-intact leadership view for vaccination gaps.", "command-lens",
+		page("control-tower", "/?lens=control-tower", "/?lens=control-tower", "Control Tower", "Process-intact / not-intact leadership view for vaccination gaps.", "command-lens",
 			[]domain.TableContract{table("open-gaps", "Open vaccination gaps — gap, severity, owner, next action", "/control-tower/vaccination", []string{"gap", "severity", "detail", "owner", "next_action"}, "ct_row")}),
 		page("action-center", "/action-center", "/action-center", "Action Center", "Exact vaccination work and gaps to act on now.", "command-lens",
 			[]domain.TableContract{
