@@ -366,7 +366,7 @@ private fun LeaveDateField(label: String, value: String, minDate: LocalDate, onP
 }
 
 /** dd/mm/yyyy, the farm's date format, from an ISO business date. */
-private fun farmDate(iso: String): String = runCatching {
+private fun farmDate(iso: String): String = runCatching { // exception:exempt an unparseable date falls back to the raw ISO string the backend sent; nothing to recover
     val d = LocalDate.parse(iso)
     "%02d/%02d/%04d".format(d.dayOfMonth, d.monthValue, d.year)
 }.getOrDefault(iso)

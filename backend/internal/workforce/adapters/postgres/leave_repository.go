@@ -504,7 +504,7 @@ func (r *Repository) DecideLeaveRequest(ctx context.Context, cmd ports.DecideLea
 
 type leaveRequestLock struct {
 	status, memberID, parkHeadDecision, hrDecision, parkID, startsOn, endsOn, raisedBy string
-	parkHeadRequired, hrRequired                                                bool
+	parkHeadRequired, hrRequired                                                       bool
 }
 
 func lockLeaveRequest(ctx context.Context, tx pgx.Tx, tenantID, id string) (leaveRequestLock, error) {
