@@ -122,6 +122,12 @@ test("monthly charts trim zero-only edges per metric", () => {
   );
 });
 
+test("monthly columns use compact density for sparse ranges", () => {
+  const source = readFileSync(new URL("../../components/month-columns.tsx", import.meta.url), "utf8");
+  assert.match(source, /data\.length < 9 \? " compact" : ""/);
+  assert.match(source, /mcols\$\{density\}/);
+});
+
 test("marketLossPerKg is landed minus market, and null when either side is unrecorded", () => {
   assert.equal(marketLossPerKg(500, 420), 80);
   assert.equal(marketLossPerKg(400, 420), -20);
