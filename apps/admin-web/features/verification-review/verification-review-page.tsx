@@ -23,6 +23,7 @@ import { Randomization } from "./randomization";
 import { RandomizationPanel } from "./randomization-panel";
 // Server-safe module on purpose: see randomization-panel-params.ts.
 import { RANDOMIZATION_PANEL_ID, RANDOMIZATION_PANEL_SELECTION_KEY } from "./randomization-panel-params";
+import { SubcategoryFilter } from "./subcategory-filter";
 import { VideoLogPanel } from "./video-log-panel";
 // Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
 // client-reference proxy, not the string, so vl_date/vl_shed silently never matched.
@@ -492,22 +493,12 @@ export async function VerificationReviewPage({
             between (Birth and Death have none, and an Apply button with nothing to apply is
             worse than no row). */}
         {moduleFilterOffered && oversightFiltersEnabled && selectedModuleActionTypes.length > 1 ? (
-          <div className="vr-subfilter">
-            <div className="vr-subfilter-head">
-              <span>{selectedModuleLabel} subcategories</span>
-            </div>
-            <div className="vr-legend vr-sublegend" role="group" aria-label={`${copy(pageContract, "filter.module")} ${selectedModuleLabel}`}>
-              {selectedModuleActionTypes.map((option) => (
-                <label
-                  key={option.category}
-                  className={`vr-lg vr-subchip${selectedCategories.includes(option.category) ? " on" : ""}`}
-                >
-                  <input type="checkbox" name="category" value={option.category} defaultChecked={selectedCategories.includes(option.category)} />
-                  {option.label}
-                </label>
-              ))}
-            </div>
-          </div>
+          <SubcategoryFilter
+            ariaLabel={`${copy(pageContract, "filter.module")} ${selectedModuleLabel}`}
+            label={`${selectedModuleLabel} subcategories`}
+            options={selectedModuleActionTypes}
+            selectedCategories={selectedCategories}
+          />
         ) : null}
 
         <div className="vr-frow">

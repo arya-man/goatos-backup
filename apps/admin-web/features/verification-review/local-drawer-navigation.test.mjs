@@ -4,6 +4,7 @@ import test from "node:test";
 
 const pageSource = readFileSync(new URL("./verification-review-page.tsx", import.meta.url), "utf8");
 const drawerSource = readFileSync(new URL("./verification-review-drawer.tsx", import.meta.url), "utf8");
+const subcategorySource = readFileSync(new URL("./subcategory-filter.tsx", import.meta.url), "utf8");
 const shellSource = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
 const actionsRedirectSource = readFileSync(new URL("../../app/(admin)/actions/page.tsx", import.meta.url), "utf8");
 
@@ -46,8 +47,13 @@ test("Actions filters and video links are backend-contract driven", () => {
   assert.match(pageSource, /const selectedCategories = all\(sp, "category"\)/);
   assert.match(pageSource, /categories: selectedCategories\.length > 1 \? selectedCategories : undefined/);
   assert.match(pageSource, /<form action=\{PATHNAME\} className="vr-filter-form">/);
-  assert.match(pageSource, /<input type="checkbox" name="category" value=\{option\.category\} defaultChecked=\{selectedCategories\.includes\(option\.category\)\} \/>/);
-  assert.match(pageSource, /className=\{`vr-lg vr-subchip\$\{selectedCategories\.includes\(option\.category\) \? " on" : ""\}`\}/);
+  assert.match(pageSource, /<SubcategoryFilter/);
+  assert.match(subcategorySource, /"use client"/);
+  assert.match(subcategorySource, /useState\(\(\) => new Set\(selectedCategories\)\)/);
+  assert.match(subcategorySource, /type="button"/);
+  assert.match(subcategorySource, /aria-pressed=\{checked\}/);
+  assert.match(subcategorySource, /onClick=\{\(\) => toggle\(option\.category\)\}/);
+  assert.match(subcategorySource, /<input key=\{category\} type="hidden" name="category" value=\{category\} \/>/);
   // The mock has no verdict explainer card: the proof is the video player the verifier watches.
   // The player is only mounted after the verifier explicitly opens that one proof, then it uses the
   // click-resolved media URL and emits telemetry/block-forward-seek events.
