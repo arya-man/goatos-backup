@@ -58,6 +58,9 @@ func (s *Source) SourceType() string    { return SourceType }
 //	approved -> completed            (verdict landed, human or not_sampled closeout alike)
 //	rejected -> rejected             (sent back; the producer's rework path owns what follows)
 //	pending  -> verification_pending (proof submitted; verdict outstanding)
+//	withdrawn                        -> not on the board (the producer took the proof back,
+//	                                    e.g. a packing reopened by the afternoon correction;
+//	                                    nobody owes a verdict on it)
 //
 // Sampling is deliberately invisible here: an unsampled item is still pending until the
 // closeout approves it, and the board reports the status the row actually holds.
@@ -82,6 +85,7 @@ const baseWhere = `
   AND v.captured_at >= $2::timestamptz
   AND v.captured_at < $3::timestamptz
   AND v.park_id = $4::uuid
+  AND v.status <> 'withdrawn'
   AND ($5::uuid IS NULL OR v.operator_id = $5::uuid)`
 
 // projection-review: membership=verification_items rows of ONE tenant and park whose captured_at falls in the half-open IST business day [day start, next day start), one row per item (primary key); group_key=(tenant_id, item_id) for the list and the derived board_state for the count; join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans an item out; pagination=keyset on item_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, the captured_at day range and the optional operator predicate, repeated verbatim in countSQL.
@@ -215,12 +219,7 @@ func (s *Source) scanRow(rows pgx.Rows) (domain.Row, error) {
 	if ownerUserID == "" {
 		ownerState = domain.OwnerStateMissing
 	}
-	title := s.categoryLabel(category)
-	if subject := strings.TrimSpace(subjectLabel); subject != "" {
-		title += " · " + subject
-	} else if pen.Display != "" {
-		title += " · " + pen.Display
-	}
+	title := rowTitle(s.categoryLabel(category), subjectLabel, pen.Display)
 	captured := capturedAt
 	return domain.Row{
 		Module: domain.ModuleVerification, SourceType: SourceType, SourceID: itemID,
@@ -286,4 +285,26 @@ func statesArg(states []domain.WorkState) []string {
 		out = append(out, string(s))
 	}
 	return out
+}
+
+// rowTitle is "<category> · <subject> · <pen>" with two repairs the raw labels need on a
+// card. A subject label often restates its own category ("Hoof Trimming · Sumathi 2" under
+// "Preventive Care Hoof Trimming"), so a leading segment the category label already ends
+// with is dropped. And a subject that names no pen ("Session 1" for a feed distribution)
+// gets the item's pen appended, so two pens' cards are never word-for-word the same.
+func rowTitle(category, subjectLabel, penDisplay string) string {
+	title := category
+	subject := strings.TrimSpace(subjectLabel)
+	if subject != "" {
+		parts := strings.Split(subject, " · ")
+		if len(parts) > 1 && strings.HasSuffix(strings.ToLower(category), strings.ToLower(strings.TrimSpace(parts[0]))) {
+			parts = parts[1:]
+		}
+		subject = strings.Join(parts, " · ")
+		title += " · " + subject
+	}
+	if penDisplay != "" && !strings.Contains(strings.ToLower(title), strings.ToLower(penDisplay)) {
+		title += " · " + penDisplay
+	}
+	return title
 }
