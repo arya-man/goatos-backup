@@ -69,6 +69,9 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now()) ON CO
 		{"00000000-0000-4000-8000-000000009105", "delayed", "pending", "per_shed_partition", "Part 5", "2026-09-06", bsOtherOp}, // 4 days: past the band
 		{"00000000-0000-4000-8000-000000009106", "delayed", "pending", "per_shed_partition", "Part 6", "2026-09-09", bsOtherOp}, // 1 day: inside the band
 		{"00000000-0000-4000-8000-000000009107", "canceled", "canceled", "per_shed_partition", "Part 8", bsDate, bsOtherOp},
+		// Closed AFTER submit: CLOSE writes only the bucket, so the item still says 'completed'.
+		// The board must read the bucket and call it Done, never leave it "In review" forever.
+		{"00000000-0000-4000-8000-000000009108", "completed", "closed", "per_shed_partition", "Part 9", bsDate, bsOtherOp},
 	}
 	ids := map[string]string{}
 	for i, b := range buckets {
@@ -136,8 +139,8 @@ func TestWeighingBoardEveryStatusAndOneToManyScansOnADatabaseRoundTrip(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 6 {
-		t.Fatalf("6 live buckets expected (the canceled one is not work), got %d", len(rows))
+	if len(rows) != 7 {
+		t.Fatalf("7 live buckets expected (the canceled one is not work), got %d", len(rows))
 	}
 	got := byBucket(rows)
 	want := map[string]struct {
@@ -151,6 +154,7 @@ func TestWeighingBoardEveryStatusAndOneToManyScansOnADatabaseRoundTrip(t *testin
 		ids["00000000-0000-4000-8000-000000009104"]: {domain.WorkStateCompleted, domain.LaneDone, domain.SeverityOK},
 		ids["00000000-0000-4000-8000-000000009105"]: {domain.WorkStateOverdue, domain.LaneToDo, domain.SeverityAtRisk},
 		ids["00000000-0000-4000-8000-000000009106"]: {domain.WorkStateDue, domain.LaneToDo, domain.SeverityWatch},
+		ids["00000000-0000-4000-8000-000000009108"]: {domain.WorkStateCompleted, domain.LaneDone, domain.SeverityOK},
 	}
 	for id, w := range want {
 		r, ok := got[id]
@@ -252,8 +256,8 @@ func TestWeighingBoardParkScopePageBoundaryAndDateShift(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 6 {
-		t.Fatalf("keyset walk saw %d rows, want 6", len(seen))
+	if len(seen) != 7 {
+		t.Fatalf("keyset walk saw %d rows, want 7", len(seen))
 	}
 
 	counts, err := src.CountByState(ctx, query(""))
@@ -264,7 +268,7 @@ func TestWeighingBoardParkScopePageBoundaryAndDateShift(t *testing.T) {
 	for _, n := range counts {
 		total += n
 	}
-	if total != 6 || counts[domain.WorkStateDue] != 2 || counts[domain.WorkStateOverdue] != 1 || counts[domain.WorkStateCompleted] != 1 {
+	if total != 7 || counts[domain.WorkStateDue] != 2 || counts[domain.WorkStateOverdue] != 1 || counts[domain.WorkStateCompleted] != 2 {
 		t.Fatalf("counts %+v", counts)
 	}
 	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsOtherPk, BusinessDate: bsDate})
