@@ -9,7 +9,7 @@ import (
 var alertKeyRe = regexp.MustCompile(`^[a-z_]+\.[a-z_]+$`)
 
 // knownDesignations is the designation_catalog vocabulary the defaults may name (migrations
-// 000219, 000247 and 000287). A default naming a code outside it would resolve to nobody, silently.
+// 000219, 000247 and 000288). A default naming a code outside it would resolve to nobody, silently.
 var knownDesignations = map[string]struct{}{
 	DesignationCEO: {}, DesignationPCDirector: {}, DesignationGrowthDirector: {}, DesignationFeedDirector: {},
 	DesignationHealthDirector: {}, DesignationProcurementDirector: {}, DesignationBreedingDirector: {},

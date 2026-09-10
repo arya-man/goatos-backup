@@ -124,7 +124,7 @@ const (
 	// the roster derives. Its first authority is deciding the HR line of a leave request
 	// (LeaveApprove) beside the requester's park head; more approval kinds will be added to
 	// this role later. It carries NO park-scoped authority and no module of its own beyond the
-	// approvals surface. Catalog row: migration 000287.
+	// approvals surface. Catalog row: migration 000288.
 	RoleHR = "hr"
 
 	GoatRead          = "goat.read"
