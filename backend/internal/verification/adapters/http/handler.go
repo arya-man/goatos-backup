@@ -352,25 +352,46 @@ func (h *Handler) listQueue(
 	actionQueue bool,
 ) {
 	q := r.URL.Query()
-	category := strings.TrimSpace(q.Get("category"))
+	requestedCategories := trimmedQueryValues(q["category"])
+	category := ""
+	if len(requestedCategories) == 1 {
+		category = requestedCategories[0]
+	}
 	var categories []string
 	if permission == permissions.VerificationReview {
-		authorizedCategories, ok := h.resolveVerifierCategories(w, r, category)
-		if !ok {
-			return
-		}
-		// Clear the single category ONLY when authorization actually replaced it with a
-		// multi-category set. resolveVerifierCategories returns a NIL slice for CEO/CxO to mean
-		// "no AUTHORIZATION narrowing is needed" -- it does not mean "ignore what the caller
-		// asked for". Clearing unconditionally destroyed the caller's own filter in that case, so
-		// leadership opening /verify?category=vaccination_proof from the Vaccination nav leaf got
-		// every module's queue: the sidebar selection silently did nothing and the status pill
-		// counted the whole tenant (52) instead of the module (19). A real verifier was never
-		// affected -- the resolver hands her back []string{category} -- which is why this only
-		// ever reproduced for leadership.
-		if len(authorizedCategories) > 0 {
+		if len(requestedCategories) > 1 {
+			authorizedCategories := make([]string, 0, len(requestedCategories))
+			for _, requestedCategory := range requestedCategories {
+				resolved, ok := h.resolveVerifierCategories(w, r, requestedCategory)
+				if !ok {
+					return
+				}
+				if len(resolved) == 0 {
+					authorizedCategories = requestedCategories
+					break
+				}
+				authorizedCategories = append(authorizedCategories, resolved...)
+			}
 			category = ""
-			categories = authorizedCategories
+			categories = uniqueStrings(authorizedCategories)
+		} else {
+			authorizedCategories, ok := h.resolveVerifierCategories(w, r, category)
+			if !ok {
+				return
+			}
+			// Clear the single category ONLY when authorization actually replaced it with a
+			// multi-category set. resolveVerifierCategories returns a NIL slice for CEO/CxO to mean
+			// "no AUTHORIZATION narrowing is needed" -- it does not mean "ignore what the caller
+			// asked for". Clearing unconditionally destroyed the caller's own filter in that case, so
+			// leadership opening /verify?category=vaccination_proof from the Vaccination nav leaf got
+			// every module's queue: the sidebar selection silently did nothing and the status pill
+			// counted the whole tenant (52) instead of the module (19). A real verifier was never
+			// affected -- the resolver hands her back []string{category} -- which is why this only
+			// ever reproduced for leadership.
+			if len(authorizedCategories) > 0 {
+				category = ""
+				categories = authorizedCategories
+			}
 		}
 	}
 	limit, ok := parsePositiveLimit(q.Get("limit"))
@@ -1066,6 +1087,30 @@ func parsePositiveLimit(raw string) (int, bool) {
 		return 0, false
 	}
 	return limit, true
+}
+
+func trimmedQueryValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func requireIdempotencyKey(w nethttp.ResponseWriter, r *nethttp.Request) (string, bool) {

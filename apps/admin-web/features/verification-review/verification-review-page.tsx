@@ -8,7 +8,7 @@ import { controlEnabled, copy, table, tableLabels, type AdminUiPageContract } fr
 import { firstAuthRequiredError, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDateTime, humanizeDurationMs, todayIso } from "@/lib/format";
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import { all, one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope } from "@/lib/scope";
 import { ActionsDateFilter } from "./actions-date-filter";
 // Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
@@ -59,7 +59,8 @@ export async function VerificationReviewPage({
   const sp = searchParams ?? {};
   // "all" = every status together; anything else is a single-status tab.
   const status = verificationStatus(one(sp, "status"));
-  const category = one(sp, "category")?.trim();
+  const selectedCategories = all(sp, "category").map((value) => value.trim()).filter(Boolean);
+  const category = selectedCategories.length === 1 ? selectedCategories[0] : undefined;
   // The module filter (maintainer request 2026-08-11): the same Vaccination / Weighing / Feed /
   // Counts / Milk grouping the phone's verifier drawer uses. It is a MODULE, not an action type --
   // Feed alone covers distribution, packing and transport -- so it is sent as `nav_module` and the
@@ -98,6 +99,7 @@ export async function VerificationReviewPage({
   const queue = await listVerificationQueue({
     status,
     category,
+    categories: selectedCategories.length > 1 ? selectedCategories : undefined,
     navModule,
     // One day collapses to the backend's single `business_date`; a span uses the range pair. Both
     // are the same inclusive Asia/Kolkata capture-date scope, and sending both at once is a 400
@@ -458,40 +460,41 @@ export async function VerificationReviewPage({
                 {option.label}
               </Link>
             ))}
+            {toxinTabEnabled ? (
+              <Link
+                href={hrefWith(sp, { toxin: "1", nav_module: null, category: null, ...RESET_ON_FILTER })}
+                replace
+                scroll={false}
+                className="vr-lg"
+              >
+                {toxinTabLabel(pageContract)}
+              </Link>
+            ) : null}
           </div>
         ) : null}
 
         {moduleFilterOffered && oversightFiltersEnabled && selectedModuleActionTypes.length > 1 ? (
-          <div className="vr-legend vr-sublegend" role="group" aria-label={`${copy(pageContract, "filter.module")} ${selectedModuleLabel}`}>
-            {selectedModuleActionTypes.map((option) => (
-              <Link
-                key={option.category}
-                href={hrefWith(sp, { category: option.category, nav_module: selectedModuleKey, ...RESET_ON_FILTER })}
-                replace
-                scroll={false}
-                className={`vr-lg${category === option.category ? " on" : ""}`}
-              >
-                {option.label}
-              </Link>
-            ))}
-          </div>
-        ) : null}
-
-        {/* The TOXIN chip — offered ONLY when the backend contract enables toxin_tab (CEO/CXO,
-            permissions.ToxinVerdict). A ?toxin=1 toggle: selecting it swaps this whole board for
-            the toxin review screen above. Styled as a .vr-lg chip so it sits in the same chip
-            vocabulary as the module row, in its own row because it is a different surface, not a
-            module of this queue. */}
-        {toxinTabEnabled ? (
-          <div className="vr-legend" role="group" aria-label={toxinTabLabel(pageContract)}>
-            <Link
-              href={hrefWith(sp, { toxin: "1", ...RESET_ON_FILTER })}
-              replace
-              scroll={false}
-              className="vr-lg"
-            >
-              {toxinTabLabel(pageContract)}
-            </Link>
+          <div className="vr-subfilter">
+            <div className="vr-subfilter-head">
+              <span>{selectedModuleLabel} subcategories</span>
+            </div>
+            <div className="vr-legend vr-sublegend" role="group" aria-label={`${copy(pageContract, "filter.module")} ${selectedModuleLabel}`}>
+              {selectedModuleActionTypes.map((option) => (
+                <Link
+                  key={option.category}
+                  href={hrefWith(sp, {
+                    category: toggleCategory(selectedCategories, option.category),
+                    nav_module: selectedModuleKey,
+                    ...RESET_ON_FILTER,
+                  })}
+                  replace
+                  scroll={false}
+                  className={`vr-lg vr-subchip${selectedCategories.includes(option.category) ? " on" : ""}`}
+                >
+                  {option.label}
+                </Link>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -996,7 +999,14 @@ function childActionTypeLabel(label: string, moduleLabel: string): string {
   return cleanLabel;
 }
 
-function hrefWith(params: RouteSearchParams, updates: Record<string, string | null | undefined>): string {
+function toggleCategory(selected: string[], category: string): string[] | null {
+  const next = selected.includes(category)
+    ? selected.filter((value) => value !== category)
+    : [...selected, category];
+  return next.length ? next : null;
+}
+
+function hrefWith(params: RouteSearchParams, updates: Record<string, string | string[] | null | undefined>): string {
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (Array.isArray(value)) {
@@ -1007,6 +1017,10 @@ function hrefWith(params: RouteSearchParams, updates: Record<string, string | nu
   }
   for (const [key, value] of Object.entries(updates)) {
     if (value === null || value === undefined || value === "") next.delete(key);
+    else if (Array.isArray(value)) {
+      next.delete(key);
+      for (const item of value) if (item) next.append(key, item);
+    }
     else next.set(key, value);
   }
   const qs = next.toString();

@@ -4026,6 +4026,7 @@ export async function assignSopTask(
 export async function listVerificationQueue(
   params: {
     category?: string;
+    categories?: string[];
     vertical?: string;
     module?: string;
     // navModule is the verifier-drawer MODULE key (filter_options.modules): it filters to every
@@ -4055,7 +4056,7 @@ export async function listVerificationQueue(
     client.request<VerificationQueueResponse>("/verification/queue", {
       cache: "no-store",
       query: compactQuery({
-        category: params.category,
+        category: params.categories?.length ? params.categories : params.category,
         vertical: params.vertical,
         module: params.module,
         nav_module: params.navModule,

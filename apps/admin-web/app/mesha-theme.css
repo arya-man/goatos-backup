@@ -717,8 +717,12 @@
   .vr-sortlink:hover{color:var(--ink)}
   .vr-table td{font-size:11.5px;padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   .vr-table tr:last-child td{border-bottom:0}
-  .vr-sublegend{margin-top:-4px}
-  .vr-sublegend .vr-lg{min-height:32px;padding:7px 13px;font-size:11px}
+  .vr-subfilter{display:grid;gap:8px;width:max-content;max-width:100%;margin:10px 0 8px;padding:9px 10px 10px;border-left:2px solid color-mix(in srgb,var(--brand) 54%,var(--line));border-top:1px solid var(--line);background:color-mix(in srgb,var(--panel-2) 46%,transparent)}
+  .vr-subfilter-head{display:flex;align-items:center;gap:10px;color:color-mix(in srgb,var(--muted) 86%,var(--ink));font-size:10px;font-weight:800;text-transform:uppercase}
+  .vr-subfilter-head:after{content:"";height:1px;min-width:42px;flex:1;background:var(--line)}
+  .vr-sublegend{margin-top:0;gap:6px}
+  .vr-sublegend .vr-lg.vr-subchip{min-height:28px;padding:6px 10px;border-radius:6px;background:transparent;border-color:color-mix(in srgb,var(--line) 82%,transparent);font-size:10.5px;font-weight:700;color:color-mix(in srgb,var(--muted) 88%,var(--ink))}
+  .vr-sublegend .vr-lg.vr-subchip.on{background:color-mix(in srgb,var(--brand-soft) 46%,transparent);border-color:color-mix(in srgb,var(--brand) 68%,var(--line));color:var(--brand)}
   /* "In queue" column age tone: amber past 4h, red past 7d (see IN_QUEUE_AMBER_MS/IN_QUEUE_RED_MS
      in verification-review-page.tsx). Applied only to a still-pending row's age span. */
   .vr-age-amber{color:var(--amber);font-weight:650}
