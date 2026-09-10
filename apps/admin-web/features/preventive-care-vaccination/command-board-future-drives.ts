@@ -60,7 +60,6 @@ export interface ScheduledDriveCampaign {
   treatments: ScheduledDriveRow[];
 }
 
-const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function dateKey(value?: string | null): string {
   const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -72,20 +71,20 @@ function datePart(key: string): { year: number; month: number; day: number } | n
   return year && month && day ? { year, month, day } : null;
 }
 
+// A span renders both ends as full DD/MM/YYYY (maintainer decision 2026-09-10). The old
+// month/year elision produced four different shapes for one span depending on whether the ends
+// shared a month or a year, which is exactly the "learn a second date format" problem.
 export function formatDateSpan(min?: string | null, max?: string | null): string {
   const firstKey = dateKey(min);
   const lastKey = dateKey(max) || firstKey;
   const first = datePart(firstKey);
   const last = datePart(lastKey);
-  if (!first) return last ? `${last.day} ${MONTH_NAMES[last.month - 1]} ${last.year}` : "";
-  if (!last || firstKey === lastKey) return `${first.day} ${MONTH_NAMES[first.month - 1]} ${first.year}`;
-  if (first.year === last.year && first.month === last.month) {
-    return `${first.day}–${last.day} ${MONTH_NAMES[first.month - 1]} ${first.year}`;
-  }
-  if (first.year === last.year) {
-    return `${first.day} ${MONTH_NAMES[first.month - 1]}–${last.day} ${MONTH_NAMES[last.month - 1]} ${first.year}`;
-  }
-  return `${first.day} ${MONTH_NAMES[first.month - 1]} ${first.year}–${last.day} ${MONTH_NAMES[last.month - 1]} ${last.year}`;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const asDate = (part: { year: number; month: number; day: number }) =>
+    `${pad(part.day)}/${pad(part.month)}/${part.year}`;
+  if (!first) return last ? asDate(last) : "";
+  if (!last || firstKey === lastKey) return asDate(first);
+  return `${asDate(first)} – ${asDate(last)}`;
 }
 
 export function formatScheduledDriveDates(keys: string[]): string {
@@ -97,10 +96,16 @@ export function formatScheduledDriveDates(keys: string[]): string {
   const sameMonthRun = parts.length > 1
     && parts.every((part) => part.year === parts[0].year && part.month === parts[0].month)
     && parts.every((part, index) => index === 0 || part.day === parts[index - 1].day + 1);
+  // Every visible date is DD/MM/YYYY (maintainer decision 2026-09-10). A consecutive run still
+  // collapses to a range -- that is about how many dates are listed, not their shape -- but both
+  // ends now render in full instead of eliding the shared month.
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const asDate = (part: { year: number; month: number; day: number }) =>
+    `${pad(part.day)}/${pad(part.month)}/${part.year}`;
   if (sameMonthRun) {
-    return `${parts[0].day}–${parts[parts.length - 1].day} ${MONTH_NAMES[parts[0].month - 1]} ${parts[0].year}`;
+    return `${asDate(parts[0])} – ${asDate(parts[parts.length - 1])}`;
   }
-  return parts.map((part) => `${part.day} ${MONTH_NAMES[part.month - 1]} ${part.year}`).join(", ");
+  return parts.map(asDate).join(", ");
 }
 
 export function scheduledDriveRows(options: CommandBoardDriveOption[]): ScheduledDriveRow[] {

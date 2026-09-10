@@ -4,6 +4,7 @@ import { AlertTriangle, Baby, Beaker, Milk, Warehouse } from "lucide-react";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { fmtDate } from "@/lib/format";
 import {
   firstAuthRequiredError,
   getMilkPreparation,
@@ -137,8 +138,8 @@ export async function MilkPreparationPage({
         {page ? (
           <div className="note" style={{ marginBottom: 16, fontWeight: 600 }}>
             {copy(pageContract, "label.prepared_for")
-              .replace("{preparation_date}", page.preparation_date)
-              .replace("{feeding_date}", page.feeding_date)}
+              .replace("{preparation_date}", fmtDate(page.preparation_date))
+              .replace("{feeding_date}", fmtDate(page.feeding_date))}
           </div>
         ) : null}
 

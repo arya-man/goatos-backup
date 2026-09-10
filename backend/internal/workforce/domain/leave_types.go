@@ -53,7 +53,9 @@ type LeaveRequest struct {
 	StartsOn          string  `json:"starts_on"`
 	EndsOn            string  `json:"ends_on"`
 	DayCount          int     `json:"day_count"`
-	// DatesLabel is the farm-readable window: "12–14 Sep 2026 · 3 days".
+	// DatesLabel is the farm-readable window: "12/09/2026 – 14/09/2026 · 3 days". Both ends
+	// render in full rather than eliding the shared month or year, because every visible date
+	// is DD/MM/YYYY (maintainer decision 2026-09-10).
 	DatesLabel string `json:"dates_label"`
 	Reason     string `json:"reason"`
 	// Status: pending | approved | rejected | withdrawn.

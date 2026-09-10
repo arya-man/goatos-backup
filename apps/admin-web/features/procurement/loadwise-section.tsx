@@ -32,10 +32,11 @@ function priorTitle(pageContract: AdminUiPageContract, key: string, prior: Loadw
 // computed from /procurement/loadwise-sales.
 
 /** "12 Aug" — the chart axis is too narrow for the year, which the tooltip still carries. */
+// There is no SHORT date any more: a chart axis renders the same DD/MM/YYYY as a table cell
+// (maintainer decision 2026-09-10). This used to drop the year, which is what put "23 Jun" on
+// the loads page beside dates that carried one.
 function shortDate(date: string): string {
-  const human = humanDate(date);
-  const parts = human.split(" ");
-  return parts.length === 3 ? `${parts[0]} ${parts[1]}` : human;
+  return humanDate(date);
 }
 
 /**

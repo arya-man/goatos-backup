@@ -11,7 +11,7 @@ import {
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ClockEntryDetail, ClockEventDetail } from "@/lib/api/server";
-import { fmtDateTime } from "@/lib/format";
+import { fmtDate, fmtDateTime } from "@/lib/format";
 import { loadClockEntryDetailAction } from "./clock-actions";
 
 /** Reads the selected clocking from the address bar. "" means closed. */
@@ -180,7 +180,7 @@ export function ClockEntryDrawer({
             <h2>{title}</h2>
             {entry ? (
               <div className="muted small" style={{ marginTop: 3 }}>
-                {entry.business_date}
+                {fmtDate(entry.business_date)}
                 {entry.designation ? ` · ${entry.designation}` : ""}
                 {entry.park_label ? ` · ${entry.park_label}` : ""}
               </div>

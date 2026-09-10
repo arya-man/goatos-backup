@@ -1,3 +1,4 @@
+import { fmtDate } from "../../lib/format.ts";
 // Pure presentation helpers for the sales board. No copy lives here — every visible LABEL comes
 // from the backend page contract; these only format backend NUMBERS and build ?farm= links.
 
@@ -120,20 +121,23 @@ function trimZero(value: number): string {
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** Axis label for a backend "YYYY-MM" month key: "2025-04" -> "Apr 25". */
+/**
+ * Axis label for a backend "YYYY-MM" month key: "2025-04" -> "Apr 2025".
+ *
+ * A month heading has no day component, so it is NOT a date and keeps its own form
+ * (maintainer decision 2026-09-10). The year is spelled in full because the old two-digit
+ * "Apr 25" reads as April 25th on a page where every real date is numeric.
+ */
 export function monthLabel(month: string): string {
   const [y, m] = month.split("-");
   const index = Number(m) - 1;
   if (!y || index < 0 || index > 11 || Number.isNaN(index)) return month;
-  return `${MONTH_SHORT[index]} ${y.slice(2)}`;
+  return `${MONTH_SHORT[index]} ${y}`;
 }
 
-/** Readable date for a backend "YYYY-MM-DD" value: "2025-04-15" -> "15 Apr 2025". */
+/** Readable date for a backend "YYYY-MM-DD" value: "2025-04-15" -> "15/04/2025". */
 export function humanDate(date: string): string {
-  const [y, m, d] = date.split("-");
-  const index = Number(m) - 1;
-  if (!y || !d || index < 0 || index > 11 || Number.isNaN(index)) return date;
-  return `${Number(d)} ${MONTH_SHORT[index]} ${y}`;
+  return fmtDate(date);
 }
 
 type MonthlyLike = {

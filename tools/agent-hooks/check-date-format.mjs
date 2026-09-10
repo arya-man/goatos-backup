@@ -80,12 +80,16 @@ function ignored(lines, lineNo) {
 
 const DATE_FIELD = String.raw`[A-Za-z_$][\w$]*(?:\.[\w$]+)*\.(?:[\w$]*_date|[\w$]*_day|[\w$]*_at|feed_day)`;
 
+// NOTE the `\s*` after every `>`: JSX is usually formatted with the interpolation on its OWN
+// LINE (`<td className="num">\n  {row.last_weighed_date ?? ...}`), so a pattern demanding `>{`
+// adjacency silently misses the common case. That gap shipped a raw ISO date into the Weights
+// table's date column and was found by rendering the page, not by reading it.
 const BARE_DATE_PATTERNS = [
-  new RegExp(String.raw`>\{\s*(${DATE_FIELD})\s*\}\s*<`, "g"),
-  new RegExp(String.raw`>\{\s*(${DATE_FIELD})\s*\?\?`, "g"),
-  new RegExp(String.raw`>\{\s*` + "`" + String.raw`[^` + "`" + String.raw`]*\$\{\s*${DATE_FIELD}\s*\}[^` + "`" + String.raw`]*` + "`" + String.raw`\s*\}<`, "g"),
+  new RegExp(String.raw`>\s*\{\s*(${DATE_FIELD})\s*\}\s*<`, "g"),
+  new RegExp(String.raw`>\s*\{\s*(${DATE_FIELD})\s*\?\?`, "g"),
+  new RegExp(String.raw`>\s*\{\s*` + "`" + String.raw`[^` + "`" + String.raw`]*\$\{\s*${DATE_FIELD}\s*\}[^` + "`" + String.raw`]*` + "`" + String.raw`\s*\}<`, "g"),
   new RegExp(String.raw`>[^<{}]*\{\s*(${DATE_FIELD})\s*\}[^<{}]*<`, "g"),
-  new RegExp(String.raw`>\{\s*(${DATE_FIELD})\s*\}\s*[^<{}]+`, "g"),
+  new RegExp(String.raw`>\s*\{\s*(${DATE_FIELD})\s*\}\s*[^<{}]+`, "g"),
 ];
 
 export function scanSource(source) {
@@ -208,6 +212,63 @@ export function goDisplayFailures(source) {
   return failures;
 }
 
+// A date VALUE written into a copy string -- "starts on 03 Aug 2026", "from 11-08-2026",
+// "e.g. ... on 12 Jun". These are not time LAYOUTS, so the .Format() scan above cannot see
+// them; they were found by fetching a real /admin-web/bootstrap and scanning the payload.
+//
+// The discriminator is the YEAR. Every Go time layout is built from the reference instant
+// (2006-01-02 15:04:05 MST), so a literal carrying any other number beside a month name --
+// or a dd-mm-yyyy whose year is not 2006 -- is DATA a person reads, not a format.
+const MONTH = String.raw`(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)`;
+const LAYOUT_NUMBERS = new Set(["1", "2", "3", "4", "5", "6", "15", "01", "02", "03", "04", "05", "06", "07", "00", "0700", "2006", "-0700"]);
+
+// Go layouts write the DAY as "2" or "02" and nothing else, so any other 1-2 digit number
+// beside a month name is a real day. A 4-digit number beside a month is a YEAR, which makes
+// the string a MONTH HEADING ("Aug 2026") -- allowed, because it has no day component.
+const LAYOUT_DAYS = new Set(["2", "02"]);
+
+// Comments are blanked first: a doc comment quoting an example ("10 Sep") is documentation,
+// not copy the operator sees, and flagging it buries the real findings in noise.
+function stripGoComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + " ".repeat(m.length - p1.length));
+}
+
+export function goCopyDateFailures(rawSource) {
+  const failures = [];
+  const source = stripGoComments(rawSource);
+  // Literals are scanned on the STRIPPED source, but ignore markers are read from the RAW
+  // lines -- stripping blanks the very comment the marker lives in. Line numbers match
+  // because stripGoComments replaces comment characters with spaces, never with nothing.
+  const lines = rawSource.split("\n");
+  const literal = /"((?:[^"\\\n]|\\.)*)"/g;
+  let match;
+  while ((match = literal.exec(source)) !== null) {
+    const text = match[1];
+    const lineNo = source.slice(0, match.index).split("\n").length;
+    if (ignored(lines, lineNo)) continue;
+
+    // a dashed day-month-year date that is not the Go reference year
+    const dashed = new RegExp(String.raw`\b\d{2}-\d{2}-(\d{4})\b`).exec(text);
+    if (dashed && dashed[1] !== "2006") {
+      failures.push({ line: lineNo, text: dashed[0] });
+      continue;
+    }
+    // A month name beside a number that no Go layout uses. The two patterns are collected
+    // INDEPENDENTLY: scanning them as one alternation consumes the month while testing the
+    // leading day, so the trailing YEAR of "03 Aug 2026" is never examined -- and the year is
+    // exactly what separates a real date from the 2006 reference layout.
+    const before = [...text.matchAll(new RegExp(String.raw`\b(\d{1,4})\s+${MONTH}\b`, "g"))].map((m) => m[1]);
+    const after = [...text.matchAll(new RegExp(String.raw`\b${MONTH}\s+(\d{1,4})\b`, "g"))].map((m) => m[1]);
+    const dayLike = [...before, ...after].filter((num) => num.length <= 2);
+    if (dayLike.some((num) => !LAYOUT_DAYS.has(num))) {
+      failures.push({ line: lineNo, text: text.slice(0, 80) });
+    }
+  }
+  return failures;
+}
+
 export function goCanaryFailures(biztimeSource) {
   if (!/const FarmDateFormat = "02\/01\/2006"/.test(biztimeSource)) {
     return ["backend/internal/platform/biztime FarmDateFormat is no longer \"02/01/2006\""];
@@ -241,6 +302,11 @@ function selfTest() {
     "<span>{coverage.start_date && coverage.end_date ? `${fmtDate(coverage.start_date)} to ${fmtDate(coverage.end_date)}` : '—'}</span>",
   ].join("\n");
   assert(scanSource(badJsx).length === 5, "bare date text nodes not flagged");
+  // the real-world formatting that slipped past the original pattern: interpolation on its own line
+  assert(scanSource('<td className="num">\n  {row.last_weighed_date ?? (<span>never</span>)}\n</td>').length === 1,
+    "newline-separated bare date not flagged (the Weights table defect)");
+  assert(scanSource('<td className="num">\n  {fmtDate(row.last_weighed_date)}\n</td>').length === 0,
+    "newline-separated WRAPPED date wrongly flagged");
   assert(scanSource(goodJsx).length === 0, "wrapped/attribute dates wrongly flagged");
 
   // 2. web canary — ISO and the RETIRED DASH form must both fail
@@ -295,6 +361,26 @@ function selfTest() {
   assert(goDisplayFailures('t.Format("Jan 2006")').length === 0, "Go month heading wrongly flagged");
   assert(goDisplayFailures('t.Format("02/01/2006")').length === 0, "Go FarmDate layout wrongly flagged");
   assert(goDisplayFailures(`t.Format("Jan 2") // ${IGNORE} legacy export header`).length === 0, "Go ignore marker not honoured");
+  // 5b. a date VALUE in copy — the class the live-payload E2E found
+  assert(goCopyDateFailures('x := "the default period starts on 03 Aug 2026, where"').length === 1, "copy date \"03 Aug 2026\" not flagged");
+  assert(goCopyDateFailures('x := "\u20b9 per day \u00b7 from 11-08-2026"').length === 1, "copy date \"11-08-2026\" not flagged");
+  assert(goCopyDateFailures('x := "e.g. ultrasound-confirmed pregnant on 12 Jun"').length === 1, "copy date \"12 Jun\" not flagged");
+  assert(goCopyDateFailures('x := "starts on 03/08/2026"').length === 0, "compliant copy date wrongly flagged");
+  // Go time LAYOUTS must stay clean — they are built from the 2006-01-02 reference instant
+  assert(goCopyDateFailures('t.Format("02/01/2006")').length === 0, "FarmDate layout wrongly flagged as copy");
+  assert(goCopyDateFailures('t.Format("2006-01-02")').length === 0, "ISO layout wrongly flagged as copy");
+  assert(goCopyDateFailures('t.Format("2 Jan 2006")').length === 0, "a time layout wrongly flagged as copy (the .Format scan owns it)");
+  assert(goCopyDateFailures('t.Format("Jan 2006")').length === 0, "month-heading layout wrongly flagged as copy");
+  assert(goCopyDateFailures(`x := "from 11-08-2026" // ${IGNORE} historical incident date`).length === 0, "copy ignore marker not honoured");
+  // a MONTH HEADING has no day component and is explicitly allowed by the rule
+  assert(goCopyDateFailures('x := "Aug 2026"').length === 0, "month heading wrongly flagged");
+  assert(goCopyDateFailures('m.Label = t.Format("Jan 2006")').length === 0, "month-heading layout wrongly flagged");
+  // a doc comment quoting an example is documentation, not copy
+  assert(goCopyDateFailures('// DateLabel is the short form ("10 Sep"), not copy\nvar x = 1').length === 0, "doc comment wrongly flagged as copy");
+  assert(goCopyDateFailures('/* block: e.g. "12 Jun" */\nvar x = 1').length === 0, "block comment wrongly flagged as copy");
+  // ...but a real copy literal on a line with a trailing comment still fails
+  assert(goCopyDateFailures('x := "starts on 03 Aug 2026" // caption').length === 1, "copy date beside a comment not flagged");
+
   assert(goCanaryFailures('const FarmDateFormat = "02/01/2006"').length === 0, "good FarmDateFormat flagged");
   assert(goCanaryFailures('const FarmDateFormat = "02-01-2006"').length === 1, "dashed FarmDateFormat not caught");
 
@@ -346,8 +432,12 @@ function main() {
   failures.push(...goCanaryFailures(readFileSync(resolve(repo, "backend/internal/platform/biztime/biztime.go"), "utf8")));
   for (const file of tracked("backend")) {
     if (!file.endsWith(".go") || file.endsWith("_test.go")) continue;
-    for (const hit of goDisplayFailures(readFileSync(resolve(repo, file), "utf8"))) {
+    const goSource = readFileSync(resolve(repo, file), "utf8");
+    for (const hit of goDisplayFailures(goSource)) {
       failures.push(`${file}:${hit.line}: display layout ${hit.layout} — use biztime.FarmDate/FarmDateFromBusinessDate (or mark ${IGNORE} <reason>)`);
+    }
+    for (const hit of goCopyDateFailures(goSource)) {
+      failures.push(`${file}:${hit.line}: a date written into copy is not DD/MM/YYYY: "${hit.text}"`);
     }
   }
 

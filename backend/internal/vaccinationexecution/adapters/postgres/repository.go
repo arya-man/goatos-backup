@@ -4664,10 +4664,13 @@ func commandBoardDriveName(doseCodes []string) string {
 // commandBoardDriveLabel identifies one executable operator day. Two whole-shed batches can
 // share the same medical window, so a window-only selector made separate days look duplicated.
 func commandBoardDriveLabel(name string, plannedDate pgtype.Date, windowStart pgtype.Timestamptz, status string, targetCount int) string {
+	// A VISIBLE label, so the date is farm-readable DD/MM/YYYY (maintainer decision 2026-09-10).
+	// time.DateOnly / biztime.BusinessDate are the ISO WIRE forms and belong on the structured
+	// fields beside this, never in the name an operator reads.
 	if plannedDate.Valid {
-		name = fmt.Sprintf("%s — %s", name, plannedDate.Time.Format(time.DateOnly))
+		name = fmt.Sprintf("%s — %s", name, biztime.FarmDate(plannedDate.Time))
 	} else if windowStart.Valid {
-		name = fmt.Sprintf("%s — %s", name, biztime.BusinessDate(windowStart.Time))
+		name = fmt.Sprintf("%s — %s", name, biztime.FarmDate(windowStart.Time))
 	}
 	if targetCount > 0 {
 		name = fmt.Sprintf("%s · %d animals", name, targetCount)
