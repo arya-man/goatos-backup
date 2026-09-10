@@ -103,7 +103,8 @@ const baseWhere = `
         SELECT 1 FROM pc_care_task_assignees ao
         WHERE ao.tenant_id = t.tenant_id AND ao.task_id = t.task_id AND ao.operator_user_id = $4::uuid))`
 
-// listSQL: the first assignee by workforce_member_id order is the row's Owner; the assignee
+// listSQL: the first assignee is the row's Owner -- the owner-scoped caller when there is one,
+// else by workforce_member_id order; the assignee
 // count lets the scanner append " +N". Assignees join workforce_members on user_id (the
 // assignee table stores user ids); an assignee with no active profile still counts and still
 // owns, but sorts last and renders a blank name.
@@ -137,7 +138,11 @@ LEFT JOIN LATERAL (
   LEFT JOIN workforce_members m
     ON m.tenant_id = a.tenant_id AND m.user_id = a.operator_user_id AND m.status = 'active'
   WHERE a.tenant_id = $1::uuid AND a.task_id = i.task_id
-  ORDER BY m.workforce_member_id ASC NULLS LAST, a.operator_user_id ASC
+  -- The scoped caller comes first: on their own board a two-assignee task names THEM,
+  -- not their partner. With no owner scope the expression is NULL and the stable
+  -- profile order below decides.
+  ORDER BY (a.operator_user_id = $4::uuid) DESC NULLS LAST,
+           m.workforce_member_id ASC NULLS LAST, a.operator_user_id ASC
   LIMIT 1
 ) owner ON true
 WHERE ($6::text[] IS NULL OR i.board_state = ANY($6::text[]))
