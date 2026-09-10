@@ -1206,7 +1206,8 @@
   .main table.feed-table{min-width:900px}
   .main table.feed-table th,.main table.feed-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal;vertical-align:top}
   .main table.feed-table td{padding-top:10px;padding-bottom:10px}
-  .main .feed-stock-tablewrap{max-width:100%;overflow-x:auto;scrollbar-gutter:stable;padding-right:14px}
+  .main .tablewrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;scrollbar-gutter:stable}
+  .main .feed-stock-tablewrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;scrollbar-gutter:stable;padding-right:14px}
   /* Feed Analytics "Feed by shed" mix cell: one line per feed item with the
      item's chart colour dot, label left, kg right — a small aligned ledger
      instead of a chip pile. The kg column is tabular so amounts line up. */
@@ -3515,7 +3516,14 @@ select:disabled { opacity: .45; }
   /* The second block's heading follows a card rather than opening the page, so it needs the
      breathing room the page grid's own gap does not give a bare heading row. */
   .sales-block-hd-spaced{margin-top:8px}
-@media(max-width:760px){.sales-ready-tolerance{width:100%;grid-template-columns:1fr}.sales-ready-tolerance-head{justify-content:space-between}}
+@media(max-width:760px){
+  .sales-ready-tolerance{width:100%;grid-template-columns:1fr}
+  .sales-ready-tolerance-head{justify-content:space-between}
+  .sales-block .g4,.sales-block .g3,.sales-kpi-row{grid-template-columns:1fr!important}
+  .sales-block .kpi,.sales-kpi-row .kpi{min-width:0;width:100%}
+  .sales-block .kpi .val,.sales-kpi-row .kpi .val{font-size:clamp(22px,8vw,30px);white-space:normal;overflow-wrap:anywhere}
+  .sales-block-hd .tag{max-width:100%;white-space:normal}
+}
 .main table.sales-market-table{min-width:1720px}
 .main table.sales-market-table th,.main table.sales-market-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
 .main table.sales-market-table th:nth-child(1),.main table.sales-market-table td:nth-child(1){min-width:270px}

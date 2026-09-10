@@ -595,7 +595,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
         .filter(isVisible)
         .filter((table) => table.scrollWidth > rootElement.clientWidth + 2);
       for (const table of wideTables) {
-        const scroller = table.closest(".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll,.card .bd");
+        const scroller = table.closest(".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll");
         if (!(scroller instanceof HTMLElement)) {
           problems.push({ kind: "missing-scroll-owner", table: describeElement(table) });
           continue;
@@ -664,7 +664,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
 async function assertMobileWideTableGestures(page, routeName, viewportLabel, screenshotRoot) {
   if (viewportLabel !== "mobile") return;
   const scrollOwners = await page.locator(
-    ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll,.card .bd",
+    ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll",
   ).evaluateAll((elements) =>
     elements
       .map((element, index) => {
@@ -685,7 +685,7 @@ async function assertMobileWideTableGestures(page, routeName, viewportLabel, scr
 
   for (const owner of scrollOwners.slice(0, 8)) {
     const locator = page.locator(
-      ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll,.card .bd",
+      ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll",
     ).nth(owner.index);
     await locator.evaluate((element) => {
       element.scrollLeft = 0;
