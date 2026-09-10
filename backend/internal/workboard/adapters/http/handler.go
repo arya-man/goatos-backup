@@ -201,9 +201,10 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request) (domain.Query, b
 		Modules: modules, WorkStates: states, OwnerUserID: owner,
 	}
 	// An empty visible set is served as an empty board, never a 403: the route already
-	// authorised the caller to open the board; modules are a lens.
+	// authorised the caller to open the board; modules are a lens. The wire carries an
+	// empty modules list, never a sentinel.
 	if len(modules) == 0 {
-		q.Modules = []domain.Module{domain.Module("none")}
+		q.NoModules = true
 	}
 	return q, ownRowsOnly, true
 }

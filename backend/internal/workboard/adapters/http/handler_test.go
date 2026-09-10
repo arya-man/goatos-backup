@@ -149,8 +149,8 @@ func TestDirectorSeesOnlyTheirModule(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("an invisible module is an empty board, not a refusal: %d", rec.Code)
 	}
-	if len(svc.last.Modules) != 1 || svc.last.Modules[0] != domain.Module("none") {
-		t.Fatalf("expected the empty sentinel, got %v", svc.last.Modules)
+	if !svc.last.NoModules || len(svc.last.Modules) != 0 {
+		t.Fatalf("expected an empty board (NoModules), got %v", svc.last.Modules)
 	}
 }
 
