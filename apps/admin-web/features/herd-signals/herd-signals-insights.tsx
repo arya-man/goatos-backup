@@ -88,7 +88,7 @@ export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
               <div className="iv">
                 {card.value ?? "—"}
                 {card.value !== null && card.unit ? (
-                  <small style={{ fontSize: 13, color: "var(--faint)", marginLeft: 4 }}>{card.unit}</small>
+                  <small style={{ fontSize: 13, color: "var(--muted)", marginLeft: 4 }}>{card.unit}</small>
                 ) : null}
               </div>
               <div className="if">{card.formula}</div>

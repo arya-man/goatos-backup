@@ -1,5 +1,14 @@
 @AGENTS.md
 
+## Web Review Lens
+
+Follow `AGENTS.md` for all web/admin-web reviews: any change touching web UI,
+CSS, routes, page contracts, or visible copy must be reviewed on both laptop and
+mobile. Include nested tabs, drawers/modals/popovers, dynamic detail pages,
+sidebars, charts, tables, and scroll regions. A green build/typecheck alone is
+not enough; run or require the responsive visual guard and inspect screenshots
+before claiming UI proof.
+
 ## Hard Local Resource Rule
 
 For Goat OS on Ravi's laptop, do not start Colima, Docker Desktop,

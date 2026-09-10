@@ -14,6 +14,7 @@
     "start:local": "node scripts/run-local-next.mjs start",
     "auth:seed-password-users": "node scripts/seed-firebase-password-users.mjs",
     "smoke:visual:live": "node scripts/smoke-visual-live.mjs",
+    "responsive:guard": "node scripts/smoke-visual-live.mjs",
     "smoke:action-center-drawer:live": "node scripts/smoke-action-center-local-drawer-live.mjs",
     "smoke:herd-signals-no-reload:live": "node scripts/smoke-herd-signals-no-reload-live.mjs",
     "smoke:herd-signals-mock-parity:live": "node scripts/smoke-herd-signals-mock-parity-live.mjs",

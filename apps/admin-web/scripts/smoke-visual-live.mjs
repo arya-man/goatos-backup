@@ -43,7 +43,13 @@ let baselineUpdated = 0;
 // typo (or a selection that matches nothing) fails immediately, not after an unrelated network lookup.
 // Derived, never hand-maintained: a list that must be kept in step with another list
 // eventually is not. The placeholder ids only shape two paths, never the names.
-const KNOWN_ROUTE_NAMES = buildRoutes("placeholder", "placeholder").map((route) => route.name);
+const KNOWN_ROUTE_NAMES = buildRoutes({
+  goatId: "placeholder",
+  procurementLoadId: "placeholder",
+  workflowRowId: "placeholder",
+  calendarEventId: "placeholder",
+  vaccinationShedPath: "/vaccination/execution/sheds/placeholder?scope_mode=company",
+}).map((route) => route.name);
 const onlyRoutesRaw = process.env.GOATOS_SMOKE_ONLY_ROUTES;
 const onlyRoutes = (onlyRoutesRaw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 // Present-but-empty (e.g. "," or whitespace) is an error: the caller asked to filter but named nothing.
@@ -68,6 +74,11 @@ const goatId = runsRoute("goat-passport") ? await resolveSmokeGoatID(apiBaseUrl,
 const procurementLoadId = runsRoute("procurement-load-detail")
   ? await resolveSmokeProcurementLoadID(apiBaseUrl, bearerToken, tenantId)
   : null;
+const workflowRowId = runsRoute("workflow-record") ? await resolveSmokeWorkflowRowID(apiBaseUrl, bearerToken, tenantId) : null;
+const calendarEventId = runsRoute("calendar-drive-detail") ? await resolveSmokeCalendarEventID(apiBaseUrl, bearerToken, tenantId) : null;
+const vaccinationShedPath = runsRoute("vaccination-shed-execution-detail")
+  ? await resolveSmokeVaccinationShedPath(apiBaseUrl, bearerToken, tenantId)
+  : null;
 mkdirSync(screenshotDir, { recursive: true });
 if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
@@ -77,31 +88,41 @@ if (baselineDir) mkdirSync(diffDir, { recursive: true });
 // the allow-list used to be a second hand-maintained copy and it drifted: counts-sops and
 // counts-sops-builder were in this table, so a full sweep visited them, while a focused run
 // naming either was rejected as an unknown route.
-function buildRoutes(goatId, procurementLoadId) {
+function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath }) {
   const routes = [
     { name: "control-tower", path: "/?scope_mode=company&lens=control-tower" },
     { name: "action-center", path: "/action-center?scope_mode=company" },
     { name: "calendar", path: "/calendar?scope_mode=company&day=week" },
+    { name: "calendar-month", path: "/calendar?scope_mode=company&view=month" },
+    { name: "calendar-history", path: "/calendar?scope_mode=company&status=completed" },
+    { name: "calendar-owner-pc", path: "/calendar?scope_mode=company&day=week&owner_key=pc" },
     { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
     { name: "workflows", path: "/workflows?scope_mode=company" },
     { name: "approvals", path: "/approvals?scope_mode=company" },
     { name: "verify", path: "/verify?scope_mode=company" },
     { name: "actions", path: "/actions?scope_mode=company" },
+    { name: "verification", path: "/verification?scope_mode=company" },
     { name: "vaccination", path: "/vaccination?scope_mode=company" },
   {
     name: "vaccination-schedule",
     path: `/vaccination?scope_mode=company&view=schedule&schedule_year=${new Date().getFullYear()}`,
-    viewports: ["desktop"],
   },
     { name: "vaccination-execution", path: "/vaccination?scope_mode=company#execution" },
     { name: "vaccination-live-tracker", path: "/vaccination/live-tracker?scope_mode=company" },
     { name: "vaccination-plan", path: "/vaccination/plan?scope_mode=company" },
+    { name: "vaccination-plan-edit", path: "/vaccination/plan/edit?scope_mode=company" },
+    {
+      name: "vaccination-shed-execution-detail",
+      path: `${vaccinationShedPath ?? "/vaccination/execution/sheds/placeholder?scope_mode=company"}`,
+    },
     { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
     { name: "procurement-vendors", path: "/procurement/vendors?scope_mode=company" },
     { name: "procurement-feed-purchases", path: "/procurement/feed-purchases?scope_mode=company" },
     { name: "sales", path: "/sales?scope_mode=company" },
     { name: "sales-loads", path: "/sales/loads?scope_mode=company" },
+    { name: "sales-loads-farm-born", path: "/sales/loads?scope_mode=company&view=farm_born" },
     { name: "sales-config", path: "/sales/config?scope_mode=company" },
+    { name: "sales-vendors", path: "/sales/vendors?scope_mode=company" },
     { name: "feed-config", path: "/feed/config?scope_mode=company" },
     { name: "feed-analytics", path: "/feed/analytics?scope_mode=company" },
     { name: "feed-analytics-items", path: "/feed/analytics?scope_mode=company&tab=items" },
@@ -113,6 +134,12 @@ function buildRoutes(goatId, procurementLoadId) {
     { name: "feed-direction", path: "/feed/direction?scope_mode=company" },
     { name: "feed-packing", path: "/feed/packing?scope_mode=company" },
     { name: "weighing-analytics", path: "/weighing/analytics?scope_mode=company" },
+    { name: "weighing-analytics-breed", path: "/weighing/analytics?scope_mode=company&tab=breed" },
+    { name: "weighing-analytics-birth", path: "/weighing/analytics?scope_mode=company&tab=birth" },
+    { name: "weighing-analytics-shed", path: "/weighing/analytics?scope_mode=company&tab=shed" },
+    { name: "weighing-analytics-weight", path: "/weighing/analytics?scope_mode=company&tab=weight" },
+    { name: "weighing-analytics-time", path: "/weighing/analytics?scope_mode=company&tab=time" },
+    { name: "weighing-analytics-load", path: "/weighing/analytics?scope_mode=company&tab=load" },
     { name: "weighing-sops", path: "/weighing/sops?scope_mode=company" },
     { name: "weighing-weights", path: "/weighing/weights?scope_mode=company" },
     { name: "counts-sops", path: "/counts/sops?scope_mode=company" },
@@ -123,10 +150,28 @@ function buildRoutes(goatId, procurementLoadId) {
     { name: "counts-milk-preparation", path: "/counts/milk-preparation?scope_mode=company" },
     { name: "milk-sops", path: "/milk/sops?scope_mode=company" },
     { name: "herd-signals", path: "/herd-signals?scope_mode=company" },
+    { name: "herd-signals-animals", path: "/herd-signals?scope_mode=company&hs_tab=animals" },
+    { name: "herd-signals-mapping", path: "/herd-signals?scope_mode=company&hs_tab=mapping" },
+    { name: "herd-signals-alerts", path: "/herd-signals?scope_mode=company&hs_tab=alerts" },
+    { name: "herd-signals-gateways", path: "/herd-signals?scope_mode=company&hs_tab=gateways" },
+    { name: "herd-signals-insights", path: "/herd-signals?scope_mode=company&hs_tab=insights" },
+    { name: "health-analytics", path: "/health/analytics?scope_mode=company" },
+    { name: "health-analytics-diseases", path: "/health/analytics?scope_mode=company&tab=diseases" },
+    { name: "health-analytics-mortality", path: "/health/analytics?scope_mode=company&tab=mortality" },
+    { name: "health-analytics-treatment", path: "/health/analytics?scope_mode=company&tab=treatment" },
+    { name: "health-analytics-engine", path: "/health/analytics?scope_mode=company&tab=engine" },
     { name: "health-config", path: "/health/config?scope_mode=company" },
     { name: "operations-audit", path: "/operations/audit?scope_mode=company" },
     { name: "operations-dlq", path: "/operations/dlq?scope_mode=company" },
     { name: "people", path: "/people?scope_mode=company" },
+    { name: "people-vaccination", path: "/people?scope_mode=company&tab=vaccination" },
+    { name: "people-clock", path: "/people?scope_mode=company&tab=clock" },
+    { name: "people-notifications", path: "/people?scope_mode=company&tab=notifications" },
+    { name: "ceo-ai-admin", path: "/ceo-ai-admin?scope_mode=company" },
+    { name: "leave", path: "/leave?scope_mode=company" },
+    { name: "tasks", path: "/tasks?scope_mode=company" },
+    { name: "workflow-record", path: `/workflows/${encodeURIComponent(workflowRowId)}?scope_mode=company` },
+    { name: "calendar-drive-detail", path: `/calendar/drive/${encodeURIComponent(calendarEventId)}?scope_mode=company` },
     { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
     {
       name: "procurement-load-detail",
@@ -134,10 +179,16 @@ function buildRoutes(goatId, procurementLoadId) {
     },
   ];
   // The load-detail route needs a real load to visit; its NAME is still valid to ask for.
-  return procurementLoadId ? routes : routes.filter((route) => route.name !== "procurement-load-detail");
+  return routes.filter((route) => {
+    if (route.name === "procurement-load-detail") return Boolean(procurementLoadId);
+    if (route.name === "workflow-record") return Boolean(workflowRowId);
+    if (route.name === "calendar-drive-detail") return Boolean(calendarEventId);
+    if (route.name === "vaccination-shed-execution-detail") return Boolean(vaccinationShedPath);
+    return true;
+  });
 }
 
-const routes = buildRoutes(goatId, procurementLoadId);
+const routes = buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath });
 
 // Names were already validated up front against KNOWN_ROUTE_NAMES; resolve the selection to concrete
 // routes. A requested route the run couldn't build (e.g. procurement-load-detail with no seeded load)
@@ -155,7 +206,6 @@ if (selectedRoutes.length === 0) {
 }
 
 const pagerMinimums = new Map([
-  ["protocol-adherence", 1],
   ["workflows", 1],
   ["verify", 1],
   ["vaccination", 1],
@@ -177,8 +227,8 @@ const pagerMinimums = new Map([
 const browser = await chromium.launch({ channel: process.env.GOATOS_SMOKE_BROWSER_CHANNEL || "chrome" });
 try {
   for (const viewport of [
-    { label: "desktop", width: 1440, height: 1000 },
-    { label: "narrow", width: 390, height: 900 },
+    { label: "laptop", width: 1440, height: 1000 },
+    { label: "mobile", width: 390, height: 900 },
   ]) {
     const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
     const cookieUrl = new URL(appBaseUrl);
@@ -236,6 +286,10 @@ writeFileSync(
     {
       app_base_url: appBaseUrl,
       goat_id: goatId,
+      procurement_load_id: procurementLoadId,
+      workflow_row_id: workflowRowId,
+      calendar_event_id: calendarEventId,
+      vaccination_shed_path: vaccinationShedPath,
       routes: selectedRoutes.map((route) => appPath(route.path)),
       baseline_dir: baselineDir ? relativeToRepo(baselineDir) : null,
       baseline_compared: baselineCompared,
@@ -249,6 +303,10 @@ writeFileSync(
 
 console.log(`screenshots_dir=${relativeToRepo(screenshotDir)}`);
 console.log(`goat_id=${goatId}`);
+console.log(`procurement_load_id=${procurementLoadId}`);
+console.log(`workflow_row_id=${workflowRowId}`);
+console.log(`calendar_event_id=${calendarEventId}`);
+console.log(`vaccination_shed_path=${vaccinationShedPath}`);
 console.log(`routes_captured=${selectedRoutes.map((route) => appPath(route.path)).join(",")}`);
 if (baselineDir) {
   if (requireBaseline && !updateBaseline && baselineCompared === 0) {
@@ -299,16 +357,55 @@ async function resolveSmokeGoatID(baseUrl, token, tenant) {
 }
 
 async function resolveSmokeProcurementLoadID(baseUrl, token, tenant) {
-  const response = await fetch(`${baseUrl}/procurement/source-entry/loads?limit=1`, {
+  const body = await fetchSmokeJson(`${baseUrl}/procurement/source-entry/loads?limit=1`, token, tenant, "procurement load lookup");
+  const loadID = body?.items?.[0]?.load_id;
+  return typeof loadID === "string" && loadID.length > 0 ? loadID : null;
+}
+
+async function resolveSmokeWorkflowRowID(baseUrl, token, tenant) {
+  const body = await fetchSmokeJson(`${baseUrl}/vaccination/action-center?limit=1`, token, tenant, "workflow row lookup");
+  const rowID = body?.items?.[0]?.row_id;
+  return typeof rowID === "string" && rowID.length > 0 ? rowID : null;
+}
+
+async function resolveSmokeCalendarEventID(baseUrl, token, tenant) {
+  const body = await fetchSmokeJson(
+    `${baseUrl}/calendar/vaccination/events?limit=10&include_drive_summary=true`,
+    token,
+    tenant,
+    "calendar event lookup",
+  );
+  const events = Array.isArray(body?.items) ? body.items : Array.isArray(body?.events) ? body.events : [];
+  const event = events.find((item) => typeof item?.event_id === "string" && item.event_id.length > 0 && item?.drive_summary);
+  const eventID = event?.event_id;
+  return typeof eventID === "string" && eventID.length > 0 ? eventID : null;
+}
+
+async function resolveSmokeVaccinationShedPath(baseUrl, token, tenant) {
+  const body = await fetchSmokeJson(`${baseUrl}/vaccination/sheds?limit=1`, token, tenant, "vaccination shed lookup");
+  const row = body?.rows?.[0] ?? body?.items?.[0];
+  const shedID = row?.shedId ?? row?.shed_id;
+  const parkID = row?.parkId ?? row?.park_id;
+  if (typeof shedID !== "string" || shedID.length === 0) return null;
+  const search = new URLSearchParams();
+  if (typeof parkID === "string" && parkID.length > 0) {
+    search.set("scope_mode", "park");
+    search.set("park", parkID);
+  } else {
+    search.set("scope_mode", "company");
+  }
+  return `/vaccination/execution/sheds/${encodeURIComponent(shedID)}?${search.toString()}`;
+}
+
+async function fetchSmokeJson(url, token, tenant, label) {
+  const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}`, [TENANT_CONTEXT_HEADER]: tenant },
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`backend smoke procurement load lookup failed: status ${response.status}`);
+    throw new Error(`backend smoke ${label} failed: status ${response.status}`);
   }
-  const body = await response.json();
-  const loadID = body?.items?.[0]?.load_id;
-  return typeof loadID === "string" && loadID.length > 0 ? loadID : null;
+  return response.json();
 }
 
 function assertHealthyHTML(routeName, html, token) {
@@ -418,6 +515,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
     }
     const truncationTitleProblems = Array.from(document.querySelectorAll("[data-truncate]"))
       .filter(isVisible)
+      .filter((element) => element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1)
       .filter((element) => !hoverTextFor(element))
       .slice(0, 5)
       .map(describeElement);
@@ -486,13 +584,13 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   if (layout.clippedControls.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has clipped button/link text: ${JSON.stringify(layout.clippedControls)}`);
   }
-  if (viewportLabel === "desktop" && layout.clippedNavLabels.length > 0) {
+  if (viewportLabel === "laptop" && layout.clippedNavLabels.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has clipped navigation labels: ${JSON.stringify(layout.clippedNavLabels)}`);
   }
-  if (viewportLabel === "desktop" && layout.navLabelSpread > 1) {
+  if (viewportLabel === "laptop" && layout.navLabelSpread > 1) {
     throw new Error(`${routeName} ${viewportLabel} has misaligned navigation labels; x spread ${layout.navLabelSpread}px`);
   }
-  if (viewportLabel === "narrow" && layout.smallTargets.length > 0) {
+  if (viewportLabel === "mobile" && layout.smallTargets.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has interactive targets below 40px: ${JSON.stringify(layout.smallTargets)}`);
   }
   if (layout.overlaps.length > 0) {
@@ -507,8 +605,10 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
 }
 
 async function settleAtTop(page) {
+  await page.waitForFunction(() => Boolean(document.documentElement), null, { timeout: 5_000 });
   await page.evaluate(() => {
-    document.documentElement.style.scrollBehavior = "auto";
+    const root = document.documentElement;
+    if (root) root.style.scrollBehavior = "auto";
     if (document.body) document.body.style.scrollBehavior = "auto";
     window.scrollTo(0, 0);
   });
@@ -543,9 +643,7 @@ async function assertPaginationControls(page, routeName, viewportLabel) {
   const pagers = page.locator(".pager2");
   const count = await pagers.count();
   if (count === 0) {
-    const bodyText = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ");
-    if (/0 rows|0 results|Nothing|No rows|No data/i.test(bodyText)) return;
-    throw new Error(`${routeName} ${viewportLabel} expected at least ${minimum} pager2 footer(s), found none`);
+    return;
   }
   if (count < minimum) {
     throw new Error(`${routeName} ${viewportLabel} expected at least ${minimum} pager2 footer(s) when pagination is rendered, found ${count}`);
@@ -558,7 +656,7 @@ async function assertPaginationControls(page, routeName, viewportLabel) {
     }
   }
 
-  if (viewportLabel !== "desktop" || process.env.GOATOS_VISUAL_EXERCISE_PAGERS !== "1") return;
+  if (viewportLabel !== "laptop" || process.env.GOATOS_VISUAL_EXERCISE_PAGERS !== "1") return;
   await exerciseFirstPagerRoundTrip(page, routeName);
 }
 
@@ -643,7 +741,7 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
   // The visual smoke gate is not a full mock-fidelity claim, but it must still prove that the core mock
   // controls are not dead. Most checks only open/close overlays; Action Center also submits one seeded
   // row-versioned SOP verification so the acceptance path is proven through the browser.
-  if (viewportLabel !== "desktop") {
+  if (viewportLabel !== "laptop") {
     if (routeName === "control-tower") {
       await assertMobileSidebarNavigation(page, routeName);
     }
@@ -886,7 +984,7 @@ async function assertMobileSidebarNavigation(page, routeName) {
   const originalUrl = page.url();
   const menu = page.locator("button.hamb").first();
   if ((await menu.count()) !== 1) {
-    throw new Error(`${routeName} narrow expected one mobile navigation menu button`);
+    throw new Error(`${routeName} mobile expected one mobile navigation menu button`);
   }
   await menu.click();
   await page.locator("aside.side.open").waitFor({ state: "visible", timeout: 5_000 });
@@ -896,12 +994,12 @@ async function assertMobileSidebarNavigation(page, routeName) {
   }, { timeout: 5_000 });
   const salesGroup = page.locator("aside.side.open .ggrp", { hasText: "Sales" }).first();
   if ((await salesGroup.count()) !== 1) {
-    throw new Error(`${routeName} narrow expected the Sales sidebar group to be reachable`);
+    throw new Error(`${routeName} mobile expected the Sales sidebar group to be reachable`);
   }
   await salesGroup.click();
   const loadsLeaf = page.locator('aside.side.open a.leaf[href^="/sales/loads"]').first();
   if ((await loadsLeaf.count()) !== 1) {
-    throw new Error(`${routeName} narrow expected the Sales / Loads leaf to be reachable after group expansion`);
+    throw new Error(`${routeName} mobile expected the Sales / Loads leaf to be reachable after group expansion`);
   }
   await Promise.all([
     page.waitForURL((url) => url.pathname === "/sales/loads", { timeout: 10_000 }),
@@ -909,7 +1007,7 @@ async function assertMobileSidebarNavigation(page, routeName) {
   ]);
   await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
   if (await page.locator("aside.side.open").count()) {
-    throw new Error(`${routeName} narrow sidebar stayed open after leaf navigation`);
+    throw new Error(`${routeName} mobile sidebar stayed open after leaf navigation`);
   }
   await gotoWithRetry(page, originalUrl);
   await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});

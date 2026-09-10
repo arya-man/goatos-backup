@@ -179,6 +179,7 @@ For any frontend change, require rendered visual QA:
 
 ```bash
 npm --prefix apps/admin-web run smoke:visual:live   # local backend + admin-web up
+npm --prefix apps/admin-web run responsive:guard    # current laptop + mobile responsive gate
 ```
 
 `smoke:visual:live` runs a real accessibility assertion (`assertA11y`, per
@@ -189,7 +190,19 @@ exercised on this path, so a frontend UI change that changed contrast/target siz
 without running the live smoke has not had its a11y verified. Open the screenshots
 under `.codex-goatos-render/admin-web-screenshots/` and compare against the mock
 element-by-element (sidebar/nav alignment, spacing, card padding, table density,
-label clipping, desktop/narrow responsive).
+label clipping, laptop/mobile responsive).
+
+For any admin-web review touching rendered UI, CSS, route/page contracts, charts,
+tables, or visible copy, the review is incomplete unless it applies a laptop and
+mobile UI/UX lens. Verify every affected route-owned page state: nested page
+tabs, sidebars, drawers, modals, popovers, dynamic detail pages, charts, tables,
+legends, KPI cards, and horizontal-scroll regions. If a page, nested tab, URL
+drawer state, or dynamic detail route is added/changed, require matching entries
+in `apps/admin-web/scripts/smoke-visual-live.mjs` and
+`apps/admin-web/scripts/smoke-visual-route-coverage.test.mjs`; missing guard
+coverage is itself a review finding. Screenshots are not proof until opened and
+visually validated as the intended route/state rather than login, loading, an
+error, or a stale page.
 
 ### Additional targeted guard/smoke scripts
 
