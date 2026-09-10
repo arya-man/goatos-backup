@@ -74,15 +74,15 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   }
 
   const boardScope = { park: park.key, businessDate, modules: selectedModules, states: selectedStates, owner };
-  // The wire's `modules` is the caller's set INTERSECTED with the request filter, so while a
-  // module filter is on, the Module menu's vocabulary comes from one unfiltered summary read
-  // (bounded: three small reads at most). With no filter, the filtered summary IS that read.
-  const vocabularyScope = { park: park.key, businessDate };
-  const [rowsResult, summaryResult, vocabularyResult] = await Promise.all([
+  const [rowsResult, summaryResult] = await Promise.all([
     noneSelected ? null : listWorkBoardRows(boardScope, { limit, cursor }),
     noneSelected ? null : getWorkBoardSummary(boardScope),
-    noneSelected || selectedModules.length ? getWorkBoardSummary(vocabularyScope) : null,
   ]);
+  // The wire's `modules` is the caller's set INTERSECTED with the request filter, so while a
+  // module filter is on, the Module menu's vocabulary comes from one unfiltered summary read.
+  // It is a second, bounded round trip taken only in that case; with no filter, the filtered
+  // summary IS that read. (The contract carrying the caller's vocabulary would remove it.)
+  const vocabularyResult = noneSelected || selectedModules.length ? await getWorkBoardSummary({ park: park.key, businessDate }) : null;
   if (firstAuthRequiredError(...[rowsResult, summaryResult, vocabularyResult].filter((result) => result !== null))) redirect(INTERNAL_LOGIN_PATH);
 
   const rows: WorkBoardRow[] = rowsResult?.ok ? rowsResult.data.rows : [];
