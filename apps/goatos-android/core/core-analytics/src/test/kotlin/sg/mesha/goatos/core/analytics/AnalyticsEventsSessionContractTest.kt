@@ -43,6 +43,7 @@ class AnalyticsEventsSessionContractTest {
         assertEquals("force_update_install_permission_needed", AnalyticsEventsSession.FORCE_UPDATE_INSTALL_PERMISSION_NEEDED)
         assertEquals("force_update_installer_opened", AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED)
         assertEquals("force_update_install_completed", AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED)
+        assertEquals("force_update_install_unchanged", AnalyticsEventsSession.FORCE_UPDATE_INSTALL_UNCHANGED)
         assertEquals("force_update_gate_blocking", AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING)
         assertEquals("force_update_recheck_push_received", AnalyticsEventsSession.FORCE_UPDATE_RECHECK_PUSH_RECEIVED)
         assertEquals("force_update_recheck_from_push", AnalyticsEventsSession.FORCE_UPDATE_RECHECK_FROM_PUSH)
@@ -63,6 +64,7 @@ class AnalyticsEventsSessionContractTest {
         assertEquals("offline", AnalyticsEventsSession.Params.OFFLINE)
         assertEquals("shell_action", AnalyticsEventsSession.Params.SHELL_ACTION)
         assertEquals("update_host", AnalyticsEventsSession.Params.UPDATE_HOST)
+        assertEquals("update_path", AnalyticsEventsSession.Params.UPDATE_PATH)
         assertEquals("source", AnalyticsEventsSession.Params.SOURCE)
     }
 
@@ -80,6 +82,7 @@ class AnalyticsEventsSessionContractTest {
             AnalyticsEventsSession.FORCE_UPDATE_INSTALL_PERMISSION_NEEDED,
             AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED,
             AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED,
+            AnalyticsEventsSession.FORCE_UPDATE_INSTALL_UNCHANGED,
             AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING,
             AnalyticsEventsSession.FORCE_UPDATE_RECHECK_PUSH_RECEIVED,
             AnalyticsEventsSession.FORCE_UPDATE_RECHECK_FROM_PUSH,

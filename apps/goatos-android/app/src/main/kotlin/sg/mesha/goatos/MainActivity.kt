@@ -2,7 +2,9 @@ package sg.mesha.goatos
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
@@ -301,6 +303,7 @@ class MainActivity : ComponentActivity() {
         // Re-check the update floor on every foreground: a minimum raised while the app
         // was backgrounded blocks the build the next time it comes forward.
         updateGateViewModel.refresh()
+        trackUnchangedForceUpdateInstallIfNeeded()
         // A resume that finds the gate ALREADY blocked (not a fresh block first seen this
         // launch — that is FORCE_UPDATE_GATE_SHOWN, fired from the Compose branch below) means
         // the operator came back to the app without updating. Read synchronously off the
@@ -381,15 +384,24 @@ class MainActivity : ComponentActivity() {
         return runCatching {
             trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_STARTED, url)
             val apkFile = sideloadUpdateInstaller.downloadApk(url)
-            trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_COMPLETED, url)
+            val apkSizeBytes = apkFile.length().takeIf { it >= 0L }
+            trackForceUpdate(
+                AnalyticsEventsSession.FORCE_UPDATE_DOWNLOAD_COMPLETED,
+                url,
+                forceUpdateInstallProps(apkSizeBytes = apkSizeBytes),
+            )
             when (sideloadUpdateInstaller.openInstaller(apkFile)) {
                 SideloadInstallResult.InstallPermissionNeeded -> {
                     trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_INSTALL_PERMISSION_NEEDED, url)
                     ForceUpdateAttemptState.PermissionNeeded
                 }
                 SideloadInstallResult.InstallerOpened -> {
-                    trackForceUpdate(AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED, url)
-                    rememberPendingForceUpdateInstall(url)
+                    trackForceUpdate(
+                        AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED,
+                        url,
+                        forceUpdateInstallProps(apkSizeBytes = apkSizeBytes),
+                    )
+                    rememberPendingForceUpdateInstall(url, apkSizeBytes)
                     ForceUpdateAttemptState.InstallerOpened
                 }
             }
@@ -413,6 +425,7 @@ class MainActivity : ComponentActivity() {
             event,
             buildMap {
                 updateHost(updateUrl)?.let { put(AnalyticsEventsSession.Params.UPDATE_HOST, it) }
+                updatePath(updateUrl)?.let { put(AnalyticsEventsSession.Params.UPDATE_PATH, it) }
                 putAll(extra)
             },
         )
@@ -427,11 +440,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun rememberPendingForceUpdateInstall(url: String) {
+    private fun updatePath(url: String): String? {
+        return try {
+            URI(url).path?.takeIf { it.isNotBlank() }
+        } catch (error: IllegalArgumentException) {
+            Log.w(TAG, "Ignoring invalid force-update URL for analytics path", error)
+            null
+        }
+    }
+
+    private fun rememberPendingForceUpdateInstall(url: String, apkSizeBytes: Long?) {
         getSharedPreferences(FORCE_UPDATE_PREFS, MODE_PRIVATE)
             .edit()
             .putInt(FORCE_UPDATE_PENDING_VERSION_CODE, BuildConfig.VERSION_CODE)
+            .putString(FORCE_UPDATE_PENDING_VERSION_NAME, BuildConfig.VERSION_NAME)
             .putString(FORCE_UPDATE_PENDING_URL, url)
+            .putLong(FORCE_UPDATE_PENDING_STARTED_AT_ELAPSED_MS, SystemClock.elapsedRealtime())
+            .apply {
+                if (apkSizeBytes != null) {
+                    putLong(FORCE_UPDATE_PENDING_APK_SIZE_BYTES, apkSizeBytes)
+                } else {
+                    remove(FORCE_UPDATE_PENDING_APK_SIZE_BYTES)
+                }
+            }
             .apply()
     }
 
@@ -444,12 +475,49 @@ class MainActivity : ComponentActivity() {
         trackForceUpdate(
             AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED,
             updateUrl,
-            mapOf(
-                "previous_version_code" to pendingVersionCode.toString(),
-                "installed_version_code" to BuildConfig.VERSION_CODE.toString(),
+            forceUpdateInstallProps(
+                previousVersionCode = pendingVersionCode,
+                previousVersionName = prefs.getString(FORCE_UPDATE_PENDING_VERSION_NAME, "").orEmpty(),
+                apkSizeBytes = prefs.pendingApkSizeBytes(),
+                pendingDurationMs = prefs.pendingDurationMs(),
             ),
         )
         prefs.edit().clear().apply()
+    }
+
+    private fun trackUnchangedForceUpdateInstallIfNeeded() {
+        val prefs = getSharedPreferences(FORCE_UPDATE_PREFS, MODE_PRIVATE)
+        val pendingVersionCode = prefs.getInt(FORCE_UPDATE_PENDING_VERSION_CODE, 0)
+        if (pendingVersionCode <= 0 || BuildConfig.VERSION_CODE > pendingVersionCode) return
+
+        val updateUrl = prefs.getString(FORCE_UPDATE_PENDING_URL, "").orEmpty()
+        trackForceUpdate(
+            AnalyticsEventsSession.FORCE_UPDATE_INSTALL_UNCHANGED,
+            updateUrl,
+            forceUpdateInstallProps(
+                previousVersionCode = pendingVersionCode,
+                previousVersionName = prefs.getString(FORCE_UPDATE_PENDING_VERSION_NAME, "").orEmpty(),
+                apkSizeBytes = prefs.pendingApkSizeBytes(),
+                pendingDurationMs = prefs.pendingDurationMs(),
+            ),
+        )
+        prefs.edit().clear().apply()
+    }
+
+    private fun forceUpdateInstallProps(
+        previousVersionCode: Int? = null,
+        previousVersionName: String? = null,
+        apkSizeBytes: Long? = null,
+        pendingDurationMs: Long? = null,
+    ): Map<String, String> = buildMap {
+        put("installed_version_code", BuildConfig.VERSION_CODE.toString())
+        put("installed_version_name", BuildConfig.VERSION_NAME)
+        put("current_version_code", BuildConfig.VERSION_CODE.toString())
+        put("current_version_name", BuildConfig.VERSION_NAME)
+        previousVersionCode?.let { put("previous_version_code", it.toString()) }
+        previousVersionName?.takeIf { it.isNotBlank() }?.let { put("previous_version_name", it) }
+        apkSizeBytes?.takeIf { it >= 0L }?.let { put("apk_size_bytes", it.toString()) }
+        pendingDurationMs?.takeIf { it >= 0L }?.let { put("pending_duration_ms", it.toString()) }
     }
 
     /**
@@ -482,8 +550,20 @@ private const val DEBUG_FORCE_UPDATE_MIN_VERSION_CODE = "sg.mesha.goatos.DEBUG_F
 private const val DEBUG_FORCE_UPDATE_URL = "sg.mesha.goatos.DEBUG_FORCE_UPDATE_URL"
 private const val FORCE_UPDATE_PREFS = "force_update_install"
 private const val FORCE_UPDATE_PENDING_VERSION_CODE = "pending_version_code"
+private const val FORCE_UPDATE_PENDING_VERSION_NAME = "pending_version_name"
 private const val FORCE_UPDATE_PENDING_URL = "pending_url"
+private const val FORCE_UPDATE_PENDING_APK_SIZE_BYTES = "pending_apk_size_bytes"
+private const val FORCE_UPDATE_PENDING_STARTED_AT_ELAPSED_MS = "pending_started_at_elapsed_ms"
 private const val TAG = "MainActivity"
+
+private fun SharedPreferences.pendingApkSizeBytes(): Long? =
+    getLong(FORCE_UPDATE_PENDING_APK_SIZE_BYTES, -1L).takeIf { it >= 0L }
+
+private fun SharedPreferences.pendingDurationMs(): Long? {
+    val startedAtMs = getLong(FORCE_UPDATE_PENDING_STARTED_AT_ELAPSED_MS, -1L)
+    if (startedAtMs < 0L) return null
+    return (SystemClock.elapsedRealtime() - startedAtMs).takeIf { it >= 0L }
+}
 
 @Composable
 private fun BootstrapLoading() {

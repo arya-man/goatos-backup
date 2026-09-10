@@ -72,6 +72,9 @@ object AnalyticsEventsSession {
     /** The app relaunched on a newer version after Android's package installer was opened. */
     const val FORCE_UPDATE_INSTALL_COMPLETED = "force_update_install_completed"
 
+    /** Android returned from the package installer but the app version did not advance. */
+    const val FORCE_UPDATE_INSTALL_UNCHANGED = "force_update_install_unchanged"
+
     /**
      * The gate re-confirmed a block on a later check (e.g. the app came back to the
      * foreground and [sg.mesha.goatos.update.UpdateGateViewModel.refresh] re-ran) — distinct
@@ -159,6 +162,9 @@ object AnalyticsEventsSession {
 
         /** Download/install URL host only, never the full URL. */
         const val UPDATE_HOST = "update_host"
+
+        /** Download/install URL path only, never the query string. */
+        const val UPDATE_PATH = "update_path"
 
         /** Bounded origin for a force-update check: `launch`, `resume`, or `silent_push`. */
         const val SOURCE = "source"

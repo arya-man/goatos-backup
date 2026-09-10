@@ -328,6 +328,7 @@ class BackendAnalyticsAdapter(
             AnalyticsEventsSession.FORCE_UPDATE_INSTALL_PERMISSION_NEEDED,
             AnalyticsEventsSession.FORCE_UPDATE_INSTALLER_OPENED,
             AnalyticsEventsSession.FORCE_UPDATE_INSTALL_COMPLETED,
+            AnalyticsEventsSession.FORCE_UPDATE_INSTALL_UNCHANGED,
             AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING,
             AnalyticsEventsSession.FORCE_UPDATE_RECHECK_PUSH_RECEIVED,
             AnalyticsEventsSession.FORCE_UPDATE_RECHECK_FROM_PUSH,
