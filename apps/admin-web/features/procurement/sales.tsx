@@ -790,7 +790,7 @@ export async function SalesPage({
             {farm !== DEFAULT_FARM ? copy(pageContract, "empty.deals") : copy(pageContract, "empty.deals.unset")}
           </div>
         ) : (
-          <div className="twrap">
+          <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.ledger.aria")}>
             <table className="sales-deals-table" aria-label={copy(pageContract, "section.ledger.aria")}>
               <thead>
                 <tr>

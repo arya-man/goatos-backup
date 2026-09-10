@@ -259,7 +259,7 @@ export function LoadComparisonTab({
       <section className="card" style={{ marginTop: 12 }}>
         <h2 className="h">{copy(pageContract, "table.loads.title")}</h2>
         <p className="muted small">{copy(pageContract, "note.load.denominator")}</p>
-        <div className="twrap" style={{ marginTop: 8 }}>
+        <div className="twrap" style={{ marginTop: 8 }} tabIndex={0} role="region" aria-label={copy(pageContract, "table.loads.title")}>
           <table className="loadwise-table" aria-label={copy(pageContract, "table.loads.title")}>
             <thead>
               <tr>

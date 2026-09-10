@@ -784,6 +784,7 @@ async function assertPaginationControls(page, routeName, viewportLabel) {
   if (count === 0) {
     const bodyText = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ");
     if (/0 rows|0 results|Nothing|No rows|No data/i.test(bodyText)) return;
+    if (renderedAllRows(routeName, bodyText)) return;
     throw new Error(`${routeName} ${viewportLabel} expected at least ${minimum} pager2 footer(s), found none`);
   }
   if (count < minimum) {
@@ -799,6 +800,18 @@ async function assertPaginationControls(page, routeName, viewportLabel) {
 
   if (viewportLabel !== "laptop" || process.env.GOATOS_VISUAL_EXERCISE_PAGERS !== "1") return;
   await exerciseFirstPagerRoundTrip(page, routeName);
+}
+
+function renderedAllRows(routeName, bodyText) {
+  const match = bodyText.match(/\bShowing\b[^:]{0,120}:\s*([\d,]+)\s*\/\s*([\d,]+)/i);
+  const salesLoadsMatch = routeName.startsWith("sales-loads")
+    ? bodyText.match(/\b([\d,]+)\s*\/\s*([\d,]+)\s+recorded costs only\b/i)
+    : null;
+  const readout = match ?? salesLoadsMatch;
+  if (!readout) return false;
+  const shown = Number(readout[1].replace(/,/g, ""));
+  const total = Number(readout[2].replace(/,/g, ""));
+  return Number.isFinite(shown) && Number.isFinite(total) && total > 0 && shown >= total;
 }
 
 async function exerciseFirstPagerRoundTrip(page, routeName) {

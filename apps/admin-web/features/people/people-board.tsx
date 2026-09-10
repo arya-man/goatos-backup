@@ -190,7 +190,7 @@ export async function PeopleBoard({
             {hasAnyFilter ? copy(pageContract, "empty.people") : copy(pageContract, "empty.people.unset")}
           </div>
         ) : (
-          <div className="twrap">
+          <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.people.aria")}>
             <table className="people-table" aria-label={copy(pageContract, "section.people.aria")}>
               <thead>
                 <tr>

@@ -246,7 +246,7 @@ export async function SalesConfigPage({
         {deals.length === 0 ? (
           <div className="empty">{copy(pageContract, "empty.deals.unset")}</div>
         ) : (
-          <div className="twrap">
+          <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sales_entry.title")}>
             <table className="sales-deals-table" aria-label={copy(pageContract, "section.sales_entry.title")}>
               <thead>
                 <tr>
@@ -347,7 +347,7 @@ export async function SalesConfigPage({
         {loads.length === 0 ? (
           <div className="empty">{copy(pageContract, "empty.loads")}</div>
         ) : (
-          <div className="twrap">
+          <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.load_entry.title")}>
             <table aria-label={copy(pageContract, "section.load_entry.title")}>
               <thead>
                 <tr>

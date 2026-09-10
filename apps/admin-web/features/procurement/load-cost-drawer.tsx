@@ -205,7 +205,7 @@ export function LoadCostDrawer({
               {load.cost_lines && load.cost_lines.length > 0 ? (
                 <div style={{ marginTop: 10 }}>
                   <div className="mt">{copy(pageContract, "loadwise.cost_breakdown.title")}</div>
-                  <div className="twrap">
+                  <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "loadwise.cost_breakdown.title")}>
                     <table aria-label={copy(pageContract, "loadwise.cost_breakdown.title")}>
                       <tbody>
                         {load.cost_lines.map((line, index) => (

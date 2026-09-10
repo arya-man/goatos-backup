@@ -236,7 +236,7 @@ export async function FeedPurchasesPage({
             {isFiltered ? copy(pageContract, "empty.purchases") : copy(pageContract, "empty.purchases.unset")}
           </div>
         ) : (
-          <div className="twrap">
+          <div className="twrap" tabIndex={0} role="region" aria-label={ledgerTable.title}>
             <table className="feed-purchases-table" aria-label={ledgerTable.title}>
               <thead>
                 {/* Header labels come from the page contract IN ITS ORDER; the body cells below

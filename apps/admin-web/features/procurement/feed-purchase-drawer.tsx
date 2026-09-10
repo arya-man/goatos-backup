@@ -518,7 +518,7 @@ export function FeedPurchaseDrawer({
             {purchase.payments.length === 0 ? (
               <div className="muted small">{copy(pageContract, "payments.empty")}</div>
             ) : (
-              <div className="twrap">
+              <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.payments.title")}>
                 <table aria-label={copy(pageContract, "section.payments.title")}>
                   <thead>
                     <tr>

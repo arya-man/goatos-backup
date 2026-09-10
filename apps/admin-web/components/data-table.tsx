@@ -151,49 +151,50 @@ export function DataTable<Row>({
   const colCount = table.getVisibleLeafColumns().length;
 
   return (
-    <table className={className} aria-label={ariaLabel}>
-      <thead>
-        <tr>
-          {table.getHeaderGroups()[0]?.headers.map((header) => {
-            const meta = header.column.columnDef.meta as DataTableColumnMeta | undefined;
-            const canSort = header.column.getCanSort();
-            const direction = header.column.getIsSorted();
-            const label = flexRender(header.column.columnDef.header, header.getContext());
-            return (
-              <th
-                key={header.id}
-                style={meta?.align === "right" ? { textAlign: "right" } : undefined}
-                // Announced so a screen-reader user hears the current order, not just the label.
-                aria-sort={!canSort ? undefined : direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}
-              >
-                {canSort ? (
-                  <button
-                    type="button"
-                    className="thsort"
-                    onClick={header.column.getToggleSortingHandler()}
-                    aria-label={`${String(header.column.columnDef.header)} — sort this page`}
-                  >
-                    {label}
-                    <span aria-hidden="true" className="thsort-ind">
-                      {direction === "asc" ? "▲" : direction === "desc" ? "▼" : "↕"}
-                    </span>
-                  </button>
-                ) : (
-                  label
-                )}
-              </th>
-            );
-          })}
-        </tr>
-      </thead>
-      {data.length === 0 ? (
-        <tbody>
+    <div className="tablewrap" tabIndex={0} role="region" aria-label={ariaLabel}>
+      <table className={className} aria-label={ariaLabel}>
+        <thead>
           <tr>
-            <td colSpan={colCount}>{empty}</td>
+            {table.getHeaderGroups()[0]?.headers.map((header) => {
+              const meta = header.column.columnDef.meta as DataTableColumnMeta | undefined;
+              const canSort = header.column.getCanSort();
+              const direction = header.column.getIsSorted();
+              const label = flexRender(header.column.columnDef.header, header.getContext());
+              return (
+                <th
+                  key={header.id}
+                  style={meta?.align === "right" ? { textAlign: "right" } : undefined}
+                  // Announced so a screen-reader user hears the current order, not just the label.
+                  aria-sort={!canSort ? undefined : direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}
+                >
+                  {canSort ? (
+                    <button
+                      type="button"
+                      className="thsort"
+                      onClick={header.column.getToggleSortingHandler()}
+                      aria-label={`${String(header.column.columnDef.header)} — sort this page`}
+                    >
+                      {label}
+                      <span aria-hidden="true" className="thsort-ind">
+                        {direction === "asc" ? "▲" : direction === "desc" ? "▼" : "↕"}
+                      </span>
+                    </button>
+                  ) : (
+                    label
+                  )}
+                </th>
+              );
+            })}
           </tr>
-        </tbody>
-      ) : (
-        table.getRowModel().rows.map((row) => {
+        </thead>
+        {data.length === 0 ? (
+          <tbody>
+            <tr>
+              <td colSpan={colCount}>{empty}</td>
+            </tr>
+          </tbody>
+        ) : (
+          table.getRowModel().rows.map((row) => {
             const open = expandable ? expandable.isOpen(row.original) : false;
             return (
               <tbody key={row.id} className={open ? "xgroup open" : undefined}>
@@ -226,8 +227,9 @@ export function DataTable<Row>({
               </tbody>
             );
           })
-      )}
-      {footer ? <tfoot>{footer}</tfoot> : null}
-    </table>
+        )}
+        {footer ? <tfoot>{footer}</tfoot> : null}
+      </table>
+    </div>
   );
 }

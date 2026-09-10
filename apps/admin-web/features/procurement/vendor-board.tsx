@@ -188,7 +188,7 @@ export async function VendorBoardPage({
             {hasAnyFilter ? copy(pageContract, "empty.vendors") : copy(pageContract, "empty.vendors.unset")}
           </div>
         ) : (
-          <div className="twrap">
+          <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.vendors.aria")}>
             <table className="procurement-vendors-table" aria-label={copy(pageContract, "section.vendors.aria")}>
               <thead>
                 <tr>
