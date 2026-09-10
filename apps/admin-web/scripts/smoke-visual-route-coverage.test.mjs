@@ -111,3 +111,10 @@ test("visual smoke keeps every live sidebar leaf covered on desktop and narrow/m
     assert.doesNotMatch(routeEntry, /viewports:\s*\[/, `${routeName} must run in both laptop and mobile visual sweeps`);
   }
 });
+
+test("pager-required routes cannot pass silently when the pager is missing", () => {
+  const pagerBlock = smokeSource.match(/async function assertPaginationControls[\s\S]*?\n}\n\nasync function exerciseFirstPagerRoundTrip/)?.[0] ?? "";
+  assert.match(pagerBlock, /const bodyText = \(await page\.locator\("body"\)\.innerText\(\)\.catch\(\(\) => ""\)\)\.replace/);
+  assert.match(pagerBlock, /0 rows\|0 results\|Nothing\|No rows\|No data/);
+  assert.match(pagerBlock, /expected at least \$\{minimum\} pager2 footer\(s\), found none/);
+});
