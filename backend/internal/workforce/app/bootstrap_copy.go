@@ -542,6 +542,11 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		priority: 0,
 		contributions: []moduleNavContribution{
 			{key: "clock", labelKey: "nav.clock", href: "/clock", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
+			// Leave is its OWN bottom-bar destination beside My Clock (maintainer ask
+			// 2026-09-10), not a section of the punch screen: the person's own leave
+			// requests and the + that raises one. Ungated like the punch itself --
+			// everyone who clocks in may ask for leave (decision D2's shape).
+			{key: "my_leave", labelKey: "nav.leave", href: "/clock/leave", shared_key: "", priority: 2}, //nav-composition:ignore: registry entry
 			// The Team presence board is DELIBERATELY HIDDEN on mobile for now
 			// (maintainer decision 2026-08-29: "no need of this for some time").
 			// The screen, route, permission (ClockPresenceRead), and the
@@ -557,6 +562,11 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		// defect class, one mechanism over).
 		reviewContributions: []moduleNavContribution{
 			{key: "clock", labelKey: "nav.clock", href: "/clock", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
+			// Leave is its OWN bottom-bar destination beside My Clock (maintainer ask
+			// 2026-09-10), not a section of the punch screen: the person's own leave
+			// requests and the + that raises one. Ungated like the punch itself --
+			// everyone who clocks in may ask for leave (decision D2's shape).
+			{key: "my_leave", labelKey: "nav.leave", href: "/clock/leave", shared_key: "", priority: 2}, //nav-composition:ignore: registry entry
 		},
 	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the

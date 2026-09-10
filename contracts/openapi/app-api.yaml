@@ -38565,6 +38565,9 @@ components:
           type: string
         business_date:
           type: string
+        date_label:
+          type: string
+          description: Farm-readable short date ("10 Sep"), rendered verbatim.
         status:
           type: string
           description: open | closed | auto_closed; empty for a not-clocked-in row.

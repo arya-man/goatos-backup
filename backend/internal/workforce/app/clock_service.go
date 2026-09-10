@@ -48,6 +48,12 @@ func NewClockService(repo ports.ClockRepository, people ports.PeopleRepository, 
 const (
 	clockEventIn  = "clock_in"
 	clockEventOut = "clock_out"
+
+	// clockRecentWindowDays is the recent-days window the phone shows: the last
+	// 31 business days ending today (maintainer ask 2026-09-10). A bounded
+	// calendar window rather than an unbounded history, so the column beside
+	// Your leave stays one screen of scroll.
+	clockRecentWindowDays = 31
 )
 
 // Punch records a clock-in or clock-out. The integrity gate runs HERE, before
@@ -163,12 +169,16 @@ func (s *ClockService) Status(ctx context.Context, tenantID, actorID, localeTag,
 		}
 		return nil, err
 	}
-	today := biztime.BusinessDate(time.Now())
+	now := time.Now()
+	today := biztime.BusinessDate(now)
+	// The last 31 business days ending today (maintainer ask 2026-09-10). Today
+	// itself renders in the state card above, so the list holds at most 30 rows.
 	day, recent, err := s.repo.ClockDayForMember(ctx, ports.ClockStatusParams{
 		TenantID:          tenantID,
 		WorkforceMemberID: member.OperatorID,
 		BusinessDate:      today,
-		RecentLimit:       14,
+		RecentSince:       biztime.BusinessDate(now.AddDate(0, 0, -(clockRecentWindowDays - 1))),
+		RecentLimit:       clockRecentWindowDays,
 	})
 	if err != nil {
 		return nil, err
@@ -451,6 +461,17 @@ func composeEventDetail(ev ports.ClockEventRow) domain.ClockEventDetail {
 }
 
 // composeEntry turns a raw pairing row into the rendered contract row.
+// shortFarmDate renders a business DATE as the farm reads it in a narrow
+// column ("10 Sep"), never the raw ISO string. An unparseable date falls back
+// to itself rather than showing nothing.
+func shortFarmDate(businessDate string) string {
+	parsed, err := time.Parse("2006-01-02", businessDate)
+	if err != nil {
+		return businessDate
+	}
+	return parsed.Format("2 Jan")
+}
+
 func (s *ClockService) composeEntry(row ports.ClockEntryRow, personName, designation, roleHint string, parkLabel, departmentLabel *string, copyMap map[string]string) domain.ClockEntry {
 	today := biztime.BusinessDate(time.Now())
 	entry := domain.ClockEntry{
@@ -462,6 +483,7 @@ func (s *ClockService) composeEntry(row ports.ClockEntryRow, personName, designa
 		ParkLabel:         parkLabel,
 		DepartmentLabel:   departmentLabel,
 		BusinessDate:      row.BusinessDate,
+		DateLabel:         shortFarmDate(row.BusinessDate),
 		Status:            row.Status,
 		ClockInAt:         row.ClockInAt.UTC().Format(time.RFC3339),
 		ClockInLabel:      istClock(row.ClockInAt),
@@ -642,7 +664,7 @@ var clockCopyEN = map[string]string{
 	"filter.all":              "All",
 	"empty.presence":          "Nobody matches this filter.",
 	"empty.recent":            "No days recorded yet.",
-	"recent.title":            "Recent days",
+	"recent.title":            "Clockings",
 	"team.title":              "Team",
 	"check_again":             "Check again",
 	"role.operator":           "Operator",
@@ -709,7 +731,7 @@ var clockCopyHI = map[string]string{
 	"filter.all":              "सभी",
 	"empty.presence":          "इस फ़िल्टर में कोई नहीं मिला।",
 	"empty.recent":            "अभी कोई दिन दर्ज नहीं।",
-	"recent.title":            "पिछले दिन",
+	"recent.title":            "हाज़िरी",
 	"team.title":              "टीम",
 	"check_again":             "फिर जाँचें",
 	"role.operator":           "ऑपरेटर",
@@ -776,7 +798,7 @@ var clockCopyKN = map[string]string{
 	"filter.all":              "ಎಲ್ಲಾ",
 	"empty.presence":          "ಈ ಫಿಲ್ಟರ್‌ಗೆ ಯಾರೂ ಸಿಗಲಿಲ್ಲ.",
 	"empty.recent":            "ಇನ್ನೂ ಯಾವ ದಿನವೂ ದಾಖಲಾಗಿಲ್ಲ.",
-	"recent.title":            "ಇತ್ತೀಚಿನ ದಿನಗಳು",
+	"recent.title":            "ಹಾಜರಾತಿ",
 	"team.title":              "ತಂಡ",
 	"check_again":             "ಮತ್ತೆ ಪರಿಶೀಲಿಸಿ",
 	"role.operator":           "ಆಪರೇಟರ್",
@@ -843,7 +865,7 @@ var clockCopyTE = map[string]string{
 	"filter.all":              "అన్నీ",
 	"empty.presence":          "ఈ ఫిల్టర్‌కు ఎవరూ లేరు.",
 	"empty.recent":            "ఇంకా ఏ రోజూ నమోదు కాలేదు.",
-	"recent.title":            "ఇటీవలి రోజులు",
+	"recent.title":            "హాజరు",
 	"team.title":              "బృందం",
 	"check_again":             "మళ్లీ తనిఖీ చేయండి",
 	"role.operator":           "ఆపరేటర్",

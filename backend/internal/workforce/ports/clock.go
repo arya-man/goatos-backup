@@ -70,7 +70,11 @@ type ClockStatusParams struct {
 	TenantID          string
 	WorkforceMemberID string
 	BusinessDate      string
-	RecentLimit       int
+	// RecentSince is the INCLUSIVE floor of the recent-days window (maintainer
+	// ask 2026-09-10: the phone shows the last 31 days, not an unbounded
+	// history). Empty means no floor, the pre-window behaviour.
+	RecentSince string
+	RecentLimit int
 }
 
 // ClockPresenceParams is the whole-roster day read behind the presence board

@@ -41,6 +41,17 @@ object MeshaIcons {
         "M6.5 5.5h11a3 3 0 0 1 3 3v9a3 3 0 0 1 -3 3h-11a3 3 0 0 1 -3 -3v-9a3 3 0 0 1 3 -3z",
         "M3.5 10h17M8.5 3v4M15.5 3v4",
     )
+    /**
+     * Leave / days away: the calendar with the days crossed off. Distinct from [Calendar] on
+     * purpose -- the Calendar module and a person's leave are different things, and two bar
+     * items wearing one glyph is the defect the nav icon rules exist to stop.
+     */
+    val CalendarAway: ImageVector = strokeIcon(
+        "cal-away",
+        "M6.5 5.5h11a3 3 0 0 1 3 3v9a3 3 0 0 1 -3 3h-11a3 3 0 0 1 -3 -3v-9a3 3 0 0 1 3 -3z",
+        "M3.5 10h17M8.5 3v4M15.5 3v4",
+        "M9.5 13.5l5 5M14.5 13.5l-5 5",
+    )
     val Syringe: ImageVector = strokeIcon(
         "syringe",
         "M13 4.5 19.5 11M17.5 5.5 18.5 6.5M15.5 9 8.5 16l-3.5 1 1-3.5 7-7zM5.5 15.5 8.5 18.5",
@@ -441,8 +452,9 @@ object MeshaIcons {
         "shifting" -> Transfer
         // The approver's queue: a decision to be made, not a record to be captured.
         "approval", "approvals" -> CheckCircle
-        // The Leave tab of the Approvals module (maintainer decisions 2026-09-10): days away.
-        "leave" -> Calendar
+        // Leave: the Approvals module's queue tab, and the person's own My Leave bar item
+        // beside My Clock (maintainer decisions 2026-09-10). Days crossed off a calendar.
+        "leave", "my_leave" -> CalendarAway
         // Leadership weight history. Falls to the generic Module glyph without this, which is
         // the SAME grid icon the Tasks tab uses -- two tabs, one icon, in the same bar.
         // Growth is a TREND, not a snapshot -- and without its own glyph it fell through to the
