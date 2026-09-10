@@ -101,12 +101,17 @@ object GoatOsDates {
      */
     fun fromWireDate(value: String?): String {
         if (value.isNullOrBlank()) return ""
+        // exception:exempt a malformed date is RETURNED VERBATIM on purpose (see the doc above):
+        // the raw string makes a bad row visible to whoever can fix it, and there is no failure to
+        // record -- this is a formatting fallback on a display path, not a swallowed operation.
         return runCatching { date(LocalDate.parse(value)) }.getOrDefault(value)
     }
 
     /** `14/08/2026 09:30` from a wire ISO-8601 instant; unparseable values return unchanged. */
     fun fromWireInstant(value: String?): String {
         if (value.isNullOrBlank()) return ""
+        // exception:exempt same as fromWireDate above -- an unparseable instant is shown raw
+        // rather than hidden, and there is no operation that failed to report.
         return runCatching { dateTime(Instant.parse(value)) }.getOrDefault(value)
     }
 }
