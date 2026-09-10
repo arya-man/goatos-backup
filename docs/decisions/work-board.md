@@ -107,6 +107,53 @@ afterwards. "All parks" on the web is one request per park.
 - Milk feeding is farm-grain since migration 000097, so its "pen" is the park.
 - No "not moving" signal yet: that is the second half of the plan's phase 5.
 
+## The subtask read (the issue view)
+
+`GET /work-board/rows/{row_key}/subtasks` drills ONE row into the module's own units of
+work for the issue view: each subtask has a name (an animal tag verbatim, "Whole pen", a
+session, a medicine, a video), a short subtitle, an owner, a derived work state and lane,
+a needs-attention flag and a chain of STEPS (`todo`, `in_progress`, `in_review`, `done`,
+`rework`, `needs_attention`, `locked`). The grain is each module's own, and a row with no
+finer grain returns itself as one subtask -- a live row never drills into an empty list:
+
+| module | one subtask per | steps |
+|---|---|---|
+| weighing | scanned animal (tag verbatim, weight); the whole pen for a lump-sum bucket | scan/weigh -> submit -> verify -> close |
+| feed transport | attempt (plus the trip as a to-do before any attempt) | film -> verify |
+| verification | proof reference on the item (video / photo) | review |
+| counts approvals | the request (kids / animals as subtitle) | raise -> approve -> apply |
+| milk feeding | the session | prepare -> feed -> submit -> verify |
+| health | treatment step (medicine + dose + route, or the action) | give/do -> verify |
+| PC care | scanned animal (tag verbatim) | scan -> proof -> submit -> verify |
+| vaccination | animal in the pen for that drive (its obligation) | vaccinate -> verify |
+
+Rules that are the contract:
+
+- **Worst first, keyset-paged.** A keyset cannot follow a sort it does not key on, so the
+  RANK (needs attention 0, to do 1, in progress 2, in review 3, done 4) is the leading
+  segment of the subtask key, the sort is a plain ascending sort on the key, and each
+  source states the SQL twin of `domain.RankFor` once. `total` is the WHOLE count.
+  Default page 10, clamped to [10, 50].
+- **Same scope as the rows read.** The handler resolves the row on the caller's own board
+  through `FindRow` first (park scope, module visibility, the operator lens's own-rows
+  clamp) and 404s `row_not_found` otherwise; the service refuses a module outside the
+  query's visibility. A caller can drill only into what the board would have shown them.
+- **Isolation unchanged.** Each `ListSubtasks` is one bounded read inside the module's
+  package on its own child table (observations, attempts, media refs, steps, task animals)
+  plus workforce_members for a name. The vaccination drill lives in
+  `processintegrity/adapters/boardsource` and mirrors the process-integrity membership
+  predicates (batch + rule + shed + partition + execution date) on tables that read already
+  names; it needs the pool (`WithPool`).
+- **Copy firewall.** No uuid, dose code or protocol family name reaches a name, subtitle or
+  step; a vaccination subtitle composes through `ControlTowerDoseLabel`, an animal with no
+  active tag falls back to its display id, and the pen is always the pen.
+- **Hrefs are real routes only.** `Row.Href` is the module's admin-web page for that row:
+  `/weighing/weights?park=&weighing=` (no per-bucket page exists), `/feed/analytics`
+  (transport has no web page), `/verify?status=all&vi_row=`, `/approvals?ap_row=`,
+  `/counts/milk-preparation?mp_park=`, `/health/analytics` (reads no case parameter),
+  `/vaccination/execution/sheds/{shed_id}?scope_mode=park&park=&partition_label=`. PC care
+  has no web page and carries no href rather than a link that lands nowhere.
+
 ## The flag (phase 5, first half)
 
 `POST /work-board/flags` raises a **Leadership Task** to the park's head from a board
@@ -126,6 +173,8 @@ a park-scoped `park_head` grant first, then a tenant-scoped one whose per-person
 scope covers the park; a park with no head refuses (`park_head_missing`) rather than
 falling back to anyone.
 
-Pinned by `workboard/app` (keyset, module filter, owner push-down, summary),
-`workboard/adapters/http` (operator, park head, tenant-wide and director lenses), and
-one database round-trip test per source.
+Pinned by `workboard/app` (keyset, module filter, owner push-down, summary, the subtask
+source resolution and page bounds), `workboard/adapters/http` (operator, park head,
+tenant-wide and director lenses; the subtask read's row gate and codes), and one database
+round-trip test per source for rows and one for subtasks (output strings, step states,
+owner, worst-first order, keyset and total).
