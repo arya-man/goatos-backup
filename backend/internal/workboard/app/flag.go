@@ -3,50 +3,64 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
+	"time"
 
 	ltports "github.com/vgoats/goatos/backend/internal/leadershiptasks/ports"
+	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
 
 // FlagService raises a flag on a board row to the park head.
 type FlagService struct {
+	rows   ports.RowFinder
 	raiser ports.FlagRaiser
 	heads  ports.ParkHeadResolver
 }
 
-// NewFlagService constructs the service.
-func NewFlagService(raiser ports.FlagRaiser, heads ports.ParkHeadResolver) *FlagService {
-	return &FlagService{raiser: raiser, heads: heads}
+// NewFlagService constructs the service. rows is the board itself: the flagged row is looked
+// up on the caller's own board, never taken from the request.
+func NewFlagService(rows ports.RowFinder, raiser ports.FlagRaiser, heads ports.ParkHeadResolver) *FlagService {
+	return &FlagService{rows: rows, raiser: raiser, heads: heads}
 }
 
 // Errors the transport maps to stable codes.
 var (
 	ErrFlagRowRequired  = errors.New("workboard: flag needs a row")
+	ErrFlagRowNotFound  = errors.New("workboard: flagged row is not on the caller's board")
 	ErrFlagParkRequired = errors.New("workboard: flag needs a park")
 	ErrFlagNoteTooLong  = errors.New("workboard: flag note too long")
 )
 
 const maxNoteRunes = 1000
 
-// Flag composes the brief and raises it. The TITLE is the row's title under "Check", so the
-// park head's list reads as work, and the BODY carries the pen, the clock, the director's
-// note and the row key, so the trail leads back to the board.
+// Flag resolves the row on the caller's board, composes the brief from what the board
+// really served, and raises it. The TITLE is the row's title under "Check", so the park
+// head's list reads as work; the BODY carries the pen, the clock and the director's note.
+//
+// Looking the row up is the whole safety of the route: a caller cannot flag work outside
+// their park or module visibility, and cannot put words in the board's mouth, because the
+// title, pen and clock come from the row the board found, not from the request.
 func (s *FlagService) Flag(ctx context.Context, p ports.FlagParams) (ports.FlagResult, error) {
 	p.RowKey = strings.TrimSpace(p.RowKey)
-	p.RowTitle = strings.TrimSpace(p.RowTitle)
 	p.Note = strings.TrimSpace(p.Note)
-	if p.RowKey == "" || p.RowTitle == "" {
+	if p.RowKey == "" {
 		return ports.FlagResult{}, ErrFlagRowRequired
 	}
-	if strings.TrimSpace(p.ParkID) == "" {
+	if strings.TrimSpace(p.Board.ParkID) == "" {
 		return ports.FlagResult{}, ErrFlagParkRequired
 	}
 	if len([]rune(p.Note)) > maxNoteRunes {
 		return ports.FlagResult{}, ErrFlagNoteTooLong
 	}
-	head, err := s.heads.ParkHead(ctx, p.TenantID, p.ParkID)
+	row, found, err := s.rows.FindRow(ctx, p.Board, p.RowKey)
+	if err != nil {
+		return ports.FlagResult{}, err
+	}
+	if !found {
+		return ports.FlagResult{}, ErrFlagRowNotFound
+	}
+	head, err := s.heads.ParkHead(ctx, p.TenantID, p.Board.ParkID)
 	if err != nil {
 		return ports.FlagResult{}, err
 	}
@@ -55,8 +69,8 @@ func (s *FlagService) Flag(ctx context.Context, p ports.FlagParams) (ports.FlagR
 		ActorID:          p.ActorID,
 		ActorDesignation: p.ActorDesignation,
 		AssigneeUserID:   head.UserID,
-		Title:            FlagTitle(p.RowTitle),
-		Body:             FlagBody(p),
+		Title:            FlagTitle(row.Title),
+		Body:             FlagBody(row, p.Note),
 		IdempotencyKey:   p.IdempotencyKey,
 	})
 	if err != nil {
@@ -76,25 +90,32 @@ func FlagTitle(rowTitle string) string {
 	return title
 }
 
-// FlagBody is the brief, in farm words, ending with the row key so the trail leads back.
-func FlagBody(p ports.FlagParams) string {
+// FlagBody is the brief, in farm words only: the row's subtitle, its pen and clock, the
+// director's note, and the day it was flagged from. No row key, no id, no module token: the
+// park head reads it on a phone, and the copy firewall applies to a task body as much as to
+// a screen.
+func FlagBody(row domain.Row, note string) string {
 	lines := []string{}
-	if p.RowSubtitle != "" {
-		lines = append(lines, p.RowSubtitle)
+	if row.Subtitle != "" {
+		lines = append(lines, row.Subtitle)
 	}
 	where := []string{}
-	if p.PenDisplay != "" {
-		where = append(where, p.PenDisplay)
+	if row.Pen.Display != "" {
+		where = append(where, row.Pen.Display)
 	}
-	if p.ClockLabel != "" {
-		where = append(where, p.ClockLabel)
+	if row.ClockLabel != "" {
+		where = append(where, row.ClockLabel)
 	}
 	if len(where) > 0 {
 		lines = append(lines, strings.Join(where, " · "))
 	}
-	if p.Note != "" {
-		lines = append(lines, "", p.Note)
+	if note != "" {
+		lines = append(lines, "", note)
 	}
-	lines = append(lines, "", fmt.Sprintf("Flagged from the Work Board · %s", p.RowKey))
+	from := "Flagged from the Work Board"
+	if day, err := time.Parse("2006-01-02", row.BusinessDate); err == nil {
+		from += " · " + day.Format("02/01/2006")
+	}
+	lines = append(lines, "", from)
 	return strings.Join(lines, "\n")
 }

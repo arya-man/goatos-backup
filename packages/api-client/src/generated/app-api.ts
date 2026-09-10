@@ -7447,15 +7447,16 @@ export interface components {
             /** @description True when the read was clamped to the caller's own rows (no work_board.oversee). */
             own_rows_only: boolean;
         };
+        /** @description Names WHICH row on WHICH board. The row's title, pen and clock are resolved by the backend from the caller's own board, never accepted from the client; a row the caller cannot see is 404 row_not_found. */
         WorkBoardFlagRequest: {
             row_key: string;
             /** Format: uuid */
             park_id: string;
-            /** @description The row's backend-owned title */
-            row_title: string;
-            row_subtitle?: string;
-            pen_display?: string;
-            clock_label?: string;
+            /**
+             * Format: date
+             * @description The board day the row was seen on (Asia/Kolkata). Defaults to today.
+             */
+            business_date?: string;
             /** @description The director's own words. Optional. */
             note?: string;
         };

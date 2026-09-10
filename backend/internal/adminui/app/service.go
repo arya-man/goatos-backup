@@ -1883,6 +1883,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.flag_park_head_missing":       "This park has no park head to flag. Fix the park's people first.",
 			"action.flag_to_self":                 "You are this park's head; the flag would come back to you.",
 			"action.flag_park_head_not_reachable": "This park's head cannot receive tasks on the phone yet.",
+			"action.flag_row_not_found":           "That work is not on your board for this park and day. Refresh and try again.",
 			"action.flag_failed":                  "The flag could not be recorded. Try again.",
 			"tile.done":                           "Done",
 			"tile.pending":                        "Pending",

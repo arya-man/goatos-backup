@@ -6,6 +6,7 @@ import (
 
 	ltdomain "github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	ltports "github.com/vgoats/goatos/backend/internal/leadershiptasks/ports"
+	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 )
 
 // A FLAG is the director's phone call made visible (the Work Board Build Plan, phase 5):
@@ -36,20 +37,28 @@ type ParkHead struct {
 // rather than sent to a fallback; an unowned flag is exactly the silent drop the kernel bans.
 var ErrParkHeadMissing = errors.New("workboard: park has no park head")
 
-// FlagParams is what the director's screen sends. The row fields are the backend-owned
-// strings the board served that row with; the note is the director's own words.
+// FlagParams is what the director's screen sends: WHICH row (its key), on WHICH board
+// (the same bounds the read used), and the director's own words. The row's copy is never
+// taken from the client: the service looks the row up on the caller's board, so a flag can
+// only name work the caller can actually see, with the title the board really served.
 type FlagParams struct {
 	TenantID         string
 	ActorID          string
 	ActorDesignation string
-	ParkID           string
-	RowKey           string
-	RowTitle         string
-	RowSubtitle      string
-	PenDisplay       string
-	ClockLabel       string
-	Note             string
-	IdempotencyKey   string
+	// Board is the caller's own read bounds: tenant, park, business date and the modules
+	// the caller may see. The flagged row must be on it.
+	Board          domain.Query
+	RowKey         string
+	Note           string
+	IdempotencyKey string
+}
+
+// RowFinder is the board's own lookup of one row by key inside a caller's bounds.
+type RowFinder interface {
+	// FindRow returns the row the key names when it is on the board the query describes,
+	// or found=false when it is not there (absent, another park or day, or a module the
+	// caller cannot see). An unparseable key is domain.ErrInvalidRowKey.
+	FindRow(ctx context.Context, q domain.Query, rowKey string) (row domain.Row, found bool, err error)
 }
 
 // FlagResult is what the screen shows back.

@@ -749,7 +749,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Work Board (maintainer decision 2026-09-10): the cross-module read. Every module
 	// contributes a Source over its OWN tables; the board composes them here and reads no
 	// table itself. Registration order does not matter -- the service sorts into board order.
-	workBoardHandler := workboardhttp.NewHandler(workboardapp.NewService(
+	workBoardService := workboardapp.NewService(
 		weighingboard.New(pool, cfg.Postgres.QueryTimeout),
 		feedboard.New(pool, cfg.Postgres.QueryTimeout),
 		verificationboard.New(pool, cfg.Postgres.QueryTimeout),
@@ -760,7 +760,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// Vaccination reuses the process-integrity read behind the port; the member
 		// resolver is what lets the operator lens narrow it by user id.
 		piboard.New(processIntegrityRepo).WithMemberResolver(piboard.NewPoolMemberResolver(pool, cfg.Postgres.QueryTimeout)),
-	), log).WithFlags(workboardapp.NewFlagService(leadershipTasksService, workboardpg.NewParkHeadResolver(pool, cfg.Postgres.QueryTimeout)))
+	)
+	workBoardHandler := workboardhttp.NewHandler(workBoardService, log).WithFlags(workboardapp.NewFlagService(workBoardService, leadershipTasksService, workboardpg.NewParkHeadResolver(pool, cfg.Postgres.QueryTimeout)))
 	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" tab. The kernel
 	// raises them; this serves the park head's list and the submit that carries the live video.
 	// The module badge is the SUM of both halves of Tasks: unseen asks plus visits still owed.

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -257,5 +258,42 @@ func TestVisibleModulesFollowsModulePermissions(t *testing.T) {
 	}
 	if len(IntersectModules([]domain.Module{domain.ModuleHealth}, feedDirector)) != 0 {
 		t.Fatal("a request for an invisible module resolves to nothing, not to everything")
+	}
+}
+
+// TestFindRowStaysInsideTheCallersBoard: a key resolves only on the board the query
+// describes. A module outside the caller's visibility, a source the board does not have, or
+// an id the source does not hold all answer not-found; a bad key is refused, not swallowed;
+// and the walk pages the ONE named source in keyset order until the key matches.
+func TestFindRowStaysInsideTheCallersBoard(t *testing.T) {
+	weighing := mk(domain.ModuleWeighing, "weighing_work_item", 250, domain.WorkStateDue, "u1")
+	feed := mk(domain.ModuleFeed, "feed_transport_task", 3, domain.WorkStateDue, "u2")
+	svc := NewService(feed, weighing)
+
+	q := domain.Query{TenantID: "t", ParkID: "p", BusinessDate: "2026-09-10", Modules: []domain.Module{domain.ModuleWeighing, domain.ModuleFeed}}
+	row, found, err := svc.FindRow(context.Background(), q, "weighing|weighing_work_item|weighing_work_item-237")
+	if err != nil || !found || row.SourceID != "weighing_work_item-237" {
+		t.Fatalf("expected row 237, got found=%v row=%+v err=%v", found, row, err)
+	}
+	if len(feed.calls) != 0 {
+		t.Fatal("only the named source may be read")
+	}
+	if len(weighing.calls) != 3 || weighing.calls[1].AfterSourceID != "weighing_work_item-100" {
+		t.Fatalf("expected a keyset walk of the named source, got %d calls: %+v", len(weighing.calls), weighing.calls)
+	}
+
+	// The feed director's board holds feed only: the same weighing key is not there.
+	director := domain.Query{TenantID: "t", ParkID: "p", BusinessDate: "2026-09-10", Modules: []domain.Module{domain.ModuleFeed}}
+	if _, found, err := svc.FindRow(context.Background(), director, "weighing|weighing_work_item|weighing_work_item-237"); err != nil || found {
+		t.Fatalf("a module outside the caller's visibility must not resolve: found=%v err=%v", found, err)
+	}
+	if _, found, err := svc.FindRow(context.Background(), q, "feed|feed_transport_task|feed_transport_task-009"); err != nil || found {
+		t.Fatalf("an id the source does not hold must not resolve: found=%v err=%v", found, err)
+	}
+	if _, found, err := svc.FindRow(context.Background(), q, "health|health_treatment_session|h1"); err != nil || found {
+		t.Fatalf("a source the board does not have must not resolve: found=%v err=%v", found, err)
+	}
+	if _, _, err := svc.FindRow(context.Background(), q, "not-a-key"); !errors.Is(err, domain.ErrInvalidRowKey) {
+		t.Fatalf("a bad key is refused, got %v", err)
 	}
 }
