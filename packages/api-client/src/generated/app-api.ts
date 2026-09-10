@@ -8335,9 +8335,9 @@ export interface components {
             /** Format: date */
             date_to: string;
             items: components["schemas"]["FeedAnalyticsStockItem"][];
-            /** @description Per-farm Mesha-concentrate purchase/consumption rows, ordered by feed item then farm. */
+            /** @description Per-farm Mesha-concentrate family purchase/consumption rows, ordered by feed family then farm. */
             farm_items: components["schemas"]["FeedAnalyticsStockFarmItem"][];
-            /** @description Next-7-days feed requirement and cost, one row per (farm, feed item), ordered by farm then feed item. Keyed on what the farm actually FEEDS -- sheet-directed feeds and externally-tracked feeds alike -- so this list is wider than `farm_items`, which covers the four Mesha concentrates only. Always present, possibly empty. */
+            /** @description Next-7-days feed requirement and cost, one row per (farm, feed item), ordered by farm then feed item. Keyed on what the farm actually FEEDS -- sheet-directed feeds and externally-tracked feeds alike -- so this list is wider than `farm_items`, which reads the six Mesha concentrate successor/member keys and folds them to family rows. Always present, possibly empty. */
             forecast: components["schemas"]["FeedAnalyticsStockForecastItem"][];
             expenditure: components["schemas"]["FeedAnalyticsExpenditureDay"][];
             /** @description The same priced series at (feed day, feed item) grain, ordered by day then item key. */

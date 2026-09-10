@@ -885,7 +885,7 @@ type StockAnalytics struct {
 	Items []StockItem
 	// FarmItems is the per-farm Mesha-concentrate purchase/consumption table
 	// (MeshaConcentrateStockKeys only, folded to family grain by
-	// StockFamilyMerge), ordered by feed item then farm.
+	// StockFamilyMerge), ordered by feed family then farm.
 	FarmItems []StockFarmItem
 	// Forecast is the next-7-days requirement/cost table at (farm, feed item)
 	// grain over every fed feed, ordered by farm then item.
