@@ -21,6 +21,7 @@ export function ShedTagEditor({
   shedId,
   partitionLabel,
   currentTag,
+  currentTagLabel,
   emptyLabel,
   stages,
   enabled,
@@ -30,6 +31,15 @@ export function ShedTagEditor({
   shedId: string;
   partitionLabel: string;
   currentTag: string;
+  /**
+   * What the current tag READS AS, decided by the backend. Optional: absent falls back to the raw
+   * code, which is what every caller showed before stage labels existed.
+   *
+   * The VALUE is still `currentTag` -- the code is what the write stores and what the picker
+   * sends. Only the chip's words come from here, so a pen reading "Fattening male" still retags
+   * to F2-Male.
+   */
+  currentTagLabel?: string;
   emptyLabel: string;
   stages: StageOption[];
   enabled: boolean;
@@ -61,7 +71,7 @@ export function ShedTagEditor({
       choices={choices}
       enabled={enabled}
       disabledReason={disabledReason}
-      renderCurrent={(value) => <span className="tag">{value}</span>}
+      renderCurrent={(value) => <span className="tag">{currentTagLabel || value}</span>}
       onPreview={async (value) => {
         const result = await previewShedStageAction({ ...slice, management_stage: value });
         if (!result.ok) return { error: result.error.message || copy(pageContract, "action.retag.failed") };
