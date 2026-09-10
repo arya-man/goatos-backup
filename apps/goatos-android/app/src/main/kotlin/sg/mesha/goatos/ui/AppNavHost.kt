@@ -1533,7 +1533,7 @@ fun AppNavHost(
                                 return@ShedsScreen
                             }
                             val route = shedExecutionRoute(selected, Routes.VACCINATION)
-                            navController.navigate(route) { launchSingleTop = true }
+                            navController.navigate(route)
                         }
                         // /vaccination is an L0 backend nav root for operators. It must never
                         // expose an Up affordance or pop to a previous role/shell state. Hosted
@@ -2246,7 +2246,7 @@ fun AppNavHost(
                                         return@ShedsScreen
                                     }
                                     val route = shedExecutionRoute(selected, Routes.CALENDAR_DRIVE)
-                                    navController.navigate(route) { launchSingleTop = true }
+                                    navController.navigate(route)
                                 } else {
                                     // This branch previously did NOTHING — a leadership oversight
                                     // viewer's tap silently no-opped with no Toast and no signal at
@@ -2270,7 +2270,15 @@ fun AppNavHost(
             route = executionRoutePattern(Routes.SCAN),
             arguments = executionNavArguments(),
         ) { entry ->
-            val vm: ScanViewModel = hiltViewModel()
+            val scanVmKey = remember(entry) {
+                buildString {
+                    append("scan")
+                    append(":shed=").append(entry.arguments?.getString(Routes.SCAN_SHED_ARG).orEmpty())
+                    append(":task=").append(entry.arguments?.getString(Routes.EXECUTION_TASK_ARG).orEmpty())
+                    append(":partition=").append(entry.arguments?.getString(Routes.EXECUTION_PARTITION_ARG).orEmpty())
+                }
+            }
+            val vm: ScanViewModel = hiltViewModel(key = scanVmKey)
             val state by vm.state.collectAsStateWithLifecycle()
             LaunchedEffect(vm) {
                 vm.events.collect { event ->

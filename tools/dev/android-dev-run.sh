@@ -296,7 +296,7 @@ install_user="${GOATOS_ANDROID_INSTALL_USER:-$device_user}"
 [[ "$install_user" =~ ^[0-9]+$ ]] || die "invalid GOATOS_ANDROID_INSTALL_USER '$install_user'"
 [ "$install_user" = "$device_user" ] || die "refusing to install for Android user $install_user while foreground user is $device_user on $dev"
 log "installing on $dev for Android user $install_user ..."
-adb -s "$dev" install --user "$install_user" -r "$apk" >/dev/null
+adb -s "$dev" install --user "$install_user" -r -d "$apk" >/dev/null
 [ "$do_clear" = "1" ] && {
   adb -s "$dev" shell pm clear --user "$device_user" sg.mesha.goatos.dev >/dev/null 2>&1 || true
   log "cleared app data for foreground Android user $device_user (fresh token will be used)"

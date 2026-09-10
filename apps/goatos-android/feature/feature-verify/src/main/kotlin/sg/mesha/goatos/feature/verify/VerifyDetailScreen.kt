@@ -1007,6 +1007,10 @@ private fun VerifyProofPhoto(
     // enlarged is a proof the verifier has to approve on faith.
     var loadPhoto by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
     var isFullscreen by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
+    LaunchedEffect(media.signedUrl) {
+        loadPhoto = false
+        isFullscreen = false
+    }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))

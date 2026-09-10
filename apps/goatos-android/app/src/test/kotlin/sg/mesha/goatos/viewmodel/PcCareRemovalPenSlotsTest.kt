@@ -175,8 +175,8 @@ class PcCareRemovalPenSlotsTest {
         assertEquals(sg.mesha.goatos.feature.pccare.PcCareSlotState.SYNCED, feed.state)
         assertEquals(sg.mesha.goatos.feature.pccare.PcCareSlotState.SYNCED, water.state)
         assertEquals("Proof sent", feed.statusLabel)
-        assertEquals("https://proof.local/feed.mp4", feed.previewPath)
-        assertEquals("https://proof.local/water.mp4", water.previewPath)
+        assertTrue(feed.previewPath.endsWith("/app/proofs/server-proof-feed/download"))
+        assertTrue(water.previewPath.endsWith("/app/proofs/server-proof-water/download"))
         assertTrue(vm.state.value.submitEnabled)
         collectJob.cancel()
     }

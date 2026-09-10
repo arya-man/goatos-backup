@@ -286,7 +286,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     videoProofRowId = result.value.id
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingVideo = false, videoCaptured = false, videoMessage = PROOF_FAILED) }
+                        _state.update { it.copy(isCapturingVideo = false, videoCaptured = it.videoCaptured, videoMessage = PROOF_FAILED) }
                         return@launch
                     }
                     drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO, proofOutboxId)
@@ -310,7 +310,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
                         packingEventProps(ACTION_CAPTURE_FAILED) +
                             (AnalyticsEvents.Params.REASON to result.message),
                     )
-                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = false, videoMessage = PROOF_FAILED) }
+                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = it.videoCaptured, videoMessage = PROOF_FAILED) }
                 }
             }
         }

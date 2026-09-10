@@ -409,7 +409,6 @@ class MilkFeedingViewModel @Inject constructor(
     private fun reCaptureProof(code: String) = viewModelScope.launch {
         val oldProofOutboxId = captureDraft.proofs[code]
         proofKeys[code]?.invalidate()
-        draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(captured = false) else row }) }
         val current = state.value
         val proof = current.proofs.firstOrNull { it.code == code } ?: return@launch
         draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = true) else row }) }

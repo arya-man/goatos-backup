@@ -51,10 +51,14 @@ func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
 	if media[0].Answer != "No" {
 		t.Fatalf("media answer=%q, want No", media[0].Answer)
 	}
+	wantRoute := "/app/proofs/10000000-0000-4000-8000-000000000001/download"
+	if media[0].DownloadURL != wantRoute {
+		t.Fatalf("DownloadURL=%q, want backend route %q", media[0].DownloadURL, wantRoute)
+	}
 }
 
-func TestResolveMediaDownloadsProofsConcurrentlyAndCachesResults(t *testing.T) {
-	downloader := &countingArtifactDownloader{delay: 25 * time.Millisecond}
+func TestResolveMediaResolvesMetadataConcurrentlyAndCachesResults(t *testing.T) {
+	downloader := &countingArtifactMetadataReader{delay: 25 * time.Millisecond}
 	resolver := NewResolver(downloader)
 	proofIDs := []string{
 		"10000000-0000-4000-8000-000000000001",
@@ -72,8 +76,14 @@ func TestResolveMediaDownloadsProofsConcurrentlyAndCachesResults(t *testing.T) {
 	if len(media) != len(proofIDs) {
 		t.Fatalf("media len=%d, want %d", len(media), len(proofIDs))
 	}
+	for i, item := range media {
+		wantRoute := "/app/proofs/" + proofIDs[i] + "/download"
+		if item.DownloadURL != wantRoute {
+			t.Fatalf("media[%d].DownloadURL=%q, want backend route %q", i, item.DownloadURL, wantRoute)
+		}
+	}
 	if downloader.maxInFlight < 2 {
-		t.Fatalf("maxInFlight=%d, want concurrent downloads", downloader.maxInFlight)
+		t.Fatalf("maxInFlight=%d, want concurrent artifact metadata reads", downloader.maxInFlight)
 	}
 	if elapsed >= downloader.delay*time.Duration(len(proofIDs)) {
 		t.Fatalf("ResolveMedia took %s, expected less than serial duration %s", elapsed, downloader.delay*time.Duration(len(proofIDs)))
@@ -88,7 +98,25 @@ func TestResolveMediaDownloadsProofsConcurrentlyAndCachesResults(t *testing.T) {
 		t.Fatalf("cached media len=%d, want %d", len(media), len(proofIDs))
 	}
 	if downloader.calls != firstCalls {
-		t.Fatalf("cached ResolveMedia made %d extra downloads", downloader.calls-firstCalls)
+		t.Fatalf("cached ResolveMedia made %d extra artifact metadata reads", downloader.calls-firstCalls)
+	}
+}
+
+func TestResolveMediaWithoutArtifactDownloaderReturnsRouteWithoutSigning(t *testing.T) {
+	downloader := &countingRouteOnlyDownloader{}
+	resolver := NewResolver(downloader)
+	proofID := "10000000-0000-4000-8000-000000000001"
+
+	media, err := resolver.ResolveMedia(context.Background(), "00000000-0000-4000-8000-000000000001", []string{proofID})
+	if err != nil {
+		t.Fatalf("ResolveMedia() error = %v", err)
+	}
+	wantRoute := "/app/proofs/" + proofID + "/download"
+	if len(media) != 1 || media[0].DownloadURL != wantRoute {
+		t.Fatalf("media=%#v, want backend route %q", media, wantRoute)
+	}
+	if downloader.calls != 0 {
+		t.Fatalf("DownloadURL calls=%d, want 0; list reads must not mint signed URLs", downloader.calls)
 	}
 }
 
@@ -208,11 +236,11 @@ func (d richDownloader) DownloadURL(context.Context, string, string) (string, er
 	return d.url, nil
 }
 
-func (d richDownloader) DownloadArtifact(context.Context, string, string) (proofdomain.Artifact, string, error) {
-	return d.proof, d.url, nil
+func (d richDownloader) ArtifactMetadata(context.Context, string, string) (proofdomain.Artifact, error) {
+	return d.proof, nil
 }
 
-type countingArtifactDownloader struct {
+type countingArtifactMetadataReader struct {
 	delay       time.Duration
 	mu          sync.Mutex
 	calls       int
@@ -220,11 +248,20 @@ type countingArtifactDownloader struct {
 	maxInFlight int
 }
 
-func (d *countingArtifactDownloader) DownloadURL(context.Context, string, string) (string, error) {
-	return "", errors.New("DownloadArtifact should be used")
+type countingRouteOnlyDownloader struct {
+	calls int
 }
 
-func (d *countingArtifactDownloader) DownloadArtifact(_ context.Context, _ string, proofID string) (proofdomain.Artifact, string, error) {
+func (d *countingRouteOnlyDownloader) DownloadURL(context.Context, string, string) (string, error) {
+	d.calls++
+	return "https://signed.example/should-not-be-used", nil
+}
+
+func (d *countingArtifactMetadataReader) DownloadURL(context.Context, string, string) (string, error) {
+	return "", errors.New("ArtifactMetadata should be used")
+}
+
+func (d *countingArtifactMetadataReader) ArtifactMetadata(_ context.Context, _ string, proofID string) (proofdomain.Artifact, error) {
 	d.mu.Lock()
 	d.calls++
 	d.inFlight++
@@ -239,7 +276,7 @@ func (d *countingArtifactDownloader) DownloadArtifact(_ context.Context, _ strin
 	d.inFlight--
 	d.mu.Unlock()
 
-	return proofdomain.Artifact{ProofID: proofID, MimeType: "video/mp4"}, "https://signed.example/" + proofID, nil
+	return proofdomain.Artifact{ProofID: proofID, MimeType: "video/mp4"}, nil
 }
 
 type countingAvailabilityDownloader struct {

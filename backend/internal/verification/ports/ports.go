@@ -319,8 +319,8 @@ type ReviewEventRepository interface {
 	WatchStates(ctx context.Context, tenantID string, itemIDs []string) (map[string]domain.ItemWatchState, error)
 }
 
-// MediaResolver resolves proof IDs to streamed, signed download URLs via the EXISTING proof storage
-// port (proof.Service.DownloadURL) — verification never proxies or duplicates media bytes.
+// MediaResolver resolves proof IDs to backend proof download routes for queue/list reads.
+// It must not mint GCS signed URLs; the proof module signs only after explicit open/play/share.
 type MediaResolver interface {
 	ResolveMedia(ctx context.Context, tenantID string, proofIDs []string) ([]domain.MediaItem, error)
 }

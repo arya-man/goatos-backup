@@ -16,12 +16,11 @@ import (
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
-// ProofURLResolver turns a proof artifact id into a clickable, playable URL: a time-limited
-// signed HTTPS URL for GCS-backed proofs, an absolute HTTP URL against the local media server
-// for local_object proofs. It is the SAME resolver the mobile app uses to open proof media
-// (backend/internal/proof/app.Service.DownloadURL) -- the export must not invent a second
-// signing scheme. Optional: a Repository with no resolver configured falls back to emitting the
-// raw storage reference with an explanatory note instead of a URL.
+// ProofURLResolver turns a proof artifact id into a clickable backend proof route. Export can
+// touch many rows, so implementations must not mint signed GCS URLs here; the route should perform
+// auth, attribution logging, and signing only when a person explicitly opens the proof.
+// Optional: a Repository with no resolver configured falls back to emitting the raw storage
+// reference with an explanatory note instead of a URL.
 type ProofURLResolver interface {
 	ResolveProofDownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
 }

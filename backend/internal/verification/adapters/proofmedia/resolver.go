@@ -1,6 +1,6 @@
-// Package proofmedia adapts the EXISTING proof module's signed-URL download port to Verification's
-// ports.MediaResolver — verification never proxies or duplicates media bytes, it only resolves
-// streamed, signed download URLs at read time (verification-module-design.md §2.5).
+// Package proofmedia adapts proof ids to Verification media rows without minting GCS signed
+// download URLs during queue/list reads. The returned DownloadURL is the authenticated backend
+// proof route; the proof module signs only after an explicit open/play/share request.
 package proofmedia
 
 import (
@@ -19,14 +19,19 @@ import (
 
 const mediaCacheTTL = 5 * time.Minute
 
-// Downloader is the minimal slice of proof/app.Service this adapter needs. proofapp.Service already
-// satisfies this signature (DownloadURL(ctx, tenantID, proofID) (string, error)).
+// Downloader is the historical minimal slice of proof/app.Service this adapter accepted. It is
+// retained so older tests/fakes still compile; ResolveMedia no longer calls it because list reads
+// must not mint signed proof-media URLs.
 type Downloader interface {
 	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
 }
 
-type ArtifactDownloader interface {
-	DownloadArtifact(ctx context.Context, tenantID, proofID string) (proofdomain.Artifact, string, error)
+type ArtifactMetadataReader interface {
+	ArtifactMetadata(ctx context.Context, tenantID, proofID string) (proofdomain.Artifact, error)
+}
+
+type ArtifactMetadataBatchReader interface {
+	ArtifactMetadataByIDs(ctx context.Context, tenantID string, proofIDs []string) (map[string]proofdomain.Artifact, error)
 }
 
 // ObjectAvailabilityChecker is the slice of proof/app.Service that proves a stored object still
@@ -100,7 +105,47 @@ func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs [
 	out := make([]domain.MediaItem, len(proofIDs)) // Fixed-size array preserves ID order
 	actionIDForProof := make([]string, len(proofIDs))
 
-	rich, hasArtifactDownloader := r.proof.(ArtifactDownloader)
+	metadataReader, hasMetadataReader := r.proof.(ArtifactMetadataReader)
+	batchMetadataReader, hasBatchMetadataReader := r.proof.(ArtifactMetadataBatchReader)
+	missingMetadataIDs := make([]string, 0, len(proofIDs))
+	missingMetadataIndexes := make(map[string][]int, len(proofIDs))
+	if hasBatchMetadataReader {
+		seenIDs := make(map[string]struct{}, len(proofIDs))
+		for i, id := range proofIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if cached, actionID, ok := r.cachedMedia(tenantID, id); ok {
+				out[i] = cached
+				actionIDForProof[i] = actionID
+				continue
+			}
+			missingMetadataIndexes[id] = append(missingMetadataIndexes[id], i)
+			if _, seen := seenIDs[id]; seen {
+				continue
+			}
+			seenIDs[id] = struct{}{}
+			missingMetadataIDs = append(missingMetadataIDs, id)
+		}
+		proofs, err := batchMetadataReader.ArtifactMetadataByIDs(ctx, tenantID, missingMetadataIDs)
+		if err == nil {
+			for _, id := range missingMetadataIDs {
+				proof, ok := proofs[id]
+				if !ok {
+					continue
+				}
+				verificationLabel, _ := proof.Metadata["verification_label"].(string)
+				actionID, _ := proof.Metadata["action_id"].(string)
+				item := domain.MediaItem{ProofID: id, DownloadURL: proofDownloadRoute(id), MimeType: proof.MimeType, DurationMS: proof.DurationMS, Label: verificationLabel}
+				r.setCachedMedia(tenantID, id, item, actionID)
+				for _, i := range missingMetadataIndexes[id] {
+					out[i] = item
+					actionIDForProof[i] = actionID
+				}
+			}
+		}
+	}
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 16)
 
@@ -120,8 +165,8 @@ func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs [
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if hasArtifactDownloader {
-				proof, url, err := rich.DownloadArtifact(ctx, tenantID, id)
+			if hasMetadataReader {
+				proof, err := metadataReader.ArtifactMetadata(ctx, tenantID, id) // scale-guard:ignore: legacy fallback only; production proof service batches via ArtifactMetadataByIDs above
 				if err != nil {
 					return // Per-ID failure: leave out[i] with DownloadURL="" (zero value)
 				}
@@ -130,15 +175,11 @@ func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs [
 				if actionID, ok := proof.Metadata["action_id"].(string); ok && actionID != "" {
 					actionIDForProof[i] = actionID
 				}
-				out[i] = domain.MediaItem{ProofID: id, DownloadURL: url, MimeType: proof.MimeType, DurationMS: proof.DurationMS, Label: verificationLabel}
+				out[i] = domain.MediaItem{ProofID: id, DownloadURL: proofDownloadRoute(id), MimeType: proof.MimeType, DurationMS: proof.DurationMS, Label: verificationLabel}
 				r.setCachedMedia(tenantID, id, out[i], actionID)
 				return
 			}
-			url, err := r.proof.DownloadURL(ctx, tenantID, id)
-			if err != nil {
-				return // Per-ID failure: leave out[i] with DownloadURL="" (zero value)
-			}
-			out[i] = domain.MediaItem{ProofID: id, DownloadURL: url}
+			out[i] = domain.MediaItem{ProofID: id, DownloadURL: proofDownloadRoute(id)}
 			r.setCachedMedia(tenantID, id, out[i], "")
 		}()
 	}
@@ -179,6 +220,14 @@ func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs [
 		}
 	}
 	return out, nil
+}
+
+func proofDownloadRoute(proofID string) string {
+	proofID = strings.TrimSpace(proofID)
+	if proofID == "" {
+		return ""
+	}
+	return "/app/proofs/" + proofID + "/download"
 }
 
 // EnsureEvidenceAvailable stats each of this ONE item's proof objects (verification/ports.

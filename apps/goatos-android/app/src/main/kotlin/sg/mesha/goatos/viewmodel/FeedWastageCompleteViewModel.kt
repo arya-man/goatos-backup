@@ -252,7 +252,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
                     videoProofRowId = result.value.id
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingVideo = false, videoCaptured = false, videoMessage = PROOF_FAILED) }
+                        _state.update { it.copy(isCapturingVideo = false, videoCaptured = it.videoCaptured, videoMessage = PROOF_FAILED) }
                         return@launch
                     }
                     drafts.putProof(CaptureFlow.FEED_WASTAGE, groupKey, STEP_VIDEO, proofOutboxId)
@@ -274,7 +274,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
                         wastageEventProps(ACTION_CAPTURE_FAILED) +
                             (AnalyticsEvents.Params.REASON to result.message),
                     )
-                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = false, videoMessage = PROOF_FAILED) }
+                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = it.videoCaptured, videoMessage = PROOF_FAILED) }
                 }
             }
         }

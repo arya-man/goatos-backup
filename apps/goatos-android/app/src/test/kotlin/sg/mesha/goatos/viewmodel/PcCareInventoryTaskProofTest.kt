@@ -291,7 +291,7 @@ class PcCareInventoryTaskProofTest {
         assertEquals("Captured by Chandrakant", state.taskProofVideoSlot?.statusLabel)
         val previewPath = state.taskProofVideoSlot?.previewPath.orEmpty()
         assertTrue("relative proof URL should be made playable for the shared video preview", previewPath.startsWith("http://") || previewPath.startsWith("https://"))
-        assertTrue(previewPath.endsWith("/app/proofs/server-proof-video/download/signed?sig=abc"))
+        assertTrue(previewPath.endsWith("/app/proofs/server-proof-video/download"))
         assertEquals(PcCareProofPreviewKind.VIDEO, state.taskProofVideoSlot?.previewKind)
         assertFalse(state.submitEnabled)
         assertEquals("Record the fridge stock photo and video first", state.submitBlockedReason)
@@ -378,14 +378,13 @@ class PcCareInventoryTaskProofTest {
     }
 
     @Test
-    fun `feed water preview URL failures keep feed water event and server proof id`() = runTest(dispatcher) {
+    fun `feed water preview route keeps feed water event and server proof id`() = runTest(dispatcher) {
         val feedSlot = PcCareSlotDto(
             fieldKey = "feed_video",
             label = "Feed removal video",
         )
         val repo = FakePcCareRepository()
         val analytics = FakeAnalyticsPort()
-        repo.proofDownloadFailures += "server-proof-feed"
         repo.detailFlow.value = pcCareTaskDtoFixture(
             category = "feed_water_removal",
             expectedSlots = listOf(feedSlot),
@@ -407,9 +406,16 @@ class PcCareInventoryTaskProofTest {
         val collectJob = launch { vm.state.collect {} }
         runCurrent()
 
-        val event = analytics.events.last { it.second[AnalyticsEvents.Params.REASON] == "preview_url_unavailable" }
-        assertEquals(AnalyticsEvents.PC_CARE_FEED_WATER_PROOF_PREVIEW, event.first)
-        assertEquals("preview_url_unavailable", event.second[AnalyticsEvents.Params.REASON])
+        val slot = vm.state.value.taskProofSlots.single()
+        assertTrue(slot.previewPath.endsWith("/app/proofs/server-proof-feed/download"))
+        vm.onEvent(
+            PcCareTaskEvent.ProofPreviewAction(
+                slotFieldKey = "feed_video",
+                mediaKind = "video",
+                action = "play",
+            ),
+        )
+        val event = analytics.events.last { it.first == AnalyticsEvents.PC_CARE_FEED_WATER_PROOF_PREVIEW }
         assertEquals("server-proof-feed", event.second["server_proof_id"])
         assertEquals("feed_water_removal", event.second["category"])
         assertEquals("task_proof", event.second["capture_mode"])
@@ -473,7 +479,7 @@ class PcCareInventoryTaskProofTest {
         val vm = buildPcCareTaskViewModel(repo)
         val collectJob = launch { vm.state.collect {} }
         runCurrent()
-        assertEquals("https://proof.local/old-photo.jpg", vm.state.value.taskProofPhotoSlot?.previewPath)
+        assertTrue(vm.state.value.taskProofPhotoSlot?.previewPath?.endsWith("/app/proofs/server-proof-old/download") == true)
 
         repo.detailFlow.value = pcCareTaskDtoFixture(
             category = "inventory_vaccine",
@@ -488,7 +494,7 @@ class PcCareInventoryTaskProofTest {
         ).copy(captureMode = "task_proof")
         runCurrent()
 
-        assertEquals("https://proof.local/new-photo.jpg", vm.state.value.taskProofPhotoSlot?.previewPath)
+        assertTrue(vm.state.value.taskProofPhotoSlot?.previewPath?.endsWith("/app/proofs/server-proof-new/download") == true)
         collectJob.cancel()
     }
 
