@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtDate } from "@/lib/format";
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { Tag } from "@/components/ui-primitives";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
@@ -91,7 +92,9 @@ export function PensTable({
       sortValue: (row) => row.totalKg,
     },
     last_weighed: {
-      cell: (row) => row.lastWeighed ?? <span className="muted">{labels.neverWeighed}</span>,
+      // fmtDate on the CELL only: sortValue below keeps the raw ISO string, which sorts
+      // correctly as text where "08/09/2026" would not.
+      cell: (row) => (row.lastWeighed ? fmtDate(row.lastWeighed) : <span className="muted">{labels.neverWeighed}</span>),
       meta: { cellClassName: "num" },
       sortValue: (row) => row.lastWeighed ?? undefined,
     },

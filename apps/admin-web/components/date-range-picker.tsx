@@ -90,8 +90,12 @@ function formatMonth(date: Date): string {
   return new Intl.DateTimeFormat(DATE_DISPLAY_LOCALE, { month: "long", year: "numeric" }).format(date);
 }
 
+// The VISIBLE picker label is DD/MM/YYYY like every other date on the page (maintainer
+// decision 2026-09-10). formatFull*/aria-label below deliberately keeps the spoken long form
+// ("10 September 2026"): a screen reader announcing "ten slash oh nine slash twenty twenty
+// six" is worse, and an aria-label is not visible text.
 function formatShort(key: string): string {
-  return new Intl.DateTimeFormat(DATE_DISPLAY_LOCALE, { day: "2-digit", month: "short", year: "numeric" }).format(
+  return new Intl.DateTimeFormat(DATE_DISPLAY_LOCALE, { day: "2-digit", month: "2-digit", year: "numeric" }).format(
     parseDateKey(key),
   );
 }

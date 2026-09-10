@@ -11,7 +11,7 @@ import { WorklistFilters, type WorklistFilterField } from "@/components/worklist
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { PensTable, type PensTableRow } from "./pens-table";
-import { todayIso } from "@/lib/format";
+import { fmtDate, todayIso } from "@/lib/format";
 import {
   firstAuthRequiredError,
   getShedWeights,
@@ -386,7 +386,7 @@ export async function WeighingWeightsAnalyticsPage({
       <p className="muted small" style={{ margin: "0 0 -4px" }}>
         {copy(pageContract, "kpi.sheds.label")}: {summary.sheds_weighed} / {summary.sheds_in_scope}
         {" · "}
-        {periodStart} – {periodEnd}
+        {fmtDate(periodStart)} – {fmtDate(periodEnd)}
       </p>
 
       <div className="wt-tab-live">

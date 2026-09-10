@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import { redirect } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 
+import { fmtDate } from "@/lib/format";
 import { copy, optionGroup, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigExperiment } from "@/lib/api/server";
 import {
@@ -119,8 +120,8 @@ function EffectiveWindow({
         {copy(pageContract, open ? "label.effective_open" : "label.effective_closed")}
       </span>
       <span className="muted" style={{ fontSize: 11 }}>
-        {validFrom}
-        {validTo ? ` · ${validTo}` : ""}
+        {fmtDate(validFrom)}
+        {validTo ? ` · ${fmtDate(validTo)}` : ""}
       </span>
     </div>
   );

@@ -110,10 +110,15 @@ test("sheep and goat treatments roll up to one common adult annual campaign", ()
   assert.equal(campaigns[0].treatments.length, 2);
 });
 
-test("future drive date labels compress consecutive operator days", () => {
-  assert.equal(formatScheduledDriveDates(["2027-01-06", "2027-01-07"]), "6–7 Jan 2027");
-  assert.equal(formatScheduledDriveDates(["2026-07-24", "2026-07-25", "2026-07-26"]), "24–26 Jul 2026");
-  assert.equal(formatScheduledDriveDates(["2027-07-26"]), "26 Jul 2027");
+test("future drive date labels compress consecutive operator days into a DD/MM/YYYY range", () => {
+  // The RUN still collapses (that is about how many dates are listed); only the SHAPE changed —
+  // both ends render in full DD/MM/YYYY (maintainer decision 2026-09-10) instead of eliding the
+  // shared month, so a reader never meets a second date format.
+  assert.equal(formatScheduledDriveDates(["2027-01-06", "2027-01-07"]), "06/01/2027 – 07/01/2027");
+  assert.equal(formatScheduledDriveDates(["2026-07-24", "2026-07-25", "2026-07-26"]), "24/07/2026 – 26/07/2026");
+  assert.equal(formatScheduledDriveDates(["2027-07-26"]), "26/07/2027");
+  // a NON-consecutive set still lists each day, each in full
+  assert.equal(formatScheduledDriveDates(["2026-07-24", "2026-07-26"]), "24/07/2026, 26/07/2026");
 });
 
 test("executed drives render as grouped selector campaigns with operator-day completion splits", () => {
@@ -198,9 +203,13 @@ test("visible drive selector campaigns are sorted by date oldest to newest", () 
   ]);
 });
 
-test("actual vaccination date spans use leadership-readable dates", () => {
-  assert.equal(formatDateSpan("2026-07-24T00:00:00+05:30", "2026-07-26T00:00:00+05:30"), "24–26 Jul 2026");
-  assert.equal(formatDateSpan("2026-03-19T00:00:00+05:30", "2026-04-07T00:00:00+05:30"), "19 Mar–7 Apr 2026");
+test("actual vaccination date spans render both ends as DD/MM/YYYY", () => {
+  // One shape whether the ends share a month, share only a year, or share neither — the old
+  // elision produced four different shapes for one span.
+  assert.equal(formatDateSpan("2026-07-24T00:00:00+05:30", "2026-07-26T00:00:00+05:30"), "24/07/2026 – 26/07/2026");
+  assert.equal(formatDateSpan("2026-03-19T00:00:00+05:30", "2026-04-07T00:00:00+05:30"), "19/03/2026 – 07/04/2026");
+  assert.equal(formatDateSpan("2026-12-30T00:00:00+05:30", "2027-01-02T00:00:00+05:30"), "30/12/2026 – 02/01/2027");
+  assert.equal(formatDateSpan("2026-07-24T00:00:00+05:30", "2026-07-24T00:00:00+05:30"), "24/07/2026");
 });
 
 test("same-name same-window drives from two parks stay separate rows with their own park labels", () => {

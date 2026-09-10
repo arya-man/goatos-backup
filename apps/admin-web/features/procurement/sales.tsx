@@ -811,7 +811,7 @@ export async function SalesPage({
                   );
                   return (
                     <tr key={deal.deal_id}>
-                      {dealCell(deal.sale_date)}
+                      {dealCell(humanDate(deal.sale_date))}
                       {dealCell(deal.farm)}
                       {dealCell(<b>{deal.buyer_name}</b>)}
                       {dealCell(deal.product_type)}

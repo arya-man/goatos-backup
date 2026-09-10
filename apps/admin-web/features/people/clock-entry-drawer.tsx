@@ -11,6 +11,7 @@ import {
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ClockEntryDetail, ClockEventDetail } from "@/lib/api/server";
+import { fmtDate, fmtDateTime } from "@/lib/format";
 import { loadClockEntryDetailAction } from "./clock-actions";
 
 /** Reads the selected clocking from the address bar. "" means closed. */
@@ -131,8 +132,8 @@ export function ClockEntryDrawer({
           {event.event_type === "clock_in" ? k("event.clock_in") : k("event.clock_out")}
         </h4>
         <div className="metagrid">
-          {cell(k("captured_at"), new Date(event.captured_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }))}
-          {cell(k("recorded_at"), new Date(event.recorded_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }))}
+          {cell(k("captured_at"), fmtDateTime(event.captured_at))}
+          {cell(k("recorded_at"), fmtDateTime(event.recorded_at))}
           {cell(
             k("location"),
             event.location_status === "captured" ? event.address || coords : copy(pageContract, "clock.drawer.no_location"),
@@ -179,7 +180,7 @@ export function ClockEntryDrawer({
             <h2>{title}</h2>
             {entry ? (
               <div className="muted small" style={{ marginTop: 3 }}>
-                {entry.business_date}
+                {fmtDate(entry.business_date)}
                 {entry.designation ? ` · ${entry.designation}` : ""}
                 {entry.park_label ? ` · ${entry.park_label}` : ""}
               </div>

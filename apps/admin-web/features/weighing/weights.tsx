@@ -789,7 +789,7 @@ export async function WeighingWeightsPage({
       <p className="muted small" style={{ margin: "0 0 -4px" }}>
         {copy(pageContract, "kpi.sheds.label")}: {summary.sheds_weighed} / {summary.sheds_in_scope}
         {" · "}
-        {periodStart} – {periodEnd}
+        {fmtDate(periodStart)} – {fmtDate(periodEnd)}
       </p>
 
       {/* Five cards, not six (maintainer, 2026-08-12). The sixth was Median daily gain, which
@@ -1192,7 +1192,7 @@ export async function WeighingWeightsPage({
                         <td className="num">{kg(row.average_weight_kg)} kg</td>
                         <td className="num">{kg(row.total_weight_kg, 0)} kg</td>
                         <td className="num">
-                          {row.last_weighed_date ?? (
+                          {row.last_weighed_date ? fmtDate(row.last_weighed_date) : (
                             <span className="muted">
                               {copy(pageContract, "value.never_weighed")}
                             </span>

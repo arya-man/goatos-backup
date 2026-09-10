@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
+import { fmtDate } from "@/lib/format";
 import { copy, type AdminUiPageContract, type AdminUiTableContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigRationRate } from "@/lib/api/server";
 import { RationRateEditor, type SaveAction } from "./feed-config-editor";
@@ -34,8 +35,8 @@ function EffectiveWindow({
         {copy(pageContract, open ? "label.effective_open" : "label.effective_closed")}
       </span>
       <span className="muted" style={{ fontSize: 11 }}>
-        {validFrom}
-        {validTo ? ` · ${validTo}` : ""}
+        {fmtDate(validFrom)}
+        {validTo ? ` · ${fmtDate(validTo)}` : ""}
       </span>
     </div>
   );

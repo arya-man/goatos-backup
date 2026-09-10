@@ -464,12 +464,11 @@ func composeEventDetail(ev ports.ClockEventRow) domain.ClockEventDetail {
 // shortFarmDate renders a business DATE as the farm reads it in a narrow
 // column ("10 Sep"), never the raw ISO string. An unparseable date falls back
 // to itself rather than showing nothing.
+// shortFarmDate is a misnomer kept for its call sites: there is no SHORT visible date any
+// more. Every visible date is DD/MM/YYYY (maintainer decision 2026-09-10), so this is now
+// just the farm date, and an unparseable value is still returned unchanged.
 func shortFarmDate(businessDate string) string {
-	parsed, err := time.Parse("2006-01-02", businessDate)
-	if err != nil {
-		return businessDate
-	}
-	return parsed.Format("2 Jan")
+	return biztime.FarmDateFromBusinessDate(businessDate)
 }
 
 func (s *ClockService) composeEntry(row ports.ClockEntryRow, personName, designation, roleHint string, parkLabel, departmentLabel *string, copyMap map[string]string) domain.ClockEntry {

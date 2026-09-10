@@ -42,11 +42,14 @@ test("numCompactWhole rounds chart labels without decimal units", () => {
 });
 
 test("monthLabel and humanDate turn ISO values into farm-readable dates", () => {
-  assert.equal(monthLabel("2025-04"), "Apr 25");
-  assert.equal(monthLabel("2026-12"), "Dec 26");
+  // A MONTH heading has no day component, so it is not a date and keeps its own form — but with
+  // the year in full, because "Apr 25" reads as April 25th beside numeric dates.
+  assert.equal(monthLabel("2025-04"), "Apr 2025");
+  assert.equal(monthLabel("2026-12"), "Dec 2026");
   assert.equal(monthLabel("garbage"), "garbage");
-  assert.equal(humanDate("2025-04-15"), "15 Apr 2025");
-  assert.equal(humanDate("2026-08-11"), "11 Aug 2026");
+  // A DATE is DD/MM/YYYY everywhere (maintainer decision 2026-09-10).
+  assert.equal(humanDate("2025-04-15"), "15/04/2025");
+  assert.equal(humanDate("2026-08-11"), "11/08/2026");
   assert.equal(humanDate("not-a-date"), "not-a-date");
 });
 

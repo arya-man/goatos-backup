@@ -511,16 +511,14 @@ func datesLabel(startsOn, endsOn string, copyMap map[string]string) string {
 	if days == 1 {
 		unit = copyMap["unit.day"]
 	}
+	// Every visible date is DD/MM/YYYY (maintainer decision 2026-09-10), so a range renders
+	// both ends in full rather than eliding the shared month or year. The elision saved a few
+	// characters and cost the reader a second date shape to learn.
 	var window string
-	switch {
-	case start.Equal(end):
-		window = start.Format("2 Jan 2006")
-	case start.Year() == end.Year() && start.Month() == end.Month():
-		window = start.Format("2") + "–" + end.Format("2 Jan 2006")
-	case start.Year() == end.Year():
-		window = start.Format("2 Jan") + " – " + end.Format("2 Jan 2006")
-	default:
-		window = start.Format("2 Jan 2006") + " – " + end.Format("2 Jan 2006")
+	if start.Equal(end) {
+		window = biztime.FarmDate(start)
+	} else {
+		window = biztime.FarmDate(start) + " – " + biztime.FarmDate(end)
 	}
 	return fmt.Sprintf("%s · %d %s", window, days, unit)
 }

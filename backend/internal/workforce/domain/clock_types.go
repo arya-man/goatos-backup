@@ -94,8 +94,9 @@ type ClockEntry struct {
 	ParkLabel         *string `json:"park_label,omitempty"`
 	DepartmentLabel   *string `json:"department_label,omitempty"`
 	BusinessDate      string  `json:"business_date"`
-	// DateLabel is the farm-readable short form of BusinessDate ("10 Sep"),
-	// composed here so a narrow phone column never renders the raw ISO date.
+	// DateLabel is the farm-readable form of BusinessDate ("10/09/2026"), composed here so a
+	// narrow phone column never renders the raw ISO date. It carries the full year: every
+	// visible date is DD/MM/YYYY (maintainer decision 2026-09-10) and there is no short form.
 	DateLabel string `json:"date_label"`
 	// Status: open | closed | auto_closed. An `open` entry whose business day
 	// has already ended renders as not clocked out (the flags carry it); the
