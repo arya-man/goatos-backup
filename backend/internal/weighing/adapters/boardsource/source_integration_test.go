@@ -124,7 +124,7 @@ func byBucket(rows []domain.Row) map[string]domain.Row {
 // TestWeighingBoardRowsOnADatabaseRoundTrip asserts the OUTPUT STRINGS and states of every
 // branch, on a real database: the state mapping, the D+2 carry band, the pen display with
 // its partition, the owner resolved through the workforce profile, and the counts.
-func TestWeighingBoardRowsOnADatabaseRoundTrip(t *testing.T) {
+func TestWeighingBoardEveryStatusAndOneToManyScansOnADatabaseRoundTrip(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -198,7 +198,7 @@ func TestWeighingBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 
 // TestWeighingBoardScopeAndKeyset: owner scope, state filter and the keyset boundary all
 // happen in SQL, and the counts agree with the rows they summarise.
-func TestWeighingBoardScopeAndKeyset(t *testing.T) {
+func TestWeighingBoardParkScopePageBoundaryAndDateShift(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)

@@ -101,6 +101,7 @@ const approvalBaseWhere = `
   AND ` + approvalParkSQL + ` = $2::text
   AND $5::uuid IS NULL`
 
+// projection-review: membership=counts_approval_requests rows of ONE tenant whose park resolves to the requested park and whose created_at falls in the half-open IST business day, one row per request (primary key); group_key=(tenant_id, approval_request_id) for the list and the derived board_state for the count; join_cardinality=the request's own park/shed columns resolve through locations on their primary key (1:1) and the raiser through workforce_members on the partial-unique active (tenant_id,user_id) index (at most 1), so no join fans a request out; pagination=keyset on the request id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park, day range and the optional owner predicate, repeated verbatim in approvalCountSQL.
 const approvalListSQL = `
 WITH reqs AS (
   SELECT a.approval_request_id, a.request_type, a.status, a.raised_by_user_id, a.raised_at,
@@ -127,6 +128,7 @@ WHERE ($7::text[] IS NULL OR r.board_state = ANY($7::text[]))
 ORDER BY r.approval_request_id
 LIMIT $8`
 
+// projection-review: membership=counts_approval_requests rows of ONE tenant whose park resolves to the requested park and whose created_at falls in the half-open IST business day, one row per request (primary key); group_key=(tenant_id, approval_request_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=the request's own park/shed columns resolve through locations on their primary key (1:1) and the raiser through workforce_members on the partial-unique active (tenant_id,user_id) index (at most 1), so no join fans a request out; pagination=keyset on the request id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park, day range and the optional owner predicate, repeated verbatim in approvalCountSQL.
 const approvalCountSQL = `
 SELECT board_state, count(*)
 FROM (

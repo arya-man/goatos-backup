@@ -32,7 +32,7 @@ func seedShiftingEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ev
 INSERT INTO shifting_events (shifting_event_id, tenant_id, logical_shifting_event_key, priority, category,
   destination_park_id, destination_shed_id, raised_at, effective_at, source_system, source_ref,
   payload_hash, idempotency_key, request_fingerprint)
-VALUES ($1::uuid, $2::uuid, 'board-' || $1, 'normal', 'routine', $3::uuid, $4::uuid, now(), now(),
+VALUES ($1::uuid, $2::uuid, 'board-' || $1, 'low', 'growth', $3::uuid, $4::uuid, now(), now(),
   'goatos_canonical', 'board-test', 'hash-' || $1, 'board-shift-' || $1, 'fp-' || $1)
 ON CONFLICT (shifting_event_id) DO NOTHING`, eventID, apTenant, park, apShed)
 }

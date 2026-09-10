@@ -65,6 +65,8 @@ const NAVHOST = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/AppN
 // say why and what unblocks it. Removing an entry is the goal; adding one is a
 // maintainer decision, not a convenience.
 const PENDING_ALERTS_FEED = {
+  work_board:
+    "The Work Board is a READ over every other module's work (maintainer decision 2026-09-10); it raises no alerts of its own and its rows' alerts belong to the module that owns each row. An Alerts tab here would be a second, unscoped copy of those feeds.",
   counts:
     "GET /app/counts/alerts exists as a legacy per-recipient notification_requests compatibility feed, but Counts has no activated module-scoped lens over shared task/contact truth. The legacy source must be suppressed and retired at cutover, not promoted to canonical work state.",
   feed_direction:

@@ -67,7 +67,7 @@ func seedMilk(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[int]str
 		var id string
 		if err := pool.QueryRow(ctx, `
 INSERT INTO milk_feeding_tasks (tenant_id, park_id, shed_id, feeding_date, session_no, due_at, head_count, status, assigned_operator_id)
-VALUES ($1::uuid, $2::uuid, NULL, $3::date, $4, ($3::date + time '08:00' + make_interval(hours => ($4 - 1) * 4)) AT TIME ZONE 'Asia/Kolkata', 12, $5, nullif($6, '')::uuid)
+VALUES ($1::uuid, $2::uuid, NULL, $3::date, $4::int, ($3::date + time '08:00' + make_interval(hours => ($4::int - 1) * 4)) AT TIME ZONE 'Asia/Kolkata', 12, $5, nullif($6, '')::uuid)
 RETURNING task_id::text`, mkTenant, tk.park, tk.date, tk.session, tk.status, tk.operator).Scan(&id); err != nil {
 			t.Fatalf("seed milk task %+v: %v", tk, err)
 		}

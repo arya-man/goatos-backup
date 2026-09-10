@@ -108,6 +108,7 @@ const baseWhere = `
 // count lets the scanner append " +N". Assignees join workforce_members on user_id (the
 // assignee table stores user ids); an assignee with no active profile still counts and still
 // owns, but sorts last and renders a blank name.
+// projection-review: membership=pc_care_tasks rows of ONE tenant, park and due_business_date (canceled excluded), one row per task (primary key); group_key=(tenant_id, task_id) for the list and the derived board_state for the count; join_cardinality=the animal tallies are a LATERAL aggregate over pc_care_task_animals evaluated once per task (pre-aggregated, never a row fan-out), the owner is a LATERAL LIMIT 1 over pc_care_task_assignees ordered by the scoped caller then profile (one row), locations park/shed join on their primary key (1:1), and the owner-scope EXISTS on pc_care_task_assignees matches ANY assignee without multiplying rows; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, due_business_date and the optional assignee EXISTS, repeated verbatim in countSQL.
 const listSQL = `
 WITH tasks AS (
   SELECT t.task_id, t.category, t.park_id, t.shed_id, COALESCE(t.partition_label, '') AS partition_label,
@@ -149,6 +150,7 @@ WHERE ($6::text[] IS NULL OR i.board_state = ANY($6::text[]))
 ORDER BY i.task_id
 LIMIT $7`
 
+// projection-review: membership=pc_care_tasks rows of ONE tenant, park and due_business_date (canceled excluded), one row per task (primary key); group_key=(tenant_id, task_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=the animal tallies are a LATERAL aggregate over pc_care_task_animals evaluated once per task (pre-aggregated, never a row fan-out), the owner is a LATERAL LIMIT 1 over pc_care_task_assignees ordered by the scoped caller then profile (one row), locations park/shed join on their primary key (1:1), and the owner-scope EXISTS on pc_care_task_assignees matches ANY assignee without multiplying rows; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, due_business_date and the optional assignee EXISTS, repeated verbatim in countSQL.
 const countSQL = `
 SELECT board_state, count(*)
 FROM (
