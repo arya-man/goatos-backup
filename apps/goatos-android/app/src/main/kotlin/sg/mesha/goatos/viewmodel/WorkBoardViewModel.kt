@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.WorkBoardLanes
 import sg.mesha.goatos.core.data.WorkBoardQuery
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.data.WorkBoardRepository
 import sg.mesha.goatos.core.network.dto.WorkBoardRowDto
 import sg.mesha.goatos.core.network.dto.WorkBoardSummaryDto
@@ -39,8 +40,6 @@ import sg.mesha.goatos.feature.workboard.WorkBoardSeverity
 import sg.mesha.goatos.feature.workboard.WorkBoardUiState
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import javax.inject.Inject
 
 /**
@@ -292,13 +291,14 @@ private const val INDIA_ZONE = "Asia/Kolkata"
 /** Today's business date in Asia/Kolkata (the board's time grain is the IST day, never an instant). */
 internal fun todayIso(): String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString()
 
-private val DATE_LABEL_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.getDefault())
-
-/** The day as the reader sees it; an unparseable value renders as itself rather than crashing. */
+/**
+ * The day as the reader sees it: weekday + DD/MM/YYYY through GoatOsDates (maintainer decision
+ * 2026-09-10, every visible date renders DD/MM/YYYY). An unparseable value renders as itself.
+ */
 internal fun dateLabel(iso: String): String =
     // exception:exempt a display formatter over a value the ViewModel itself produced; the raw ISO
     // day is the honest fallback and stepDay already reports a parse failure on the write side.
-    runCatching { LocalDate.parse(iso).format(DATE_LABEL_FORMATTER) }.getOrDefault(iso)
+    runCatching { GoatOsDates.weekdayDate(LocalDate.parse(iso)) }.getOrDefault(iso)
 
 /** Maps one backend board row to its card. Backend copy is rendered verbatim; enums only colour it. */
 internal fun WorkBoardRowDto.toRowUi(): WorkBoardRowUi = WorkBoardRowUi(

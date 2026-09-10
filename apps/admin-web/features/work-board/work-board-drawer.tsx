@@ -64,7 +64,7 @@ function Detail({ pageContract, row }: { pageContract: AdminUiPageContract; row:
 }
 
 // The Flag form: raises a Leadership Task to the park head with this row's backend-owned
-// strings and an optional note. Rendered only when the page contract enables the control
+// strings and an optional note. Shown only when the page contract enables the control
 // (leadership_tasks.raise AND work_board.oversee); disabled with the backend's reason otherwise.
 function FlagForm({ pageContract, row, returnTo }: { pageContract: AdminUiPageContract; row: WorkBoardRow; returnTo: string }) {
   const enabled = controlEnabled(pageContract, "flag_park_head", false);

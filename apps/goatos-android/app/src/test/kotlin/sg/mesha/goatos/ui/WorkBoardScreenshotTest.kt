@@ -124,7 +124,7 @@ class WorkBoardScreenshotTest {
         ),
     ) = WorkBoardUiState(
         dateIso = "2026-09-10",
-        dateLabel = "Thu, 10 Sep",
+        dateLabel = "Thu 10/09/2026",
         isToday = true,
         lanes = if (hasSummary) lanes else lanes.map { it.copy(count = 0) },
         modules = if (hasSummary) modules else emptyList(),
