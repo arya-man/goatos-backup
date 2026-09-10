@@ -120,7 +120,9 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 		return domain.Summary{}, err
 	}
 	modules := q.Modules
-	if len(modules) == 0 {
+	if q.NoModules {
+		modules = []domain.Module{}
+	} else if len(modules) == 0 {
 		modules = s.RegisteredModules()
 	}
 	sum := domain.NewSummary(modules)

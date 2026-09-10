@@ -277,6 +277,10 @@ type Query struct {
 	OwnerUserID string
 	Limit       int
 	Cursor      Cursor
+	// NoModules means the caller may see nothing at all: an empty board, never an error,
+	// and never a sentinel module on the wire. Distinct from an empty Modules, which means
+	// every module.
+	NoModules bool
 }
 
 const (
@@ -310,6 +314,9 @@ func (q Query) Normalize() (Query, error) {
 
 // WantsModule reports whether the query includes m.
 func (q Query) WantsModule(m Module) bool {
+	if q.NoModules {
+		return false
+	}
 	if len(q.Modules) == 0 {
 		return true
 	}
