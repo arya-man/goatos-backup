@@ -535,7 +535,9 @@ const farmValuationSQL = `
 				WHEN g.milk_cohort = 'K0' OR g.management_stage = 'K0' THEN 'K0'
 				ELSE 'unmapped'
 			END AS bucket,
-			gw.weight_kg
+			gw.weight_kg,
+			g.management_stage,
+			g.milk_cohort
 			FROM public.goats g
 			LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id
 		LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id

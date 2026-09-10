@@ -117,6 +117,8 @@ func TestFarmValuationNotValuedBreakdownAggregateProjectionMultipleDimensionsPag
 	for _, want := range []string{
 		"not_valued AS",
 		"jsonb_agg(jsonb_build_object('label', label, 'count', animal_count) ORDER BY animal_count DESC, label)",
+		"g.management_stage",
+		"g.milk_cohort",
 		"coalesce(nullif(btrim(management_stage), ''), nullif(btrim(milk_cohort), ''), 'Unmapped') AS label",
 		"WHERE bucket = 'unmapped'",
 		"CROSS JOIN not_valued nv",
@@ -128,5 +130,22 @@ func TestFarmValuationNotValuedBreakdownAggregateProjectionMultipleDimensionsPag
 	}
 	if strings.Contains(farmValuationSQL, "LIMIT") || strings.Contains(farmValuationSQL, "OFFSET") {
 		t.Fatal("farm valuation not-valued breakdown must stay whole-inventory, not page-local")
+	}
+}
+
+func TestFarmValuationClassifiedProjectsNotValuedBreakdownInputs(t *testing.T) {
+	classifiedStart := strings.Index(farmValuationSQL, "classified AS (")
+	notValuedStart := strings.Index(farmValuationSQL, "not_valued AS (")
+	if classifiedStart < 0 || notValuedStart < 0 || notValuedStart <= classifiedStart {
+		t.Fatal("farm valuation SQL must keep classified before not_valued")
+	}
+	classified := farmValuationSQL[classifiedStart:notValuedStart]
+	for _, want := range []string{
+		"g.management_stage",
+		"g.milk_cohort",
+	} {
+		if !strings.Contains(classified, want) {
+			t.Fatalf("classified CTE must project %q for the not_valued breakdown", want)
+		}
 	}
 }
