@@ -78,6 +78,7 @@ const baseWhere = `
   AND t.status <> 'retired'
   AND ($4::uuid IS NULL OR t.operator_id = $4::uuid)`
 
+// projection-review: membership=feed_transport_tasks rows of ONE tenant, park and business date (retired excluded), one row per physical shed per day (feed_transport_tasks_daily_shed_uq); group_key=(tenant_id, task_id) for the list and the derived board_state for the count; join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), so no join fans a task out; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, business_date and the optional operator predicate, repeated verbatim in countSQL.
 const listSQL = `
 WITH tasks AS (
   SELECT t.task_id, t.park_id, t.shed_id, COALESCE(t.partition_label, '') AS partition_label,
@@ -100,6 +101,7 @@ WHERE ($6::text[] IS NULL OR x.board_state = ANY($6::text[]))
 ORDER BY x.task_id
 LIMIT $7`
 
+// projection-review: membership=feed_transport_tasks rows of ONE tenant, park and business date (retired excluded), one row per physical shed per day (feed_transport_tasks_daily_shed_uq); group_key=(tenant_id, task_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), so no join fans a task out; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, business_date and the optional operator predicate, repeated verbatim in countSQL.
 const countSQL = `
 SELECT board_state, count(*)
 FROM (

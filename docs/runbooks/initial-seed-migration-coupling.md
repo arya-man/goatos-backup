@@ -345,3 +345,24 @@ checksum. This is a checksum preservation repair, not a new protocol-data
 mutation: the existing seed path already writes Blue Tongue dose 2 as
 `blue_tongue_kid_19w` at 133 days with a 21-day minimum gap. No seed command,
 projection recompute, or clean-slate closeout step changes for this restoration.
+
+## Work Board access rows (migration 000291, 2026-09-10)
+
+`000291_work_board_person_access.sql` is a per-person ACCESS repair in the `000245` shape, not
+a source-data seed. It writes two kinds of rows and a fresh seed needs neither hand-filled:
+
+- `person_module_access` rows for `work_board` on every migrated person by ACTIVE ROLE GRANT
+  (CEO and the six director roles: web + mobile `{view, oversee}`; park heads: mobile
+  `{view, oversee}`; operators: mobile `{view}`). On a clean-slate seed these rows are produced
+  by the ordinary per-person backfill (`backend/cmd/backfill-person-access`), whose role map
+  (`permissions/capability_backfill.go`) now carries `work_board`; the migration exists only for
+  databases migrated BEFORE the module existed.
+- `department_module_grants` rows for `work_board` on every department that already carries a
+  phone module, so field principals are offered My work through their department and their own
+  mobile tick decides. A clean-slate seed that creates departments should add `work_board` to
+  each department's module set the same way it adds the operational modules.
+
+Verify after a seed: `SELECT surface, capabilities, count(*) FROM person_module_access WHERE
+module_key = 'work_board' GROUP BY 1, 2;` returns rows for every role above, and
+`GET /app/bootstrap` for an operator lists module `work_board` with the `/work` item.
+

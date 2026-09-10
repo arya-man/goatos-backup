@@ -77,6 +77,7 @@ const baseWhere = `
   AND w.work_state <> 'canceled'
   AND ($4::uuid IS NULL OR w.operator_user_id = $4::uuid)`
 
+// projection-review: membership=weighing_work_items rows of ONE tenant, park and due business date (canceled excluded), one row per campaign bucket (weighing_work_items_bucket_uidx); group_key=(tenant_id, work_item_id) for the list and the derived board_state for the count; join_cardinality=weighing_campaign_sheds joined on its primary key (1:1), locations park/shed on their primary key (1:1), workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), and the observed count is a CORRELATED SUBQUERY over weighing_observations per returned row, so nothing fans a bucket out; pagination=keyset on work_item_id ASC after $5, LIMIT $7, with the state filter inside WHERE so a page is never short after the cut; scope=tenant_id, park_id, due_business_date and the optional owner predicate, repeated verbatim in countSQL so rows and counts describe one set.
 const listSQL = `
 WITH items AS (
   SELECT w.work_item_id, w.campaign_id, w.campaign_shed_id, w.park_id, w.operator_user_id,
@@ -108,6 +109,7 @@ WHERE ($6::text[] IS NULL OR i.board_state = ANY($6::text[]))
 ORDER BY i.work_item_id
 LIMIT $7`
 
+// projection-review: membership=weighing_work_items rows of ONE tenant, park and due business date (canceled excluded), one row per campaign bucket (weighing_work_items_bucket_uidx); group_key=(tenant_id, work_item_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=weighing_campaign_sheds joined on its primary key (1:1), locations park/shed on their primary key (1:1), workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), and the observed count is a CORRELATED SUBQUERY over weighing_observations per returned row, so nothing fans a bucket out; pagination=keyset on work_item_id ASC after $5, LIMIT $7, with the state filter inside WHERE so a page is never short after the cut; scope=tenant_id, park_id, due_business_date and the optional owner predicate, repeated verbatim in countSQL so rows and counts describe one set.
 const countSQL = `
 SELECT board_state, count(*)
 FROM (

@@ -143,7 +143,7 @@ func (s *Source) CountByState(ctx context.Context, q ports.SourceQuery) (map[dom
 func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row, error) {
 	dayStart, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(q.BusinessDate), biztime.DefaultLocation())
 	if err != nil {
-		return nil, fmt.Errorf("vaccination boardsource: business date %q: %w", q.BusinessDate, domain.ErrInvalidQuery)
+		return nil, fmt.Errorf("vaccination boardsource: business date %q (%v): %w", q.BusinessDate, err, domain.ErrInvalidQuery)
 	}
 	memberID := ""
 	if q.OwnerUserID != "" {

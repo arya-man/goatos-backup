@@ -84,6 +84,7 @@ const baseWhere = `
   AND v.park_id = $4::uuid
   AND ($5::uuid IS NULL OR v.operator_id = $5::uuid)`
 
+// projection-review: membership=verification_items rows of ONE tenant and park whose captured_at falls in the half-open IST business day [day start, next day start), one row per item (primary key); group_key=(tenant_id, item_id) for the list and the derived board_state for the count; join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans an item out; pagination=keyset on item_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, the captured_at day range and the optional operator predicate, repeated verbatim in countSQL.
 const listSQL = `
 WITH items AS (
   SELECT v.item_id, v.category, v.park_id, v.shed_id, COALESCE(v.partition_label, '') AS partition_label,
@@ -106,6 +107,7 @@ WHERE ($7::text[] IS NULL OR x.board_state = ANY($7::text[]))
 ORDER BY x.item_id
 LIMIT $8`
 
+// projection-review: membership=verification_items rows of ONE tenant and park whose captured_at falls in the half-open IST business day [day start, next day start), one row per item (primary key); group_key=(tenant_id, item_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans an item out; pagination=keyset on item_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, the captured_at day range and the optional operator predicate, repeated verbatim in countSQL.
 const countSQL = `
 SELECT board_state, count(*)
 FROM (
