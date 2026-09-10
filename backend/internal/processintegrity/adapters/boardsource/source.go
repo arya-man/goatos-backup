@@ -256,15 +256,14 @@ func mapRow(pr pidomain.Row) domain.Row {
 		ownerState = domain.OwnerStateAssigned
 	}
 
-	// Copy for the card: the drive's own name when it has one, else the vaccine label; never
-	// the raw protocol name or dose code. ControlTowerDoseLabel composes through
-	// vaccination/domain.DoseDisplayLabel, the single backend-owned label source.
+	// Copy for the card: the vaccine/dose label, never the raw protocol name or dose code.
+	// ControlTowerDoseLabel composes through vaccination/domain.DoseDisplayLabel, the single
+	// backend-owned label source. The row's DriveName is deliberately NOT used: the
+	// process-integrity read synthesises it as "<protocol name> - <dose label>" whenever SQL
+	// carries no drive name, which put "Preventive Care Vaccination Matrix - HS adult course
+	// dose 1" on every card (2026-09-10 E2E) -- a banned raw protocol token on a screen.
 	doseLabel := pidomain.ControlTowerDoseLabel(pr.ProtocolName, pr.DoseCode)
-	head := doseLabel
-	if pr.DriveName != nil && strings.TrimSpace(*pr.DriveName) != "" {
-		head = strings.TrimSpace(*pr.DriveName)
-	}
-	title := head
+	title := doseLabel
 	if pen.Display != "" {
 		title += " · " + pen.Display
 	}
