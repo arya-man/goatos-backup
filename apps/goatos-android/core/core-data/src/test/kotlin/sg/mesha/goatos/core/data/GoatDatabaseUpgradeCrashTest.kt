@@ -415,9 +415,53 @@ class GoatDatabaseUpgradeCrashTest {
             //     test — only reopening a real old file and round-tripping each table catches it
             //     before an upgraded phone crashes on open.
             assertPenVisitTablesRoundTrip(upgraded, base = 260L)
+
+            // 20. The three v63 WORK BOARD tables (MIGRATION_62_63). Same MOB-007 proof: purely
+            //     additive, so an omitted or mis-shaped CREATE still passes every fresh-install
+            //     test — only reopening a real old file and round-tripping each table catches it
+            //     before an upgraded phone crashes on open.
+            assertWorkBoardTablesRoundTrip(upgraded, base = 280L)
         } finally {
             upgraded.close()
         }
+    }
+
+    /** Round-trips the three work-board tables so a missing/mismatched CREATE in MIGRATION_62_63
+     *  fails here — the MOB-007 upgrade-crash class — rather than on a phone. */
+    private suspend fun assertWorkBoardTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.workBoardItemDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.WorkBoardItemEntity(
+                    queryKey = "board",
+                    rowKey = "feed|feed_packing_completion|row-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.workBoardItemDao().countForQuery("board"))
+        assertEquals(base, upgraded.workBoardItemDao().observeRow("feed|feed_packing_completion|row-1").first()?.updatedAt)
+
+        upgraded.workBoardRemoteKeyDao().upsert(
+            sg.mesha.goatos.core.data.cache.WorkBoardRemoteKeyEntity(
+                queryKey = "board",
+                nextCursor = null,
+                endReached = true,
+                updatedAt = base + 1,
+            ),
+        )
+        assertEquals(true, upgraded.workBoardRemoteKeyDao().get("board")?.endReached)
+        assertEquals(null, upgraded.workBoardRemoteKeyDao().get("board")?.nextCursor)
+
+        upgraded.workBoardMetaCacheDao().upsert(
+            sg.mesha.goatos.core.data.cache.WorkBoardMetaCacheEntity(
+                cacheKey = "board",
+                dtoJson = "{}",
+                updatedAt = base + 2,
+            ),
+        )
+        assertEquals(base + 2, upgraded.workBoardMetaCacheDao().observe("board").first()?.updatedAt)
     }
 
     /** Round-trips the three pen-visit tables so a missing/mismatched CREATE in MIGRATION_61_62
@@ -1353,7 +1397,7 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51,
             MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56,
             MIGRATION_56_57, MIGRATION_57_58, MIGRATION_58_59, MIGRATION_59_60, MIGRATION_60_61,
-            MIGRATION_61_62,
+            MIGRATION_61_62, MIGRATION_62_63,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —

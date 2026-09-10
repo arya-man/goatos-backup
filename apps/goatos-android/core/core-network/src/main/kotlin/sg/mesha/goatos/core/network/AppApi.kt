@@ -79,6 +79,8 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
 import sg.mesha.goatos.core.network.dto.PenVisitDetailDto
 import sg.mesha.goatos.core.network.dto.PenVisitPageDto
+import sg.mesha.goatos.core.network.dto.WorkBoardRowsPageDto
+import sg.mesha.goatos.core.network.dto.WorkBoardSummaryDto
 import sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepDto
@@ -1796,6 +1798,36 @@ interface AppApi {
     /** GET /app/pen-visits/{task_id}. */
     suspend fun getPenVisit(taskId: String): PenVisitDetailDto
 
+    // ------------------------------------------------------------------
+    // Work Board (maintainer decision 2026-09-10) — the phone's My Work
+    // ------------------------------------------------------------------
+
+    /**
+     * GET /work-board/rows — one keyset page of every module's work for ONE park and ONE business
+     * day, normalised to one row shape. Scope is decided server-side: a caller without
+     * `work_board.oversee` is served only their own rows. [park] may be null for a park-scoped
+     * caller (the backend resolves their park); a tenant-wide caller must name it.
+     * [module] and [state] are comma-separated keys; [owner] is `me` or a user id.
+     */
+    suspend fun getWorkBoardRows(
+        park: String? = null,
+        businessDate: String? = null,
+        module: String? = null,
+        state: String? = null,
+        owner: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): WorkBoardRowsPageDto
+
+    /** GET /work-board/summary — WHOLE-FILTER lane/state/module counts for the same scope. */
+    suspend fun getWorkBoardSummary(
+        park: String? = null,
+        businessDate: String? = null,
+        module: String? = null,
+        state: String? = null,
+        owner: String? = null,
+    ): WorkBoardSummaryDto
+
     /**
      * POST /app/pen-visits/{task_id}/submit — the visit's one video, fenced on row_version.
      * Idempotent on [idempotencyKey]; 409 `already_submitted` means the visit is already done.
@@ -3302,6 +3334,24 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getPenVisit(taskId: String): PenVisitDetailDto =
         PenVisitDetailDto(task = sg.mesha.goatos.core.network.dto.PenVisitDto(taskId = taskId))
+
+    override suspend fun getWorkBoardRows(
+        park: String?,
+        businessDate: String?,
+        module: String?,
+        state: String?,
+        owner: String?,
+        limit: Int?,
+        cursor: String?,
+    ): WorkBoardRowsPageDto = WorkBoardRowsPageDto(businessDate = businessDate.orEmpty(), parkId = park.orEmpty())
+
+    override suspend fun getWorkBoardSummary(
+        park: String?,
+        businessDate: String?,
+        module: String?,
+        state: String?,
+        owner: String?,
+    ): WorkBoardSummaryDto = WorkBoardSummaryDto(businessDate = businessDate.orEmpty(), parkId = park.orEmpty())
 
     override suspend fun submitPenVisit(
         idempotencyKey: String,
