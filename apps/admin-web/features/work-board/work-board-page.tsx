@@ -19,6 +19,7 @@ import {
   PARAM_DATE,
   PARAM_LIMIT,
   PARAM_MODULE,
+  PARAM_MODULE_NONE,
   PARAM_OWNER,
   PARAM_PARK,
   PARAM_ROW,
@@ -52,7 +53,12 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const businessDate = requestedDate && DATE_RE.test(requestedDate) ? requestedDate : todayIso();
   const allModules = moduleOptions(pageContract);
   const allStates = stateOptions(pageContract);
-  const selectedModules = csv(sp, PARAM_MODULE).filter((key) => allModules.some((option) => option.key === key));
+  const requestedModules = csv(sp, PARAM_MODULE);
+  // "Clear all" in the Module menu is an explicit EMPTY selection, carried in the URL as a
+  // sentinel the API would refuse; the page reads nothing for it and renders empty columns,
+  // exactly as the mock does. A missing or all-valid list means every module the caller has.
+  const noneSelected = requestedModules.includes(PARAM_MODULE_NONE);
+  const selectedModules = noneSelected ? [] : requestedModules.filter((key) => allModules.some((option) => option.key === key));
   const selectedStates = csv(sp, PARAM_STATE).filter((key) => isWorkState(key, allStates));
   const owner = one(sp, PARAM_OWNER);
   const pageSizes = tablePageSizes(pageContract, "work-board");
@@ -68,14 +74,23 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   }
 
   const boardScope = { park: park.key, businessDate, modules: selectedModules, states: selectedStates, owner };
-  const [rowsResult, summaryResult] = await Promise.all([listWorkBoardRows(boardScope, { limit, cursor }), getWorkBoardSummary(boardScope)]);
-  if (firstAuthRequiredError(rowsResult, summaryResult)) redirect(INTERNAL_LOGIN_PATH);
+  // The wire's `modules` is the caller's set INTERSECTED with the request filter, so while a
+  // module filter is on, the Module menu's vocabulary comes from one unfiltered summary read
+  // (bounded: three small reads at most). With no filter, the filtered summary IS that read.
+  const vocabularyScope = { park: park.key, businessDate };
+  const [rowsResult, summaryResult, vocabularyResult] = await Promise.all([
+    noneSelected ? null : listWorkBoardRows(boardScope, { limit, cursor }),
+    noneSelected ? null : getWorkBoardSummary(boardScope),
+    noneSelected || selectedModules.length ? getWorkBoardSummary(vocabularyScope) : null,
+  ]);
+  if (firstAuthRequiredError(...[rowsResult, summaryResult, vocabularyResult].filter((result) => result !== null))) redirect(INTERNAL_LOGIN_PATH);
 
-  const rows: WorkBoardRow[] = rowsResult.ok ? rowsResult.data.rows : [];
-  const summary = summaryResult.ok ? summaryResult.data : null;
-  const ownRowsOnly = rowsResult.ok ? rowsResult.data.own_rows_only : false;
-  const visibleModules = rowsResult.ok ? modulesVisible(allModules, rowsResult.data.modules) : allModules;
-  const nextCursor = rowsResult.ok ? rowsResult.data.next_cursor : undefined;
+  const rows: WorkBoardRow[] = rowsResult?.ok ? rowsResult.data.rows : [];
+  const summary = summaryResult?.ok ? summaryResult.data : null;
+  const ownRowsOnly = (rowsResult?.ok ? rowsResult.data.own_rows_only : vocabularyResult?.ok ? vocabularyResult.data.own_rows_only : false) ?? false;
+  const vocabulary = vocabularyResult ? (vocabularyResult.ok ? vocabularyResult.data.modules : null) : rowsResult?.ok ? rowsResult.data.modules : null;
+  const visibleModules = vocabulary ? modulesVisible(allModules, vocabulary) : allModules;
+  const nextCursor = rowsResult?.ok ? rowsResult.data.next_cursor : undefined;
   const nextHref = hrefWithPagedCursor(WORK_BOARD_PATH, sp, PARAM_CURSOR, nextCursor ?? null);
   const previousHref = hrefPreviousPagedCursor(WORK_BOARD_PATH, sp, PARAM_CURSOR);
   const selectedRow = one(sp, PARAM_ROW);
@@ -85,12 +100,20 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const closeHref = hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: undefined });
   const dateHref = (day: string) => hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_DATE]: day, [PARAM_CURSOR]: undefined, page: undefined, [`${PARAM_CURSOR}_stack`]: undefined });
   const isToday = businessDate === todayIso();
-  const error = !rowsResult.ok ? rowsResult.error.message : !summaryResult.ok ? summaryResult.error.message : null;
+  const failed = [rowsResult, summaryResult, vocabularyResult].find((result) => result !== null && !result.ok);
+  const error = failed && !failed.ok ? failed.error.message : null;
 
   const parkHrefs = Object.fromEntries(parks.map((option) => [option.key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_PARK]: option.key, scope_mode: "park", [PARAM_OWNER]: undefined, [PARAM_CURSOR]: undefined, page: undefined, [`${PARAM_CURSOR}_stack`]: undefined })]));
   const hrefForRow = Object.fromEntries(rows.map((row) => [row.row_key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: row.row_key })]));
-  const roleline = `${visibleModules.length === allModules.length ? copy(pageContract, "roleline.all_modules") : visibleModules.map((option) => option.label).join(" + ")} · ${park.label}`;
-  const first = rows.length ? 1 : 0;
+  // The role line names the SELECTION, as the mock does: every module the caller has, the
+  // chosen few, or none at all.
+  const chosenModules = noneSelected ? [] : selectedModules.length ? visibleModules.filter((option) => selectedModules.includes(option.key)) : visibleModules;
+  const modulesLine = noneSelected ? copy(pageContract, "roleline.none") : chosenModules.length === visibleModules.length ? copy(pageContract, "roleline.all_modules") : chosenModules.map((option) => option.label).join(" + ");
+  const roleline = `${modulesLine} · ${park.label}`;
+  // The showing line counts from the page number the cursor helper tracks in the URL.
+  const pageNumber = boundedInt(one(sp, "page"), 1, 1, 1000000);
+  const first = rows.length ? (pageNumber - 1) * limit + 1 : 0;
+  const last = (pageNumber - 1) * limit + rows.length;
 
   return (
     <div className="wb">
@@ -118,6 +141,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
           summary={summary}
           moduleOptions={visibleModules}
           selectedModules={selectedModules}
+          noneSelected={noneSelected}
           owners={ownersOnPage(rows)}
           selectedOwner={owner}
           ownRowsOnly={ownRowsOnly}
@@ -132,13 +156,13 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
         />
       )}
 
-      {!error && rows.length === 0 && (summary?.total ?? 0) === 0 ? (
+      {!error && !noneSelected && rows.length === 0 && (summary?.total ?? 0) === 0 ? (
         <div className="note muted small" style={{ marginTop: 8 }}>{ownRowsOnly ? copy(pageContract, "state.empty.own_rows") : copy(pageContract, "state.empty")}</div>
       ) : null}
 
       <div className="pager">
         <span>
-          {copy(pageContract, "drawer.subtasks.showing")} <b>{first}–{rows.length}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{summary?.total ?? rows.length}</b> {copy(pageContract, "pager.rows")}
+          {copy(pageContract, "drawer.subtasks.showing")} <b>{first}–{last}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{summary?.total ?? rows.length}</b> {copy(pageContract, "pager.rows")}
         </span>
         <span className="pgnav">
           {previousHref ? (

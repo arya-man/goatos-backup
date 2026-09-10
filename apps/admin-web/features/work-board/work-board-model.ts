@@ -13,6 +13,9 @@ export const PARAM_OWNER = "owner";
 export const PARAM_LIMIT = "limit";
 export const PARAM_CURSOR = "cursor";
 export const PARAM_ROW = "row";
+// The Module menu's "Clear all": an explicit empty selection in the URL (the API has no such
+// value; the page reads nothing for it).
+export const PARAM_MODULE_NONE = "__none__";
 
 const TONES: Tone[] = ["ok", "warn", "dng", "info", "mut", "pur", "teal"];
 
