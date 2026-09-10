@@ -4835,6 +4835,8 @@ select:disabled { opacity: .45; }
 .wb .pgnav .more{font:inherit;font-size:12.5px;font-weight:700;padding:6px 10px;color:var(--brand);border:1px solid var(--line);border-radius:8px;background:var(--panel);text-decoration:none}
 .wb .pgnav .more[aria-disabled="true"]{opacity:.4;pointer-events:none}
 @media (max-width:900px){.wb .board{grid-template-columns:repeat(4,minmax(260px,1fr))}.wb .tbar{overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px}.wb .tbar>*{flex:none}}
+/* touch widths: the 40px tap target lives on the search box itself, not stacked on top of its padding */
+@media (max-width:560px){.wb .tsearch{min-height:40px;padding:0 10px}.wb .tsearch input{min-height:0}}
 
 /* issue view (Jira issue-view shape) */
 .wb-scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:150;border:0;padding:0;display:none;width:100%}
@@ -4869,6 +4871,8 @@ select:disabled { opacity: .45; }
 .wb-modal .status.todo{background:var(--panel-2);color:var(--ink)} .wb-modal .status.in_progress{background:var(--infox);color:var(--info);border-color:transparent} .wb-modal .status.in_review{background:var(--warnx);color:var(--warn);border-color:transparent} .wb-modal .status.done{background:var(--okx);color:var(--brand);border-color:transparent}
 .wb-modal .dets{border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .wb-modal .dets .dh{display:flex;align-items:center;gap:8px;padding:12px 14px;font-weight:700;border-bottom:1px solid var(--line2)}
+.wb-modal .dets .dh .sp{flex:1}
+.wb-modal .dets .dh .ic{width:15px;height:15px;color:var(--faint)}
 .wb-modal .dets .kv{display:grid;grid-template-columns:120px 1fr;gap:12px;padding:9px 14px;align-items:center;font-size:13.5px}
 .wb-modal .dets .kv .k{color:var(--muted);font-weight:600}
 .wb-modal .dets .kv .v{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
