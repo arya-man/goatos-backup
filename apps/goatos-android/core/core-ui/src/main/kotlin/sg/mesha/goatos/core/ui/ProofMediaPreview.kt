@@ -811,6 +811,7 @@ private fun ProofMediaFullscreenDialog(
             playerFactory.create(context).apply {
                 setMediaItem(MediaItem.fromUri(Uri.parse(path)), startPositionMs.coerceAtLeast(0L))
                 playWhenReady = false
+                prepare()
             }
         }
     }
