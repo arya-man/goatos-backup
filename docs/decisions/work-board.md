@@ -90,8 +90,19 @@ afterwards. "All parks" on the web is one request per park.
 - The vaccination source walks the park-day through the process-integrity cursor and
   sorts by row id (bounded, ≤20 pages); a native row-id keyset on that read would make
   it one query.
-- No "not moving" signal and no director-to-park-head flag yet: those are the next
-  phase of the plan.
+- No "not moving" signal yet: that is the second half of the plan's phase 5.
+
+## The flag (phase 5, first half)
+
+`POST /work-board/flags` raises a **Leadership Task** to the park's head from a board
+row: title "Check · <row title>", body = the row's subtitle, pen and clock, the
+director's note, and the row key. It rides the Leadership Tasks module for its number,
+status ladder, notes and push, so the board builds no task table of its own. Gated on
+`work_board.oversee` + `leadership_tasks.raise` at the route and on the `flag_park_head`
+page control (the two halves of the capability-gated lock). The park head resolves from
+a park-scoped `park_head` grant first, then a tenant-scoped one whose per-person park
+scope covers the park; a park with no head refuses (`park_head_missing`) rather than
+falling back to anyone.
 
 Pinned by `workboard/app` (keyset, module filter, owner push-down, summary),
 `workboard/adapters/http` (operator, park head, tenant-wide and director lenses), and
