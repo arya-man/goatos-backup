@@ -123,7 +123,7 @@ func TestVaccinationBoardMapsRowsAndNeverLeaksDoseCodes(t *testing.T) {
 	if drive.Module != domain.ModuleVaccination || drive.SourceType != SourceType || drive.RowKey != "vaccination|"+SourceType+"|"+rowA {
 		t.Errorf("identity %s/%s/%s", drive.Module, drive.SourceType, drive.RowKey)
 	}
-	if drive.Title != "CBE adult drive · Godel 1 - Part 3" || drive.Subtitle != "ET+TT adult course dose 1 · 40 animals" {
+	if drive.Title != "ET+TT adult course dose 1 · Godel 1 - Part 3" || drive.Subtitle != "ET+TT adult course dose 1 · 40 animals" {
 		t.Errorf("drive copy title=%q subtitle=%q", drive.Title, drive.Subtitle)
 	}
 	if drive.WorkState != domain.WorkStateDue || drive.Lane != domain.LaneToDo || drive.Severity != domain.SeverityWatch {
