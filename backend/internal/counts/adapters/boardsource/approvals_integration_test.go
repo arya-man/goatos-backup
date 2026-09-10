@@ -23,6 +23,7 @@ const (
 	apGoat     = "00000000-0000-4000-8000-00000000b601"
 	apEventA   = "00000000-0000-4000-8000-00000000b701"
 	apEventB   = "00000000-0000-4000-8000-00000000b702"
+	apParty    = "00000000-0000-4000-8000-00000000b801"
 	apDate     = "2026-09-10"
 )
 
@@ -42,9 +43,9 @@ type approvalSeed struct {
 	shiftingEvent, subjectGoat                     string
 }
 
-// seedApprovals lays down the three statuses across birth and pen-move requests, a death (no
-// park in its payload, so never on a park board), a pen move at the other park, and two rows
-// that sit on either side of the IST day boundary.
+// seedApprovals lays down the three statuses across birth and pen-move requests, a death
+// (attributed to its subject animal's own park and pen), a pen move at the other park, and
+// two rows that sit on either side of the IST day boundary.
 func seedApprovals(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[string]string {
 	t.Helper()
 	seedOrg(t, ctx, pool, apTenant, apPark, apOtherPk, apMember, apRaiser)
@@ -54,6 +55,17 @@ VALUES ($1::uuid, $2::uuid, 'shed', 'GODEL1', 'Godel 1', $3::uuid, 'active')
 ON CONFLICT (location_id) DO NOTHING`, apShed, apTenant, apPark)
 	seedShiftingEvent(t, ctx, pool, apEventA, apPark)
 	seedShiftingEvent(t, ctx, pool, apEventB, apOtherPk)
+	// The death's subject animal lives in Godel 1 - Part 3 at this park; the board reads its
+	// park and pen from the animal itself (goats.custodian_party_id is a real FK).
+	exec(t, ctx, pool, `INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1::uuid, 'org', 'Board Farm', 'active') ON CONFLICT (party_id) DO NOTHING`, apParty)
+	exec(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, species, sex, lifecycle_status, custodian_party_id, park_id, shed_id, current_location_id, origin_type, dob, entry_date)
+VALUES ($1::uuid, $2::uuid, 'goat', 'female', 'alive', $3::uuid, $4::uuid, $5::uuid, $5::uuid, 'birth', DATE '2026-07-01', DATE '2026-07-01')
+ON CONFLICT (goat_id) DO NOTHING`, apGoat, apTenant, apParty, apPark, apShed)
+	exec(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 3', 'Godel 1 - Part 3')
+ON CONFLICT (tenant_id, goat_id) DO NOTHING`, apTenant, apGoat, apShed)
 
 	shift := `{"shifting_event_id":"` + apEventA + `","destination_park_id":"` + apPark + `","destination_shed_id":"` + apShed + `","destination_partition_label":"Part 3","goat_ids":["a","b","c"]}`
 	shiftOther := `{"shifting_event_id":"` + apEventB + `","destination_park_id":"` + apOtherPk + `","destination_shed_id":"` + apShed + `","goat_ids":["a"]}`
@@ -116,13 +128,10 @@ func TestApprovalsBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 4 {
-		t.Fatalf("4 rows expected (death has no park, other park and yesterday are out), got %d", len(rows))
+	if len(rows) != 5 {
+		t.Fatalf("5 rows expected (other park and yesterday are out), got %d", len(rows))
 	}
 	got := bySourceID(rows)
-	if _, leaked := got[ids["death-pending"]]; leaked {
-		t.Fatal("a death request has no park in its payload and must not be attributed to one")
-	}
 	want := map[string]struct {
 		state domain.WorkState
 		lane  domain.Lane
@@ -132,6 +141,8 @@ func TestApprovalsBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 		"birth-pending":  {domain.WorkStateDue, domain.LaneToDo, "Birth · Godel 1"},
 		"birth-approved": {domain.WorkStateCompleted, domain.LaneDone, "Birth · Godel 1"},
 		"birth-rejected": {domain.WorkStateRejected, domain.LaneInProgress, "Birth · Godel 1"},
+		// A death sits on its animal's own park board, at the animal's own pen.
+		"death-pending": {domain.WorkStateDue, domain.LaneToDo, "Death · Godel 1 - Part 3"},
 	}
 	for key, w := range want {
 		r, ok := got[ids[key]]
@@ -182,8 +193,8 @@ func TestApprovalsBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(open) != 2 {
-		t.Fatalf("due: 2 expected, got %d", len(open))
+	if len(open) != 3 {
+		t.Fatalf("due: 3 expected (pen move, birth, death), got %d", len(open))
 	}
 
 	seen := map[string]bool{}
@@ -207,15 +218,15 @@ func TestApprovalsBoardScopeAndKeyset(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 4 {
-		t.Fatalf("keyset walk saw %d rows, want 4", len(seen))
+	if len(seen) != 5 {
+		t.Fatalf("keyset walk saw %d rows, want 5", len(seen))
 	}
 
 	counts, err := src.CountByState(ctx, approvalQuery(""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if counts[domain.WorkStateDue] != 2 || counts[domain.WorkStateCompleted] != 1 || counts[domain.WorkStateRejected] != 1 || len(counts) != 3 {
+	if counts[domain.WorkStateDue] != 3 || counts[domain.WorkStateCompleted] != 1 || counts[domain.WorkStateRejected] != 1 || len(counts) != 3 {
 		t.Fatalf("counts %+v", counts)
 	}
 	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: apTenant, ParkID: apOtherPk, BusinessDate: apDate})
