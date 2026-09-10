@@ -17,6 +17,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
+import { fmtDate } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import {
   driveSelectionValue,
@@ -1511,7 +1512,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                           ) : null}
                           <span>
                             {copy(pageContract, "command_board.shed_vaccine.drawer.column.due")}{" "}
-                            {animal.dueAt ? new Date(animal.dueAt).toLocaleDateString("en-GB") : "—"}
+                            {fmtDate(animal.dueAt ?? undefined)}
                           </span>
                         </div>
                       </td>

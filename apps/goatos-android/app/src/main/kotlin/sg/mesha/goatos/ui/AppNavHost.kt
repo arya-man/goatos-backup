@@ -3030,7 +3030,7 @@ fun AppNavHost(
                                         shedId = event.shedId,
                                         sessionNo = event.sessionNo,
                                         workflow = event.workflow,
-                                        targetDate = state.targetDateLabel,
+                                        targetDate = state.targetDateIso,
                                         shedLabel = event.shedLabel,
                                         sessionLabel = event.sessionLabel,
                                         parkLabel = event.parkLabel,
@@ -3081,9 +3081,9 @@ fun AppNavHost(
                                     sessionNo = event.sessionNo,
                                     workflow = event.workflow,
                                     // The completion records the FEED day (= packing day + 1), matching the
-                                    // read query; targetDateLabel is the packing-day axis, feedForDateLabel is
+                                    // read query; targetDateIso is the packing-day axis, feedForDateIso is
                                     // the feed day the backend keys on.
-                                    targetDate = state.feedForDateLabel,
+                                    targetDate = state.feedForDateIso,
                                     shedLabel = event.shedLabel,
                                     sessionLabel = event.sessionLabel,
                                     parkLabel = event.parkLabel,
@@ -3130,7 +3130,7 @@ fun AppNavHost(
                                     shedId = event.shedId,
                                     // Wastage is measured ON the feed day, so the selected date is
                                     // the backend target_date verbatim (no packing +1 axis).
-                                    targetDate = state.targetDateLabel,
+                                    targetDate = state.targetDateIso,
                                     shedLabel = event.shedLabel,
                                     parkLabel = event.parkLabel,
                                     partitionLabel = event.partitionLabel,

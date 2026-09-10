@@ -107,7 +107,7 @@ class FeedDirectionViewModel @Inject constructor(
         val hasSummary = dto != null
         FeedDirectionUiState(
             title = TITLE,
-            targetDateLabel = selection.targetDate,
+            targetDateIso = selection.targetDate,
             today = todayIso(),
             canCapture = canExecuteDirection && selection.targetDate == todayIso(),
             filters = envelope.filters.toFilterUi(selection),
@@ -133,7 +133,7 @@ class FeedDirectionViewModel @Inject constructor(
         FeedDirectionUiState(
             title = TITLE,
             emptyMessage = LOADING_MESSAGE,
-            targetDateLabel = todayIso(),
+            targetDateIso = todayIso(),
             today = todayIso(),
             canCapture = true,
         ),

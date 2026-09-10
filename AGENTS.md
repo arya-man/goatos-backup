@@ -2991,6 +2991,53 @@ Do:
   the drive execution/grouping scope. Required guards:
   `make goat-shed-scope-guard`; post-seed DB proof:
   `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
+## Every Visible Date Is DD/MM/YYYY (maintainer lock, 2026-09-10)
+
+Every VISIBLE date on EVERY surface renders **`DD/MM/YYYY`**, with slashes, in full:
+admin-web tables, cards, drawers and CHART AXES; Android list chips, card subtitles
+and the timestamp burned into a proof video; and any date string the BACKEND
+composes for a screen, because the backend owns visible copy. Timestamps render
+`DD/MM/YYYY HH:MM`.
+
+There is deliberately NO compact variant. A chart axis and a phone chip render the
+same shape as a table cell, so a reader never has to learn a second date format to
+compare two screens.
+
+This SUPERSEDES the 2026-08-21 `DD-MM-YYYY` (dash) rule, which governed admin-web
+ALONE. Three surfaces disagreed about one fact: the console said `14-08-2026`, its
+own chart axis said `14-08-26`, the phone said `14 Aug`, and the phone's verify
+queue said whatever the DEVICE LOCALE produced. The backend was already right --
+`biztime.FarmDate` has emitted `02/01/2006` in notification copy all along -- so
+this change makes the two clients agree with the backend rather than inventing a
+fourth shape.
+
+USE THE ONE HELPER PER SURFACE; do not hand-roll a date:
+`apps/admin-web/lib/format.ts` (`fmtDate`/`fmtDateTime`), Android
+`core-common/.../datetime/GoatOsDates.kt`, backend `biztime.FarmDate` /
+`FarmDateFromBusinessDate`.
+
+**WIRE FORMATS STAY AS THEY ARE, and this is the load-bearing half.** ISO
+`YYYY-MM-DD` business dates, RFC3339 instants, React keys, idempotency keys, event
+keys, export filenames, EXIF/signed-URL timestamps and SQL parameters are NOT
+display: switching one to slashes corrupts a key or a query parameter. A change
+that makes a display helper call a wire helper, or the reverse, is a defect even
+when the screen looks right.
+
+NOT DATES, and they keep their own form: a TIME on its own (`HH:mm`, `h:mm a`), a
+MONTH heading (`Aug 2026` -- no day component, so `DD/MM/YYYY` is undefined for it),
+and a bare WEEKDAY (`Mon`).
+
+Machine gate: `make date-format-guard`
+(`tools/agent-hooks/check-date-format.mjs`, in `make guardrails` and `make
+ci-local`) -- canaries on all three shared helpers plus scans that catch a screen
+hand-writing its own date shape (a JSX text node shipping a bare `*_date` field, a
+Kotlin `ofPattern("d MMM")`, a Go word-month layout). Its self-test is adversarial:
+it asserts the guard REJECTS the retired dash form, the retired compact axis, every
+retired Android pattern and a Go word-month layout, while PASSING wire formats.
+`date-format-guard:ignore: <reason>` exempts a genuine machine format and requires
+a stated reason. Canonical prose and the stated blind spots:
+`docs/decisions/date-display-format.md`.
+
 ## The Word On Screen Is PEN, Never SHED (maintainer lock, 2026-09-02)
 
 Every user-visible string says **pen**. The word *shed* appears on no screen a person reads --

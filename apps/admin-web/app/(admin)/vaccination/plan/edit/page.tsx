@@ -9,6 +9,7 @@ import {
 } from "@/lib/api/server";
 import { control, controlEnabled } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -78,9 +79,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   );
 }
 
+
 function formatDate(value: string | undefined | null): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return fmtDate(date.toISOString());
 }

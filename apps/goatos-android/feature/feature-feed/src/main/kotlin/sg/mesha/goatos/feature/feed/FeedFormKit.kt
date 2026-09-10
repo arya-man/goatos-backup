@@ -321,7 +321,7 @@ internal fun FeedReadOnlyBanner(modifier: Modifier = Modifier) {
     }
 }
 
-private val FEED_DATE_LABEL_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM")
+private val FEED_DATE_LABEL_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, dd/MM/yyyy")
 private val FEED_ISO_DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
 /**

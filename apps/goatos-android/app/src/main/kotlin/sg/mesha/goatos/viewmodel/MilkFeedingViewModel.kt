@@ -98,7 +98,7 @@ private fun MilkFeedingDraft.restoredFrom(answers: Map<String, String>): MilkFee
 )
 
 private val MILK_FEEDING_IST: ZoneId = ZoneId.of("Asia/Kolkata")
-private val MILK_FEEDING_DAY_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
+private val MILK_FEEDING_DAY_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
 private const val FIELD_TOTAL = "total"
 private const val FIELD_ATTEMPT_1 = "attempt1"

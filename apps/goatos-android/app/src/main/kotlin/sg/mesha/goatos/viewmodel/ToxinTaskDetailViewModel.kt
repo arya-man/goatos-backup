@@ -553,4 +553,4 @@ internal fun farmInstant(rfc3339: String): String {
 }
 
 private val TOXIN_INSTANT_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("d MMM, h:mm a", Locale.ENGLISH)
+    DateTimeFormatter.ofPattern("dd/MM/yyyy, h:mm a", Locale.ENGLISH)

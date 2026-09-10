@@ -442,14 +442,13 @@ func parkLabelOrFallback(name string) string {
 }
 
 // fireDayForCopy renders the fire's "YYYY-MM-DD" IST calendar day (fire.FireDayIST) as farm-readable
-// text ("Aug 2") instead of a raw ISO date. Falls back to the raw string if it somehow fails to
+// text ("02/08/2026") instead of a raw ISO date. Falls back to the raw string if it somehow fails to
 // parse, rather than dropping the date from the message.
+//
+// The year is carried deliberately (maintainer decision 2026-09-10): the old "Aug 2" was ambiguous
+// on a reminder read months later, and disagreed with every other visible date on the platform.
 func fireDayForCopy(fireDayIST string) string {
-	t, err := time.Parse("2006-01-02", fireDayIST)
-	if err != nil {
-		return fireDayIST
-	}
-	return t.Format("Jan 2")
+	return biztime.FarmDateFromBusinessDate(fireDayIST)
 }
 
 func isLeadershipCadenceSlot(fire calendarports.ReminderCadenceFire) bool {

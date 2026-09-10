@@ -394,7 +394,7 @@ private fun formatLeadershipStatus(status: String): String = when (status.lowerc
 private fun formatLeadershipCapturedAt(raw: String): String = runCatching {
     java.time.Instant.parse(raw)
         .atZone(java.time.ZoneId.of("Asia/Kolkata"))
-        .format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a"))
+        .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy, h:mm a"))
 }.getOrElse { raw }
 
 /**

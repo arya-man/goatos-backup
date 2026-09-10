@@ -241,7 +241,7 @@ class ApprovalViewModel @Inject constructor(
 
 /** IST, per AGENTS.md: every business meaning derived from an instant is India-business-calendar. */
 private val RAISED_AT_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("d MMM, h:mm a").withZone(ZoneId.of("Asia/Kolkata"))
+    DateTimeFormatter.ofPattern("dd/MM/yyyy, h:mm a").withZone(ZoneId.of("Asia/Kolkata"))
 
 /**
  * Wire row -> screen row.

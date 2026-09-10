@@ -347,18 +347,34 @@ contract-unavailable shell, documented in
 `context/frontend/admin-web-backend-ui-contract.md`. Run
 `npm --prefix apps/admin-web run check:ui-contract` before handoff or push.
 
-## Date Display Rule (maintainer decision 2026-08-21)
+## Date Display Rule (maintainer decision 2026-09-10)
 
-Every VISIBLE date in an admin-web table, card, or drawer renders **DD-MM-YYYY**
-through `lib/format.ts` `fmtDate` (timestamps through `fmtDateTime` /
-`dateTime`). Chart axes render the compact **dd-mm-yy** via
-`components/svg-series.tsx`. Never render a wire field like `feed_day`,
-`*_date`, or `*_day` directly into JSX text — that ships the API's ISO string to
-the operator's eyes. Wire formats themselves (query params, API payloads, React
-keys, `todayIso`/`istDayPlus` arithmetic) stay ISO `YYYY-MM-DD` and must not be
-reformatted. Machine gate: `make admin-web-date-format-guard` (canary on the
-helper's composition + a scan for bare date fields in JSX text nodes; laundering
-through intermediate variables is a stated blind spot that review owns).
+Every VISIBLE date renders **DD/MM/YYYY**, with slashes, in full — in a table, a
+card, a drawer, and on a **chart axis**, which no longer has a compact form of its
+own. Timestamps render **DD/MM/YYYY HH:MM**. Use `lib/format.ts` `fmtDate` /
+`fmtDateTime` / `dateTime`; do not hand-roll a date with `toLocaleDateString` or a
+local `Intl.DateTimeFormat`.
+
+This SUPERSEDES the 2026-08-21 rule (DD-MM-YYYY with dashes, plus a compact
+`dd-mm-yy` axis). That rule governed admin-web ALONE and disagreed with the
+backend's own `biztime.FarmDate`, which already emitted `02/01/2006` in
+notification copy, and with Android, which rendered `14 Aug` for the same drive
+this console called `14-08-2026`. One fact must not have three shapes.
+
+Never render a wire field like `feed_day`, `*_date`, or `*_day` directly into JSX
+text — that ships the API's ISO string to the operator's eyes. Wire formats
+themselves (query params, API payloads, React keys, export filenames,
+`todayIso`/`istDayPlus` arithmetic) stay ISO `YYYY-MM-DD` and must NOT be
+reformatted.
+
+A **month heading** (`Aug 2026`) and a bare **weekday** (`Mon`) are not dates —
+they have no day component — and keep their own form.
+
+Machine gate: `make date-format-guard` (repo-wide: admin-web, Android and backend
+copy; canaries on all three shared helpers + scans for a screen hand-writing its
+own date shape). Laundering a date through an intermediate variable before it
+reaches JSX is a stated blind spot that review owns. Canonical prose:
+`docs/decisions/date-display-format.md`.
 
 ## UI Source Of Truth
 

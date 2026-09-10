@@ -94,17 +94,17 @@ data class FeedPackingSummaryUi(
 data class FeedPackingUiState(
     val title: String,
     // The PACKING day shown in the date bar (Asia/Kolkata). A packer works today on the sheet fed
-    // tomorrow, so this axis is the packing day and [feedForDateLabel] states the feed day it is for.
-    val targetDateLabel: String = "",
+    // tomorrow, so this axis is the packing day and [feedForDateIso] states the feed day it is for.
+    val targetDateIso: String = "",
     // The FEED day (= packing day + 1), shown in the "This feed is for …" caption. The backend is
     // asked for THIS day; the packing-day axis is display only.
-    val feedForDateLabel: String = "",
+    val feedForDateIso: String = "",
     // Today's business date (Asia/Kolkata) — the bound the date bar's next-day arrow and DatePicker
     // clamp to, computed once by the ViewModel so the feature module never re-derives "today" itself.
     val today: String = "",
     // Inclusive lower bound (ISO) for the date bar: the ~30-day history floor. Blank = no floor.
     val minDate: String = "",
-    // True only when targetDateLabel == today: a past packing day is VIEW ONLY, so rows must not open
+    // True only when targetDateIso == today: a past packing day is VIEW ONLY, so rows must not open
     // the capture flow while this is false.
     val canCapture: Boolean = true,
     // Packing filters are farm + workflow only — the worklist endpoint has no shed filter (a packer
@@ -166,7 +166,11 @@ fun FeedPackingScreen(
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         FeedHeader(
             title = state.title,
-            subtitle = state.targetDateLabel,
+            // The state field is the ISO business day -- it is also the comparison key against
+            // today and the date picker's selected value -- so it is formatted HERE, at the point
+            // it becomes visible, rather than being reformatted at the source. Rendering it raw
+            // showed the operator "2026-07-29" (maintainer decision 2026-09-10).
+            subtitle = formatFeedDayLabel(state.targetDateIso),
             isRefreshing = state.isRefreshing,
             lastSyncedAt = state.lastSyncedAt,
             hasData = state.hasSummary,
@@ -180,7 +184,7 @@ fun FeedPackingScreen(
         ) {
             item(key = "date_bar") {
                 FeedDateBar(
-                    selectedDate = state.targetDateLabel,
+                    selectedDate = state.targetDateIso,
                     today = state.today,
                     onSelectDate = { onEvent(FeedPackingEvent.SelectDate(it)) },
                     minDate = state.minDate.ifBlank { null },
@@ -190,7 +194,7 @@ fun FeedPackingScreen(
             // so the operator reads "packed today, for tomorrow" without doing the arithmetic.
             item(key = "feed_for") {
                 FeedSectionCaption(
-                    stringResource(R.string.feed_packing_for_next_day, formatFeedDayLabel(state.feedForDateLabel)),
+                    stringResource(R.string.feed_packing_for_next_day, formatFeedDayLabel(state.feedForDateIso)),
                 )
             }
             if (!state.canCapture) {

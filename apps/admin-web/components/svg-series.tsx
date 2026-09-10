@@ -61,11 +61,14 @@ const interiorTickIdx = (n: number) => {
   return out;
 };
 
-// Axis dates render dd-mm-yy (maintainer request 2026-08-21); a label that is
+// Axis dates render DD/MM/YYYY, the same shape as every other visible date
+// (maintainer decision 2026-09-10, superseding the 2026-08-21 compact dd-mm-yy).
+// A reader should never have to learn a second date format to read an axis, so
+// the axis carries the full year rather than a two-digit one. A label that is
 // not a plain YYYY-MM-DD date renders unchanged.
 const fmtDay = (label: string) => {
-  const m = /^\d{2}(\d{2})-(\d{2})-(\d{2})$/.exec(label);
-  return m ? `${m[3]}-${m[2]}-${m[1]}` : label;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(label);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : label;
 };
 
 export type StackedDay = {

@@ -64,7 +64,9 @@ class DiagnosisQueueMappingTest {
         val today = LocalDate.of(2026, 8, 14)
         assertEquals("Today", relativeBusinessDate("2026-08-14", today))
         assertEquals("Yesterday", relativeBusinessDate("2026-08-13", today))
-        assertEquals("12 Aug", relativeBusinessDate("2026-08-12", today))
+        // Today/Yesterday stay words; anything older renders the ONE visible date shape,
+        // DD/MM/YYYY (maintainer decision 2026-09-10) rather than the old "12 Aug".
+        assertEquals("12/08/2026", relativeBusinessDate("2026-08-12", today))
     }
 
     // Showing the server's own string is honest; showing nothing hides which day

@@ -30,14 +30,15 @@
       "notes": "No dedicated Make target: `guardrails:` invokes the script (and its --self-test) directly, and run_common runs both. The self-test builds synthetic admin-web/Go fixtures in a tmpdir and asserts the guard REJECTS them (direct BigQuery/Sheets access, cross-feature deep imports, silent recover())."
     },
     {
-      "id": "admin-web-date-format",
-      "script": "tools/agent-hooks/check-admin-web-date-format.mjs",
-      "makeTarget": "admin-web-date-format-guard",
-      "realCheck": "node tools/agent-hooks/check-admin-web-date-format.mjs",
-      "selfTest": "node tools/agent-hooks/check-admin-web-date-format.mjs --self-test",
-      "owningDoc": "apps/admin-web/AGENTS.md",
+      "id": "date-format",
+      "script": "tools/agent-hooks/check-date-format.mjs",
+      "makeTarget": "date-format-guard",
+      "realCheck": "node tools/agent-hooks/check-date-format.mjs",
+      "selfTest": "node tools/agent-hooks/check-date-format.mjs --self-test",
+      "owningDoc": "docs/decisions/date-display-format.md",
       "requiredInCI": true,
-      "ciStep": "admin-web-date-format-guard"
+      "ciStep": "date-format-guard",
+      "notes": "Repo-wide: admin-web + Android + backend visible copy. Self-test asserts the guard REJECTS the retired DD-MM-YYYY dash form, the retired compact dd-mm-yy chart axis, every retired Android `d MMM` pattern, and a Go word-month layout, while PASSING wire formats (ISO, month headings, time-only) and honouring `date-format-guard:ignore:` only with a stated reason."
     },
     {
       "id": "admin-web-local-overlays",

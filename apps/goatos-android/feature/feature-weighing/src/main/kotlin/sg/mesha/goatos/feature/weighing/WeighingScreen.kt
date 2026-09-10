@@ -997,7 +997,7 @@ private fun WeighingAssignmentUiRow.displayBusinessDate(): String =
 	}.takeIf { it.isNotBlank() }?.let { raw ->
 		// exception:exempt display date fallback; if server sends non-ISO text, show it raw.
 		runCatching {
-			LocalDate.parse(raw).format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
+			LocalDate.parse(raw).format(DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ENGLISH))
 		}.getOrDefault(raw)
 	}.orEmpty()
 

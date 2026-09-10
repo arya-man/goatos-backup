@@ -1028,7 +1028,7 @@ func (s *RosterService) GetMyCoverage(ctx context.Context, tenantID, actorID, tr
 			endDate, err := time.Parse(time.RFC3339, coverage.EndDate)
 			if err == nil {
 				endDate = endDate.In(kolkata)
-				bannerText := "Covering " + strings.ToLower(*coverage.CoveredPositionTitle) + " until " + endDate.Format("January 2, 2006")
+				bannerText := "Covering " + strings.ToLower(*coverage.CoveredPositionTitle) + " until " + biztime.FarmDate(endDate)
 				result.BannerText = &bannerText
 			}
 		}

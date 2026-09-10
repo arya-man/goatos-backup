@@ -148,9 +148,9 @@ func pendingMessage(feedDay string, pending []domain.WorkflowLifecycle) string {
 		}
 	}
 	if earliest == "" {
-		return fmt.Sprintf("the feed sheet for %s has not been issued yet", feedDay)
+		return fmt.Sprintf("the feed sheet for %s has not been issued yet", biztime.FarmDateFromBusinessDate(feedDay))
 	}
-	return fmt.Sprintf("the feed sheet for %s is issued at %s", feedDay, earliest)
+	return fmt.Sprintf("the feed sheet for %s is issued at %s", biztime.FarmDateFromBusinessDate(feedDay), earliest)
 }
 
 // gateOutcome is what the serve path needs back from the gate: whether anything was frozen (and so

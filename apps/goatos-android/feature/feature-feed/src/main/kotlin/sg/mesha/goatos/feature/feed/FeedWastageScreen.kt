@@ -84,13 +84,13 @@ data class FeedWastageUiState(
     val title: String,
     // The FEED day shown in the date bar (Asia/Kolkata). Wastage is measured on the feed day
     // itself — what is left over after that day's feeding — so unlike packing there is no +1 axis.
-    val targetDateLabel: String = "",
+    val targetDateIso: String = "",
     // Today's business date (Asia/Kolkata) — the bound the date bar's next-day arrow and DatePicker
     // clamp to, computed once by the ViewModel so the feature module never re-derives "today".
     val today: String = "",
     // Inclusive lower bound (ISO) for the date bar: the ~30-day history floor. Blank = no floor.
     val minDate: String = "",
-    // True only when targetDateLabel == today: a past feed day is VIEW ONLY, so rows must not open
+    // True only when targetDateIso == today: a past feed day is VIEW ONLY, so rows must not open
     // the capture flow while this is false.
     val canCapture: Boolean = true,
     // Wastage filters are farm + status only: the grain is the pen-DAY (no session) and every row
@@ -145,7 +145,11 @@ fun FeedWastageScreen(
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         FeedHeader(
             title = state.title,
-            subtitle = state.targetDateLabel,
+            // The state field is the ISO business day -- it is also the comparison key against
+            // today and the date picker's selected value -- so it is formatted HERE, at the point
+            // it becomes visible, rather than being reformatted at the source. Rendering it raw
+            // showed the operator "2026-07-29" (maintainer decision 2026-09-10).
+            subtitle = formatFeedDayLabel(state.targetDateIso),
             isRefreshing = state.isRefreshing,
             lastSyncedAt = state.lastSyncedAt,
             hasData = state.hasSummary,
@@ -159,7 +163,7 @@ fun FeedWastageScreen(
         ) {
             item(key = "date_bar") {
                 FeedDateBar(
-                    selectedDate = state.targetDateLabel,
+                    selectedDate = state.targetDateIso,
                     today = state.today,
                     onSelectDate = { onEvent(FeedWastageEvent.SelectDate(it)) },
                     minDate = state.minDate.ifBlank { null },

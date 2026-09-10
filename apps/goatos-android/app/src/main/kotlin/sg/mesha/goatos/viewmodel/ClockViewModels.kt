@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -64,7 +65,10 @@ private fun template(copyLine: String, value: String): String =
 private fun ClockEntryDto.toRecentUi(): ClockRecentEntryUi = ClockRecentEntryUi(
     // Full identity per the stable-list-key rule: member id + business date.
     listKey = "$workforceMemberId:$businessDate",
-    dateLabel = dateLabel.ifBlank { businessDate },
+    // The backend's own label wins (it owns visible copy); the FALLBACK is the wire's ISO
+    // business date, so it is formatted to DD/MM/YYYY rather than shown raw. The listKey above
+    // deliberately keeps the ISO form -- a key is not copy.
+    dateLabel = dateLabel.ifBlank { GoatOsDates.fromWireDate(businessDate) },
     timeLine = listOfNotNull(
         clockInLabel.takeIf { it.isNotBlank() },
         clockOutLabel?.takeIf { it.isNotBlank() },
@@ -541,7 +545,7 @@ class ClockTeamViewModel @Inject constructor(
         /** Hard in-memory safety valve; the true bound is the active roster size. */
         const val MAX_ROWS = 1_000
         val SECTION_ORDER = listOf("working", "clocked_out", "not_clocked_in")
-        val DATE_CHIP_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
+        val DATE_CHIP_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     }
 }
 
@@ -582,7 +586,7 @@ class ClockPersonDayViewModel @Inject constructor(
                                 entry.hoursLabel?.takeIf { it.isNotBlank() },
                             ).joinToString(" · ")
                         }.orEmpty(),
-                        dateLabel = dto.businessDate,
+                        dateLabel = GoatOsDates.fromWireDate(dto.businessDate),
                         events = dto.events.map { event ->
                             ClockPersonEventUi(
                                 listKey = event.clockEventId,

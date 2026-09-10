@@ -613,7 +613,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 	}
 	detail.Actions = actions
 
-	eventLabel := card.EventAt.In(biztime.DefaultLocation()).Format("02 Jan 2006 · 15:04")
+	eventLabel := biztime.FarmDate(card.EventAt) + " · " + card.EventAt.In(biztime.DefaultLocation()).Format("15:04")
 	facts := []domain.WorkflowFact{{Label: "Event", Value: eventLabel}}
 	if card.ParkLabel != "" {
 		facts = append(facts, domain.WorkflowFact{Label: "Park", Value: card.ParkLabel})

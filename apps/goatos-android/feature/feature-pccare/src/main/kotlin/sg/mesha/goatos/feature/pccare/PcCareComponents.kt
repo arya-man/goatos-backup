@@ -88,7 +88,7 @@ internal fun pcCareFriendlyDate(iso: String): String? {
     // exception:exempt a malformed date string renders no label; the ViewModel owns the value
     val date = runCatching { LocalDate.parse(iso) }.getOrNull() ?: return null
     val today = LocalDate.now(ZoneId.of("Asia/Kolkata"))
-    val dayPart = date.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH))
+    val dayPart = date.format(DateTimeFormatter.ofPattern("EEE dd/MM/yyyy", Locale.ENGLISH))
     return when (date) {
         today -> "Today · $dayPart"
         today.plusDays(1) -> "Tomorrow · $dayPart"

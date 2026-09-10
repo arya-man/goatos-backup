@@ -3832,7 +3832,7 @@ class WeighingViewModel @Inject constructor(
         const val MAX_SHED_GROUP_VIDEOS = 5
         const val DEFAULT_PLANNED_CAP_PER_DAY = 100
         val WEIGHING_SCAN_TIME_FORMATTER: DateTimeFormatter =
-            DateTimeFormatter.ofPattern("d MMM, h:mm a 'IST'", Locale.ENGLISH)
+            DateTimeFormatter.ofPattern("dd/MM/yyyy, h:mm a 'IST'", Locale.ENGLISH)
                 .withZone(ZoneId.of("Asia/Kolkata"))
         val WEIGHING_TIME_ONLY_FORMATTER: DateTimeFormatter =
             DateTimeFormatter.ofPattern("h:mm a 'IST'", Locale.ENGLISH)
@@ -3909,7 +3909,7 @@ private fun String.readableWeighingPeriodLabel(): String {
         val start = LocalDate.parse(parts[0], DateTimeFormatter.ISO_LOCAL_DATE)
         val end = LocalDate.parse(parts[1], DateTimeFormatter.ISO_LOCAL_DATE)
         val week = start.get(WeekFields.ISO.weekOfWeekBasedYear())
-        val shortFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
+        val shortFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ENGLISH)
         "Week $week - ${start.format(shortFormatter)}-${end.format(shortFormatter)}"
     }.getOrDefault(this)
 }
@@ -4052,7 +4052,7 @@ private const val WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS = 30 * 60 * 1000L
 private const val WEIGHING_BUSINESS_ZONE = "Asia/Kolkata"
 
 /** Weigh dates are business DATES, so they are formatted as a day, never as a clock time. */
-private val weighingTodayFormatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
+private val weighingTodayFormatter = DateTimeFormatter.ofPattern("EEE dd/MM/yyyy", Locale.ENGLISH)
 private val weighingIsoDateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 private val weighingMonthFormatter = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH)
 

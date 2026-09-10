@@ -195,7 +195,7 @@ guardrails:
 	$(MAKE) admin-web-request-reads-guard
 	$(MAKE) admin-web-prefetch-guard
 	$(MAKE) admin-web-local-overlay-guard
-	$(MAKE) admin-web-date-format-guard
+	$(MAKE) date-format-guard
 	$(MAKE) sidebar-typography-guard
 	$(MAKE) overlay-motion-guard
 	$(MAKE) android-bounded-memory-guard
@@ -1039,13 +1039,16 @@ admin-web-local-overlay-guard:
 	node tools/agent-hooks/check-admin-web-local-overlays.mjs --self-test
 	node tools/agent-hooks/check-admin-web-local-overlays.mjs
 
-# admin-web-date-format-guard: visible dates render DD-MM-YYYY via lib/format.ts
-# fmtDate (maintainer decision 2026-08-21) — canary on the helper plus a scan for
-# JSX text nodes shipping bare ISO date fields to the screen.
-.PHONY: admin-web-date-format-guard
-admin-web-date-format-guard:
-	node tools/agent-hooks/check-admin-web-date-format.mjs --self-test
-	node tools/agent-hooks/check-admin-web-date-format.mjs
+# date-format-guard: every VISIBLE date renders DD/MM/YYYY on every surface —
+# admin-web, Android, and the date strings the backend composes for a screen
+# (maintainer decision 2026-09-10, superseding the 2026-08-21 admin-web-only
+# DD-MM-YYYY rule). Canaries on the three shared helpers (lib/format.ts fmtDate,
+# GoatOsDates, biztime.FarmDateFormat) plus scans for a screen hand-writing its
+# own date shape. Wire formats (ISO, keys, filenames) are deliberately untouched.
+.PHONY: date-format-guard
+date-format-guard:
+	node tools/agent-hooks/check-date-format.mjs --self-test
+	node tools/agent-hooks/check-date-format.mjs
 
 # sidebar-typography-guard: one font size for every admin-web sidebar label
 # (.nav / .ggrp / .leaf), and the Purchase and Born crumb kept out of capitals

@@ -66,8 +66,8 @@ function daysIn(r: { from: string; to: string }): number {
 function fmtRange(r: { from: string; to: string }): string {
   const f = new Date(r.from + 'T00:00:00');
   const t = new Date(r.to + 'T00:00:00');
-  const o: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-  return r.from === r.to ? f.toLocaleDateString('en-US', o) : `${f.toLocaleDateString('en-US', o)} – ${t.toLocaleDateString('en-US', o)}`;
+  const o: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' };
+  return r.from === r.to ? f.toLocaleDateString('en-GB', o) : `${f.toLocaleDateString('en-GB', o)} – ${t.toLocaleDateString('en-GB', o)}`;
 }
 
 // Merge overlapping/adjacent ranges

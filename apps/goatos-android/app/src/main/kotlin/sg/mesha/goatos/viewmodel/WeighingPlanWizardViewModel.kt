@@ -822,7 +822,7 @@ private const val SEED_LOST_MESSAGE =
     "This task's details were lost when the app restarted. Go back and open it again."
 
 private val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
-private val WIZARD_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.ENGLISH)
+private val WIZARD_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE dd/MM/yyyy", Locale.ENGLISH)
 
 private data class WizardSelection(
     val category: String,

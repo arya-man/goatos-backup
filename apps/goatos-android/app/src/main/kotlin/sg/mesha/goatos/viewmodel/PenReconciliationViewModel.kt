@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
@@ -149,7 +150,7 @@ class PenReconciliationViewModel @Inject constructor(
             else -> PenReconciliationTone.Neutral
         },
         primaryActionKey = primaryActionKey,
-        raisedAtLabel = raisedAtIst.take(10),
+        raisedAtLabel = GoatOsDates.fromWireDate(raisedAtIst.take(10)),
         reworkReason = reworkReason?.takeIf { it.isNotBlank() },
     )
 

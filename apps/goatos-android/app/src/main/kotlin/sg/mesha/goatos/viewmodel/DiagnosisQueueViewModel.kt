@@ -107,6 +107,6 @@ internal fun relativeBusinessDate(
     return when (parsed) {
         today -> "Today"
         today.minusDays(1) -> "Yesterday"
-        else -> parsed.format(DateTimeFormatter.ofPattern("d MMM"))
+        else -> parsed.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
     }
 }

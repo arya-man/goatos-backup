@@ -65,7 +65,7 @@ class WorkflowActionGateTest {
     @Test
     fun `future access label shows full scheduled date and time`() {
         assertEquals(
-            "Available 29 Jul · 07:00",
+            "Available 29/07/2026 · 07:00",
             workflowAccessLabel(
                 blockedReason = "not_yet_due",
                 due = Instant.parse("2026-07-29T01:30:00Z"),

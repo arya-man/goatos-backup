@@ -154,7 +154,7 @@ internal fun String.stripRemovalPrefix(): String =
  *  parse renders verbatim rather than crashing a card over a date string. */
 internal fun farmRemovalDateLabel(isoDate: String): String = try {
     LocalDate.parse(isoDate).format(
-        java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.ENGLISH),
+        java.time.format.DateTimeFormatter.ofPattern("EEE dd/MM/yyyy", java.util.Locale.ENGLISH),
     )
 } catch (_: java.time.format.DateTimeParseException) {
     isoDate

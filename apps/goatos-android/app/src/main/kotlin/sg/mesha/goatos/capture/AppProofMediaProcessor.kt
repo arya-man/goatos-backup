@@ -514,8 +514,12 @@ class AppProofMediaProcessor @Inject constructor(
         }.takeIf { it.exists() } ?: error("proof source file not found")
     }
 
+    // Burned into the proof video the verifier watches, so it follows the same DD/MM/YYYY
+    // rule as every other visible date (maintainer decision 2026-09-10). Seconds are kept:
+    // this stamp is evidence of WHEN a clip was shot, and a verifier compares it against a
+    // submission time.
     private fun localTimestamp(ms: Long): String =
-        SimpleDateFormat("MMM d, yyyy h:mm:ss a", Locale.US).format(Date(ms.takeIf { it > 0L } ?: System.currentTimeMillis()))
+        SimpleDateFormat("dd/MM/yyyy h:mm:ss a", Locale.US).format(Date(ms.takeIf { it > 0L } ?: System.currentTimeMillis()))
 
     private data class VideoMetadata(val width: Int, val height: Int, val bitrate: Int?)
 

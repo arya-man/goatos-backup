@@ -681,7 +681,7 @@ run_admin_web() {
   step "admin-web proof media egress" make admin-web-proof-media-egress-guard
   step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web local overlays" make admin-web-local-overlay-guard
-  step "admin-web-date-format-guard" make admin-web-date-format-guard
+  step "date-format-guard" make date-format-guard
   step "sidebar-typography-guard" make sidebar-typography-guard
   step "overlay motion"          make overlay-motion-guard
   if herd_signals_visual_changed; then
