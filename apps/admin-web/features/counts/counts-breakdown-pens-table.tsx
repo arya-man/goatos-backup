@@ -192,6 +192,37 @@ export function CountsBreakdownPensTable({
           cell: (pen) => composition(pen.sexes, noBreedLabel, (key) => (key === "female" ? "f" : key === "male" ? "m" : "")),
           sortValue: (pen) => dominantKey(pen.sexes),
         },
+        // Female · Male for EVERY row, in the same shape as Kids · Adults beside it.
+        //
+        // Read off the pen's own `sexes` composition, which the backend already sends and the
+        // Gender column already renders -- so no new number is derived here and the two columns
+        // cannot disagree. It is deliberately not the Gender column with counts bolted on: that
+        // column shows counts only where a pen holds more than one sex, so a single-sex pen read
+        // "Male" with no figure at all and a reader had to look across to Count to learn it.
+        //
+        // A sex the register holds as neither female nor male is carried as a third figure rather
+        // than dropped, so the row's two columns still add up to its Count.
+        female_male: {
+          cell: (pen) => {
+            const of = (key: string) =>
+              pen.sexes.find((point: CountsBreakdownPoint) => point.key === key)?.count ?? 0;
+            const other = pen.count - of("female") - of("male");
+            return (
+              <span className="agesplit">
+                <b>{of("female")}</b> <small>{copy(pageContract, "label.female_short")}</small>
+                <span className="muted"> · </span>
+                <b>{of("male")}</b> <small>{copy(pageContract, "label.male_short")}</small>
+                {other > 0 ? (
+                  <>
+                    <span className="muted"> · </span>
+                    <b>{other}</b> <small>{copy(pageContract, "label.sex_other_short")}</small>
+                  </>
+                ) : null}
+              </span>
+            );
+          },
+          sortValue: (pen) => pen.sexes.find((point: CountsBreakdownPoint) => point.key === "female")?.count ?? 0,
+        },
         kids_adults: {
           cell: (pen) => (
             <span className="agesplit">
@@ -288,6 +319,18 @@ export function CountsBreakdownPensTable({
                   />
                 ) : (
                   genderLabels.get(row.sex) ?? row.sex
+                ),
+                // A grain row is ONE sex by construction, so its split is its own count under
+                // its own sex -- filled in rather than left blank, so a reader running down the
+                // column never meets a hole where a number belongs.
+                female_male: (
+                  <span className="agesplit">
+                    <b>{row.sex === "female" ? row.count : 0}</b>{" "}
+                    <small>{copy(pageContract, "label.female_short")}</small>
+                    <span className="muted"> · </span>
+                    <b>{row.sex === "male" ? row.count : 0}</b>{" "}
+                    <small>{copy(pageContract, "label.male_short")}</small>
+                  </span>
                 ),
                 kids_adults: null,
                 count: <b className="xcount">{row.count}</b>,

@@ -526,7 +526,7 @@ func pages() []domain.PageContract {
 				// operator is looking at, not to the whole filtered result — the pager states
 				// the window, and the tfoot total stays the backend's whole-result figure.
 				sortable(
-					tableP("pen-breakdown", "Head count by pen", "/counts/breakdown?group_by=pen", []string{"farm", "shed", "stage", "breed", "gender", "kids_adults", "count"}, "breakdown_pen", []int{10, 25, 50}),
+					tableP("pen-breakdown", "Head count by pen", "/counts/breakdown?group_by=pen", []string{"farm", "shed", "stage", "breed", "gender", "female_male", "kids_adults", "count"}, "breakdown_pen", []int{10, 25, 50}),
 					"farm", "shed", "stage", "breed", "gender", "count",
 				),
 				// The combination grain itself. An opened pen's rows render on the pen table's own
@@ -4580,6 +4580,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"detail.combinations_many": "combinations",
 			"label.kid_short":          "kids",
 			"label.adult_short":        "adults",
+			// Short forms for the Female · Male column. Lower case and unabbreviated: the column
+			// is narrow but "F"/"M" beside a bare number reads as a code, and the farm says
+			// female and male.
+			"label.female_short":       "female",
+			"label.male_short":         "male",
+			"label.sex_other_short":    "not recorded",
 			"label.mixed_stages":       "Mixed",
 			"section.breakdown.note":   "Counts live animals only (lifecycle status alive), matching Herd Register. Stage is the raw source value recorded against each animal — near-duplicate labels are shown exactly as stored rather than merged, so source data issues stay visible.",
 			"section.charts.title":     "Distribution",
@@ -8904,6 +8910,11 @@ func humanLabel(key string) string {
 		return "Age"
 	case "kids_adults":
 		return "Kids · Adults"
+	// Sits beside Kids · Adults and reads the same way, because it answers the same shape of
+	// question about the same row. The Gender column beside it names WHICH sexes a pen holds;
+	// this one says HOW MANY of each, on every row rather than only on the mixed ones.
+	case "female_male":
+		return "Female · Male"
 	case "next_action":
 		return "Next action"
 	case "effective_date":
