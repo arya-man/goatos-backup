@@ -247,8 +247,14 @@ func TestPCCareBoardScopeAndKeyset(t *testing.T) {
 	if len(theirs) != 4 {
 		t.Fatalf("second assignee lens: 4 rows expected, got %d", len(theirs))
 	}
-	if _, ok := byTask(theirs)[tScanning]; !ok {
+	shared, ok := byTask(theirs)[tScanning]
+	if !ok {
 		t.Fatalf("owner scope must match any assignee, not only the displayed owner")
+	}
+	// On THEIR board the shared task names them, not their partner: the scoped caller is
+	// preferred as the displayed owner (the "+1" still says the task is shared).
+	if shared.Owner.UserID != bsOtherOp {
+		t.Fatalf("scoped caller must be the displayed owner of a shared task, got %+v", shared.Owner)
 	}
 	mine, err := src.ListRows(ctx, query(bsOperator))
 	if err != nil {
