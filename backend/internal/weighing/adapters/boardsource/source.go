@@ -13,6 +13,7 @@ package boardsource
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -237,6 +238,10 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 		WorkState: state, Severity: severity,
 		Owner: owner, OwnerState: ownerState,
 		Title: title, Subtitle: subtitle, Counts: counts,
+		// Admin-web has no per-bucket weighing page (buckets are worked on the phone); the
+		// Weights page filtered to the bucket's park and capture mode is where its numbers
+		// land, so that is where "Open in module" goes.
+		Href: "/weighing/weights?park=" + url.QueryEscape(parkID) + "&weighing=" + url.QueryEscape(category),
 	}.Finalize(), nil
 }
 

@@ -3,6 +3,7 @@ package boardsource
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -281,5 +282,7 @@ func scanApprovalRow(rows pgx.Rows, parkID string) (domain.Row, error) {
 		WorkState: state, Severity: severity,
 		Owner: domain.Owner{}, OwnerState: domain.OwnerStatePool,
 		Title: title, Subtitle: subtitle, Counts: counts,
+		// The Approvals page opens the request's drawer from ap_row.
+		Href: "/approvals?ap_row=" + url.QueryEscape(requestID),
 	}.Finalize(), nil
 }

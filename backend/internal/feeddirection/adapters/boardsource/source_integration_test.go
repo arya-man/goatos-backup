@@ -195,6 +195,23 @@ func TestFeedTransportBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 
 // TestFeedTransportBoardScopeAndKeyset: owner scope, state filter and the keyset boundary
 // all happen in SQL, and the counts agree with the rows they summarise.
+func TestFeedTransportBoardRowsCarryTheFeedAnalyticsHref(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seed(t, ctx, pool)
+	rows, err := New(pool, 5*time.Second).ListRows(ctx, query(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Href != "/feed/analytics" {
+			t.Fatalf("%s href %q", r.SourceID, r.Href)
+		}
+	}
+}
+
 func TestFeedTransportBoardScopeAndKeyset(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

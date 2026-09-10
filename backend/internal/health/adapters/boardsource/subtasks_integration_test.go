@@ -34,6 +34,15 @@ func TestHealthSubtasksAreTreatmentStepsWorstFirstOnADatabaseRoundTrip(t *testin
 	ids := seed(t, ctx, pool)
 	src := New(pool, 5*time.Second)
 
+	rows, err := src.ListRows(ctx, query(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Href != "/health/analytics" {
+			t.Fatalf("%s href %q", r.SourceID, r.Href)
+		}
+	}
 	// The in-progress session: two medicines given, one still pending -- the pending one first.
 	exec(t, ctx, pool, `UPDATE health_session_steps SET dosage_text = '2 ml', medicine_route = 'intramuscular' WHERE health_session_id = $1::uuid`, ids[4])
 	page, err := src.ListSubtasks(ctx, subtaskQuery(ids[4]))

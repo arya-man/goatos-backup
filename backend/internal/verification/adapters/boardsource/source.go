@@ -17,6 +17,7 @@ package boardsource
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -229,6 +230,9 @@ func (s *Source) scanRow(rows pgx.Rows) (domain.Row, error) {
 		WorkState:  state, Severity: domain.SeverityOK,
 		Owner: owner, OwnerState: ownerState,
 		Title: title, Subtitle: "Proof review", Counts: counts,
+		// The Verify page opens the item's drawer from vi_row; status=all so an approved or
+		// rejected item is on the page the link lands on, not filtered out as non-pending.
+		Href: "/verify?status=all&vi_row=" + url.QueryEscape(itemID),
 	}.Finalize(), nil
 }
 

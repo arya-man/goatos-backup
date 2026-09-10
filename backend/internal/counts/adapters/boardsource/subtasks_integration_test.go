@@ -33,6 +33,15 @@ func TestApprovalSubtasksAreTheRequestOnADatabaseRoundTrip(t *testing.T) {
 		return ports.SubtaskQuery{TenantID: apTenant, ParkID: apPark, BusinessDate: apDate, SourceID: id, Limit: 10}
 	}
 
+	rows, err := src.ListRows(ctx, approvalQuery(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Href != "/approvals?ap_row="+r.SourceID {
+			t.Fatalf("%s href %q", r.SourceID, r.Href)
+		}
+	}
 	page, err := src.ListSubtasks(ctx, q(ids["birth-pending"]))
 	if err != nil {
 		t.Fatal(err)
@@ -103,6 +112,15 @@ func TestMilkFeedingSubtasksAreTheSessionOnADatabaseRoundTrip(t *testing.T) {
 		return ports.SubtaskQuery{TenantID: mkTenant, ParkID: mkPark, BusinessDate: mkDate, SourceID: id, Limit: 10}
 	}
 
+	rows, err := src.ListRows(ctx, ports.SourceQuery{TenantID: mkTenant, ParkID: mkPark, BusinessDate: mkDate, Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Href != "/counts/milk-preparation?mp_park="+mkPark {
+			t.Fatalf("%s href %q", r.SourceID, r.Href)
+		}
+	}
 	page, err := src.ListSubtasks(ctx, q(ids[1]))
 	if err != nil {
 		t.Fatal(err)

@@ -176,6 +176,9 @@ func TestWeighingBoardEveryStatusAndOneToManyScansOnADatabaseRoundTrip(t *testin
 	if first.Pen.Display != "Godel 1 - Part 3" || first.Title != "Weigh Godel 1 - Part 3" {
 		t.Errorf("pen display %q title %q", first.Pen.Display, first.Title)
 	}
+	if first.Href != "/weighing/weights?park="+bsPark+"&weighing=individual_animal" {
+		t.Errorf("href %q", first.Href)
+	}
 	if first.Counts.Done != 2 || first.Counts.Pending != 1 {
 		t.Errorf("individual bucket counts %+v, want 2 done / 1 pending", first.Counts)
 	}

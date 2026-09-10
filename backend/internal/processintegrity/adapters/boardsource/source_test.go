@@ -126,6 +126,9 @@ func TestVaccinationBoardMapsRowsAndNeverLeaksDoseCodes(t *testing.T) {
 	if drive.Title != "ET+TT adult course dose 1 · Godel 1 - Part 3" || drive.Subtitle != "ET+TT adult course dose 1 · 40 animals" {
 		t.Errorf("drive copy title=%q subtitle=%q", drive.Title, drive.Subtitle)
 	}
+	if drive.Href != "/vaccination/execution/sheds/"+vsShed+"?scope_mode=park&park="+vsPark+"&partition_label=Part+3" {
+		t.Errorf("drive href %q", drive.Href)
+	}
 	if drive.WorkState != domain.WorkStateDue || drive.Lane != domain.LaneToDo || drive.Severity != domain.SeverityWatch {
 		t.Errorf("drive state %s/%s/%s copied verbatim?", drive.WorkState, drive.Lane, drive.Severity)
 	}

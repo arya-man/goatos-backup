@@ -260,6 +260,9 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 		WorkState: state, Severity: severity,
 		Owner: owner, OwnerState: ownerState,
 		Title: title, Subtitle: subtitle, Counts: counts,
+		// Health analytics is the module's web surface; it reads no case parameter, so the
+		// link lands on the page rather than on this session.
+		Href: "/health/analytics",
 	}.Finalize(), nil
 }
 

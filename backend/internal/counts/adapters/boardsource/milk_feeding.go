@@ -14,6 +14,7 @@ package boardsource
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -209,6 +210,9 @@ func scanMilkRow(rows pgx.Rows) (domain.Row, error) {
 		WorkState: state, Severity: severity,
 		Owner: owner, OwnerState: ownerState,
 		Title: title, Subtitle: session, Counts: counts,
+		// Feeding sessions are worked on the phone; the Milk Preparation page filtered to the
+		// park is the module's web surface (mp_park is its park filter).
+		Href: "/counts/milk-preparation?mp_park=" + url.QueryEscape(parkID),
 	}.Finalize(), nil
 }
 
