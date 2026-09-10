@@ -78,7 +78,7 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
             <span className={moduleClass(row.module)}>{moduleOpt?.label ?? row.module}</span>
             <span>/</span>
             <span className={`ti${row.module === "counts" ? " p" : ""}`} aria-hidden="true">▣</span>
-            <b>{row.pen.operational_location_display || row.park_name || row.park_id}</b>
+            <b>{row.pen.operational_location_display || parkLabel(parkOptions(pageContract), row)}</b>
           </div>
           <span className="sp" />
           <button ref={closeButtonRef} type="button" className="ib" aria-label={closeLabel} onClick={close}>
